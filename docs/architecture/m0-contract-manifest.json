@@ -1,0 +1,64 @@
+{
+  "schema_version": 1,
+  "bundle_id": "open-brain-m0-architecture-decisions",
+  "status": "accepted",
+  "accepted_date": "2026-09-04",
+  "hash_algorithm": "sha256",
+  "byte_contract": "exact raw UTF-8 Git blob bytes",
+  "decisions": [
+    {
+      "decision_id": "M0-ADR-0001",
+      "public_path": "docs/architecture/decisions/0001-brain-protocol-v1.md",
+      "source_sha256": "c8d6c86baf24f60a26fe0957a1c2ac19a629e89c587c85fc00e9de0d2e57dc4d",
+      "public_sha256": "c8d6c86baf24f60a26fe0957a1c2ac19a629e89c587c85fc00e9de0d2e57dc4d"
+    },
+    {
+      "decision_id": "M0-ADR-0002",
+      "public_path": "docs/architecture/decisions/0002-brain-and-record-identity.md",
+      "source_sha256": "957c9060f85e27193f930e5b5ef654bd4c1c7aa3b7cc4538235264b67f72c382",
+      "public_sha256": "957c9060f85e27193f930e5b5ef654bd4c1c7aa3b7cc4538235264b67f72c382"
+    },
+    {
+      "decision_id": "M0-ADR-0003",
+      "public_path": "docs/architecture/decisions/0003-idempotency-and-conflict-semantics.md",
+      "source_sha256": "b326020d7e331681e9eb00ea9e2457e83a0e5a890d69d999ff9f6d269d87932d",
+      "public_sha256": "b326020d7e331681e9eb00ea9e2457e83a0e5a890d69d999ff9f6d269d87932d"
+    },
+    {
+      "decision_id": "M0-ADR-0004",
+      "public_path": "docs/architecture/decisions/0004-capability-authorization.md",
+      "source_sha256": "64c95364cf2d8e097356bcfda0a438838b5a9a372ff204d215a71c123c247fde",
+      "public_sha256": "64c95364cf2d8e097356bcfda0a438838b5a9a372ff204d215a71c123c247fde"
+    },
+    {
+      "decision_id": "M0-ADR-0005",
+      "public_path": "docs/architecture/decisions/0005-information-flow-labels.md",
+      "source_sha256": "7b5b4ed6b1616d62300be5ecdd43fa3b328baf6bfca58203546120dc0811bd3f",
+      "public_sha256": "7b5b4ed6b1616d62300be5ecdd43fa3b328baf6bfca58203546120dc0811bd3f"
+    },
+    {
+      "decision_id": "M0-ADR-0006",
+      "public_path": "docs/architecture/decisions/0006-provenance-closed-erasure.md",
+      "source_sha256": "b08f0daf83657107b81bc1eb7eece195d3b5acfcaed188741be3b48363e95bfd",
+      "public_sha256": "b08f0daf83657107b81bc1eb7eece195d3b5acfcaed188741be3b48363e95bfd"
+    },
+    {
+      "decision_id": "M0-ADR-0007",
+      "public_path": "docs/architecture/decisions/0007-single-sequencer-fencing.md",
+      "source_sha256": "5a6047f82db0ffae7a92250764e540fa1f9722ee39265941d8fae40d4de3da5b",
+      "public_sha256": "5a6047f82db0ffae7a92250764e540fa1f9722ee39265941d8fae40d4de3da5b"
+    },
+    {
+      "decision_id": "M0-ADR-0008",
+      "public_path": "docs/architecture/decisions/0008-rebuildable-projections.md",
+      "source_sha256": "01a96ad49257beab266a54c1c487778386d1069cdaf17786eead30343d1610da",
+      "public_sha256": "01a96ad49257beab266a54c1c487778386d1069cdaf17786eead30343d1610da"
+    },
+    {
+      "decision_id": "M0-ADR-0009",
+      "public_path": "docs/architecture/decisions/0009-brainpack-v2.md",
+      "source_sha256": "9dd18afd920ea31233fba4fb63af3942c6dba5396fa7602800bf83fda55d1035",
+      "public_sha256": "9dd18afd920ea31233fba4fb63af3942c6dba5396fa7602800bf83fda55d1035"
+    }
+  ]
+}

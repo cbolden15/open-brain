@@ -1,7 +1,7 @@
 {
   "id": "2026-09-04-m1-semantic-kernel-node-notes",
   "title": "Implementation notes - M1 public semantic kernel and reference Node",
-  "subtitle": "M1-W0 blocked at source-traceability gate · 2026-09-06 21:27 CDT",
+  "subtitle": "M1-W0 source traceability recovered · 2026-09-06 21:36 CDT",
   "introTitle": "How to use",
   "intro": "<p>Each item is a decision, deviation, or tradeoff made during implementation. <strong>Acknowledge</strong> if fine. <strong>Discuss</strong> to write what should change. <strong>Revert</strong> to flag for undo.</p>",
   "actions": [
@@ -29,6 +29,32 @@
         "Why": "A derived or self-referential hash would not prove traceability to the exact accepted M0 sources and would weaken the plan's explicit W0 stop gate.",
         "Risk": "M1-W1 is not allowed to start. An operator must provide the stable M0 decision IDs and exact source SHA-256 values as sanitized inputs, without private paths or source content, before M1-W0 can resume.",
         "Followup": "Supply the sanitized ID-to-SHA-256 mapping for the accepted M0 decision bundle, then rerun M1-W0 from the existing clean code checkpoint."
+      }
+    },
+    {
+      "id": "N2",
+      "group": "m1-w0",
+      "title": "Recovered the accepted M0 bundle from immutable Git blobs",
+      "where": "docs/architecture/m0-contract-manifest.json",
+      "default": "acknowledge",
+      "body": {
+        "Spec said": "Publish a sanitized content-hash manifest for the exact accepted M0 decision bundle and make the public ADRs self-sufficient.",
+        "What I did": "Located the accepted M0 commit, read ADRs 0001 through 0009 from its immutable Git blobs, copied those exact bytes into the public repository, and recorded only stable M0 ADR IDs, public paths, and SHA-256 values. The private working tree was not modified.",
+        "Why": "Exact blob hashing preserves the accepted lineage even though the private working tree currently contains an unrelated user edit.",
+        "Risk": "The local contract proves byte equality and rejects private location markers. Independent review is still required before the complete M1-W0 gate can close."
+      }
+    },
+    {
+      "id": "N3",
+      "group": "m1-w0",
+      "title": "Kept M0 lineage verification at the workspace boundary",
+      "where": "tests/contract/test_m0_source_traceability.py",
+      "default": "acknowledge",
+      "body": {
+        "Spec said": "Add every M1 test to the coordinator-owned Phase 4 classification and preserve engine package isolation.",
+        "What I did": "Classified the M0 manifest and ADR byte-equivalence check as a workspace contract test rather than an engine-owned test.",
+        "Why": "The check reads repository architecture documents that are intentionally absent from the installed engine wheel. Keeping it outside packages/engine/tests avoids making engine isolation depend on checkout-only files.",
+        "Risk": "The lineage contract runs in the repository verification suite, not when consumers test the installed engine distribution. Runtime protocol contracts remain engine-owned."
       }
     }
   ]

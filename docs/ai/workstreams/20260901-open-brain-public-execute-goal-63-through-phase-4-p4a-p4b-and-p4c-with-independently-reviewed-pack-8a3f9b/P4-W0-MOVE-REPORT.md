@@ -2,12 +2,12 @@
 
 Generated from `docs/v0-package-classification.json`; do not edit by hand.
 
-- Total subjects: `638`
+- Total subjects: `639`
 - app: `81`
 - connectors: `18`
 - engine: `104`
 - legacy: `333`
-- workspace: `102`
+- workspace: `103`
 
 | Source identity | Current subject | State | Kind | Distribution | Target | Artifacts |
 |---|---|---|---|---|---|---|
@@ -355,6 +355,7 @@ Generated from `docs/v0-package-classification.json`; do not edit by hand.
 | `tests/__init__.py` | `tests/__init__.py` | `moved` | `test` | `workspace` | `tests/__init__.py` | `excluded` |
 | `tests/conftest.py` | `tests/conftest.py` | `moved` | `test` | `workspace` | `tests/conftest.py` | `excluded` |
 | `tests/contract/test_current_record_characterization.py` | `tests/contract/test_current_record_characterization.py` | `moved` | `test` | `workspace` | `tests/contract/test_current_record_characterization.py` | `excluded` |
+| `tests/contract/test_m0_source_traceability.py` | `tests/contract/test_m0_source_traceability.py` | `moved` | `test` | `workspace` | `tests/contract/test_m0_source_traceability.py` | `excluded` |
 | `tests/contract/test_portable_brain_v1.py` | `packages/engine/tests/contract/test_portable_brain_v1.py` | `moved` | `test` | `engine` | `packages/engine/tests/contract/test_portable_brain_v1.py` | `excluded` |
 | `tests/fixtures/phase0/current_records.json` | `packages/legacy/tests/fixtures/phase0/current_records.json` | `moved` | `fixture` | `legacy` | `packages/legacy/tests/fixtures/phase0/current_records.json` | `legacy-only` |
 | `tests/fixtures/phase0/public_cli.json` | `packages/legacy/tests/fixtures/phase0/public_cli.json` | `moved` | `fixture` | `legacy` | `packages/legacy/tests/fixtures/phase0/public_cli.json` | `legacy-only` |

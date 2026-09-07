@@ -7399,6 +7399,22 @@
         "target_path": "tests/contract/test_current_record_characterization.py",
         "test_owner": "workspace"
       },
+      "tests/contract/test_m0_source_traceability.py": {
+        "api_status": "test-only",
+        "artifact_disposition": [
+          "excluded"
+        ],
+        "current_path": "tests/contract/test_m0_source_traceability.py",
+        "import_rewrite": null,
+        "kind": "test",
+        "movement_state": "moved",
+        "old_import_disposition": "not-applicable",
+        "resource_requirements": [],
+        "runtime_namespace": null,
+        "target_distribution": "workspace",
+        "target_path": "tests/contract/test_m0_source_traceability.py",
+        "test_owner": "workspace"
+      },
       "tests/contract/test_portable_brain_v1.py": {
         "api_status": "test-only",
         "artifact_disposition": [
