@@ -1,7 +1,7 @@
 {
   "id": "2026-09-04-m1-semantic-kernel-node-notes",
   "title": "Implementation notes - M1 public semantic kernel and reference Node",
-  "subtitle": "M1-W0 calendar validation verified locally; independent rereview pending; W1 locked · 2026-09-07 02:13 CDT",
+  "subtitle": "M1-W0 clock-component remediation verified locally; independent rereview pending; W1 locked · 2026-09-07 02:25 CDT",
   "introTitle": "How to use",
   "intro": "<p>Each item is a decision, deviation, or tradeoff made during implementation. <strong>Acknowledge</strong> if fine. <strong>Discuss</strong> to write what should change. <strong>Revert</strong> to flag for undo.</p>",
   "actions": [
@@ -231,6 +231,18 @@
         "What I changed": "The timestamp schema now uses an absolute-end assertion. Semantic validation walks every schema-declared timestamp field, checks exact shape and calendar validity, and skips opaque application bodies. A test derives the field catalog from all protocol schemas so a future timestamp field cannot silently miss semantic coverage.",
         "Evidence": "Named tests cover LF, CR, Unicode line separators, impossible dates in every top-level timestamp contract, nested inspect metadata, and timestamp-like user body fields that must remain untouched.",
         "Gate": "The 193-test focused review set and full make verify pass: Ruff, strict MyPy over 566 source files, 3,364 tests, six artifacts, and artifact policy are green. A fresh independent rereview remains required before W0 can close or W1 can begin."
+      }
+    },
+    {
+      "id": "N18",
+      "group": "m1-w0",
+      "title": "Python 3.14 review exposed hour-24 normalization",
+      "default": "acknowledge",
+      "body": {
+        "What happened": "The strict review of exact commit 566b46e cleared the timestamp-completeness finding but returned NOT READY with one P2. Python 3.14 normalized 24:00:00 to next-day midnight while Python 3.12 rejected it, so accepted signed timestamps differed across supported runtimes.",
+        "What I changed": "The schema and semantic grammar now enforce explicit clock-component ranges. Semantic parsing constructs a timezone-aware instant from validated components instead of delegating normalization to datetime.fromisoformat. Hour 24 and leap-second 60 are outside the frozen profile.",
+        "Evidence": "Schema and semantic mutations cover hour 24 with whole-second and millisecond forms, minute 60, second 60, and the valid 23:59:59.999 boundary. Fully signed receipt chains reproduce both hour-24 forms. The targeted regression passes on Python 3.12, 3.13, and 3.14.",
+        "Gate": "The 115-test focused W0 command and full make verify pass: Ruff, strict MyPy over 566 source files, 3,371 tests, six artifacts, and artifact policy are green. The signed regression also passes on Python 3.12, 3.13, and 3.14. A fresh independent READY verdict remains required before W0 can close or W1 can begin."
       }
     }
   ]

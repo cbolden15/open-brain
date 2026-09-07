@@ -6,7 +6,7 @@
 
 **Mode:** strict
 
-**Commits reviewed:** `f1e3ceb..9945e48` plus the calendar-validation working diff
+**Commits reviewed:** `f1e3ceb..566b46e` plus the clock-component working diff
 
 **Codebase root:** repository root
 
@@ -18,9 +18,11 @@
 - **Independent findings at `f23b4ce`:** two P1 and two P2 findings, all remediated locally
 - **Independent finding at `5f1395a`:** one P2 timestamp-precision defect, remediated locally
 - **Independent finding at `9945e48`:** one P2 timestamp-completeness defect, remediated locally
+- **Independent finding at `566b46e`:** one P2 hour-24 portability defect, remediated locally
 - **Current verification:** full `make verify` passed with Ruff, strict MyPy over 566 source files,
-  3,364 tests, six Python artifacts, and the artifact-policy gate. The focused 193-test review set
-  also passed.
+  3,371 tests, six Python artifacts, and the artifact-policy gate. The plan's focused W0 command
+  passed 115 tests. The independent 193-test review set passed at `566b46e`, and the new signed
+  hour-24 regression passes on Python 3.12, 3.13, and 3.14.
 
 The first independent review rejected commit `a6d92a9` with three P1, five P2, and three P3
 findings. The remediation closes each finding in executable schemas, semantic validators,
@@ -32,7 +34,10 @@ P2 caused by submicrosecond RFC 3339 values being truncated during temporal comp
 working diff closes that precision ambiguity. The next review of `9945e48` proved the fix but found
 that a trailing line terminator and impossible dates still reached contracts without temporal
 comparisons. The latest diff validates every schema-declared timestamp while leaving opaque bodies
-untouched.
+untouched. The independent review of `566b46e` cleared that finding but showed that Python 3.14
+normalizes hour `24` to next-day midnight while Python 3.12 rejects it. The latest working diff
+replaces language-parser normalization with an explicit protocol grammar and component-based
+construction.
 
 ## Requirement audit
 
@@ -266,7 +271,9 @@ untouched.
   UTC whole seconds or exactly three fractional digits. Validly signed submillisecond counterexamples
   are rejected before temporal comparison. A schema-derived timestamp-field catalog proves semantic
   coverage, and calendar validation rejects impossible dates even when `date-time` is only an
-  annotation in the JSON Schema implementation.
+  annotation in the JSON Schema implementation. Hours are explicitly limited to `00` through `23`
+  and minutes and seconds to `00` through `59`; semantic parsing constructs the instant from those
+  components instead of delegating normalization to a version-sensitive parser.
 - **Notes:** Grant timestamp arithmetic has an executable mutation test at
   `packages/engine/tests/contract/protocol_v1/test_schemas.py:117`.
 
@@ -519,6 +526,16 @@ READY with zero P0, zero P1, one P2, and zero P3 findings.
 |---|---|---|
 | P2: trailing line terminators and impossible calendar dates passed contracts without temporal comparisons | Replaced the schema's newline-tolerant end anchor, added centralized semantic validation for every timestamp field discovered from the schema catalog, and explicitly skipped opaque application bodies | `test_semantic_timestamp_catalog_covers_every_schema_timestamp_field`; `test_protocol_timestamp_rejects_every_trailing_line_terminator`; `test_every_top_level_wire_timestamp_rejects_an_impossible_calendar_date`; `test_nested_inspect_timestamp_rejects_an_impossible_calendar_date`; `test_timestamp_like_fields_inside_opaque_bodies_remain_application_data` |
 
+## Follow-up finding from the `566b46e` rereview
+
+The strict review of `566b46e` verified the absolute schema end, calendar coverage, field catalog,
+opaque-body boundary, precision, and chronology corrections. It returned NOT READY with zero P0,
+zero P1, one P2, and zero P3 findings.
+
+| Finding | Local remediation | Executable evidence |
+|---|---|---|
+| P2: Python 3.14 normalized schema-valid hour `24` to next-day midnight while Python 3.12 rejected it | Restricted clock components in both schema and semantic grammar, replaced `datetime.fromisoformat` with explicit component construction, and documented that hour `24` and leap-second `60` are outside the profile | `test_protocol_timestamps_reject_out_of_range_clock_components`; `test_protocol_timestamps_accept_last_millisecond_of_day`; `test_receipt_rejects_validly_signed_hour_24_timestamp` |
+
 ## Integration audit
 
 - `packages/engine/src/open_brain_engine/protocol/resources.py:12`
@@ -537,9 +554,9 @@ No broken integration, orphaned import, or unclassified W0 runtime/resource was 
 
 - **Regression:** Low. The v0 facade, P4 evidence hashes, package boundaries, Python range, and six
   artifact coordinates are pinned and passed.
-- **Security:** The reviewer independently cleared the findings from `f23b4ce` and `5f1395a`. The
-  remaining timestamp-completeness P2 from `9945e48` is covered by passing local regression tests
-  and remains a gate blocker until independently verified.
+- **Security:** The reviewer independently cleared every earlier finding through `9945e48`. The
+  remaining hour-24 portability P2 from `566b46e` is covered by passing local regression tests and
+  remains a gate blocker until independently verified.
 - **Performance:** The provisional shard, fan-out, top-k, commit, nonce, and concurrency limits are
   executable constants. Synthetic macOS/Linux measurements passed their frozen bounds.
 - **Delivery:** The Linux x86_64 matrix used official containers under x86_64 emulation on Apple
@@ -548,7 +565,7 @@ No broken integration, orphaned import, or unclassified W0 runtime/resource was 
 
 ## Critical gaps
 
-Independent rereview of the exact calendar-validation remediation remains open. W1 stays locked.
+Independent rereview of the exact clock-component remediation remains open. W1 stays locked.
 
 ## Integration issues
 
@@ -562,8 +579,8 @@ persisted records use the verified state, as the frozen contract requires.
 
 ## Recommended fixes
 
-Commit the exact verified calendar-validation remediation and request an independent rereview of
-that commit. Do not start W1 without a READY verdict.
+Commit the exact verified clock-component remediation and request an independent rereview of that
+commit. Do not start W1 without a READY verdict.
 
 ## Optional enhancements
 

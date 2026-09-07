@@ -14,11 +14,12 @@ The public M0 ADRs explain the contract, while conformance cases and determinist
 vectors prove that its executable forms agree.
 
 Wire timestamps use UTC `Z` only. They contain either whole seconds or exactly three fractional
-digits for milliseconds. Other offsets, fractional widths, and submillisecond values are invalid,
-so every implementation compares the same instant without precision truncation. The semantic
-validator checks the shape and calendar validity of every schema-declared timestamp, including
-nested certificates and inspection metadata. Timestamp-like fields inside opaque bodies remain
-application data.
+digits for milliseconds. Hours are `00` through `23`; minutes and seconds are `00` through `59`,
+so hour `24` and leap-second `60` are outside this protocol profile. Other offsets, fractional
+widths, and submillisecond values are invalid. The semantic validator constructs each instant from
+its components and checks the calendar validity of every schema-declared timestamp, including nested
+certificates and inspection metadata. It does not inherit permissive or version-specific behavior
+from a language date parser. Timestamp-like fields inside opaque bodies remain application data.
 
 ## Canonical bytes and request binding
 

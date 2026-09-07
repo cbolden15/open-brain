@@ -209,6 +209,42 @@ def test_protocol_timestamps_accept_exact_millisecond_precision() -> None:
     validate_protocol_semantics("owner-key-certificate", owner)
 
 
+@pytest.mark.parametrize(
+    "timestamp",
+    (
+        "2026-09-06T24:00:00Z",
+        "2026-09-06T24:00:00.000Z",
+        "2026-09-06T12:60:00Z",
+        "2026-09-06T12:00:60Z",
+    ),
+)
+def test_protocol_timestamps_reject_out_of_range_clock_components(timestamp: str) -> None:
+    owner = deepcopy(
+        cast(
+            dict[str, object],
+            load_conformance_cases()["valid"]["owner-key-certificate"][0],
+        )
+    )
+    owner["valid_from"] = timestamp
+
+    assert not _validator("owner-key-certificate").is_valid(owner)
+    with pytest.raises(ProtocolContractError, match="canonical UTC"):
+        validate_protocol_semantics("owner-key-certificate", owner)
+
+
+def test_protocol_timestamps_accept_last_millisecond_of_day() -> None:
+    owner = deepcopy(
+        cast(
+            dict[str, object],
+            load_conformance_cases()["valid"]["owner-key-certificate"][0],
+        )
+    )
+    owner["valid_from"] = "2026-09-06T23:59:59.999Z"
+
+    assert _validator("owner-key-certificate").is_valid(owner)
+    validate_protocol_semantics("owner-key-certificate", owner)
+
+
 @pytest.mark.parametrize("line_ending", ("\n", "\r", "\u2028", "\u2029"))
 def test_protocol_timestamp_rejects_every_trailing_line_terminator(line_ending: str) -> None:
     event = deepcopy(

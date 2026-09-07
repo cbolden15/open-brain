@@ -69,7 +69,9 @@ move the high-water mark and fails closed when freshness cannot be proved.
 
 Serialized instants use the canonical UTC whole-second or millisecond format frozen in ADR 0010.
 Semantic validation rejects impossible calendar dates across every declared timestamp field, even
-when a JSON Schema implementation does not assert the optional `date-time` format vocabulary.
+when a JSON Schema implementation does not assert the optional `date-time` format vocabulary. It
+also enforces the profile's explicit clock-component ranges without relying on version-specific
+date-parser normalization.
 
 Replay state is a dedicated encrypted operational store, outside the canonical ledger transaction
 and BrainPack inventory. After grant and signature validation, the Node atomically reserves the

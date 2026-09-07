@@ -24,8 +24,11 @@ fractional digits. Offsets and every other fractional width are rejected before 
 comparison. Millisecond precision is exact across the supported protocol implementations and avoids
 language-specific truncation of RFC 3339 fractional seconds. JSON Schema `format` is not a security
 boundary because implementations may treat it as an annotation. The required semantic validator
-checks the calendar validity of every declared wire timestamp and does not inspect timestamp-like
-fields inside opaque application bodies.
+accepts hours `00` through `23` and minutes and seconds `00` through `59`, constructs the instant
+from those components, and checks the calendar validity of every declared wire timestamp. Hour `24`
+and leap-second `60` are outside this protocol profile. Validation does not depend on a language
+parser's normalization rules and does not inspect timestamp-like fields inside opaque application
+bodies.
 
 The Reference Node uses `sqlcipher3==0.6.2`, which bundles SQLCipher 4.12.0 Community Edition, for
 the encrypted SQLite ledger, replay store, and FTS projections. `sqlcipher3`, `cryptography`,

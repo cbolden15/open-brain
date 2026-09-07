@@ -5,7 +5,7 @@ from __future__ import annotations
 import base64
 import re
 from collections.abc import Mapping
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Final, cast
 
 from .canonical import (
@@ -28,7 +28,13 @@ SIGNATURE_FIELDS: Final = {
     "sequencer-stop-proof": "node_signature",
 }
 TIMESTAMP_PATTERN: Final = re.compile(
-    r"[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(?:\.[0-9]{3})?Z"
+    r"(?P<year>[0-9]{4})-"
+    r"(?P<month>0[1-9]|1[0-2])-"
+    r"(?P<day>0[1-9]|[12][0-9]|3[01])T"
+    r"(?P<hour>[01][0-9]|2[0-3]):"
+    r"(?P<minute>[0-5][0-9]):"
+    r"(?P<second>[0-5][0-9])"
+    r"(?:\.(?P<millisecond>[0-9]{3}))?Z"
 )
 WIRE_TIMESTAMP_FIELDS: Final = frozenset(
     {
@@ -61,12 +67,21 @@ def _integer(value: object, label: str) -> int:
 
 
 def _timestamp(value: object, label: str) -> datetime:
-    if not isinstance(value, str) or TIMESTAMP_PATTERN.fullmatch(value) is None:
+    if not isinstance(value, str) or (match := TIMESTAMP_PATTERN.fullmatch(value)) is None:
         raise ProtocolContractError(
             f"{label} must be canonical UTC with whole-second or millisecond precision"
         )
     try:
-        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        parsed = datetime(
+            year=int(match.group("year")),
+            month=int(match.group("month")),
+            day=int(match.group("day")),
+            hour=int(match.group("hour")),
+            minute=int(match.group("minute")),
+            second=int(match.group("second")),
+            microsecond=int(match.group("millisecond") or "0") * 1_000,
+            tzinfo=UTC,
+        )
     except ValueError as error:
         raise ProtocolContractError(f"{label} must be a valid timestamp") from error
     return parsed
