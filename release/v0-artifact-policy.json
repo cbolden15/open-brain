@@ -75,6 +75,7 @@
             "../../docs/architecture/decisions/0011-m1-authority-information-flow-and-resource-bounds.md": "docs/architecture/decisions/0011-m1-authority-information-flow-and-resource-bounds.md",
             "../../docs/architecture/decisions/0012-open-brain-secure-node-product-split.md": "docs/architecture/decisions/0012-open-brain-secure-node-product-split.md",
             "../../docs/architecture/decisions/0013-pre-release-semantic-kernel-integrity-erratum.md": "docs/architecture/decisions/0013-pre-release-semantic-kernel-integrity-erratum.md",
+            "../../docs/architecture/decisions/0014-shared-record-import-envelope.md": "docs/architecture/decisions/0014-shared-record-import-envelope.md",
             "../../docs/architecture/m0-contract-manifest.json": "docs/architecture/m0-contract-manifest.json",
             "../../docs/architecture/proposed-v0-system-architecture.md": "docs/architecture/proposed-v0-system-architecture.md",
             "../../docs/artifact-characterization.md": "docs/artifact-characterization.md",
@@ -85,6 +86,7 @@
             "../../docs/current-record-characterization.md": "docs/current-record-characterization.md",
             "../../docs/install-macos.md": "docs/install-macos.md",
             "../../docs/operations.md": "docs/operations.md",
+            "../../docs/plans/2026-09-07-core-w0-shared-portability.md": "docs/plans/2026-09-07-core-w0-shared-portability.md",
             "../../docs/plans/product-roadmap.md": "docs/plans/product-roadmap.md",
             "../../docs/portable-brain-v1.md": "docs/portable-brain-v1.md",
             "../../docs/product-family.md": "docs/product-family.md",
@@ -261,6 +263,14 @@
               "destination": "open_brain_engine/portable/conformance/v1"
             },
             {
+              "source": "packages/engine/src/open_brain_engine/portability/schemas/v1",
+              "destination": "open_brain_engine/portability/schemas/v1"
+            },
+            {
+              "source": "packages/engine/src/open_brain_engine/portability/conformance/v1",
+              "destination": "open_brain_engine/portability/conformance/v1"
+            },
+            {
               "source": "packages/engine/src/open_brain_engine/protocol/schemas/v1",
               "destination": "open_brain_engine/protocol/schemas/v1"
             },
@@ -315,6 +325,14 @@
             {
               "source": "packages/engine/src/open_brain_engine/portable/conformance/v1",
               "destination": "src/open_brain_engine/portable/conformance/v1"
+            },
+            {
+              "source": "packages/engine/src/open_brain_engine/portability/schemas/v1",
+              "destination": "src/open_brain_engine/portability/schemas/v1"
+            },
+            {
+              "source": "packages/engine/src/open_brain_engine/portability/conformance/v1",
+              "destination": "src/open_brain_engine/portability/conformance/v1"
             },
             {
               "source": "packages/engine/src/open_brain_engine/protocol/schemas/v1",

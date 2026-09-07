@@ -1,7 +1,7 @@
 # Secure Node M1: semantic kernel and node
 
-Status: product scope renamed to Secure Node; `SN1-W0` (`M1-W0`) is complete and independently
-accepted; `SN1-W1` (`M1-W1`) review remediation and its pre-release v1 erratum are active
+Status: product scope renamed to Secure Node; `SN1-W0` (`M1-W0`) and `SN1-W1` (`M1-W1`) are
+complete and independently accepted; `CORE-W0` shared portability is active before `SN1-W2`
 
 Date: 2026-09-04
 
@@ -42,6 +42,7 @@ same workstreams `SN1-W*`; this is an alias, not a replay or migration of the en
 Portable Brain v1 is the shared minimum record and export boundary. Secure Node protocol and
 BrainPack v2 may add advanced metadata, but a lossless mapping from the shared Portable Brain v1
 semantic inventory must close before `SN1-W2` creates a second persistent canonical model.
+The mapping work is governed by [`2026-09-07-core-w0-shared-portability.md`](2026-09-07-core-w0-shared-portability.md).
 
 ## Source of truth
 

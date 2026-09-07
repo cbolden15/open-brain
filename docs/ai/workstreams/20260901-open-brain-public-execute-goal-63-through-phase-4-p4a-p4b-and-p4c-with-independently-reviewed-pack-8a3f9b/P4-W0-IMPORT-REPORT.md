@@ -201,6 +201,11 @@ Generated from `docs/v0-package-classification.json`; do not edit by hand.
 | `src/open_brain/parity/harness.py` | `packages/legacy/src/open_brain_legacy/parity/harness.py` | `moved` | `open_brain.parity.harness` | `open_brain_legacy.parity.harness` | `legacy-private` |
 | `src/open_brain/parity/observation.py` | `packages/legacy/src/open_brain_legacy/parity/observation.py` | `moved` | `open_brain.parity.observation` | `open_brain_legacy.parity.observation` | `legacy-private` |
 | `src/open_brain/parity/runner.py` | `packages/legacy/src/open_brain_legacy/parity/runner.py` | `moved` | `open_brain.parity.runner` | `open_brain_legacy.parity.runner` | `legacy-private` |
+| `src/open_brain/portability/__init__.py` | `packages/engine/src/open_brain_engine/portability/__init__.py` | `moved` | `open_brain.portability` | `open_brain_engine.portability` | `remove` |
+| `src/open_brain/portability/model.py` | `packages/engine/src/open_brain_engine/portability/model.py` | `moved` | `open_brain.portability.model` | `open_brain_engine.portability.model` | `remove` |
+| `src/open_brain/portability/portable_v1.py` | `packages/engine/src/open_brain_engine/portability/portable_v1.py` | `moved` | `open_brain.portability.portable_v1` | `open_brain_engine.portability.portable_v1` | `remove` |
+| `src/open_brain/portability/resources.py` | `packages/engine/src/open_brain_engine/portability/resources.py` | `moved` | `open_brain.portability.resources` | `open_brain_engine.portability.resources` | `remove` |
+| `src/open_brain/portability/secure_node.py` | `packages/engine/src/open_brain_engine/portability/secure_node.py` | `moved` | `open_brain.portability.secure_node` | `open_brain_engine.portability.secure_node` | `remove` |
 | `src/open_brain/portable/__init__.py` | `packages/engine/src/open_brain_engine/portable/__init__.py` | `moved` | `open_brain.portable` | `open_brain_engine.portable` | `remove` |
 | `src/open_brain/portable/v1.py` | `packages/engine/src/open_brain_engine/portable/v1.py` | `moved` | `open_brain.portable.v1` | `open_brain_engine.portable.v1` | `remove` |
 | `src/open_brain/production/__init__.py` | `packages/legacy/src/open_brain_legacy/production/__init__.py` | `moved` | `open_brain.production` | `open_brain_legacy.production` | `legacy-private` |

@@ -52,11 +52,14 @@ the receipt's digest visible to later committers.
 
 ## Identifiers and cursors
 
-Generated identifiers contain a three-letter role prefix, an underscore, and a lowercase unpadded
-base32 encoding of 128 random bits. Their namespace is `(brain_id, identifier)`, except for the
-Brain identifier itself. Prefixes distinguish records, revisions, proposals, decisions, commits,
-receipts, grants, jobs, principals, keys, Nodes, transfers, stop proofs, deliveries, and nonces.
-Identifiers are opaque. Content hashes are never identifiers.
+Ordinarily generated identifiers contain a three-letter role prefix, an underscore, and a lowercase
+unpadded Base32 encoding of 128 random bits. Their namespace is `(brain_id, identifier)`, except for
+the Brain identifier itself. Prefixes distinguish records, revisions, proposals, decisions,
+commits, receipts, grants, jobs, principals, keys, Nodes, transfers, stop proofs, deliveries, and
+nonces. ADR 0014 defines the one imported-envelope exception: Brain and principal IDs re-encode the
+random UUIDv4 bits supplied by Portable Brain, while record-envelope IDs use its domain-separated
+transform of random Portable semantic IDs. Identifiers remain opaque. Content hashes are never
+identifiers.
 
 Cursors and query watermarks are opaque tokens. A cursor is meaningful only inside one Brain. A
 query-visible watermark is grant-scoped and can advance only for commits authorized by that grant.

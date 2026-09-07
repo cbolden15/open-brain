@@ -45,16 +45,18 @@ def test_canonical_move_manifest_is_complete_and_valid() -> None:
     manifest = _manifest()
 
     assert validate_manifest(ROOT, manifest) == []
-    assert len(_runtime(manifest)) == 279
+    assert len(_runtime(manifest)) == 284
     subjects = _subjects(manifest)
-    assert sum(record["kind"] == "test" for record in subjects.values()) == 279
-    assert sum(record["kind"] in {"schema", "fixture"} for record in subjects.values()) == 65
+    assert sum(record["kind"] == "test" for record in subjects.values()) == 280
+    assert sum(record["kind"] in {"schema", "fixture"} for record in subjects.values()) == 67
 
 
 def test_product_split_authority_is_packaged_with_the_app_sdist() -> None:
     subjects = _subjects(_manifest())
     for path in (
         "docs/acceptance/five-minute-install.md",
+        "docs/architecture/decisions/0014-shared-record-import-envelope.md",
+        "docs/plans/2026-09-07-core-w0-shared-portability.md",
         "docs/plans/product-roadmap.md",
         "docs/product-family.md",
     ):

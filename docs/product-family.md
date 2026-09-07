@@ -87,9 +87,12 @@ Secure Node keys, start a listener, install a service, or claim Secure Node prot
 ## Shared record and portability boundary
 
 Both products use the same semantic core for Brain, actor, space, capture, source, proposal,
-decision, publication, action, provenance, and stable record identities. Deployment details are not
-part of that core. SQLite paths, grants, keys, nonces, service state, locks, projection checkpoints,
-and host placement remain operational data.
+decision, publication, action, provenance, and stable record identities. A shared semantic identity
+is the exact Portable Brain identifier. A Secure Node may assign a role-distinct protocol envelope
+identifier, but that identifier does not replace or reinterpret the shared identity. The mapping is
+total, deterministic, collision-checked, and keeps the exact source identity inside the protected
+record body. Deployment details are not part of that core. SQLite paths, grants, keys, nonces,
+service state, locks, projection checkpoints, and host placement remain operational data.
 
 Portable Brain v1 is the required shared interchange profile and the default-to-Secure-Node upgrade
 input. A conforming export preserves stable identities, exact portable bytes, payload schemas,
@@ -99,7 +102,21 @@ credentials and disposable indexes.
 Secure Node's Brain Protocol and BrainPack v2 work remains valid as an advanced envelope around the
 shared semantic core. It must not replace shared records with Secure-Node-only equivalents. Before
 Secure Node persistence work advances, a conformance mapping must prove that every Portable Brain
-v1 semantic record has one lossless Secure Node representation.
+v1 semantic record has one lossless Secure Node representation. Portable records remain immutable
+historical records during import. They are not coerced into active Secure Node proposals, decisions,
+or effects when those state machines have different meanings.
+
+The Portable manifest authenticates the source snapshot and stays with import evidence; it is not a
+canonical Brain record. Byte equality covers every file declared by that manifest. A later export
+may create a new manifest identity and timestamp around those same bytes. Content-addressed source
+blobs remain payload attachments and never become public identifiers derived from their content
+hashes. Portable-valid owner Markdown without a stable page ID also remains an exact attachment;
+the upgrade does not fabricate a semantic identity from its mutable path.
+
+One canonical full-plan digest binds the exact source manifest evidence, ordered shared records,
+blob inventory, Secure Node envelope identities, and batch context. Individual commit digests cover
+only their protocol items. The later receipt-bound import control operation must bind the full-plan
+digest so an omitted or reordered attachment cannot pass as a complete upgrade.
 
 Upgrading an Open Brain uses export and import, not an undocumented copy or in-place rewrite of its
 SQLite files. Secure Node import MUST:
@@ -112,6 +129,11 @@ SQLite files. Secure Node import MUST:
    encrypted; and
 5. leave the source Open Brain and its export unchanged until the new Secure Node passes
    conformance and search checks.
+
+`CORE-W0` defines only the inbound, pure mapping and a test-only inverse used to prove exact bytes.
+It does not expose a Secure Node plaintext export path. User-facing Secure Node export remains
+subject to destination authorization, compartment checks, purge state, and a receipt-bound
+operation in a later workstream.
 
 ## Packaging decision
 

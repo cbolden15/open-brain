@@ -83,7 +83,7 @@ def test_m1_dependency_strategy_preserves_python_range_and_hides_engine_extra() 
     }
 
 
-def test_m1_protocol_resources_extend_the_frozen_artifact_contract() -> None:
+def test_m1_protocol_and_shared_portability_resources_extend_the_artifact_contract() -> None:
     policy = json.loads((ROOT / "release/v0-artifact-policy.json").read_text(encoding="utf-8"))
     manifest = json.loads(
         (ROOT / "docs/v0-package-classification.json").read_text(encoding="utf-8")
@@ -93,12 +93,16 @@ def test_m1_protocol_resources_extend_the_frozen_artifact_contract() -> None:
     assert {
         tree["destination"] for tree in engine_artifacts["wheel"]["required_trees"]
     } >= {
+        "open_brain_engine/portability/conformance/v1",
+        "open_brain_engine/portability/schemas/v1",
         "open_brain_engine/protocol/conformance/v1",
         "open_brain_engine/protocol/schemas/v1",
     }
     assert {
         tree["destination"] for tree in engine_artifacts["sdist"]["required_trees"]
     } >= {
+        "src/open_brain_engine/portability/conformance/v1",
+        "src/open_brain_engine/portability/schemas/v1",
         "src/open_brain_engine/protocol/conformance/v1",
         "src/open_brain_engine/protocol/schemas/v1",
     }

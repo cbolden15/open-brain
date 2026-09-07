@@ -131,6 +131,7 @@ def discover_subject_kinds(root: Path, manifest: Mapping[str, object]) -> dict[s
     add(
         _files(root, "schemas/**/*")
         | _files(root, "packages/*/src/*/portable/schemas/**/*")
+        | _files(root, "packages/*/src/*/portability/schemas/**/*")
         | _files(root, "packages/*/src/*/protocol/schemas/**/*"),
         "schema",
     )
@@ -138,6 +139,7 @@ def discover_subject_kinds(root: Path, manifest: Mapping[str, object]) -> dict[s
         _files(root, "tests/fixtures/**/*")
         | _files(root, "packages/*/tests/fixtures/**/*")
         | _files(root, "packages/*/src/*/portable/conformance/**/*")
+        | _files(root, "packages/*/src/*/portability/conformance/**/*")
         | _files(root, "packages/*/src/*/protocol/conformance/**/*"),
         "fixture",
     )
@@ -167,6 +169,7 @@ def discover_subject_kinds(root: Path, manifest: Mapping[str, object]) -> dict[s
         path
         for path in (
             "docs/acceptance/five-minute-install.md",
+            "docs/plans/2026-09-07-core-w0-shared-portability.md",
             "docs/plans/product-roadmap.md",
         )
         if (root / path).is_file()

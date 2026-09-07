@@ -24,6 +24,12 @@ advances, a conformance mapping must prove that its shared semantic records roun
 Portable Brain v1 profile without identity, provenance, or byte drift. Default-to-Secure-Node
 upgrade uses this export/import boundary, not a copy or reinterpretation of live SQLite files.
 
+The shared mapping distinguishes semantic IDs from Secure Node envelope IDs. Portable IDs remain
+the stable semantic identities and are preserved exactly inside protected imported records. Secure
+Node's role-specific IDs identify its protocol envelopes. Re-encoding or deriving an envelope ID
+does not rename the Portable record. The complete mapping is specified by ADR 0014 and the
+`CORE-W0` plan.
+
 ## Layout
 
 ```text
@@ -97,6 +103,13 @@ proposal ID, outcome, expected state digest, and optional edited-content digest.
 bytes must equal the decision's effective page content and the exact file at `published_path`. An
 action request must equal the effective approved action proposal; its approval receipt binds the
 action ID, decision ID, and request digest, while the result has its own canonical digest.
+
+For upgrade comparison, “exact bytes” means every file listed by the validated source manifest.
+The source manifest itself is export evidence, not a canonical Brain record; a later export creates
+a new export ID and timestamp. JSONL rows retain their original order and terminating line feeds.
+Blob bytes remain digest-verified payload attachments rather than content-derived public IDs.
+Owner Markdown that lacks canonical page frontmatter has no Portable semantic ID; an upgrade keeps
+its exact path, digest, and bytes as an attachment instead of inventing a path-based record ID.
 
 ## Engine operations
 

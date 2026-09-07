@@ -550,6 +550,8 @@ def engine_isolation_findings(root: Path, work: Path) -> list[Finding]:
                 "open_brain_engine/engine/__init__.py",
                 "open_brain_engine/portable/schemas/v1/common.json",
                 "open_brain_engine/portable/conformance/v1/cases.json",
+                "open_brain_engine/portability/schemas/v1/shared-record-envelope.json",
+                "open_brain_engine/portability/conformance/v1/cases.json",
             ),
             forbidden_patterns=(
                 "open_brain/**",

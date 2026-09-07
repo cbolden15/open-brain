@@ -279,6 +279,25 @@ def test_phase_zero_policy_requires_every_schema_and_conformance_fixture() -> No
     } <= sdist_members
 
 
+def test_shared_portability_schema_and_vectors_are_required_in_engine_artifacts() -> None:
+    wheel_members = set(required_members_for_policy(POLICY_PATH, "engine", "wheel"))
+    sdist_members = set(required_members_for_policy(POLICY_PATH, "engine", "sdist"))
+    relative_members = {
+        path.relative_to(
+            ROOT / "packages/engine/src/open_brain_engine/portability"
+        ).as_posix()
+        for path in (ROOT / "packages/engine/src/open_brain_engine/portability").rglob("*")
+        if path.is_file() and path.suffix == ".json"
+    }
+
+    assert {
+        f"open_brain_engine/portability/{path}" for path in relative_members
+    } <= wheel_members
+    assert {
+        f"src/open_brain_engine/portability/{path}" for path in relative_members
+    } <= sdist_members
+
+
 def test_target_boundary_names_legacy_optional_connector_and_cloud_exclusions() -> None:
     exclusions = _policy()["target_release_exclusions"]
     assert isinstance(exclusions, list)
