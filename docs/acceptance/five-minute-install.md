@@ -44,6 +44,8 @@ test ! -e "$HOME/Library/Application Support/open-brain"
 
 curl --proto '=https' --tlsv1.2 -LsSf "$install_url" | sh
 
+PATH="$HOME/.local/bin:$PATH"
+export PATH
 command -v open-brain >/dev/null
 
 token="open-brain-five-minute-acceptance"

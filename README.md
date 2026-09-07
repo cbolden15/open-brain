@@ -101,8 +101,8 @@ The denylist contains one private term per line. Blank lines and lines beginning
 
 The product split is documented, but its packaging and default command path are not implemented.
 Plain `open-brain` currently pulls the old Secure Node dependency extra, and the installed mutation
-path still expects a daemon and `OPEN_BRAIN_ROOT`. The roadmap records those as `OB1-W1` and
-`OB1-W2`; do not infer five-minute-install readiness from the current source checkout.
+path still expects a daemon and `OPEN_BRAIN_ROOT`. The roadmap records those as `OB1-W0` and
+`OB1-W1`; do not infer five-minute-install readiness from the current source checkout.
 
 The retained appliance implementation supports one local Brain root, stable portable identities,
 typed capture, spaces, inbox routing, sibling review proposals, terminal decisions, canonical

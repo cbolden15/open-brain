@@ -128,7 +128,7 @@ checks in the product-family contract. Folding Secure Node behavior into the def
 
 Completion note: the independent audit accepted this work at its original M1 identifiers and
 pre-split package names. ADR 0012 preserves that evidence, reclassifies it as Secure Node, and
-moves the default-package changes into `OB1-W1`; W0 is not replayed.
+moves the default-package changes into `OB1-W0`; Secure Node W0 is not replayed.
 
 - [ ] Publish generic protocol and semantic ADRs in the public repository without private paths,
       topology, policy names, or capture bodies.
@@ -155,7 +155,7 @@ moves the default-package changes into `OB1-W1`; W0 is not replayed.
       FTS5, purge residue, and crash recovery. Every combination is required; a failure stops M1
       for operator resolution instead of silently narrowing support. Windows remains unsupported
       in M1 and is an explicit later portability milestone. W0 verified the dependencies under the
-      pre-split engine `node` extra. `OB1-W1` renames that extra to `secure-node` and makes only
+      pre-split engine `node` extra. `OB1-W0` renames that extra to `secure-node` and makes only
       `open-brain[secure-node]` select it. Record the M1 matrix in `release/m1-compatibility.json`
       without changing the completed P4 compatibility evidence.
 - [ ] Freeze the dependency and release-evidence strategy before modifying package metadata. Keep

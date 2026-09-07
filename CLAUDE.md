@@ -51,7 +51,7 @@ reinterpreting or copying the default product's live SQLite files. The active ro
 | `release/v0-artifact-policy.json` | Current v0 installation scope plus unpublished Python-artifact and historical P4-W6 candidate contracts |
 
 The engine cannot import app, connector, legacy, or workspace modules. The current app depends on
-`open-brain-engine[node]==0.1.0`; this is a known split violation scheduled for `OB1-W1`. The target
+`open-brain-engine[node]==0.1.0`; this is a known split violation scheduled for `OB1-W0`. The target
 base app depends on exactly `open-brain-engine==0.1.0`, while `open-brain[secure-node]` selects
 `open-brain-engine[secure-node]==0.1.0`. App code may import only engine modules marked public in the
 canonical manifest. Current mutating installed CLI/UI requests go through the appliance daemon;
@@ -120,7 +120,7 @@ uv run pytest -q tests/phase4/test_connector_distribution.py
 
 | Variable | Purpose |
 |---|---|
-| `OPEN_BRAIN_ROOT` | Current appliance requirement; target default uses the platform-local root automatically and keeps this only as an expert/test override |
+| `OPEN_BRAIN_ROOT` | Current appliance requirement retained for Secure Node and legacy tests; target default uses the platform-local root automatically and ignores this variable |
 | `OPEN_BRAIN_CONFIG` | Absolute path to an untracked TOML application configuration |
 | `OPEN_BRAIN_STATE_ROOT`, `OPEN_BRAIN_WORK_ROOT`, `OPEN_BRAIN_PERSONAL_ROOT`, `OPEN_BRAIN_CAPTURE_ROOT`, `OPEN_BRAIN_SAVED_CONTENT_ROOT`, `OPEN_BRAIN_BACKUP_ROOT` | Retained-root configuration; not a second single-user profile |
 | `OPEN_BRAIN_PROVIDER`, `OPEN_BRAIN_CLOUD_ENABLED`, `OPEN_BRAIN_EGRESS_ENABLED` | Retained composition settings; the default single-user profile is provider-none and egress-off |

@@ -27,7 +27,7 @@ option if the extra cannot pass dependency and release-boundary tests.
 
 This packaging is a target, not the current metadata. `packages/app/pyproject.toml` still selects
 the pre-split engine `node` extra and includes the appliance transport dependencies by default.
-`OB1-W1` owns that change after the documentation gate.
+`OB1-W0` owns that change after the documentation gate.
 
 ## Current transitional architecture
 

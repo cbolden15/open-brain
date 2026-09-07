@@ -7,7 +7,8 @@ selects the platform-local data directory, creates one owner and one Brain, open
 and keeps provider mode `none` with egress off. The five-minute journey does not set
 `OPEN_BRAIN_ROOT`, edit TOML, choose storage locations, install a service, or configure a database.
 
-`OPEN_BRAIN_ROOT` remains an explicit test or expert override. Secure Node owns advanced custody,
+An optional absolute `--data-dir` names the Open Brain Brain root directly for expert and test use.
+`OPEN_BRAIN_ROOT` remains a Secure Node and legacy-test input. Secure Node owns advanced custody,
 grant, listener, service, and multi-client configuration after an explicit
 `open-brain[secure-node]` installation. Plain Open Brain does not load those settings and makes no
 application-level encryption claim.

@@ -50,9 +50,13 @@ The default local data directory is:
 | macOS | `$HOME/Library/Application Support/open-brain/brain` |
 | Linux | `${XDG_DATA_HOME:-$HOME/.local/share}/open-brain/brain` |
 
-The directory is created with owner-only access. Directories use mode `0700`; regular private files
-use mode `0600` where the host supports POSIX modes. `OPEN_BRAIN_ROOT` may remain an expert or test
-override, but the quickstart and acceptance test do not set it.
+The parent application data home is the path above without its final `/brain` component. Executable
+payloads and launchers live outside it. An optional absolute `--data-dir` names the Brain root
+directly for expert and test use. The default journey never prompts for it. `OPEN_BRAIN_ROOT`
+remains a Secure Node and legacy-test input; the default CLI does not consume it.
+
+The Brain root is created with owner-only access. Directories use mode `0700`; regular private
+files use mode `0600` where the host supports POSIX modes.
 
 Open Brain uses SQLite as its local transaction and search substrate. The on-disk implementation
 may also materialize readable Markdown and structured records, but users do not configure or run a
@@ -148,6 +152,12 @@ The existing engine extra named `node` is a pre-split name. Packaging work will 
 `secure-node`; no default dependency may select it. Starlette, Uvicorn, SQLCipher, Argon2,
 cryptography, keyring, and platform user-presence bridges belong in the Secure Node dependency
 closure unless a later default-product requirement independently needs one of them.
+
+The default executable is `open-brain`, and `python -m open_brain` has the same local behavior.
+Secure Node uses the explicit `open-brain-secure-node` and `open-brain-secure-node-mcp` command
+names. Because Python extras cannot add console scripts conditionally, a base-only installation may
+contain those two launcher names only as inert wrappers: each must report that
+`open-brain[secure-node]` is not installed before importing advanced code or touching state.
 
 The architecturally strongest alternative is a separate `open-brain-secure-node` distribution with
 its own executable and release cadence. It gives the cleanest dependency and support boundary. It

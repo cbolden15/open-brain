@@ -190,5 +190,5 @@ and identity exactly. The high-cardinality and timestamp fixtures must also pass
 `make verify`, and independent implementation review must pass at the same committed source
 identity.
 
-Stop at that boundary. Do not start `SN1-W2`, `OB1-W1`, durable import, outbound Secure Node export,
+Stop at that boundary. Do not start `SN1-W2`, `OB1-W0`, durable import, outbound Secure Node export,
 live migration, publication, deployment, or production work inside this milestone.

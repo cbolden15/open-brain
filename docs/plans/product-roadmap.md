@@ -1,6 +1,6 @@
 # Open Brain and Secure Node roadmap
 
-- Status: Accepted product split; `PF-W0` and `SN1-W1` complete; `CORE-W0` active
+- Status: Accepted product split; `OB1-W0` active; `CORE-W0` paused after implementation review
 - Date: 2026-09-07
 - Product authority: [`../product-family.md`](../product-family.md)
 - Acceptance authority: [`../acceptance/five-minute-install.md`](../acceptance/five-minute-install.md)
@@ -14,9 +14,11 @@ then-uncommitted files without changing them; a later, separate continuation fin
 that work as `SN1-W1`.
 
 `SN1-W1` is complete after ADR 0013's pre-release schema and lifecycle correction, focused and
-repository-wide gates, and a fresh independent `READY` review with no findings. `CORE-W0` is the
-next required milestone; no `SN1-W2` persistence work may start until its shared mapping gate
-closes.
+repository-wide gates, and a fresh independent `READY` review with no findings. The first
+`CORE-W0` implementation is preserved at commit `10d0846`, but its final review found three gaps.
+That workstream is paused with `SN1-W2` still gated. `OB1-W0` is now active on the separate local
+branch `goal/open-brain-five-minute-install` because it can proceed independently and directly
+reduces the default installation burden.
 
 ## Milestones
 
@@ -24,12 +26,12 @@ closes.
 |---|---|---|---|
 | `PF-W0` Product split | One authoritative product contract, naming system, packaging direction, and acceptance test | Documentation only | All current public authority points at the split and no implementation begins |
 | `CORE-W0` Shared portability | Freeze the lossless mapping between Portable Brain v1 shared records and Secure Node protocol records | Shared model, pure inbound adapter, schemas, conformance fixtures | The complete engine-produced fixture validates, maps through the in-memory Secure Node kernel, and reconstructs every manifest-declared byte without identity drift |
-| `OB1` Five-minute Open Brain | Ship the default local product | `OB1-W1` packaging/bootstrap; `OB1-W2` direct capture/search/export; `OB1-W3` clean-host release proof | The exact 300-second macOS/Linux test passes from published artifacts |
+| `OB1` Five-minute Open Brain | Ship the default local product | `OB1-W0` packaging/bootstrap; `OB1-W1` direct capture/search/export; `OB1-W2` clean-host release proof | The exact 300-second macOS/Linux test passes from published artifacts |
 | `SN1` Secure Node | Finish the advanced encrypted and authorized node formerly called M1 | `SN1-W0` through `SN1-W8` | Secure Node conformance and independent review pass without changing the Open Brain default |
 | `UP1` Upgrade proof | Prove a real default-to-Secure-Node transition | `UP1-W0` export/import fixture; `UP1-W1` clean-host upgrade rehearsal | Source remains readable; target preserves the shared inventory and records new security policy honestly |
 
 `CORE-W0` may be implemented alongside the product tracks only after `PF-W0` closes. It must close
-before `SN1-W2` persists a second canonical representation or `OB1-W3` claims release readiness.
+before `SN1-W2` persists a second canonical representation or `OB1-W2` claims release readiness.
 That second dependency is deliberate: the first public default release will not claim portability
 while its documented Secure Node upgrade mapping is undefined. `CORE-W0` proves the pure mapping;
 the durable fresh-node import belongs to `UP1-W0` after the required Secure Node work exists.
@@ -62,25 +64,26 @@ and evidence do not break. Its title and current terminology identify it as Secu
 
 ## Open Brain workstreams
 
-### `OB1-W1`: base packaging and automatic bootstrap
+### `OB1-W0`: base packaging and automatic bootstrap
 
 - Make `open-brain` the small default dependency closure.
 - Move all Secure Node dependencies behind `open-brain[secure-node]` and
   `open-brain-engine[secure-node]`.
 - Add the versioned one-line installer for the supported host matrix.
-- Resolve and create the platform-local Brain root automatically on first stateful command.
+- Resolve the platform-local application data home and create its `brain` child automatically on
+  first stateful command. An absolute `--data-dir` override names that Brain root directly.
 - Create one owner and one Brain idempotently, with owner-only filesystem permissions.
-- Reject symlinked or non-owner-only existing roots and known network or synchronized roots before
-  creating plaintext state. A documented expert override may be explicit, but the default fails
-  closed.
+- Validate existing components without following symlinks, reject unsafe existing managed roots
+  rather than repairing them, and reject the named network or synchronized locations before
+  creating plaintext state. Revalidate root identity before the first identity and SQLite writes.
 - At the end of this workstream, prove dependency isolation, CLI dispatch isolation, artifact-policy
   coverage, and version coordination. If any proof fails, invoke the accepted
-  `open-brain-secure-node` distribution fallback before `OB1-W3`.
+  `open-brain-secure-node` distribution fallback before `OB1-W2`.
 
 Exit: a base install imports and reports help with no Secure Node dependency import, prompt, config,
 daemon, listener, or service effect.
 
-### `OB1-W2`: direct capture, search, and export
+### `OB1-W1`: direct capture, search, and export
 
 - Provide direct `open-brain capture`, `open-brain search`, and `open-brain export` commands.
 - Use the existing engine and Portable Brain semantics behind a direct single-process composition.
@@ -95,7 +98,7 @@ Exit: a first capture is durable, immediately searchable, and present in a verif
 export without starting the appliance daemon. The exact status and doctor checks also pass without
 opening a listener or importing Secure Node code.
 
-### `OB1-W3`: clean-host and release proof
+### `OB1-W2`: clean-host and release proof
 
 - Run the exact five-minute test on every supported clean macOS and Linux host.
 - Prove no Secure Node dependencies or claims enter the base artifact.
@@ -133,8 +136,8 @@ discard, and idempotent retry.
 
 | Current item | Conflict with split | Disposition |
 |---|---|---|
-| `packages/app/pyproject.toml` makes `open-brain` depend on `open-brain-engine[node]`, Starlette, and Uvicorn | Yes. Plain install currently selects Secure Node dependencies. | Change in `OB1-W1`; do not edit during this documentation gate. |
-| Installed mutating CLI routes through the appliance daemon and requires `OPEN_BRAIN_ROOT` | Yes. The default must run directly and choose its data directory automatically. | Change in `OB1-W1` and `OB1-W2`. |
+| `packages/app/pyproject.toml` makes `open-brain` depend on `open-brain-engine[node]`, Starlette, and Uvicorn | Yes. Plain install currently selects Secure Node dependencies. | Change in `OB1-W0`. |
+| Installed mutating CLI routes through the appliance daemon and requires `OPEN_BRAIN_ROOT` | Yes. The default must run directly and choose its data directory automatically. | Bootstrap changes in `OB1-W0`; direct capture, search, and export in `OB1-W1`. |
 | Existing source/wheel install guide initializes a root and starts a daemon | Yes as a default-product guide. | Retain as transitional Secure Node precursor evidence; replace the quickstart in `OB1`. |
 | `SN1-W0` protocol, crypto, grant, receipt, fencing, purge, and recovery contracts | No after reclassification. | Preserve unchanged as Secure Node authority. |
 | `SN1-W1` semantic-kernel implementation | No direct conflict. It contains advanced compartment and ciphertext state by design. | Preserve as completed Secure Node work; do not route it through the default Open Brain command path. |
