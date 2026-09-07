@@ -39,13 +39,21 @@ secret store, falls back to a passphrase-wrapped mode-`0600` file, and permits a
 ephemeral memory-only key. Rotation advances the principal epoch. Revocation rejects grants from an
 older epoch.
 
-Every request has an Ed25519 proof of possession over the canonical binding defined by Brain
-Protocol v1. The Node checks the grant, epoch, principal signature, method, Brain, delivery identity,
-nonce, and body digest before reading the body. There is no bearer fallback.
+Each grant binds its issuer key and epoch, policy epoch and digest, principal key and epoch,
+operations, all-of compartments, record schemas, body visibility, per-grant limits, and timestamps.
+Its expiry must equal its issue time plus a TTL from 30 through 900 seconds.
+
+Every request has an Ed25519 proof of possession over the exact five-field request-binding object:
+method, Brain, delivery identity, nonce, and body digest. The larger request envelope carries that
+binding, the grant ID, and the principal signature. The Node checks the serialized grant, epochs,
+signature, binding, and digest before decoding the operation body. There is no bearer fallback.
 
 Receipts are signed by the active Node key. The owner authority signs the Node key's epoch
-certificate. Each receipt carries its Node key ID, epoch certificate, and owner-signed public-key
-history. Clients verify the chain from a pinned owner fingerprint.
+certificate. Each receipt carries its Node key ID, sequencer epoch, epoch certificate, ordered
+owner-key certificate history, issuer epoch, and policy digest. Every signed contract signs the RFC
+8785 bytes of the full document with only the signature field omitted. Deterministic vectors cover
+principal bindings, grants, owner and Node certificates, receipts, stop proofs, and cold transfers.
+Clients verify the complete chain from a pinned genesis owner fingerprint.
 
 ### Clocks and replay
 
@@ -65,8 +73,9 @@ returns `nonce_capacity`; it never evicts a live row.
 entities return the same stable error content. Bodies and content-derived fields require body
 scope. Database access is not claimed to be constant time.
 
-`changes` authorizes before entry selection and re-authorizes each page. Unauthorized entries do
-not shift page boundaries or alter cursor information.
+`changes` authorizes before entry selection and re-authorizes each page. Every entry identifies its
+typed committed item and role-correct item ID, so non-record commits remain reconstructable.
+Unauthorized entries do not shift page boundaries or alter cursor information.
 
 Query authorizes before candidate selection. The first page snapshots only authorized active exact
 label sets. Each continuation round re-authorizes and visits no more than 32 shards. Owners receive
@@ -100,10 +109,13 @@ The provisional limits are:
 | Literal query bytes | 4,096 |
 | Query top-k | 100 |
 | Query pages per grant | 256 |
+| Durable job attempts | 8 |
 
 The tracked generator creates 256 unique exact-label sets from 64 synthetic labels. It includes a
 16-label boundary shard, a 50,000-record hot shard, 255 smaller shards, eight 32-shard query rounds,
-and a 128-item commit batch. Its seed, catalog digest, distribution, and macOS/Linux results live in
+and a 128-item commit batch. Cross-shard benchmark results use only within-shard BM25 ranks and
+reciprocal-rank fusion with constant 60; raw BM25 scores are never compared between shards. Its
+seed, catalog digest, distribution, fusion metadata, and macOS/Linux results live in
 `release/m1-compatibility.json`. No private or real Brain data enters the benchmark.
 
 A limit failure includes a stable code, message, retry safety, observed and accepted values, and a
@@ -129,9 +141,15 @@ reviewed replacement. A replacement that retains target data is invalid. Purge d
 keys, removes structural indexes and FTS rows, and scans every application-controlled durable sink
 for plaintext residue.
 
-After key destruction, an opaque delivery tombstone remains so an idempotent retry returns
-`delivery_purged`. It never returns a sensitive original receipt. Continuations bound to touched
-records return `continuation_invalidated`; the high-level client may restart within its budget.
+After key destruction, an opaque delivery tombstone remains so an idempotent retry returns the
+closed `delivery_purged` commit-result variant. Accepted and replayed results wrap a signed receipt;
+changed-digest and expected-revision conflicts are separate closed variants. A purged retry never
+returns a sensitive original receipt. Continuations bound to touched records return
+`continuation_invalidated`; the high-level client may restart within its budget.
+
+The versioned JSON schemas enforce structure. The public semantic validator additionally enforces
+UTF-8 byte limits, exact Ed25519 encodings, Brain boundaries, grant timestamp arithmetic, epoch
+continuity, and receipt certificate history. Both layers are mandatory protocol validation.
 
 ## Consequences
 

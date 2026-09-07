@@ -8,13 +8,12 @@
     "brain_id": { "$ref": "urn:open-brain:protocol:v1:common#/$defs/brain_id" },
     "decision_id": { "$ref": "urn:open-brain:protocol:v1:common#/$defs/decision_id" },
     "proposal_id": { "$ref": "urn:open-brain:protocol:v1:common#/$defs/proposal_id" },
-    "expected_revision_id": {
-      "oneOf": [
-        { "$ref": "urn:open-brain:protocol:v1:common#/$defs/revision_id" },
-        { "type": "null" }
-      ]
+    "expected_proposal_revision_id": {
+      "$ref": "urn:open-brain:protocol:v1:common#/$defs/revision_id"
     },
     "outcome": { "enum": ["accepted", "rejected"] },
+    "decided_by": { "$ref": "urn:open-brain:protocol:v1:common#/$defs/principal_id" },
+    "compartments": { "$ref": "urn:open-brain:protocol:v1:common#/$defs/compartments" },
     "decided_at": { "$ref": "urn:open-brain:protocol:v1:common#/$defs/timestamp" }
   },
   "required": [
@@ -23,8 +22,10 @@
     "brain_id",
     "decision_id",
     "proposal_id",
-    "expected_revision_id",
+    "expected_proposal_revision_id",
     "outcome",
+    "decided_by",
+    "compartments",
     "decided_at"
   ],
   "additionalProperties": false

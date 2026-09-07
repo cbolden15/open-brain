@@ -1,0 +1,46 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:open-brain:protocol:v1:owner-key-certificate",
+  "type": "object",
+  "properties": {
+    "schema_version": { "$ref": "urn:open-brain:protocol:v1:common#/$defs/schema_version" },
+    "brain_id": { "$ref": "urn:open-brain:protocol:v1:common#/$defs/brain_id" },
+    "owner_key_id": { "$ref": "urn:open-brain:protocol:v1:common#/$defs/key_id" },
+    "owner_public_key": {
+      "$ref": "urn:open-brain:protocol:v1:common#/$defs/ed25519_public_key"
+    },
+    "owner_epoch": { "type": "integer", "minimum": 1 },
+    "previous_owner_key_id": {
+      "oneOf": [
+        { "$ref": "urn:open-brain:protocol:v1:common#/$defs/key_id" },
+        { "type": "null" }
+      ]
+    },
+    "valid_from": { "$ref": "urn:open-brain:protocol:v1:common#/$defs/timestamp" },
+    "retired_at": {
+      "oneOf": [
+        { "$ref": "urn:open-brain:protocol:v1:common#/$defs/timestamp" },
+        { "type": "null" }
+      ]
+    },
+    "certifying_owner_key_id": {
+      "$ref": "urn:open-brain:protocol:v1:common#/$defs/key_id"
+    },
+    "owner_signature": {
+      "$ref": "urn:open-brain:protocol:v1:common#/$defs/ed25519_signature"
+    }
+  },
+  "required": [
+    "schema_version",
+    "brain_id",
+    "owner_key_id",
+    "owner_public_key",
+    "owner_epoch",
+    "previous_owner_key_id",
+    "valid_from",
+    "retired_at",
+    "certifying_owner_key_id",
+    "owner_signature"
+  ],
+  "additionalProperties": false
+}

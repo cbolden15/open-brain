@@ -10,15 +10,22 @@
     "delivery_id": { "$ref": "urn:open-brain:protocol:v1:common#/$defs/delivery_id" },
     "cursor": { "$ref": "urn:open-brain:protocol:v1:common#/$defs/cursor" },
     "commit_digest": { "$ref": "urn:open-brain:protocol:v1:common#/$defs/digest" },
+    "issuer_epoch": { "type": "integer", "minimum": 1 },
+    "policy_digest": { "$ref": "urn:open-brain:protocol:v1:common#/$defs/digest" },
+    "sequencer_epoch": { "type": "integer", "minimum": 1 },
     "node_key_id": { "$ref": "urn:open-brain:protocol:v1:common#/$defs/key_id" },
-    "node_epoch_certificate": { "$ref": "urn:open-brain:protocol:v1:common#/$defs/base64url" },
+    "node_epoch_certificate": {
+      "$ref": "urn:open-brain:protocol:v1:node-epoch-certificate"
+    },
     "owner_key_history": {
       "type": "array",
       "minItems": 1,
-      "items": { "$ref": "urn:open-brain:protocol:v1:common#/$defs/base64url" }
+      "items": { "$ref": "urn:open-brain:protocol:v1:owner-key-certificate" }
     },
     "issued_at": { "$ref": "urn:open-brain:protocol:v1:common#/$defs/timestamp" },
-    "node_signature": { "$ref": "urn:open-brain:protocol:v1:common#/$defs/base64url" }
+    "node_signature": {
+      "$ref": "urn:open-brain:protocol:v1:common#/$defs/ed25519_signature"
+    }
   },
   "required": [
     "schema_version",
@@ -28,6 +35,9 @@
     "delivery_id",
     "cursor",
     "commit_digest",
+    "issuer_epoch",
+    "policy_digest",
+    "sequencer_epoch",
     "node_key_id",
     "node_epoch_certificate",
     "owner_key_history",

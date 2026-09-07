@@ -7,14 +7,26 @@
     "transfer_id": { "$ref": "urn:open-brain:protocol:v1:common#/$defs/transfer_id" },
     "brain_id": { "$ref": "urn:open-brain:protocol:v1:common#/$defs/brain_id" },
     "from_node_id": { "$ref": "urn:open-brain:protocol:v1:common#/$defs/node_id" },
-    "from_machine_instance": { "type": "string", "pattern": "^machine_[a-z2-7]{26}$" },
+    "from_machine_instance": {
+      "$ref": "urn:open-brain:protocol:v1:common#/$defs/machine_instance_id"
+    },
     "to_node_id": { "$ref": "urn:open-brain:protocol:v1:common#/$defs/node_id" },
-    "to_machine_instance": { "type": "string", "pattern": "^machine_[a-z2-7]{26}$" },
+    "to_machine_instance": {
+      "$ref": "urn:open-brain:protocol:v1:common#/$defs/machine_instance_id"
+    },
+    "next_node_key_id": { "$ref": "urn:open-brain:protocol:v1:common#/$defs/key_id" },
+    "next_node_public_key": {
+      "$ref": "urn:open-brain:protocol:v1:common#/$defs/ed25519_public_key"
+    },
     "previous_epoch": { "type": "integer", "minimum": 1 },
     "next_epoch": { "type": "integer", "minimum": 2 },
+    "prior_ledger_head": { "$ref": "urn:open-brain:protocol:v1:common#/$defs/ledger_head" },
     "stop_proof_id": { "$ref": "urn:open-brain:protocol:v1:common#/$defs/stop_proof_id" },
+    "owner_key_id": { "$ref": "urn:open-brain:protocol:v1:common#/$defs/key_id" },
     "issued_at": { "$ref": "urn:open-brain:protocol:v1:common#/$defs/timestamp" },
-    "owner_signature": { "$ref": "urn:open-brain:protocol:v1:common#/$defs/base64url" }
+    "owner_signature": {
+      "$ref": "urn:open-brain:protocol:v1:common#/$defs/ed25519_signature"
+    }
   },
   "required": [
     "schema_version",
@@ -24,9 +36,13 @@
     "from_machine_instance",
     "to_node_id",
     "to_machine_instance",
+    "next_node_key_id",
+    "next_node_public_key",
     "previous_epoch",
     "next_epoch",
+    "prior_ledger_head",
     "stop_proof_id",
+    "owner_key_id",
     "issued_at",
     "owner_signature"
   ],

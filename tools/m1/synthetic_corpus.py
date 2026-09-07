@@ -21,6 +21,7 @@ HOT_SHARD_RECORDS = 50_000
 COLD_SHARD_RECORDS = 64
 QUERY_FANOUT_PER_ROUND = 32
 COMMIT_BATCH_ITEMS = 128
+RECIPROCAL_RANK_FUSION_CONSTANT = 60
 DATABASE_KEY = "7a9dc5e98f5d67c547875e4912a102a5f90e09356b0aa3482fd0677cc3b8315a"
 
 
@@ -83,6 +84,20 @@ def _connect(path: Path) -> dbapi2.Connection:
     return connection
 
 
+def fuse_ranked_shards(
+    ranked_shards: list[tuple[int, list[int]]],
+    *,
+    top_k: int,
+) -> list[tuple[float, int, int]]:
+    """Fuse only within-shard ranks; raw FTS scores never cross shard boundaries."""
+    candidates = [
+        (1.0 / (RECIPROCAL_RANK_FUSION_CONSTANT + rank), shard_index, row_id)
+        for shard_index, row_ids in ranked_shards
+        for rank, row_id in enumerate(row_ids, start=1)
+    ]
+    return sorted(candidates, key=lambda item: (-item[0], item[1], item[2]))[:top_k]
+
+
 def run_benchmark() -> dict[str, Any]:
     shards = generate_shards()
     with tempfile.TemporaryDirectory(prefix="open-brain-m1-corpus-") as temporary:
@@ -128,6 +143,7 @@ def run_benchmark() -> dict[str, Any]:
         candidates: list[tuple[float, int, int]] = []
         for start in range(0, ACTIVE_LABEL_SETS, QUERY_FANOUT_PER_ROUND):
             rounds += 1
+            ranked_shards: list[tuple[int, list[int]]] = []
             for shard_index in range(start, start + QUERY_FANOUT_PER_ROUND):
                 table = f"fts_{shard_index:03d}"
                 rows = connection.execute(
@@ -135,8 +151,12 @@ def run_benchmark() -> dict[str, Any]:
                     f"WHERE {table} MATCH ? ORDER BY bm25({table}), rowid LIMIT 100",
                     ("shared",),
                 ).fetchall()
-                candidates.extend((float(score), shard_index, int(rowid)) for score, rowid in rows)
-            candidates = sorted(candidates)[:100]
+                ranked_shards.append((shard_index, [int(rowid) for _score, rowid in rows]))
+            round_candidates = fuse_ranked_shards(ranked_shards, top_k=100)
+            candidates = sorted(
+                candidates + round_candidates,
+                key=lambda item: (-item[0], item[1], item[2]),
+            )[:100]
         query_seconds = time.perf_counter() - started
         connection.close()
 
@@ -165,6 +185,8 @@ def run_benchmark() -> dict[str, Any]:
             "query_fanout_per_round": QUERY_FANOUT_PER_ROUND,
             "query_rounds": rounds,
             "final_top_k": len(candidates),
+            "fusion": "reciprocal_rank",
+            "reciprocal_rank_constant": RECIPROCAL_RANK_FUSION_CONSTANT,
             "query_seconds": round(query_seconds, 6),
         },
     }

@@ -45,10 +45,10 @@ def test_canonical_move_manifest_is_complete_and_valid() -> None:
     manifest = _manifest()
 
     assert validate_manifest(ROOT, manifest) == []
-    assert len(_runtime(manifest)) == 274
+    assert len(_runtime(manifest)) == 275
     subjects = _subjects(manifest)
     assert sum(record["kind"] == "test" for record in subjects.values()) == 274
-    assert sum(record["kind"] in {"schema", "fixture"} for record in subjects.values()) == 58
+    assert sum(record["kind"] in {"schema", "fixture"} for record in subjects.values()) == 64
 
 
 def test_p4a_has_no_unresolved_movement_or_monolith_tree() -> None:

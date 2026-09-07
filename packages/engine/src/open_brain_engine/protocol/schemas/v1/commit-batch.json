@@ -7,20 +7,37 @@
     "brain_id": { "$ref": "urn:open-brain:protocol:v1:common#/$defs/brain_id" },
     "delivery_id": { "$ref": "urn:open-brain:protocol:v1:common#/$defs/delivery_id" },
     "sequencer_epoch": { "type": "integer", "minimum": 1 },
+    "issuer_epoch": { "type": "integer", "minimum": 1 },
+    "policy_digest": { "$ref": "urn:open-brain:protocol:v1:common#/$defs/digest" },
     "items": {
       "type": "array",
       "minItems": 1,
       "maxItems": 128,
       "items": {
         "oneOf": [
-          { "$ref": "urn:open-brain:protocol:v1:record" },
+          {
+            "allOf": [
+              { "$ref": "urn:open-brain:protocol:v1:record" },
+              { "properties": { "ciphertext_state": { "const": "pending" } } }
+            ]
+          },
+          { "$ref": "urn:open-brain:protocol:v1:proposal" },
           { "$ref": "urn:open-brain:protocol:v1:revision" },
           { "$ref": "urn:open-brain:protocol:v1:decision" },
-          { "$ref": "urn:open-brain:protocol:v1:purge-transition" }
+          { "$ref": "urn:open-brain:protocol:v1:purge-transition" },
+          { "$ref": "urn:open-brain:protocol:v1:effect-receipt" }
         ]
       }
     }
   },
-  "required": ["schema_version", "brain_id", "delivery_id", "sequencer_epoch", "items"],
+  "required": [
+    "schema_version",
+    "brain_id",
+    "delivery_id",
+    "sequencer_epoch",
+    "issuer_epoch",
+    "policy_digest",
+    "items"
+  ],
   "additionalProperties": false
 }

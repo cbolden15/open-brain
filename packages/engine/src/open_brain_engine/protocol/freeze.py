@@ -24,6 +24,8 @@ class ResourceLimits:
     query_text_bytes: int = 4_096
     query_top_k: int = 100
     query_pages_per_grant: int = 256
+    reciprocal_rank_fusion_constant: int = 60
+    durable_job_attempts: int = 8
     owner_exempt: bool = False
 
 

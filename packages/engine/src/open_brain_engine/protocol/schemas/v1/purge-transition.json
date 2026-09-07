@@ -8,10 +8,18 @@
     "brain_id": { "$ref": "urn:open-brain:protocol:v1:common#/$defs/brain_id" },
     "purge_id": { "$ref": "urn:open-brain:protocol:v1:common#/$defs/purge_id" },
     "target_record_id": { "$ref": "urn:open-brain:protocol:v1:common#/$defs/record_id" },
+    "subject_kind": { "enum": ["record", "revision", "proposal"] },
+    "subject_id": { "type": "string", "pattern": "^[a-z]{3}_[a-z2-7]{26}$" },
     "resolution": { "enum": ["purge", "retain", "replace"] },
     "replacement_record_id": {
       "oneOf": [
         { "$ref": "urn:open-brain:protocol:v1:common#/$defs/record_id" },
+        { "type": "null" }
+      ]
+    },
+    "review_decision_id": {
+      "oneOf": [
+        { "$ref": "urn:open-brain:protocol:v1:common#/$defs/decision_id" },
         { "type": "null" }
       ]
     },
@@ -23,15 +31,43 @@
     "brain_id",
     "purge_id",
     "target_record_id",
+    "subject_kind",
+    "subject_id",
     "resolution",
     "replacement_record_id",
+    "review_decision_id",
     "reason"
   ],
   "allOf": [
     {
+      "if": { "properties": { "subject_kind": { "const": "record" } } },
+      "then": { "properties": { "subject_id": { "pattern": "^rec_[a-z2-7]{26}$" } } }
+    },
+    {
+      "if": { "properties": { "subject_kind": { "const": "revision" } } },
+      "then": { "properties": { "subject_id": { "pattern": "^rev_[a-z2-7]{26}$" } } }
+    },
+    {
+      "if": { "properties": { "subject_kind": { "const": "proposal" } } },
+      "then": { "properties": { "subject_id": { "pattern": "^prp_[a-z2-7]{26}$" } } }
+    },
+    {
       "if": { "properties": { "resolution": { "const": "replace" } } },
-      "then": { "properties": { "replacement_record_id": { "type": "string" } } },
+      "then": {
+        "properties": {
+          "replacement_record_id": { "type": "string" },
+          "review_decision_id": { "type": "string" }
+        }
+      },
       "else": { "properties": { "replacement_record_id": { "type": "null" } } }
+    },
+    {
+      "if": { "properties": { "resolution": { "const": "retain" } } },
+      "then": { "properties": { "review_decision_id": { "type": "string" } } }
+    },
+    {
+      "if": { "properties": { "resolution": { "const": "purge" } } },
+      "then": { "properties": { "review_decision_id": { "type": "null" } } }
     }
   ],
   "additionalProperties": false

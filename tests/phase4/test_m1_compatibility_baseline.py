@@ -7,9 +7,12 @@ from pathlib import Path
 
 import open_brain_engine
 import open_brain_engine.engine as engine_facade
+import pytest
 from open_brain_engine.engine import BrainEngine
 
-from tools.m1.synthetic_corpus import corpus_catalog_digest, generate_shards
+from tools.m1.compatibility_matrix import command_templates
+from tools.m1.compatibility_probe import _connect, _purge_documents
+from tools.m1.synthetic_corpus import corpus_catalog_digest, fuse_ranked_shards, generate_shards
 
 ROOT = Path(__file__).parents[2]
 P4_HASHES = {
@@ -102,7 +105,13 @@ def test_m1_protocol_resources_extend_the_frozen_artifact_contract() -> None:
     assert manifest["phase4"]["release_identity"]["m1_compatibility_record"] == (
         "release/m1-compatibility.json"
     )
+    assert manifest["phase4"]["release_identity"]["m1_compatibility_receipts"] == (
+        "release/m1-compatibility-receipts.json"
+    )
     assert manifest["phase4"]["subjects"]["release/m1-compatibility.json"][
+        "artifact_disposition"
+    ] == ["app-sdist", "engine-sdist"]
+    assert manifest["phase4"]["subjects"]["release/m1-compatibility-receipts.json"][
         "artifact_disposition"
     ] == ["app-sdist", "engine-sdist"]
 
@@ -134,6 +143,7 @@ def test_m1_matrix_is_complete_without_rewriting_p4_support() -> None:
             "fts5",
             "keyed_reopen",
             "paged_reads",
+            "purge_logical_deletion",
             "purge_plaintext_residue",
             "source_or_wheel_install",
             "wrong_key_rejection",
@@ -159,6 +169,45 @@ def test_m1_matrix_is_complete_without_rewriting_p4_support() -> None:
     assert all(cell["status"] == "passed" for cell in application["installations"])
 
 
+def test_m1_matrix_summary_is_bound_to_reproducible_raw_receipts() -> None:
+    evidence = json.loads((ROOT / "release/m1-compatibility.json").read_text(encoding="utf-8"))
+    receipt_path = ROOT / evidence["raw_receipts"]["path"]
+    receipts = json.loads(receipt_path.read_text(encoding="utf-8"))
+
+    assert hashlib.sha256(receipt_path.read_bytes()).hexdigest() == evidence["raw_receipts"][
+        "sha256"
+    ]
+    assert hashlib.sha256((ROOT / receipts["probe_path"]).read_bytes()).hexdigest() == receipts[
+        "probe_sha256"
+    ]
+    assert receipts["probe_sha256"] == evidence["raw_receipts"]["probe_sha256"]
+    assert receipts["status"] == "passed"
+    assert len(receipts["cells"]) == 12
+
+    raw_by_cell = {
+        (cell["platform"], cell["architecture"], cell["python"], cell["install"]): cell
+        for cell in receipts["cells"]
+    }
+    summary_by_cell = {
+        (cell["platform"], cell["architecture"], cell["python"], cell["install"]): cell
+        for cell in evidence["cells"]
+    }
+    assert set(raw_by_cell) == set(summary_by_cell)
+    for key, raw in raw_by_cell.items():
+        summary = summary_by_cell[key]
+        assert raw["status"] == "passed"
+        assert json.loads(raw["probe_stdout"].splitlines()[-1]) == raw["probe"]
+        assert raw["commands"] == command_templates(raw["platform"], raw["python"], raw["install"])
+        assert str(ROOT) not in json.dumps(raw["commands"])
+        assert raw["probe"]["storage"]["purge_logical_deletion"] == "pass"
+        assert summary["measurements"] == {
+            "commit_256_rows_seconds": raw["probe"]["storage"]["benchmark"]["commit_seconds"],
+            "paged_read_2048_rows_seconds": raw["probe"]["storage"]["benchmark"][
+                "paged_read_seconds"
+            ],
+        }
+
+
 def test_synthetic_corpus_reaches_every_provisional_label_and_shard_boundary() -> None:
     evidence = json.loads((ROOT / "release/m1-compatibility.json").read_text(encoding="utf-8"))
     shards = generate_shards()
@@ -169,11 +218,57 @@ def test_synthetic_corpus_reaches_every_provisional_label_and_shard_boundary() -
     assert max(len(shard.labels) for shard in shards) == 16
     assert max(shard.records for shard in shards) == 50_000
     assert corpus_catalog_digest(shards) == generator["catalog_sha256"]
+    corpus = evidence["synthetic_corpus"]
+    assert hashlib.sha256((ROOT / corpus["generator_path"]).read_bytes()).hexdigest() == corpus[
+        "generator_sha256"
+    ]
+    assert "raw BM25 values never cross shard boundaries" in corpus["ranking_method"]
     assert evidence["synthetic_corpus"]["benchmarks"]
     assert all(
         benchmark["status"] == "passed"
         and benchmark["benchmark"]["query_fanout_per_round"] == 32
         and benchmark["benchmark"]["query_rounds"] == 8
         and benchmark["benchmark"]["commit_batch_items"] == 128
+        and benchmark["benchmark"]["fusion"] == "reciprocal_rank"
+        and benchmark["benchmark"]["reciprocal_rank_constant"] == 60
         for benchmark in evidence["synthetic_corpus"]["benchmarks"]
     )
+
+
+def test_purge_probe_removes_rows_and_search_hits(tmp_path: Path) -> None:
+    connection = _connect(tmp_path / "purge.sqlite3")
+    connection.execute("CREATE TABLE documents(id INTEGER PRIMARY KEY, body TEXT NOT NULL)")
+    connection.execute("CREATE VIRTUAL TABLE documents_fts USING fts5(body)")
+    connection.execute("INSERT INTO documents(id, body) VALUES (1, 'synthetic canary')")
+    connection.execute("INSERT INTO documents_fts(rowid, body) VALUES (1, 'synthetic canary')")
+    connection.commit()
+
+    _purge_documents(connection)
+
+    assert connection.execute("SELECT count(*) FROM documents").fetchone() == (0,)
+    assert connection.execute("SELECT count(*) FROM documents_fts").fetchone() == (0,)
+    connection.close()
+
+
+def test_purge_verifier_rejects_readable_rows(tmp_path: Path) -> None:
+    from tools.m1.compatibility_probe import _verify_documents_absent
+
+    connection = _connect(tmp_path / "not-purged.sqlite3")
+    connection.execute("CREATE TABLE documents(id INTEGER PRIMARY KEY, body TEXT NOT NULL)")
+    connection.execute("CREATE VIRTUAL TABLE documents_fts USING fts5(body)")
+    connection.execute("INSERT INTO documents(id, body) VALUES (1, 'synthetic canary')")
+    connection.execute("INSERT INTO documents_fts(rowid, body) VALUES (1, 'synthetic canary')")
+    connection.commit()
+
+    with pytest.raises(AssertionError, match="purge left readable rows"):
+        _verify_documents_absent(connection)
+    connection.close()
+
+
+def test_cross_shard_ranking_uses_rrf_not_raw_fts_scores() -> None:
+    assert fuse_ranked_shards([(7, [700, 701]), (2, [200, 201])], top_k=4) == [
+        (1 / 61, 2, 200),
+        (1 / 61, 7, 700),
+        (1 / 62, 2, 201),
+        (1 / 62, 7, 701),
+    ]

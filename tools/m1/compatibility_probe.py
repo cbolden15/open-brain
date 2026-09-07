@@ -81,6 +81,31 @@ def _scan_for_canary(directory: Path) -> list[str]:
     return residue
 
 
+def _verify_documents_absent(connection: dbapi2.Connection) -> None:
+    document_count = int(connection.execute("SELECT count(*) FROM documents").fetchone()[0])
+    fts_count = int(connection.execute("SELECT count(*) FROM documents_fts").fetchone()[0])
+    fts_match = connection.execute(
+        "SELECT rowid FROM documents_fts WHERE documents_fts MATCH ?",
+        ("synthetic",),
+    ).fetchone()
+    if document_count != 0 or fts_count != 0 or fts_match is not None:
+        raise AssertionError(
+            "purge left readable rows "
+            f"(documents={document_count}, fts={fts_count}, match={fts_match!r})"
+        )
+
+
+def _purge_documents(connection: dbapi2.Connection) -> None:
+    connection.execute("DELETE FROM documents_fts")
+    connection.execute("DELETE FROM documents")
+    connection.execute("INSERT INTO documents_fts(documents_fts) VALUES ('optimize')")
+    connection.commit()
+    _verify_documents_absent(connection)
+    connection.execute("PRAGMA wal_checkpoint(TRUNCATE)").fetchall()
+    connection.execute("VACUUM")
+    _verify_documents_absent(connection)
+
+
 def _probe_sqlcipher(root: Path) -> dict[str, Any]:
     database = root / "encrypted.sqlite3"
     connection = _connect(database)
@@ -119,12 +144,7 @@ def _probe_sqlcipher(root: Path) -> dict[str, Any]:
         raise AssertionError("SQLCipher accepted the wrong key")
 
     purged = _connect(database)
-    purged.execute("DELETE FROM documents_fts")
-    purged.execute("DELETE FROM documents")
-    purged.execute("INSERT INTO documents_fts(documents_fts) VALUES ('optimize')")
-    purged.commit()
-    purged.execute("PRAGMA wal_checkpoint(TRUNCATE)").fetchall()
-    purged.execute("VACUUM")
+    _purge_documents(purged)
     purged.close()
     residue = _scan_for_canary(root)
     if residue:
@@ -193,6 +213,7 @@ def _probe_sqlcipher(root: Path) -> dict[str, Any]:
         "keyed_reopen": "pass",
         "wrong_key_rejection": "pass",
         "fts5": "pass",
+        "purge_logical_deletion": "pass",
         "purge_plaintext_residue": "pass",
         "crash_recovery": "pass",
         "benchmark": {

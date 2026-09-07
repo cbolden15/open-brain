@@ -15,8 +15,9 @@ migration, and erasure incompatible.
 ### Canonical JSON and dependencies
 
 The engine requires `rfc8785>=0.1.4,<0.2`. Request bodies and commit batches are canonicalized with
-that package and hashed with SHA-256. The implementation rejects duplicate JSON names before
-canonicalization. It does not substitute `json.dumps` or another encoder.
+that package and hashed with SHA-256. The strict protocol decoder rejects duplicate JSON names,
+non-finite numbers, invalid UTF-8, and values outside the RFC 8785 data model before operation
+dispatch. It does not substitute `json.dumps` or another encoder.
 
 The Reference Node uses `sqlcipher3==0.6.2`, which bundles SQLCipher 4.12.0 Community Edition, for
 the encrypted SQLite ledger, replay store, and FTS projections. `sqlcipher3`, `cryptography`,
@@ -24,10 +25,15 @@ the encrypted SQLite ledger, replay store, and FTS projections. `sqlcipher3`, `c
 The top-level application selects that extra and directly includes Starlette and Uvicorn. A user
 installs `open-brain` without naming an extra.
 
-The compatibility record is `release/m1-compatibility.json`. It records Python 3.12, 3.13, and 3.14
-on macOS ARM64 and Linux x86_64 for both wheel-only and source builds. Every cell runs RFC 8785,
-keyed reopen, wrong-key rejection, FTS5, plaintext residue, unclean-process recovery, commit, and
-paged-read probes. Windows is outside M1. Phase 4 evidence stays unchanged.
+The compatibility summary is `release/m1-compatibility.json`; the sanitized per-command receipts,
+stdout, stderr, setup hashes, and exact cell results are in
+`release/m1-compatibility-receipts.json`. The summary pins the raw-receipt and probe SHA-256 values.
+`tools/m1/compatibility_matrix.py` reproduces the matrix with a 900-second bound per cell. It records
+Python 3.12, 3.13, and 3.14 on macOS ARM64 and Linux x86_64 for both wheel-only and source builds.
+Every cell runs RFC 8785, keyed reopen, wrong-key rejection, FTS5, logical purge, plaintext residue,
+unclean-process recovery, commit, and paged-read probes. Logical purge checks both canonical and FTS
+queries before and after checkpoint and vacuum; encrypted-file residue scanning is a separate
+check. Windows is outside M1. Phase 4 evidence stays unchanged.
 
 ### Encrypted database profile
 
@@ -61,10 +67,13 @@ destroys scoped wrapped keys and verifies that no remaining key path decrypts th
 
 ### Root key custody and passphrase fallback
 
-`RootKeyCustodian` owns bootstrap, explicit unlock, restart, rotation, and destruction for Brain
-root, owner, issuer, Node signing, database, and wrapping keys. It returns opaque handles, never key
-bytes. The production adapter prefers an OS secret store. Plaintext root keys inside the Brain root
-are forbidden. The in-memory provider is test-only and cannot satisfy acceptance.
+`RootKeyCustodian` owns bootstrap, explicit unlock, restart, derivation, data-key generation,
+public-key access, signing, authenticated encryption and decryption, key wrapping and unwrapping,
+rotation, and destruction for Brain root, owner, issuer, Node signing, database, wrapping, and data
+keys. Secret key bytes never cross the port; callers receive purpose- and Brain-scoped opaque
+handles and typed envelopes. Rotation and destruction require fresh user-presence evidence. The
+production adapter prefers an OS secret store. Plaintext root keys inside the Brain root are
+forbidden. The in-memory provider is test-only and cannot satisfy acceptance.
 
 The portable fallback stores an owner-only passphrase envelope outside the Brain root. It derives a
 256-bit envelope key with Argon2id version 19, 64 MiB memory, 3 iterations, 4 lanes, a fresh 128-bit
@@ -93,8 +102,10 @@ filesystem types and known synchronized roots. Unrecognized synchronization tool
 The root and runtime directories use mode `0700`; regular sensitive files use `0600`.
 
 The sequencer lease binds Brain ID, generated machine-instance ID, Node ID, epoch, and last cursor.
-A copied identity is write-paused. Cold transfer requires a signed stop proof from the old machine
-and an owner-signed certificate that advances the epoch. The old epoch cannot resume writes.
+A copied identity is write-paused. Cold transfer requires a Node-signed stop proof binding the old
+Node, machine instance, epoch, and ledger head, plus an owner-signed certificate binding that proof,
+the next Node and public key, both machine instances, the same prior head, and exactly the next
+epoch. The transfer cannot predate the stop proof. The old epoch cannot resume writes.
 
 ### Durable and portable state
 

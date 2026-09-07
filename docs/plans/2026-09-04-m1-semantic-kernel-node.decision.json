@@ -1,7 +1,7 @@
 {
   "id": "2026-09-04-m1-semantic-kernel-node-notes",
   "title": "Implementation notes - M1 public semantic kernel and reference Node",
-  "subtitle": "M1-W0 complete; W0 gate closed · 2026-09-06 23:33 CDT",
+  "subtitle": "M1-W0 independent-review remediation in progress; W1 locked · 2026-09-07 01:01 CDT",
   "introTitle": "How to use",
   "intro": "<p>Each item is a decision, deviation, or tradeoff made during implementation. <strong>Acknowledge</strong> if fine. <strong>Discuss</strong> to write what should change. <strong>Revert</strong> to flag for undo.</p>",
   "actions": [
@@ -178,12 +178,23 @@
     {
       "id": "N13",
       "group": "m1-w0",
-      "title": "Implementation complete",
+      "title": "Initial implementation did not pass independent review",
       "action": "acknowledge",
       "body": {
-        "What I did": "Completed every M1-W0 checkbox, froze the executable protocol authority and compatibility evidence, and stopped before M1-W1.",
-        "Verification": "The 82-test focused W0 suite, targeted Ruff, targeted MyPy, artifact policy, packaging isolation, and git diff checks pass. The broader runnable suite has 3,285 passing tests with the single managed-runner sandbox exception recorded in N12.",
-        "Gate": "M1-W1 is allowed to start from the resulting verified local checkpoint; no W1 implementation was started."
+        "What happened": "The execution driver reported M1-W0 complete at commit a6d92a9, but a fresh independent review found three P1, five P2, and three P3 contract or evidence gaps. The completion claim was withdrawn immediately.",
+        "Main gaps": "Grant and receipt authority data, independently verifiable trust and transfer formats, logical purge proof, complete changes and record envelopes, usable custody ports, adversarial negative cases, typed commit results, request-binding validation, durable raw matrix receipts, and cross-shard RRF evidence.",
+        "Gate": "M1-W1 remains locked until remediation passes the focused checks, full make verify, artifact verification, and a fresh independent rereview."
+      }
+    },
+    {
+      "id": "N14",
+      "group": "m1-w0",
+      "title": "Remediating W0 at the protocol and evidence boundaries",
+      "default": "acknowledge",
+      "body": {
+        "What I did": "Expanded the executable schema catalog, added cross-field semantic validation, replaced placeholder signatures with deterministic Ed25519 trust vectors, froze operational key-custody methods, made purge evidence prove row and FTS deletion, changed the synthetic benchmark to RRF-60, and ran a fresh reproducible 12-cell storage matrix.",
+        "Evidence": "All 12 source and wheel cells passed on macOS ARM64 and Linux x86_64 for Python 3.12 through 3.14. The aggregate raw receipt records sanitized reproduction commands, exact probe stdout, and the hardened probe SHA-256.",
+        "Risk": "This note records remediation in progress, not W0 acceptance. Documentation, complete verification, and independent rereview remain required before the gate can close."
       }
     }
   ]

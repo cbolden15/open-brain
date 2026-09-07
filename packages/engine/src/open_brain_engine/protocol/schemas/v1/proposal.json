@@ -1,28 +1,19 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "urn:open-brain:protocol:v1:revision",
+  "$id": "urn:open-brain:protocol:v1:proposal",
   "type": "object",
   "properties": {
     "schema_version": { "$ref": "urn:open-brain:protocol:v1:common#/$defs/schema_version" },
-    "kind": { "const": "revision" },
+    "kind": { "const": "proposal" },
     "brain_id": { "$ref": "urn:open-brain:protocol:v1:common#/$defs/brain_id" },
+    "proposal_id": { "$ref": "urn:open-brain:protocol:v1:common#/$defs/proposal_id" },
+    "proposal_revision_id": {
+      "$ref": "urn:open-brain:protocol:v1:common#/$defs/revision_id"
+    },
     "artifact_id": { "$ref": "urn:open-brain:protocol:v1:common#/$defs/artifact_id" },
-    "revision_id": { "$ref": "urn:open-brain:protocol:v1:common#/$defs/revision_id" },
     "base_revision_id": {
       "oneOf": [
         { "$ref": "urn:open-brain:protocol:v1:common#/$defs/revision_id" },
-        { "type": "null" }
-      ]
-    },
-    "accepted_from_proposal_id": {
-      "oneOf": [
-        { "$ref": "urn:open-brain:protocol:v1:common#/$defs/proposal_id" },
-        { "type": "null" }
-      ]
-    },
-    "decision_id": {
-      "oneOf": [
-        { "$ref": "urn:open-brain:protocol:v1:common#/$defs/decision_id" },
         { "type": "null" }
       ]
     },
@@ -32,22 +23,21 @@
     "compartments": { "$ref": "urn:open-brain:protocol:v1:common#/$defs/compartments" },
     "provenance": { "$ref": "urn:open-brain:protocol:v1:provenance" },
     "body": { "type": "object" },
-    "created_at": { "$ref": "urn:open-brain:protocol:v1:common#/$defs/timestamp" }
+    "proposed_at": { "$ref": "urn:open-brain:protocol:v1:common#/$defs/timestamp" }
   },
   "required": [
     "schema_version",
     "kind",
     "brain_id",
+    "proposal_id",
+    "proposal_revision_id",
     "artifact_id",
-    "revision_id",
     "base_revision_id",
-    "accepted_from_proposal_id",
-    "decision_id",
     "content_schema",
     "compartments",
     "provenance",
     "body",
-    "created_at"
+    "proposed_at"
   ],
   "additionalProperties": false
 }

@@ -10,9 +10,59 @@
       "uniqueItems": true,
       "items": { "$ref": "urn:open-brain:protocol:v1:common#/$defs/record_id" }
     },
-    "processor": { "type": ["string", "null"], "maxLength": 128 },
+    "source_revision_ids": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": { "$ref": "urn:open-brain:protocol:v1:common#/$defs/revision_id" }
+    },
+    "processor": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "processor_id": { "type": "string", "pattern": "^[a-z][a-z0-9_.-]{0,127}$" },
+            "version": { "type": "string", "minLength": 1, "maxLength": 64 }
+          },
+          "required": ["processor_id", "version"],
+          "additionalProperties": false
+        },
+        { "type": "null" }
+      ]
+    },
     "derivation": { "enum": ["owner", "import", "processor", "replacement"] }
   },
-  "required": ["schema_version", "brain_id", "source_record_ids", "processor", "derivation"],
+  "required": [
+    "schema_version",
+    "brain_id",
+    "source_record_ids",
+    "source_revision_ids",
+    "processor",
+    "derivation"
+  ],
+  "allOf": [
+    {
+      "if": { "properties": { "derivation": { "const": "processor" } } },
+      "then": {
+        "properties": { "processor": { "type": "object" } },
+        "anyOf": [
+          { "properties": { "source_record_ids": { "minItems": 1 } } },
+          { "properties": { "source_revision_ids": { "minItems": 1 } } }
+        ]
+      }
+    },
+    {
+      "if": { "properties": { "derivation": { "const": "replacement" } } },
+      "then": {
+        "anyOf": [
+          { "properties": { "source_record_ids": { "minItems": 1 } } },
+          { "properties": { "source_revision_ids": { "minItems": 1 } } }
+        ]
+      }
+    },
+    {
+      "if": { "properties": { "derivation": { "enum": ["owner", "import"] } } },
+      "then": { "properties": { "processor": { "type": "null" } } }
+    }
+  ],
   "additionalProperties": false
 }

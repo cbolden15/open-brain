@@ -1,8 +1,15 @@
 {
   "schema_version": 1,
   "phase": "M1-W0",
-  "generated_at": "2026-09-06",
+  "generated_at": "2026-09-07",
   "evidence_scope": "synthetic public compatibility and boundary probes only",
+  "raw_receipts": {
+    "path": "release/m1-compatibility-receipts.json",
+    "sha256": "f586448d1b0cc0b7b5076053897e54cfc39ccbc4c1c24ab96bebe5a5c1d7a9ab",
+    "runner": "tools/m1/compatibility_matrix.py",
+    "probe": "tools/m1/compatibility_probe.py",
+    "probe_sha256": "90be6701ff5d18557a69d1d6ccbe7915d2ef23abac888ea8d07fbead9917e8e0"
+  },
   "python_range": ">=3.12,<3.15",
   "platforms": [
     {
@@ -118,13 +125,14 @@
         "fts5": "passed",
         "keyed_reopen": "passed",
         "paged_reads": "passed",
+        "purge_logical_deletion": "passed",
         "purge_plaintext_residue": "passed",
         "source_or_wheel_install": "passed",
         "wrong_key_rejection": "passed"
       },
       "measurements": {
-        "commit_256_rows_seconds": 0.019598,
-        "paged_read_2048_rows_seconds": 0.004064
+        "commit_256_rows_seconds": 0.018665,
+        "paged_read_2048_rows_seconds": 0.004321
       }
     },
     {
@@ -145,13 +153,14 @@
         "fts5": "passed",
         "keyed_reopen": "passed",
         "paged_reads": "passed",
+        "purge_logical_deletion": "passed",
         "purge_plaintext_residue": "passed",
         "source_or_wheel_install": "passed",
         "wrong_key_rejection": "passed"
       },
       "measurements": {
-        "commit_256_rows_seconds": 0.03507,
-        "paged_read_2048_rows_seconds": 0.004133
+        "commit_256_rows_seconds": 0.016688,
+        "paged_read_2048_rows_seconds": 0.004016
       }
     },
     {
@@ -172,13 +181,14 @@
         "fts5": "passed",
         "keyed_reopen": "passed",
         "paged_reads": "passed",
+        "purge_logical_deletion": "passed",
         "purge_plaintext_residue": "passed",
         "source_or_wheel_install": "passed",
         "wrong_key_rejection": "passed"
       },
       "measurements": {
-        "commit_256_rows_seconds": 0.017342,
-        "paged_read_2048_rows_seconds": 0.003842
+        "commit_256_rows_seconds": 0.018161,
+        "paged_read_2048_rows_seconds": 0.003958
       }
     },
     {
@@ -199,13 +209,14 @@
         "fts5": "passed",
         "keyed_reopen": "passed",
         "paged_reads": "passed",
+        "purge_logical_deletion": "passed",
         "purge_plaintext_residue": "passed",
         "source_or_wheel_install": "passed",
         "wrong_key_rejection": "passed"
       },
       "measurements": {
-        "commit_256_rows_seconds": 0.018569,
-        "paged_read_2048_rows_seconds": 0.003876
+        "commit_256_rows_seconds": 0.017077,
+        "paged_read_2048_rows_seconds": 0.004201
       }
     },
     {
@@ -226,13 +237,14 @@
         "fts5": "passed",
         "keyed_reopen": "passed",
         "paged_reads": "passed",
+        "purge_logical_deletion": "passed",
         "purge_plaintext_residue": "passed",
         "source_or_wheel_install": "passed",
         "wrong_key_rejection": "passed"
       },
       "measurements": {
-        "commit_256_rows_seconds": 0.019435,
-        "paged_read_2048_rows_seconds": 0.00382
+        "commit_256_rows_seconds": 0.017932,
+        "paged_read_2048_rows_seconds": 0.004131
       }
     },
     {
@@ -253,13 +265,14 @@
         "fts5": "passed",
         "keyed_reopen": "passed",
         "paged_reads": "passed",
+        "purge_logical_deletion": "passed",
         "purge_plaintext_residue": "passed",
         "source_or_wheel_install": "passed",
         "wrong_key_rejection": "passed"
       },
       "measurements": {
-        "commit_256_rows_seconds": 0.01868,
-        "paged_read_2048_rows_seconds": 0.004203
+        "commit_256_rows_seconds": 0.018335,
+        "paged_read_2048_rows_seconds": 0.004171
       }
     },
     {
@@ -280,13 +293,14 @@
         "fts5": "passed",
         "keyed_reopen": "passed",
         "paged_reads": "passed",
+        "purge_logical_deletion": "passed",
         "purge_plaintext_residue": "passed",
         "source_or_wheel_install": "passed",
         "wrong_key_rejection": "passed"
       },
       "measurements": {
-        "commit_256_rows_seconds": 0.608888,
-        "paged_read_2048_rows_seconds": 0.008189
+        "commit_256_rows_seconds": 0.126623,
+        "paged_read_2048_rows_seconds": 0.008654
       }
     },
     {
@@ -307,13 +321,14 @@
         "fts5": "passed",
         "keyed_reopen": "passed",
         "paged_reads": "passed",
+        "purge_logical_deletion": "passed",
         "purge_plaintext_residue": "passed",
         "source_or_wheel_install": "passed",
         "wrong_key_rejection": "passed"
       },
       "measurements": {
-        "commit_256_rows_seconds": 0.125482,
-        "paged_read_2048_rows_seconds": 0.007546
+        "commit_256_rows_seconds": 0.131661,
+        "paged_read_2048_rows_seconds": 0.009818
       }
     },
     {
@@ -334,13 +349,14 @@
         "fts5": "passed",
         "keyed_reopen": "passed",
         "paged_reads": "passed",
+        "purge_logical_deletion": "passed",
         "purge_plaintext_residue": "passed",
         "source_or_wheel_install": "passed",
         "wrong_key_rejection": "passed"
       },
       "measurements": {
-        "commit_256_rows_seconds": 0.128603,
-        "paged_read_2048_rows_seconds": 0.007617
+        "commit_256_rows_seconds": 0.126784,
+        "paged_read_2048_rows_seconds": 0.009234
       }
     },
     {
@@ -361,13 +377,14 @@
         "fts5": "passed",
         "keyed_reopen": "passed",
         "paged_reads": "passed",
+        "purge_logical_deletion": "passed",
         "purge_plaintext_residue": "passed",
         "source_or_wheel_install": "passed",
         "wrong_key_rejection": "passed"
       },
       "measurements": {
-        "commit_256_rows_seconds": 0.331689,
-        "paged_read_2048_rows_seconds": 0.008867
+        "commit_256_rows_seconds": 0.168749,
+        "paged_read_2048_rows_seconds": 0.007977
       }
     },
     {
@@ -388,13 +405,14 @@
         "fts5": "passed",
         "keyed_reopen": "passed",
         "paged_reads": "passed",
+        "purge_logical_deletion": "passed",
         "purge_plaintext_residue": "passed",
         "source_or_wheel_install": "passed",
         "wrong_key_rejection": "passed"
       },
       "measurements": {
-        "commit_256_rows_seconds": 0.141673,
-        "paged_read_2048_rows_seconds": 0.007712
+        "commit_256_rows_seconds": 0.12852,
+        "paged_read_2048_rows_seconds": 0.00816
       }
     },
     {
@@ -415,13 +433,14 @@
         "fts5": "passed",
         "keyed_reopen": "passed",
         "paged_reads": "passed",
+        "purge_logical_deletion": "passed",
         "purge_plaintext_residue": "passed",
         "source_or_wheel_install": "passed",
         "wrong_key_rejection": "passed"
       },
       "measurements": {
-        "commit_256_rows_seconds": 0.155504,
-        "paged_read_2048_rows_seconds": 0.008563
+        "commit_256_rows_seconds": 0.137049,
+        "paged_read_2048_rows_seconds": 0.009
       }
     }
   ],
@@ -480,6 +499,11 @@
     ]
   },
   "synthetic_corpus": {
+    "command": "uv run python tools/m1/synthetic_corpus.py",
+    "linux_command": "docker run --rm --platform linux/amd64 --mount type=bind,src=${REPO},dst=/work,readonly -w /work python:3.14-slim sh -lc 'python -m pip install --only-binary=:all: rfc8785==0.1.4 sqlcipher3==0.6.2 && python tools/m1/synthetic_corpus.py'",
+    "generator_path": "tools/m1/synthetic_corpus.py",
+    "generator_sha256": "933b856ec178a52f899375cf56dbb5d4306364f2269a305a243fe06c1d0c6ff7",
+    "ranking_method": "within-shard BM25 ordering followed by cross-shard reciprocal-rank fusion; raw BM25 values never cross shard boundaries",
     "generator": {
       "version": 1,
       "seed": "open-brain-m1-v1-20260906",
@@ -498,13 +522,15 @@
         "architecture": "arm64",
         "python": "3.14.4",
         "benchmark": {
-          "load_seconds": 0.638347,
+          "load_seconds": 0.649988,
           "commit_batch_items": 128,
-          "commit_batch_seconds": 0.001006,
+          "commit_batch_seconds": 0.000992,
           "query_fanout_per_round": 32,
           "query_rounds": 8,
           "final_top_k": 100,
-          "query_seconds": 0.144884
+          "fusion": "reciprocal_rank",
+          "reciprocal_rank_constant": 60,
+          "query_seconds": 0.151203
         }
       },
       {
@@ -513,13 +539,15 @@
         "architecture": "x86_64",
         "python": "3.14.7",
         "benchmark": {
-          "load_seconds": 1.361728,
+          "load_seconds": 1.307775,
           "commit_batch_items": 128,
-          "commit_batch_seconds": 0.003195,
+          "commit_batch_seconds": 0.003814,
           "query_fanout_per_round": 32,
           "query_rounds": 8,
           "final_top_k": 100,
-          "query_seconds": 0.379962
+          "fusion": "reciprocal_rank",
+          "reciprocal_rank_constant": 60,
+          "query_seconds": 0.402773
         }
       }
     ]

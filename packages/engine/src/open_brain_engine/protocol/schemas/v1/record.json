@@ -8,10 +8,30 @@
     "brain_id": { "$ref": "urn:open-brain:protocol:v1:common#/$defs/brain_id" },
     "record_id": { "$ref": "urn:open-brain:protocol:v1:common#/$defs/record_id" },
     "record_type": { "type": "string", "pattern": "^[a-z][a-z0-9_.-]{0,63}$" },
+    "content_schema": {
+      "$ref": "urn:open-brain:protocol:v1:common#/$defs/schema_reference"
+    },
+    "producer_principal_id": {
+      "$ref": "urn:open-brain:protocol:v1:common#/$defs/principal_id"
+    },
+    "origin_id": { "type": ["string", "null"], "minLength": 1, "maxLength": 256 },
+    "captured_at": {
+      "oneOf": [
+        { "$ref": "urn:open-brain:protocol:v1:common#/$defs/timestamp" },
+        { "type": "null" }
+      ]
+    },
+    "observed_at": { "$ref": "urn:open-brain:protocol:v1:common#/$defs/timestamp" },
     "compartments": { "$ref": "urn:open-brain:protocol:v1:common#/$defs/compartments" },
     "provenance": { "$ref": "urn:open-brain:protocol:v1:provenance" },
     "body": { "type": "object" },
-    "created_at": { "$ref": "urn:open-brain:protocol:v1:common#/$defs/timestamp" }
+    "ciphertext_state": { "enum": ["pending", "verified", "unknown_historical"] },
+    "ciphertext_digest": {
+      "oneOf": [
+        { "$ref": "urn:open-brain:protocol:v1:common#/$defs/digest" },
+        { "type": "null" }
+      ]
+    }
   },
   "required": [
     "schema_version",
@@ -19,10 +39,29 @@
     "brain_id",
     "record_id",
     "record_type",
+    "content_schema",
+    "producer_principal_id",
+    "origin_id",
+    "captured_at",
+    "observed_at",
     "compartments",
     "provenance",
     "body",
-    "created_at"
+    "ciphertext_state",
+    "ciphertext_digest"
+  ],
+  "allOf": [
+    {
+      "if": { "properties": { "ciphertext_state": { "const": "verified" } } },
+      "then": {
+        "properties": {
+          "ciphertext_digest": {
+            "$ref": "urn:open-brain:protocol:v1:common#/$defs/digest"
+          }
+        }
+      },
+      "else": { "properties": { "ciphertext_digest": { "type": "null" } } }
+    }
   ],
   "additionalProperties": false
 }

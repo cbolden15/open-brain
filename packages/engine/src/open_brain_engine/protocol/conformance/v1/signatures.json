@@ -11,5 +11,180 @@
     "canonical_request_binding": "{\"body_digest\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"brain_id\":\"brn_aaaaaaaaaaaaaaaaaaaaaaaaaa\",\"delivery_id\":\"dlv_aaaaaaaaaaaaaaaaaaaaaaaaaa\",\"method\":\"query\",\"nonce\":\"non_aaaaaaaaaaaaaaaaaaaaaaaaaa\"}",
     "principal_public_key": "ebVWLo_mVPlAeLES6KmLp5AfhTrmlb7X4OORC60ElmQ",
     "principal_signature": "9BnfQQo6rZ-QYILYr1R67pt8aamrSQc2HalVvI2eEAuVBMEn-LDJYsr2jX8GJNMlakW2WW5Ncxh1YoleucnTCQ"
+  },
+  {
+    "case": "owner-key-genesis-certificate-v1",
+    "contract": "owner-key-certificate",
+    "verification_public_key": "ebVWLo_mVPlAeLES6KmLp5AfhTrmlb7X4OORC60ElmQ",
+    "pinned_public_key_sha256": "65b60673d6ed884bf01c2c222d82ada0740f29ac3355d6a925c81f17f47a27b8",
+    "signed_payload_sha256": "4063d4f831981f9d82851a4f08db0af62c7bd9e2cde9cf71ce0ad782212981d4",
+    "document": {
+      "schema_version": 1,
+      "brain_id": "brn_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "owner_key_id": "key_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "owner_public_key": "ebVWLo_mVPlAeLES6KmLp5AfhTrmlb7X4OORC60ElmQ",
+      "owner_epoch": 1,
+      "previous_owner_key_id": null,
+      "valid_from": "2026-09-06T12:00:00Z",
+      "retired_at": null,
+      "certifying_owner_key_id": "key_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "owner_signature": "edEbtXNcyvOW0IoU-9BfcRPoNVVY5WKfLQ05i2mxbyU6vxBnOF7ATCw-IN1P48FLeXe7DD5Tu-l6--D1NB1ZBg"
+    }
+  },
+  {
+    "case": "owner-signed-node-epoch-certificate-v1",
+    "contract": "node-epoch-certificate",
+    "verification_public_key": "ebVWLo_mVPlAeLES6KmLp5AfhTrmlb7X4OORC60ElmQ",
+    "signed_payload_sha256": "c3465f17751c6591f35b740e502e28488d2e58e1cbbae552a47fd95189a4ecd6",
+    "document": {
+      "schema_version": 1,
+      "brain_id": "brn_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "node_id": "nod_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "node_key_id": "key_bbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "node_public_key": "5_FioQvsVZr-oZXk3OhLaVaNXSywlj60RsBoXisX8vA",
+      "sequencer_epoch": 1,
+      "prior_ledger_head": null,
+      "owner_key_id": "key_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "issued_at": "2026-09-06T12:00:00Z",
+      "owner_signature": "36ogpGPe6vCLXEKCnpGK1sZHIVv6nsUeMHI78t-6h4QzIn3ki8VnWGKQMioXyl1jqPvk4oyYf22pJExFRxg3BQ"
+    }
+  },
+  {
+    "case": "node-signed-receipt-chain-v1",
+    "contract": "receipt",
+    "verification_public_key": "5_FioQvsVZr-oZXk3OhLaVaNXSywlj60RsBoXisX8vA",
+    "signed_payload_sha256": "f47d48499077e2077b942e172dc396969f456c5d902ed0ef5fbaf1a445f6571c",
+    "document": {
+      "schema_version": 1,
+      "receipt_id": "rcp_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "brain_id": "brn_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "commit_id": "cmt_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "delivery_id": "dlv_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "cursor": "cur_v1_aaaaaaaaaaaaaaaa",
+      "commit_digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "issuer_epoch": 1,
+      "policy_digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "sequencer_epoch": 1,
+      "node_key_id": "key_bbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "node_epoch_certificate": {
+        "schema_version": 1,
+        "brain_id": "brn_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "node_id": "nod_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "node_key_id": "key_bbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "node_public_key": "5_FioQvsVZr-oZXk3OhLaVaNXSywlj60RsBoXisX8vA",
+        "sequencer_epoch": 1,
+        "prior_ledger_head": null,
+        "owner_key_id": "key_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "issued_at": "2026-09-06T12:00:00Z",
+        "owner_signature": "36ogpGPe6vCLXEKCnpGK1sZHIVv6nsUeMHI78t-6h4QzIn3ki8VnWGKQMioXyl1jqPvk4oyYf22pJExFRxg3BQ"
+      },
+      "owner_key_history": [
+        {
+          "schema_version": 1,
+          "brain_id": "brn_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "owner_key_id": "key_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "owner_public_key": "ebVWLo_mVPlAeLES6KmLp5AfhTrmlb7X4OORC60ElmQ",
+          "owner_epoch": 1,
+          "previous_owner_key_id": null,
+          "valid_from": "2026-09-06T12:00:00Z",
+          "retired_at": null,
+          "certifying_owner_key_id": "key_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "owner_signature": "edEbtXNcyvOW0IoU-9BfcRPoNVVY5WKfLQ05i2mxbyU6vxBnOF7ATCw-IN1P48FLeXe7DD5Tu-l6--D1NB1ZBg"
+        }
+      ],
+      "issued_at": "2026-09-06T12:00:00Z",
+      "node_signature": "CCQvsMsrwTBH7uPSOaGWlnVJowdHo3oj6b9u3hngppU8tSAgmfjkoPd6xtGxp9roGfUkN-MlCOC-oIizkszSAw"
+    }
+  },
+  {
+    "case": "issuer-signed-grant-v1",
+    "contract": "grant",
+    "verification_public_key": "rcFAEfgtHFbZVqpPnXPYhYNhpgYEhSXg0Ixjjcdd2Mc",
+    "signed_payload_sha256": "30a79bcff1fd5bb26caa9567c6fac53626e05ce4b474f14decc18b207b7d5bf9",
+    "document": {
+      "schema_version": 1,
+      "grant_id": "grt_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "brain_id": "brn_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "issuer_key_id": "key_cccccccccccccccccccccccccc",
+      "issuer_epoch": 1,
+      "policy_epoch": 1,
+      "policy_digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "principal_id": "pri_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "principal_public_key": "ebVWLo_mVPlAeLES6KmLp5AfhTrmlb7X4OORC60ElmQ",
+      "principal_epoch": 1,
+      "scopes": ["query", "inspect.metadata"],
+      "compartments": ["personal.notes"],
+      "record_schemas": [
+        {
+          "schema_id": "note",
+          "version": 1,
+          "uri": "urn:open-brain:schema:note:v1",
+          "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        }
+      ],
+      "body_visibility": "metadata",
+      "limits": {
+        "commit_batch_items": 128,
+        "blob_staging_bytes": 67108864,
+        "concurrent_requests": 8,
+        "retained_nonces": 10000,
+        "query_top_k": 100,
+        "query_pages": 256
+      },
+      "issued_at": "2026-09-06T12:00:00Z",
+      "expires_at": "2026-09-06T12:10:00Z",
+      "ttl_seconds": 600,
+      "issuer_signature": "ZoP_PwEuv20Fx5v_O9hxqobihKlCbZUald4VUFI-bJk9VgAY_jkpkIw7Bh8Oke9io_tUXo2i3uLv36IsfeFVCQ"
+    }
+  },
+  {
+    "case": "node-signed-sequencer-stop-proof-v1",
+    "contract": "sequencer-stop-proof",
+    "verification_public_key": "5_FioQvsVZr-oZXk3OhLaVaNXSywlj60RsBoXisX8vA",
+    "signed_payload_sha256": "e730750f018f25aae34e1ac8acf5b597e398c2dde6e5013d4a4c0b3f503dbdde",
+    "document": {
+      "schema_version": 1,
+      "stop_proof_id": "stp_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "brain_id": "brn_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "node_id": "nod_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "node_key_id": "key_bbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "machine_instance": "machine_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "epoch": 1,
+      "last_ledger_head": {
+        "cursor": "cur_v1_aaaaaaaaaaaaaaaa",
+        "commit_id": "cmt_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "commit_digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "stopped_at": "2026-09-06T12:00:00Z",
+      "node_signature": "V-1CetqE1fSUBMkXCC9MQ6hYStyKNp-ImUgmduiE9SHY6gIuXuxz_P2qoum5w52p9TcCLT5qXYBN_czdzATlCA"
+    }
+  },
+  {
+    "case": "owner-signed-cold-transfer-v1",
+    "contract": "cold-transfer-certificate",
+    "verification_public_key": "ebVWLo_mVPlAeLES6KmLp5AfhTrmlb7X4OORC60ElmQ",
+    "signed_payload_sha256": "1cf75620294da04046e8da4231613c1d5e8e64fc15eed0b3a9b13003d90454a2",
+    "document": {
+      "schema_version": 1,
+      "transfer_id": "xfr_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "brain_id": "brn_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "from_node_id": "nod_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "from_machine_instance": "machine_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "to_node_id": "nod_bbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "to_machine_instance": "machine_bbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "next_node_key_id": "key_dddddddddddddddddddddddddd",
+      "next_node_public_key": "iC0Oo7KGTnpYfz5pjOpEWZmDEuZV4F-l6LURnYuqyM0",
+      "previous_epoch": 1,
+      "next_epoch": 2,
+      "prior_ledger_head": {
+        "cursor": "cur_v1_aaaaaaaaaaaaaaaa",
+        "commit_id": "cmt_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "commit_digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "stop_proof_id": "stp_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "owner_key_id": "key_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "issued_at": "2026-09-06T12:01:00Z",
+      "owner_signature": "UsbhKtFAwO7hoi8VEloif1gIYxqhabIYmNt0YmjsWmMMC_FgTg4LUYt202Ff9q_poOJEFR4uQrTEm-yeMFayAg"
+    }
   }
 ]

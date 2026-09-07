@@ -44,6 +44,7 @@ exclude = ["/.gitignore"]
 [tool.hatch.build.targets.sdist.force-include]
 "../../release/phase4-compatibility.json" = "release/phase4-compatibility.json"
 "../../release/phase4-toolchain.json" = "release/phase4-toolchain.json"
+"../../release/m1-compatibility-receipts.json" = "release/m1-compatibility-receipts.json"
 "../../release/m1-compatibility.json" = "release/m1-compatibility.json"
 "../../release/public-history-allowlist.json" = "release/public-history-allowlist.json"
 "../../release/v0-artifact-policy.json" = "release/v0-artifact-policy.json"

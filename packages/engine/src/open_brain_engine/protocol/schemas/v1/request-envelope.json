@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:open-brain:protocol:v1:request-envelope",
+  "type": "object",
+  "properties": {
+    "schema_version": { "$ref": "urn:open-brain:protocol:v1:common#/$defs/schema_version" },
+    "grant_id": { "$ref": "urn:open-brain:protocol:v1:common#/$defs/grant_id" },
+    "binding": { "$ref": "urn:open-brain:protocol:v1:request-binding" },
+    "principal_signature": {
+      "$ref": "urn:open-brain:protocol:v1:common#/$defs/ed25519_signature"
+    }
+  },
+  "required": ["schema_version", "grant_id", "binding", "principal_signature"],
+  "additionalProperties": false
+}

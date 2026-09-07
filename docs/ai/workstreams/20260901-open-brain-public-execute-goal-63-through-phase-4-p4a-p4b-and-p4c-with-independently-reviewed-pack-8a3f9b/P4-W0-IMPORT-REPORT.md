@@ -227,6 +227,7 @@ Generated from `docs/v0-package-classification.json`; do not edit by hand.
 | `src/open_brain/protocol/freeze.py` | `packages/engine/src/open_brain_engine/protocol/freeze.py` | `moved` | `open_brain.protocol.freeze` | `open_brain_engine.protocol.freeze` | `remove` |
 | `src/open_brain/protocol/identifiers.py` | `packages/engine/src/open_brain_engine/protocol/identifiers.py` | `moved` | `open_brain.protocol.identifiers` | `open_brain_engine.protocol.identifiers` | `remove` |
 | `src/open_brain/protocol/resources.py` | `packages/engine/src/open_brain_engine/protocol/resources.py` | `moved` | `open_brain.protocol.resources` | `open_brain_engine.protocol.resources` | `remove` |
+| `src/open_brain/protocol/validation.py` | `packages/engine/src/open_brain_engine/protocol/validation.py` | `moved` | `open_brain.protocol.validation` | `open_brain_engine.protocol.validation` | `remove` |
 | `src/open_brain/providers/__init__.py` | `packages/engine/src/open_brain_engine/providers/__init__.py` | `moved` | `open_brain.providers` | `open_brain_engine.providers` | `remove` |
 | `src/open_brain/providers/base.py` | `packages/engine/src/open_brain_engine/providers/base.py` | `moved` | `open_brain.providers.base` | `open_brain_engine.providers.base` | `remove` |
 | `src/open_brain/providers/deterministic.py` | `packages/engine/src/open_brain_engine/providers/deterministic.py` | `moved` | `open_brain.providers.deterministic` | `open_brain_engine.providers.deterministic` | `remove` |

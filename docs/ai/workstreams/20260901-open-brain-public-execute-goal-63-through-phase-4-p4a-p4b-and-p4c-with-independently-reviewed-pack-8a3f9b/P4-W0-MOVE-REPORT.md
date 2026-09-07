@@ -2,12 +2,12 @@
 
 Generated from `docs/v0-package-classification.json`; do not edit by hand.
 
-- Total subjects: `689`
+- Total subjects: `698`
 - app: `81`
 - connectors: `18`
-- engine: `136`
+- engine: `143`
 - legacy: `333`
-- workspace: `121`
+- workspace: `123`
 
 | Source identity | Current subject | State | Kind | Distribution | Target | Artifacts |
 |---|---|---|---|---|---|---|
@@ -74,6 +74,7 @@ Generated from `docs/v0-package-classification.json`; do not edit by hand.
 | `pyproject.toml` | `pyproject.toml` | `moved` | `release-tool` | `workspace` | `pyproject.toml` | `excluded` |
 | `pyproject.toml#project.scripts.open-brain` | `packages/app/pyproject.toml#project.scripts.open-brain` | `moved` | `entry-point` | `app` | `packages/app/pyproject.toml#project.scripts.open-brain` | `app-native, app-sdist, app-wheel` |
 | `pyproject.toml#project.scripts.open-brain-mcp` | `packages/app/pyproject.toml#project.scripts.open-brain-mcp` | `moved` | `entry-point` | `app` | `packages/app/pyproject.toml#project.scripts.open-brain-mcp` | `app-native, app-sdist, app-wheel` |
+| `release/m1-compatibility-receipts.json` | `release/m1-compatibility-receipts.json` | `moved` | `release-resource` | `workspace` | `release/m1-compatibility-receipts.json` | `app-sdist, engine-sdist` |
 | `release/m1-compatibility.json` | `release/m1-compatibility.json` | `moved` | `release-resource` | `workspace` | `release/m1-compatibility.json` | `app-sdist, engine-sdist` |
 | `release/native/open-brain.spec` | `release/native/open-brain.spec` | `moved` | `release-tool` | `workspace` | `release/native/open-brain.spec` | `excluded` |
 | `release/phase4-compatibility.json` | `release/phase4-compatibility.json` | `moved` | `release-resource` | `workspace` | `release/phase4-compatibility.json` | `app-sdist, connector-sdist, engine-sdist` |
@@ -98,11 +99,16 @@ Generated from `docs/v0-package-classification.json`; do not edit by hand.
 | `schemas/protocol-v1/changes.json` | `packages/engine/src/open_brain_engine/protocol/schemas/v1/changes.json` | `moved` | `schema` | `engine` | `packages/engine/src/open_brain_engine/protocol/schemas/v1/changes.json` | `engine-sdist, engine-wheel` |
 | `schemas/protocol-v1/cold-transfer-certificate.json` | `packages/engine/src/open_brain_engine/protocol/schemas/v1/cold-transfer-certificate.json` | `moved` | `schema` | `engine` | `packages/engine/src/open_brain_engine/protocol/schemas/v1/cold-transfer-certificate.json` | `engine-sdist, engine-wheel` |
 | `schemas/protocol-v1/commit-batch.json` | `packages/engine/src/open_brain_engine/protocol/schemas/v1/commit-batch.json` | `moved` | `schema` | `engine` | `packages/engine/src/open_brain_engine/protocol/schemas/v1/commit-batch.json` | `engine-sdist, engine-wheel` |
+| `schemas/protocol-v1/commit-result.json` | `packages/engine/src/open_brain_engine/protocol/schemas/v1/commit-result.json` | `moved` | `schema` | `engine` | `packages/engine/src/open_brain_engine/protocol/schemas/v1/commit-result.json` | `engine-sdist, engine-wheel` |
 | `schemas/protocol-v1/common.json` | `packages/engine/src/open_brain_engine/protocol/schemas/v1/common.json` | `moved` | `schema` | `engine` | `packages/engine/src/open_brain_engine/protocol/schemas/v1/common.json` | `engine-sdist, engine-wheel` |
 | `schemas/protocol-v1/decision.json` | `packages/engine/src/open_brain_engine/protocol/schemas/v1/decision.json` | `moved` | `schema` | `engine` | `packages/engine/src/open_brain_engine/protocol/schemas/v1/decision.json` | `engine-sdist, engine-wheel` |
 | `schemas/protocol-v1/durable-job.json` | `packages/engine/src/open_brain_engine/protocol/schemas/v1/durable-job.json` | `moved` | `schema` | `engine` | `packages/engine/src/open_brain_engine/protocol/schemas/v1/durable-job.json` | `engine-sdist, engine-wheel` |
+| `schemas/protocol-v1/effect-receipt.json` | `packages/engine/src/open_brain_engine/protocol/schemas/v1/effect-receipt.json` | `moved` | `schema` | `engine` | `packages/engine/src/open_brain_engine/protocol/schemas/v1/effect-receipt.json` | `engine-sdist, engine-wheel` |
 | `schemas/protocol-v1/grant.json` | `packages/engine/src/open_brain_engine/protocol/schemas/v1/grant.json` | `moved` | `schema` | `engine` | `packages/engine/src/open_brain_engine/protocol/schemas/v1/grant.json` | `engine-sdist, engine-wheel` |
 | `schemas/protocol-v1/inspect.json` | `packages/engine/src/open_brain_engine/protocol/schemas/v1/inspect.json` | `moved` | `schema` | `engine` | `packages/engine/src/open_brain_engine/protocol/schemas/v1/inspect.json` | `engine-sdist, engine-wheel` |
+| `schemas/protocol-v1/node-epoch-certificate.json` | `packages/engine/src/open_brain_engine/protocol/schemas/v1/node-epoch-certificate.json` | `moved` | `schema` | `engine` | `packages/engine/src/open_brain_engine/protocol/schemas/v1/node-epoch-certificate.json` | `engine-sdist, engine-wheel` |
+| `schemas/protocol-v1/owner-key-certificate.json` | `packages/engine/src/open_brain_engine/protocol/schemas/v1/owner-key-certificate.json` | `moved` | `schema` | `engine` | `packages/engine/src/open_brain_engine/protocol/schemas/v1/owner-key-certificate.json` | `engine-sdist, engine-wheel` |
+| `schemas/protocol-v1/proposal.json` | `packages/engine/src/open_brain_engine/protocol/schemas/v1/proposal.json` | `moved` | `schema` | `engine` | `packages/engine/src/open_brain_engine/protocol/schemas/v1/proposal.json` | `engine-sdist, engine-wheel` |
 | `schemas/protocol-v1/provenance.json` | `packages/engine/src/open_brain_engine/protocol/schemas/v1/provenance.json` | `moved` | `schema` | `engine` | `packages/engine/src/open_brain_engine/protocol/schemas/v1/provenance.json` | `engine-sdist, engine-wheel` |
 | `schemas/protocol-v1/purge-transition.json` | `packages/engine/src/open_brain_engine/protocol/schemas/v1/purge-transition.json` | `moved` | `schema` | `engine` | `packages/engine/src/open_brain_engine/protocol/schemas/v1/purge-transition.json` | `engine-sdist, engine-wheel` |
 | `schemas/protocol-v1/query-continuation.json` | `packages/engine/src/open_brain_engine/protocol/schemas/v1/query-continuation.json` | `moved` | `schema` | `engine` | `packages/engine/src/open_brain_engine/protocol/schemas/v1/query-continuation.json` | `engine-sdist, engine-wheel` |
@@ -111,6 +117,7 @@ Generated from `docs/v0-package-classification.json`; do not edit by hand.
 | `schemas/protocol-v1/receipt.json` | `packages/engine/src/open_brain_engine/protocol/schemas/v1/receipt.json` | `moved` | `schema` | `engine` | `packages/engine/src/open_brain_engine/protocol/schemas/v1/receipt.json` | `engine-sdist, engine-wheel` |
 | `schemas/protocol-v1/record.json` | `packages/engine/src/open_brain_engine/protocol/schemas/v1/record.json` | `moved` | `schema` | `engine` | `packages/engine/src/open_brain_engine/protocol/schemas/v1/record.json` | `engine-sdist, engine-wheel` |
 | `schemas/protocol-v1/request-binding.json` | `packages/engine/src/open_brain_engine/protocol/schemas/v1/request-binding.json` | `moved` | `schema` | `engine` | `packages/engine/src/open_brain_engine/protocol/schemas/v1/request-binding.json` | `engine-sdist, engine-wheel` |
+| `schemas/protocol-v1/request-envelope.json` | `packages/engine/src/open_brain_engine/protocol/schemas/v1/request-envelope.json` | `moved` | `schema` | `engine` | `packages/engine/src/open_brain_engine/protocol/schemas/v1/request-envelope.json` | `engine-sdist, engine-wheel` |
 | `schemas/protocol-v1/resource-limit-failure.json` | `packages/engine/src/open_brain_engine/protocol/schemas/v1/resource-limit-failure.json` | `moved` | `schema` | `engine` | `packages/engine/src/open_brain_engine/protocol/schemas/v1/resource-limit-failure.json` | `engine-sdist, engine-wheel` |
 | `schemas/protocol-v1/revision.json` | `packages/engine/src/open_brain_engine/protocol/schemas/v1/revision.json` | `moved` | `schema` | `engine` | `packages/engine/src/open_brain_engine/protocol/schemas/v1/revision.json` | `engine-sdist, engine-wheel` |
 | `schemas/protocol-v1/security-audit-event.json` | `packages/engine/src/open_brain_engine/protocol/schemas/v1/security-audit-event.json` | `moved` | `schema` | `engine` | `packages/engine/src/open_brain_engine/protocol/schemas/v1/security-audit-event.json` | `engine-sdist, engine-wheel` |
@@ -338,6 +345,7 @@ Generated from `docs/v0-package-classification.json`; do not edit by hand.
 | `src/open_brain/protocol/freeze.py` | `packages/engine/src/open_brain_engine/protocol/freeze.py` | `moved` | `runtime` | `engine` | `packages/engine/src/open_brain_engine/protocol/freeze.py` | `engine-sdist, engine-wheel` |
 | `src/open_brain/protocol/identifiers.py` | `packages/engine/src/open_brain_engine/protocol/identifiers.py` | `moved` | `runtime` | `engine` | `packages/engine/src/open_brain_engine/protocol/identifiers.py` | `engine-sdist, engine-wheel` |
 | `src/open_brain/protocol/resources.py` | `packages/engine/src/open_brain_engine/protocol/resources.py` | `moved` | `runtime` | `engine` | `packages/engine/src/open_brain_engine/protocol/resources.py` | `engine-sdist, engine-wheel` |
+| `src/open_brain/protocol/validation.py` | `packages/engine/src/open_brain_engine/protocol/validation.py` | `moved` | `runtime` | `engine` | `packages/engine/src/open_brain_engine/protocol/validation.py` | `engine-sdist, engine-wheel` |
 | `src/open_brain/providers/__init__.py` | `packages/engine/src/open_brain_engine/providers/__init__.py` | `moved` | `runtime` | `engine` | `packages/engine/src/open_brain_engine/providers/__init__.py` | `engine-sdist, engine-wheel` |
 | `src/open_brain/providers/base.py` | `packages/engine/src/open_brain_engine/providers/base.py` | `moved` | `runtime` | `engine` | `packages/engine/src/open_brain_engine/providers/base.py` | `engine-sdist, engine-wheel` |
 | `src/open_brain/providers/deterministic.py` | `packages/engine/src/open_brain_engine/providers/deterministic.py` | `moved` | `runtime` | `engine` | `packages/engine/src/open_brain_engine/providers/deterministic.py` | `engine-sdist, engine-wheel` |
@@ -687,6 +695,7 @@ Generated from `docs/v0-package-classification.json`; do not edit by hand.
 | `tests/unit/test_cli.py` | `packages/legacy/tests/unit/test_cli.py` | `moved` | `test` | `legacy` | `packages/legacy/tests/unit/test_cli.py` | `excluded` |
 | `tests/unit/test_config.py` | `packages/app/tests/unit/test_config.py` | `moved` | `test` | `app` | `packages/app/tests/unit/test_config.py` | `excluded` |
 | `tests/unit/test_writer_effect_parameters.py` | `packages/legacy/tests/unit/test_writer_effect_parameters.py` | `moved` | `test` | `legacy` | `packages/legacy/tests/unit/test_writer_effect_parameters.py` | `excluded` |
+| `tools/m1/compatibility_matrix.py` | `tools/m1/compatibility_matrix.py` | `moved` | `release-tool` | `workspace` | `tools/m1/compatibility_matrix.py` | `excluded` |
 | `tools/m1/compatibility_probe.py` | `tools/m1/compatibility_probe.py` | `moved` | `release-tool` | `workspace` | `tools/m1/compatibility_probe.py` | `excluded` |
 | `tools/m1/crypto_probe.py` | `tools/m1/crypto_probe.py` | `moved` | `release-tool` | `workspace` | `tools/m1/crypto_probe.py` | `excluded` |
 | `tools/m1/synthetic_corpus.py` | `tools/m1/synthetic_corpus.py` | `moved` | `release-tool` | `workspace` | `tools/m1/synthetic_corpus.py` | `excluded` |

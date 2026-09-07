@@ -1,0 +1,97 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:open-brain:protocol:v1:commit-result",
+  "oneOf": [
+    {
+      "type": "object",
+      "properties": {
+        "schema_version": { "$ref": "urn:open-brain:protocol:v1:common#/$defs/schema_version" },
+        "kind": { "enum": ["accepted", "replayed"] },
+        "receipt": { "$ref": "urn:open-brain:protocol:v1:receipt" }
+      },
+      "required": ["schema_version", "kind", "receipt"],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "schema_version": { "$ref": "urn:open-brain:protocol:v1:common#/$defs/schema_version" },
+        "kind": { "const": "conflict" },
+        "code": { "const": "digest_conflict" },
+        "brain_id": { "$ref": "urn:open-brain:protocol:v1:common#/$defs/brain_id" },
+        "delivery_id": { "$ref": "urn:open-brain:protocol:v1:common#/$defs/delivery_id" },
+        "message": { "type": "string", "minLength": 1, "maxLength": 256 },
+        "retry_safe": { "const": false },
+        "corrective_action": { "const": "use_new_delivery_id" }
+      },
+      "required": [
+        "schema_version",
+        "kind",
+        "code",
+        "brain_id",
+        "delivery_id",
+        "message",
+        "retry_safe",
+        "corrective_action"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "schema_version": { "$ref": "urn:open-brain:protocol:v1:common#/$defs/schema_version" },
+        "kind": { "const": "conflict" },
+        "code": { "const": "revision_conflict" },
+        "brain_id": { "$ref": "urn:open-brain:protocol:v1:common#/$defs/brain_id" },
+        "proposal_id": { "$ref": "urn:open-brain:protocol:v1:common#/$defs/proposal_id" },
+        "expected_revision_id": {
+          "$ref": "urn:open-brain:protocol:v1:common#/$defs/revision_id"
+        },
+        "actual_revision_id": {
+          "oneOf": [
+            { "$ref": "urn:open-brain:protocol:v1:common#/$defs/revision_id" },
+            { "type": "null" }
+          ]
+        },
+        "message": { "type": "string", "minLength": 1, "maxLength": 256 },
+        "retry_safe": { "const": false },
+        "corrective_action": { "const": "refresh_and_resubmit" }
+      },
+      "required": [
+        "schema_version",
+        "kind",
+        "code",
+        "brain_id",
+        "proposal_id",
+        "expected_revision_id",
+        "actual_revision_id",
+        "message",
+        "retry_safe",
+        "corrective_action"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "schema_version": { "$ref": "urn:open-brain:protocol:v1:common#/$defs/schema_version" },
+        "kind": { "const": "delivery_purged" },
+        "code": { "const": "delivery_purged" },
+        "brain_id": { "$ref": "urn:open-brain:protocol:v1:common#/$defs/brain_id" },
+        "delivery_id": { "$ref": "urn:open-brain:protocol:v1:common#/$defs/delivery_id" },
+        "message": { "type": "string", "minLength": 1, "maxLength": 256 },
+        "retry_safe": { "const": false }
+      },
+      "required": [
+        "schema_version",
+        "kind",
+        "code",
+        "brain_id",
+        "delivery_id",
+        "message",
+        "retry_safe"
+      ],
+      "additionalProperties": false
+    }
+  ]
+}

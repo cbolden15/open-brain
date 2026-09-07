@@ -1,6 +1,55 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "urn:open-brain:protocol:v1:changes",
+  "$defs": {
+    "entry": {
+      "type": "object",
+      "properties": {
+        "cursor": { "$ref": "urn:open-brain:protocol:v1:common#/$defs/cursor" },
+        "commit_id": { "$ref": "urn:open-brain:protocol:v1:common#/$defs/commit_id" },
+        "item_kind": {
+          "enum": [
+            "record",
+            "proposal",
+            "revision",
+            "decision",
+            "purge_transition",
+            "effect_receipt"
+          ]
+        },
+        "item_id": { "type": "string", "pattern": "^[a-z]{3}_[a-z2-7]{26}$" },
+        "change": { "enum": ["committed", "superseded", "tombstoned"] }
+      },
+      "required": ["cursor", "commit_id", "item_kind", "item_id", "change"],
+      "allOf": [
+        {
+          "if": { "properties": { "item_kind": { "const": "record" } } },
+          "then": { "properties": { "item_id": { "pattern": "^rec_[a-z2-7]{26}$" } } }
+        },
+        {
+          "if": { "properties": { "item_kind": { "const": "proposal" } } },
+          "then": { "properties": { "item_id": { "pattern": "^prp_[a-z2-7]{26}$" } } }
+        },
+        {
+          "if": { "properties": { "item_kind": { "const": "revision" } } },
+          "then": { "properties": { "item_id": { "pattern": "^rev_[a-z2-7]{26}$" } } }
+        },
+        {
+          "if": { "properties": { "item_kind": { "const": "decision" } } },
+          "then": { "properties": { "item_id": { "pattern": "^dec_[a-z2-7]{26}$" } } }
+        },
+        {
+          "if": { "properties": { "item_kind": { "const": "purge_transition" } } },
+          "then": { "properties": { "item_id": { "pattern": "^prg_[a-z2-7]{26}$" } } }
+        },
+        {
+          "if": { "properties": { "item_kind": { "const": "effect_receipt" } } },
+          "then": { "properties": { "item_id": { "pattern": "^rcp_[a-z2-7]{26}$" } } }
+        }
+      ],
+      "additionalProperties": false
+    }
+  },
   "oneOf": [
     {
       "type": "object",
@@ -14,9 +63,36 @@
             { "type": "null" }
           ]
         },
+        "filter": {
+          "oneOf": [
+            {
+              "type": "object",
+              "properties": {
+                "item_kinds": {
+                  "type": "array",
+                  "minItems": 1,
+                  "uniqueItems": true,
+                  "items": {
+                    "enum": [
+                      "record",
+                      "proposal",
+                      "revision",
+                      "decision",
+                      "purge_transition",
+                      "effect_receipt"
+                    ]
+                  }
+                }
+              },
+              "required": ["item_kinds"],
+              "additionalProperties": false
+            },
+            { "type": "null" }
+          ]
+        },
         "page_size": { "type": "integer", "minimum": 1, "maximum": 128 }
       },
-      "required": ["schema_version", "kind", "brain_id", "after", "page_size"],
+      "required": ["schema_version", "kind", "brain_id", "after", "filter", "page_size"],
       "additionalProperties": false
     },
     {
@@ -24,19 +100,11 @@
       "properties": {
         "schema_version": { "$ref": "urn:open-brain:protocol:v1:common#/$defs/schema_version" },
         "kind": { "const": "page" },
+        "brain_id": { "$ref": "urn:open-brain:protocol:v1:common#/$defs/brain_id" },
         "changes": {
           "type": "array",
           "maxItems": 128,
-          "items": {
-            "type": "object",
-            "properties": {
-              "cursor": { "$ref": "urn:open-brain:protocol:v1:common#/$defs/cursor" },
-              "record_id": { "$ref": "urn:open-brain:protocol:v1:common#/$defs/record_id" },
-              "change": { "enum": ["committed", "superseded", "tombstoned"] }
-            },
-            "required": ["cursor", "record_id", "change"],
-            "additionalProperties": false
-          }
+          "items": { "$ref": "#/$defs/entry" }
         },
         "next": {
           "oneOf": [
@@ -45,7 +113,7 @@
           ]
         }
       },
-      "required": ["schema_version", "kind", "changes", "next"],
+      "required": ["schema_version", "kind", "brain_id", "changes", "next"],
       "additionalProperties": false
     }
   ]

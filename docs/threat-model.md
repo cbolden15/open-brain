@@ -38,6 +38,13 @@ not receive protocol authority from that fact. Every protocol route still requir
 principal-key-bound grant and an Ed25519 request signature. CORS is disabled, browser Origin is
 rejected unless explicitly configured, and anonymous `/healthz` returns static liveness only.
 
+The protocol decoder rejects duplicate JSON names, non-finite numbers, invalid UTF-8, and values
+outside the RFC 8785 data model. Structural schema validation and cross-field semantic validation
+both run before an operation body can be trusted. Ed25519 keys and signatures use exact canonical
+unpadded base64url lengths. Signed documents cover their full RFC 8785 object except for the
+signature field itself. Receipt verification follows the ordered owner-key history from a pinned
+genesis fingerprint to the Node epoch certificate and active receipt key.
+
 Owner control is not exposed over HTTP. It uses a mode-`0600` Unix-domain socket beneath a
 mode-`0700` runtime directory, checks peer UID, and returns principal-bound grant bytes only in
 memory. LocalAuthentication on interactive macOS or audited passphrase re-entry on Linux and
@@ -50,10 +57,16 @@ keeps SQLite temporary and FTS scratch state in memory or inside the encrypted B
 does not claim to erase operating-system swap, hibernation images, filesystem snapshots, core dumps,
 or external crash reports; deployments must control those surfaces separately.
 
+Purge acceptance requires both logical deletion and residue checks. Canonical rows and FTS matches
+must disappear before and after checkpoint and vacuum; scanning encrypted files for a plaintext
+canary is separate evidence and cannot substitute for querying the logical stores.
+
 The default Brain root is platform-local application data. Bootstrap refuses known network
 filesystems and known synchronized roots. An unrecognized synchronization product is unsupported.
 The sequencer lease binds a generated machine-instance ID, Node ID, and epoch so a copied identity
-cannot write until an owner-authorized cold transfer advances the epoch.
+cannot write until an owner-authorized cold transfer advances the epoch. The owner-signed transfer
+must bind the old Node's signed stop proof, prior ledger head, destination machine and Node key, and
+exactly the next epoch; uncertainty pauses writes.
 
 Owner sessions and step-up freshness use a monotonic process clock. Grant expiry uses a persisted
 UTC high-water mark with 300 seconds of skew. Backward wall-clock movement fails closed, and replay

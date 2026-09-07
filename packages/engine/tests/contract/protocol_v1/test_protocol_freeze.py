@@ -11,10 +11,13 @@ from open_brain_engine.protocol import (
     RESOURCE_LIMITS,
     SEMANTIC_OPERATIONS,
     PrincipalKeyCustodian,
+    ProtocolContractError,
     RootKeyCustodian,
     UserPresenceProvider,
     canonical_json_bytes,
     canonical_sha256,
+    decode_base64url,
+    decode_protocol_json,
     generate_identifier,
     validate_identifier,
 )
@@ -71,6 +74,7 @@ def test_identifier_role_catalog_covers_semantic_and_operational_values() -> Non
         "key": "key",
         "node": "nod",
         "nonce": "non",
+        "operation": "opn",
         "principal": "pri",
         "proposal": "prp",
         "purge": "prg",
@@ -93,6 +97,11 @@ def test_resource_and_clock_bounds_are_explicit_and_apply_to_owners() -> None:
     assert RESOURCE_LIMITS.concurrent_requests_per_principal == 8
     assert RESOURCE_LIMITS.retained_nonces_per_brain == 100_000
     assert RESOURCE_LIMITS.retained_nonces_per_principal == 10_000
+    assert RESOURCE_LIMITS.query_text_bytes == 4_096
+    assert RESOURCE_LIMITS.query_top_k == 100
+    assert RESOURCE_LIMITS.query_pages_per_grant == 256
+    assert RESOURCE_LIMITS.reciprocal_rank_fusion_constant == 60
+    assert RESOURCE_LIMITS.durable_job_attempts == 8
     assert RESOURCE_LIMITS.owner_exempt is False
     assert CLOCK_POLICY.owner_session_seconds == 900
     assert CLOCK_POLICY.step_up_freshness_seconds == 60
@@ -132,12 +141,48 @@ def test_key_custody_ports_are_separate_public_boundaries() -> None:
     }
     assert {
         "bootstrap",
+        "decrypt",
+        "derive",
         "destroy",
+        "encrypt",
+        "generate_data_key",
+        "public_key",
         "restart",
         "rotate",
+        "sign",
         "unlock",
+        "unwrap_key",
+        "wrap_key",
     } <= set(vars(RootKeyCustodian)["__protocol_attrs__"])
-    assert {"create", "destroy", "load_public_key", "rotate", "sign"} <= set(
+    assert {"create", "destroy", "load", "rotate", "sign"} <= set(
         vars(PrincipalKeyCustodian)["__protocol_attrs__"]
     )
     assert {"challenge"} <= set(vars(UserPresenceProvider)["__protocol_attrs__"])
+
+
+@pytest.mark.parametrize(
+    "payload",
+    (
+        b'{"outer":{"key":1,"key":2}}',
+        b'{"\\u006bey":1,"key":2}',
+        b'{"number":NaN}',
+        b'{"number":Infinity}',
+        b'\xff',
+    ),
+)
+def test_protocol_json_decoder_rejects_ambiguous_or_non_i_json(payload: bytes) -> None:
+    with pytest.raises((UnicodeDecodeError, ValueError)):
+        decode_protocol_json(payload)
+
+
+def test_protocol_json_decoder_accepts_canonicalizable_utf8() -> None:
+    assert decode_protocol_json(b'{"snowman":"\xe2\x98\x83","number":1}') == {
+        "number": 1,
+        "snowman": "☃",
+    }
+
+
+@pytest.mark.parametrize("value", ("A", "_" * 42, "a=" * 22, "+" * 43))
+def test_base64url_decoder_enforces_canonical_exact_length(value: str) -> None:
+    with pytest.raises(ProtocolContractError):
+        decode_base64url(value, expected_bytes=32, label="public key")

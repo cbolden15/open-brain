@@ -7,20 +7,26 @@
     "stop_proof_id": { "$ref": "urn:open-brain:protocol:v1:common#/$defs/stop_proof_id" },
     "brain_id": { "$ref": "urn:open-brain:protocol:v1:common#/$defs/brain_id" },
     "node_id": { "$ref": "urn:open-brain:protocol:v1:common#/$defs/node_id" },
-    "machine_instance": { "type": "string", "pattern": "^machine_[a-z2-7]{26}$" },
+    "node_key_id": { "$ref": "urn:open-brain:protocol:v1:common#/$defs/key_id" },
+    "machine_instance": {
+      "$ref": "urn:open-brain:protocol:v1:common#/$defs/machine_instance_id"
+    },
     "epoch": { "type": "integer", "minimum": 1 },
-    "last_cursor": { "$ref": "urn:open-brain:protocol:v1:common#/$defs/cursor" },
+    "last_ledger_head": { "$ref": "urn:open-brain:protocol:v1:common#/$defs/ledger_head" },
     "stopped_at": { "$ref": "urn:open-brain:protocol:v1:common#/$defs/timestamp" },
-    "node_signature": { "$ref": "urn:open-brain:protocol:v1:common#/$defs/base64url" }
+    "node_signature": {
+      "$ref": "urn:open-brain:protocol:v1:common#/$defs/ed25519_signature"
+    }
   },
   "required": [
     "schema_version",
     "stop_proof_id",
     "brain_id",
     "node_id",
+    "node_key_id",
     "machine_instance",
     "epoch",
-    "last_cursor",
+    "last_ledger_head",
     "stopped_at",
     "node_signature"
   ],

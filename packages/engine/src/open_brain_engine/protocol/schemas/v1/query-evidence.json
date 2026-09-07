@@ -5,18 +5,20 @@
   "properties": {
     "schema_version": { "$ref": "urn:open-brain:protocol:v1:common#/$defs/schema_version" },
     "brain_id": { "$ref": "urn:open-brain:protocol:v1:common#/$defs/brain_id" },
-    "record_id": { "$ref": "urn:open-brain:protocol:v1:common#/$defs/record_id" },
+    "record_id": {
+      "oneOf": [
+        { "$ref": "urn:open-brain:protocol:v1:common#/$defs/record_id" },
+        { "type": "null" }
+      ]
+    },
     "accepted_revision_id": {
       "oneOf": [
         { "$ref": "urn:open-brain:protocol:v1:common#/$defs/revision_id" },
         { "type": "null" }
       ]
     },
-    "source_record_ids": {
-      "type": "array",
-      "uniqueItems": true,
-      "items": { "$ref": "urn:open-brain:protocol:v1:common#/$defs/record_id" }
-    },
+    "provenance": { "$ref": "urn:open-brain:protocol:v1:provenance" },
+    "compartments": { "$ref": "urn:open-brain:protocol:v1:common#/$defs/compartments" },
     "body_visibility": { "enum": ["metadata", "body"] },
     "body": { "type": "object" }
   },
@@ -25,10 +27,17 @@
     "brain_id",
     "record_id",
     "accepted_revision_id",
-    "source_record_ids",
+    "provenance",
+    "compartments",
     "body_visibility"
   ],
   "allOf": [
+    {
+      "anyOf": [
+        { "properties": { "record_id": { "type": "string" } } },
+        { "properties": { "accepted_revision_id": { "type": "string" } } }
+      ]
+    },
     {
       "if": { "properties": { "body_visibility": { "const": "body" } } },
       "then": { "required": ["body"] },

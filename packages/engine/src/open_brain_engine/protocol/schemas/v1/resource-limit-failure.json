@@ -19,7 +19,14 @@
     "message": { "type": "string", "minLength": 1, "maxLength": 256 },
     "retry_safe": { "type": "boolean" },
     "retry_after_ms": { "type": ["integer", "null"], "minimum": 0 },
-    "corrective_action": { "type": ["string", "null"], "maxLength": 256 },
+    "corrective_action": { "type": ["string", "null"], "minLength": 1, "maxLength": 256 },
+    "accounting_scope": { "enum": ["brain", "principal"] },
+    "principal_id": {
+      "oneOf": [
+        { "$ref": "urn:open-brain:protocol:v1:common#/$defs/principal_id" },
+        { "type": "null" }
+      ]
+    },
     "limit": { "type": "integer", "minimum": 1 },
     "observed": { "type": "integer", "minimum": 0 }
   },
@@ -30,8 +37,23 @@
     "retry_safe",
     "retry_after_ms",
     "corrective_action",
+    "accounting_scope",
+    "principal_id",
     "limit",
     "observed"
+  ],
+  "allOf": [
+    {
+      "anyOf": [
+        { "properties": { "retry_after_ms": { "type": "integer" } } },
+        { "properties": { "corrective_action": { "type": "string" } } }
+      ]
+    },
+    {
+      "if": { "properties": { "accounting_scope": { "const": "principal" } } },
+      "then": { "properties": { "principal_id": { "type": "string" } } },
+      "else": { "properties": { "principal_id": { "type": "null" } } }
+    }
   ],
   "additionalProperties": false
 }

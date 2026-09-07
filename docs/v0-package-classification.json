@@ -4863,6 +4863,28 @@
       "target_path": "packages/engine/src/open_brain_engine/protocol/resources.py",
       "test_owner": "engine"
     },
+    "protocol/validation.py": {
+      "api": "public",
+      "api_status": "public",
+      "artifact_disposition": [
+        "engine-sdist",
+        "engine-wheel"
+      ],
+      "current_path": "packages/engine/src/open_brain_engine/protocol/validation.py",
+      "import_rewrite": {
+        "from": "open_brain.protocol.validation",
+        "to": "open_brain_engine.protocol.validation"
+      },
+      "movement_state": "moved",
+      "old_import_disposition": "remove",
+      "owner": "engine",
+      "resource_requirements": [],
+      "roles": [],
+      "runtime_namespace": "open_brain_engine",
+      "target_distribution": "engine",
+      "target_path": "packages/engine/src/open_brain_engine/protocol/validation.py",
+      "test_owner": "engine"
+    },
     "providers/__init__.py": {
       "api": "internal",
       "api_status": "distribution-private",
@@ -6141,6 +6163,7 @@
     "release_identity": {
       "candidate_version": "0.1.0",
       "compatibility_record": "release/phase4-compatibility.json",
+      "m1_compatibility_receipts": "release/m1-compatibility-receipts.json",
       "m1_compatibility_record": "release/m1-compatibility.json",
       "portable_schema": {
         "maximum": 1,
@@ -7282,6 +7305,25 @@
         "target_path": "packages/app/pyproject.toml#project.scripts.open-brain-mcp",
         "test_owner": "app"
       },
+      "release/m1-compatibility-receipts.json": {
+        "api_status": "workspace-only",
+        "artifact_disposition": [
+          "app-sdist",
+          "engine-sdist"
+        ],
+        "current_path": "release/m1-compatibility-receipts.json",
+        "import_rewrite": null,
+        "kind": "release-resource",
+        "movement_state": "moved",
+        "old_import_disposition": "not-applicable",
+        "resource_requirements": [
+          "release-identity"
+        ],
+        "runtime_namespace": null,
+        "target_distribution": "workspace",
+        "target_path": "release/m1-compatibility-receipts.json",
+        "test_owner": "workspace"
+      },
       "release/m1-compatibility.json": {
         "api_status": "workspace-only",
         "artifact_disposition": [
@@ -7741,6 +7783,25 @@
         "target_path": "packages/engine/src/open_brain_engine/protocol/schemas/v1/commit-batch.json",
         "test_owner": "engine"
       },
+      "schemas/protocol-v1/commit-result.json": {
+        "api_status": "distribution-private",
+        "artifact_disposition": [
+          "engine-sdist",
+          "engine-wheel"
+        ],
+        "current_path": "packages/engine/src/open_brain_engine/protocol/schemas/v1/commit-result.json",
+        "import_rewrite": null,
+        "kind": "schema",
+        "movement_state": "moved",
+        "old_import_disposition": "not-applicable",
+        "resource_requirements": [
+          "importlib.resources"
+        ],
+        "runtime_namespace": null,
+        "target_distribution": "engine",
+        "target_path": "packages/engine/src/open_brain_engine/protocol/schemas/v1/commit-result.json",
+        "test_owner": "engine"
+      },
       "schemas/protocol-v1/common.json": {
         "api_status": "distribution-private",
         "artifact_disposition": [
@@ -7798,6 +7859,25 @@
         "target_path": "packages/engine/src/open_brain_engine/protocol/schemas/v1/durable-job.json",
         "test_owner": "engine"
       },
+      "schemas/protocol-v1/effect-receipt.json": {
+        "api_status": "distribution-private",
+        "artifact_disposition": [
+          "engine-sdist",
+          "engine-wheel"
+        ],
+        "current_path": "packages/engine/src/open_brain_engine/protocol/schemas/v1/effect-receipt.json",
+        "import_rewrite": null,
+        "kind": "schema",
+        "movement_state": "moved",
+        "old_import_disposition": "not-applicable",
+        "resource_requirements": [
+          "importlib.resources"
+        ],
+        "runtime_namespace": null,
+        "target_distribution": "engine",
+        "target_path": "packages/engine/src/open_brain_engine/protocol/schemas/v1/effect-receipt.json",
+        "test_owner": "engine"
+      },
       "schemas/protocol-v1/grant.json": {
         "api_status": "distribution-private",
         "artifact_disposition": [
@@ -7834,6 +7914,63 @@
         "runtime_namespace": null,
         "target_distribution": "engine",
         "target_path": "packages/engine/src/open_brain_engine/protocol/schemas/v1/inspect.json",
+        "test_owner": "engine"
+      },
+      "schemas/protocol-v1/node-epoch-certificate.json": {
+        "api_status": "distribution-private",
+        "artifact_disposition": [
+          "engine-sdist",
+          "engine-wheel"
+        ],
+        "current_path": "packages/engine/src/open_brain_engine/protocol/schemas/v1/node-epoch-certificate.json",
+        "import_rewrite": null,
+        "kind": "schema",
+        "movement_state": "moved",
+        "old_import_disposition": "not-applicable",
+        "resource_requirements": [
+          "importlib.resources"
+        ],
+        "runtime_namespace": null,
+        "target_distribution": "engine",
+        "target_path": "packages/engine/src/open_brain_engine/protocol/schemas/v1/node-epoch-certificate.json",
+        "test_owner": "engine"
+      },
+      "schemas/protocol-v1/owner-key-certificate.json": {
+        "api_status": "distribution-private",
+        "artifact_disposition": [
+          "engine-sdist",
+          "engine-wheel"
+        ],
+        "current_path": "packages/engine/src/open_brain_engine/protocol/schemas/v1/owner-key-certificate.json",
+        "import_rewrite": null,
+        "kind": "schema",
+        "movement_state": "moved",
+        "old_import_disposition": "not-applicable",
+        "resource_requirements": [
+          "importlib.resources"
+        ],
+        "runtime_namespace": null,
+        "target_distribution": "engine",
+        "target_path": "packages/engine/src/open_brain_engine/protocol/schemas/v1/owner-key-certificate.json",
+        "test_owner": "engine"
+      },
+      "schemas/protocol-v1/proposal.json": {
+        "api_status": "distribution-private",
+        "artifact_disposition": [
+          "engine-sdist",
+          "engine-wheel"
+        ],
+        "current_path": "packages/engine/src/open_brain_engine/protocol/schemas/v1/proposal.json",
+        "import_rewrite": null,
+        "kind": "schema",
+        "movement_state": "moved",
+        "old_import_disposition": "not-applicable",
+        "resource_requirements": [
+          "importlib.resources"
+        ],
+        "runtime_namespace": null,
+        "target_distribution": "engine",
+        "target_path": "packages/engine/src/open_brain_engine/protocol/schemas/v1/proposal.json",
         "test_owner": "engine"
       },
       "schemas/protocol-v1/provenance.json": {
@@ -7986,6 +8123,25 @@
         "runtime_namespace": null,
         "target_distribution": "engine",
         "target_path": "packages/engine/src/open_brain_engine/protocol/schemas/v1/request-binding.json",
+        "test_owner": "engine"
+      },
+      "schemas/protocol-v1/request-envelope.json": {
+        "api_status": "distribution-private",
+        "artifact_disposition": [
+          "engine-sdist",
+          "engine-wheel"
+        ],
+        "current_path": "packages/engine/src/open_brain_engine/protocol/schemas/v1/request-envelope.json",
+        "import_rewrite": null,
+        "kind": "schema",
+        "movement_state": "moved",
+        "old_import_disposition": "not-applicable",
+        "resource_requirements": [
+          "importlib.resources"
+        ],
+        "runtime_namespace": null,
+        "target_distribution": "engine",
+        "target_path": "packages/engine/src/open_brain_engine/protocol/schemas/v1/request-envelope.json",
         "test_owner": "engine"
       },
       "schemas/protocol-v1/resource-limit-failure.json": {
@@ -12907,6 +13063,24 @@
         "target_distribution": "legacy",
         "target_path": "packages/legacy/tests/unit/test_writer_effect_parameters.py",
         "test_owner": "legacy"
+      },
+      "tools/m1/compatibility_matrix.py": {
+        "api_status": "workspace-only",
+        "artifact_disposition": [
+          "excluded"
+        ],
+        "current_path": "tools/m1/compatibility_matrix.py",
+        "import_rewrite": null,
+        "kind": "release-tool",
+        "movement_state": "moved",
+        "old_import_disposition": "not-applicable",
+        "resource_requirements": [
+          "native-build"
+        ],
+        "runtime_namespace": null,
+        "target_distribution": "workspace",
+        "target_path": "tools/m1/compatibility_matrix.py",
+        "test_owner": "workspace"
       },
       "tools/m1/compatibility_probe.py": {
         "api_status": "workspace-only",

@@ -1,6 +1,110 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "urn:open-brain:protocol:v1:inspect",
+  "$defs": {
+    "entity_kind": {
+      "enum": [
+        "record",
+        "proposal",
+        "revision",
+        "decision",
+        "effect_receipt",
+        "purge",
+        "operation",
+        "job",
+        "receipt"
+      ]
+    },
+    "entity_identity": {
+      "allOf": [
+        {
+          "if": {
+            "properties": { "entity_kind": { "const": "record" } },
+            "required": ["entity_kind"]
+          },
+          "then": { "properties": { "entity_id": { "pattern": "^rec_[a-z2-7]{26}$" } } }
+        },
+        {
+          "if": {
+            "properties": { "entity_kind": { "const": "proposal" } },
+            "required": ["entity_kind"]
+          },
+          "then": { "properties": { "entity_id": { "pattern": "^prp_[a-z2-7]{26}$" } } }
+        },
+        {
+          "if": {
+            "properties": { "entity_kind": { "const": "revision" } },
+            "required": ["entity_kind"]
+          },
+          "then": { "properties": { "entity_id": { "pattern": "^rev_[a-z2-7]{26}$" } } }
+        },
+        {
+          "if": {
+            "properties": { "entity_kind": { "const": "decision" } },
+            "required": ["entity_kind"]
+          },
+          "then": { "properties": { "entity_id": { "pattern": "^dec_[a-z2-7]{26}$" } } }
+        },
+        {
+          "if": {
+            "properties": { "entity_kind": { "const": "effect_receipt" } },
+            "required": ["entity_kind"]
+          },
+          "then": { "properties": { "entity_id": { "pattern": "^rcp_[a-z2-7]{26}$" } } }
+        },
+        {
+          "if": {
+            "properties": { "entity_kind": { "const": "purge" } },
+            "required": ["entity_kind"]
+          },
+          "then": { "properties": { "entity_id": { "pattern": "^prg_[a-z2-7]{26}$" } } }
+        },
+        {
+          "if": {
+            "properties": { "entity_kind": { "const": "operation" } },
+            "required": ["entity_kind"]
+          },
+          "then": { "properties": { "entity_id": { "pattern": "^opn_[a-z2-7]{26}$" } } }
+        },
+        {
+          "if": {
+            "properties": { "entity_kind": { "const": "job" } },
+            "required": ["entity_kind"]
+          },
+          "then": { "properties": { "entity_id": { "pattern": "^job_[a-z2-7]{26}$" } } }
+        },
+        {
+          "if": {
+            "properties": { "entity_kind": { "const": "receipt" } },
+            "required": ["entity_kind"]
+          },
+          "then": { "properties": { "entity_id": { "pattern": "^rcp_[a-z2-7]{26}$" } } }
+        }
+      ]
+    },
+    "metadata": {
+      "type": "object",
+      "properties": {
+        "brain_id": { "$ref": "urn:open-brain:protocol:v1:common#/$defs/brain_id" },
+        "compartments": {
+          "$ref": "urn:open-brain:protocol:v1:common#/$defs/compartments"
+        },
+        "record_type": { "type": "string", "pattern": "^[a-z][a-z0-9_.-]{0,63}$" },
+        "artifact_id": { "$ref": "urn:open-brain:protocol:v1:common#/$defs/artifact_id" },
+        "proposal_id": { "$ref": "urn:open-brain:protocol:v1:common#/$defs/proposal_id" },
+        "state": { "type": "string", "pattern": "^[a-z][a-z0-9_]{1,63}$" },
+        "outcome": { "type": "string", "pattern": "^[a-z][a-z0-9_]{1,63}$" },
+        "job_type": { "enum": ["purge", "projection_rebuild"] },
+        "cursor": { "$ref": "urn:open-brain:protocol:v1:common#/$defs/cursor" },
+        "issuer_epoch": { "type": "integer", "minimum": 1 },
+        "sequencer_epoch": { "type": "integer", "minimum": 1 },
+        "created_at": { "$ref": "urn:open-brain:protocol:v1:common#/$defs/timestamp" },
+        "updated_at": { "$ref": "urn:open-brain:protocol:v1:common#/$defs/timestamp" }
+      },
+      "required": ["brain_id"],
+      "additionalProperties": false
+    }
+  },
   "oneOf": [
     {
       "type": "object",
@@ -8,18 +112,12 @@
         "schema_version": { "$ref": "urn:open-brain:protocol:v1:common#/$defs/schema_version" },
         "kind": { "const": "request" },
         "brain_id": { "$ref": "urn:open-brain:protocol:v1:common#/$defs/brain_id" },
-        "entity_kind": { "enum": ["record", "revision", "decision", "job", "receipt"] },
+        "entity_kind": { "$ref": "#/$defs/entity_kind" },
         "entity_id": { "type": "string", "pattern": "^[a-z]{3}_[a-z2-7]{26}$" },
         "include_body": { "type": "boolean" }
       },
-      "required": [
-        "schema_version",
-        "kind",
-        "brain_id",
-        "entity_kind",
-        "entity_id",
-        "include_body"
-      ],
+      "required": ["schema_version", "kind", "brain_id", "entity_kind", "entity_id", "include_body"],
+      "allOf": [{ "$ref": "#/$defs/entity_identity" }],
       "additionalProperties": false
     },
     {
@@ -27,12 +125,28 @@
       "properties": {
         "schema_version": { "$ref": "urn:open-brain:protocol:v1:common#/$defs/schema_version" },
         "kind": { "const": "entity" },
-        "entity_kind": { "enum": ["record", "revision", "decision", "job", "receipt"] },
+        "entity_kind": { "$ref": "#/$defs/entity_kind" },
         "entity_id": { "type": "string", "pattern": "^[a-z]{3}_[a-z2-7]{26}$" },
-        "metadata": { "type": "object" },
+        "body_visibility": { "enum": ["metadata", "body"] },
+        "metadata": { "$ref": "#/$defs/metadata" },
         "body": { "type": "object" }
       },
-      "required": ["schema_version", "kind", "entity_kind", "entity_id", "metadata"],
+      "required": [
+        "schema_version",
+        "kind",
+        "entity_kind",
+        "entity_id",
+        "body_visibility",
+        "metadata"
+      ],
+      "allOf": [
+        { "$ref": "#/$defs/entity_identity" },
+        {
+          "if": { "properties": { "body_visibility": { "const": "body" } } },
+          "then": { "required": ["body"] },
+          "else": { "not": { "required": ["body"] } }
+        }
+      ],
       "additionalProperties": false
     },
     {

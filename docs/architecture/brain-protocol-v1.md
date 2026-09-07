@@ -6,14 +6,19 @@ Brain Protocol v1 has exactly four semantic operations: `commit`, `query`, `chan
 `inspect`. Grant issuance, owner unlock, key rotation, key destruction, projection work, and purge
 execution are Node control functions. They are not extra protocol operations.
 
-The schemas under `open_brain_engine.protocol.schemas.v1` are the executable wire contract. The
-public M0 ADRs remain the semantic authority when a schema cannot express a rule by itself.
+The schemas under `open_brain_engine.protocol.schemas.v1` and
+`open_brain_engine.protocol.validate_protocol_semantics` jointly form the executable wire
+contract. JSON Schema enforces structure; the semantic validator enforces cross-field, byte-count,
+Brain-boundary, epoch-continuity, and certificate-history rules that Draft 2020-12 cannot express.
+The public M0 ADRs explain the contract, while conformance cases and deterministic signature
+vectors prove that its executable forms agree.
 
 ## Canonical bytes and request binding
 
-Protocol JSON is UTF-8 I-JSON with duplicate object names rejected before decoding. Request bodies
-and commit batches use RFC 8785 JSON Canonicalization Scheme bytes from `rfc8785` 0.1.4. A digest is
-lowercase SHA-256 over those bytes.
+Protocol JSON is UTF-8 I-JSON. The strict decoder rejects duplicate object names, non-finite
+numbers, invalid UTF-8, and values that RFC 8785 cannot represent. Request bodies and commit batches
+use RFC 8785 JSON Canonicalization Scheme bytes from `rfc8785` 0.1.4. A digest is lowercase SHA-256
+over those bytes.
 
 The principal signature input is the RFC 8785 object containing exactly `method`, `brain_id`,
 `delivery_id`, `nonce`, and `body_digest`. The request envelope also carries the grant identifier
@@ -40,10 +45,12 @@ The internal Brain-wide projection checkpoint is never serialized.
 
 ## Grants and proof of possession
 
-A grant is a signed, secret capability for one Brain, one principal Ed25519 public key, explicit
-scopes, an all-of compartment set, an issuer epoch, a principal epoch, and a bounded lifetime of 30
-through 900 seconds. There is no bearer-grant fallback. Replaying a serialized grant with another
-private key fails proof of possession.
+A grant is a signed, secret capability for one Brain and one principal Ed25519 public key. It binds
+the issuer key and epoch, policy epoch and digest, principal epoch, explicit scopes, an all-of
+compartment set, allowed record-schema references, body visibility, per-grant limits, and a bounded
+lifetime of 30 through 900 seconds. The expiry timestamp must equal the issue timestamp plus the
+declared TTL. There is no bearer-grant fallback. Replaying a serialized grant with another private
+key fails proof of possession.
 
 Issuer and owner signing keys remain behind the `RootKeyCustodian`. Client private keys remain
 behind the separate `PrincipalKeyCustodian`. The high-level client creates and uses a principal key,
@@ -52,19 +59,29 @@ Low-level clients may supply the same protocol values directly.
 
 ## `commit`
 
-`commit` accepts one atomic batch with at most 128 record, revision, decision, or purge-transition
-items. Validation computes the proposed label count and active exact-label-set inventory before
-cursor allocation. A failed item rejects the complete batch. No projection state participates in
-commit validity.
+`commit` accepts one atomic batch with at most 128 record, proposal, revision, decision,
+purge-transition, or effect-receipt items. Validation checks every item's Brain and provenance
+boundary, then computes the proposed label count and active exact-label-set inventory before cursor
+allocation. A failed item rejects the complete batch. No projection state participates in commit
+validity.
 
-Records are immutable. Revisions name the expected base revision. Decisions name the proposal and
-expected revision. Provenance references stay inside one Brain and cannot name a tombstoned or
+Records are immutable. Their envelopes identify the content schema, producer, stable origin when
+known, captured and observed times, compartments, provenance, and ciphertext digest. A null
+ciphertext digest has an explicit state: `pending` for commit input or `unknown_historical` for
+migrated data. Commit rejects already-encrypted record input. A newly persisted encrypted record is
+`verified` and must carry the digest. Revisions name the expected base revision. Decisions name the
+proposal and expected revision. Processor provenance requires both a processor identity and at
+least one source. Provenance references stay inside one Brain and cannot name a tombstoned or
 purge-pending ancestor. Derived outputs carry the union of all source compartments. Spaces never
 grant authority.
 
-The successful receipt contains the Brain-scoped commit ID, delivery identity, opaque cursor,
-commit digest, Node signing-key ID, owner-signed Node epoch certificate, owner public-key history,
-and Node signature. An independent verifier pins the owner fingerprint and does not need Node
+An accepted or replayed result wraps the same signed receipt. Changed-digest and expected-revision
+conflicts, plus `delivery_purged`, are distinct closed result variants. The successful receipt
+contains the Brain-scoped commit ID, delivery identity, opaque cursor, commit digest, issuer epoch,
+policy digest, sequencer epoch, Node signing-key ID, owner-signed Node epoch certificate, ordered
+owner public-key certificate history, issue time, and Node signature. Every signed document signs
+its complete RFC 8785 object with only its signature field omitted. An independent verifier pins
+the genesis owner-key fingerprint and follows the owner and Node certificate links without Node
 internals.
 
 ## `query`
@@ -92,8 +109,11 @@ an invalidated query only within its caller-supplied budget.
 
 ## `changes` and `inspect`
 
-`changes` authorizes before selecting entries and re-authorizes every page. Unauthorized records do
-not affect page contents, cursor placement, counts, or metadata.
+`changes` authorizes before selecting entries and re-authorizes every page. Each entry carries its
+commit cursor and ID, typed item kind, role-matched item ID, and transition. Records, proposals,
+revisions, decisions, purge transitions, and effect receipts can therefore rebuild the full
+accepted semantic history. Unauthorized items do not affect page contents, cursor placement,
+counts, or metadata.
 
 `inspect` authorizes every required compartment before entity selection. An absent entity and an
 entity the caller cannot inspect return the same `not_found` bytes. Bodies and content-derived
@@ -106,9 +126,9 @@ later idempotent replay returns `delivery_purged` rather than the original recei
 ## Durable jobs and erasure
 
 The only durable job types in M1 are `purge` and `projection_rebuild`. Jobs have Brain-scoped IDs,
-restart-safe pending/running/succeeded/failed states, compartment labels, bounded attempts, and
-result or error references. They are inspected through `inspect`; there is no public job mutation
-operation or generic scheduler.
+restart-safe pending/running/succeeded/failed states, compartment labels, at most eight attempts,
+and state-consistent result or error references. They are inspected through `inspect`; there is no
+public job mutation operation or generic scheduler.
 
 Purge resolves every item in the transitive provenance closure as purge, retain, or reviewed
 replacement. A replacement is rejected if it retains the target data. Application-controlled

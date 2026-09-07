@@ -3,24 +3,12 @@
   "$id": "urn:open-brain:protocol:v1:request-binding",
   "type": "object",
   "properties": {
-    "schema_version": { "$ref": "urn:open-brain:protocol:v1:common#/$defs/schema_version" },
     "method": { "enum": ["commit", "query", "changes", "inspect"] },
     "brain_id": { "$ref": "urn:open-brain:protocol:v1:common#/$defs/brain_id" },
-    "grant_id": { "$ref": "urn:open-brain:protocol:v1:common#/$defs/grant_id" },
     "delivery_id": { "$ref": "urn:open-brain:protocol:v1:common#/$defs/delivery_id" },
     "nonce": { "$ref": "urn:open-brain:protocol:v1:common#/$defs/nonce_id" },
-    "body_digest": { "$ref": "urn:open-brain:protocol:v1:common#/$defs/digest" },
-    "principal_signature": { "$ref": "urn:open-brain:protocol:v1:common#/$defs/base64url" }
+    "body_digest": { "$ref": "urn:open-brain:protocol:v1:common#/$defs/digest" }
   },
-  "required": [
-    "schema_version",
-    "method",
-    "brain_id",
-    "grant_id",
-    "delivery_id",
-    "nonce",
-    "body_digest",
-    "principal_signature"
-  ],
+  "required": ["method", "brain_id", "delivery_id", "nonce", "body_digest"],
   "additionalProperties": false
 }

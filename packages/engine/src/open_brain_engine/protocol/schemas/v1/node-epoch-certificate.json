@@ -1,0 +1,39 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:open-brain:protocol:v1:node-epoch-certificate",
+  "type": "object",
+  "properties": {
+    "schema_version": { "$ref": "urn:open-brain:protocol:v1:common#/$defs/schema_version" },
+    "brain_id": { "$ref": "urn:open-brain:protocol:v1:common#/$defs/brain_id" },
+    "node_id": { "$ref": "urn:open-brain:protocol:v1:common#/$defs/node_id" },
+    "node_key_id": { "$ref": "urn:open-brain:protocol:v1:common#/$defs/key_id" },
+    "node_public_key": {
+      "$ref": "urn:open-brain:protocol:v1:common#/$defs/ed25519_public_key"
+    },
+    "sequencer_epoch": { "type": "integer", "minimum": 1 },
+    "prior_ledger_head": {
+      "oneOf": [
+        { "$ref": "urn:open-brain:protocol:v1:common#/$defs/ledger_head" },
+        { "type": "null" }
+      ]
+    },
+    "owner_key_id": { "$ref": "urn:open-brain:protocol:v1:common#/$defs/key_id" },
+    "issued_at": { "$ref": "urn:open-brain:protocol:v1:common#/$defs/timestamp" },
+    "owner_signature": {
+      "$ref": "urn:open-brain:protocol:v1:common#/$defs/ed25519_signature"
+    }
+  },
+  "required": [
+    "schema_version",
+    "brain_id",
+    "node_id",
+    "node_key_id",
+    "node_public_key",
+    "sequencer_epoch",
+    "prior_ledger_head",
+    "owner_key_id",
+    "issued_at",
+    "owner_signature"
+  ],
+  "additionalProperties": false
+}
