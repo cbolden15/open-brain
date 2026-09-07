@@ -1,7 +1,6 @@
 # Open Brain and Secure Node roadmap
 
-- Status: Accepted product split; `OB1-W0` and `OB1-W1` complete; `CORE-W0` correction candidate
-  verified and awaiting independent rereview
+- Status: Accepted product split; `OB1-W0`, `OB1-W1`, and `CORE-W0` complete; `OB1-W2` is next
 - Date: 2026-09-07
 - Product authority: [`../product-family.md`](../product-family.md)
 - Acceptance authority: [`../acceptance/five-minute-install.md`](../acceptance/five-minute-install.md)
@@ -15,12 +14,12 @@ then-uncommitted files without changing them; a later, separate continuation fin
 that work as `SN1-W1`.
 
 `SN1-W1` is complete after ADR 0013's pre-release schema and lifecycle correction, focused and
-repository-wide gates, and a fresh independent `READY` review with no findings. The first
-`CORE-W0` implementation is preserved at commit `10d0846`; its final review found three gaps. The
-current correction candidate recomputes batch digests, reconstructs through mapped envelope
-bodies, and binds every family in the published schema and packaged validator. Focused and full
-verification pass, but `CORE-W0` remains open pending a fresh independent rereview, with `SN1-W2`
-still gated. `OB1-W0` completed on the separate local branch
+repository-wide gates, and a fresh independent `READY` review with no findings. `CORE-W0` is also
+complete at exact implementation commit `79f3b44dda4ec96227e28c4e890170f834e78072` after focused and
+repository-wide verification and a fresh independent `READY` review with P0/P1/P2/P3
+`0/0/0/0`. Its shared model and pure adapter preserve every manifest-declared Portable byte while
+binding all 11 record families through their Secure Node envelopes. `SN1-W2` remains unstarted.
+`OB1-W0` completed on the separate local branch
 `goal/open-brain-five-minute-install` at implementation commit `ebef782`. Its small base dependency
 graph, direct private bootstrap, Python 3.14 native artifact, and checksum-verifying installer passed
 the full and focused repository gates plus an independent `READY` review with no P0 through P2
@@ -30,8 +29,7 @@ preflight, full verification, and native macOS artifact journey pass at exact cl
 commit `c065d7633a2a4fb03b8aa300e71940ba829beea5`. Successive reviews closed parser redaction, daemon
 ownership, pre-bootstrap runtime and lease inspection, identity-loss, and contributor-routing gaps.
 The final fresh review returned `READY` with P0/P1/P2/P3 `0/0/0/0`. Nothing was pushed or published.
-`CORE-W0` remains the only gate between this completed local journey and `OB1-W2` clean-host release
-proof.
+With `CORE-W0` closed, `OB1-W2` clean-host release proof is the next Open Brain workstream.
 
 ## Milestones
 
@@ -43,8 +41,8 @@ proof.
 | `SN1` Secure Node | Finish the advanced encrypted and authorized node formerly called M1 | `SN1-W0` through `SN1-W8` | Secure Node conformance and independent review pass without changing the Open Brain default |
 | `UP1` Upgrade proof | Prove a real default-to-Secure-Node transition | `UP1-W0` export/import fixture; `UP1-W1` clean-host upgrade rehearsal | Source remains readable; target preserves the shared inventory and records new security policy honestly |
 
-`CORE-W0` may be implemented alongside the product tracks only after `PF-W0` closes. It must close
-before `SN1-W2` persists a second canonical representation or `OB1-W2` claims release readiness.
+`CORE-W0` was implemented after `PF-W0` closed. It closed before `SN1-W2` persisted a second
+canonical representation or `OB1-W2` claimed release readiness.
 That second dependency is deliberate: the first public default release will not claim portability
 while its documented Secure Node upgrade mapping is undefined. `CORE-W0` proves the pure mapping;
 the durable fresh-node import belongs to `UP1-W0` after the required Secure Node work exists.
@@ -154,7 +152,7 @@ discard, and idempotent retry.
 | Existing source/wheel install guide initializes a root and starts a daemon | Yes as a default-product guide. | Retain as transitional Secure Node precursor evidence; replace the quickstart in `OB1`. |
 | `SN1-W0` protocol, crypto, grant, receipt, fencing, purge, and recovery contracts | No after reclassification. | Preserve unchanged as Secure Node authority. |
 | `SN1-W1` semantic-kernel implementation | No direct conflict. It contains advanced compartment and ciphertext state by design. | Preserve as completed Secure Node work; do not route it through the default Open Brain command path. |
-| Portable Brain v1 and Secure Node BrainPack v2 currently lack an executable lossless mapping | Compatibility gap, not discarded work. | Close the pure inbound mapping in `CORE-W0`; prove durable import later in `UP1-W0`. |
+| Portable Brain v1 and Secure Node BrainPack v2 previously lacked an executable lossless mapping | Resolved for the pure boundary. | `CORE-W0` closed the lossless inbound mapping; durable import remains in `UP1-W0`. |
 
 ## Documentation gate result
 
@@ -165,5 +163,6 @@ and the focused source-traceability and architecture baseline; it did not claim 
 `SN1-W1` tree or the five-minute product implementation had passed full verification.
 
 Closing `PF-W0` permitted the separate `SN1-W1` continuation that is now complete and independently
-accepted. It did not authorize `SN1-W2`, publication, push, deployment, or live migration.
-`CORE-W0` must close before `SN1-W2`.
+accepted. `CORE-W0` is now also complete and independently accepted. Neither closure authorized
+`SN1-W2`, publication, push, deployment, or live migration. The next active product workstream is
+`OB1-W2`.

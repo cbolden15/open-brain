@@ -1,6 +1,6 @@
 # CORE-W0: shared portability mapping
 
-Status: review remediation implemented; focused and full verification pass; independent rereview pending
+Status: complete; focused and full verification pass; independent review accepted
 
 Date: 2026-09-07
 
@@ -136,10 +136,10 @@ IDs also map to producer principal envelope IDs. No operational value becomes sh
 - [x] Prove wheel-installed code can load the schema and conformance resources without checkout
       paths.
 
-### 6. Final-review remediation
+### 6. Final-review remediation and closure
 
 The independent review of implementation commit `10d0846b56144ac8ad316452bd31cf6756844d05`
-returned two P1 findings and one P2 finding. The correction candidate now:
+returned two P1 findings and one P2 finding. The first correction:
 
 - recomputes every batch digest from its exact mapped wire records before accepting a plan;
 - reconstructs semantic Portable files from the mapped Secure Node envelope bodies;
@@ -147,11 +147,17 @@ returned two P1 findings and one P2 finding. The correction candidate now:
   in the published schema; and
 - exposes a packaged semantic-envelope validator that checks the exact source-byte binding.
 
-The tests reproduced all three defects before the corrections. The corrected focused gate passes
-123 tests plus Ruff, MyPy, and diff integrity. Repository-wide verification passes 3,537 tests,
-strict MyPy on 593 source files, all six Python artifacts, and artifact policy. The milestone stays
-open until a fresh independent review accepts the exact committed correction tree. Nothing has
-been pushed or published.
+The tests reproduced all three defects before the corrections. A correction review then found one
+P2 gap: the public validator did not compare `source_brain_id` with the tenant inside the decoded
+Portable bytes. Exact implementation commit `79f3b44dda4ec96227e28c4e890170f834e78072`
+closes that gap in both the packaged validator and aggregate construction, with all 11 shared
+families covered.
+
+At that exact clean commit, the focused gate passes 123 tests plus Ruff, MyPy, and diff integrity.
+Repository-wide verification passes 3,537 tests, strict MyPy on 593 source files, all six Python
+artifacts, and artifact policy. A fresh independent reviewer returned `READY` with P0/P1/P2/P3
+`0/0/0/0` after rejecting source-Brain mismatches for all 11 families and reconfirming the original
+closure properties. `CORE-W0` is complete. Nothing has been pushed or published.
 
 ## Planned files
 
