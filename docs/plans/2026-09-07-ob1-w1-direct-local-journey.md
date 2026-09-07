@@ -1,6 +1,6 @@
 # OB1-W1: direct local capture, search, export, status, and doctor
 
-- Status: Third review fixes implemented; focused, full, and native gates pass; fresh review pending
+- Status: Complete at `c065d7633a2a4fb03b8aa300e71940ba829beea5`
 - Product: Open Brain default `local` profile
 - Branch: `goal/open-brain-five-minute-install`
 - Starting commit: `4c927660e52d3ea6230f7e14997a74d8ea6062ff`
@@ -118,3 +118,13 @@ Full gate: `make verify` from the repository root.
 
 `OB1-W2` remains gated by both this closure and the paused `CORE-W0` portability closure. No artifact
 is published from this workstream.
+
+## Closure evidence
+
+At exact clean implementation commit `c065d7633a2a4fb03b8aa300e71940ba829beea5`, the focused gate
+passed 58 tests plus ShellCheck, manifest validation, Ruff, strict MyPy, and diff integrity. The full
+gate passed Ruff, MyPy on 593 source files, 3,534 tests, all six Python artifacts, and artifact
+policy. The Python 3.14 macOS ARM64 native build passed its audited artifact and installer journeys.
+A fresh independent review returned `READY` with P0/P1/P2/P3 `0/0/0/0` after explicitly retesting
+redaction, runtime markers, malformed leases, identity loss under separate-process daemon authority,
+zero-mutation rejection, and contributor routing. Nothing was pushed or published.

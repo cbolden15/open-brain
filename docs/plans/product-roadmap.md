@@ -1,6 +1,6 @@
 # Open Brain and Secure Node roadmap
 
-- Status: Accepted product split; `OB1-W0` complete; `OB1-W1` active; `CORE-W0` paused after
+- Status: Accepted product split; `OB1-W0` and `OB1-W1` complete; `CORE-W0` paused after
   implementation review
 - Date: 2026-09-07
 - Product authority: [`../product-family.md`](../product-family.md)
@@ -21,16 +21,14 @@ That workstream is paused with `SN1-W2` still gated. `OB1-W0` completed on the s
 `goal/open-brain-five-minute-install` at implementation commit `ebef782`. Its small base dependency
 graph, direct private bootstrap, Python 3.14 native artifact, and checksum-verifying installer passed
 the full and focused repository gates plus an independent `READY` review with no P0 through P2
-findings. The artifacts remain unpublished. `OB1-W1` now has a local implementation candidate under
+findings. The artifacts remain unpublished. `OB1-W1` is complete under
 [`2026-09-07-ob1-w1-direct-local-journey.md`](2026-09-07-ob1-w1-direct-local-journey.md). Its focused
-preflight, full verification, and native macOS artifact journey passed at its first implementation
-commit. The first closure review returned two P1 findings for parser redaction and daemon ownership;
-both fixes passed refreshed focused, full, and native gates. The second review confirmed those fixes
-and found one P1: runtime evidence was observed only after profile compilation could change a partial
-root. The tests-first read-only preflight correction now passes focused, full, and native gates.
-The third review found a narrower identity-loss case for held daemon authority and one P2 covering
-two stale contributor-guide references. Root-level lease inspection and guide corrections now pass
-refreshed focused, full, and native gates. Fresh independent review remains.
+preflight, full verification, and native macOS artifact journey pass at exact clean implementation
+commit `c065d7633a2a4fb03b8aa300e71940ba829beea5`. Successive reviews closed parser redaction, daemon
+ownership, pre-bootstrap runtime and lease inspection, identity-loss, and contributor-routing gaps.
+The final fresh review returned `READY` with P0/P1/P2/P3 `0/0/0/0`. Nothing was pushed or published.
+`CORE-W0` remains the only gate between this completed local journey and `OB1-W2` clean-host release
+proof.
 
 ## Milestones
 

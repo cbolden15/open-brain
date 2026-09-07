@@ -1,6 +1,6 @@
 # Five-minute Open Brain acceptance test
 
-- Status: OB1-W1 local candidate implemented; OB1-W2 published clean-host proof pending
+- Status: OB1-W1 local journey complete; OB1-W2 published clean-host proof pending
 - Product: Open Brain default only
 - Time limit: 300 seconds from installer start through verified export
 - Secure Node: explicitly excluded
