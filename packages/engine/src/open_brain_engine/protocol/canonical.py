@@ -2,11 +2,15 @@
 
 from __future__ import annotations
 
+import base64
 import hashlib
 import json
 from typing import Any, cast
 
 import rfc8785
+
+LEDGER_HISTORY_COMMITMENT_PREFIX = "lhc_v1_"
+_LEDGER_HISTORY_COMMITMENT_DOMAIN = b"open-brain-ledger-head-v1\0"
 
 
 def _reject_duplicate_keys(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
@@ -41,3 +45,12 @@ def canonical_json_bytes(value: object) -> bytes:
 def canonical_sha256(value: object) -> str:
     """Hash protocol data only after RFC 8785 canonicalization."""
     return hashlib.sha256(canonical_json_bytes(value)).hexdigest()
+
+
+def ledger_history_commitment(receipt: object) -> str:
+    """Commit to a complete signed receipt without serializing its commit digest."""
+    digest = hashlib.sha256(
+        _LEDGER_HISTORY_COMMITMENT_DOMAIN + canonical_json_bytes(receipt)
+    ).digest()
+    encoded = base64.urlsafe_b64encode(digest).decode("ascii").rstrip("=")
+    return f"{LEDGER_HISTORY_COMMITMENT_PREFIX}{encoded}"

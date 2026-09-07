@@ -7,7 +7,10 @@ from collections.abc import Mapping
 from datetime import datetime
 from typing import Final, cast
 
-from .canonical import canonical_json_bytes
+from .canonical import (
+    LEDGER_HISTORY_COMMITMENT_PREFIX,
+    canonical_json_bytes,
+)
 from .freeze import CLOCK_POLICY, RESOURCE_LIMITS
 
 
@@ -61,6 +64,20 @@ def decode_base64url(value: object, *, expected_bytes: int, label: str) -> bytes
     if len(decoded) != expected_bytes or canonical != value:
         raise ProtocolContractError(f"{label} must encode exactly {expected_bytes} bytes")
     return decoded
+
+
+def _validate_ledger_head(value: object, label: str) -> None:
+    head = _object(value, label)
+    commitment = head.get("history_commitment")
+    if not isinstance(commitment, str) or not commitment.startswith(
+        LEDGER_HISTORY_COMMITMENT_PREFIX
+    ):
+        raise ProtocolContractError(f"{label}.history_commitment has an invalid version")
+    decode_base64url(
+        commitment.removeprefix(LEDGER_HISTORY_COMMITMENT_PREFIX),
+        expected_bytes=32,
+        label=f"{label}.history_commitment",
+    )
 
 
 def signed_payload_bytes(contract: str, document: Mapping[str, object]) -> bytes:
@@ -118,13 +135,30 @@ def validate_protocol_semantics(contract: str, document: Mapping[str, object]) -
         if retired_at is not None and _timestamp(retired_at, "retired_at") <= valid_from:
             raise ProtocolContractError("retired_at must be later than valid_from")
 
-    if contract == "query" and document.get("kind") == "request":
-        literal = document.get("literal_text")
-        if (
-            isinstance(literal, str)
-            and len(literal.encode("utf-8")) > RESOURCE_LIMITS.query_text_bytes
-        ):
-            raise ProtocolContractError("query literal exceeds 4096 UTF-8 bytes")
+    if contract == "query":
+        if document.get("kind") == "request":
+            literal = document.get("literal_text")
+            if (
+                isinstance(literal, str)
+                and len(literal.encode("utf-8")) > RESOURCE_LIMITS.query_text_bytes
+            ):
+                raise ProtocolContractError("query literal exceeds 4096 UTF-8 bytes")
+        elif document.get("kind") == "page":
+            page_brain_id = document.get("brain_id")
+            results = document.get("results")
+            if isinstance(results, list):
+                for result_index, result in enumerate(results):
+                    result_value = _object(result, f"results[{result_index}]")
+                    evidence_values = result_value.get("evidence")
+                    if isinstance(evidence_values, list):
+                        for evidence_index, evidence in enumerate(evidence_values):
+                            label = f"results[{result_index}].evidence[{evidence_index}]"
+                            evidence_value = _object(evidence, label)
+                            validate_protocol_semantics("query-evidence", evidence_value)
+                            if evidence_value.get("brain_id") != page_brain_id:
+                                raise ProtocolContractError(
+                                    f"{label} crosses the query page Brain boundary"
+                                )
 
     if contract == "cold-transfer-certificate":
         decode_base64url(
@@ -136,6 +170,7 @@ def validate_protocol_semantics(contract: str, document: Mapping[str, object]) -
         following = _integer(document.get("next_epoch"), "next_epoch")
         if following != previous + 1:
             raise ProtocolContractError("next_epoch must immediately follow previous_epoch")
+        _validate_ledger_head(document.get("prior_ledger_head"), "prior_ledger_head")
 
     if contract == "node-epoch-certificate":
         decode_base64url(
@@ -147,6 +182,11 @@ def validate_protocol_semantics(contract: str, document: Mapping[str, object]) -
         prior = document.get("prior_ledger_head")
         if (epoch == 1) != (prior is None):
             raise ProtocolContractError("only the genesis Node epoch may omit a prior ledger head")
+        if prior is not None:
+            _validate_ledger_head(prior, "prior_ledger_head")
+
+    if contract == "sequencer-stop-proof":
+        _validate_ledger_head(document.get("last_ledger_head"), "last_ledger_head")
 
     if contract == "commit-batch":
         brain_id = document.get("brain_id")
@@ -197,6 +237,10 @@ def validate_protocol_semantics(contract: str, document: Mapping[str, object]) -
         expected_previous_key_id: object = None
         expected_epoch = 1
         seen_key_ids: set[object] = set()
+        previous_valid_from: datetime | None = None
+        previous_retired_at: datetime | None = None
+        certifying_owner_certificate: Mapping[str, object] | None = None
+        certifying_owner_key_id = certificate.get("owner_key_id")
         for index, entry in enumerate(history):
             owner_certificate = _object(entry, f"owner_key_history[{index}]")
             validate_protocol_semantics("owner-key-certificate", owner_certificate)
@@ -211,19 +255,62 @@ def validate_protocol_semantics(contract: str, document: Mapping[str, object]) -
             current_key_id = owner_certificate.get("owner_key_id")
             if current_key_id in seen_key_ids:
                 raise ProtocolContractError("owner key history repeats a key identifier")
+            valid_from = _timestamp(
+                owner_certificate.get("valid_from"),
+                f"owner_key_history[{index}].valid_from",
+            )
+            if previous_valid_from is not None:
+                if valid_from <= previous_valid_from:
+                    raise ProtocolContractError(
+                        "owner key history valid_from values must strictly increase"
+                    )
+                if previous_retired_at is None:
+                    raise ProtocolContractError(
+                        "an owner key must be retired before its successor becomes valid"
+                    )
+                if valid_from < previous_retired_at:
+                    raise ProtocolContractError(
+                        "successive owner key validity intervals must not overlap"
+                    )
+            retired_at_value = owner_certificate.get("retired_at")
+            retired_at = (
+                None
+                if retired_at_value is None
+                else _timestamp(
+                    retired_at_value,
+                    f"owner_key_history[{index}].retired_at",
+                )
+            )
             seen_key_ids.add(current_key_id)
             expected_previous_key_id = current_key_id
             expected_epoch += 1
-        owner_key_id = certificate.get("owner_key_id")
-        if not any(
-            isinstance(entry, Mapping) and entry.get("owner_key_id") == owner_key_id
-            for entry in history
-        ):
+            previous_valid_from = valid_from
+            previous_retired_at = retired_at
+            if current_key_id == certifying_owner_key_id:
+                certifying_owner_certificate = owner_certificate
+        if certifying_owner_certificate is None:
             raise ProtocolContractError("receipt history does not contain the certifying owner key")
-        if _timestamp(document.get("issued_at"), "issued_at") < _timestamp(
+        certificate_issued_at = _timestamp(
             certificate.get("issued_at"),
             "node_epoch_certificate.issued_at",
+        )
+        certifier_valid_from = _timestamp(
+            certifying_owner_certificate.get("valid_from"),
+            "certifying owner valid_from",
+        )
+        certifier_retired_at_value = certifying_owner_certificate.get("retired_at")
+        if certificate_issued_at < certifier_valid_from:
+            raise ProtocolContractError(
+                "Node epoch certificate predates its certifying owner validity interval"
+            )
+        if certifier_retired_at_value is not None and certificate_issued_at >= _timestamp(
+            certifier_retired_at_value,
+            "certifying owner retired_at",
         ):
+            raise ProtocolContractError(
+                "Node epoch certificate is outside its certifying owner validity interval"
+            )
+        if _timestamp(document.get("issued_at"), "issued_at") < certificate_issued_at:
             raise ProtocolContractError("receipt predates its Node epoch certificate")
 
     if contract == "commit-result" and document.get("kind") in {"accepted", "replayed"}:

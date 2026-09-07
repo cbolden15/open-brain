@@ -35,6 +35,22 @@ unclean-process recovery, commit, and paged-read probes. Logical purge checks bo
 queries before and after checkpoint and vacuum; encrypted-file residue scanning is a separate
 check. Windows is outside M1. Phase 4 evidence stays unchanged.
 
+### Ledger-history commitment profile
+
+The wire form of a ledger head is a single `history_commitment`. It never serializes the prior
+cursor, commit ID, or canonical commit digest. Its exact value is `lhc_v1_` followed by the
+unpadded Base64URL encoding of:
+
+```text
+SHA-256(UTF-8("open-brain-ledger-head-v1") || 0x00 || RFC8785(complete_signed_prior_receipt))
+```
+
+The domain separator and the complete receipt, including its Node signature, are mandatory. A
+client that holds the prior receipt can recompute the commitment. A later committer that does not
+hold that receipt learns no prior commit identity or canonical commit digest from the commitment.
+The commitment is continuity evidence, not an entity identifier or lookup key. A stop proof,
+cold-transfer certificate, and following Node epoch certificate carry the same value.
+
 ### Encrypted database profile
 
 Each Brain has a separate versioned v1 namespace. The database key is a 256-bit value derived from
@@ -61,9 +77,17 @@ so a nonce is never reused under that key. A retry reuses staged ciphertext only
 delivery and digest; otherwise it creates a new data key and nonce.
 
 Data keys are wrapped with RFC 3394 AES-256 Key Wrap under a versioned Brain wrapping key. The wrap
-format contains crypto version, wrapping-key ID, wrapped data key, AEAD nonce, associated-data
-digest, and ciphertext digest. Rotation rewraps data keys without decrypting payload bytes. Erasure
-destroys scoped wrapped keys and verifies that no remaining key path decrypts the target.
+format is represented by two typed envelopes. `WrappedKeyEnvelope` contains the crypto version,
+wrapping-key ID, data-key ID, and wrapped data key. `CiphertextEnvelope` contains the crypto
+version, data-key ID, AEAD nonce, lowercase hexadecimal SHA-256 associated-data digest, lowercase
+hexadecimal SHA-256 digest of the ciphertext including its authentication tag, and ciphertext.
+Rotation rewraps data keys without decrypting payload bytes. Erasure destroys scoped wrapped keys
+and verifies that no remaining key path decrypts the target.
+
+Encryption receives the complete associated-data bytes. Decryption receives those expected bytes
+again, checks their digest against the envelope, checks the envelope's data-key ID against the key
+handle, checks the ciphertext digest, and passes the complete bytes to AES-GCM. It never substitutes
+the associated-data digest for the associated data. A mismatch fails before plaintext is returned.
 
 ### Root key custody and passphrase fallback
 
@@ -71,9 +95,10 @@ destroys scoped wrapped keys and verifies that no remaining key path decrypts th
 public-key access, signing, authenticated encryption and decryption, key wrapping and unwrapping,
 rotation, and destruction for Brain root, owner, issuer, Node signing, database, wrapping, and data
 keys. Secret key bytes never cross the port; callers receive purpose- and Brain-scoped opaque
-handles and typed envelopes. Rotation and destruction require fresh user-presence evidence. The
-production adapter prefers an OS secret store. Plaintext root keys inside the Brain root are
-forbidden. The in-memory provider is test-only and cannot satisfy acceptance.
+handles and typed envelopes. A rotation call identifies the exact key handle being rotated.
+Rotation and destruction require fresh user-presence evidence. The production adapter prefers an
+OS secret store. Plaintext root keys inside the Brain root are forbidden. The in-memory provider is
+test-only and cannot satisfy acceptance.
 
 The portable fallback stores an owner-only passphrase envelope outside the Brain root. It derives a
 256-bit envelope key with Argon2id version 19, 64 MiB memory, 3 iterations, 4 lanes, a fresh 128-bit

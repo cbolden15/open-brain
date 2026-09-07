@@ -31,6 +31,12 @@ for an existing Brain and delivery identity returns a typed conflict. The canoni
 appears only in the signed receipt returned to an authorized committer. It is not a public entity
 identifier, lookup key, query identifier, or bodyless inspection field.
 
+Sequencer continuity uses a separate `lhc_v1_` history commitment to the complete signed prior
+receipt. Stop proofs, cold-transfer certificates, and later Node epoch certificates carry only that
+commitment, never the prior cursor, commit ID, or canonical commit digest. The exact domain-separated
+derivation is frozen in ADR 0010. A holder of the prior receipt can verify the link without making
+the receipt's digest visible to later committers.
+
 ## Identifiers and cursors
 
 Generated identifiers contain a three-letter role prefix, an underscore, and a lowercase unpadded
@@ -84,6 +90,11 @@ its complete RFC 8785 object with only its signature field omitted. An independe
 the genesis owner-key fingerprint and follows the owner and Node certificate links without Node
 internals.
 
+Owner-key validity intervals are half-open. History activation times strictly increase, retired
+predecessors do not overlap successors, and a Node epoch certificate's issue time must fall inside
+the certifying owner's interval. A Node certificate remains valid after that owner retires if it was
+issued while the owner was valid.
+
 ## `query`
 
 Query input is bounded literal text. The Node escapes and compiles it into a safe internal FTS5
@@ -101,7 +112,8 @@ Intermediate pages are provisional. Final results use reciprocal-rank fusion wit
 then deterministic record-ID ordering for ties. Only within-shard ranks enter fusion, so an
 unauthorized shard cannot affect a score or count. Every returned result has at least one authorized
 `query-evidence` value naming a supporting record or accepted revision and its provenance. Bodies
-require explicit body scope.
+require explicit body scope. The Node validates every nested evidence contract and rejects a page
+when either the evidence or its provenance crosses the page's Brain boundary.
 
 Query may require a minimum ledger cursor. A lagging projection returns `projection_lag`, a retry
 time, and an opaque grant-scoped watermark. The high-level client may wait or transparently restart

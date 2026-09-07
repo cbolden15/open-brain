@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from copy import deepcopy
 from typing import cast
 
 import pytest
@@ -209,6 +210,55 @@ def test_query_limit_counts_utf8_bytes_not_code_points() -> None:
         validate_protocol_semantics("query", request)
 
 
+def test_query_page_rejects_evidence_from_another_brain() -> None:
+    page = deepcopy(
+        cast(
+            dict[str, object],
+            next(
+                value
+                for value in load_conformance_cases()["valid"]["query"]
+                if isinstance(value, dict) and value.get("kind") == "page"
+            ),
+        )
+    )
+    results = cast(list[dict[str, object]], page["results"])
+    evidence_values = cast(list[dict[str, object]], results[0]["evidence"])
+    evidence = evidence_values[0]
+    provenance = cast(dict[str, object], evidence["provenance"])
+    evidence["brain_id"] = "brn_bbbbbbbbbbbbbbbbbbbbbbbbbb"
+    provenance["brain_id"] = "brn_bbbbbbbbbbbbbbbbbbbbbbbbbb"
+
+    assert _validator("query-evidence").is_valid(evidence)
+    validate_protocol_semantics("query-evidence", evidence)
+    assert _validator("query").is_valid(page)
+    with pytest.raises(ProtocolContractError, match="query page Brain boundary"):
+        validate_protocol_semantics("query", page)
+
+
+def test_query_page_recursively_rejects_evidence_provenance_boundary() -> None:
+    page = deepcopy(
+        cast(
+            dict[str, object],
+            next(
+                value
+                for value in load_conformance_cases()["valid"]["query"]
+                if isinstance(value, dict) and value.get("kind") == "page"
+            ),
+        )
+    )
+    results = cast(list[dict[str, object]], page["results"])
+    evidence_values = cast(list[dict[str, object]], results[0]["evidence"])
+    evidence = evidence_values[0]
+    provenance = cast(dict[str, object], evidence["provenance"])
+    provenance["brain_id"] = "brn_bbbbbbbbbbbbbbbbbbbbbbbbbb"
+
+    assert _validator("query").is_valid(page)
+    with pytest.raises(ProtocolContractError, match="provenance crosses"):
+        validate_protocol_semantics("query-evidence", evidence)
+    with pytest.raises(ProtocolContractError, match="provenance crosses"):
+        validate_protocol_semantics("query", page)
+
+
 def test_commit_results_are_closed_typed_outcomes() -> None:
     cases = load_conformance_cases()["valid"]
     receipt = cast(dict[str, object], cases["receipt"][0])
@@ -278,6 +328,39 @@ def test_bodyless_inspect_rejects_payload_and_commit_digest_metadata() -> None:
     leaked = cast(dict[str, object], load_conformance_cases()["invalid"]["inspect"][0])
 
     assert not _validator("inspect").is_valid(leaked)
+
+
+def test_continuity_heads_expose_only_an_opaque_history_commitment() -> None:
+    cases = load_conformance_cases()["valid"]
+    common = load_schema("common")
+    definitions = cast(dict[str, object], common["$defs"])
+    ledger_head = cast(dict[str, object], definitions["ledger_head"])
+
+    assert ledger_head["required"] == ["history_commitment"]
+    assert set(cast(dict[str, object], ledger_head["properties"])) == {
+        "history_commitment"
+    }
+    for contract in ("cold-transfer-certificate", "sequencer-stop-proof"):
+        serialized = json.dumps(cases[contract][0])
+        assert "commit_digest" not in serialized
+        assert "commit_id" not in serialized
+        assert "cursor" not in serialized
+
+
+def test_history_commitment_requires_canonical_32_byte_base64url() -> None:
+    proof = deepcopy(
+        cast(
+            dict[str, object],
+            load_conformance_cases()["valid"]["sequencer-stop-proof"][0],
+        )
+    )
+    ledger_head = cast(dict[str, object], proof["last_ledger_head"])
+    commitment = cast(str, ledger_head["history_commitment"])
+    ledger_head["history_commitment"] = f"{commitment[:-1]}R"
+
+    assert _validator("sequencer-stop-proof").is_valid(proof)
+    with pytest.raises(ProtocolContractError, match="exactly 32 bytes"):
+        validate_protocol_semantics("sequencer-stop-proof", proof)
 
 
 def test_failed_job_requires_a_bounded_attempt_and_error_code() -> None:

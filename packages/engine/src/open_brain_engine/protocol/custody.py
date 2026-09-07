@@ -36,9 +36,10 @@ class PrincipalKeyHandle:
 @dataclass(frozen=True, slots=True)
 class CiphertextEnvelope:
     crypto_version: int
-    key_identifier: str
+    data_key_identifier: str
     nonce: bytes
     associated_data_digest: str
+    ciphertext_digest: str
     ciphertext: bytes
 
 
@@ -46,6 +47,7 @@ class CiphertextEnvelope:
 class WrappedKeyEnvelope:
     crypto_version: int
     wrapping_key_identifier: str
+    data_key_identifier: str
     wrapped_key: bytes
 
 
@@ -105,7 +107,12 @@ class RootKeyCustodian(Protocol):
         associated_data: bytes,
     ) -> CiphertextEnvelope: ...
 
-    def decrypt(self, key: KeyHandle, envelope: CiphertextEnvelope) -> bytes: ...
+    def decrypt(
+        self,
+        key: KeyHandle,
+        envelope: CiphertextEnvelope,
+        associated_data: bytes,
+    ) -> bytes: ...
 
     def wrap_key(self, wrapping_key: KeyHandle, data_key: KeyHandle) -> WrappedKeyEnvelope: ...
 
@@ -113,7 +120,7 @@ class RootKeyCustodian(Protocol):
 
     def rotate(
         self,
-        brain_id: str,
+        key: KeyHandle,
         presence: UserPresenceProof,
     ) -> KeyHandle: ...
 

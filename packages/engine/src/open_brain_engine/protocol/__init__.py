@@ -1,6 +1,11 @@
 """Public, transport-neutral Brain Protocol v1 freeze surface."""
 
-from .canonical import canonical_json_bytes, canonical_sha256, decode_protocol_json
+from .canonical import (
+    canonical_json_bytes,
+    canonical_sha256,
+    decode_protocol_json,
+    ledger_history_commitment,
+)
 from .custody import (
     CiphertextEnvelope,
     KeyDestructionProof,
@@ -64,6 +69,7 @@ __all__ = [
     "load_conformance_cases",
     "load_schema",
     "load_signature_vectors",
+    "ledger_history_commitment",
     "request_binding_from_envelope",
     "schema_catalog",
     "signed_payload_bytes",

@@ -550,14 +550,12 @@
         "previous_epoch": 1,
         "next_epoch": 2,
         "prior_ledger_head": {
-          "cursor": "cur_v1_aaaaaaaaaaaaaaaa",
-          "commit_id": "cmt_aaaaaaaaaaaaaaaaaaaaaaaaaa",
-          "commit_digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          "history_commitment": "lhc_v1_PgQze80r54tk4H2UsGhmi4iGkLg-ovE42Duq8r80jAQ"
         },
         "stop_proof_id": "stp_aaaaaaaaaaaaaaaaaaaaaaaaaa",
         "owner_key_id": "key_aaaaaaaaaaaaaaaaaaaaaaaaaa",
         "issued_at": "2026-09-06T12:01:00Z",
-        "owner_signature": "UsbhKtFAwO7hoi8VEloif1gIYxqhabIYmNt0YmjsWmMMC_FgTg4LUYt202Ff9q_poOJEFR4uQrTEm-yeMFayAg"
+        "owner_signature": "9JhmNPvL7Dm8lg9m0_db6kbhn4xCDTYodjw5eupymabRfsTc8ZxkDmCwpSE9mxw2MSi0vmLM3_1BuBGDWt9hDA"
       }
     ],
     "sequencer-stop-proof": [
@@ -570,12 +568,10 @@
         "machine_instance": "machine_aaaaaaaaaaaaaaaaaaaaaaaaaa",
         "epoch": 1,
         "last_ledger_head": {
-          "cursor": "cur_v1_aaaaaaaaaaaaaaaa",
-          "commit_id": "cmt_aaaaaaaaaaaaaaaaaaaaaaaaaa",
-          "commit_digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          "history_commitment": "lhc_v1_PgQze80r54tk4H2UsGhmi4iGkLg-ovE42Duq8r80jAQ"
         },
         "stopped_at": "2026-09-06T12:00:00Z",
-        "node_signature": "V-1CetqE1fSUBMkXCC9MQ6hYStyKNp-ImUgmduiE9SHY6gIuXuxz_P2qoum5w52p9TcCLT5qXYBN_czdzATlCA"
+        "node_signature": "816ZfdSTx5bMpjF1u5JMg31R1chnWoAdfMgRWWHYoZyn3q-eTIPoPdpIldN-wOsumKNKqfqFDKv--ZCI_xIlAw"
       }
     ],
     "resource-limit-failure": [
@@ -896,9 +892,7 @@
         "previous_epoch": 99,
         "next_epoch": 2,
         "prior_ledger_head": {
-          "cursor": "cur_v1_aaaaaaaaaaaaaaaa",
-          "commit_id": "cmt_aaaaaaaaaaaaaaaaaaaaaaaaaa",
-          "commit_digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          "history_commitment": "lhc_v1_PgQze80r54tk4H2UsGhmi4iGkLg-ovE42Duq8r80jAQ"
         },
         "stop_proof_id": "stp_aaaaaaaaaaaaaaaaaaaaaaaaaa",
         "owner_key_id": "key_aaaaaaaaaaaaaaaaaaaaaaaaaa",

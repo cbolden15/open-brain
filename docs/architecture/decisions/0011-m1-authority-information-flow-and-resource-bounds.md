@@ -55,6 +55,12 @@ owner-key certificate history, issuer epoch, and policy digest. Every signed con
 principal bindings, grants, owner and Node certificates, receipts, stop proofs, and cold transfers.
 Clients verify the complete chain from a pinned genesis owner fingerprint.
 
+Owner-key validity intervals are half-open: `valid_from <= instant < retired_at`, with no upper
+bound when `retired_at` is null. History epochs and `valid_from` values strictly increase. Every
+predecessor is retired before its successor becomes valid, and their intervals cannot overlap. A
+Node epoch certificate must be issued inside the certifying owner's interval. Later owner retirement
+does not invalidate a Node certificate that was validly issued.
+
 ### Clocks and replay
 
 Owner-session and step-up age use the monotonic in-process clock. Grant expiry uses a persisted UTC
@@ -84,7 +90,9 @@ after a purge touches its snapshot.
 
 Intermediate results are provisional. Final reciprocal-rank fusion uses no corpus-wide or
 unauthorized statistics. Every result requires authorized evidence. A missing evidence link removes
-the result rather than returning an unsupported text match.
+the result rather than returning an unsupported text match. Each evidence value is validated as a
+complete `query-evidence` contract, including its provenance boundary, and must name the same Brain
+as its containing query page.
 
 Projection work is asynchronous. A minimum cursor that has not reached the authorized projection
 returns `projection_lag` with retry guidance and an opaque grant-scoped watermark. The Brain-wide
@@ -148,8 +156,9 @@ returns a sensitive original receipt. Continuations bound to touched records ret
 `continuation_invalidated`; the high-level client may restart within its budget.
 
 The versioned JSON schemas enforce structure. The public semantic validator additionally enforces
-UTF-8 byte limits, exact Ed25519 encodings, Brain boundaries, grant timestamp arithmetic, epoch
-continuity, and receipt certificate history. Both layers are mandatory protocol validation.
+UTF-8 byte limits, exact Ed25519 and history-commitment encodings, Brain boundaries, nested query
+evidence, grant timestamp arithmetic, epoch continuity, and certificate-history timing. Both layers
+are mandatory protocol validation.
 
 ## Consequences
 

@@ -37,6 +37,11 @@
       "pattern": "^[A-Za-z0-9_-]{86}$",
       "x-open-brain-decoded-bytes": 64
     },
+    "history_commitment": {
+      "type": "string",
+      "pattern": "^lhc_v1_[A-Za-z0-9_-]{43}$",
+      "x-open-brain-base64url-payload-bytes": 32
+    },
     "cursor": { "type": "string", "pattern": "^cur_v1_[A-Za-z0-9_-]{16,512}$" },
     "compartments": {
       "type": "array",
@@ -74,11 +79,9 @@
     "ledger_head": {
       "type": "object",
       "properties": {
-        "cursor": { "$ref": "#/$defs/cursor" },
-        "commit_id": { "$ref": "#/$defs/commit_id" },
-        "commit_digest": { "$ref": "#/$defs/digest" }
+        "history_commitment": { "$ref": "#/$defs/history_commitment" }
       },
-      "required": ["cursor", "commit_id", "commit_digest"],
+      "required": ["history_commitment"],
       "additionalProperties": false
     },
     "grant_limits": {

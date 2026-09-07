@@ -6,23 +6,26 @@
 
 **Mode:** strict
 
-**Commits reviewed:** `f1e3ceb..a6d92a9` plus the W0 remediation working diff
+**Commits reviewed:** `f1e3ceb..f23b4ce` plus the second W0 remediation working diff
 
 **Codebase root:** repository root
 
 ## Executive summary
 
-- **Completion:** 100% (35 of 35 W0 requirements complete in the local audit)
-- **Ship readiness:** READY for independent rereview
+- **Completion:** 100% (35 of 35 W0 requirements complete after local remediation)
+- **Ship readiness:** NOT READY until the second remediation passes independent rereview
 - **W1 gate:** Locked until the independent rereview returns READY
-- **High-risk issues:** None found after remediation
-- **Verification:** `make verify` passed with Ruff, strict MyPy over 566 source files, 3,322
-  tests, six Python artifacts, and the artifact-policy gate.
+- **Independent findings at `f23b4ce`:** two P1 and two P2 findings, all remediated locally
+- **Current verification:** full `make verify` passed with Ruff, strict MyPy over 566 source files,
+  3,337 tests, six Python artifacts, and the artifact-policy gate. The focused 166-test review set
+  also passed.
 
 The first independent review rejected commit `a6d92a9` with three P1, five P2, and three P3
 findings. The remediation closes each finding in executable schemas, semantic validators,
 mutation tests, reproducible evidence, or documentation. This report is the local strict audit,
-not the independent gate result.
+not the independent gate result. A second independent review rejected `f23b4ce` with two P1 and
+two P2 findings. The current working diff addresses those findings, but only a fresh independent
+READY verdict can unlock W1.
 
 ## Requirement audit
 
@@ -118,8 +121,10 @@ not the independent gate result.
     exposes opaque-handle bootstrap, unlock, restart, derive, data-key generation, public-key,
     sign, encrypt/decrypt, wrap/unwrap, rotate, and destroy operations.
   - `packages/engine/tests/contract/protocol_v1/test_protocol_freeze.py:131`
-    pins both custody ports and their usable method sets.
-- **Notes:** Secret key bytes do not cross the port.
+    pins both custody ports, exact envelope fields, the expected-associated-data decrypt input,
+    and key-selected rotation.
+- **Notes:** Secret key bytes do not cross the port. Decryption receives the complete expected
+  associated data instead of trying to use its digest as AEAD input.
 
 ### R9: Freeze cipher, wrapping, SQLCipher, and passphrase profiles
 
@@ -128,7 +133,8 @@ not the independent gate result.
   - `packages/engine/src/open_brain_engine/protocol/freeze.py:42`
     freezes AES-256-GCM, nonce and key sizes, AES-KW, Argon2id, and SQLCipher parameters.
   - `docs/architecture/decisions/0010-m1-wire-storage-and-crypto.md:40`
-    defines database derivation; lines 54-67 define payload and key envelopes.
+    defines the privacy-preserving ledger-history commitment and database derivation; the payload
+    section freezes separate ciphertext and wrapped-key envelopes with ciphertext integrity.
 - **Notes:** Later storage code consumes these values rather than selecting new ones.
 
 ### R10: Keep grant issuance in owner-authenticated local control
@@ -183,11 +189,14 @@ not the independent gate result.
   - `packages/engine/src/open_brain_engine/protocol/schemas/v1/receipt.json:14`
     binds issuer/policy/sequencer epochs, Node certificate, owner history, and signature.
   - `packages/engine/src/open_brain_engine/protocol/validation.py:185`
-    enforces receipt-to-certificate and ordered owner-history continuity.
+    enforces receipt-to-certificate, ordered owner-history continuity, non-overlapping half-open
+    validity intervals, and certifier validity at Node-certificate issuance.
   - `packages/engine/tests/contract/protocol_v1/test_signature_vectors.py:64`
     verifies every signed contract vector; line 91 verifies the pinned-owner-to-Node-to-receipt
-    chain with only public material.
-- **Notes:** Key and signature encodings require exact Ed25519 byte lengths.
+    chain with only public material. Named deterministic tests verify valid signatures for activation,
+    retirement, adjacent rotation, rotation gaps, backdating, and overlap boundaries.
+- **Notes:** Key and signature encodings require exact Ed25519 byte lengths. Owner intervals are
+  half-open, so issuance at `valid_from` passes and issuance at `retired_at` fails.
 
 ### R15: Generate a reproducible bounded synthetic corpus
 
@@ -221,7 +230,10 @@ not the independent gate result.
     requires record or accepted-revision evidence, provenance, compartments, and visibility.
   - `packages/engine/src/open_brain_engine/protocol/schemas/v1/query.json:7`
     requires at least one evidence value for every result.
-- **Notes:** Body exposure is conditional on body visibility.
+  - `packages/engine/src/open_brain_engine/protocol/validation.py`
+    recursively validates each page evidence contract and binds its Brain to the page Brain.
+- **Notes:** Named mutations reject both a self-consistent foreign-Brain evidence value and a
+  nested provenance boundary violation. Body exposure remains conditional on body visibility.
 
 ### R18: Freeze resource bounds and actionable failures
 
@@ -365,7 +377,11 @@ not the independent gate result.
     defines a closed metadata allowlist without a commit digest.
   - `packages/engine/tests/contract/protocol_v1/test_schemas.py:277`
     rejects bodyless digest disclosure.
-- **Notes:** Digests are not IDs or public lookup keys.
+  - `packages/engine/src/open_brain_engine/protocol/schemas/v1/common.json`
+    gives continuity documents only an opaque `lhc_v1_` history commitment to the complete signed
+    prior receipt; no prior cursor, commit ID, or canonical commit digest is serialized.
+- **Notes:** Canonical commit digests remain only in receipts. History commitments are continuity
+  evidence, not IDs or public lookup keys.
 
 ### R30: Freeze the minimum BrainPack semantic inventory
 
@@ -399,7 +415,7 @@ not the independent gate result.
   - `docs/architecture/decisions/0010-m1-wire-storage-and-crypto.md:100`
     rejects known network and synchronized roots and fixes owner-only modes.
   - `packages/engine/src/open_brain_engine/protocol/schemas/v1/cold-transfer-certificate.json:18`
-    binds the next public key and prior ledger head.
+    binds the next public key and opaque prior history commitment.
   - `packages/engine/src/open_brain_engine/protocol/validation.py:241`
     binds the owner certificate to the Node stop proof and exact next epoch.
   - `packages/engine/tests/contract/protocol_v1/test_signature_vectors.py:129`
@@ -414,7 +430,7 @@ not the independent gate result.
     pins completed P4 evidence bytes.
   - `tests/phase4/test_m1_compatibility_baseline.py:45`
     pins the v0 facade and all six artifact coordinates.
-- **Notes:** The full 3,322-test repository suite passed after remediation.
+- **Notes:** The full 3,337-test repository suite passed after the second remediation.
 
 ### R34: Extend the coordinator-owned classification manifest
 
@@ -460,6 +476,19 @@ not the independent gate result.
 | P3: raw matrix receipts absent | Added reproducible runner and hash-bound sanitized raw receipts | `tests/phase4/test_m1_compatibility_baseline.py:172` |
 | P3: benchmark compared raw BM25 across shards | Replaced cross-shard score comparison with within-shard ranks and RRF-60 | `tests/phase4/test_m1_compatibility_baseline.py:268` |
 
+## Second independent findings and local remediation
+
+The independent rereview of exact commit `f23b4ce` returned NOT READY with zero P0, two P1, two
+P2, and zero P3 findings. The table records the current local remediation. These rows are not an
+independent acceptance verdict.
+
+| Finding | Local remediation | Executable evidence |
+|---|---|---|
+| P1: continuity certificates disclosed a prior canonical commit digest | Replaced the cursor, commit ID, and digest ledger head with a domain-separated commitment to the complete signed prior receipt; regenerated stop and transfer vectors | `test_ledger_history_commitment_is_domain_separated_and_reproducible`; `test_continuity_heads_expose_only_an_opaque_history_commitment`; `test_cold_transfer_is_bound_to_the_node_stop_proof` |
+| P1: owner validity did not constrain Node certification or rotation | Enforced strictly increasing activation, retired predecessors, non-overlap, and half-open certifier validity at Node issuance | `test_receipt_owner_certification_accepts_half_open_interval_boundaries`; `test_receipt_owner_certification_rejects_validly_signed_invalid_chronology` |
+| P2: query pages bypassed nested evidence Brain checks | Recursively validate every evidence contract, then bind its Brain to the page Brain | `test_query_page_rejects_evidence_from_another_brain`; `test_query_page_recursively_rejects_evidence_provenance_boundary` |
+| P2: decrypt could not receive required AEAD associated data | Added expected associated data to `decrypt`, added data-key and ciphertext bindings to typed envelopes, and made rotation select an exact key | `test_key_custody_envelopes_and_aead_inputs_are_exact` |
+
 ## Integration audit
 
 - `packages/engine/src/open_brain_engine/protocol/resources.py:12`
@@ -478,8 +507,8 @@ No broken integration, orphaned import, or unclassified W0 runtime/resource was 
 
 - **Regression:** Low. The v0 facade, P4 evidence hashes, package boundaries, Python range, and six
   artifact coordinates are pinned and passed.
-- **Security:** No open W0 blocker. Strict JSON, byte-length, Brain-boundary, trust-chain, inspect,
-  purge, and information-flow mutations passed.
+- **Security:** The four findings from the `f23b4ce` rereview are covered by passing local
+  regression tests. They remain gate blockers until the independent reviewer verifies the fix.
 - **Performance:** The provisional shard, fan-out, top-k, commit, nonce, and concurrency limits are
   executable constants. Synthetic macOS/Linux measurements passed their frozen bounds.
 - **Delivery:** The Linux x86_64 matrix used official containers under x86_64 emulation on Apple
@@ -488,7 +517,7 @@ No broken integration, orphaned import, or unclassified W0 runtime/resource was 
 
 ## Critical gaps
 
-None in the local strict audit.
+Independent rereview of the exact second-remediation commit remains open. W1 stays locked.
 
 ## Integration issues
 
@@ -502,7 +531,8 @@ persisted records use the verified state, as the frozen contract requires.
 
 ## Recommended fixes
 
-No implementation fix remains before independent rereview.
+Commit the exact verified remediation and request an independent rereview of that commit. Do not
+start W1 without a READY verdict.
 
 ## Optional enhancements
 

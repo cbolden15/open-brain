@@ -66,7 +66,9 @@ filesystems and known synchronized roots. An unrecognized synchronization produc
 The sequencer lease binds a generated machine-instance ID, Node ID, and epoch so a copied identity
 cannot write until an owner-authorized cold transfer advances the epoch. The owner-signed transfer
 must bind the old Node's signed stop proof, prior ledger head, destination machine and Node key, and
-exactly the next epoch; uncertainty pauses writes.
+exactly the next epoch; uncertainty pauses writes. The wire ledger head contains only a
+domain-separated commitment to the complete signed prior receipt. It does not disclose that
+receipt's cursor, commit ID, or canonical commit digest to a later committer.
 
 Owner sessions and step-up freshness use a monotonic process clock. Grant expiry uses a persisted
 UTC high-water mark with 300 seconds of skew. Backward wall-clock movement fails closed, and replay

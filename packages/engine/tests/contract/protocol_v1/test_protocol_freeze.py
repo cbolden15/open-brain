@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import math
+from dataclasses import fields
+from inspect import signature
 
 import pytest
 from open_brain_engine.protocol import (
@@ -10,15 +12,19 @@ from open_brain_engine.protocol import (
     IDENTIFIER_ROLES,
     RESOURCE_LIMITS,
     SEMANTIC_OPERATIONS,
+    CiphertextEnvelope,
     PrincipalKeyCustodian,
     ProtocolContractError,
     RootKeyCustodian,
     UserPresenceProvider,
+    WrappedKeyEnvelope,
     canonical_json_bytes,
     canonical_sha256,
     decode_base64url,
     decode_protocol_json,
     generate_identifier,
+    ledger_history_commitment,
+    load_conformance_cases,
     validate_identifier,
 )
 
@@ -35,6 +41,14 @@ def test_rfc8785_bytes_and_digest_are_canonical() -> None:
     assert encoded == '{"a":1,"z":[3,2,1],"é":"snowman ☃"}'.encode()
     assert canonical_sha256(value) == (
         "12eab2a345ec3ec39043a6a7b89aa0e7187ec9ca0b3fdd9f78f5d20c22e27063"
+    )
+
+
+def test_ledger_history_commitment_is_domain_separated_and_reproducible() -> None:
+    receipt = load_conformance_cases()["valid"]["receipt"][0]
+
+    assert ledger_history_commitment(receipt) == (
+        "lhc_v1_PgQze80r54tk4H2UsGhmi4iGkLg-ovE42Duq8r80jAQ"
     )
 
 
@@ -158,6 +172,34 @@ def test_key_custody_ports_are_separate_public_boundaries() -> None:
         vars(PrincipalKeyCustodian)["__protocol_attrs__"]
     )
     assert {"challenge"} <= set(vars(UserPresenceProvider)["__protocol_attrs__"])
+
+
+def test_key_custody_envelopes_and_aead_inputs_are_exact() -> None:
+    assert tuple(field.name for field in fields(CiphertextEnvelope)) == (
+        "crypto_version",
+        "data_key_identifier",
+        "nonce",
+        "associated_data_digest",
+        "ciphertext_digest",
+        "ciphertext",
+    )
+    assert tuple(field.name for field in fields(WrappedKeyEnvelope)) == (
+        "crypto_version",
+        "wrapping_key_identifier",
+        "data_key_identifier",
+        "wrapped_key",
+    )
+    assert tuple(signature(RootKeyCustodian.decrypt).parameters) == (
+        "self",
+        "key",
+        "envelope",
+        "associated_data",
+    )
+    assert tuple(signature(RootKeyCustodian.rotate).parameters) == (
+        "self",
+        "key",
+        "presence",
+    )
 
 
 @pytest.mark.parametrize(

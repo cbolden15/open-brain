@@ -1,7 +1,7 @@
 {
   "id": "2026-09-04-m1-semantic-kernel-node-notes",
   "title": "Implementation notes - M1 public semantic kernel and reference Node",
-  "subtitle": "M1-W0 independent-review remediation in progress; W1 locked · 2026-09-07 01:01 CDT",
+  "subtitle": "M1-W0 second remediation verified locally; independent rereview pending; W1 locked · 2026-09-07 01:48 CDT",
   "introTitle": "How to use",
   "intro": "<p>Each item is a decision, deviation, or tradeoff made during implementation. <strong>Acknowledge</strong> if fine. <strong>Discuss</strong> to write what should change. <strong>Revert</strong> to flag for undo.</p>",
   "actions": [
@@ -165,14 +165,14 @@
     {
       "id": "N12",
       "group": "m1-w0",
-      "title": "One unchanged macOS sandbox test is unavailable inside the managed runner",
+      "title": "Full coordinator verification later passed in the managed runner",
       "where": "packages/connectors/tests/unit/capture/extractors/test_media.py",
       "default": "acknowledge",
       "body": {
         "Spec said": "Run coordinator verification after integration and preserve completed v0 and Phase 4 behavior.",
-        "What I did": "Ran the full suite, reproduced the sole failure directly, and confirmed that this managed environment rejects nested /usr/bin/sandbox-exec with sandbox_apply: Operation not permitted. I did not modify or skip the product test in repository configuration. I reran verification with that exact environment-unavailable test deselected: Ruff and MyPy passed, 3,285 tests passed, and artifact verification passed.",
-        "Why": "Changing the connector behavior or weakening its test would be outside M1-W0 and would conceal a runner restriction rather than fix a product defect.",
-        "Risk": "A coordinator with permission to invoke sandbox-exec must rerun that unchanged test before claiming a completely green unrestricted-host suite. All W0-owned tests and installed-artifact checks pass in this environment."
+        "What I did": "The first run exposed a nested sandbox-exec restriction, so I preserved the unchanged product test and diagnosed the runner instead of weakening it. A later full make verify completed without deselection: Ruff passed, strict MyPy checked 566 source files, 3,322 tests passed, six Python artifacts built, and artifact policy passed.",
+        "Why": "The later clean run supersedes the temporary runner limitation while preserving the original test and product behavior.",
+        "Risk": "That green result covers commit f23b4ce. A later 3,337-test full verification covers the second remediation. Independent acceptance remains separate."
       }
     },
     {
@@ -194,7 +194,19 @@
       "body": {
         "What I did": "Expanded the executable schema catalog, added cross-field semantic validation, replaced placeholder signatures with deterministic Ed25519 trust vectors, froze operational key-custody methods, made purge evidence prove row and FTS deletion, changed the synthetic benchmark to RRF-60, and ran a fresh reproducible 12-cell storage matrix.",
         "Evidence": "All 12 source and wheel cells passed on macOS ARM64 and Linux x86_64 for Python 3.12 through 3.14. The aggregate raw receipt records sanitized reproduction commands, exact probe stdout, and the hardened probe SHA-256.",
-        "Risk": "This note records remediation in progress, not W0 acceptance. Documentation, complete verification, and independent rereview remain required before the gate can close."
+        "Risk": "The first remediation passed full local verification but did not pass independent rereview. W1 remains locked."
+      }
+    },
+    {
+      "id": "N15",
+      "group": "m1-w0",
+      "title": "Second independent review found four remaining protocol gaps",
+      "default": "acknowledge",
+      "body": {
+        "What happened": "The strict rereview of exact commit f23b4ce returned NOT READY with zero P0, two P1, two P2, and zero P3 findings.",
+        "Findings": "Continuity documents disclosed a prior canonical commit digest; owner-key validity did not constrain Node certification or rotation; query pages bypassed nested evidence Brain checks; and the decryption port could not receive the full AEAD associated data.",
+        "What I changed": "Replaced public ledger-head details with a domain-separated commitment to the complete signed prior receipt, enforced half-open owner chronology with validly signed boundary tests, recursively validated query evidence, and froze exact ciphertext, wrapped-key, decrypt, and rotation port shapes.",
+        "Gate": "Focused verification and full make verify pass: Ruff, strict MyPy over 566 source files, 3,337 tests, six artifacts, and artifact policy are green. A fresh independent verdict remains required before W0 can close or W1 can begin."
       }
     }
   ]

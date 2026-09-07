@@ -141,7 +141,7 @@
     "case": "node-signed-sequencer-stop-proof-v1",
     "contract": "sequencer-stop-proof",
     "verification_public_key": "5_FioQvsVZr-oZXk3OhLaVaNXSywlj60RsBoXisX8vA",
-    "signed_payload_sha256": "e730750f018f25aae34e1ac8acf5b597e398c2dde6e5013d4a4c0b3f503dbdde",
+    "signed_payload_sha256": "b5f8ec92901ad21ecb3e29721bf7bca6c3d29eec3379fe1baae358da16117659",
     "document": {
       "schema_version": 1,
       "stop_proof_id": "stp_aaaaaaaaaaaaaaaaaaaaaaaaaa",
@@ -151,19 +151,17 @@
       "machine_instance": "machine_aaaaaaaaaaaaaaaaaaaaaaaaaa",
       "epoch": 1,
       "last_ledger_head": {
-        "cursor": "cur_v1_aaaaaaaaaaaaaaaa",
-        "commit_id": "cmt_aaaaaaaaaaaaaaaaaaaaaaaaaa",
-        "commit_digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        "history_commitment": "lhc_v1_PgQze80r54tk4H2UsGhmi4iGkLg-ovE42Duq8r80jAQ"
       },
       "stopped_at": "2026-09-06T12:00:00Z",
-      "node_signature": "V-1CetqE1fSUBMkXCC9MQ6hYStyKNp-ImUgmduiE9SHY6gIuXuxz_P2qoum5w52p9TcCLT5qXYBN_czdzATlCA"
+      "node_signature": "816ZfdSTx5bMpjF1u5JMg31R1chnWoAdfMgRWWHYoZyn3q-eTIPoPdpIldN-wOsumKNKqfqFDKv--ZCI_xIlAw"
     }
   },
   {
     "case": "owner-signed-cold-transfer-v1",
     "contract": "cold-transfer-certificate",
     "verification_public_key": "ebVWLo_mVPlAeLES6KmLp5AfhTrmlb7X4OORC60ElmQ",
-    "signed_payload_sha256": "1cf75620294da04046e8da4231613c1d5e8e64fc15eed0b3a9b13003d90454a2",
+    "signed_payload_sha256": "21293e532112186d7105e8ae2035a8687350bba2090c28e38a7ba8b3a653f37c",
     "document": {
       "schema_version": 1,
       "transfer_id": "xfr_aaaaaaaaaaaaaaaaaaaaaaaaaa",
@@ -177,14 +175,12 @@
       "previous_epoch": 1,
       "next_epoch": 2,
       "prior_ledger_head": {
-        "cursor": "cur_v1_aaaaaaaaaaaaaaaa",
-        "commit_id": "cmt_aaaaaaaaaaaaaaaaaaaaaaaaaa",
-        "commit_digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        "history_commitment": "lhc_v1_PgQze80r54tk4H2UsGhmi4iGkLg-ovE42Duq8r80jAQ"
       },
       "stop_proof_id": "stp_aaaaaaaaaaaaaaaaaaaaaaaaaa",
       "owner_key_id": "key_aaaaaaaaaaaaaaaaaaaaaaaaaa",
       "issued_at": "2026-09-06T12:01:00Z",
-      "owner_signature": "UsbhKtFAwO7hoi8VEloif1gIYxqhabIYmNt0YmjsWmMMC_FgTg4LUYt202Ff9q_poOJEFR4uQrTEm-yeMFayAg"
+      "owner_signature": "9JhmNPvL7Dm8lg9m0_db6kbhn4xCDTYodjw5eupymabRfsTc8ZxkDmCwpSE9mxw2MSi0vmLM3_1BuBGDWt9hDA"
     }
   }
 ]
