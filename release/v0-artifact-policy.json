@@ -1,6 +1,6 @@
 {
-  "policy_version": 5,
-  "phase": "4-connector-isolation",
+  "policy_version": 6,
+  "phase": "ob1-w0-base-package-bootstrap",
   "canonical_manifest": {
     "path": "docs/v0-package-classification.json"
   },
@@ -19,7 +19,12 @@
           "force_includes": {},
           "required_members": [
             "open_brain/__main__.py",
+            "open_brain/local_data.py",
             "open_brain/services/appliance_entrypoints.py",
+            "open_brain/services/local_bootstrap.py",
+            "open_brain/services/local_entrypoints.py",
+            "open_brain/services/local_native_entrypoint.py",
+            "open_brain/services/secure_node_entrypoints.py",
             "open_brain/resources/supervisors/launchd.json",
             "open_brain/resources/supervisors/systemd.service"
           ],
@@ -108,7 +113,12 @@
           "required_members": [
             "pyproject.toml",
             "src/open_brain/__main__.py",
-            "src/open_brain/services/appliance_entrypoints.py"
+            "src/open_brain/local_data.py",
+            "src/open_brain/services/appliance_entrypoints.py",
+            "src/open_brain/services/local_bootstrap.py",
+            "src/open_brain/services/local_entrypoints.py",
+            "src/open_brain/services/local_native_entrypoint.py",
+            "src/open_brain/services/secure_node_entrypoints.py"
           ],
           "required_trees": [
             {
@@ -142,7 +152,8 @@
           "LICENSE": "open_brain-0.1.0.dist-info/licenses/LICENSE",
           "NOTICE": "open_brain-0.1.0.dist-info/licenses/NOTICE",
           "pyproject.toml#project.scripts.open-brain": "open_brain-0.1.0.dist-info/entry_points.txt",
-          "pyproject.toml#project.scripts.open-brain-mcp": "open_brain-0.1.0.dist-info/entry_points.txt"
+          "pyproject.toml#project.scripts.open-brain-secure-node": "open_brain-0.1.0.dist-info/entry_points.txt",
+          "pyproject.toml#project.scripts.open-brain-secure-node-mcp": "open_brain-0.1.0.dist-info/entry_points.txt"
         }
       },
       "project_root": "packages/app"
@@ -436,29 +447,61 @@
     "status": "unpublished",
     "installations": {
       "macos-arm64": {
-        "methods": [
-          "versioned-source-checkout",
-          "wheel"
-        ],
-        "python_versions": [
-          "3.14"
-        ],
-        "wheel_distributions": [
-          "open-brain",
-          "open-brain-engine"
-        ]
+        "checksum": "sha256",
+        "format": "tar.gz",
+        "installer": "install.sh",
+        "method": "native-archive",
+        "python": "3.12-bundled"
       },
       "linux-x86_64": {
         "checksum": "sha256",
         "format": "tar.gz",
+        "installer": "install.sh",
         "method": "native-archive",
-        "python": "3.14-bundled"
+        "python": "3.12-bundled"
       }
-    },
-    "macos_dmg": {
-      "notarization": "required-when-shipped",
-      "status": "deferred-to-later-release"
     }
+  },
+  "base_native_artifacts": {
+    "bundler": "PyInstaller 6.22.2 onedir",
+    "entrypoint": "open_brain.services.local_native_entrypoint",
+    "forbidden_dependency_roots": [
+      "argon2",
+      "cryptography",
+      "keyring",
+      "sqlcipher3",
+      "starlette",
+      "uvicorn"
+    ],
+    "forbidden_product_roots": [
+      "open_brain.capture",
+      "open_brain.cli",
+      "open_brain.extensions",
+      "open_brain.integrations",
+      "open_brain.services.appliance_*",
+      "open_brain.services.http_server",
+      "open_brain.services.mcp_stdio",
+      "open_brain.services.native_artifacts",
+      "open_brain.services.native_entrypoint",
+      "open_brain.services.secure_node_entrypoints",
+      "open_brain_connectors",
+      "open_brain_engine.portability.secure_node",
+      "open_brain_engine.protocol.custody",
+      "open_brain_legacy"
+    ],
+    "install_layout": {
+      "launcher": "$HOME/.local/bin/open-brain",
+      "payload": "$HOME/.local/lib/open-brain"
+    },
+    "installer": "release/open-brain/install.sh",
+    "manifest": "open-brain-release-manifest-v1.txt",
+    "published": [],
+    "spec": "release/open-brain/open-brain.spec",
+    "status": "ob1-w0-local-build-verified-unpublished",
+    "supported_platforms": [
+      "linux-x86_64",
+      "macos-arm64"
+    ]
   },
   "native_artifacts": {
     "bundler_candidate": "PyInstaller 6 onedir",
@@ -508,6 +551,7 @@
         ".token"
       ]
     },
+    "profile": "secure-node-precursor",
     "published": [],
     "status": "p4w6-unpublished-release-candidate"
   },

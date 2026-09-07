@@ -31,44 +31,54 @@ Requirements: Python 3.14 and [uv](https://docs.astral.sh/uv/).
 
 The default installation target is one command on a clean supported macOS or Linux machine. The
 five-minute command and release test are specified in
-[the five-minute acceptance test](docs/acceptance/five-minute-install.md). No package or release
-artifact implementing that target has been published yet.
+[the five-minute acceptance test](docs/acceptance/five-minute-install.md). The small base package,
+automatic local bootstrap, native artifact, and checksum-verifying installer are implemented and
+locally verified. No release artifact has been published yet, and capture, search, export, status,
+and doctor remain in `OB1-W1`.
 
-### Current source-checkout appliance
+The current macOS source and local artifact steps are in
+[the macOS installation guide](docs/install-macos.md).
 
-The current pre-alpha entry point predates the product split. It still requires an explicit Brain
-root and routes mutations through an appliance daemon. Treat this as Secure Node precursor and
-regression evidence, not as the final Open Brain quickstart. Follow
-[the current macOS source-checkout guide](docs/install-macos.md) when working on that path.
+### Current source-checkout Open Brain
 
-Set one Brain root. The command creates the private runtime layout with owner-only
-permissions and reuses its stable local identity on later runs.
+The default command creates one private local Brain automatically and reuses its stable identity.
+It ignores the retained Secure Node `OPEN_BRAIN_ROOT` setting.
 
 ```bash
-export OPEN_BRAIN_ROOT="$HOME/open-brain-data"
-uv run open-brain init --json
+uv sync --frozen --package open-brain --no-dev
+uv run --frozen --package open-brain --no-dev open-brain init --json
 ```
 
-Start the source-checkout daemon in one terminal:
+On macOS, state is created under
+`$HOME/Library/Application Support/open-brain/brain`. On Linux, it is created under
+`${XDG_DATA_HOME:-$HOME/.local/share}/open-brain/brain`.
+
+### Secure Node precursor
+
+The retained appliance remains available only through the explicit Secure Node extra and command.
+It requires an explicit Brain root and runs a daemon:
 
 ```bash
-uv run open-brain daemon
+export OPEN_BRAIN_ROOT="$HOME/open-brain-secure-node"
+uv run --package open-brain --extra secure-node open-brain-secure-node init --json
+uv run --package open-brain --extra secure-node open-brain-secure-node daemon
 ```
 
-Then use the owner CLI from another terminal:
+Use `open-brain-secure-node` for its retained owner CLI families. Use
+`open-brain-secure-node-mcp` for its scoped MCP process.
 
 ```bash
-uv run open-brain spaces create "Projects" --delivery=setup-projects --json
-uv run open-brain capture quick text "Review the roadmap" --delivery=capture-roadmap --json
-uv run open-brain inbox list --json
-uv run open-brain query roadmap --json
+uv run --package open-brain --extra secure-node open-brain-secure-node spaces create "Projects" --delivery=setup-projects --json
+uv run --package open-brain --extra secure-node open-brain-secure-node capture quick text "Review the roadmap" --delivery=capture-roadmap --json
+uv run --package open-brain --extra secure-node open-brain-secure-node inbox list --json
+uv run --package open-brain --extra secure-node open-brain-secure-node query roadmap --json
 ```
 
 Canonical text capture requires the `space_id` returned by `spaces create`, because Portable Brain
 canonical-page frontmatter always carries a stable space identity:
 
 ```bash
-uv run open-brain capture canonical text "Project context" \
+uv run --package open-brain --extra secure-node open-brain-secure-node capture canonical text "Project context" \
   --delivery=capture-project-context \
   --space=space_REPLACE_WITH_RETURNED_ID \
   --json
@@ -99,10 +109,10 @@ The denylist contains one private term per line. Blank lines and lines beginning
 
 ## Status
 
-The product split is documented, but its packaging and default command path are not implemented.
-Plain `open-brain` currently pulls the old Secure Node dependency extra, and the installed mutation
-path still expects a daemon and `OPEN_BRAIN_ROOT`. The roadmap records those as `OB1-W0` and
-`OB1-W1`; do not infer five-minute-install readiness from the current source checkout.
+`OB1-W0` implements the product boundary, automatic private-directory bootstrap, and unpublished
+base-native installer path. Plain `open-brain` installs no Secure Node dependency and starts no
+daemon. The full five-minute journey is not ready until `OB1-W1` adds capture, search, export,
+status, and doctor and `OB1-W2` passes the published clean-host matrix.
 
 The retained appliance implementation supports one local Brain root, stable portable identities,
 typed capture, spaces, inbox routing, sibling review proposals, terminal decisions, canonical

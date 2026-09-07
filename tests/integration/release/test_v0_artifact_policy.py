@@ -102,8 +102,8 @@ def test_phase_four_policy_declares_all_python_artifact_coordinates() -> None:
     policy = _policy()
     distributions = policy["python_distributions"]
 
-    assert policy["policy_version"] == 5
-    assert policy["phase"] == "4-connector-isolation"
+    assert policy["policy_version"] == 6
+    assert policy["phase"] == "ob1-w0-base-package-bootstrap"
     assert isinstance(distributions, dict)
     assert set(distributions) == {"app", "connector", "engine"}
     for name in ("app", "connector", "engine"):
@@ -347,21 +347,58 @@ def test_phase_zero_artifact_policy_has_exact_supported_and_unsupported_hosts() 
         "status": "unpublished",
         "installations": {
             "macos-arm64": {
-                "methods": ["versioned-source-checkout", "wheel"],
-                "python_versions": ["3.14"],
-                "wheel_distributions": ["open-brain", "open-brain-engine"],
+                "checksum": "sha256",
+                "format": "tar.gz",
+                "installer": "install.sh",
+                "method": "native-archive",
+                "python": "3.12-bundled",
             },
             "linux-x86_64": {
                 "checksum": "sha256",
                 "format": "tar.gz",
+                "installer": "install.sh",
                 "method": "native-archive",
-                "python": "3.14-bundled",
+                "python": "3.12-bundled",
             },
         },
-        "macos_dmg": {
-            "notarization": "required-when-shipped",
-            "status": "deferred-to-later-release",
+    }
+    assert policy["base_native_artifacts"] == {
+        "bundler": "PyInstaller 6.22.2 onedir",
+        "entrypoint": "open_brain.services.local_native_entrypoint",
+        "forbidden_dependency_roots": [
+            "argon2",
+            "cryptography",
+            "keyring",
+            "sqlcipher3",
+            "starlette",
+            "uvicorn",
+        ],
+        "forbidden_product_roots": [
+            "open_brain.capture",
+            "open_brain.cli",
+            "open_brain.extensions",
+            "open_brain.integrations",
+            "open_brain.services.appliance_*",
+            "open_brain.services.http_server",
+            "open_brain.services.mcp_stdio",
+            "open_brain.services.native_artifacts",
+            "open_brain.services.native_entrypoint",
+            "open_brain.services.secure_node_entrypoints",
+            "open_brain_connectors",
+            "open_brain_engine.portability.secure_node",
+            "open_brain_engine.protocol.custody",
+            "open_brain_legacy",
+        ],
+        "install_layout": {
+            "launcher": "$HOME/.local/bin/open-brain",
+            "payload": "$HOME/.local/lib/open-brain",
         },
+        "installer": "release/open-brain/install.sh",
+        "manifest": "open-brain-release-manifest-v1.txt",
+        "published": [],
+        "spec": "release/open-brain/open-brain.spec",
+        "status": "ob1-w0-local-build-verified-unpublished",
+        "supported_platforms": ["linux-x86_64", "macos-arm64"],
     }
     assert policy["native_artifacts"] == {
         "bundler_candidate": "PyInstaller 6 onedir",
@@ -413,6 +450,7 @@ def test_phase_zero_artifact_policy_has_exact_supported_and_unsupported_hosts() 
                 ".token",
             ],
         },
+        "profile": "secure-node-precursor",
         "published": [],
         "status": "p4w6-unpublished-release-candidate",
     }

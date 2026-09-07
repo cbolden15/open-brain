@@ -18,19 +18,23 @@ classifiers = [
   "Programming Language :: Python :: 3.14",
 ]
 dependencies = [
-  "open-brain-engine[node]==0.1.0",
-  "starlette>=0.48,<1",
-  "uvicorn>=0.40,<1",
+  "open-brain-engine==0.1.0",
 ]
 
 [project.optional-dependencies]
 cloud = ["openai>=1.99,<3"]
 integrations = []
 mcp = []
+secure-node = [
+  "open-brain-engine[secure-node]==0.1.0",
+  "starlette>=0.48,<1",
+  "uvicorn>=0.40,<1",
+]
 
 [project.scripts]
-open-brain = "open_brain.services.appliance_entrypoints:run_cli"
-open-brain-mcp = "open_brain.services.appliance_entrypoints:run_mcp"
+open-brain = "open_brain.services.local_entrypoints:run_cli"
+open-brain-secure-node = "open_brain.services.secure_node_entrypoints:run_cli"
+open-brain-secure-node-mcp = "open_brain.services.secure_node_entrypoints:run_mcp"
 
 [tool.uv.sources]
 open-brain-engine = { workspace = true }

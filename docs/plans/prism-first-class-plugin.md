@@ -17,7 +17,8 @@ Open Brain is already more than a memory database. It is a local-first capture, 
 
 The repository already has useful integration boundaries:
 
-- `open-brain-mcp` is a bounded, work-only stdio MCP service.
+- `open-brain-secure-node-mcp` is the retained bounded, work-only stdio MCP service. It requires an
+  explicit Secure Node installation and must not become an implicit dependency of default Open Brain.
 - The MCP adapter exposes `brain_query` and `brain_retrieval_feedback`.
 - Retrieval uses the typed `WorkRetriever` and `RetrievalFeedback` ports.
 - Results are bounded and redacted before crossing the work-context boundary.
@@ -35,7 +36,7 @@ The intended ownership is:
 open-brain/
 ├── Open Brain application
 ├── open-brain CLI
-├── open-brain MCP service
+├── optional Secure Node MCP service
 └── official Prism memory-plugin entrypoint
 
 prism-harness/
@@ -83,7 +84,10 @@ The first slice should not grant general capture, review, administrative, or fil
 
 ### Option 1: MCP adapter bridge
 
-Create a small Prism memory plugin in the Open Brain repository. It translates Prism memory requests into calls to the existing `open-brain-mcp` process.
+Create a small Prism memory plugin in the Open Brain repository. For users who explicitly select
+Secure Node, it may translate Prism memory requests into calls to the existing
+`open-brain-secure-node-mcp` process. A default-product bridge needs its own daemonless local read
+entry point and cannot silently install the Secure Node extra.
 
 Advantages:
 

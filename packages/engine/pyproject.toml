@@ -20,7 +20,7 @@ classifiers = [
 dependencies = ["rfc8785>=0.1.4,<0.2"]
 
 [project.optional-dependencies]
-node = [
+secure-node = [
   "argon2-cffi>=25.1,<26",
   "cryptography>=50,<51",
   "keyring>=25.6,<26",

@@ -23,10 +23,10 @@ jobs:
           python-version: "3.14"
           version: "0.12.8"
           enable-cache: true
-      - run: uv sync --frozen --group dev
+      - run: uv sync --frozen --group dev --package open-brain --extra secure-node
       - run: uv run ruff check .
-      - run: uv run mypy
-      - run: uv run pytest -q
+      - run: uv run --package open-brain --extra secure-node mypy
+      - run: uv run --package open-brain --extra secure-node pytest -q
       - run: make verify-artifacts
 
   appliance-source-checkout-macos:
@@ -40,9 +40,9 @@ jobs:
           python-version: "3.14"
           version: "0.12.8"
           enable-cache: true
-      - run: uv sync --frozen --group dev
+      - run: uv sync --frozen --group dev --package open-brain --extra secure-node
       - run: >
-          uv run pytest -q
+          uv run --package open-brain --extra secure-node pytest -q
           tests/phase4/test_app_distribution.py
           packages/app/tests/integration/services/test_appliance_upgrade.py
           packages/app/tests/integration/services/test_appliance_uninstall.py
@@ -61,8 +61,46 @@ jobs:
           python-version: "3.14"
           version: "0.12.8"
           enable-cache: true
-      - run: uv sync --frozen --group dev
+      - run: uv sync --frozen --group dev --package open-brain --extra secure-node
       - run: make phase4-contracts
+
+  open-brain-base-native-linux:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
+        with:
+          python-version: "3.12"
+          version: "0.12.8"
+          enable-cache: true
+      - run: uv sync --frozen --group dev --group native-build
+      - run: make ob1w0-native
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: open-brain-base-linux-${{ github.event.pull_request.head.sha || github.sha }}
+          path: build/ob1-w0-native/release
+          if-no-files-found: error
+          retention-days: 7
+
+  open-brain-base-native-macos:
+    runs-on: macos-14
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
+        with:
+          python-version: "3.12"
+          version: "0.12.8"
+          enable-cache: true
+      - run: uv sync --frozen --group dev --group native-build
+      - run: make ob1w0-native
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: open-brain-base-macos-${{ github.event.pull_request.head.sha || github.sha }}
+          path: build/ob1-w0-native/release
+          if-no-files-found: error
+          retention-days: 7
 
   # Historical P4-W6 artifact replay stays pinned to Python 3.12. It is not a v0 runtime.
   p4w6-python-artifacts:
@@ -77,7 +115,7 @@ jobs:
           python-version: "3.12"
           version: "0.12.8"
           enable-cache: true
-      - run: uv sync --frozen --group dev --group native-build
+      - run: uv sync --frozen --group dev --group native-build --package open-brain --extra secure-node
       - run: >
           make p4w6-python
           P4W6_SOURCE_SHA=${{ github.event.pull_request.head.sha || github.sha }}
@@ -100,7 +138,7 @@ jobs:
           python-version: "3.12"
           version: "0.12.8"
           enable-cache: true
-      - run: uv sync --frozen --group dev --group native-build
+      - run: uv sync --frozen --group dev --group native-build --package open-brain --extra secure-node
       - run: make p4w6-focused
       - run: >
           make p4w6-linux

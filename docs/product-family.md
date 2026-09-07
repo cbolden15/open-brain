@@ -148,8 +148,8 @@ The next release uses one distribution with a deliberately small default and an 
 | `open-brain` | Base `open-brain-engine` plus only dependencies needed for direct local capture, SQLite search, and export | Open Brain default |
 | `open-brain[secure-node]` | Base plus `open-brain-engine[secure-node]`, cryptography, SQLCipher, key custody, owner control, and service/transport dependencies | Secure Node profile |
 
-The existing engine extra named `node` is a pre-split name. Packaging work will rename it to
-`secure-node`; no default dependency may select it. Starlette, Uvicorn, SQLCipher, Argon2,
+The existing engine extra named `node` was renamed to `secure-node`; no default dependency selects
+it. Starlette, Uvicorn, SQLCipher, Argon2,
 cryptography, keyring, and platform user-presence bridges belong in the Secure Node dependency
 closure unless a later default-product requirement independently needs one of them.
 

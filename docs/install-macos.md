@@ -1,79 +1,61 @@
-# Current pre-alpha appliance installation on macOS
+# Open Brain installation on macOS
 
-This guide documents the retained source/wheel appliance path. It requires an explicit Brain root
-and daemon, so it is Secure Node precursor and regression evidence after the product split. It is
-not the target Open Brain quickstart.
+The default product is one local Brain with automatic private-directory setup and direct SQLite
+access. It does not require Docker, certificates, a daemon, a storage-root choice, or a database
+service. It does not claim application-level encryption.
 
-The target default is the one-command, five-minute path specified in
-[`acceptance/five-minute-install.md`](acceptance/five-minute-install.md). That path creates its
-private data directory automatically, starts no daemon or service, and does not claim
-application-level encryption.
+## Public one-command target
 
-The retained appliance supports macOS 14 or newer on Apple Silicon with Python 3.14 and `uv`. You can run
-the versioned source checkout or install the matching app and engine wheels. The DMG is deferred
-to a later release.
+The frozen release command is:
 
-No release tag or wheel has been published yet. The commands below define the v0 installation
-path and work with locally built artifacts during pre-release verification.
-
-## Option 1: versioned source
-
-Clone the repository and select the release tag named in the release notes:
-
-```bash
-git clone https://github.com/vora-technology/open-brain.git
-cd open-brain
-git checkout <release-tag>
-uv sync --frozen --package open-brain --no-dev
+```sh
+curl --proto '=https' --tlsv1.2 -LsSf https://github.com/vora-technology/open-brain/releases/latest/download/install.sh | sh
 ```
 
-Choose one private Brain directory and initialize it:
+No release has been published yet. `OB1-W2` will publish and run that command on clean supported
+hosts. The exact 300-second contract is in
+[`acceptance/five-minute-install.md`](acceptance/five-minute-install.md).
 
-```bash
-export OPEN_BRAIN_ROOT="$HOME/open-brain-data"
+The installer source is `release/open-brain/install.sh`. It selects the macOS arm64 archive,
+validates its release-manifest record, verifies the archive SHA-256 digest, and installs without
+sudo. The payload goes to
+`$HOME/.local/lib/open-brain`; the launcher goes to `$HOME/.local/bin/open-brain`.
+
+## Verify the base product from a checkout
+
+Source and wheel development requires Python 3.14 and `uv`:
+
+```sh
+uv sync --frozen --package open-brain --no-dev
+uv run --frozen --package open-brain --no-dev open-brain --version
 uv run --frozen --package open-brain --no-dev open-brain init --json
 ```
 
-Start the daemon in the foreground:
+The final command creates
+`$HOME/Library/Application Support/open-brain/brain` with owner-only permissions. Running it again
+reopens the same owner and Brain identity. It starts no daemon or listener.
 
-```bash
-uv run --frozen --package open-brain --no-dev open-brain daemon
+Build and exercise the unpublished base-native artifact with:
+
+```sh
+make ob1w0-native
 ```
 
-Keep that terminal open. Press `Control-C` to stop the daemon.
+That target builds the dedicated base spec, audits its frozen module inventory, bootstraps a
+disposable Brain twice, creates a reproducible archive and release manifest, and installs the
+archive through the checksum-verifying script in a disposable home directory.
 
-## Option 2: wheels
+## Secure Node precursor
 
-Place the matching app and engine wheels from one release in the same directory. Install them into
-an isolated uv tool environment without contacting a package index:
+The retained appliance is advanced-product regression evidence. Install the explicit extra, choose
+its Brain root, and use the explicit Secure Node command:
 
-```bash
-uv tool install --offline --no-python-downloads --python 3.14 \
-  --with ./open_brain_engine-0.1.0-py3-none-any.whl \
-  ./open_brain-0.1.0-py3-none-any.whl
-export PATH="$(uv tool dir --bin):$PATH"
+```sh
+uv sync --frozen --package open-brain --extra secure-node
+export OPEN_BRAIN_ROOT="$HOME/open-brain-secure-node"
+uv run --frozen --package open-brain --extra secure-node open-brain-secure-node init --json
+uv run --frozen --package open-brain --extra secure-node open-brain-secure-node daemon
 ```
 
-Initialize the Brain and start the daemon:
-
-```bash
-export OPEN_BRAIN_ROOT="$HOME/open-brain-data"
-open-brain init --json
-open-brain daemon
-```
-
-## Confirm the installation
-
-Open another terminal, set the same root, and inspect the running service:
-
-```bash
-export OPEN_BRAIN_ROOT="$HOME/open-brain-data"
-open-brain --version
-open-brain status --json
-open-brain spaces create "Projects" --delivery=setup-projects --json
-open-brain capture quick text "Review the roadmap" --delivery=capture-roadmap --json
-open-brain query roadmap --json
-```
-
-The default provider is `none`, cloud access is off, and the HTTP service binds to loopback. The
-Brain root contains the generated local credential and user data; keep it private.
+Its daemon, generated credential, HTTP/UI surface, scoped MCP process, and service controls do not
+belong to the default Open Brain installation.

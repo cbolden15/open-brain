@@ -74,75 +74,75 @@ Node code and dependencies, stop and use the already accepted separate
 
 ### 1. Package and command isolation
 
-- [ ] Make base `open-brain` depend on base `open-brain-engine` only.
-- [ ] Rename the engine `node` extra to `secure-node` and put Starlette and Uvicorn in the app's
+- [x] Make base `open-brain` depend on base `open-brain-engine` only.
+- [x] Rename the engine `node` extra to `secure-node` and put Starlette and Uvicorn in the app's
       matching extra.
-- [ ] Route `open-brain` and `python -m open_brain` to a local default entry point.
-- [ ] Route the two frozen Secure Node commands through standard-library-only wrappers that fail
+- [x] Route `open-brain` and `python -m open_brain` to a local default entry point.
+- [x] Route the two frozen Secure Node commands through standard-library-only wrappers that fail
       with the documented exit code and message when the extra is absent, then lazy-import the
       retained appliance CLI and MCP entry points when it is installed.
-- [ ] Build wheels and test them in two fresh environments. The base environment must prove its
+- [x] Build wheels and test them in two fresh environments. The base environment must prove its
       resolved dependency graph, script behavior, and imported-module inventory. The extra
       environment must prove the same wheel exposes working Secure Node help/MCP dispatch and the
       complete renamed dependency closure.
-- [ ] If those installed-wheel tests cannot enforce this boundary, stop and implement the accepted
+- [x] If those installed-wheel tests cannot enforce this boundary, stop and implement the accepted
       separate-distribution fallback instead of weakening the base contract.
 
 ### 2. Platform-local root policy
 
-- [ ] Resolve the documented application data home and its `brain` child without prompts or
+- [x] Resolve the documented application data home and its `brain` child without prompts or
       configuration. Assert the exact macOS and Linux defaults and prove an absolute `--data-dir`
       selects the Brain root directly.
-- [ ] Walk from a trusted absolute owner-controlled anchor with directory descriptors and
+- [x] Walk from a trusted absolute owner-controlled anchor with directory descriptors and
       no-follow operations. Validate every existing component below that anchor before creation:
       each must be a directory, must not be a symlink, and must have `st_uid == geteuid()`. Never use
       `Path.resolve()` or recursive `mkdir()` as the security decision.
-- [ ] Define that anchor deterministically. Walk the absolute target from `/` with no-follow
+- [x] Define that anchor deterministically. Walk the absolute target from `/` with no-follow
       descriptors; root-owned system prefixes are traversal-only, and the deepest existing prefix
       at which creation begins must be owned by the effective user. From the first user-owned
       component onward, every existing descendant must have the same owner. Reject a target with no
       user-owned creation anchor. Tests may inject an owner-controlled temporary anchor without
       weakening production traversal.
-- [ ] Treat an existing application data home or Brain root with group/world permission bits as an
+- [x] Treat an existing application data home or Brain root with group/world permission bits as an
       error. Do not repair it with `chmod`. Create missing managed directories descriptor-relative
       with mode `0700` under `umask 077`, and create sensitive regular files with mode `0600`.
-- [ ] Reject these synchronized locations after component-aware normalization: on macOS,
+- [x] Reject these synchronized locations after component-aware normalization: on macOS,
       `~/Library/Mobile Documents`, `~/Library/CloudStorage`, Dropbox, OneDrive, and Google Drive;
       on Linux, Dropbox, OneDrive, Google Drive, Nextcloud, Syncthing, and `~/Sync`.
-- [ ] Reject these mounted filesystem types: on macOS, `afpfs`, `nfs`, `smbfs`, and `webdav`; on
+- [x] Reject these mounted filesystem types: on macOS, `afpfs`, `nfs`, `smbfs`, and `webdav`; on
       Linux, `9p`, `afs`, `ceph`, `cifs`, `davfs`, `fuse.sshfs`, `nfs`, `nfs4`, and `smb3`. Determine
       the type with Darwin `statfs` or Linux `/proc/self/mountinfo`; fail closed when the supported
       host cannot classify the selected root.
-- [ ] Keep the validated root descriptor and its `(st_dev, st_ino, filesystem_type)` evidence
+- [x] Keep the validated root descriptor and its `(st_dev, st_ino, filesystem_type)` evidence
       through bootstrap. Re-open from the trusted anchor and compare that identity immediately
       before the first owner/Brain identity write and again immediately before SQLite creates or
       opens its file. Abort before that write if any path component or identity changed.
-- [ ] Keep the existing identity stable on repeated bootstrap.
+- [x] Keep the existing identity stable on repeated bootstrap.
 
 ### 3. Daemonless bootstrap
 
-- [ ] Add `open-brain init` as an idempotent local bootstrap command.
-- [ ] Create one owner, one Brain, and the SQLite schema through the existing direct local engine.
-- [ ] Start no listener, daemon, supervisor, container, connector, grant, or key-custody path.
-- [ ] Report the profile as local SQLite with daemon and application encryption both false.
+- [x] Add `open-brain init` as an idempotent local bootstrap command.
+- [x] Create one owner, one Brain, and the SQLite schema through the existing direct local engine.
+- [x] Start no listener, daemon, supervisor, container, connector, grant, or key-custody path.
+- [x] Report the profile as local SQLite with daemon and application encryption both false.
 
 ### 4. Installer and artifact boundary
 
-- [ ] Add a POSIX installer for the supported macOS-arm64 and Linux-x86_64 release assets.
-- [ ] Verify the release manifest and selected artifact checksum before activation.
-- [ ] Install without sudo and keep executable files outside the Open Brain data directory.
-- [ ] Add a minimal base-native entry point/spec whose collected modules exclude Secure Node,
+- [x] Add a POSIX installer for the supported macOS-arm64 and Linux-x86_64 release assets.
+- [x] Verify the release manifest and selected artifact checksum before activation.
+- [x] Install without sudo and keep executable files outside the Open Brain data directory.
+- [x] Add a minimal base-native entry point/spec whose collected modules exclude Secure Node,
       connector, legacy, server, crypto, and service-management code.
-- [ ] Keep release publication and clean-host matrix execution in `OB1-W2`.
+- [x] Keep release publication and clean-host matrix execution in `OB1-W2`.
 
 ### 5. Verification and closure
 
-- [ ] Add focused package, import-isolation, data-root, permission, bootstrap, installer, and
+- [x] Add focused package, import-isolation, data-root, permission, bootstrap, installer, and
       artifact-membership tests. Root tests cover ancestor symlinks, foreign ownership, permissive
       existing managed roots, every named synchronized/network policy, and replacement races at
       both pre-write revalidation points.
-- [ ] Update package classification, artifact policy, generated reports, README, and install docs.
-- [ ] Run focused tests, Ruff, strict MyPy, shellcheck, build both base artifacts, and inspect their
+- [x] Update package classification, artifact policy, generated reports, README, and install docs.
+- [x] Run focused tests, Ruff, strict MyPy, shellcheck, build both base artifacts, and inspect their
       dependency and member inventories.
 - [ ] Run `make verify` on the exact committed tree and obtain independent read-only review with no
       unresolved P0 through P2 findings.

@@ -1,4 +1,33 @@
-.PHONY: dev build test lint typecheck audit audit-history phase4-contracts p4w5-focused p4w5-native-config p4w5-native-contracts p4w5-preflight p4w5-native p4w6-focused p4w6-native-config p4w6-preflight p4w6-python p4w6-linux p4w6-macos-compatibility p4w6-macos p4w6-clean-host p4w6-assemble p4w6-verify verify-artifacts verify
+.PHONY: dev build test lint typecheck audit audit-history phase4-contracts ob1w0-focused ob1w0-preflight ob1w0-native p4w5-focused p4w5-native-config p4w5-native-contracts p4w5-preflight p4w5-native p4w6-focused p4w6-native-config p4w6-preflight p4w6-python p4w6-linux p4w6-macos-compatibility p4w6-macos p4w6-clean-host p4w6-assemble p4w6-verify verify-artifacts verify
+
+OB1W0_FOCUSED_TESTS = \
+	packages/app/tests/unit/test_local_data.py \
+	packages/app/tests/unit/test_secure_node_entrypoints.py \
+	packages/app/tests/integration/services/test_entrypoints.py \
+	packages/app/tests/integration/services/test_local_entrypoints.py \
+	packages/app/tests/integration/services/test_local_native_entrypoint.py \
+	tests/integration/release/test_v0_artifact_policy.py \
+	tests/phase4/test_acceptance_harness.py \
+	tests/phase4/test_app_distribution.py \
+	tests/phase4/test_base_native.py \
+	tests/phase4/test_m1_compatibility_baseline.py \
+	tests/phase4/test_move_manifest.py \
+	tests/security/test_architecture_imports.py \
+	tests/security/test_open_brain_product_split.py
+
+OB1W0_TOUCHED_PYTHON = \
+	packages/app/src/open_brain/local_data.py \
+	packages/app/src/open_brain/profile.py \
+	packages/app/src/open_brain/services/local_bootstrap.py \
+	packages/app/src/open_brain/services/local_entrypoints.py \
+	packages/app/src/open_brain/services/local_native_entrypoint.py \
+	packages/app/src/open_brain/services/secure_node_entrypoints.py \
+	packages/engine/src/open_brain_engine/engine/local.py \
+	tools/open_brain_dev/base_native.py \
+	tools/phase4/acceptance_harness.py \
+	tools/phase4/move_manifest.py
+
+OB1W0_NATIVE_OUTPUT ?= build/ob1-w0-native
 
 P4W5_FOCUSED_TESTS = \
 	packages/app/tests/integration/services/test_appliance_entrypoints.py \
@@ -97,13 +126,13 @@ build:
 	uv build --no-sources --project packages/connectors --out-dir dist
 
 test:
-	uv run pytest -q
+	uv run --package open-brain --extra secure-node pytest -q
 
 lint:
 	uv run ruff check .
 
 typecheck:
-	uv run mypy
+	uv run --package open-brain --extra secure-node mypy
 
 audit:
 	@test -n "$(PRIVATE_DENYLIST)" || (echo "PRIVATE_DENYLIST is required" >&2; exit 2)
@@ -114,25 +143,38 @@ audit-history:
 	uv run python -m tools.open_brain_dev.public_history_audit --repository . --private-denylist "$(PRIVATE_DENYLIST)"
 
 phase4-contracts:
-	uv run pytest -q tests/phase4 tests/security/test_architecture_imports.py
+	uv run --package open-brain --extra secure-node pytest -q tests/phase4 tests/security/test_architecture_imports.py
 	uv run ruff check tools/phase4 tests/phase4 tests/security/test_architecture_imports.py
-	uv run mypy
+	uv run --package open-brain --extra secure-node mypy
 	uv run python -m tools.phase4.move_manifest validate --root .
 
+ob1w0-focused:
+	uv run --package open-brain --extra secure-node pytest -q $(OB1W0_FOCUSED_TESTS)
+
+ob1w0-preflight: ob1w0-focused
+	shellcheck release/open-brain/install.sh
+	uv run python -m tools.phase4.move_manifest validate --root .
+	uv run ruff check $(OB1W0_TOUCHED_PYTHON)
+	uv run --package open-brain --extra secure-node mypy --strict $(OB1W0_TOUCHED_PYTHON)
+	git diff --check
+
+ob1w0-native:
+	uv run --frozen --python 3.12 --group native-build python -m tools.open_brain_dev.base_native build --root . --output $(OB1W0_NATIVE_OUTPUT)
+
 p4w5-focused:
-	uv run pytest -q $(P4W5_FOCUSED_TESTS)
+	uv run --package open-brain --extra secure-node pytest -q $(P4W5_FOCUSED_TESTS)
 
 p4w5-native-config:
 	uv run --frozen --isolated --python 3.12 --group native-build python -m tools.phase4.native_build validate-config --root .
 
 p4w5-native-contracts:
-	uv run pytest -q $(P4W5_NATIVE_CONTRACTS)
+	uv run --package open-brain --extra secure-node pytest -q $(P4W5_NATIVE_CONTRACTS)
 
 p4w5-preflight: p4w5-focused p4w5-native-config
 	actionlint .github/workflows/ci.yml
 	uv run python -m tools.phase4.move_manifest validate --root .
 	uv run ruff check $(P4W5_TOUCHED_PYTHON)
-	uv run mypy $(P4W5_TOUCHED_PYTHON)
+	uv run --package open-brain --extra secure-node mypy $(P4W5_TOUCHED_PYTHON)
 	git diff --check
 
 p4w5-native:
@@ -141,7 +183,7 @@ p4w5-native:
 	uv run --frozen --python 3.12 --group native-build python -m tools.phase4.native_build audit --artifact $(P4W5_NATIVE_OUTPUT)/dist/candidate_native-p4w5
 
 p4w6-focused:
-	uv run pytest -q $(P4W6_FOCUSED_TESTS)
+	uv run --package open-brain --extra secure-node pytest -q $(P4W6_FOCUSED_TESTS)
 
 p4w6-native-config:
 	uv run --frozen --isolated --python 3.12 --group native-build python -m tools.phase4.native_build validate-config --root .
@@ -151,7 +193,7 @@ p4w6-preflight: p4w6-focused p4w6-native-config
 	perl -c tools/phase4/unix_request.pl
 	actionlint .github/workflows/ci.yml
 	uv run ruff check $(P4W6_TOUCHED_PYTHON)
-	uv run mypy $(P4W6_TOUCHED_PYTHON)
+	uv run --package open-brain --extra secure-node mypy $(P4W6_TOUCHED_PYTHON)
 	git diff --check
 
 p4w6-python:

@@ -53,6 +53,16 @@ def _source_checkout_module_command(module: str, *arguments: str) -> tuple[str, 
     return (sys.executable, "-I", "-B", "-c", program, *arguments)
 
 
+def _source_checkout_secure_node_command(*arguments: str) -> tuple[str, ...]:
+    program = (
+        "import sys; "
+        f"sys.path[:0] = {SOURCE_CHECKOUT_PATHS!r}; "
+        "from open_brain.services.secure_node_entrypoints import run_cli; "
+        "raise SystemExit(run_cli(sys.argv[1:]))"
+    )
+    return (sys.executable, "-I", "-B", "-c", program, *arguments)
+
+
 def _engine(root: Path) -> BrainEngine:
     return BrainEngine.open(compile_single_user_local(root))
 
@@ -489,8 +499,7 @@ def test_source_checkout_cli_uses_one_brain_root_across_processes(tmp_path: Path
         daemon = start_daemon()
         try:
             created = subprocess.run(
-                _source_checkout_module_command(
-                    "open_brain",
+                _source_checkout_secure_node_command(
                     "spaces",
                     "create",
                     "Process space",
@@ -507,8 +516,7 @@ def test_source_checkout_cli_uses_one_brain_root_across_processes(tmp_path: Path
             space_id = created_payload["space_id"]
 
             first_capture = subprocess.run(
-                _source_checkout_module_command(
-                    "open_brain",
+                _source_checkout_secure_node_command(
                     "capture",
                     "quick",
                     "text",
@@ -530,8 +538,7 @@ def test_source_checkout_cli_uses_one_brain_root_across_processes(tmp_path: Path
             daemon = start_daemon()
 
             replay_capture = subprocess.run(
-                _source_checkout_module_command(
-                    "open_brain",
+                _source_checkout_secure_node_command(
                     "capture",
                     "quick",
                     "text",
@@ -548,7 +555,7 @@ def test_source_checkout_cli_uses_one_brain_root_across_processes(tmp_path: Path
             )
             replay_payload = json.loads(replay_capture.stdout)
             inbox = subprocess.run(
-                _source_checkout_module_command("open_brain", "inbox", "list", "--json"),
+                _source_checkout_secure_node_command("inbox", "list", "--json"),
                 cwd=REPOSITORY_ROOT,
                 env=environment,
                 check=True,
@@ -556,7 +563,7 @@ def test_source_checkout_cli_uses_one_brain_root_across_processes(tmp_path: Path
                 text=True,
             )
             listed_spaces = subprocess.run(
-                _source_checkout_module_command("open_brain", "spaces", "list", "--json"),
+                _source_checkout_secure_node_command("spaces", "list", "--json"),
                 cwd=REPOSITORY_ROOT,
                 env=environment,
                 check=True,
@@ -564,8 +571,8 @@ def test_source_checkout_cli_uses_one_brain_root_across_processes(tmp_path: Path
                 text=True,
             )
             queried = subprocess.run(
-                _source_checkout_module_command(
-                    "open_brain", "query", "Process lexical token", "--json"
+                _source_checkout_secure_node_command(
+                    "query", "Process lexical token", "--json"
                 ),
                 cwd=REPOSITORY_ROOT,
                 env=environment,

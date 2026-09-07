@@ -245,9 +245,13 @@ def install_command(python: Path, artifacts: Sequence[Path]) -> tuple[str, ...]:
     )
 
 
-def export_runtime_requirements_command(package: str) -> tuple[str, ...]:
+def export_runtime_requirements_command(
+    package: str, *, extras: Sequence[str] = ()
+) -> tuple[str, ...]:
     if package not in {"open-brain", "open-brain-engine"}:
         raise ValueError("unsupported runtime requirements package")
+    if any(re.fullmatch(r"[a-z0-9][a-z0-9-]*", extra) is None for extra in extras):
+        raise ValueError("unsupported runtime requirements extra")
     return (
         "uv",
         "export",
@@ -259,6 +263,7 @@ def export_runtime_requirements_command(package: str) -> tuple[str, ...]:
         "--no-dev",
         "--no-annotate",
         "--no-header",
+        *(item for extra in extras for item in ("--extra", extra)),
     )
 
 
@@ -825,6 +830,90 @@ def legacy_isolation_findings(root: Path, work: Path) -> list[Finding]:
     )
 
 
+def _base_app_contract_source() -> str:
+    return """from __future__ import annotations
+
+import contextlib
+import importlib.metadata
+import importlib.util
+import io
+import json
+import sys
+import tempfile
+from pathlib import Path
+
+import open_brain.services.local_entrypoints as entrypoints
+import open_brain.services.secure_node_entrypoints as secure_entrypoints
+import open_brain_engine
+
+
+def main() -> None:
+    distribution = importlib.metadata.distribution("open-brain")
+    assert distribution.version == "0.1.0"
+    requirements = tuple(distribution.requires or ())
+    assert "open-brain-engine==0.1.0" in requirements
+    assert any(
+        item.startswith("open-brain-engine[secure-node]==0.1.0")
+        and "extra == 'secure-node'" in item
+        for item in requirements
+    )
+    assert any(
+        item.startswith("starlette<1,>=0.48") and "extra == 'secure-node'" in item
+        for item in requirements
+    )
+    assert any(
+        item.startswith("uvicorn<1,>=0.40") and "extra == 'secure-node'" in item
+        for item in requirements
+    )
+    scripts = {
+        item.name: item.value
+        for item in distribution.entry_points
+        if item.group == "console_scripts"
+    }
+    assert scripts == {
+        "open-brain": "open_brain.services.local_entrypoints:run_cli",
+        "open-brain-secure-node": "open_brain.services.secure_node_entrypoints:run_cli",
+        "open-brain-secure-node-mcp": "open_brain.services.secure_node_entrypoints:run_mcp",
+    }
+    advanced = (
+        "argon2", "cryptography", "keyring", "sqlcipher3", "starlette", "uvicorn"
+    )
+    assert all(importlib.util.find_spec(name) is None for name in advanced)
+    assert not any(name.startswith("open_brain.services.appliance") for name in sys.modules)
+    with tempfile.TemporaryDirectory() as temporary_root:
+        home = Path(temporary_root).resolve()
+        home.chmod(0o700)
+        output = io.StringIO()
+        with contextlib.redirect_stdout(output):
+            exit_code = entrypoints.run_cli(
+                ("--json", "init"),
+                environment={"HOME": str(home)},
+                platform_name="linux",
+                filesystem_type_probe=lambda _path, _platform: "ext4",
+            )
+        assert exit_code == 0
+        receipt = json.loads(output.getvalue())
+        assert receipt["profile"] == "local"
+        assert receipt["storage"] == "sqlite"
+        assert receipt["daemon_running"] is False
+        assert receipt["application_encryption"] is False
+        assert (home / ".local/share/open-brain/brain/brain.toml").is_file()
+    error = io.StringIO()
+    with contextlib.redirect_stderr(error):
+        assert secure_entrypoints.run_cli(("--help",), environment={}) == 2
+    assert error.getvalue() == "Secure Node is not installed. Install open-brain[secure-node].\\n"
+    assert not any(name.startswith("open_brain.services.appliance") for name in sys.modules)
+    print(json.dumps({
+        "module_paths": [entrypoints.__file__, open_brain_engine.__file__],
+        "sys_path": sys.path,
+    }, sort_keys=True))
+
+
+if __name__ == "__main__":
+    main()
+"""
+
+
 def _app_contract_source() -> str:
     return """from __future__ import annotations
 
@@ -836,34 +925,35 @@ import tempfile
 from importlib.resources import files
 from pathlib import Path
 
-import open_brain.services.appliance_entrypoints as entrypoints
+import open_brain.services.appliance_entrypoints as appliance_entrypoints
 import open_brain.services.appliance_lifecycle as lifecycle
+import open_brain.services.local_entrypoints as local_entrypoints
+import open_brain.services.secure_node_entrypoints as secure_entrypoints
 import open_brain_engine
 
 
 def main() -> None:
     distribution = importlib.metadata.distribution("open-brain")
     assert distribution.version == "0.1.0"
-    requirements = tuple(distribution.requires or ())
-    assert "open-brain-engine[node]==0.1.0" in requirements
-    assert "starlette<1,>=0.48" in requirements
-    assert "uvicorn<1,>=0.40" in requirements
-    assert not any(
-        requirement.casefold().startswith(("open-brain-connectors", "open-brain-legacy"))
-        for requirement in requirements
-    )
+    assert "open-brain-engine==0.1.0" in tuple(distribution.requires or ())
     scripts = {
         item.name: item.value
         for item in distribution.entry_points
         if item.group == "console_scripts"
     }
     assert scripts == {
-        "open-brain": "open_brain.services.appliance_entrypoints:run_cli",
-        "open-brain-mcp": "open_brain.services.appliance_entrypoints:run_mcp",
+        "open-brain": "open_brain.services.local_entrypoints:run_cli",
+        "open-brain-secure-node": "open_brain.services.secure_node_entrypoints:run_cli",
+        "open-brain-secure-node-mcp": "open_brain.services.secure_node_entrypoints:run_mcp",
     }
-    assert callable(entrypoints.run_cli)
-    assert callable(entrypoints.run_http)
-    assert callable(entrypoints.run_mcp)
+    assert callable(local_entrypoints.run_cli)
+    assert callable(secure_entrypoints.run_cli)
+    assert callable(secure_entrypoints.run_mcp)
+    assert callable(appliance_entrypoints.run_cli)
+    advanced = (
+        "argon2", "cryptography", "keyring", "sqlcipher3", "starlette", "uvicorn"
+    )
+    assert all(importlib.util.find_spec(name) is not None for name in advanced)
     resources = files("open_brain").joinpath("resources/supervisors")
     assert resources.joinpath("launchd.json").is_file()
     assert resources.joinpath("systemd.service").is_file()
@@ -874,7 +964,12 @@ def main() -> None:
     forbidden = ("open_brain_connectors", "open_brain_legacy")
     assert all(importlib.util.find_spec(name) is None for name in forbidden)
     print(json.dumps({
-        "module_paths": [entrypoints.__file__, open_brain_engine.__file__],
+        "module_paths": [
+            local_entrypoints.__file__,
+            secure_entrypoints.__file__,
+            appliance_entrypoints.__file__,
+            open_brain_engine.__file__,
+        ],
         "sys_path": sys.path,
     }, sort_keys=True))
 
@@ -1952,7 +2047,8 @@ def app_isolation_findings(root: Path, work: Path) -> list[Finding]:
         return [Finding("P4H007", "app-isolation", "app project is absent")]
     engine_dist = work / "engine-dist"
     app_dist = work / "app-dist"
-    environment = work / "venv"
+    base_environment = work / "base-venv"
+    secure_environment = work / "secure-node-venv"
     test_environment = work / "test-venv"
     run_root = work / "run"
     for path in (engine_dist, app_dist, run_root):
@@ -1997,20 +2093,73 @@ def app_isolation_findings(root: Path, work: Path) -> list[Finding]:
     )
     if findings:
         return sorted(set(findings))
-    stage = "create product environment"
+    stage = "create base product environment"
     try:
-        run_checked(create_environment_command(environment), cwd=run_root)
-        python = environment / "bin/python"
-        requirements = run_root / "app-runtime-requirements.txt"
+        run_checked(create_environment_command(base_environment), cwd=run_root)
+        base_python = base_environment / "bin/python"
+        requirements = run_root / "base-app-runtime-requirements.txt"
         exported = run_checked(export_runtime_requirements_command("open-brain"), cwd=root)
         requirements.write_text(exported.stdout, encoding="utf-8")
         run_checked(
-            install_runtime_requirements_command(python, requirements),
+            install_runtime_requirements_command(base_python, requirements),
             cwd=run_root,
         )
-        stage = "install product wheels"
+        stage = "install base product wheels"
         run_checked(
-            install_command(python, [engine_wheels[0], app_wheel]),
+            install_command(base_python, [engine_wheels[0], app_wheel]),
+            cwd=run_root,
+        )
+        stage = "run installed base CLI"
+        version = run_checked(
+            (os.fspath(base_environment / "bin/open-brain"), "--version"),
+            cwd=run_root,
+        )
+        if version.stdout.strip() != "open-brain 0.1.0":
+            raise ValueError("installed app version is mismatched")
+        help_output = run_checked(
+            (os.fspath(base_environment / "bin/open-brain"), "--help"),
+            cwd=run_root,
+        )
+        if "init" not in help_output.stdout.split() or "daemon" in help_output.stdout.split():
+            raise ValueError("installed default command boundary is mismatched")
+        unavailable = subprocess.run(
+            (os.fspath(base_environment / "bin/open-brain-secure-node"), "--help"),
+            cwd=run_root,
+            env=sanitized_environment(),
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=1800,
+        )
+        if unavailable.returncode != 2 or unavailable.stderr.strip() != (
+            "Secure Node is not installed. Install open-brain[secure-node]."
+        ):
+            raise ValueError("base Secure Node wrapper did not fail closed")
+        if not (base_environment / "bin/open-brain-secure-node-mcp").is_file():
+            raise OSError("base Secure Node MCP wrapper is absent")
+        base_contract = run_root / "base_app_contract.py"
+        base_contract.write_text(_base_app_contract_source(), encoding="utf-8")
+        stage = "run installed base app contract"
+        base_completed = run_checked(
+            (os.fspath(base_python), "-I", os.fspath(base_contract)), cwd=run_root
+        )
+        base_payload = json.loads(base_completed.stdout)
+
+        stage = "create Secure Node product environment"
+        run_checked(create_environment_command(secure_environment), cwd=run_root)
+        secure_python = secure_environment / "bin/python"
+        requirements = run_root / "secure-node-runtime-requirements.txt"
+        exported = run_checked(
+            export_runtime_requirements_command("open-brain", extras=("secure-node",)), cwd=root
+        )
+        requirements.write_text(exported.stdout, encoding="utf-8")
+        run_checked(
+            install_runtime_requirements_command(secure_python, requirements),
+            cwd=run_root,
+        )
+        stage = "install Secure Node product wheels"
+        run_checked(
+            install_command(secure_python, [engine_wheels[0], app_wheel]),
             cwd=run_root,
         )
         stage = "create test environment"
@@ -2027,7 +2176,7 @@ def app_isolation_findings(root: Path, work: Path) -> list[Finding]:
         )
         stage = "resolve product site packages"
         product_site_packages = Path(
-            run_checked(site_packages_command(python), cwd=run_root).stdout.strip()
+            run_checked(site_packages_command(secure_python), cwd=run_root).stdout.strip()
         )
         if not product_site_packages.is_absolute():
             raise OSError("product site-packages path is invalid")
@@ -2045,26 +2194,21 @@ def app_isolation_findings(root: Path, work: Path) -> list[Finding]:
             ),
             cwd=run_root,
         )
-        stage = "run installed CLI"
-        version = run_checked(
-            (os.fspath(environment / "bin/open-brain"), "--version"),
+        stage = "run installed Secure Node CLI help"
+        secure_help = run_checked(
+            (os.fspath(secure_environment / "bin/open-brain-secure-node"), "--help"),
             cwd=run_root,
         )
-        if version.stdout.strip() != "open-brain 0.1.0":
-            raise ValueError("installed app version is mismatched")
-        stage = "run installed CLI help"
-        help_output = run_checked(
-            (os.fspath(environment / "bin/open-brain"), "--help"),
-            cwd=run_root,
-        )
-        if "daemon" not in help_output.stdout.split():
-            raise ValueError("installed daemon command is absent")
-        if not (environment / "bin/open-brain-mcp").is_file():
-            raise OSError("installed MCP entry point is absent")
+        if "daemon" not in secure_help.stdout.split():
+            raise ValueError("installed Secure Node daemon command is absent")
+        if not (secure_environment / "bin/open-brain-secure-node-mcp").is_file():
+            raise OSError("installed Secure Node MCP entry point is absent")
         contract = run_root / "app_contract.py"
         contract.write_text(_app_contract_source(), encoding="utf-8")
         stage = "run installed app contract"
-        completed = run_checked((os.fspath(python), "-I", os.fspath(contract)), cwd=run_root)
+        completed = run_checked(
+            (os.fspath(secure_python), "-I", os.fspath(contract)), cwd=run_root
+        )
         payload = json.loads(completed.stdout)
     except (OSError, subprocess.SubprocessError, ValueError, json.JSONDecodeError):
         return [
@@ -2072,14 +2216,29 @@ def app_isolation_findings(root: Path, work: Path) -> list[Finding]:
         ]
     module_paths = payload.get("module_paths") if isinstance(payload, dict) else None
     sys_path = payload.get("sys_path") if isinstance(payload, dict) else None
+    base_module_paths = (
+        base_payload.get("module_paths") if isinstance(base_payload, dict) else None
+    )
+    base_sys_path = base_payload.get("sys_path") if isinstance(base_payload, dict) else None
     if not isinstance(module_paths, list) or not all(
         isinstance(item, str) for item in module_paths
     ):
         return [Finding("P4H007", "app-isolation", "module origin evidence is malformed")]
     if not isinstance(sys_path, list) or not all(isinstance(item, str) for item in sys_path):
         return [Finding("P4H007", "app-isolation", "interpreter path evidence is malformed")]
+    if not isinstance(base_module_paths, list) or not all(
+        isinstance(item, str) for item in base_module_paths
+    ):
+        return [Finding("P4H007", "app-isolation", "base module origin evidence is malformed")]
+    if not isinstance(base_sys_path, list) or not all(
+        isinstance(item, str) for item in base_sys_path
+    ):
+        return [Finding("P4H007", "app-isolation", "base path evidence is malformed")]
     return import_probe_findings(
-        ImportProbe(tuple(cast(list[str], module_paths)), tuple(cast(list[str], sys_path))),
+        ImportProbe(
+            tuple(cast(list[str], [*module_paths, *base_module_paths])),
+            tuple(cast(list[str], [*sys_path, *base_sys_path])),
+        ),
         root,
     )
 

@@ -1,11 +1,12 @@
 # v0 artifact characterization
 
-Status: Phase 4 P4-W6 unpublished release-candidate contract. Machine policy:
+Status: OB1-W0 base artifact contract plus retained P4-W6 historical evidence. Machine policy:
 [`release/v0-artifact-policy.json`](../release/v0-artifact-policy.json).
 
-Product-scope note: this file characterizes retained pre-split artifacts. Its app wheel and native
-appliance contents are Secure Node precursor evidence, not the target base `open-brain` dependency
-or five-minute install contract. Current packaging authority is
+Product-scope note: the historical sections in this file characterize retained pre-split
+artifacts. The app wheel now carries both product entry points with a base-only dependency graph;
+the historical native appliance remains Secure Node precursor evidence. Current packaging
+authority is
 [`product-family.md`](product-family.md).
 
 This records the isolated Python artifacts, the accepted P4-W5 native build subject, and the
@@ -13,10 +14,9 @@ P4-W6 assembly and verification contract. It does not claim that a native v0 rel
 that any artifact is ready to publish. A P4-W6 candidate remains unpublished even after every
 manifest coordinate and host result passes.
 
-The current v0 publication scope supersedes the P4-W6 macOS media requirement: macOS 14 or newer
-on Apple Silicon uses versioned source or the app and engine wheels. Linux retains the checksummed
-native archive. The signed, unnotarized P4-W6 DMG is historical unpublished evidence; a public,
-signed, and notarized DMG is deferred to a later release.
+No artifact is published. The target default release uses a checksummed native archive and the same
+POSIX installer contract on macOS arm64 and Linux x86_64. The signed P4-W6 DMG remains historical
+unpublished Secure Node precursor evidence.
 
 ## Wheel
 
@@ -24,9 +24,10 @@ Hatch builds two wheels with workspace sources disabled:
 
 - `open-brain-engine` contains the public engine facade, engine implementation, and Portable
   schemas/conformance data. It contains no app, connector, legacy, test, or workspace module.
-- `open-brain` contains app composition, daemon/HTTP/UI behavior, installed CLI/MCP entry points,
-  and packaged launchd/systemd templates. It has an exact `open-brain-engine==0.1.0` dependency
-  and contains no engine copy, connector, legacy, test, or workspace module.
+- `open-brain` contains the direct local path plus retained Secure Node composition and inert Secure
+  Node wrappers. Its unconditional dependency is exactly `open-brain-engine==0.1.0`. Advanced
+  dependencies require the `secure-node` extra. The wheel contains no engine copy, connector,
+  legacy, test, or workspace module.
 
 The app scanner rejects imports of engine modules not marked public in
 `docs/v0-package-classification.json`. Installed acceptance creates a fresh product environment
@@ -60,6 +61,19 @@ distributions remain separate gated work. The complete exclusion list is machine
 The only supported v0 targets are macOS 14 or newer on Apple Silicon and Linux x86_64 on Ubuntu
 24.04 LTS, Ubuntu 26.04 LTS, and Debian 13. Intel macOS, Linux arm64, and Windows are outside the
 v0 support promise.
+
+## Default native artifact
+
+`OB1-W0` adds a separate PyInstaller onedir spec at `release/open-brain/open-brain.spec`. It enters
+through the daemonless local CLI and bundles Python 3.12, SQLite support, and the shared Portable
+Brain resources. Its archived module inventory rejects the retained appliance, server, connector,
+legacy, Secure Node custody, service-management, and advanced dependency roots.
+
+The POSIX installer at `release/open-brain/install.sh` selects macOS arm64 or Linux x86_64, validates
+the bounded release manifest, verifies the selected archive's SHA-256 digest, runs a state-free
+frozen self-check, and activates without sudo. It places the payload at
+`$HOME/.local/lib/open-brain` and the launcher at `$HOME/.local/bin/open-brain`. Publication and the
+clean-host matrix remain in `OB1-W2`.
 
 ## Historical native artifact status
 

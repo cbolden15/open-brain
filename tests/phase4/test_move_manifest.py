@@ -45,9 +45,9 @@ def test_canonical_move_manifest_is_complete_and_valid() -> None:
     manifest = _manifest()
 
     assert validate_manifest(ROOT, manifest) == []
-    assert len(_runtime(manifest)) == 284
+    assert len(_runtime(manifest)) == 290
     subjects = _subjects(manifest)
-    assert sum(record["kind"] == "test" for record in subjects.values()) == 280
+    assert sum(record["kind"] == "test" for record in subjects.values()) == 286
     assert sum(record["kind"] in {"schema", "fixture"} for record in subjects.values()) == 67
 
 

@@ -705,8 +705,9 @@ def test_p4_w2_installed_entrypoints_are_legacy_writer_free() -> None:
     files = _classified_files(classification)
 
     assert app_project["project"]["scripts"] == {
-        "open-brain": "open_brain.services.appliance_entrypoints:run_cli",
-        "open-brain-mcp": "open_brain.services.appliance_entrypoints:run_mcp",
+        "open-brain": "open_brain.services.local_entrypoints:run_cli",
+        "open-brain-secure-node": "open_brain.services.secure_node_entrypoints:run_cli",
+        "open-brain-secure-node-mcp": "open_brain.services.secure_node_entrypoints:run_mcp",
     }
     assert "package" not in app_project["tool"]["uv"]
     assert "SingleUserLocalApplication" not in phase1_entrypoints

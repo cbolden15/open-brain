@@ -77,8 +77,9 @@
     "distribution": "open-brain",
     "version": "0.1.0",
     "entry_points": {
-      "open-brain": "open_brain.services.appliance_entrypoints:run_cli",
-      "open-brain-mcp": "open_brain.services.appliance_entrypoints:run_mcp"
+      "open-brain": "open_brain.services.local_entrypoints:run_cli",
+      "open-brain-secure-node": "open_brain.services.secure_node_entrypoints:run_cli",
+      "open-brain-secure-node-mcp": "open_brain.services.secure_node_entrypoints:run_mcp"
     }
   },
   "exit_classes": {

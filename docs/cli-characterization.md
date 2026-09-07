@@ -58,16 +58,17 @@ Several routes share a parser path and are distinguished by their options and jo
 | `JOB-029` | `capture poll` | `--json --mode=ingress --source=youtube` | capture |
 | `JOB-030` | `now check` | `--json --read-only` | optional |
 
-## Packaging and entry points
+## Current packaging and entry points
 
 The app distribution is `open-brain` version `0.1.0`. Its installed scripts are:
 
-- `open-brain = open_brain.services.appliance_entrypoints:run_cli`
-- `open-brain-mcp = open_brain.services.appliance_entrypoints:run_mcp`
+- `open-brain = open_brain.services.local_entrypoints:run_cli`
+- `open-brain-secure-node = open_brain.services.secure_node_entrypoints:run_cli`
+- `open-brain-secure-node-mcp = open_brain.services.secure_node_entrypoints:run_mcp`
 
-The app wheel depends on exactly `open-brain-engine==0.1.0`. Wheel-only acceptance verifies both
-script bindings, starts the daemon-owned CLI/UI journey, and runs with connector and legacy
-distributions absent.
+The app wheel depends unconditionally on exactly `open-brain-engine==0.1.0`. Wheel-only acceptance
+verifies the local default in a base environment and the retained appliance in a separate
+`secure-node` environment. Connector and legacy distributions remain absent in both.
 
 Source characterization still reads static parser metadata. Phase 4 acceptance independently
 checks installed distribution metadata, module origins, resources, and console scripts.

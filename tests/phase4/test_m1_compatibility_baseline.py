@@ -62,22 +62,23 @@ def test_v0_engine_facade_and_six_python_artifact_coordinates_are_preserved() ->
     assert coordinates == PYTHON_ARTIFACT_COORDINATES
 
 
-def test_m1_dependency_strategy_preserves_python_range_and_hides_engine_extra() -> None:
+def test_product_split_preserves_python_range_and_hides_secure_node_extra() -> None:
     engine = tomllib.loads((ROOT / "packages/engine/pyproject.toml").read_text(encoding="utf-8"))
     app = tomllib.loads((ROOT / "packages/app/pyproject.toml").read_text(encoding="utf-8"))
 
     assert engine["project"]["requires-python"] == ">=3.12,<3.15"
     assert app["project"]["requires-python"] == ">=3.12,<3.15"
     assert engine["project"]["dependencies"] == ["rfc8785>=0.1.4,<0.2"]
-    assert set(engine["project"]["optional-dependencies"]["node"]) == {
+    assert set(engine["project"]["optional-dependencies"]["secure-node"]) == {
         "argon2-cffi>=25.1,<26",
         "cryptography>=50,<51",
         "keyring>=25.6,<26",
         "pyobjc-framework-LocalAuthentication>=12,<13; sys_platform == 'darwin'",
         "sqlcipher3==0.6.2",
     }
-    assert set(app["project"]["dependencies"]) == {
-        "open-brain-engine[node]==0.1.0",
+    assert app["project"]["dependencies"] == ["open-brain-engine==0.1.0"]
+    assert set(app["project"]["optional-dependencies"]["secure-node"]) == {
+        "open-brain-engine[secure-node]==0.1.0",
         "starlette>=0.48,<1",
         "uvicorn>=0.40,<1",
     }

@@ -85,6 +85,10 @@ def test_build_and_install_commands_enforce_no_sources_and_selected_python(tmp_p
     runtime_export = export_runtime_requirements_command("open-brain")
     assert "--locked" in runtime_export
     assert "--no-emit-workspace" in runtime_export
+    secure_runtime_export = export_runtime_requirements_command(
+        "open-brain", extras=("secure-node",)
+    )
+    assert secure_runtime_export[-2:] == ("--extra", "secure-node")
     runtime_install = install_runtime_requirements_command(
         tmp_path / "venv/bin/python",
         tmp_path / "runtime-requirements.txt",

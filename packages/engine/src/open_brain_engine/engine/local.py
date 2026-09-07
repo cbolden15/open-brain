@@ -254,6 +254,7 @@ def open_local_engine(
     faults: Collection[CaptureFault | PortabilityFault | BackupFault] | None = None,
     clock: Callable[[], datetime] | None = None,
     enrichment_provider: EnrichmentProvider | None = None,
+    validate_before_write: Callable[[], None] | None = None,
 ) -> EngineTaskSet:
     """Open one local root and expose only its named task capabilities."""
     return BrainEngine.open(
@@ -261,6 +262,7 @@ def open_local_engine(
         faults=faults,
         clock=clock,
         enrichment_provider=enrichment_provider,
+        validate_mutation_authority=validate_before_write,
     ).tasks
 
 

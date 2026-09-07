@@ -45,10 +45,10 @@ def _installed_package_program(statement: str) -> str:
     return f"import sys; sys.path[:0] = {PACKAGE_IMPORT_PATHS!r}; {statement}"
 
 
-def test_app_package_cli_uses_the_app_owned_composition_root() -> None:
+def test_app_package_cli_uses_the_local_default_entrypoint() -> None:
     module_source = (APP_PACKAGE_ROOT / "__main__.py").read_text(encoding="utf-8")
 
-    assert "from open_brain.services.appliance_entrypoints import run_cli" in module_source
+    assert "from open_brain.services.local_entrypoints import run_cli" in module_source
 
 
 def test_appliance_entrypoint_names_match_the_installed_scripts() -> None:
@@ -161,7 +161,7 @@ def test_global_dry_run_before_composition_never_mutates(
 @pytest.mark.parametrize(
     ("arguments", "expected"),
     (
-        (("--help",), "spaces"),
+        (("--help",), "usage: open-brain"),
         (("--version",), "open-brain 0.1.0"),
         (("--json", "--version"), "open-brain 0.1.0"),
         (("--version", "--json"), "open-brain 0.1.0"),

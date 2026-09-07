@@ -1,6 +1,7 @@
 # Open Brain and Secure Node roadmap
 
-- Status: Accepted product split; `OB1-W0` active; `CORE-W0` paused after implementation review
+- Status: Accepted product split; `OB1-W0` implementation complete, closure verification active;
+  `CORE-W0` paused after implementation review
 - Date: 2026-09-07
 - Product authority: [`../product-family.md`](../product-family.md)
 - Acceptance authority: [`../acceptance/five-minute-install.md`](../acceptance/five-minute-install.md)
@@ -16,9 +17,9 @@ that work as `SN1-W1`.
 `SN1-W1` is complete after ADR 0013's pre-release schema and lifecycle correction, focused and
 repository-wide gates, and a fresh independent `READY` review with no findings. The first
 `CORE-W0` implementation is preserved at commit `10d0846`, but its final review found three gaps.
-That workstream is paused with `SN1-W2` still gated. `OB1-W0` is now active on the separate local
-branch `goal/open-brain-five-minute-install` because it can proceed independently and directly
-reduces the default installation burden.
+That workstream is paused with `SN1-W2` still gated. `OB1-W0` is in closure verification on the
+separate local branch `goal/open-brain-five-minute-install`. Its base dependency graph, direct
+bootstrap, and unpublished native installer are implemented; `OB1-W1` has not started.
 
 ## Milestones
 
@@ -136,8 +137,8 @@ discard, and idempotent retry.
 
 | Current item | Conflict with split | Disposition |
 |---|---|---|
-| `packages/app/pyproject.toml` makes `open-brain` depend on `open-brain-engine[node]`, Starlette, and Uvicorn | Yes. Plain install currently selects Secure Node dependencies. | Change in `OB1-W0`. |
-| Installed mutating CLI routes through the appliance daemon and requires `OPEN_BRAIN_ROOT` | Yes. The default must run directly and choose its data directory automatically. | Bootstrap changes in `OB1-W0`; direct capture, search, and export in `OB1-W1`. |
+| `packages/app/pyproject.toml` made `open-brain` depend on `open-brain-engine[node]`, Starlette, and Uvicorn | Resolved. Plain install now selects only the base engine. | Completed in `OB1-W0`; the renamed dependencies require explicit `[secure-node]`. |
+| Installed mutating CLI routed through the appliance daemon and required `OPEN_BRAIN_ROOT` | Bootstrap conflict resolved. The remaining direct commands are not implemented yet. | `OB1-W0` routes the default to automatic local bootstrap; capture, search, and export remain in `OB1-W1`. |
 | Existing source/wheel install guide initializes a root and starts a daemon | Yes as a default-product guide. | Retain as transitional Secure Node precursor evidence; replace the quickstart in `OB1`. |
 | `SN1-W0` protocol, crypto, grant, receipt, fencing, purge, and recovery contracts | No after reclassification. | Preserve unchanged as Secure Node authority. |
 | `SN1-W1` semantic-kernel implementation | No direct conflict. It contains advanced compartment and ciphertext state by design. | Preserve as completed Secure Node work; do not route it through the default Open Brain command path. |

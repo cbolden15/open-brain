@@ -185,7 +185,8 @@ def discover_subject_kinds(root: Path, manifest: Mapping[str, object]) -> dict[s
             ".github/**/*.yaml",
             "packages/*/hatch_build.py",
             "packages/*/pyproject.toml",
-            "release/native/*.spec",
+            "release/*/*.spec",
+            "release/*/install.sh",
             "tools/m1/*.py",
             "tools/phase4/*.py",
         )

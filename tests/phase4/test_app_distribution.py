@@ -12,7 +12,7 @@ def test_app_source_and_wheel_contract_declares_cross_platform_coverage() -> Non
 
     assert "runs-on: ubuntu-latest" in workflow
     assert "uv run pytest -q" in workflow
-    assert "uv run mypy" in workflow
+    assert "uv run --package open-brain --extra secure-node mypy" in workflow
     assert "runs-on: macos-14" in workflow
     assert "name: macOS source/wheel (Python 3.14)" in workflow
     assert 'python-version: "3.14"' in workflow
@@ -22,18 +22,17 @@ def test_app_source_and_wheel_contract_declares_cross_platform_coverage() -> Non
     assert "test_appliance_supervisors.py" in workflow
 
 
-def test_macos_install_guide_uses_python_314_and_the_public_daemon_command() -> None:
+def test_macos_install_guide_separates_default_and_secure_node_commands() -> None:
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
     guide = (ROOT / "docs/install-macos.md").read_text(encoding="utf-8")
 
     assert "docs/install-macos.md" in readme
     assert "Python 3.14" in guide
-    assert "uv tool install --offline --no-python-downloads --python 3.14" in guide
-    assert "open_brain_engine-0.1.0-py3-none-any.whl" in guide
-    assert "open_brain-0.1.0-py3-none-any.whl" in guide
-    assert guide.count("open-brain daemon") == 2
-    assert "The DMG is deferred" in guide
-    assert "to a later release" in guide
+    assert "open-brain init --json" in guide
+    assert "open-brain-secure-node daemon" in guide
+    assert "release/open-brain/install.sh" in guide
+    assert "$HOME/.local/lib/open-brain" in guide
+    assert "No release has been published yet" in guide
 
 
 def test_app_sdist_example_config_contains_placeholders_only() -> None:

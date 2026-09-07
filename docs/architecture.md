@@ -25,9 +25,15 @@ path, while `open-brain[secure-node]` adds `open-brain-engine[secure-node]` and 
 dependencies. A separate `open-brain-secure-node` distribution remains the stronger isolation
 option if the extra cannot pass dependency and release-boundary tests.
 
-This packaging is a target, not the current metadata. `packages/app/pyproject.toml` still selects
-the pre-split engine `node` extra and includes the appliance transport dependencies by default.
-`OB1-W0` owns that change after the documentation gate.
+`OB1-W0` implements this package boundary. The base app depends only on the base engine. The
+`secure-node` extra owns the advanced engine dependencies plus Starlette and Uvicorn. Plain
+`open-brain` and `python -m open_brain` route to the direct local CLI. The explicit Secure Node
+launchers stay inert until the extra is installed.
+
+The base native artifact has its own entry point and PyInstaller spec under
+`release/open-brain`. Its module inventory excludes the retained appliance, server, connector,
+legacy, service-management, Secure Node custody, and advanced dependency roots. The historical
+artifact under `release/native` remains Secure Node precursor evidence.
 
 ## Current transitional architecture
 
@@ -84,9 +90,9 @@ receipt. `services/appliance_application.py` and `services/appliance_entrypoints
 strictly non-mutating offline/MCP read path backed by `profile.open_existing_single_user_local()`
 and `engine.local.open_local_read_view()`, which reject absent or newer state schemas instead of
 creating, migrating, recovering, or acquiring writer authority.
-Phase 3 W2 cuts the installed `open-brain` script and `python -m open_brain` over to
-`services/appliance_entrypoints.py`, keeps `open-brain-mcp` on that read-only path, and removes a
-standalone public HTTP entrypoint. `services/appliance_daemon.py`, `services/appliance_lifecycle.py`,
+Phase 3 W2 historically cut the installed scripts over to `services/appliance_entrypoints.py` and
+removed a standalone public HTTP entrypoint. The product split later replaced those bindings with
+the local default and explicit Secure Node commands. `services/appliance_daemon.py`, `services/appliance_lifecycle.py`,
 `services/appliance_scheduler.py`, and `services/appliance_supervisors.py` now own the appliance
 control plane: one daemon acquires verified daemon-authority before mutating composition and socket
 binding, serves bounded canonical Unix-domain control requests through the owner-only
@@ -95,7 +101,7 @@ recurring `engine-recover` and `markdown-reconcile`
 scheduler inventory under `.open-brain/state/appliance-scheduler/`, and renders deterministic
 launchd/systemd units that enter the daemon through the source-checkout-safe
 `open_brain.services.appliance_daemon` module with an explicit absolute root. Source and wheel
-users launch the same process with `open-brain daemon`. Mutating Phase 1 CLI
+Secure Node users launch the same process with `open-brain-secure-node daemon`. Mutating Phase 1 CLI
 families never fall back to local writes; active reads prefer control and offline inspection stays
 on the read-only engine view.
 Phase 3 W3 keeps that ownership model for browser traffic. The appliance daemon composes and owns

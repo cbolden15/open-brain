@@ -88,6 +88,7 @@ Generated from `docs/v0-package-classification.json`; do not edit by hand.
 | `src/open_brain/core/ports.py` | `packages/engine/src/open_brain_engine/core/ports.py` | `moved` | `open_brain.core.ports` | `open_brain_engine.core.ports` | `remove` |
 | `src/open_brain/dev/__init__.py` | `tools/open_brain_dev/__init__.py` | `moved` | `open_brain.dev` | `tools.open_brain_dev` | `remove` |
 | `src/open_brain/dev/artifact_policy.py` | `tools/open_brain_dev/artifact_policy.py` | `moved` | `open_brain.dev.artifact_policy` | `tools.open_brain_dev.artifact_policy` | `remove` |
+| `src/open_brain/dev/base_native.py` | `tools/open_brain_dev/base_native.py` | `moved` | `open_brain.dev.base_native` | `tools.open_brain_dev.base_native` | `remove` |
 | `src/open_brain/dev/public_history_audit.py` | `tools/open_brain_dev/public_history_audit.py` | `moved` | `open_brain.dev.public_history_audit` | `tools.open_brain_dev.public_history_audit` | `remove` |
 | `src/open_brain/dev/release_audit.py` | `tools/open_brain_dev/release_audit.py` | `moved` | `open_brain.dev.release_audit` | `tools.open_brain_dev.release_audit` | `remove` |
 | `src/open_brain/engine/__init__.py` | `packages/engine/src/open_brain_engine/engine/__init__.py` | `moved` | `open_brain.engine` | `open_brain_engine.engine` | `remove` |
@@ -156,6 +157,7 @@ Generated from `docs/v0-package-classification.json`; do not edit by hand.
 | `src/open_brain/ledger/store.py` | `packages/legacy/src/open_brain_legacy/ledger/store.py` | `moved` | `open_brain.ledger.store` | `open_brain_legacy.ledger.store` | `legacy-private` |
 | `src/open_brain/ledger/synthesis.py` | `packages/legacy/src/open_brain_legacy/ledger/synthesis.py` | `moved` | `open_brain.ledger.synthesis` | `open_brain_legacy.ledger.synthesis` | `legacy-private` |
 | `src/open_brain/ledger/synthesis_store.py` | `packages/legacy/src/open_brain_legacy/ledger/synthesis_store.py` | `moved` | `open_brain.ledger.synthesis_store` | `open_brain_legacy.ledger.synthesis_store` | `legacy-private` |
+| `src/open_brain/local_data.py` | `packages/app/src/open_brain/local_data.py` | `moved` | `open_brain.local_data` | `open_brain.local_data` | `retain` |
 | `src/open_brain/migrate/__init__.py` | `packages/legacy/src/open_brain_legacy/migrate/__init__.py` | `moved` | `open_brain.migrate` | `open_brain_legacy.migrate` | `legacy-private` |
 | `src/open_brain/migrate/_models.py` | `packages/legacy/src/open_brain_legacy/migrate/_models.py` | `moved` | `open_brain.migrate._models` | `open_brain_legacy.migrate._models` | `legacy-private` |
 | `src/open_brain/migrate/_support.py` | `packages/legacy/src/open_brain_legacy/migrate/_support.py` | `moved` | `open_brain.migrate._support` | `open_brain_legacy.migrate._support` | `legacy-private` |
@@ -273,12 +275,16 @@ Generated from `docs/v0-package-classification.json`; do not edit by hand.
 | `src/open_brain/services/connectors.py` | `packages/app/src/open_brain/services/connectors.py` | `moved` | `open_brain.services.connectors` | `open_brain.services.connectors` | `retain` |
 | `src/open_brain/services/entrypoints.py` | `packages/legacy/src/open_brain_legacy/services/entrypoints.py` | `moved` | `open_brain.services.entrypoints` | `open_brain_legacy.services.entrypoints` | `legacy-private` |
 | `src/open_brain/services/http_server.py` | `packages/app/src/open_brain/services/http_server.py` | `moved` | `open_brain.services.http_server` | `open_brain.services.http_server` | `retain` |
+| `src/open_brain/services/local_bootstrap.py` | `packages/app/src/open_brain/services/local_bootstrap.py` | `moved` | `open_brain.services.local_bootstrap` | `open_brain.services.local_bootstrap` | `retain` |
+| `src/open_brain/services/local_entrypoints.py` | `packages/app/src/open_brain/services/local_entrypoints.py` | `moved` | `open_brain.services.local_entrypoints` | `open_brain.services.local_entrypoints` | `retain` |
+| `src/open_brain/services/local_native_entrypoint.py` | `packages/app/src/open_brain/services/local_native_entrypoint.py` | `moved` | `open_brain.services.local_native_entrypoint` | `open_brain.services.local_native_entrypoint` | `retain` |
 | `src/open_brain/services/mcp_stdio.py` | `packages/app/src/open_brain/services/mcp_stdio.py` | `moved` | `open_brain.services.mcp_stdio` | `open_brain.services.mcp_stdio` | `retain` |
 | `src/open_brain/services/native_artifacts.py` | `packages/app/src/open_brain/services/native_artifacts.py` | `moved` | `open_brain.services.native_artifacts` | `open_brain.services.native_artifacts` | `retain` |
 | `src/open_brain/services/native_entrypoint.py` | `packages/app/src/open_brain/services/native_entrypoint.py` | `moved` | `open_brain.services.native_entrypoint` | `open_brain.services.native_entrypoint` | `retain` |
 | `src/open_brain/services/phase1_application.py` | `packages/app/src/open_brain/services/phase1_application.py` | `moved` | `open_brain.services.phase1_application` | `open_brain.services.phase1_application` | `retain` |
 | `src/open_brain/services/phase1_entrypoints.py` | `packages/app/src/open_brain/services/phase1_entrypoints.py` | `moved` | `open_brain.services.phase1_entrypoints` | `open_brain.services.phase1_entrypoints` | `retain` |
 | `src/open_brain/services/runtime.py` | `packages/app/src/open_brain/services/runtime.py` | `moved` | `open_brain.services.runtime` | `open_brain.services.runtime` | `retain` |
+| `src/open_brain/services/secure_node_entrypoints.py` | `packages/app/src/open_brain/services/secure_node_entrypoints.py` | `moved` | `open_brain.services.secure_node_entrypoints` | `open_brain.services.secure_node_entrypoints` | `retain` |
 | `src/open_brain/storage/__init__.py` | `packages/engine/src/open_brain_engine/storage/__init__.py` | `moved` | `open_brain.storage` | `open_brain_engine.storage` | `remove` |
 | `src/open_brain/storage/filesystem.py` | `packages/engine/src/open_brain_engine/storage/filesystem.py` | `moved` | `open_brain.storage.filesystem` | `open_brain_engine.storage.filesystem` | `remove` |
 | `src/open_brain/storage/frontmatter.py` | `packages/engine/src/open_brain_engine/storage/frontmatter.py` | `moved` | `open_brain.storage.frontmatter` | `open_brain_engine.storage.frontmatter` | `remove` |

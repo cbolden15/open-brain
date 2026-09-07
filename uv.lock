@@ -632,24 +632,28 @@ name = "open-brain"
 version = "0.1.0"
 source = { editable = "packages/app" }
 dependencies = [
-    { name = "open-brain-engine", extra = ["node"] },
-    { name = "starlette" },
-    { name = "uvicorn" },
+    { name = "open-brain-engine" },
 ]
 
 [package.optional-dependencies]
 cloud = [
     { name = "openai" },
 ]
+secure-node = [
+    { name = "open-brain-engine", extra = ["secure-node"] },
+    { name = "starlette" },
+    { name = "uvicorn" },
+]
 
 [package.metadata]
 requires-dist = [
-    { name = "open-brain-engine", extras = ["node"], editable = "packages/engine" },
+    { name = "open-brain-engine", editable = "packages/engine" },
+    { name = "open-brain-engine", extras = ["secure-node"], marker = "extra == 'secure-node'", editable = "packages/engine" },
     { name = "openai", marker = "extra == 'cloud'", specifier = ">=1.99,<3" },
-    { name = "starlette", specifier = ">=0.48,<1" },
-    { name = "uvicorn", specifier = ">=0.40,<1" },
+    { name = "starlette", marker = "extra == 'secure-node'", specifier = ">=0.48,<1" },
+    { name = "uvicorn", marker = "extra == 'secure-node'", specifier = ">=0.40,<1" },
 ]
-provides-extras = ["cloud", "integrations", "mcp"]
+provides-extras = ["cloud", "integrations", "mcp", "secure-node"]
 
 [[package]]
 name = "open-brain-connectors"
@@ -675,7 +679,7 @@ dependencies = [
 ]
 
 [package.optional-dependencies]
-node = [
+secure-node = [
     { name = "argon2-cffi" },
     { name = "cryptography" },
     { name = "keyring" },
@@ -685,14 +689,14 @@ node = [
 
 [package.metadata]
 requires-dist = [
-    { name = "argon2-cffi", marker = "extra == 'node'", specifier = ">=25.1,<26" },
-    { name = "cryptography", marker = "extra == 'node'", specifier = ">=50,<51" },
-    { name = "keyring", marker = "extra == 'node'", specifier = ">=25.6,<26" },
-    { name = "pyobjc-framework-localauthentication", marker = "sys_platform == 'darwin' and extra == 'node'", specifier = ">=12,<13" },
+    { name = "argon2-cffi", marker = "extra == 'secure-node'", specifier = ">=25.1,<26" },
+    { name = "cryptography", marker = "extra == 'secure-node'", specifier = ">=50,<51" },
+    { name = "keyring", marker = "extra == 'secure-node'", specifier = ">=25.6,<26" },
+    { name = "pyobjc-framework-localauthentication", marker = "sys_platform == 'darwin' and extra == 'secure-node'", specifier = ">=12,<13" },
     { name = "rfc8785", specifier = ">=0.1.4,<0.2" },
-    { name = "sqlcipher3", marker = "extra == 'node'", specifier = "==0.6.2" },
+    { name = "sqlcipher3", marker = "extra == 'secure-node'", specifier = "==0.6.2" },
 ]
-provides-extras = ["node"]
+provides-extras = ["secure-node"]
 
 [[package]]
 name = "open-brain-legacy"
