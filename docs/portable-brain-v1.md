@@ -6,6 +6,24 @@ layout. Portable operations preserve identities, exact source/canonical/history 
 chains, and append-only routing. They exclude operational state and do not provide daemon,
 backup/restore, upgrade, uninstall, provider, or hosted-runtime orchestration.
 
+## Product-family role
+
+Portable Brain v1 is the shared minimum record and export format for Open Brain and Secure Node.
+The default product can create a complete export without Secure Node installed. Secure Node must
+accept that export as its upgrade input and preserve stable Brain, actor, space, capture, source,
+proposal, decision, publication, action, and provenance identities plus every exact portable byte.
+
+Secure Node grants, compartments, key envelopes, nonces, sequencer state, service state, and
+projection checkpoints are not silently invented as historical facts. A Secure Node import applies
+new custody and authorization policy in a separate receipt-bound operation and records that the
+protection starts at import. It never claims that the source Open Brain data had application-level
+encryption.
+
+BrainPack v2 is a Secure Node envelope and advanced semantic profile. Before Secure Node persistence
+advances, a conformance mapping must prove that its shared semantic records round-trip through this
+Portable Brain v1 profile without identity, provenance, or byte drift. Default-to-Secure-Node
+upgrade uses this export/import boundary, not a copy or reinterpretation of live SQLite files.
+
 ## Layout
 
 ```text

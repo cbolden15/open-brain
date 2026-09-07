@@ -1,8 +1,18 @@
 # Backlog — Open Brain
 
-**Last Updated:** 2026-08-26
+**Last Updated:** 2026-09-07
 
-Gate 1 implementation status after the governed production-replacement work.
+Current execution order is governed by
+[`docs/plans/product-roadmap.md`](docs/plans/product-roadmap.md).
+
+## Active product split
+
+- [x] Define plain Open Brain as the five-minute default and Secure Node as the opt-in advanced
+  profile.
+- [x] Reclassify completed W0 and in-progress W1 as Secure Node work without discarding it.
+- [ ] Move Secure Node dependencies behind `open-brain[secure-node]`.
+- [ ] Implement automatic local data-directory setup and direct capture, search, and export.
+- [ ] Pass the exact clean-host five-minute acceptance test on supported macOS and Linux hosts.
 
 ## Bugs
 

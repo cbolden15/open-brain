@@ -1,13 +1,43 @@
 # Architecture
 
-> This page describes the current implementation. The proposed self-hosted and hosted product-family target is documented in [`architecture/proposed-v0-system-architecture.md`](architecture/proposed-v0-system-architecture.md).
+> Current product authority: [`product-family.md`](product-family.md). The older
+> [`architecture/proposed-v0-system-architecture.md`](architecture/proposed-v0-system-architecture.md)
+> remains historical appliance-design evidence.
 
-Open Brain is one uv workspace in one canonical repository. Engine, app, connector, and private
+## Product boundary
+
+Open Brain is the default direct local product. It creates one platform-local Brain automatically
+and provides SQLite-backed capture, search, and Portable Brain export without a required daemon or
+service. It does not claim application-level encryption.
+
+Secure Node is the opt-in advanced profile. It adds encrypted custody, compartments,
+authorization, receipts, fencing, certified purge, recovery controls, daemon or service operation,
+and multi-client access. Brain Protocol v1 and the work historically named M1 belong to Secure
+Node.
+
+Both products depend on the same engine-owned record identities and Portable Brain v1 semantic
+core. Default-to-Secure-Node upgrade validates an export, preserves its shared identities and bytes,
+then applies new custody and compartment policy in the target. It does not reinterpret or copy the
+default product's live SQLite files.
+
+The selected near-term packaging keeps one app distribution: `open-brain` installs only the base
+path, while `open-brain[secure-node]` adds `open-brain-engine[secure-node]` and the advanced runtime
+dependencies. A separate `open-brain-secure-node` distribution remains the stronger isolation
+option if the extra cannot pass dependency and release-boundary tests.
+
+This packaging is a target, not the current metadata. `packages/app/pyproject.toml` still selects
+the pre-split engine `node` extra and includes the appliance transport dependencies by default.
+`OB1-W1` owns that change after the documentation gate.
+
+## Current transitional architecture
+
+The repository is one uv workspace. Engine, app, connector, and private
 legacy code live in separate buildable distributions. Private compatibility source is physically
 quarantined under `packages/legacy`; workspace-only release tooling lives under
 `tools/open_brain_dev`. The old
-`src/open_brain` monolith no longer exists. One `single-user-local` profile opens one engine task
-set for one owner and one Brain root.
+`src/open_brain` monolith no longer exists. The retained `single-user-local` appliance profile opens
+one engine task set for one owner and one explicit Brain root. It predates the split and is not the
+target default `local` profile.
 
 The package map uses these ownership boundaries:
 
@@ -15,7 +45,8 @@ The package map uses these ownership boundaries:
 - `capture`, `ledger`, and `review`: application services that depend on typed ports.
 - `engine`: the public task surface for Portable identities, generic capture, spaces, independent
   review, publication, recovery, lexical retrieval, and validate/export/clean-import/index-rebuild.
-- `app`: profile and application composition. It owns the five representations and supplies only
+- `app`: profile and application composition. It owns the direct default CLI plus the opt-in Secure
+  Node composition and supplies only
   the capability each one needs: CLI, authenticated HTTP/share, local UI, scoped stdio MCP, and
   public-job sinks.
 - `connector`: the optional `open-brain-connectors` distribution. Published provisional values live
@@ -36,7 +67,7 @@ The file-level classification is authoritative across the workspace: every runti
 owner, such as `engine`, `app`, `connector`, `legacy`, or `workspace`. Every runtime file is now at
 its final P4A path; no file is unclassified or assigned to multiple owners.
 
-The app-owned `profile` module compiles one `single-user-local` Brain root into an
+The current app-owned `profile` module compiles one `single-user-local` Brain root into an
 engine-owned context. The engine does not import profile, CLI, UI, service, migration,
 or parity code.
 
@@ -139,7 +170,7 @@ The implemented application layers are:
 The retained Phase 2 compatibility composition starts with no listener, provider, connector, or
 network operation. Its synthetic `JOB-029` proof remains legacy characterization only and is not a
 packaged entry point. The Phase 3 appliance daemon instead owns the internal scheduler described
-above, with no connector jobs in the default profile.
+above, with no connector jobs in that retained appliance profile.
 
 Public task results are projections produced after storage and ranking. They retain opaque IDs,
 bounded provenance, canonical-state visibility, and useful titles/excerpts while excluding raw or

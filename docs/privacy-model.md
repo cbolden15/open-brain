@@ -2,7 +2,21 @@
 
 Every capture receives an immutable privacy decision before persistence. The decision includes a tier, deterministic reason, and cloud/egress authority.
 
-The single-user profile is one owner and one private Brain root. Its provider mode is `none`, and
+## Product profiles
+
+Default Open Brain is one trusted local operating-system user and one automatically created Brain.
+It uses owner-only paths, provider mode `none`, and no external egress. Its SQLite state and Portable
+Brain files may contain readable content. These controls are local privacy defaults, not
+application-level encryption, cryptographic erasure, compartment isolation, or protection from
+another process running as the same user.
+
+Secure Node is the opt-in profile that may claim encrypted custody, grants, compartments, signed
+receipts, fencing, and certified purge only after its separate conformance gates pass. Plain
+`open-brain` must not install, initialize, advertise, or imply those controls.
+
+## Retained appliance and connector controls
+
+The retained single-user appliance profile is one owner and one private Brain root. Its provider mode is `none`, and
 its connector allow-list is empty with egress disabled by default. The app wheel has no connector
 dependency and passes its installed contract with the connector distribution absent. An explicit
 `JOB-029` configuration can enable the bounded YouTube reference proof, but it receives only a

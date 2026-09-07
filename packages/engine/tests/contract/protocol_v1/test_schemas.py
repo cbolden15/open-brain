@@ -28,6 +28,7 @@ EXPECTED_SCHEMAS = {
     "effect-receipt",
     "grant",
     "inspect",
+    "ledger-item-ref",
     "node-epoch-certificate",
     "owner-key-certificate",
     "proposal",
@@ -380,6 +381,58 @@ def test_processor_provenance_requires_identity_and_a_source() -> None:
     assert not _validator("provenance").is_valid(provenance)
 
 
+def test_effect_reconciliation_is_bound_to_a_distinct_unknown_receipt() -> None:
+    initial = deepcopy(
+        cast(dict[str, object], load_conformance_cases()["valid"]["effect-receipt"][0])
+    )
+    assert initial["reconciles_receipt_id"] is None
+
+    reconciliation = deepcopy(initial)
+    reconciliation["receipt_id"] = "rcp_cccccccccccccccccccccccccc"
+    reconciliation["reconciles_receipt_id"] = initial["receipt_id"]
+    reconciliation["outcome"] = "succeeded"
+    assert _validator("effect-receipt").is_valid(reconciliation)
+    validate_protocol_semantics("effect-receipt", reconciliation)
+
+    self_reconciliation = deepcopy(reconciliation)
+    self_reconciliation["reconciles_receipt_id"] = self_reconciliation["receipt_id"]
+    assert _validator("effect-receipt").is_valid(self_reconciliation)
+    with pytest.raises(ProtocolContractError, match="cannot reconcile itself"):
+        validate_protocol_semantics("effect-receipt", self_reconciliation)
+
+
+def test_effect_receipt_purge_subject_cannot_use_replacement() -> None:
+    transition = deepcopy(
+        cast(
+            dict[str, object],
+            load_conformance_cases()["invalid"]["purge-transition"][1],
+        )
+    )
+
+    assert not _validator("purge-transition").is_valid(transition)
+    with pytest.raises(ProtocolContractError, match="cannot be replaced"):
+        validate_protocol_semantics("purge-transition", transition)
+
+
+def test_ledger_item_references_distinguish_versioned_and_member_items() -> None:
+    references = load_conformance_cases()["valid"]["ledger-item-ref"]
+
+    assert len(references) == 6
+    assert all(_validator("ledger-item-ref").is_valid(reference) for reference in references)
+    proposal = next(
+        cast(dict[str, object], reference)
+        for reference in references
+        if cast(dict[str, object], reference)["item_kind"] == "proposal"
+    )
+    purge = next(
+        cast(dict[str, object], reference)
+        for reference in references
+        if cast(dict[str, object], reference)["item_kind"] == "purge_transition"
+    )
+    assert set(proposal) == {"item_kind", "proposal_id", "proposal_revision_id"}
+    assert set(purge) == {"item_kind", "purge_id", "subject_kind", "subject_id"}
+
+
 def test_commit_semantics_reject_a_structurally_valid_foreign_brain_item() -> None:
     batch = cast(dict[str, object], load_conformance_cases()["invalid"]["commit-batch"][0])
 
@@ -469,16 +522,9 @@ def test_commit_results_are_closed_typed_outcomes() -> None:
 
 
 def test_changes_feed_accepts_every_typed_commit_identity() -> None:
-    item_ids = {
-        "record": "rec_aaaaaaaaaaaaaaaaaaaaaaaaaa",
-        "proposal": "prp_aaaaaaaaaaaaaaaaaaaaaaaaaa",
-        "revision": "rev_aaaaaaaaaaaaaaaaaaaaaaaaaa",
-        "decision": "dec_aaaaaaaaaaaaaaaaaaaaaaaaaa",
-        "purge_transition": "prg_aaaaaaaaaaaaaaaaaaaaaaaaaa",
-        "effect_receipt": "rcp_aaaaaaaaaaaaaaaaaaaaaaaaaa",
-    }
+    references = load_conformance_cases()["valid"]["ledger-item-ref"]
 
-    for item_kind, item_id in item_ids.items():
+    for item_ref in references:
         page = {
             "schema_version": 1,
             "kind": "page",
@@ -487,14 +533,13 @@ def test_changes_feed_accepts_every_typed_commit_identity() -> None:
                 {
                     "cursor": "cur_v1_aaaaaaaaaaaaaaaa",
                     "commit_id": "cmt_aaaaaaaaaaaaaaaaaaaaaaaaaa",
-                    "item_kind": item_kind,
-                    "item_id": item_id,
+                    "item_ref": item_ref,
                     "change": "committed",
                 }
             ],
             "next": None,
         }
-        assert _validator("changes").is_valid(page), item_kind
+        assert _validator("changes").is_valid(page), item_ref
 
 
 def test_inspect_not_found_has_no_presence_or_body_oracle() -> None:

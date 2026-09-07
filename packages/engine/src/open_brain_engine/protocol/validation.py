@@ -260,6 +260,19 @@ def validate_protocol_semantics(contract: str, document: Mapping[str, object]) -
                         f"items[{index}].provenance crosses the batch Brain boundary"
                     )
 
+    if contract == "effect-receipt":
+        receipt_id = document.get("receipt_id")
+        reconciles_receipt_id = document.get("reconciles_receipt_id")
+        if reconciles_receipt_id is not None and reconciles_receipt_id == receipt_id:
+            raise ProtocolContractError("an effect receipt cannot reconcile itself")
+
+    if (
+        contract == "purge-transition"
+        and document.get("subject_kind") == "effect_receipt"
+        and document.get("resolution") == "replace"
+    ):
+        raise ProtocolContractError("an effect receipt cannot be replaced by a record")
+
     if contract == "grant":
         decode_base64url(
             document.get("principal_public_key"),

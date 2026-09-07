@@ -3,6 +3,11 @@
 Status: Phase 4 P4-W6 unpublished release-candidate contract. Machine policy:
 [`release/v0-artifact-policy.json`](../release/v0-artifact-policy.json).
 
+Product-scope note: this file characterizes retained pre-split artifacts. Its app wheel and native
+appliance contents are Secure Node precursor evidence, not the target base `open-brain` dependency
+or five-minute install contract. Current packaging authority is
+[`product-family.md`](product-family.md).
+
 This records the isolated Python artifacts, the accepted P4-W5 native build subject, and the
 P4-W6 assembly and verification contract. It does not claim that a native v0 release exists or
 that any artifact is ready to publish. A P4-W6 candidate remains unpublished even after every

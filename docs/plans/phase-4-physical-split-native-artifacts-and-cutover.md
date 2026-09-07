@@ -1,4 +1,4 @@
-# Open Brain Phase 4 implementation plan: physical split, native artifacts, and full-stop cutover
+# Historical Phase 4 implementation plan: physical split, native artifacts, and full-stop cutover
 
 - Status: planning candidate; implementation has not started
 - Date: 2026-09-01
@@ -10,6 +10,11 @@
 - Phase 3 evidence: [`phase-3-appliance-control-plane.md`](phase-3-appliance-control-plane.md)
 - Parent goals: `cbolden15/agent-config#41` and `cbolden15/agent-config#24`
 - Estimate: 2 to 3 weeks for P4A and P4B, followed by one owner-gated production window
+
+Product-scope note: the package split and artifact evidence remain valid foundations. Native
+appliance lifecycle and cutover requirements belong to Secure Node or legacy replacement work, not
+the default five-minute Open Brain product. Current authority is
+[`../product-family.md`](../product-family.md).
 
 ## Objective
 

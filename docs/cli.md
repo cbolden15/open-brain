@@ -1,6 +1,20 @@
 # CLI composition
 
-The installed `open-brain` process opens one explicit single-user Brain root and dispatches six
+## Target default commands
+
+The Open Brain `local` profile will expose direct `capture`, `search`, `export`, `status`, and
+`doctor` commands. First capture performs idempotent setup in the platform-local data directory.
+These commands require no explicit root, daemon, listener, grant, certificate, or database setup.
+The exact first-use surface is frozen by
+[`acceptance/five-minute-install.md`](acceptance/five-minute-install.md).
+
+Secure Node commands and service operation appear only after an explicit
+`open-brain[secure-node]` install and setup. Plain CLI help and status must not imply Secure Node
+encryption, compartment, receipt, fencing, purge, or multi-client guarantees.
+
+## Current transitional commands
+
+The current installed `open-brain` process opens one explicit single-user Brain root and dispatches six
 engine-backed families: `capture`, `inbox`, `proposals`, `query`, `review`, and `spaces`.
 The default parser accepts only those families. Each adapter receives one task protocol, and
 loading the CLI starts no listener, scheduler, provider, connector, or network operation.
@@ -9,8 +23,8 @@ The retained 31-family parser and 30 scheduled routes are legacy compatibility c
 directly testable through the legacy facade but are not imported or selected by the installed
 Phase 2 CLI.
 
-This is synthetic implementation readiness. It is not a claim of live parity, cutover,
-or service health.
+This is retained appliance implementation readiness. It is not the five-minute default path or a
+claim of live parity, cutover, or service health.
 
 ## Service processes
 

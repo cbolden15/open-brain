@@ -45,10 +45,20 @@ def test_canonical_move_manifest_is_complete_and_valid() -> None:
     manifest = _manifest()
 
     assert validate_manifest(ROOT, manifest) == []
-    assert len(_runtime(manifest)) == 275
+    assert len(_runtime(manifest)) == 279
     subjects = _subjects(manifest)
-    assert sum(record["kind"] == "test" for record in subjects.values()) == 274
-    assert sum(record["kind"] in {"schema", "fixture"} for record in subjects.values()) == 64
+    assert sum(record["kind"] == "test" for record in subjects.values()) == 279
+    assert sum(record["kind"] in {"schema", "fixture"} for record in subjects.values()) == 65
+
+
+def test_product_split_authority_is_packaged_with_the_app_sdist() -> None:
+    subjects = _subjects(_manifest())
+    for path in (
+        "docs/acceptance/five-minute-install.md",
+        "docs/plans/product-roadmap.md",
+        "docs/product-family.md",
+    ):
+        assert subjects[path]["artifact_disposition"] == ["app-sdist"]
 
 
 def test_p4a_has_no_unresolved_movement_or_monolith_tree() -> None:

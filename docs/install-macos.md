@@ -1,6 +1,15 @@
-# Install Open Brain on macOS
+# Current pre-alpha appliance installation on macOS
 
-Open Brain v0 supports macOS 14 or newer on Apple Silicon with Python 3.14 and `uv`. You can run
+This guide documents the retained source/wheel appliance path. It requires an explicit Brain root
+and daemon, so it is Secure Node precursor and regression evidence after the product split. It is
+not the target Open Brain quickstart.
+
+The target default is the one-command, five-minute path specified in
+[`acceptance/five-minute-install.md`](acceptance/five-minute-install.md). That path creates its
+private data directory automatically, starts no daemon or service, and does not claim
+application-level encryption.
+
+The retained appliance supports macOS 14 or newer on Apple Silicon with Python 3.14 and `uv`. You can run
 the versioned source checkout or install the matching app and engine wheels. The DMG is deferred
 to a later release.
 

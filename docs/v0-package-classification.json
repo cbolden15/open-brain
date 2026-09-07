@@ -2046,6 +2046,94 @@
       "target_path": "packages/engine/src/open_brain_engine/engine/contracts.py",
       "test_owner": "engine"
     },
+    "engine/ledger/__init__.py": {
+      "api": "internal",
+      "api_status": "distribution-private",
+      "artifact_disposition": [
+        "engine-sdist",
+        "engine-wheel"
+      ],
+      "current_path": "packages/engine/src/open_brain_engine/ledger/__init__.py",
+      "import_rewrite": {
+        "from": "open_brain.engine.ledger",
+        "to": "open_brain_engine.ledger"
+      },
+      "movement_state": "moved",
+      "old_import_disposition": "remove",
+      "owner": "engine",
+      "resource_requirements": [],
+      "roles": [],
+      "runtime_namespace": "open_brain_engine",
+      "target_distribution": "engine",
+      "target_path": "packages/engine/src/open_brain_engine/ledger/__init__.py",
+      "test_owner": "engine"
+    },
+    "engine/ledger/model.py": {
+      "api": "internal",
+      "api_status": "distribution-private",
+      "artifact_disposition": [
+        "engine-sdist",
+        "engine-wheel"
+      ],
+      "current_path": "packages/engine/src/open_brain_engine/ledger/model.py",
+      "import_rewrite": {
+        "from": "open_brain.engine.ledger.model",
+        "to": "open_brain_engine.ledger.model"
+      },
+      "movement_state": "moved",
+      "old_import_disposition": "remove",
+      "owner": "engine",
+      "resource_requirements": [],
+      "roles": [],
+      "runtime_namespace": "open_brain_engine",
+      "target_distribution": "engine",
+      "target_path": "packages/engine/src/open_brain_engine/ledger/model.py",
+      "test_owner": "engine"
+    },
+    "engine/ledger/policy.py": {
+      "api": "internal",
+      "api_status": "distribution-private",
+      "artifact_disposition": [
+        "engine-sdist",
+        "engine-wheel"
+      ],
+      "current_path": "packages/engine/src/open_brain_engine/ledger/policy.py",
+      "import_rewrite": {
+        "from": "open_brain.engine.ledger.policy",
+        "to": "open_brain_engine.ledger.policy"
+      },
+      "movement_state": "moved",
+      "old_import_disposition": "remove",
+      "owner": "engine",
+      "resource_requirements": [],
+      "roles": [],
+      "runtime_namespace": "open_brain_engine",
+      "target_distribution": "engine",
+      "target_path": "packages/engine/src/open_brain_engine/ledger/policy.py",
+      "test_owner": "engine"
+    },
+    "engine/ledger/transitions.py": {
+      "api": "internal",
+      "api_status": "distribution-private",
+      "artifact_disposition": [
+        "engine-sdist",
+        "engine-wheel"
+      ],
+      "current_path": "packages/engine/src/open_brain_engine/ledger/transitions.py",
+      "import_rewrite": {
+        "from": "open_brain.engine.ledger.transitions",
+        "to": "open_brain_engine.ledger.transitions"
+      },
+      "movement_state": "moved",
+      "old_import_disposition": "remove",
+      "owner": "engine",
+      "resource_requirements": [],
+      "roles": [],
+      "runtime_namespace": "open_brain_engine",
+      "target_distribution": "engine",
+      "target_path": "packages/engine/src/open_brain_engine/ledger/transitions.py",
+      "test_owner": "engine"
+    },
     "engine/local.py": {
       "api": "internal",
       "api_status": "distribution-private",
@@ -6309,6 +6397,24 @@
         "target_path": "README.md",
         "test_owner": "workspace"
       },
+      "docs/acceptance/five-minute-install.md": {
+        "api_status": "workspace-only",
+        "artifact_disposition": [
+          "app-sdist"
+        ],
+        "current_path": "docs/acceptance/five-minute-install.md",
+        "import_rewrite": null,
+        "kind": "package-resource",
+        "movement_state": "moved",
+        "old_import_disposition": "not-applicable",
+        "resource_requirements": [
+          "build-metadata"
+        ],
+        "runtime_namespace": null,
+        "target_distribution": "workspace",
+        "target_path": "docs/acceptance/five-minute-install.md",
+        "test_owner": "workspace"
+      },
       "docs/ai/workstreams/20260901-open-brain-public-execute-goal-63-through-phase-4-p4a-p4b-and-p4c-with-independently-reviewed-pack-8a3f9b/P4-W0-EXPECTED-RED.json": {
         "api_status": "workspace-only",
         "artifact_disposition": [
@@ -6591,6 +6697,42 @@
         "target_path": "docs/architecture/decisions/0011-m1-authority-information-flow-and-resource-bounds.md",
         "test_owner": "workspace"
       },
+      "docs/architecture/decisions/0012-open-brain-secure-node-product-split.md": {
+        "api_status": "workspace-only",
+        "artifact_disposition": [
+          "app-sdist"
+        ],
+        "current_path": "docs/architecture/decisions/0012-open-brain-secure-node-product-split.md",
+        "import_rewrite": null,
+        "kind": "package-resource",
+        "movement_state": "moved",
+        "old_import_disposition": "not-applicable",
+        "resource_requirements": [
+          "build-metadata"
+        ],
+        "runtime_namespace": null,
+        "target_distribution": "workspace",
+        "target_path": "docs/architecture/decisions/0012-open-brain-secure-node-product-split.md",
+        "test_owner": "workspace"
+      },
+      "docs/architecture/decisions/0013-pre-release-semantic-kernel-integrity-erratum.md": {
+        "api_status": "workspace-only",
+        "artifact_disposition": [
+          "app-sdist"
+        ],
+        "current_path": "docs/architecture/decisions/0013-pre-release-semantic-kernel-integrity-erratum.md",
+        "import_rewrite": null,
+        "kind": "package-resource",
+        "movement_state": "moved",
+        "old_import_disposition": "not-applicable",
+        "resource_requirements": [
+          "build-metadata"
+        ],
+        "runtime_namespace": null,
+        "target_distribution": "workspace",
+        "target_path": "docs/architecture/decisions/0013-pre-release-semantic-kernel-integrity-erratum.md",
+        "test_owner": "workspace"
+      },
       "docs/architecture/m0-contract-manifest.json": {
         "api_status": "workspace-only",
         "artifact_disposition": [
@@ -6771,6 +6913,24 @@
         "target_path": "docs/operations.md",
         "test_owner": "workspace"
       },
+      "docs/plans/product-roadmap.md": {
+        "api_status": "workspace-only",
+        "artifact_disposition": [
+          "app-sdist"
+        ],
+        "current_path": "docs/plans/product-roadmap.md",
+        "import_rewrite": null,
+        "kind": "package-resource",
+        "movement_state": "moved",
+        "old_import_disposition": "not-applicable",
+        "resource_requirements": [
+          "build-metadata"
+        ],
+        "runtime_namespace": null,
+        "target_distribution": "workspace",
+        "target_path": "docs/plans/product-roadmap.md",
+        "test_owner": "workspace"
+      },
       "docs/portable-brain-v1.md": {
         "api_status": "workspace-only",
         "artifact_disposition": [
@@ -6805,6 +6965,24 @@
         "runtime_namespace": null,
         "target_distribution": "workspace",
         "target_path": "docs/privacy-model.md",
+        "test_owner": "workspace"
+      },
+      "docs/product-family.md": {
+        "api_status": "workspace-only",
+        "artifact_disposition": [
+          "app-sdist"
+        ],
+        "current_path": "docs/product-family.md",
+        "import_rewrite": null,
+        "kind": "package-resource",
+        "movement_state": "moved",
+        "old_import_disposition": "not-applicable",
+        "resource_requirements": [
+          "build-metadata"
+        ],
+        "runtime_namespace": null,
+        "target_distribution": "workspace",
+        "target_path": "docs/product-family.md",
         "test_owner": "workspace"
       },
       "docs/threat-model.md": {
@@ -7914,6 +8092,25 @@
         "runtime_namespace": null,
         "target_distribution": "engine",
         "target_path": "packages/engine/src/open_brain_engine/protocol/schemas/v1/inspect.json",
+        "test_owner": "engine"
+      },
+      "schemas/protocol-v1/ledger-item-ref.json": {
+        "api_status": "distribution-private",
+        "artifact_disposition": [
+          "engine-sdist",
+          "engine-wheel"
+        ],
+        "current_path": "packages/engine/src/open_brain_engine/protocol/schemas/v1/ledger-item-ref.json",
+        "import_rewrite": null,
+        "kind": "schema",
+        "movement_state": "moved",
+        "old_import_disposition": "not-applicable",
+        "resource_requirements": [
+          "importlib.resources"
+        ],
+        "runtime_namespace": null,
+        "target_distribution": "engine",
+        "target_path": "packages/engine/src/open_brain_engine/protocol/schemas/v1/ledger-item-ref.json",
         "test_owner": "engine"
       },
       "schemas/protocol-v1/node-epoch-certificate.json": {
@@ -12487,6 +12684,86 @@
         "target_distribution": "workspace",
         "target_path": "tests/unit/engine/__init__.py",
         "test_owner": "workspace"
+      },
+      "tests/unit/engine/ledger/_fixtures.py": {
+        "api_status": "test-only",
+        "artifact_disposition": [
+          "excluded"
+        ],
+        "current_path": "packages/engine/tests/unit/ledger/_fixtures.py",
+        "import_rewrite": null,
+        "kind": "test",
+        "movement_state": "moved",
+        "old_import_disposition": "not-applicable",
+        "resource_requirements": [],
+        "runtime_namespace": null,
+        "target_distribution": "engine",
+        "target_path": "packages/engine/tests/unit/ledger/_fixtures.py",
+        "test_owner": "engine"
+      },
+      "tests/unit/engine/ledger/test_model.py": {
+        "api_status": "test-only",
+        "artifact_disposition": [
+          "excluded"
+        ],
+        "current_path": "packages/engine/tests/unit/ledger/test_model.py",
+        "import_rewrite": null,
+        "kind": "test",
+        "movement_state": "moved",
+        "old_import_disposition": "not-applicable",
+        "resource_requirements": [],
+        "runtime_namespace": null,
+        "target_distribution": "engine",
+        "target_path": "packages/engine/tests/unit/ledger/test_model.py",
+        "test_owner": "engine"
+      },
+      "tests/unit/engine/ledger/test_policy.py": {
+        "api_status": "test-only",
+        "artifact_disposition": [
+          "excluded"
+        ],
+        "current_path": "packages/engine/tests/unit/ledger/test_policy.py",
+        "import_rewrite": null,
+        "kind": "test",
+        "movement_state": "moved",
+        "old_import_disposition": "not-applicable",
+        "resource_requirements": [],
+        "runtime_namespace": null,
+        "target_distribution": "engine",
+        "target_path": "packages/engine/tests/unit/ledger/test_policy.py",
+        "test_owner": "engine"
+      },
+      "tests/unit/engine/ledger/test_review_regressions.py": {
+        "api_status": "test-only",
+        "artifact_disposition": [
+          "excluded"
+        ],
+        "current_path": "packages/engine/tests/unit/ledger/test_review_regressions.py",
+        "import_rewrite": null,
+        "kind": "test",
+        "movement_state": "moved",
+        "old_import_disposition": "not-applicable",
+        "resource_requirements": [],
+        "runtime_namespace": null,
+        "target_distribution": "engine",
+        "target_path": "packages/engine/tests/unit/ledger/test_review_regressions.py",
+        "test_owner": "engine"
+      },
+      "tests/unit/engine/ledger/test_transitions.py": {
+        "api_status": "test-only",
+        "artifact_disposition": [
+          "excluded"
+        ],
+        "current_path": "packages/engine/tests/unit/ledger/test_transitions.py",
+        "import_rewrite": null,
+        "kind": "test",
+        "movement_state": "moved",
+        "old_import_disposition": "not-applicable",
+        "resource_requirements": [],
+        "runtime_namespace": null,
+        "target_distribution": "engine",
+        "target_path": "packages/engine/tests/unit/ledger/test_transitions.py",
+        "test_owner": "engine"
       },
       "tests/unit/engine/test_foundation_contracts.py": {
         "api_status": "test-only",

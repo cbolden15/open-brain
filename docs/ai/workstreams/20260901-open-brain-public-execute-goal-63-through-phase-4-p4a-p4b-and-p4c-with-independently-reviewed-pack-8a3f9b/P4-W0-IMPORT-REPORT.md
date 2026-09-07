@@ -96,6 +96,10 @@ Generated from `docs/v0-package-classification.json`; do not edit by hand.
 | `src/open_brain/engine/backup_ports.py` | `packages/engine/src/open_brain_engine/engine/backup_ports.py` | `moved` | `open_brain.engine.backup_ports` | `open_brain_engine.engine.backup_ports` | `remove` |
 | `src/open_brain/engine/capture.py` | `packages/engine/src/open_brain_engine/engine/capture.py` | `moved` | `open_brain.engine.capture` | `open_brain_engine.engine.capture` | `remove` |
 | `src/open_brain/engine/contracts.py` | `packages/engine/src/open_brain_engine/engine/contracts.py` | `moved` | `open_brain.engine.contracts` | `open_brain_engine.engine.contracts` | `remove` |
+| `src/open_brain/engine/ledger/__init__.py` | `packages/engine/src/open_brain_engine/ledger/__init__.py` | `moved` | `open_brain.engine.ledger` | `open_brain_engine.ledger` | `remove` |
+| `src/open_brain/engine/ledger/model.py` | `packages/engine/src/open_brain_engine/ledger/model.py` | `moved` | `open_brain.engine.ledger.model` | `open_brain_engine.ledger.model` | `remove` |
+| `src/open_brain/engine/ledger/policy.py` | `packages/engine/src/open_brain_engine/ledger/policy.py` | `moved` | `open_brain.engine.ledger.policy` | `open_brain_engine.ledger.policy` | `remove` |
+| `src/open_brain/engine/ledger/transitions.py` | `packages/engine/src/open_brain_engine/ledger/transitions.py` | `moved` | `open_brain.engine.ledger.transitions` | `open_brain_engine.ledger.transitions` | `remove` |
 | `src/open_brain/engine/local.py` | `packages/engine/src/open_brain_engine/engine/local.py` | `moved` | `open_brain.engine.local` | `open_brain_engine.engine.local` | `remove` |
 | `src/open_brain/engine/local_store.py` | `packages/engine/src/open_brain_engine/engine/local_store.py` | `moved` | `open_brain.engine.local_store` | `open_brain_engine.engine.local_store` | `remove` |
 | `src/open_brain/engine/maintenance.py` | `packages/engine/src/open_brain_engine/engine/maintenance.py` | `moved` | `open_brain.engine.maintenance` | `open_brain_engine.engine.maintenance` | `remove` |

@@ -9,6 +9,10 @@
 - Phase 1 evidence: [`../ai/workstreams/20260830-open-brain-public-implement-and-verify-the-approved-phase-1-in-place-vertical-slice-through-v0-gat-bcf03d/PHASE-1-IMPLEMENTATION.md`](../ai/workstreams/20260830-open-brain-public-implement-and-verify-the-approved-phase-1-in-place-vertical-slice-through-v0-gat-bcf03d/PHASE-1-IMPLEMENTATION.md)
 - Plan review: verified five-lens `doc-review`; six actionable findings fixed; no failed lenses
 
+Product-scope note: this is retained historical implementation evidence. Portable records and
+engine boundaries remain shared. Any appliance or explicit-root default described here is not the
+current five-minute Open Brain product boundary; see [`../product-family.md`](../product-family.md).
+
 ## Objective
 
 Deepen the current monolith until the portable engine, application composition, optional connector boundary, and legacy boundary have enforceable ownership. Keep the package tree in place. Make every product surface call the same engine task interfaces. Add a real Portable Brain export/import path and one optional YouTube reference-connector proof without starting the Phase 3 appliance control plane or the Phase 4 distribution split.

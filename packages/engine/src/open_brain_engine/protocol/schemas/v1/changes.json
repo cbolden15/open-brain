@@ -7,46 +7,10 @@
       "properties": {
         "cursor": { "$ref": "urn:open-brain:protocol:v1:common#/$defs/cursor" },
         "commit_id": { "$ref": "urn:open-brain:protocol:v1:common#/$defs/commit_id" },
-        "item_kind": {
-          "enum": [
-            "record",
-            "proposal",
-            "revision",
-            "decision",
-            "purge_transition",
-            "effect_receipt"
-          ]
-        },
-        "item_id": { "type": "string", "pattern": "^[a-z]{3}_[a-z2-7]{26}$" },
+        "item_ref": { "$ref": "urn:open-brain:protocol:v1:ledger-item-ref" },
         "change": { "enum": ["committed", "superseded", "tombstoned"] }
       },
-      "required": ["cursor", "commit_id", "item_kind", "item_id", "change"],
-      "allOf": [
-        {
-          "if": { "properties": { "item_kind": { "const": "record" } } },
-          "then": { "properties": { "item_id": { "pattern": "^rec_[a-z2-7]{26}$" } } }
-        },
-        {
-          "if": { "properties": { "item_kind": { "const": "proposal" } } },
-          "then": { "properties": { "item_id": { "pattern": "^prp_[a-z2-7]{26}$" } } }
-        },
-        {
-          "if": { "properties": { "item_kind": { "const": "revision" } } },
-          "then": { "properties": { "item_id": { "pattern": "^rev_[a-z2-7]{26}$" } } }
-        },
-        {
-          "if": { "properties": { "item_kind": { "const": "decision" } } },
-          "then": { "properties": { "item_id": { "pattern": "^dec_[a-z2-7]{26}$" } } }
-        },
-        {
-          "if": { "properties": { "item_kind": { "const": "purge_transition" } } },
-          "then": { "properties": { "item_id": { "pattern": "^prg_[a-z2-7]{26}$" } } }
-        },
-        {
-          "if": { "properties": { "item_kind": { "const": "effect_receipt" } } },
-          "then": { "properties": { "item_id": { "pattern": "^rcp_[a-z2-7]{26}$" } } }
-        }
-      ],
+      "required": ["cursor", "commit_id", "item_ref", "change"],
       "additionalProperties": false
     }
   },

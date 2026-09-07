@@ -1,6 +1,11 @@
 # Brain Protocol v1
 
-Status: frozen for M1 implementation
+Status: frozen for Secure Node M1 implementation
+
+Product scope: Brain Protocol v1 is a Secure Node contract. Default Open Brain shares the stable
+record and Portable Brain semantics but does not require this protocol, its grants, compartments,
+receipts, fencing, or encrypted custody. See
+[`decisions/0012-open-brain-secure-node-product-split.md`](decisions/0012-open-brain-secure-node-product-split.md).
 
 Brain Protocol v1 has exactly four semantic operations: `commit`, `query`, `changes`, and
 `inspect`. Grant issuance, owner unlock, key rotation, key destruction, projection work, and purge
@@ -89,6 +94,16 @@ least one source. Provenance references stay inside one Brain and cannot name a 
 purge-pending ancestor. Derived outputs carry the union of all source compartments. Spaces never
 grant authority.
 
+An effect outcome reconciliation is itself an effect-receipt batch item. Its required nullable
+`reconciles_receipt_id` names the exact current `unknown` receipt for a terminal reconciliation and
+is `null` for an initial receipt. The effect ID, external identity, compartments, and provenance
+cannot change. These fields are covered by the same canonical batch digest, atomicity, and replay
+rules as every other commit item.
+
+Before persistence, the Node binds the produced commit to that validated batch. Brain, delivery,
+digest, epochs, policy digest, and the complete ordered item-reference sequence must match exactly;
+missing, extra, reordered, or substituted references reject the materialization.
+
 An accepted or replayed result wraps the same signed receipt. Changed-digest and expected-revision
 conflicts, plus `delivery_purged`, are distinct closed result variants. The successful receipt
 contains the Brain-scoped commit ID, delivery identity, opaque cursor, commit digest, issuer epoch,
@@ -130,14 +145,15 @@ an invalidated query only within its caller-supplied budget.
 ## `changes` and `inspect`
 
 `changes` authorizes before selecting entries and re-authorizes every page. Each entry carries its
-commit cursor and ID, typed item kind, role-matched item ID, and transition. Records, proposals,
-revisions, decisions, purge transitions, and effect receipts can therefore rebuild the full
+commit cursor and ID, a discriminated `ledger-item-ref`, and transition. The reference identifies
+proposal revisions and individual purge-member transitions without private composite IDs. Records,
+proposals, revisions, decisions, purge transitions, and effect receipts can therefore rebuild the full
 accepted semantic history. Unauthorized items do not affect page contents, cursor placement,
 counts, or metadata.
 
 `inspect` authorizes every required compartment before entity selection. An absent entity and an
 entity the caller cannot inspect return the same `not_found` bytes. Bodies and content-derived
-metadata require body scope. M1 makes no constant-time database-access claim.
+metadata require body scope. Secure Node M1 makes no constant-time database-access claim.
 
 Changed-digest and revision conflicts are typed operation results, not inspectable entities. Policy
 may later commit an ordinary quarantine record. If purge destroys delivery-sensitive material,
@@ -145,13 +161,17 @@ later idempotent replay returns `delivery_purged` rather than the original recei
 
 ## Durable jobs and erasure
 
-The only durable job types in M1 are `purge` and `projection_rebuild`. Jobs have Brain-scoped IDs,
+The only durable job types in Secure Node M1 are `purge` and `projection_rebuild`. Jobs have Brain-scoped IDs,
 restart-safe pending/running/succeeded/failed states, compartment labels, at most eight attempts,
 and state-consistent result or error references. They are inspected through `inspect`; there is no
 public job mutation operation or generic scheduler.
 
 Purge resolves every item in the transitive provenance closure as purge, retain, or reviewed
-replacement. A replacement is rejected if it retains the target data. Application-controlled
+replacement. Effect receipts are explicit purge subjects. A new purge tombstones its target in the
+initiating commit, and intersecting closures under different purge IDs are rejected. Retain and
+replace decisions bind an exact typed purge-review intent. A replacement is rejected if it retains
+the target data. Loaded tombstones suppress their complete current provenance closure unless an
+exact reviewed retain or replacement makes a descendant visible. Application-controlled
 database, journal, FTS, cache, blob, staging, log, error, and temporary sinks participate in residue
 checks. Only opaque audit transitions and delivery-erasure tombstones remain.
 
@@ -160,8 +180,11 @@ checks. Only opaque audit transitions and delivery-erasure tombstones remain.
 The ledger preserves Brain and schema versions, compartments, spaces, record envelopes, available
 encrypted payload and blob references, links, tombstones, artifact revisions, proposals, decisions,
 effect receipts, commit order, and verifiable schema references. Jobs, grants, nonces, projection
-checkpoints, indexes, and host state are operational and excluded. M1 freezes this storage inventory;
+checkpoints, indexes, and host state are operational and excluded. Secure Node M1 freezes this storage inventory;
 it does not add a BrainPack encoder.
+
+ADR 0013 records the pre-release v1 correction for reconciliation, effect-receipt purge subjects,
+discriminated ledger-item references, and full loaded-state integrity.
 
 ## Resource failures
 

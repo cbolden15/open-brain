@@ -1,12 +1,16 @@
-# Open Brain product-family architecture
+# Historical v0 appliance and hosted architecture
 
-- Status: Approved target architecture; implementation evidence pending
-- Scope: self-hosted OSS v0 plus the compatibility boundary for later managed hosting
-- Product contract: [`../v0-product-contract.md`](../v0-product-contract.md)
+- Status: Historical architecture evidence; default-product boundary superseded 2026-09-07
+- Scope: retained appliance work plus the earlier compatibility boundary for managed hosting
+- Current product contract: [`../product-family.md`](../product-family.md)
+- Historical product contract: [`../v0-product-contract.md`](../v0-product-contract.md)
 - Architecture plan: [`../plans/option-c-architecture.md`](../plans/option-c-architecture.md)
 - Readiness audit: [`../audits/2026-08-30-oss-readiness-gap-audit.md`](../audits/2026-08-30-oss-readiness-gap-audit.md)
 
-This document shows the approved target architecture. It is not a diagram of the repository as it works today. The current code contains many engine primitives, but generic typed capture, user-created spaces, portable identities, multi-output review, the one-root profile, provider `none`, one daemon, complete local UI, export/import, and release packaging still need to be assembled.
+This document preserves the appliance-shaped target that drove Phase 0 through Phase 4. Its package
+ownership, engine, record, and portability reasoning remains useful. Its mandatory daemon and
+service model now belong to Secure Node. The current default Open Brain architecture is summarized
+in [`../architecture.md`](../architecture.md) and governed by the product-family contract.
 
 The self-hosted OSS alpha remains the first release. The hosted diagrams define the seams that prevent a later managed service from forking the engine or trapping customer data. They do not add billing, shared teams, or a hosted control plane to the v0 implementation scope.
 

@@ -30,9 +30,22 @@ shipped provisional connector. It is not containment for hostile code running as
 Untrusted third-party connectors require a separate operating-system account, container, or virtual
 machine gate.
 
-## M1 Reference Node boundary
+## Default Open Brain boundary
 
-The Reference Node binds HTTP only to a numeric loopback address and validates Host on every
+Default Open Brain trusts one local operating-system user and runs direct commands against one
+platform-local Brain. It creates no listener, grant service, daemon, launchd job, systemd user unit,
+or multi-client authority boundary during the five-minute journey. Its SQLite databases and
+portable files may contain readable user content.
+
+Owner-only directory and file permissions, path confinement, SQLite durability, no-egress defaults,
+and Portable Brain validation remain required. They are not application-level encryption. Default
+Open Brain does not claim encrypted-at-rest SQLite or FTS, cryptographic key destruction,
+compartment isolation, signed receipts, certified purge, or resistance to another process running
+as the same user. Those claims belong only to a conforming Secure Node installation.
+
+## Secure Node M1 boundary
+
+Secure Node binds HTTP only to a numeric loopback address and validates Host on every
 request. Same-user processes can reach loopback and are inside the host access boundary, but they do
 not receive protocol authority from that fact. Every protocol route still requires a short-lived,
 principal-key-bound grant and an Ed25519 request signature. CORS is disabled, browser Origin is
@@ -50,7 +63,7 @@ mode-`0700` runtime directory, checks peer UID, and returns principal-bound gran
 memory. LocalAuthentication on interactive macOS or audited passphrase re-entry on Linux and
 headless macOS proves fresh user presence. Reading an OS keyring entry does not prove presence.
 
-M1 protects application-controlled storage. The encrypted ledger, replay database, FTS files,
+Secure Node M1 protects application-controlled storage. The encrypted ledger, replay database, FTS files,
 database journals, blob and staging directories, caches, temporary files, versioned key envelopes,
 metadata-only security events, and delivery-erasure tombstones are named purge surfaces. The Node
 keeps SQLite temporary and FTS scratch state in memory or inside the encrypted Brain boundary. It
@@ -77,5 +90,5 @@ cannot reuse its nonce.
 
 Authorization occurs before body decoding, entity selection, change-page construction, or query
 candidate selection. `inspect` deliberately returns the same response content for absent and
-unauthorized entities. M1 does not claim constant-time database behavior, timing indistinguishability,
+unauthorized entities. Secure Node M1 does not claim constant-time database behavior, timing indistinguishability,
 or resistance to an attacker already able to inspect the owner's process memory.

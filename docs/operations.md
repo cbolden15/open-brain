@@ -1,5 +1,9 @@
 # Operations
 
+The default Open Brain five-minute path has no daemon or service lifecycle. The procedures below
+characterize retained appliance artifacts and Secure Node precursor behavior. They are not default
+installation steps. See [`product-family.md`](product-family.md).
+
 The operations package defines scheduler contracts and renders generic manifests. It does
 not install, enable, start, stop, restart, load, unload, or inspect a service. Deployment
 configuration and service actions remain outside the public application.

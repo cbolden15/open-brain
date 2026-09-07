@@ -1,5 +1,22 @@
 # Configuration
 
+## Target default
+
+Open Brain's default `local` profile has no required configuration. The first stateful command
+selects the platform-local data directory, creates one owner and one Brain, opens its SQLite state,
+and keeps provider mode `none` with egress off. The five-minute journey does not set
+`OPEN_BRAIN_ROOT`, edit TOML, choose storage locations, install a service, or configure a database.
+
+`OPEN_BRAIN_ROOT` remains an explicit test or expert override. Secure Node owns advanced custody,
+grant, listener, service, and multi-client configuration after an explicit
+`open-brain[secure-node]` installation. Plain Open Brain does not load those settings and makes no
+application-level encryption claim.
+
+## Current transitional configuration
+
+The remainder documents the retained appliance and compatibility composition. It predates the
+product split and is Secure Node precursor evidence, not the target default setup.
+
 Configuration precedence for retained composition is:
 
 ```text

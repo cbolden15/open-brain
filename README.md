@@ -1,8 +1,18 @@
 # Open Brain
 
-Open Brain is a local-first capture, provenance, review, and knowledge pipeline. It is being built as the single public implementation that will replace two private predecessor codebases after behavioral parity and a controlled production cutover.
+Open Brain is a local-first capture and search tool with full portable export. The default product is
+for one local user and one local Brain. Its target experience is one-command installation, automatic
+private data-directory setup, direct SQLite-backed capture and search, and no required daemon,
+Docker, certificate, grant, storage-root decision, or manual database setup.
 
-The Phase 3 source-checkout boundary is one single-user local appliance rooted at one private Brain directory. One daemon owns mutation authority, internal scheduling, and the authenticated local HTTP/UI surface. Engine tasks supply capture, inbox/spaces, review, retrieval, reconciliation, backup, and Portable Brain operations. Private deployment configuration, live service state, migration evidence, and cutover receipts remain outside this repository.
+Secure Node is the opt-in advanced profile. It owns the encrypted custody, compartments,
+authorization, receipts, fencing, certified purge, recovery, service, and multi-client work formerly
+called the M1 Reference Node. The products share record identities and Portable Brain data so a
+default Brain can upgrade without an in-place database migration.
+
+The accepted boundary is in [the product-family contract](docs/product-family.md), with milestones in
+[the product roadmap](docs/plans/product-roadmap.md). This preserves the existing engineering work
+while preventing Secure Node complexity from becoming the default OSS experience.
 
 ## Principles
 
@@ -17,14 +27,19 @@ The Phase 3 source-checkout boundary is one single-user local appliance rooted a
 
 Requirements: Python 3.14 and [uv](https://docs.astral.sh/uv/).
 
-### macOS v0 installation
+### Target installation
 
-The v0 release supports macOS 14 or newer on Apple Silicon through a versioned source checkout
-or the published `open-brain` and `open-brain-engine` wheels. A native macOS DMG and Apple
-notarization are deferred to a later release and do not block v0. No package or release artifact
-has been published yet. Follow [the macOS installation guide](docs/install-macos.md) for both paths.
+The default installation target is one command on a clean supported macOS or Linux machine. The
+five-minute command and release test are specified in
+[the five-minute acceptance test](docs/acceptance/five-minute-install.md). No package or release
+artifact implementing that target has been published yet.
 
-### Run the local single-user slice
+### Current source-checkout appliance
+
+The current pre-alpha entry point predates the product split. It still requires an explicit Brain
+root and routes mutations through an appliance daemon. Treat this as Secure Node precursor and
+regression evidence, not as the final Open Brain quickstart. Follow
+[the current macOS source-checkout guide](docs/install-macos.md) when working on that path.
 
 Set one Brain root. The command creates the private runtime layout with owner-only
 permissions and reuses its stable local identity on later runs.
@@ -84,7 +99,12 @@ The denylist contains one private term per line. Blank lines and lines beginning
 
 ## Status
 
-The Phase 3 source-checkout appliance supports one local Brain root, stable portable identities,
+The product split is documented, but its packaging and default command path are not implemented.
+Plain `open-brain` currently pulls the old Secure Node dependency extra, and the installed mutation
+path still expects a daemon and `OPEN_BRAIN_ROOT`. The roadmap records those as `OB1-W1` and
+`OB1-W2`; do not infer five-minute-install readiness from the current source checkout.
+
+The retained appliance implementation supports one local Brain root, stable portable identities,
 typed capture, spaces, inbox routing, sibling review proposals, terminal decisions, canonical
 Markdown publication, direct-edit reconciliation, lexical retrieval, immutable backup, disposable
 restore, and distinct Portable export/import. The CLI, authenticated HTTP/share boundary, local UI,
@@ -94,7 +114,7 @@ no model configured, captures remain usable and report `pending_enrichment`.
 This is pre-alpha software. Phase 2 implements engine-level Portable Brain validation, export,
 clean-root import, and disposable index rebuild. Export and import preserve portable identities,
 history, routing, and exact source bytes while excluding operational state such as credentials,
-databases, leases, runtime files, and indexes. The default profile uses provider `none` and
+databases, leases, runtime files, and indexes. The retained appliance profile uses provider `none` and
 loads no connectors. A retained synthetic `JOB-029` proof exercises the internal seam only with
 an absolute private configuration reference, capture-only authority, and egress enabled; host
 evidence binds accepted captures to checkpoint advancement.
@@ -102,7 +122,7 @@ evidence binds accepted captures to checkpoint advancement.
 The public result projection exposes opaque IDs, bounded provenance, and safe titles/excerpts,
 not raw or encoded protected references, absolute paths, credentials, storage-derived slugs and
 paths, or bare SHA-256 tokens.
-Phase 3 also defines source-checkout upgrade, rollback, and data-preserving uninstall through an
+The retained Phase 3 work also defines source-checkout upgrade, rollback, and data-preserving uninstall through an
 injected artifact lifecycle port, with launchd/systemd adapter evidence on Linux and macOS CI. The
 default source-checkout effect remains unavailable. P4-W5 adds an unpublished frozen composition
 with a manifest-bound native adapter, active-daemon quiescence, rollback restoration, and confined
@@ -110,9 +130,8 @@ managed cleanup. The native build reads an isolated archive of the named Git tre
 replacement refs and external attributes, and compares every extracted blob and mode with the raw
 no-replace tree. It admits only tracked package resources and records the source-tree digest.
 Launchd upgrades unload the KeepAlive job before offline work and bootstrap it again afterward.
-The current v0 release scope uses source/wheel installation on macOS and a checksummed native
-archive on Linux. Native macOS DMG distribution is deferred to a later release. Publishing remains
-a separate owner-authorized step.
+Those artifacts remain unpublished Secure Node precursor evidence. Publishing remains a separate
+owner-authorized step.
 Predecessor modules remain retained legacy compatibility code and are excluded from the default
 application path.
 

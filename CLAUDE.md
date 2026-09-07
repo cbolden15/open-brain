@@ -14,17 +14,35 @@
 | P4-W5 candidate preflight | `make p4w5-preflight` runs focused native/lifecycle contracts, pinned configuration, static checks, manifest validation, and diff integrity |
 | Native spike | `make p4w5-native P4W5_SOURCE_SHA=<exact-clean-HEAD>` builds, audits, and smokes one target-native PyInstaller onedir subject |
 | Python artifacts | `make verify-artifacts` builds and audits engine+app+connector wheels/sdists |
-| Release state | Python 3.14 source/wheel artifacts and native P4-W5 build subjects are unpublished; v0 uses source/wheels on macOS and a native archive on Linux; DMG/notarization is deferred |
+| Product authority | `docs/product-family.md`; plain Open Brain is the five-minute default and Secure Node is opt-in |
+| Release state | No artifact implements the accepted five-minute default yet; retained appliance and Secure Node build subjects are unpublished |
 
 The active v0 runtime and ordinary CI use Python 3.14. Python 3.12 remains only in frozen P4 native
 tooling and replay lanes so those historical artifacts and their readiness snapshot stay unchanged.
+
+## Product split
+
+Plain `open-brain` is the default `local` product: one local user, one automatically selected Brain,
+direct SQLite-backed capture and search, full Portable Brain export, and no required daemon,
+service, Docker, certificate, grant, storage-root decision, or manual database setup. It does not
+claim application-level encryption.
+
+`open-brain[secure-node]` is the planned opt-in advanced profile. Brain Protocol v1, the work
+historically named M1, completed W0, and the current uncommitted W1 semantic kernel all belong to
+Secure Node. Preserve stable M1 evidence IDs, but use `SN1-W*` in current planning. Do not move
+Secure Node dependencies, initialization, runtime effects, or security claims into plain Open Brain.
+
+Portable Brain v1 and the shared record identities are the upgrade boundary. Never upgrade by
+reinterpreting or copying the default product's live SQLite files. The active roadmap is
+`docs/plans/product-roadmap.md`; the exact default acceptance test is
+`docs/acceptance/five-minute-install.md`.
 
 ## Architecture
 
 | Boundary | Responsibility |
 |---|---|
 | `packages/engine/src/open_brain_engine` | App-independent domain engine, public task contracts, persistence, Portable schemas, and conformance data |
-| `packages/app/src/open_brain` | Installed CLI/MCP entry points, appliance daemon, HTTP/UI, app configuration, and engine composition |
+| `packages/app/src/open_brain` | Default direct CLI plus opt-in Secure Node composition, retained appliance daemon, HTTP/UI, and app configuration |
 | `packages/connectors` | Provisional connector distribution, YouTube reference implementation, conformance kit, and tests; not a default app dependency |
 | `packages/legacy` | Physically quarantined private compatibility source; not a default app or engine dependency |
 | `tools/open_brain_dev` | Workspace-only artifact and release-safety tooling |
@@ -32,9 +50,12 @@ tooling and replay lanes so those historical artifacts and their readiness snaps
 | `docs/v0-package-classification.json` | Source of truth for ownership, API status, movement, imports, tests, resources, and artifact membership |
 | `release/v0-artifact-policy.json` | Current v0 installation scope plus unpublished Python-artifact and historical P4-W6 candidate contracts |
 
-The engine cannot import app, connector, legacy, or workspace modules. The app depends on exactly
-`open-brain-engine==0.1.0` and may import only engine modules marked public in the canonical
-manifest. Mutating installed CLI/UI requests go through the appliance daemon; MCP receives only
+The engine cannot import app, connector, legacy, or workspace modules. The current app depends on
+`open-brain-engine[node]==0.1.0`; this is a known split violation scheduled for `OB1-W1`. The target
+base app depends on exactly `open-brain-engine==0.1.0`, while `open-brain[secure-node]` selects
+`open-brain-engine[secure-node]==0.1.0`. App code may import only engine modules marked public in the
+canonical manifest. Current mutating installed CLI/UI requests go through the appliance daemon;
+that is retained appliance behavior, not the target default. MCP receives only
 space-scoped read capabilities and metadata feedback. The connector distribution depends on exact
 app and engine versions. It may import app code only through the published provisional extension
 modules under `open_brain.extensions`. The private legacy distribution depends only on the engine;
@@ -46,7 +67,7 @@ its retained predecessor support is confined to `open_brain_legacy._compat`.
 |---|---|
 | `pyproject.toml` | Workspace membership and root test/lint/typecheck configuration |
 | `packages/engine/pyproject.toml` | Isolated `open-brain-engine` package and artifact configuration |
-| `packages/app/pyproject.toml` | Isolated `open-brain` package, exact engine dependency, and installed scripts |
+| `packages/app/pyproject.toml` | Isolated `open-brain` package; currently contains the known default-to-Secure-Node dependency conflict |
 | `packages/connectors/pyproject.toml` | Isolated `open-brain-connectors` package, exact app/engine dependencies, and provisional v1 entry point |
 | `packages/engine/src/open_brain_engine/engine/__init__.py` | Explicit public engine facade |
 | `packages/engine/src/open_brain_engine/portable/` | Portable schemas, validator, and conformance resources |
@@ -99,7 +120,7 @@ uv run pytest -q tests/phase4/test_connector_distribution.py
 
 | Variable | Purpose |
 |---|---|
-| `OPEN_BRAIN_ROOT` | One absolute private Brain root; required by installed stateful commands |
+| `OPEN_BRAIN_ROOT` | Current appliance requirement; target default uses the platform-local root automatically and keeps this only as an expert/test override |
 | `OPEN_BRAIN_CONFIG` | Absolute path to an untracked TOML application configuration |
 | `OPEN_BRAIN_STATE_ROOT`, `OPEN_BRAIN_WORK_ROOT`, `OPEN_BRAIN_PERSONAL_ROOT`, `OPEN_BRAIN_CAPTURE_ROOT`, `OPEN_BRAIN_SAVED_CONTENT_ROOT`, `OPEN_BRAIN_BACKUP_ROOT` | Retained-root configuration; not a second single-user profile |
 | `OPEN_BRAIN_PROVIDER`, `OPEN_BRAIN_CLOUD_ENABLED`, `OPEN_BRAIN_EGRESS_ENABLED` | Retained composition settings; the default single-user profile is provider-none and egress-off |

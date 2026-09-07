@@ -215,6 +215,7 @@
         "brain_id": "brn_aaaaaaaaaaaaaaaaaaaaaaaaaa",
         "receipt_id": "rcp_bbbbbbbbbbbbbbbbbbbbbbbbbb",
         "effect_id": "eff_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "reconciles_receipt_id": null,
         "external_identity": "synthetic-effect-1",
         "outcome": "unknown",
         "compartments": ["personal.notes"],
@@ -242,6 +243,35 @@
         "replacement_record_id": null,
         "review_decision_id": null,
         "reason": "synthetic owner request"
+      }
+    ],
+    "ledger-item-ref": [
+      {
+        "item_kind": "record",
+        "record_id": "rec_aaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      {
+        "item_kind": "proposal",
+        "proposal_id": "prp_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "proposal_revision_id": "rev_bbbbbbbbbbbbbbbbbbbbbbbbbb"
+      },
+      {
+        "item_kind": "revision",
+        "revision_id": "rev_aaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      {
+        "item_kind": "decision",
+        "decision_id": "dec_aaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      {
+        "item_kind": "purge_transition",
+        "purge_id": "prg_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "subject_kind": "effect_receipt",
+        "subject_id": "rcp_bbbbbbbbbbbbbbbbbbbbbbbbbb"
+      },
+      {
+        "item_kind": "effect_receipt",
+        "receipt_id": "rcp_bbbbbbbbbbbbbbbbbbbbbbbbbb"
       }
     ],
     "commit-batch": [
@@ -463,29 +493,39 @@
           {
             "cursor": "cur_v1_aaaaaaaaaaaaaaaa",
             "commit_id": "cmt_aaaaaaaaaaaaaaaaaaaaaaaaaa",
-            "item_kind": "record",
-            "item_id": "rec_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "item_ref": {
+              "item_kind": "record",
+              "record_id": "rec_aaaaaaaaaaaaaaaaaaaaaaaaaa"
+            },
             "change": "committed"
           },
           {
             "cursor": "cur_v1_bbbbbbbbbbbbbbbb",
             "commit_id": "cmt_bbbbbbbbbbbbbbbbbbbbbbbbbb",
-            "item_kind": "revision",
-            "item_id": "rev_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "item_ref": {
+              "item_kind": "revision",
+              "revision_id": "rev_aaaaaaaaaaaaaaaaaaaaaaaaaa"
+            },
             "change": "committed"
           },
           {
             "cursor": "cur_v1_cccccccccccccccc",
             "commit_id": "cmt_cccccccccccccccccccccccccc",
-            "item_kind": "decision",
-            "item_id": "dec_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "item_ref": {
+              "item_kind": "decision",
+              "decision_id": "dec_aaaaaaaaaaaaaaaaaaaaaaaaaa"
+            },
             "change": "committed"
           },
           {
             "cursor": "cur_v1_dddddddddddddddd",
             "commit_id": "cmt_dddddddddddddddddddddddddd",
-            "item_kind": "purge_transition",
-            "item_id": "prg_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "item_ref": {
+              "item_kind": "purge_transition",
+              "purge_id": "prg_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "subject_kind": "record",
+              "subject_id": "rec_aaaaaaaaaaaaaaaaaaaaaaaaaa"
+            },
             "change": "tombstoned"
           }
         ],
@@ -725,6 +765,31 @@
         "replacement_record_id": null,
         "review_decision_id": null,
         "reason": "unreviewed retention"
+      },
+      {
+        "schema_version": 1,
+        "kind": "purge_transition",
+        "brain_id": "brn_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "purge_id": "prg_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "target_record_id": "rec_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "subject_kind": "effect_receipt",
+        "subject_id": "rcp_bbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "resolution": "replace",
+        "replacement_record_id": "rec_bbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "review_decision_id": "dec_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "reason": "effect receipts cannot be replaced"
+      }
+    ],
+    "ledger-item-ref": [
+      {
+        "item_kind": "proposal",
+        "proposal_id": "prp_aaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      {
+        "item_kind": "purge_transition",
+        "purge_id": "prg_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "subject_kind": "effect_receipt",
+        "subject_id": "rec_aaaaaaaaaaaaaaaaaaaaaaaaaa"
       }
     ],
     "commit-batch": [
@@ -842,8 +907,10 @@
           {
             "cursor": "cur_v1_aaaaaaaaaaaaaaaa",
             "commit_id": "cmt_aaaaaaaaaaaaaaaaaaaaaaaaaa",
-            "item_kind": "revision",
-            "item_id": "rec_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "item_ref": {
+              "item_kind": "revision",
+              "revision_id": "rec_aaaaaaaaaaaaaaaaaaaaaaaaaa"
+            },
             "change": "committed"
           }
         ],

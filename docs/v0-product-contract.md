@@ -1,12 +1,19 @@
-# Open Brain v0 product contract
+# Historical Open Brain v0 appliance contract
 
-- Status: Approved
+- Status: Superseded for product scope on 2026-09-07
 - Contract version: `0.5`
 - Revised: 2026-09-04
 - Approved: 2026-08-30
 - Selected direction: Option C
 - Release sequence: self-hosted OSS public alpha first; managed hosting follows
 - v0 target: one owner running one always-on Mac or Linux home server
+
+> This file preserves the accepted v0.5 appliance contract as historical evidence. The current
+> product authority is [`docs/product-family.md`](product-family.md), version `0.6`. In particular,
+> one daemon, a user-selected Brain root, service installation, and the 15-minute target no longer
+> define the default Open Brain product. They belong to the opt-in Secure Node profile where the
+> current contract retains them. The requirements below are intentionally not rewritten because
+> completed Phase 0 through Phase 4 evidence cites their exact IDs and wording.
 
 ## Product promise
 
@@ -20,7 +27,9 @@ The same engine and portable data contract will support a later managed Open Bra
 
 ## Contract authority
 
-This document defines the self-hosted v0 product and the foundation that self-hosted and hosted deployments share. Architecture and implementation plans must trace their work to its requirement IDs.
+For the historical v0.5 program, this document defined the self-hosted product and the foundation
+that self-hosted and hosted deployments shared. New architecture and implementation plans trace to
+the current product-family contract. Historical evidence may continue to cite these requirement IDs.
 
 Requirements beginning with `V0-` are release requirements for the self-hosted public alpha. Requirements beginning with `FOUNDATION-` are also required in v0 because they prevent a later hosted fork or data migration. Requirements beginning with `HOSTED-` constrain the future managed service but do not block the self-hosted v0 release unless a `FOUNDATION-` requirement says otherwise.
 

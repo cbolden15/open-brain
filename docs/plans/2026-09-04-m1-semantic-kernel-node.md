@@ -1,7 +1,7 @@
-# M1 public semantic kernel and reference Node
+# Secure Node M1: semantic kernel and node
 
-Status: M1-D8 through M1-D33 accepted and independently verified; M1-W0 may start;
-implementation not started
+Status: product scope renamed to Secure Node; `SN1-W0` (`M1-W0`) is complete and independently
+accepted; `SN1-W1` (`M1-W1`) review remediation and its pre-release v1 erratum are active
 
 Date: 2026-09-04
 
@@ -11,21 +11,37 @@ Branch: `goal/open-brain-m1`
 
 ## Objective
 
-Build the first complete implementation of Brain Protocol v1 inside the public product. M1 ends
-with a transactional semantic kernel, a reference one-Brain Node, encrypted-at-rest SQLite and
+Build the first complete Secure Node implementation of Brain Protocol v1. Secure Node M1 ends with
+a transactional semantic kernel, an advanced one-Brain node, encrypted-at-rest SQLite and
 FTS5 persistence, envelope-encrypted blobs, authorization, ordered changes, evidence-linked query,
 inspection, purge, and rebuildable projections. The implementation must preserve every completed
-v0 and P4 contract.
+v0 and P4 contract while remaining absent from the default Open Brain dependency and runtime path.
 
-M1 is synthetic and local. It does not migrate established data, redirect a producer, publish a
-package, deploy a service, or enable a public listener.
+Secure Node M1 is synthetic and local. It does not migrate established data, redirect a producer,
+publish a package, deploy a service, or enable a public listener.
 
-The public usability rule is that the secure path is the easiest path. A top-level source or wheel
-install must exercise the Reference Node without private files or manual dependency selection. The
-reference client hides proof-of-possession signing, safe retry, and query continuation by default;
-low-level protocol primitives remain available for independent implementations. M1 supplies those
-usable seams and a documented synthetic example. Polished CLI, UI, and extension SDK onboarding
-remain M2 work.
+The Secure Node usability rule is that its opt-in path must be complete after the user selects it.
+An `open-brain[secure-node]` source or wheel install must exercise Secure Node without private files
+or manual cryptography dependency selection. The Secure Node client hides proof-of-possession
+signing, safe retry, and query continuation by default; low-level protocol primitives remain
+available for independent implementations. Polished Secure Node CLI, UI, and extension SDK
+onboarding remain later work.
+
+## Relationship to default Open Brain
+
+The product-family authority is [`../product-family.md`](../product-family.md), and the revised
+milestone map is [`product-roadmap.md`](product-roadmap.md). Plain `open-brain` is a separate
+five-minute default with automatic private data-directory setup, direct SQLite-backed capture and
+search, Portable Brain export, and no required daemon, grants, certificates, key custody, or manual
+database setup. It makes no application-level encryption claim.
+
+All completed W0 work and all current W1 files are Secure Node work. Stable `M1-W*` identifiers stay
+in schemas, receipts, release evidence, filenames, and historical commits. Current prose names the
+same workstreams `SN1-W*`; this is an alias, not a replay or migration of the engineering work.
+
+Portable Brain v1 is the shared minimum record and export boundary. Secure Node protocol and
+BrainPack v2 may add advanced metadata, but a lossless mapping from the shared Portable Brain v1
+semantic inventory must close before `SN1-W2` creates a second persistent canonical model.
 
 ## Source of truth
 
@@ -40,7 +56,7 @@ The accepted M0 contracts define the semantics. In descending precedence they ar
 6. Owner-authorized erasure over the transitive provenance closure.
 7. One sequencer per Brain with manual cold-transfer fencing.
 8. Disposable projections rebuilt from ordered commits.
-9. The reference Node keeps its ledger and FTS encrypted at rest and stores sensitive payloads in
+9. Secure Node keeps its ledger and FTS encrypted at rest and stores sensitive payloads in
    envelope-encrypted blobs with owner-erasable scoped keys.
 10. BrainPack v2 semantics and exclusions. M1 preserves the required semantic state; the complete
    BrainPack v2 import/export product remains a later milestone.
@@ -54,16 +70,16 @@ implementation without weakening the M0 invariants.
 The current public repository remains authoritative for package boundaries, v0 compatibility, P4
 artifact policy, and verification commands.
 
-The accepted target's Reference Node contract specifically requires a transactional SQLite ledger
+The accepted Secure Node contract specifically requires a transactional SQLite ledger
 inside a per-Brain encrypted store boundary, content-addressed blobs encrypted with scoped data
-keys, and an encrypted-at-rest FTS5 projection. M1 cannot claim the reference Node is complete by
+keys, and an encrypted-at-rest FTS5 projection. Secure Node cannot claim completion by
 deferring those controls to deployment policy.
 
 ## Fixed boundaries
 
 - `packages/engine` owns the transport-neutral protocol types, semantic transitions, persistence
   ports, and the reference local persistence implementation.
-- `packages/app` composes the reference Node and transport adapters. It cannot make app types part
+- `packages/app` composes Secure Node and its transport adapters. It cannot make app types part
   of the engine contract.
 - `packages/connectors`, `packages/legacy`, P4 tooling, the six existing artifact coordinates, and
   the current `BrainEngine` compatibility facade stay behaviorally unchanged. M1 may add required
@@ -87,25 +103,31 @@ Use an additive architecture inside the existing distributions:
 | Protocol values and errors | `packages/engine/src/open_brain_engine/protocol/` | Public and versioned |
 | Semantic transition kernel | `packages/engine/src/open_brain_engine/ledger/` | Internal until a second implementation proves the seam |
 | SQLite, blob, key, and FTS adapters | `packages/engine/src/open_brain_engine/storage/` and `projections/` | Private reference implementation |
-| Reference Node composition | `packages/app/src/open_brain/node/` | Public factory, private internals |
+| Secure Node composition | `packages/app/src/open_brain/node/` | Opt-in public factory, private internals |
 | Local and loopback HTTP transports | `packages/app/src/open_brain/node/transports/` | Protocol-conformant adapters |
 | v0 compatibility | Existing engine/app modules | Preserved, not rewritten during M1 |
 
 `open-brain-engine` takes the small maintained RFC 8785 dependency required by protocol semantics.
-Native database, cryptography, and OS-secret integrations are declared in an engine `node` extra;
-the top-level `open-brain` application selects that extra automatically. A user installing the
-product does not need to know or type an extra. The app also owns a high-level reference client that
+Native database, cryptography, and OS-secret integrations are declared in an engine `secure-node`
+extra. The top-level `open-brain[secure-node]` extra selects it; plain `open-brain` must not. A user
+who explicitly selects Secure Node does not need to enumerate its transitive dependencies. The app
+also owns a high-level Secure Node client that
 automates principal-key creation, request signing, safe retries, and query continuation while the
 engine retains the low-level transport-neutral contract.
 
-This is the proper architecture for the accepted contract. Creating a fourth distribution now
-would increase packaging and P4 artifact surface before a second Node implementation proves that a
-separate package boundary is useful. Folding v1 behavior into the existing `BrainEngine` would
-mix two canonical models and is rejected.
+For this milestone, the selected packaging is the `open-brain[secure-node]` extra inside the
+existing app distribution. A separate `open-brain-secure-node` distribution is the stronger final
+isolation option and remains pending the dependency, CLI, artifact-policy, and release-cadence
+checks in the product-family contract. Folding Secure Node behavior into the default
+`BrainEngine` path would mix product profiles and is rejected.
 
-## M1-W0: close implementation decisions and freeze executable schemas
+## SN1-W0 (`M1-W0`): close Secure Node implementation decisions and freeze executable schemas
 
 <!-- model: opus -->
+
+Completion note: the independent audit accepted this work at its original M1 identifiers and
+pre-split package names. ADR 0012 preserves that evidence, reclassifies it as Secure Node, and
+moves the default-package changes into `OB1-W1`; W0 is not replayed.
 
 - [ ] Publish generic protocol and semantic ADRs in the public repository without private paths,
       topology, policy names, or capture bodies.
@@ -126,21 +148,22 @@ mix two canonical models and is rejected.
       distinct by role. Content hashes must not be exposed as public identifiers.
 - [ ] Verify the encrypted SQLite/FTS backend. The preferred architecture is SQLCipher or a vetted
       encrypted SQLite VFS plus envelope-encrypted payload blobs and an injected Brain key provider.
-      A plain SQLite database that relies only on host volume encryption does not satisfy the public
-      product contract. Probe the complete CPython 3.12, 3.13, and 3.14 matrix on macOS ARM64 and
+      A plain SQLite database that relies only on host volume encryption does not satisfy the Secure
+      Node contract. Probe the complete CPython 3.12, 3.13, and 3.14 matrix on macOS ARM64 and
       Linux x86_64, including source and wheel installation, keyed reopen, wrong-key rejection,
       FTS5, purge residue, and crash recovery. Every combination is required; a failure stops M1
       for operator resolution instead of silently narrowing support. Windows remains unsupported
-      in M1 and is an explicit later portability milestone. Native dependencies live in the engine
-      `node` extra, which the top-level app selects automatically. Record the M1 matrix in
-      `release/m1-compatibility.json` without changing the completed P4 compatibility evidence.
+      in M1 and is an explicit later portability milestone. W0 verified the dependencies under the
+      pre-split engine `node` extra. `OB1-W1` renames that extra to `secure-node` and makes only
+      `open-brain[secure-node]` select it. Record the M1 matrix in `release/m1-compatibility.json`
+      without changing the completed P4 compatibility evidence.
 - [ ] Freeze the dependency and release-evidence strategy before modifying package metadata. Keep
       the existing six artifact coordinates, preserve the declared Python range `>=3.12,<3.15`, and
       update `uv.lock`, wheel metadata, licenses, SBOM inputs, packaged resources, and Phase 4
-      classifications additively. A clean `pip install open-brain` equivalent must install the full
-      Reference Node without asking users to select extras or compile native code on a supported
-      wheel target. The application Node dependency set includes the minimal Starlette and Uvicorn
-      ASGI adapter; the engine remains transport-neutral.
+      classifications additively. A clean `pip install 'open-brain[secure-node]'` equivalent must
+      install the full Secure Node without asking users to enumerate transitive extras or compile
+      native code on a supported wheel target. The Secure Node application dependency set includes
+      the minimal Starlette and Uvicorn ASGI adapter; the engine remains transport-neutral.
 - [ ] Freeze a `RootKeyCustodian` port and its bootstrap, unlock, restart, rotation, and destruction
       semantics. The reference setup uses OS-backed secret storage when available and an audited,
       passphrase-encrypted root-key envelope as the portable fallback. Plaintext root keys inside a
@@ -308,29 +331,38 @@ limits, literal query grammar, asynchronous projection visibility, continuation/
 loopback HTTP posture, information flow, erasure-over-replay behavior, and BrainPack semantic
 inventory are accepted and their negative tests exist.
 
-## M1-W1: pure semantic kernel
+## SN1-W1 (`M1-W1`): pure Secure Node semantic kernel
 
 <!-- model: sonnet -->
 
-- [ ] Implement immutable Brain, record, artifact, proposal, decision, effect, purge, commit, and
+Completion note: focused protocol and ledger verification plus repository-wide `make verify`
+passed, and a fresh independent review accepted the complete work with no P0, P1, P2, or P3
+findings. `CORE-W0` must close before `SN1-W2` begins.
+
+- [x] Implement immutable Brain, record, artifact, proposal, decision, effect, purge, commit, and
       receipt state values without filesystem or transport dependencies.
-- [ ] Implement pure transition rules for atomic batch validation, delivery replay, changed-digest
+- [x] Implement pure transition rules for atomic batch validation, delivery replay, changed-digest
       conflicts, superseding records, proposal base revisions, decision expected revisions,
       processor output identity, and unknown external effects.
-- [ ] Implement all-of compartment authorization and deterministic union propagation for every
+- [x] Implement all-of compartment authorization and deterministic union propagation for every
       derived output.
-- [ ] Implement provenance graph validation and deterministic transitive descendant discovery.
-- [ ] Compute the proposed post-batch label cardinality and observed exact-label-set state during
+- [x] Implement provenance graph validation and deterministic transitive descendant discovery.
+- [x] Compute the proposed post-batch label cardinality and observed exact-label-set state during
       pure validation from an explicit authoritative active-set/count snapshot. If any record
       exceeds the frozen label limit or the batch would exceed the Brain's active-shard limit,
       reject the whole batch with a typed limit error before cursor allocation or durable mutation.
       The repository supplies and updates that snapshot in one writer transaction; projection state
       is never an input to commit validity.
-- [ ] Reject any new provenance reference to a tombstoned or purge-pending ancestor, including a
+- [x] Reject any new provenance reference to a tombstoned or purge-pending ancestor, including a
       reference racing with closure processing. A commit cannot extend a purge closure after the
       tombstone transition becomes authoritative.
-- [ ] Reject cross-Brain references, unscoped global cursors, label narrowing, space-derived
+- [x] Reject cross-Brain references, unscoped global cursors, label narrowing, space-derived
       authority, and in-place canonical mutation.
+- [x] Apply ADR 0013's pre-release v1 erratum: commit-bound effect reconciliation, effect-receipt
+      purge subjects, discriminated ledger-item references, exact purge-review intent,
+      deterministic non-overlapping purge closure, provenance-bound origin supersession, complete
+      loaded-state lifecycle and label-union validation, exact ordered batch-to-commit binding, and
+      one-to-one commit/receipt/delivery evidence.
 
 Planned files:
 
@@ -348,7 +380,7 @@ uv run mypy packages/engine/src/open_brain_engine/ledger packages/engine/tests/u
 git diff --check
 ```
 
-## M1-W2: transactional ledger, encrypted payloads, and blobs
+## SN1-W2 (`M1-W2`): transactional ledger, encrypted payloads, and blobs
 
 <!-- model: sonnet -->
 
@@ -415,7 +447,7 @@ uv run mypy packages/engine/src/open_brain_engine/ledger packages/engine/src/ope
 git diff --check
 ```
 
-## M1-W3: capability authorization, request binding, and fencing
+## SN1-W3 (`M1-W3`): capability authorization, request binding, and fencing
 
 <!-- model: opus -->
 
@@ -491,7 +523,7 @@ uv run mypy packages/engine/src/open_brain_engine/protocol/authorization.py pack
 git diff --check
 ```
 
-## M1-W4: commit, changes, and inspect
+## SN1-W4 (`M1-W4`): commit, changes, and inspect
 
 <!-- model: sonnet -->
 
@@ -535,7 +567,7 @@ uv run mypy packages/engine/src/open_brain_engine/protocol packages/engine/src/o
 git diff --check
 ```
 
-## M1-W5: compartment-safe FTS, projection rebuild, and query
+## SN1-W5 (`M1-W5`): compartment-safe FTS, projection rebuild, and query
 
 <!-- model: opus -->
 
@@ -593,7 +625,7 @@ uv run mypy packages/engine/src/open_brain_engine/projections packages/engine/te
 git diff --check
 ```
 
-## M1-W6: provenance-closed purge
+## SN1-W6 (`M1-W6`): provenance-closed certified purge
 
 <!-- model: opus -->
 
@@ -651,7 +683,7 @@ uv run mypy packages/engine/src/open_brain_engine/ledger/purge.py packages/engin
 git diff --check
 ```
 
-## M1-W7: reference Node and one-Brain local setup
+## SN1-W7 (`M1-W7`): Secure Node setup and local service operation
 
 <!-- model: sonnet -->
 
@@ -671,7 +703,7 @@ git diff --check
       and no adapter may durably retain grant bytes. Serve owner control on a separate Unix-domain
       socket in an owner-only runtime directory, validate its mode and peer UID, bind the response
       to the requesting principal public key, and return it only in memory.
-- [ ] Add a high-level reference client that generates and stores its Ed25519 principal key through
+- [ ] Add a high-level Secure Node client that generates and stores its Ed25519 principal key through
       the separate `PrincipalKeyCustodian`, requests grants through the owner control flow, signs
       request bindings, safely retries stable deliveries, and follows query continuations
       automatically. The client never receives a Brain root or issuer key. Keep a low-level page API
@@ -681,7 +713,7 @@ git diff --check
       principal-epoch revocation, verify the owner-to-Node receipt chain, restart purge-invalidated
       continuations, and wait for a requested grant-scoped projection watermark only within the
       caller's budget.
-- [ ] Compose the four operations behind one reference Node boundary. The Node receives protocol
+- [ ] Compose the four operations behind one Secure Node boundary. The Node receives protocol
       bytes and grants, not v0 task objects or direct extension imports.
 - [ ] Add an in-process/local transport and a loopback-only HTTP adapter with identical conformance
       cases. Implement the ASGI boundary with Starlette and Uvicorn. Bind numeric loopback addresses
@@ -692,11 +724,12 @@ git diff --check
 - [ ] Compose the minimal restart-safe job store only for Node-owned long operations such as purge
       and projection rebuild. Jobs are inspectable under their required compartments; M1 adds no
       generic scheduler, extension execution, or public job-mutation operation.
-- [ ] Prove the top-level application installation selects the engine `node` extra automatically on
-      every supported wheel target. Include a short synthetic Python example that initializes one
+- [ ] Prove `open-brain[secure-node]` selects the engine `secure-node` extra on every supported
+      wheel target while plain `open-brain` excludes it. Include a short synthetic Python example
+      that initializes one
       Brain and exercises all four operations without private configuration or manual cryptography.
-      A polished default CLI/UI onboarding flow remains M2 work.
-- [ ] Keep MCP disabled. M2 will add named MCP scopes and user-facing setup.
+      Polished Secure Node CLI/UI onboarding remains later work.
+- [ ] Keep Secure Node MCP disabled. A later Secure Node workstream may add named scopes and setup.
 - [ ] Prove restart, interrupted response replay, busy writer, stale epoch, projection loss, and
       clean-root initialization behavior with synthetic fixtures. Enforce the frozen concurrent
       request and staging limits under those cases.
@@ -724,7 +757,7 @@ uv run mypy packages/app/src/open_brain/node packages/app/tests/integration/node
 git diff --check
 ```
 
-## M1-W8: compatibility, conformance, and closure
+## SN1-W8 (`M1-W8`): compatibility, conformance, and closure
 
 <!-- model: opus -->
 
@@ -746,8 +779,9 @@ git diff --check
 - [ ] Verify a clean engine/app source or wheel install can initialize and exercise one synthetic
       Brain through all four operations without the private composition repository. Test every
       required CPython 3.12, 3.13, and 3.14 combination on macOS ARM64 and Linux x86_64. Prove the
-      top-level app installs its full Node dependencies without a user selecting extras or compiling
-      native code on a supported wheel target. Record the complete result in
+      `open-brain[secure-node]` installs its full Secure Node dependencies without a user enumerating
+      transitive extras or compiling native code on a supported wheel target, while plain
+      `open-brain` excludes them. Record the complete result in
       `release/m1-compatibility.json`; do not rewrite P4 evidence or claim Windows support.
 - [ ] Prove every item in the frozen BrainPack semantic inventory survives commit and restart,
       records purge state correctly, and remains independent of projection rebuild.
@@ -805,18 +839,20 @@ Required semantic-inventory test:
 5. Every local commit uses a commit-message file. Nothing is pushed, published, deployed, started,
    redirected, or connected to live data under this plan.
 
-## M1 success criteria
+## Secure Node M1 success criteria
 
-M1 is complete only when all of the following are true:
+Secure Node M1 is complete only when all of the following are true:
 
-- A clean top-level public source or wheel install automatically includes the Reference Node
+- A clean `open-brain[secure-node]` source or wheel install includes the Secure Node
   dependencies, can initialize one synthetic local Brain, and can use all four protocol operations
   through a documented high-level client without private files or manual cryptography. The complete
   CPython 3.12 through 3.14 matrix passes on macOS ARM64 and Linux x86_64 and is recorded separately
   from the unchanged P4 evidence; M1 makes no Windows-support claim.
+- Plain `open-brain` neither installs nor imports Secure Node-only dependencies, initializes no
+  Secure Node state, starts no listener or daemon, and makes no application-encryption claim.
 - One Brain has one transactionally ordered commit history, opaque cursor, grant namespace, key
   namespace, receipt namespace, and fenced sequencer epoch.
-- The reference Node encrypts the SQLite ledger and FTS at rest and stores sensitive payloads in
+- Secure Node encrypts its SQLite ledger and FTS at rest and stores sensitive payloads in
   envelope-encrypted blobs whose scoped wrapped keys can be destroyed. A production root-key
   custodian provisions and unlocks the Brain without storing its plaintext root key in the Brain
   root. The passphrase fallback records the accepted Argon2id parameters and owner-only root/file
@@ -872,7 +908,8 @@ M1 is complete only when all of the following are true:
   sufficient for contributors and independent clients without access to the private composition
   repository. Artifact policy tracks the packaged schema trees, the M1 compatibility record is
   complete, and the public threat model states the accepted local and erasure boundaries.
-- The existing v0 product and completed P4 artifact evidence still pass unchanged.
+- The completed v0 and P4 artifact evidence remains green as regression evidence. Its historical
+  appliance boundary does not redefine the default Open Brain product.
 - Full verification and independent review are green on the exact clean local commit.
 
 ## Explicitly out of scope

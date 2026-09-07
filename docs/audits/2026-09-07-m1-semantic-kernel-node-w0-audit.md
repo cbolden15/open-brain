@@ -1,8 +1,10 @@
-# Codebase vs Plan Audit: M1-W0 executable protocol freeze
+# Codebase vs Plan Audit: Secure Node M1-W0 executable protocol freeze
 
 **Date:** 2026-09-07
 
-**Plan:** `docs/plans/2026-09-04-m1-semantic-kernel-node.md`, lines 106-310
+**Plan:** `docs/plans/2026-09-04-m1-semantic-kernel-node.md`, lines 124-333
+
+**Current product scope:** Secure Node. Stable M1 names are retained as historical evidence IDs.
 
 **Mode:** strict
 
@@ -113,7 +115,8 @@ cleared the portability defect, retested every earlier finding, and returned REA
 - **Status:** COMPLETE
 - **Evidence:**
   - `tests/phase4/test_m1_compatibility_baseline.py:65`
-    pins `>=3.12,<3.15`, the engine `node` extra, and top-level app dependencies.
+    pins `>=3.12,<3.15`, the then-named engine `node` extra, and the verified Secure Node dependency
+    set. ADR 0012 moves that set behind `open-brain[secure-node]` without invalidating the probe.
   - `tests/phase4/test_m1_compatibility_baseline.py:45`
     preserves the v0 facade and six artifact coordinates.
   - `packages/engine/pyproject.toml:47` and

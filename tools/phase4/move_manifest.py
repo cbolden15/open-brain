@@ -163,6 +163,14 @@ def discover_subject_kinds(root: Path, manifest: Mapping[str, object]) -> dict[s
     package_resources.update(
         path for path in ("LICENSE", "NOTICE", "README.md") if (root / path).is_file()
     )
+    package_resources.update(
+        path
+        for path in (
+            "docs/acceptance/five-minute-install.md",
+            "docs/plans/product-roadmap.md",
+        )
+        if (root / path).is_file()
+    )
     package_resources.update(_files(root, "packages/*/LICENSE"))
     package_resources.update(_files(root, "packages/*/NOTICE"))
     add(package_resources, "package-resource")

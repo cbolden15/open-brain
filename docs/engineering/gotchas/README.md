@@ -171,6 +171,19 @@ Fix: Reject construction without an authoritative probe and fail closed when a p
 
 Discovered: 2026-08-13.
 
+### LEDGER-006: A purge exception belongs to one closure
+
+Symptom: A record retained or activated as a replacement under one purge remains visible even
+though it also descends from a separately tombstoned source.
+
+Cause: Loaded-state validation combined every retain and replacement into one global exception set
+before checking each tombstone closure.
+
+Fix: Scope visibility exceptions to the purge that owns the tombstone. Derive suppression and
+purge-pending sets exactly from stored tombstones and purge resolutions, then reject orphan flags.
+
+Discovered: 2026-09-07.
+
 ### REVIEW-002: Review audit text is not owner output
 
 Symptom: Third-party instructions in a source reference or proposal reason survive approval and appear in an owner-authored record.
