@@ -27,11 +27,15 @@ Portable export state. The exact first-use surface is frozen by
 
 An optional absolute `--data-dir` names the Brain root for tests or expert use. The default path
 ignores `OPEN_BRAIN_ROOT`, which remains a Secure Node compatibility setting. Local failures use
-bounded messages and do not echo captured text or private paths.
+bounded messages and do not echo captured text, rejected arguments, or private paths. JSON error
+output remains bounded whether `--json` appears before or after the subcommand.
 
-The `base-dependency-closure` doctor check validates the installed base package declaration.
-Fresh-process tests and the release artifact inventory separately verify that the default command
-loads no Secure Node modules.
+Status observes the daemon-authority lease instead of assuming it is absent. If daemon authority or
+runtime artifacts are present, direct local initialization, capture, search, and export fail closed;
+status remains available, and `no-background-runtime` reports the conflict. The
+`base-dependency-closure` doctor check validates the complete installed base declaration chain from
+`open-brain` through `open-brain-engine` and `rfc8785`. Fresh-process tests and the release artifact
+inventory separately verify that the default command loads no Secure Node modules.
 
 Secure Node commands and service operation appear only after an explicit
 `open-brain[secure-node]` install and setup. Plain CLI help and status must not imply Secure Node

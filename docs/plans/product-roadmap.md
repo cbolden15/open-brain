@@ -23,8 +23,10 @@ graph, direct private bootstrap, Python 3.14 native artifact, and checksum-verif
 the full and focused repository gates plus an independent `READY` review with no P0 through P2
 findings. The artifacts remain unpublished. `OB1-W1` now has a local implementation candidate under
 [`2026-09-07-ob1-w1-direct-local-journey.md`](2026-09-07-ob1-w1-direct-local-journey.md). Its focused
-preflight, full verification, and native macOS artifact journey pass; independent closure review
-remains.
+preflight, full verification, and native macOS artifact journey passed at its first implementation
+commit. The first closure review returned two P1 findings for parser redaction and daemon ownership;
+both fixes are implemented, with refreshed focused, full, and native gates passing. Fresh
+independent closure review remains.
 
 ## Milestones
 

@@ -13,7 +13,9 @@ datas = sorted(
             "portability/**/*.json",
         ],
     )
-    + copy_metadata("open-brain"),
+    + copy_metadata("open-brain")
+    + copy_metadata("open-brain-engine")
+    + copy_metadata("rfc8785"),
     key=lambda item: (item[1], item[0]),
 )
 

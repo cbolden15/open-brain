@@ -13,7 +13,7 @@ from collections.abc import Mapping
 from datetime import UTC, datetime
 from hashlib import sha256
 from pathlib import Path
-from typing import cast
+from typing import NoReturn, cast
 
 from open_brain_engine import __version__
 from open_brain_engine.engine import (
@@ -36,6 +36,7 @@ from open_brain.local_data import FilesystemTypeProbe, LocalDataError, select_lo
 from open_brain.profile import ProfileError
 from open_brain.services.local_bootstrap import (
     LocalBrainSession,
+    LocalRuntimeConflictError,
     initialize_local_brain,
     open_local_brain,
 )
@@ -45,11 +46,25 @@ _DOCTOR_CHECKS = (
     "no-background-runtime",
     "base-dependency-closure",
 )
+_BASE_DEPENDENCY_REQUIREMENTS = {
+    "open-brain": ("open-brain-engine==0.1.0",),
+    "open-brain-engine": ("rfc8785<0.2,>=0.1.4",),
+    "rfc8785": (),
+}
 _LOCAL_EXPORT_EVIDENCE = ".open-brain/state/local-export-evidence.json"
 _HEX64 = re.compile(r"^[0-9a-f]{64}$")
 _EXPORT_ID = re.compile(
     r"^export_[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
 )
+
+
+class _UsageError(ValueError):
+    pass
+
+
+class _RedactedArgumentParser(argparse.ArgumentParser):
+    def error(self, _message: str) -> NoReturn:
+        raise _UsageError("invalid command")
 
 
 def run_cli(
@@ -61,12 +76,16 @@ def run_cli(
 ) -> int:
     """Run one daemonless local command without loading Secure Node composition."""
     arguments = tuple(sys.argv[1:] if argv is None else argv)
+    json_output = "--json" in arguments
     try:
         parsed = _parser().parse_args(arguments)
+    except _UsageError:
+        _write_usage_failure(json_output=json_output)
+        return 2
     except SystemExit as error:
         return error.code if isinstance(error.code, int) else 1
     if parsed.command is None:
-        _parser().print_help(sys.stderr)
+        _write_usage_failure(json_output=json_output)
         return 2
     selected_environment = os.environ if environment is None else environment
     json_output = bool(getattr(parsed, "json", False))
@@ -107,7 +126,7 @@ def run_cli(
 
 
 def _parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(
+    parser = _RedactedArgumentParser(
         prog="open-brain",
         description="Private, daemonless local Brain.",
     )
@@ -170,28 +189,6 @@ def _run_local_command(
     *,
     json_output: bool,
 ) -> int:
-    if parsed.command == "capture":
-        capture_receipt = session.tasks.capture.accept(
-            TextPayload(cast(str, parsed.text)),
-            delivery_id="delivery." + str(uuid.uuid4()),
-        )
-        _write_capture(capture_receipt, json_output=json_output)
-        return 0
-    if parsed.command == "search":
-        results = session.tasks.retrieval.search(cast(str, parsed.query))
-        _write_search(results, json_output=json_output)
-        return 0
-    if parsed.command == "export":
-        destination = _absolute_destination(cast(str, parsed.destination))
-        export_id = "export_" + str(uuid.uuid4())
-        export_receipt = session.tasks.portability.export(destination, export_id=export_id)
-        verification = "not_requested"
-        if bool(parsed.verify):
-            session.tasks.portability.validate(destination)
-            _record_verified_export(session, destination, export_id=export_id)
-            verification = "verified"
-        _write_export(export_receipt, verification=verification, json_output=json_output)
-        return 0
     if parsed.command == "status":
         _write_status(session, json_output=json_output)
         return 0
@@ -201,6 +198,31 @@ def _run_local_command(
             cast(str, parsed.check),
             json_output=json_output,
         )
+    tasks = session.tasks
+    if tasks is None:
+        raise LocalRuntimeConflictError("background runtime is active")
+    if parsed.command == "capture":
+        capture_receipt = tasks.capture.accept(
+            TextPayload(cast(str, parsed.text)),
+            delivery_id="delivery." + str(uuid.uuid4()),
+        )
+        _write_capture(capture_receipt, json_output=json_output)
+        return 0
+    if parsed.command == "search":
+        results = tasks.retrieval.search(cast(str, parsed.query))
+        _write_search(results, json_output=json_output)
+        return 0
+    if parsed.command == "export":
+        destination = _absolute_destination(cast(str, parsed.destination))
+        export_id = "export_" + str(uuid.uuid4())
+        export_receipt = tasks.portability.export(destination, export_id=export_id)
+        verification = "not_requested"
+        if bool(parsed.verify):
+            tasks.portability.validate(destination)
+            _record_verified_export(session, destination, export_id=export_id)
+            verification = "verified"
+        _write_export(export_receipt, verification=verification, json_output=json_output)
+        return 0
     raise ValueError("invalid local command")
 
 
@@ -265,10 +287,12 @@ def _write_export(
 
 
 def _write_status(session: LocalBrainSession, *, json_output: bool) -> None:
+    maintenance = read_maintenance_snapshot(session.profile)
+    daemon_running = "daemon-authority" in maintenance.writer.held_leases
     payload = {
         "application_encryption": False,
         "brain_count": 1,
-        "daemon_running": False,
+        "daemon_running": daemon_running,
         "portable_export": _verified_export_state(session),
         "profile": "local",
         "storage": "sqlite",
@@ -279,7 +303,8 @@ def _write_status(session: LocalBrainSession, *, json_output: bool) -> None:
         print(
             "Profile: local. Brain count: 1. Storage: SQLite. "
             f"Portable export: {payload['portable_export']}. "
-            "Daemon running: false. Application encryption: false."
+            f"Daemon running: {str(daemon_running).lower()}. "
+            "Application encryption: false."
         )
 
 
@@ -331,16 +356,21 @@ def _no_background_runtime(session: LocalBrainSession) -> bool:
 
 
 def _base_dependency_closure_is_safe(_session: LocalBrainSession) -> bool:
-    try:
-        requirements = importlib.metadata.requires("open-brain")
-    except importlib.metadata.PackageNotFoundError:
-        return False
-    unconditional = sorted(
-        requirement
-        for requirement in requirements or ()
-        if "extra ==" not in requirement.casefold()
-    )
-    return unconditional == ["open-brain-engine==0.1.0"]
+    for distribution, expected in _BASE_DEPENDENCY_REQUIREMENTS.items():
+        try:
+            requirements = importlib.metadata.requires(distribution)
+        except importlib.metadata.PackageNotFoundError:
+            return False
+        unconditional = tuple(
+            sorted(
+                requirement
+                for requirement in requirements or ()
+                if "extra ==" not in requirement.casefold()
+            )
+        )
+        if unconditional != expected:
+            return False
+    return True
 
 
 def _absolute_destination(value: str) -> Path:
@@ -440,6 +470,21 @@ def _write_private_data_failure(*, json_output: bool) -> None:
         )
     else:
         print("Open Brain could not use the private data directory.", file=sys.stderr)
+
+
+def _write_usage_failure(*, json_output: bool) -> None:
+    if json_output:
+        _write_json(
+            {
+                "error": {
+                    "code": "invalid_command",
+                    "message": "Open Brain could not parse the command.",
+                },
+                "status": "failed",
+            }
+        )
+    else:
+        print("Open Brain could not parse the command.", file=sys.stderr)
 
 
 def _write_operation_failure(*, json_output: bool) -> None:

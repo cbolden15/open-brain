@@ -4,6 +4,9 @@ import importlib
 import importlib.metadata
 import json
 import socket
+import subprocess
+import sys
+import time
 from pathlib import Path
 from typing import cast
 
@@ -421,17 +424,60 @@ def test_local_doctor_rejects_a_background_runtime_artifact(
         "status": "failed",
     }
 
+    token = "synthetic-runtime-conflict-private-text"
+    assert (
+        run_cli(
+            ("capture", token, "--json"),
+            environment=environment,
+            platform_name="linux",
+            filesystem_type_probe=_filesystem,
+        )
+        == 78
+    )
+    failure = capsys.readouterr().out
+    assert json.loads(failure) == {
+        "error": {
+            "code": "local_operation_failed",
+            "message": "Open Brain could not complete the local command.",
+        },
+        "status": "failed",
+    }
+    assert token not in failure
 
+
+@pytest.mark.parametrize(
+    ("poisoned_distribution", "poisoned_requirement"),
+    (
+        ("open-brain", "starlette>=0.48,<1"),
+        ("open-brain-engine", "cryptography>=50,<51"),
+        ("rfc8785", "keyring>=25.6,<26"),
+    ),
+)
 def test_local_dependency_doctor_rejects_an_unconditional_secure_node_dependency(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
     monkeypatch: pytest.MonkeyPatch,
+    poisoned_distribution: str,
+    poisoned_requirement: str,
 ) -> None:
     home = _private_home(tmp_path)
+
+    expected = {
+        "open-brain": ["open-brain-engine==0.1.0"],
+        "open-brain-engine": ["rfc8785<0.2,>=0.1.4"],
+        "rfc8785": [],
+    }
+
+    def poisoned_requirements(distribution: str) -> list[str]:
+        requirements = list(expected[distribution])
+        if distribution == poisoned_distribution:
+            requirements.append(poisoned_requirement)
+        return requirements
+
     monkeypatch.setattr(
         importlib.metadata,
         "requires",
-        lambda _distribution: ["open-brain-engine==0.1.0", "starlette>=0.48,<1"],
+        poisoned_requirements,
     )
 
     assert (
@@ -447,3 +493,151 @@ def test_local_dependency_doctor_rejects_an_unconditional_secure_node_dependency
         "check": "base-dependency-closure",
         "status": "failed",
     }
+
+
+@pytest.mark.parametrize(
+    ("arguments", "json_output", "private_values"),
+    (
+        (("private-command",), False, ("private-command",)),
+        (("capture",), False, ()),
+        (
+            ("capture", "synthetic-private-text", "synthetic-extra"),
+            False,
+            ("synthetic-private-text", "synthetic-extra"),
+        ),
+        (
+            ("--json", "capture", "synthetic-private-text", "synthetic-extra"),
+            True,
+            ("synthetic-private-text", "synthetic-extra"),
+        ),
+        (
+            ("capture", "synthetic-private-text", "synthetic-extra", "--json"),
+            True,
+            ("synthetic-private-text", "synthetic-extra"),
+        ),
+        (
+            ("doctor", "--check", "synthetic-private-check", "--json"),
+            True,
+            ("synthetic-private-check",),
+        ),
+        (
+            ("export", "/synthetic/private/export", "synthetic-extra"),
+            False,
+            ("/synthetic/private/export", "synthetic-extra"),
+        ),
+    ),
+)
+def test_local_usage_failures_are_bounded_and_redacted(
+    arguments: tuple[str, ...],
+    json_output: bool,
+    private_values: tuple[str, ...],
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    assert run_cli(arguments, environment={}) == 2
+    output = capsys.readouterr()
+    if json_output:
+        assert output.err == ""
+        assert json.loads(output.out) == {
+            "error": {
+                "code": "invalid_command",
+                "message": "Open Brain could not parse the command.",
+            },
+            "status": "failed",
+        }
+    else:
+        assert output.out == ""
+        assert output.err == "Open Brain could not parse the command.\n"
+    for private_value in private_values:
+        assert private_value not in output.out
+        assert private_value not in output.err
+
+
+def test_local_status_observes_daemon_authority_and_capture_fails_closed(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    home = _private_home(tmp_path)
+    environment = {"HOME": str(home)}
+    assert (
+        run_cli(
+            ("init",),
+            environment=environment,
+            platform_name="linux",
+            filesystem_type_probe=_filesystem,
+        )
+        == 0
+    )
+    capsys.readouterr()
+    brain_root = home / ".local/share/open-brain/brain"
+    ready = tmp_path / "daemon-authority-ready"
+    program = """
+from pathlib import Path
+import sys
+
+from open_brain.profile import open_existing_single_user_local
+from open_brain_engine.engine import acquire_daemon_authority
+
+profile = open_existing_single_user_local(Path(sys.argv[1]))
+with acquire_daemon_authority(profile):
+    Path(sys.argv[2]).write_text("ready", encoding="ascii")
+    sys.stdin.read(1)
+"""
+    holder = subprocess.Popen(
+        (sys.executable, "-c", program, str(brain_root), str(ready)),
+        stdin=subprocess.PIPE,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+    try:
+        deadline = time.monotonic() + 5
+        while not ready.is_file() and holder.poll() is None and time.monotonic() < deadline:
+            time.sleep(0.01)
+        error = (
+            holder.stderr.read()
+            if not ready.is_file() and holder.poll() is not None and holder.stderr is not None
+            else "daemon authority holder did not become ready"
+        )
+        assert ready.is_file(), error
+
+        assert (
+            run_cli(
+                ("status", "--json"),
+                environment=environment,
+                platform_name="linux",
+                filesystem_type_probe=_filesystem,
+            )
+            == 0
+        )
+        status = cast(dict[str, object], json.loads(capsys.readouterr().out))
+        assert status["daemon_running"] is True
+
+        token = "synthetic-daemon-conflict-private-text"
+        assert (
+            run_cli(
+                ("capture", token, "--json"),
+                environment=environment,
+                platform_name="linux",
+                filesystem_type_probe=_filesystem,
+            )
+            == 78
+        )
+        failure = capsys.readouterr().out
+        assert json.loads(failure) == {
+            "error": {
+                "code": "local_operation_failed",
+                "message": "Open Brain could not complete the local command.",
+            },
+            "status": "failed",
+        }
+        assert token not in failure
+    finally:
+        if holder.stdin is not None:
+            holder.stdin.close()
+        try:
+            holder.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            holder.kill()
+            holder.wait(timeout=5)
+
+    assert holder.returncode == 0

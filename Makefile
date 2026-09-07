@@ -41,6 +41,7 @@ OB1W1_TOUCHED_PYTHON = \
 	packages/app/src/open_brain/services/local_entrypoints.py \
 	packages/app/tests/integration/services/test_local_entrypoints.py \
 	tests/integration/release/test_v0_artifact_policy.py \
+	tests/phase4/test_base_native.py \
 	tools/open_brain_dev/base_native.py
 
 OB1W1_NATIVE_OUTPUT ?= build/ob1-w1-native

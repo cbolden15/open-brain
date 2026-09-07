@@ -1,6 +1,6 @@
 # OB1-W1: direct local capture, search, export, status, and doctor
 
-- Status: Implementation candidate; focused, full, and native gates pass; independent review pending
+- Status: Review fixes implemented; focused, full, and native gates pass; fresh review pending
 - Product: Open Brain default `local` profile
 - Branch: `goal/open-brain-five-minute-install`
 - Starting commit: `4c927660e52d3ea6230f7e14997a74d8ea6062ff`
@@ -63,9 +63,12 @@ bounded generic message that does not echo text or paths.
 4. Validate the promoted export from its destination. Record only the export identifier, timestamp,
    and manifest digest beneath private operational state.
 5. Doctor evidence combines root ownership/mode validation, absence of local daemon artifacts or
-   held writer leases, and the installed base dependency declaration. Fresh-process tests and the
-   native artifact inventory separately prove that loading the base command does not admit Secure
-   Node modules.
+   held writer leases, and the full installed base dependency declaration chain. Fresh-process
+   tests and the native artifact inventory separately prove that loading the base command does not
+   admit Secure Node modules.
+6. Parse failures emit only a bounded generic error and never echo rejected values. Status observes
+   daemon authority. Direct local operations fail closed when daemon authority or runtime artifacts
+   are present, and every engine write boundary rechecks that ownership state.
 
 ## Tests first
 
@@ -79,6 +82,9 @@ Add focused failing tests that prove:
   after verified export evidence exists;
 - each doctor check passes on safe state and fails closed for its relevant poisoned fixture;
 - output and failures do not disclose the selected root, user text, traceback, or internal exception;
+- malformed command lines stay redacted in plain and JSON modes, regardless of JSON flag position;
+- a separately held daemon-authority lease is reported by status and blocks direct capture, while a
+  runtime artifact also blocks direct capture;
 - both option positions supported by the accepted script parse correctly; and
 - the base native artifact contains the direct local journey while the Secure Node denylist remains
   absent.
