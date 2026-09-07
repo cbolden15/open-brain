@@ -27,10 +27,10 @@ direct SQLite-backed capture and search, full Portable Brain export, and no requ
 service, Docker, certificate, grant, storage-root decision, or manual database setup. It does not
 claim application-level encryption.
 
-`open-brain[secure-node]` is the planned opt-in advanced profile. Brain Protocol v1, the work
-historically named M1, completed W0, and the current uncommitted W1 semantic kernel all belong to
-Secure Node. Preserve stable M1 evidence IDs, but use `SN1-W*` in current planning. Do not move
-Secure Node dependencies, initialization, runtime effects, or security claims into plain Open Brain.
+`open-brain[secure-node]` is the planned opt-in advanced profile. Brain Protocol v1 and the work
+historically named M1, including the completed W0 and W1 semantic kernel, belong to Secure Node.
+Preserve stable M1 evidence IDs, but use `SN1-W*` in current planning. Do not move Secure Node
+dependencies, initialization, runtime effects, or security claims into plain Open Brain.
 
 Portable Brain v1 and the shared record identities are the upgrade boundary. Never upgrade by
 reinterpreting or copying the default product's live SQLite files. The active roadmap is
@@ -50,12 +50,12 @@ reinterpreting or copying the default product's live SQLite files. The active ro
 | `docs/v0-package-classification.json` | Source of truth for ownership, API status, movement, imports, tests, resources, and artifact membership |
 | `release/v0-artifact-policy.json` | Current v0 installation scope plus unpublished Python-artifact and historical P4-W6 candidate contracts |
 
-The engine cannot import app, connector, legacy, or workspace modules. The current app depends on
-`open-brain-engine[node]==0.1.0`; this is a known split violation scheduled for `OB1-W0`. The target
-base app depends on exactly `open-brain-engine==0.1.0`, while `open-brain[secure-node]` selects
+The engine cannot import app, connector, legacy, or workspace modules. The base app depends on
+exactly `open-brain-engine==0.1.0`, while `open-brain[secure-node]` selects
 `open-brain-engine[secure-node]==0.1.0`. App code may import only engine modules marked public in the
-canonical manifest. Current mutating installed CLI/UI requests go through the appliance daemon;
-that is retained appliance behavior, not the target default. MCP receives only
+canonical manifest. Retained Secure Node CLI/UI mutations go through the appliance daemon; the
+default local CLI is daemonless. Direct default capture, search, export, status, and doctor are the
+active `OB1-W1` scope. Secure Node MCP receives only
 space-scoped read capabilities and metadata feedback. The connector distribution depends on exact
 app and engine versions. It may import app code only through the published provisional extension
 modules under `open_brain.extensions`. The private legacy distribution depends only on the engine;
@@ -67,7 +67,7 @@ its retained predecessor support is confined to `open_brain_legacy._compat`.
 |---|---|
 | `pyproject.toml` | Workspace membership and root test/lint/typecheck configuration |
 | `packages/engine/pyproject.toml` | Isolated `open-brain-engine` package and artifact configuration |
-| `packages/app/pyproject.toml` | Isolated `open-brain` package; currently contains the known default-to-Secure-Node dependency conflict |
+| `packages/app/pyproject.toml` | Isolated `open-brain` package with a small default dependency closure and an explicit `secure-node` extra |
 | `packages/connectors/pyproject.toml` | Isolated `open-brain-connectors` package, exact app/engine dependencies, and provisional v1 entry point |
 | `packages/engine/src/open_brain_engine/engine/__init__.py` | Explicit public engine facade |
 | `packages/engine/src/open_brain_engine/portable/` | Portable schemas, validator, and conformance resources |

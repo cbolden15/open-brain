@@ -1,6 +1,6 @@
 # Open Brain and Secure Node roadmap
 
-- Status: Accepted product split; `OB1-W0` complete; `OB1-W1` not started; `CORE-W0` paused after
+- Status: Accepted product split; `OB1-W0` complete; `OB1-W1` active; `CORE-W0` paused after
   implementation review
 - Date: 2026-09-07
 - Product authority: [`../product-family.md`](../product-family.md)
@@ -21,7 +21,8 @@ That workstream is paused with `SN1-W2` still gated. `OB1-W0` completed on the s
 `goal/open-brain-five-minute-install` at implementation commit `ebef782`. Its small base dependency
 graph, direct private bootstrap, Python 3.14 native artifact, and checksum-verifying installer passed
 the full and focused repository gates plus an independent `READY` review with no P0 through P2
-findings. The artifacts remain unpublished, and `OB1-W1` has not started.
+findings. The artifacts remain unpublished. `OB1-W1` is active under
+[`2026-09-07-ob1-w1-direct-local-journey.md`](2026-09-07-ob1-w1-direct-local-journey.md).
 
 ## Milestones
 
