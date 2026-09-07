@@ -68,6 +68,8 @@ high-water mark and a fixed 300-second skew allowance. A backward wall-clock obs
 move the high-water mark and fails closed when freshness cannot be proved.
 
 Serialized instants use the canonical UTC whole-second or millisecond format frozen in ADR 0010.
+Semantic validation rejects impossible calendar dates across every declared timestamp field, even
+when a JSON Schema implementation does not assert the optional `date-time` format vocabulary.
 
 Replay state is a dedicated encrypted operational store, outside the canonical ledger transaction
 and BrainPack inventory. After grant and signature validation, the Node atomically reserves the

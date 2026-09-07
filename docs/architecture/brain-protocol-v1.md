@@ -15,7 +15,10 @@ vectors prove that its executable forms agree.
 
 Wire timestamps use UTC `Z` only. They contain either whole seconds or exactly three fractional
 digits for milliseconds. Other offsets, fractional widths, and submillisecond values are invalid,
-so every implementation compares the same instant without precision truncation.
+so every implementation compares the same instant without precision truncation. The semantic
+validator checks the shape and calendar validity of every schema-declared timestamp, including
+nested certificates and inspection metadata. Timestamp-like fields inside opaque bodies remain
+application data.
 
 ## Canonical bytes and request binding
 

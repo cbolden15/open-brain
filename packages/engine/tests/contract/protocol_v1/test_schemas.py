@@ -7,6 +7,7 @@ from typing import cast
 import pytest
 from jsonschema import Draft202012Validator, FormatChecker  # type: ignore[import-untyped]
 from open_brain_engine.protocol import (
+    WIRE_TIMESTAMP_FIELDS,
     ProtocolContractError,
     load_conformance_cases,
     load_schema,
@@ -45,6 +46,7 @@ EXPECTED_SCHEMAS = {
     "sequencer-stop-proof",
 }
 FORMAT_CHECKER = FormatChecker()
+TIMESTAMP_REF = "urn:open-brain:protocol:v1:common#/$defs/timestamp"
 
 
 def _validator(name: str) -> Draft202012Validator:
@@ -55,6 +57,36 @@ def _validator(name: str) -> Draft202012Validator:
     return Draft202012Validator(schemas[name], registry=registry, format_checker=FORMAT_CHECKER)
 
 
+def _is_timestamp_schema(value: object) -> bool:
+    if not isinstance(value, dict):
+        return False
+    if value.get("$ref") == TIMESTAMP_REF:
+        return True
+    return any(
+        isinstance(options, list) and any(_is_timestamp_schema(option) for option in options)
+        for keyword in ("oneOf", "anyOf", "allOf")
+        if (options := value.get(keyword)) is not None
+    )
+
+
+def _timestamp_fields_in_schema(value: object) -> set[str]:
+    fields: set[str] = set()
+    if isinstance(value, dict):
+        properties = value.get("properties")
+        if isinstance(properties, dict):
+            fields.update(
+                field
+                for field, definition in properties.items()
+                if _is_timestamp_schema(definition)
+            )
+        for child in value.values():
+            fields.update(_timestamp_fields_in_schema(child))
+    elif isinstance(value, list):
+        for child in value:
+            fields.update(_timestamp_fields_in_schema(child))
+    return fields
+
+
 def test_schema_catalog_is_versioned_complete_and_self_consistent() -> None:
     assert set(schema_catalog()) == EXPECTED_SCHEMAS | {"common"}
     for name in schema_catalog():
@@ -62,6 +94,14 @@ def test_schema_catalog_is_versioned_complete_and_self_consistent() -> None:
         assert schema["$schema"] == "https://json-schema.org/draft/2020-12/schema"
         assert schema["$id"] == f"urn:open-brain:protocol:v1:{name}"
         Draft202012Validator.check_schema(schema)
+
+
+def test_semantic_timestamp_catalog_covers_every_schema_timestamp_field() -> None:
+    schema_fields: set[str] = set()
+    for name in schema_catalog():
+        schema_fields.update(_timestamp_fields_in_schema(load_schema(name)))
+
+    assert schema_fields == WIRE_TIMESTAMP_FIELDS
 
 
 def test_every_frozen_schema_has_valid_and_negative_conformance_cases() -> None:
@@ -167,6 +207,81 @@ def test_protocol_timestamps_accept_exact_millisecond_precision() -> None:
 
     assert _validator("owner-key-certificate").is_valid(owner)
     validate_protocol_semantics("owner-key-certificate", owner)
+
+
+@pytest.mark.parametrize("line_ending", ("\n", "\r", "\u2028", "\u2029"))
+def test_protocol_timestamp_rejects_every_trailing_line_terminator(line_ending: str) -> None:
+    event = deepcopy(
+        cast(
+            dict[str, object],
+            load_conformance_cases()["valid"]["security-audit-event"][0],
+        )
+    )
+    event["occurred_at"] = f"2026-09-06T12:00:00Z{line_ending}"
+
+    assert not _validator("security-audit-event").is_valid(event)
+    with pytest.raises(ProtocolContractError, match="canonical UTC"):
+        validate_protocol_semantics("security-audit-event", event)
+
+
+@pytest.mark.parametrize(
+    ("contract", "field"),
+    (
+        ("cold-transfer-certificate", "issued_at"),
+        ("decision", "decided_at"),
+        ("durable-job", "updated_at"),
+        ("effect-receipt", "observed_at"),
+        ("grant", "issued_at"),
+        ("node-epoch-certificate", "issued_at"),
+        ("owner-key-certificate", "valid_from"),
+        ("proposal", "proposed_at"),
+        ("receipt", "issued_at"),
+        ("record", "observed_at"),
+        ("revision", "created_at"),
+        ("security-audit-event", "occurred_at"),
+        ("sequencer-stop-proof", "stopped_at"),
+    ),
+)
+def test_every_top_level_wire_timestamp_rejects_an_impossible_calendar_date(
+    contract: str,
+    field: str,
+) -> None:
+    document = deepcopy(
+        cast(dict[str, object], load_conformance_cases()["valid"][contract][0])
+    )
+    document[field] = "2026-02-30T12:00:00Z"
+
+    with pytest.raises(ProtocolContractError, match="valid timestamp"):
+        validate_protocol_semantics(contract, document)
+
+
+def test_nested_inspect_timestamp_rejects_an_impossible_calendar_date() -> None:
+    document = deepcopy(
+        cast(
+            dict[str, object],
+            next(
+                value
+                for value in load_conformance_cases()["valid"]["inspect"]
+                if isinstance(value, dict) and value.get("kind") == "entity"
+            ),
+        )
+    )
+    metadata = cast(dict[str, object], document["metadata"])
+    metadata["created_at"] = "2026-02-30T12:00:00Z"
+
+    with pytest.raises(ProtocolContractError, match="valid timestamp"):
+        validate_protocol_semantics("inspect", document)
+
+
+def test_timestamp_like_fields_inside_opaque_bodies_remain_application_data() -> None:
+    record = deepcopy(
+        cast(dict[str, object], load_conformance_cases()["valid"]["record"][0])
+    )
+    body = cast(dict[str, object], record["body"])
+    body["observed_at"] = "not a protocol timestamp"
+
+    assert _validator("record").is_valid(record)
+    validate_protocol_semantics("record", record)
 
 
 def test_record_envelope_requires_authority_times_provenance_and_integrity() -> None:

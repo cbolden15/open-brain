@@ -1,7 +1,7 @@
 {
   "id": "2026-09-04-m1-semantic-kernel-node-notes",
   "title": "Implementation notes - M1 public semantic kernel and reference Node",
-  "subtitle": "M1-W0 timestamp remediation verified locally; independent rereview pending; W1 locked · 2026-09-07 02:01 CDT",
+  "subtitle": "M1-W0 calendar validation verified locally; independent rereview pending; W1 locked · 2026-09-07 02:13 CDT",
   "introTitle": "How to use",
   "intro": "<p>Each item is a decision, deviation, or tradeoff made during implementation. <strong>Acknowledge</strong> if fine. <strong>Discuss</strong> to write what should change. <strong>Revert</strong> to flag for undo.</p>",
   "actions": [
@@ -219,6 +219,18 @@
         "Counterexamples": "Two independently generated, fully signed chains changed meaning after truncation: Node issuance appeared after owner activation when it was before, and appeared at owner retirement when it was before.",
         "What I changed": "Wire timestamps now accept canonical UTC Z only, with either whole seconds or exactly three millisecond digits. Schema and semantic parsing enforce the same rule, and tests reproduce both signed counterexamples.",
         "Gate": "Focused verification and full make verify pass: Ruff, strict MyPy over 566 source files, 3,344 tests, six artifacts, and artifact policy are green. A fresh independent rereview remains required before W0 can close or W1 can begin."
+      }
+    },
+    {
+      "id": "N17",
+      "group": "m1-w0",
+      "title": "Timestamp review exposed incomplete calendar coverage",
+      "default": "acknowledge",
+      "body": {
+        "What happened": "The strict review of exact commit 9945e48 verified the signed precision counterexamples but returned NOT READY with one P2. The schema end anchor admitted a final line terminator, and the optional date-time format checker was unavailable, so impossible dates reached timestamp-bearing contracts without temporal comparisons.",
+        "What I changed": "The timestamp schema now uses an absolute-end assertion. Semantic validation walks every schema-declared timestamp field, checks exact shape and calendar validity, and skips opaque application bodies. A test derives the field catalog from all protocol schemas so a future timestamp field cannot silently miss semantic coverage.",
+        "Evidence": "Named tests cover LF, CR, Unicode line separators, impossible dates in every top-level timestamp contract, nested inspect metadata, and timestamp-like user body fields that must remain untouched.",
+        "Gate": "The 193-test focused review set and full make verify pass: Ruff, strict MyPy over 566 source files, 3,364 tests, six artifacts, and artifact policy are green. A fresh independent rereview remains required before W0 can close or W1 can begin."
       }
     }
   ]

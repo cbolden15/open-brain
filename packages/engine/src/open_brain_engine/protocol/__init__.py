@@ -34,6 +34,7 @@ from .resources import (
     schema_catalog,
 )
 from .validation import (
+    WIRE_TIMESTAMP_FIELDS,
     ProtocolContractError,
     decode_base64url,
     request_binding_from_envelope,
@@ -61,6 +62,7 @@ __all__ = [
     "UserPresenceProvider",
     "UserPresenceProof",
     "WrappedKeyEnvelope",
+    "WIRE_TIMESTAMP_FIELDS",
     "canonical_json_bytes",
     "canonical_sha256",
     "decode_base64url",

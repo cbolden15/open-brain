@@ -28,7 +28,23 @@ SIGNATURE_FIELDS: Final = {
     "sequencer-stop-proof": "node_signature",
 }
 TIMESTAMP_PATTERN: Final = re.compile(
-    r"^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(?:\.[0-9]{3})?Z$"
+    r"[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(?:\.[0-9]{3})?Z"
+)
+WIRE_TIMESTAMP_FIELDS: Final = frozenset(
+    {
+        "captured_at",
+        "created_at",
+        "decided_at",
+        "expires_at",
+        "issued_at",
+        "observed_at",
+        "occurred_at",
+        "proposed_at",
+        "retired_at",
+        "stopped_at",
+        "updated_at",
+        "valid_from",
+    }
 )
 
 
@@ -54,6 +70,22 @@ def _timestamp(value: object, label: str) -> datetime:
     except ValueError as error:
         raise ProtocolContractError(f"{label} must be a valid timestamp") from error
     return parsed
+
+
+def _validate_wire_timestamps(value: object, label: str = "document") -> None:
+    if isinstance(value, Mapping):
+        for field, child in value.items():
+            child_label = f"{label}.{field}"
+            if field == "body":
+                continue
+            if field in WIRE_TIMESTAMP_FIELDS:
+                if child is not None:
+                    _timestamp(child, child_label)
+                continue
+            _validate_wire_timestamps(child, child_label)
+    elif isinstance(value, list):
+        for index, child in enumerate(value):
+            _validate_wire_timestamps(child, f"{label}[{index}]")
 
 
 def decode_base64url(value: object, *, expected_bytes: int, label: str) -> bytes:
@@ -104,6 +136,7 @@ def request_binding_from_envelope(envelope: Mapping[str, object]) -> Mapping[str
 
 def validate_protocol_semantics(contract: str, document: Mapping[str, object]) -> None:
     """Enforce portable constraints that Draft 2020-12 cannot compare or byte-count."""
+    _validate_wire_timestamps(document)
     signature_field = SIGNATURE_FIELDS.get(contract)
     if signature_field is not None:
         decode_base64url(document.get(signature_field), expected_bytes=64, label=signature_field)

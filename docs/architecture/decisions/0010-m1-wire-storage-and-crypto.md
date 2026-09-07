@@ -22,7 +22,10 @@ dispatch. It does not substitute `json.dumps` or another encoder.
 All wire timestamps use canonical UTC `Z` with either whole-second precision or exactly three
 fractional digits. Offsets and every other fractional width are rejected before semantic time
 comparison. Millisecond precision is exact across the supported protocol implementations and avoids
-language-specific truncation of RFC 3339 fractional seconds.
+language-specific truncation of RFC 3339 fractional seconds. JSON Schema `format` is not a security
+boundary because implementations may treat it as an annotation. The required semantic validator
+checks the calendar validity of every declared wire timestamp and does not inspect timestamp-like
+fields inside opaque application bodies.
 
 The Reference Node uses `sqlcipher3==0.6.2`, which bundles SQLCipher 4.12.0 Community Edition, for
 the encrypted SQLite ledger, replay store, and FTS projections. `sqlcipher3`, `cryptography`,
