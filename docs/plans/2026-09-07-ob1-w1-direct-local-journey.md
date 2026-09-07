@@ -1,6 +1,6 @@
 # OB1-W1: direct local capture, search, export, status, and doctor
 
-- Status: Review fixes implemented; focused, full, and native gates pass; fresh review pending
+- Status: Second review fix implemented; focused, full, and native gates pass; fresh review pending
 - Product: Open Brain default `local` profile
 - Branch: `goal/open-brain-five-minute-install`
 - Starting commit: `4c927660e52d3ea6230f7e14997a74d8ea6062ff`
@@ -68,7 +68,9 @@ bounded generic message that does not echo text or paths.
    admit Secure Node modules.
 6. Parse failures emit only a bounded generic error and never echo rejected values. Status observes
    daemon authority. Direct local operations fail closed when daemon authority or runtime artifacts
-   are present, and every engine write boundary rechecks that ownership state.
+   are present, and every engine write boundary rechecks that ownership state. Existing runtime
+   evidence is inspected read-only before profile compilation so a rejected command cannot create
+   identity, layout, or SQLite state.
 
 ## Tests first
 
@@ -84,7 +86,7 @@ Add focused failing tests that prove:
 - output and failures do not disclose the selected root, user text, traceback, or internal exception;
 - malformed command lines stay redacted in plain and JSON modes, regardless of JSON flag position;
 - a separately held daemon-authority lease is reported by status and blocks direct capture, while a
-  runtime artifact also blocks direct capture;
+  runtime artifact blocks `init`, capture, search, and export without changing a partial root;
 - both option positions supported by the accepted script parse correctly; and
 - the base native artifact contains the direct local journey while the Secure Node denylist remains
   absent.

@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
+from pathlib import Path
 
 from open_brain_engine.engine import (
     PHASE1_STATE_SCHEMA_VERSION,
@@ -14,7 +15,11 @@ from open_brain_engine.engine import (
     open_local_engine,
     read_maintenance_snapshot,
 )
-from open_brain_engine.storage.operational import StorageError, read_confined_tree
+from open_brain_engine.storage.operational import (
+    RootIdentity,
+    StorageError,
+    read_confined_tree,
+)
 
 from open_brain.local_data import (
     FilesystemTypeProbe,
@@ -22,7 +27,7 @@ from open_brain.local_data import (
     PreparedLocalRoot,
     prepare_local_root,
 )
-from open_brain.profile import compile_single_user_local
+from open_brain.profile import compile_single_user_local, open_existing_single_user_local
 
 _STATE_DATABASE = ".open-brain/state/phase1.sqlite3"
 
@@ -73,9 +78,32 @@ def open_local_brain(
     with prepare_local_root(
         selection, filesystem_type_probe=filesystem_type_probe
     ) as prepared:
-        initialized_before = prepared.private_file_exists(
-            "brain.toml"
-        ) and prepared.private_file_exists(_STATE_DATABASE)
+        identity_exists = prepared.private_file_exists("brain.toml")
+        initialized_before = identity_exists and prepared.private_file_exists(_STATE_DATABASE)
+        runtime_artifacts_present = _runtime_artifacts_are_present(
+            root=selection.brain_root,
+            root_identity=prepared.root_identity,
+        )
+        existing_profile = (
+            open_existing_single_user_local(selection.brain_root)
+            if identity_exists
+            else None
+        )
+        if runtime_artifacts_present or (
+            existing_profile is not None
+            and _daemon_authority_is_present(existing_profile)
+        ):
+            if not initialized_before or existing_profile is None:
+                raise LocalRuntimeConflictError("background runtime is active")
+            _require_current_local_state(prepared, existing_profile)
+            yield LocalBrainSession(
+                initialized_before=True,
+                prepared=prepared,
+                profile=existing_profile,
+                tasks=None,
+            )
+            prepared.revalidate()
+            return
         profile = compile_single_user_local(
             selection.brain_root,
             validate_before_identity_write=prepared.revalidate,
@@ -132,14 +160,27 @@ def initialize_local_brain(
 
 
 def _background_runtime_is_present(profile: LocalEngineContext) -> bool:
+    return _daemon_authority_is_present(profile) or _runtime_artifacts_are_present(
+        root=profile.root,
+        root_identity=profile.root_identity,
+    )
+
+
+def _daemon_authority_is_present(profile: LocalEngineContext) -> bool:
     maintenance = read_maintenance_snapshot(profile)
-    if "daemon-authority" in maintenance.writer.held_leases:
-        return True
+    return "daemon-authority" in maintenance.writer.held_leases
+
+
+def _runtime_artifacts_are_present(
+    *,
+    root: Path,
+    root_identity: RootIdentity,
+) -> bool:
     try:
         runtime_files = read_confined_tree(
-            root=profile.root,
+            root=root,
             relative=".open-brain/run",
-            expected_root_identity=profile.root_identity,
+            expected_root_identity=root_identity,
             maximum_entries=32,
             maximum_file_bytes=64 * 1024,
             maximum_total_bytes=128 * 1024,

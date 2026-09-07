@@ -8,7 +8,7 @@ import subprocess
 import sys
 import time
 from pathlib import Path
-from typing import cast
+from typing import NoReturn, cast
 
 import pytest
 
@@ -445,6 +445,59 @@ def test_local_doctor_rejects_a_background_runtime_artifact(
     assert token not in failure
 
 
+@pytest.mark.parametrize("command", ("init", "capture", "search", "export"))
+def test_local_runtime_artifact_blocks_bootstrap_without_mutating_partial_root(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    command: str,
+) -> None:
+    home = _private_home(tmp_path)
+    brain_root = home / "partial-brain"
+    runtime_directory = brain_root / ".open-brain/run"
+    runtime_directory.mkdir(mode=0o700, parents=True)
+    brain_root.chmod(0o700)
+    (brain_root / ".open-brain").chmod(0o700)
+    runtime_directory.chmod(0o700)
+    marker = runtime_directory / "control.sock"
+    marker.write_bytes(b"synthetic")
+    marker.chmod(0o600)
+    original_tree = tuple(
+        sorted(path.relative_to(brain_root).as_posix() for path in brain_root.rglob("*"))
+    )
+
+    private_value = "synthetic-partial-root-private-value"
+    arguments = {
+        "init": ("init",),
+        "capture": ("capture", private_value),
+        "search": ("search", private_value),
+        "export": ("export", str(home / private_value)),
+    }[command]
+    assert (
+        run_cli(
+            (*arguments, "--data-dir", str(brain_root), "--json"),
+            environment={"HOME": str(home)},
+            platform_name="linux",
+            filesystem_type_probe=_filesystem,
+        )
+        == 78
+    )
+    failure = capsys.readouterr().out
+    assert json.loads(failure) == {
+        "error": {
+            "code": "local_operation_failed",
+            "message": "Open Brain could not complete the local command.",
+        },
+        "status": "failed",
+    }
+    assert private_value not in failure
+    assert tuple(
+        sorted(path.relative_to(brain_root).as_posix() for path in brain_root.rglob("*"))
+    ) == original_tree
+    assert marker.read_bytes() == b"synthetic"
+    assert not (brain_root / "brain.toml").exists()
+    assert not (brain_root / ".open-brain/state/phase1.sqlite3").exists()
+
+
 @pytest.mark.parametrize(
     ("poisoned_distribution", "poisoned_requirement"),
     (
@@ -555,6 +608,7 @@ def test_local_usage_failures_are_bounded_and_redacted(
 def test_local_status_observes_daemon_authority_and_capture_fails_closed(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     home = _private_home(tmp_path)
     environment = {"HOME": str(home)}
@@ -600,6 +654,18 @@ with acquire_daemon_authority(profile):
         )
         assert ready.is_file(), error
 
+        compile_calls = 0
+
+        def reject_compile(*_args: object, **_kwargs: object) -> NoReturn:
+            nonlocal compile_calls
+            compile_calls += 1
+            raise AssertionError("daemon-owned state must not run mutating bootstrap")
+
+        monkeypatch.setattr(
+            "open_brain.services.local_bootstrap.compile_single_user_local",
+            reject_compile,
+        )
+
         assert (
             run_cli(
                 ("status", "--json"),
@@ -612,25 +678,34 @@ with acquire_daemon_authority(profile):
         status = cast(dict[str, object], json.loads(capsys.readouterr().out))
         assert status["daemon_running"] is True
 
-        token = "synthetic-daemon-conflict-private-text"
-        assert (
-            run_cli(
-                ("capture", token, "--json"),
-                environment=environment,
-                platform_name="linux",
-                filesystem_type_probe=_filesystem,
+        private_value = "synthetic-daemon-conflict-private-value"
+        destination = home / private_value
+        for arguments in (
+            ("init", "--json"),
+            ("capture", private_value, "--json"),
+            ("search", private_value, "--json"),
+            ("export", str(destination), "--json"),
+        ):
+            assert (
+                run_cli(
+                    arguments,
+                    environment=environment,
+                    platform_name="linux",
+                    filesystem_type_probe=_filesystem,
+                )
+                == 78
             )
-            == 78
-        )
-        failure = capsys.readouterr().out
-        assert json.loads(failure) == {
-            "error": {
-                "code": "local_operation_failed",
-                "message": "Open Brain could not complete the local command.",
-            },
-            "status": "failed",
-        }
-        assert token not in failure
+            failure = capsys.readouterr().out
+            assert json.loads(failure) == {
+                "error": {
+                    "code": "local_operation_failed",
+                    "message": "Open Brain could not complete the local command.",
+                },
+                "status": "failed",
+            }
+            assert private_value not in failure
+        assert not destination.exists()
+        assert compile_calls == 0
     finally:
         if holder.stdin is not None:
             holder.stdin.close()

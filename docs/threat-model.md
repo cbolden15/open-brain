@@ -38,10 +38,12 @@ or multi-client authority boundary during the five-minute journey. Its SQLite da
 portable files may contain readable user content.
 
 Owner-only directory and file permissions, path confinement, SQLite durability, no-egress defaults,
-and Portable Brain validation remain required. They are not application-level encryption. Default
-Open Brain does not claim encrypted-at-rest SQLite or FTS, cryptographic key destruction,
-compartment isolation, signed receipts, certified purge, or resistance to another process running
-as the same user. Those claims belong only to a conforming Secure Node installation.
+and Portable Brain validation remain required. Existing runtime artifacts and held daemon authority
+are checked read-only before profile compilation; conflicting direct commands do not create Brain
+identity, layout, or SQLite state. These controls are not application-level encryption. Default Open
+Brain does not claim encrypted-at-rest SQLite or FTS, cryptographic key destruction, compartment
+isolation, signed receipts, certified purge, or resistance to another process running as the same
+user. Those claims belong only to a conforming Secure Node installation.
 
 ## Secure Node M1 boundary
 

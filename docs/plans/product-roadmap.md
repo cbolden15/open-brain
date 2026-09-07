@@ -25,8 +25,10 @@ findings. The artifacts remain unpublished. `OB1-W1` now has a local implementat
 [`2026-09-07-ob1-w1-direct-local-journey.md`](2026-09-07-ob1-w1-direct-local-journey.md). Its focused
 preflight, full verification, and native macOS artifact journey passed at its first implementation
 commit. The first closure review returned two P1 findings for parser redaction and daemon ownership;
-both fixes are implemented, with refreshed focused, full, and native gates passing. Fresh
-independent closure review remains.
+both fixes passed refreshed focused, full, and native gates. The second review confirmed those fixes
+and found one P1: runtime evidence was observed only after profile compilation could change a partial
+root. The tests-first read-only preflight correction now passes focused, full, and native gates.
+Fresh independent review remains.
 
 ## Milestones
 
