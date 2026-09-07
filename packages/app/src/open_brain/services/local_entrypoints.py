@@ -33,7 +33,7 @@ def run_cli(
     selected_environment = os.environ if environment is None else environment
     try:
         selection = select_local_root(
-            data_dir=parsed.data_dir,
+            data_dir=getattr(parsed, "data_dir", None),
             environment=selected_environment,
             platform_name=platform_name,
         )
@@ -42,9 +42,9 @@ def run_cli(
             filesystem_type_probe=filesystem_type_probe,
         )
     except Exception:
-        _write_failure(json_output=parsed.json)
+        _write_failure(json_output=bool(getattr(parsed, "json", False)))
         return 78
-    if parsed.json:
+    if bool(getattr(parsed, "json", False)):
         print(json.dumps(receipt.to_dict(), sort_keys=True, separators=(",", ":")))
     else:
         print(
@@ -60,14 +60,27 @@ def _parser() -> argparse.ArgumentParser:
         description="Private, daemonless local Brain.",
     )
     parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
-    parser.add_argument("--json", action="store_true", help="Write JSON output.")
+    _add_local_options(parser)
+    subparsers = parser.add_subparsers(dest="command", metavar="COMMAND")
+    init_parser = subparsers.add_parser(
+        "init", help="Create or reopen one private local Brain."
+    )
+    _add_local_options(init_parser)
+    return parser
+
+
+def _add_local_options(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
+        "--json",
+        action="store_true",
+        default=argparse.SUPPRESS,
+        help="Write JSON output.",
+    )
     parser.add_argument(
         "--data-dir",
+        default=argparse.SUPPRESS,
         help="Use this absolute Brain root instead of the platform-local default.",
     )
-    subparsers = parser.add_subparsers(dest="command", metavar="COMMAND")
-    subparsers.add_parser("init", help="Create or reopen one private local Brain.")
-    return parser
 
 
 def _write_failure(*, json_output: bool) -> None:

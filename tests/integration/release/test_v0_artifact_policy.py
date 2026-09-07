@@ -351,14 +351,14 @@ def test_phase_zero_artifact_policy_has_exact_supported_and_unsupported_hosts() 
                 "format": "tar.gz",
                 "installer": "install.sh",
                 "method": "native-archive",
-                "python": "3.12-bundled",
+                "python": "3.14-bundled",
             },
             "linux-x86_64": {
                 "checksum": "sha256",
                 "format": "tar.gz",
                 "installer": "install.sh",
                 "method": "native-archive",
-                "python": "3.12-bundled",
+                "python": "3.14-bundled",
             },
         },
     }

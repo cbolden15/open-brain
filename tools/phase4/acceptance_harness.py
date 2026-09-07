@@ -2122,6 +2122,26 @@ def app_isolation_findings(root: Path, work: Path) -> list[Finding]:
         )
         if "init" not in help_output.stdout.split() or "daemon" in help_output.stdout.split():
             raise ValueError("installed default command boundary is mismatched")
+        base_brain = run_root / "base-brain"
+        initialized = json.loads(
+            run_checked(
+                (
+                    os.fspath(base_environment / "bin/open-brain"),
+                    "init",
+                    "--data-dir",
+                    os.fspath(base_brain),
+                    "--json",
+                ),
+                cwd=run_root,
+            ).stdout
+        )
+        if (
+            initialized.get("status") != "initialized"
+            or initialized.get("profile") != "local"
+            or initialized.get("storage") != "sqlite"
+            or not (base_brain / "brain.toml").is_file()
+        ):
+            raise ValueError("installed default init command is mismatched")
         unavailable = subprocess.run(
             (os.fspath(base_environment / "bin/open-brain-secure-node"), "--help"),
             cwd=run_root,

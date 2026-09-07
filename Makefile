@@ -159,7 +159,7 @@ ob1w0-preflight: ob1w0-focused
 	git diff --check
 
 ob1w0-native:
-	uv run --frozen --python 3.12 --group native-build python -m tools.open_brain_dev.base_native build --root . --output $(OB1W0_NATIVE_OUTPUT)
+	uv run --frozen --python 3.14 --group native-build python -m tools.open_brain_dev.base_native build --root . --output $(OB1W0_NATIVE_OUTPUT)
 
 p4w5-focused:
 	uv run --package open-brain --extra secure-node pytest -q $(P4W5_FOCUSED_TESTS)

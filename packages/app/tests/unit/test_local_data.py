@@ -104,6 +104,37 @@ def test_select_local_root_rejects_named_synchronized_locations(
         )
 
 
+@pytest.mark.parametrize(
+    "relative",
+    ("dRoPbOx/open-brain", "lIbRaRy/cLoUdStOrAgE/provider/open-brain"),
+)
+def test_select_local_root_rejects_macos_case_aliases(
+    tmp_path: Path, relative: str
+) -> None:
+    home = _private_directory(tmp_path / "home")
+
+    with pytest.raises(LocalDataError, match="synchronized"):
+        select_local_root(
+            data_dir=str(home / relative),
+            environment={"HOME": str(home)},
+            platform_name="darwin",
+        )
+
+
+def test_select_local_root_rejects_macos_unicode_normalization_aliases(
+    tmp_path: Path,
+) -> None:
+    composed_home = tmp_path / "caf\N{LATIN SMALL LETTER E WITH ACUTE}"
+    decomposed_home = tmp_path / "cafe\N{COMBINING ACUTE ACCENT}"
+
+    with pytest.raises(LocalDataError, match="synchronized"):
+        select_local_root(
+            data_dir=str(decomposed_home / "Dropbox/open-brain"),
+            environment={"HOME": str(composed_home)},
+            platform_name="darwin",
+        )
+
+
 def test_prepare_local_root_creates_only_private_managed_directories(tmp_path: Path) -> None:
     home = _private_directory(tmp_path / "home")
     selection = select_local_root(

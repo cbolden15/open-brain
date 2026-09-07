@@ -7,6 +7,7 @@ import os
 import re
 import stat
 import sys
+import unicodedata
 from collections.abc import Callable, Iterator, Mapping
 from contextlib import contextmanager
 from dataclasses import dataclass
@@ -332,12 +333,32 @@ def _reject_synchronized_path(selection: LocalRootSelection) -> None:
             home / name
             for name in ("Dropbox", "OneDrive", "Google Drive", "Nextcloud", "Syncthing", "Sync")
         )
-    if any(_is_within(selection.brain_root, root) for root in roots):
+    if any(
+        _is_within(
+            selection.brain_root,
+            root,
+            macos_normalization=selection.platform_name == "darwin",
+        )
+        for root in roots
+    ):
         raise LocalDataError("private data directory cannot use a synchronized location")
 
 
-def _is_within(candidate: Path, root: Path) -> bool:
-    return candidate == root or root in candidate.parents
+def _is_within(
+    candidate: Path, root: Path, *, macos_normalization: bool = False
+) -> bool:
+    candidate_parts = candidate.parts
+    root_parts = root.parts
+    if macos_normalization:
+        candidate_parts = tuple(_macos_path_component(part) for part in candidate_parts)
+        root_parts = tuple(_macos_path_component(part) for part in root_parts)
+    return len(candidate_parts) >= len(root_parts) and (
+        candidate_parts[: len(root_parts)] == root_parts
+    )
+
+
+def _macos_path_component(value: str) -> str:
+    return unicodedata.normalize("NFD", value.casefold())
 
 
 def _require_allowed_filesystem(filesystem_type: str, platform_name: str) -> str:

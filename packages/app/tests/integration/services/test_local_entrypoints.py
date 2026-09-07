@@ -59,7 +59,7 @@ def test_local_init_creates_exact_default_once_without_daemon_or_environment_roo
 
     assert (
         run_cli(
-            ("--json", "init"),
+            ("init", "--json"),
             environment=environment,
             platform_name=platform_name,
             filesystem_type_probe=_filesystem,
@@ -104,7 +104,7 @@ def test_local_init_absolute_override_names_brain_root_directly(
 
     assert (
         run_cli(
-            ("--json", "--data-dir", str(brain_root), "init"),
+            ("init", "--data-dir", str(brain_root), "--json"),
             environment={"HOME": str(home)},
             platform_name="linux",
             filesystem_type_probe=_filesystem,

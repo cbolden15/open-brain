@@ -191,12 +191,25 @@ def smoke_base_artifact(artifact: Path) -> dict[str, object]:
         if version.stdout.strip() != f"open-brain {_VERSION}":
             raise BaseNativeError("base native version is invalid")
         first = json.loads(
-            _run((os.fspath(executable), "--json", "init"), environment).stdout
+            _run((os.fspath(executable), "init", "--json"), environment).stdout
         )
         identity = _brain_root(home) / "brain.toml"
         identity_bytes = identity.read_bytes()
         second = json.loads(
             _run((os.fspath(executable), "--json", "init"), environment).stdout
+        )
+        override_root = home / "selected-brain"
+        override = json.loads(
+            _run(
+                (
+                    os.fspath(executable),
+                    "init",
+                    "--data-dir",
+                    os.fspath(override_root),
+                    "--json",
+                ),
+                environment,
+            ).stdout
         )
         if (
             first.get("status") != "initialized"
@@ -206,6 +219,8 @@ def smoke_base_artifact(artifact: Path) -> dict[str, object]:
             or first.get("storage") != "sqlite"
             or first.get("daemon_running") is not False
             or first.get("application_encryption") is not False
+            or override.get("status") != "initialized"
+            or not (override_root / "brain.toml").is_file()
         ):
             raise BaseNativeError("base native bootstrap failed")
         return {"first_init": first, "second_init": second, "self_check": "passed"}
@@ -288,8 +303,8 @@ def smoke_installer(root: Path, release_directory: Path) -> dict[str, object]:
 
 
 def build_base_artifact(root: Path, output: Path) -> tuple[Path, Path, Path]:
-    if sys.version_info[:2] != (3, 12):
-        raise BaseNativeError("base native build requires Python 3.12")
+    if sys.version_info[:2] != (3, 14):
+        raise BaseNativeError("base native build requires Python 3.14")
     if (
         importlib.metadata.version("pyinstaller") != "6.22.2"
         or importlib.metadata.version("pyinstaller-hooks-contrib") != "2026.7"
