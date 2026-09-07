@@ -6,38 +6,34 @@
 
 **Mode:** strict
 
-**Commits reviewed:** `f1e3ceb..566b46e` plus the clock-component working diff
+**Commits reviewed:** `f1e3ceb..73e4d18`
 
 **Codebase root:** repository root
 
 ## Executive summary
 
 - **Completion:** 100% (35 of 35 W0 requirements complete after local remediation)
-- **Ship readiness:** NOT READY until the latest remediation passes independent rereview
-- **W1 gate:** Locked until the independent rereview returns READY
+- **Ship readiness:** READY at exact reviewed commit `73e4d18`
+- **W1 gate:** Unlocked by the independent READY verdict; W1 has not started
 - **Independent findings at `f23b4ce`:** two P1 and two P2 findings, all remediated locally
 - **Independent finding at `5f1395a`:** one P2 timestamp-precision defect, remediated locally
 - **Independent finding at `9945e48`:** one P2 timestamp-completeness defect, remediated locally
 - **Independent finding at `566b46e`:** one P2 hour-24 portability defect, remediated locally
+- **Final independent verdict at `73e4d18`:** READY with zero P0, P1, P2, or P3 findings
 - **Current verification:** full `make verify` passed with Ruff, strict MyPy over 566 source files,
   3,371 tests, six Python artifacts, and the artifact-policy gate. The plan's focused W0 command
-  passed 115 tests. The independent 193-test review set passed at `566b46e`, and the new signed
-  hour-24 regression passes on Python 3.12, 3.13, and 3.14.
+  passed 115 tests. The final independent review passed 200 focused tests on Python 3.14 and 82
+  schema/signature tests on each of Python 3.12 and 3.13.
 
 The first independent review rejected commit `a6d92a9` with three P1, five P2, and three P3
-findings. The remediation closes each finding in executable schemas, semantic validators,
-mutation tests, reproducible evidence, or documentation. This report is the local strict audit,
-not the independent gate result. A second independent review rejected `f23b4ce` with two P1 and
-two P2 findings. The current working diff addresses those findings, but only a fresh independent
-READY verdict can unlock W1. The follow-up review of `5f1395a` cleared all four and found one new
-P2 caused by submicrosecond RFC 3339 values being truncated during temporal comparison. The current
-working diff closes that precision ambiguity. The next review of `9945e48` proved the fix but found
-that a trailing line terminator and impossible dates still reached contracts without temporal
-comparisons. The latest diff validates every schema-declared timestamp while leaving opaque bodies
-untouched. The independent review of `566b46e` cleared that finding but showed that Python 3.14
-normalizes hour `24` to next-day midnight while Python 3.12 rejects it. The latest working diff
-replaces language-parser normalization with an explicit protocol grammar and component-based
-construction.
+findings. The remediation closes each finding in executable schemas, semantic validators, mutation
+tests, reproducible evidence, or documentation. A second independent review rejected `f23b4ce`
+with two P1 and two P2 findings. The review of `5f1395a` cleared those four and found one P2 caused
+by submicrosecond RFC 3339 values being truncated during temporal comparison. The review of
+`9945e48` cleared the precision defect and found one P2 covering trailing line terminators and
+impossible dates. The review of `566b46e` cleared that defect and found one P2 because Python 3.14
+normalized hour `24` while Python 3.12 rejected it. The final review of exact commit `73e4d18`
+cleared the portability defect, retested every earlier finding, and returned READY with no findings.
 
 ## Requirement audit
 
@@ -536,6 +532,23 @@ zero P1, one P2, and zero P3 findings.
 |---|---|---|
 | P2: Python 3.14 normalized schema-valid hour `24` to next-day midnight while Python 3.12 rejected it | Restricted clock components in both schema and semantic grammar, replaced `datetime.fromisoformat` with explicit component construction, and documented that hour `24` and leap-second `60` are outside the profile | `test_protocol_timestamps_reject_out_of_range_clock_components`; `test_protocol_timestamps_accept_last_millisecond_of_day`; `test_receipt_rejects_validly_signed_hour_24_timestamp` |
 
+## Final independent verdict at `73e4d18`
+
+The strict read-only review of exact commit `73e4d18d5e2430baf0b18e100c66893e55183630`
+returned READY with zero P0, zero P1, zero P2, and zero P3 findings.
+
+- Both fully signed hour-24 counterexamples, minute `60`, and second `60` fail schema and semantic
+  validation on Python 3.12.13, 3.13.13, and 3.14.4. Signed `23:59:59.999Z` and valid leap-day
+  cases pass.
+- The independent focused protocol, security, compatibility, traceability, classification,
+  acceptance, and architecture set passed 200 tests on Python 3.14. The schema and signature modules
+  passed 82 tests on each of Python 3.12 and 3.13.
+- Thirty-six malformed or impossible timestamp mutations, all 20 populated fixture paths, the
+  18-reference/12-field catalog, opaque-body exemptions, and the original signed precision,
+  chronology, and grant-TTL cases passed.
+- No continuity, Brain-boundary, custody, packaging, classification, M0-lineage, or public-privacy
+  regression was found.
+
 ## Integration audit
 
 - `packages/engine/src/open_brain_engine/protocol/resources.py:12`
@@ -554,9 +567,8 @@ No broken integration, orphaned import, or unclassified W0 runtime/resource was 
 
 - **Regression:** Low. The v0 facade, P4 evidence hashes, package boundaries, Python range, and six
   artifact coordinates are pinned and passed.
-- **Security:** The reviewer independently cleared every earlier finding through `9945e48`. The
-  remaining hour-24 portability P2 from `566b46e` is covered by passing local regression tests and
-  remains a gate blocker until independently verified.
+- **Security:** The final independent review cleared the hour-24 portability defect and retested
+  every earlier finding. No P0, P1, P2, or P3 finding remains.
 - **Performance:** The provisional shard, fan-out, top-k, commit, nonce, and concurrency limits are
   executable constants. Synthetic macOS/Linux measurements passed their frozen bounds.
 - **Delivery:** The Linux x86_64 matrix used official containers under x86_64 emulation on Apple
@@ -565,7 +577,7 @@ No broken integration, orphaned import, or unclassified W0 runtime/resource was 
 
 ## Critical gaps
 
-Independent rereview of the exact clock-component remediation remains open. W1 stays locked.
+None. W0 passed its independent gate at exact commit `73e4d18`.
 
 ## Integration issues
 
@@ -579,8 +591,8 @@ persisted records use the verified state, as the frozen contract requires.
 
 ## Recommended fixes
 
-Commit the exact verified clock-component remediation and request an independent rereview of that
-commit. Do not start W1 without a READY verdict.
+None required before W1. Preserve `73e4d18` in the W1 ancestry so the reviewed protocol freeze
+remains traceable.
 
 ## Optional enhancements
 

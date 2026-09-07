@@ -1,7 +1,7 @@
 {
   "id": "2026-09-04-m1-semantic-kernel-node-notes",
   "title": "Implementation notes - M1 public semantic kernel and reference Node",
-  "subtitle": "M1-W0 clock-component remediation verified locally; independent rereview pending; W1 locked · 2026-09-07 02:25 CDT",
+  "subtitle": "M1-W0 READY at 73e4d18; W1 unlocked but not started · 2026-09-07 02:30 CDT",
   "introTitle": "How to use",
   "intro": "<p>Each item is a decision, deviation, or tradeoff made during implementation. <strong>Acknowledge</strong> if fine. <strong>Discuss</strong> to write what should change. <strong>Revert</strong> to flag for undo.</p>",
   "actions": [
@@ -243,6 +243,18 @@
         "What I changed": "The schema and semantic grammar now enforce explicit clock-component ranges. Semantic parsing constructs a timezone-aware instant from validated components instead of delegating normalization to datetime.fromisoformat. Hour 24 and leap-second 60 are outside the frozen profile.",
         "Evidence": "Schema and semantic mutations cover hour 24 with whole-second and millisecond forms, minute 60, second 60, and the valid 23:59:59.999 boundary. Fully signed receipt chains reproduce both hour-24 forms. The targeted regression passes on Python 3.12, 3.13, and 3.14.",
         "Gate": "The 115-test focused W0 command and full make verify pass: Ruff, strict MyPy over 566 source files, 3,371 tests, six artifacts, and artifact policy are green. The signed regression also passes on Python 3.12, 3.13, and 3.14. A fresh independent READY verdict remains required before W0 can close or W1 can begin."
+      }
+    },
+    {
+      "id": "N19",
+      "group": "m1-w0",
+      "title": "W0 passed the independent gate",
+      "default": "acknowledge",
+      "body": {
+        "Verdict": "The strict read-only review of exact commit 73e4d18d5e2430baf0b18e100c66893e55183630 returned READY with P0 0, P1 0, P2 0, and P3 0.",
+        "Cross-version evidence": "Both fully signed hour-24 counterexamples and minute/second 60 reject in schema and semantics on Python 3.12.13, 3.13.13, and 3.14.4. Signed 23:59:59.999 and valid leap-day cases pass. The schema and signature modules passed 82 tests on each of Python 3.12 and 3.13.",
+        "Regression evidence": "The reviewer passed 200 focused protocol, security, compatibility, traceability, classification, acceptance, and architecture tests on Python 3.14, plus independent malformed/calendar, nested-field, body-exemption, precision, chronology, and grant-TTL mutations. M0 lineage and public privacy remained clean.",
+        "Gate": "M1-W0 is complete. W1 is unlocked but has not started. The reviewed commit must remain in W1 ancestry."
       }
     }
   ]
