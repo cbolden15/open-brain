@@ -1,0 +1,34 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:open-brain:protocol:v1:cold-transfer-certificate",
+  "type": "object",
+  "properties": {
+    "schema_version": { "$ref": "urn:open-brain:protocol:v1:common#/$defs/schema_version" },
+    "transfer_id": { "$ref": "urn:open-brain:protocol:v1:common#/$defs/transfer_id" },
+    "brain_id": { "$ref": "urn:open-brain:protocol:v1:common#/$defs/brain_id" },
+    "from_node_id": { "$ref": "urn:open-brain:protocol:v1:common#/$defs/node_id" },
+    "from_machine_instance": { "type": "string", "pattern": "^machine_[a-z2-7]{26}$" },
+    "to_node_id": { "$ref": "urn:open-brain:protocol:v1:common#/$defs/node_id" },
+    "to_machine_instance": { "type": "string", "pattern": "^machine_[a-z2-7]{26}$" },
+    "previous_epoch": { "type": "integer", "minimum": 1 },
+    "next_epoch": { "type": "integer", "minimum": 2 },
+    "stop_proof_id": { "$ref": "urn:open-brain:protocol:v1:common#/$defs/stop_proof_id" },
+    "issued_at": { "$ref": "urn:open-brain:protocol:v1:common#/$defs/timestamp" },
+    "owner_signature": { "$ref": "urn:open-brain:protocol:v1:common#/$defs/base64url" }
+  },
+  "required": [
+    "schema_version",
+    "transfer_id",
+    "brain_id",
+    "from_node_id",
+    "from_machine_instance",
+    "to_node_id",
+    "to_machine_instance",
+    "previous_epoch",
+    "next_epoch",
+    "stop_proof_id",
+    "issued_at",
+    "owner_signature"
+  ],
+  "additionalProperties": false
+}

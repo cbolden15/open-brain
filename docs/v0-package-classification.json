@@ -4729,6 +4729,140 @@
       "target_path": "packages/app/src/open_brain/profile.py",
       "test_owner": "app"
     },
+    "protocol/__init__.py": {
+      "api": "public",
+      "api_status": "public",
+      "artifact_disposition": [
+        "engine-sdist",
+        "engine-wheel"
+      ],
+      "current_path": "packages/engine/src/open_brain_engine/protocol/__init__.py",
+      "import_rewrite": {
+        "from": "open_brain.protocol",
+        "to": "open_brain_engine.protocol"
+      },
+      "movement_state": "moved",
+      "old_import_disposition": "remove",
+      "owner": "engine",
+      "resource_requirements": [],
+      "roles": [],
+      "runtime_namespace": "open_brain_engine",
+      "target_distribution": "engine",
+      "target_path": "packages/engine/src/open_brain_engine/protocol/__init__.py",
+      "test_owner": "engine"
+    },
+    "protocol/canonical.py": {
+      "api": "public",
+      "api_status": "public",
+      "artifact_disposition": [
+        "engine-sdist",
+        "engine-wheel"
+      ],
+      "current_path": "packages/engine/src/open_brain_engine/protocol/canonical.py",
+      "import_rewrite": {
+        "from": "open_brain.protocol.canonical",
+        "to": "open_brain_engine.protocol.canonical"
+      },
+      "movement_state": "moved",
+      "old_import_disposition": "remove",
+      "owner": "engine",
+      "resource_requirements": [],
+      "roles": [],
+      "runtime_namespace": "open_brain_engine",
+      "target_distribution": "engine",
+      "target_path": "packages/engine/src/open_brain_engine/protocol/canonical.py",
+      "test_owner": "engine"
+    },
+    "protocol/custody.py": {
+      "api": "public",
+      "api_status": "public",
+      "artifact_disposition": [
+        "engine-sdist",
+        "engine-wheel"
+      ],
+      "current_path": "packages/engine/src/open_brain_engine/protocol/custody.py",
+      "import_rewrite": {
+        "from": "open_brain.protocol.custody",
+        "to": "open_brain_engine.protocol.custody"
+      },
+      "movement_state": "moved",
+      "old_import_disposition": "remove",
+      "owner": "engine",
+      "resource_requirements": [],
+      "roles": [],
+      "runtime_namespace": "open_brain_engine",
+      "target_distribution": "engine",
+      "target_path": "packages/engine/src/open_brain_engine/protocol/custody.py",
+      "test_owner": "engine"
+    },
+    "protocol/freeze.py": {
+      "api": "public",
+      "api_status": "public",
+      "artifact_disposition": [
+        "engine-sdist",
+        "engine-wheel"
+      ],
+      "current_path": "packages/engine/src/open_brain_engine/protocol/freeze.py",
+      "import_rewrite": {
+        "from": "open_brain.protocol.freeze",
+        "to": "open_brain_engine.protocol.freeze"
+      },
+      "movement_state": "moved",
+      "old_import_disposition": "remove",
+      "owner": "engine",
+      "resource_requirements": [],
+      "roles": [],
+      "runtime_namespace": "open_brain_engine",
+      "target_distribution": "engine",
+      "target_path": "packages/engine/src/open_brain_engine/protocol/freeze.py",
+      "test_owner": "engine"
+    },
+    "protocol/identifiers.py": {
+      "api": "public",
+      "api_status": "public",
+      "artifact_disposition": [
+        "engine-sdist",
+        "engine-wheel"
+      ],
+      "current_path": "packages/engine/src/open_brain_engine/protocol/identifiers.py",
+      "import_rewrite": {
+        "from": "open_brain.protocol.identifiers",
+        "to": "open_brain_engine.protocol.identifiers"
+      },
+      "movement_state": "moved",
+      "old_import_disposition": "remove",
+      "owner": "engine",
+      "resource_requirements": [],
+      "roles": [],
+      "runtime_namespace": "open_brain_engine",
+      "target_distribution": "engine",
+      "target_path": "packages/engine/src/open_brain_engine/protocol/identifiers.py",
+      "test_owner": "engine"
+    },
+    "protocol/resources.py": {
+      "api": "public",
+      "api_status": "public",
+      "artifact_disposition": [
+        "engine-sdist",
+        "engine-wheel"
+      ],
+      "current_path": "packages/engine/src/open_brain_engine/protocol/resources.py",
+      "import_rewrite": {
+        "from": "open_brain.protocol.resources",
+        "to": "open_brain_engine.protocol.resources"
+      },
+      "movement_state": "moved",
+      "old_import_disposition": "remove",
+      "owner": "engine",
+      "resource_requirements": [
+        "importlib.resources"
+      ],
+      "roles": [],
+      "runtime_namespace": "open_brain_engine",
+      "target_distribution": "engine",
+      "target_path": "packages/engine/src/open_brain_engine/protocol/resources.py",
+      "test_owner": "engine"
+    },
     "providers/__init__.py": {
       "api": "internal",
       "api_status": "distribution-private",
@@ -5961,6 +6095,12 @@
       "phase_1_action": "Retain only files classified outside legacy.",
       "target_owner": "connector plus legacy"
     },
+    "protocol": {
+      "classification": "engine",
+      "current_scope": "Generated from authoritative file ownership.",
+      "phase_1_action": "Retain only files classified outside legacy.",
+      "target_owner": "engine"
+    },
     "providers": {
       "classification": "mixed",
       "current_scope": "Generated from authoritative file ownership.",
@@ -6001,6 +6141,7 @@
     "release_identity": {
       "candidate_version": "0.1.0",
       "compatibility_record": "release/phase4-compatibility.json",
+      "m1_compatibility_record": "release/m1-compatibility.json",
       "portable_schema": {
         "maximum": 1,
         "minimum": 1
@@ -6209,6 +6350,240 @@
         "runtime_namespace": null,
         "target_distribution": "workspace",
         "target_path": "docs/architecture.md",
+        "test_owner": "workspace"
+      },
+      "docs/architecture/brain-protocol-v1.md": {
+        "api_status": "workspace-only",
+        "artifact_disposition": [
+          "app-sdist"
+        ],
+        "current_path": "docs/architecture/brain-protocol-v1.md",
+        "import_rewrite": null,
+        "kind": "package-resource",
+        "movement_state": "moved",
+        "old_import_disposition": "not-applicable",
+        "resource_requirements": [
+          "build-metadata"
+        ],
+        "runtime_namespace": null,
+        "target_distribution": "workspace",
+        "target_path": "docs/architecture/brain-protocol-v1.md",
+        "test_owner": "workspace"
+      },
+      "docs/architecture/decisions/0001-brain-protocol-v1.md": {
+        "api_status": "workspace-only",
+        "artifact_disposition": [
+          "app-sdist"
+        ],
+        "current_path": "docs/architecture/decisions/0001-brain-protocol-v1.md",
+        "import_rewrite": null,
+        "kind": "package-resource",
+        "movement_state": "moved",
+        "old_import_disposition": "not-applicable",
+        "resource_requirements": [
+          "build-metadata"
+        ],
+        "runtime_namespace": null,
+        "target_distribution": "workspace",
+        "target_path": "docs/architecture/decisions/0001-brain-protocol-v1.md",
+        "test_owner": "workspace"
+      },
+      "docs/architecture/decisions/0002-brain-and-record-identity.md": {
+        "api_status": "workspace-only",
+        "artifact_disposition": [
+          "app-sdist"
+        ],
+        "current_path": "docs/architecture/decisions/0002-brain-and-record-identity.md",
+        "import_rewrite": null,
+        "kind": "package-resource",
+        "movement_state": "moved",
+        "old_import_disposition": "not-applicable",
+        "resource_requirements": [
+          "build-metadata"
+        ],
+        "runtime_namespace": null,
+        "target_distribution": "workspace",
+        "target_path": "docs/architecture/decisions/0002-brain-and-record-identity.md",
+        "test_owner": "workspace"
+      },
+      "docs/architecture/decisions/0003-idempotency-and-conflict-semantics.md": {
+        "api_status": "workspace-only",
+        "artifact_disposition": [
+          "app-sdist"
+        ],
+        "current_path": "docs/architecture/decisions/0003-idempotency-and-conflict-semantics.md",
+        "import_rewrite": null,
+        "kind": "package-resource",
+        "movement_state": "moved",
+        "old_import_disposition": "not-applicable",
+        "resource_requirements": [
+          "build-metadata"
+        ],
+        "runtime_namespace": null,
+        "target_distribution": "workspace",
+        "target_path": "docs/architecture/decisions/0003-idempotency-and-conflict-semantics.md",
+        "test_owner": "workspace"
+      },
+      "docs/architecture/decisions/0004-capability-authorization.md": {
+        "api_status": "workspace-only",
+        "artifact_disposition": [
+          "app-sdist"
+        ],
+        "current_path": "docs/architecture/decisions/0004-capability-authorization.md",
+        "import_rewrite": null,
+        "kind": "package-resource",
+        "movement_state": "moved",
+        "old_import_disposition": "not-applicable",
+        "resource_requirements": [
+          "build-metadata"
+        ],
+        "runtime_namespace": null,
+        "target_distribution": "workspace",
+        "target_path": "docs/architecture/decisions/0004-capability-authorization.md",
+        "test_owner": "workspace"
+      },
+      "docs/architecture/decisions/0005-information-flow-labels.md": {
+        "api_status": "workspace-only",
+        "artifact_disposition": [
+          "app-sdist"
+        ],
+        "current_path": "docs/architecture/decisions/0005-information-flow-labels.md",
+        "import_rewrite": null,
+        "kind": "package-resource",
+        "movement_state": "moved",
+        "old_import_disposition": "not-applicable",
+        "resource_requirements": [
+          "build-metadata"
+        ],
+        "runtime_namespace": null,
+        "target_distribution": "workspace",
+        "target_path": "docs/architecture/decisions/0005-information-flow-labels.md",
+        "test_owner": "workspace"
+      },
+      "docs/architecture/decisions/0006-provenance-closed-erasure.md": {
+        "api_status": "workspace-only",
+        "artifact_disposition": [
+          "app-sdist"
+        ],
+        "current_path": "docs/architecture/decisions/0006-provenance-closed-erasure.md",
+        "import_rewrite": null,
+        "kind": "package-resource",
+        "movement_state": "moved",
+        "old_import_disposition": "not-applicable",
+        "resource_requirements": [
+          "build-metadata"
+        ],
+        "runtime_namespace": null,
+        "target_distribution": "workspace",
+        "target_path": "docs/architecture/decisions/0006-provenance-closed-erasure.md",
+        "test_owner": "workspace"
+      },
+      "docs/architecture/decisions/0007-single-sequencer-fencing.md": {
+        "api_status": "workspace-only",
+        "artifact_disposition": [
+          "app-sdist"
+        ],
+        "current_path": "docs/architecture/decisions/0007-single-sequencer-fencing.md",
+        "import_rewrite": null,
+        "kind": "package-resource",
+        "movement_state": "moved",
+        "old_import_disposition": "not-applicable",
+        "resource_requirements": [
+          "build-metadata"
+        ],
+        "runtime_namespace": null,
+        "target_distribution": "workspace",
+        "target_path": "docs/architecture/decisions/0007-single-sequencer-fencing.md",
+        "test_owner": "workspace"
+      },
+      "docs/architecture/decisions/0008-rebuildable-projections.md": {
+        "api_status": "workspace-only",
+        "artifact_disposition": [
+          "app-sdist"
+        ],
+        "current_path": "docs/architecture/decisions/0008-rebuildable-projections.md",
+        "import_rewrite": null,
+        "kind": "package-resource",
+        "movement_state": "moved",
+        "old_import_disposition": "not-applicable",
+        "resource_requirements": [
+          "build-metadata"
+        ],
+        "runtime_namespace": null,
+        "target_distribution": "workspace",
+        "target_path": "docs/architecture/decisions/0008-rebuildable-projections.md",
+        "test_owner": "workspace"
+      },
+      "docs/architecture/decisions/0009-brainpack-v2.md": {
+        "api_status": "workspace-only",
+        "artifact_disposition": [
+          "app-sdist"
+        ],
+        "current_path": "docs/architecture/decisions/0009-brainpack-v2.md",
+        "import_rewrite": null,
+        "kind": "package-resource",
+        "movement_state": "moved",
+        "old_import_disposition": "not-applicable",
+        "resource_requirements": [
+          "build-metadata"
+        ],
+        "runtime_namespace": null,
+        "target_distribution": "workspace",
+        "target_path": "docs/architecture/decisions/0009-brainpack-v2.md",
+        "test_owner": "workspace"
+      },
+      "docs/architecture/decisions/0010-m1-wire-storage-and-crypto.md": {
+        "api_status": "workspace-only",
+        "artifact_disposition": [
+          "app-sdist"
+        ],
+        "current_path": "docs/architecture/decisions/0010-m1-wire-storage-and-crypto.md",
+        "import_rewrite": null,
+        "kind": "package-resource",
+        "movement_state": "moved",
+        "old_import_disposition": "not-applicable",
+        "resource_requirements": [
+          "build-metadata"
+        ],
+        "runtime_namespace": null,
+        "target_distribution": "workspace",
+        "target_path": "docs/architecture/decisions/0010-m1-wire-storage-and-crypto.md",
+        "test_owner": "workspace"
+      },
+      "docs/architecture/decisions/0011-m1-authority-information-flow-and-resource-bounds.md": {
+        "api_status": "workspace-only",
+        "artifact_disposition": [
+          "app-sdist"
+        ],
+        "current_path": "docs/architecture/decisions/0011-m1-authority-information-flow-and-resource-bounds.md",
+        "import_rewrite": null,
+        "kind": "package-resource",
+        "movement_state": "moved",
+        "old_import_disposition": "not-applicable",
+        "resource_requirements": [
+          "build-metadata"
+        ],
+        "runtime_namespace": null,
+        "target_distribution": "workspace",
+        "target_path": "docs/architecture/decisions/0011-m1-authority-information-flow-and-resource-bounds.md",
+        "test_owner": "workspace"
+      },
+      "docs/architecture/m0-contract-manifest.json": {
+        "api_status": "workspace-only",
+        "artifact_disposition": [
+          "app-sdist"
+        ],
+        "current_path": "docs/architecture/m0-contract-manifest.json",
+        "import_rewrite": null,
+        "kind": "package-resource",
+        "movement_state": "moved",
+        "old_import_disposition": "not-applicable",
+        "resource_requirements": [
+          "build-metadata"
+        ],
+        "runtime_namespace": null,
+        "target_distribution": "workspace",
+        "target_path": "docs/architecture/m0-contract-manifest.json",
         "test_owner": "workspace"
       },
       "docs/architecture/proposed-v0-system-architecture.md": {
@@ -6907,6 +7282,25 @@
         "target_path": "packages/app/pyproject.toml#project.scripts.open-brain-mcp",
         "test_owner": "app"
       },
+      "release/m1-compatibility.json": {
+        "api_status": "workspace-only",
+        "artifact_disposition": [
+          "app-sdist",
+          "engine-sdist"
+        ],
+        "current_path": "release/m1-compatibility.json",
+        "import_rewrite": null,
+        "kind": "release-resource",
+        "movement_state": "moved",
+        "old_import_disposition": "not-applicable",
+        "resource_requirements": [
+          "release-identity"
+        ],
+        "runtime_namespace": null,
+        "target_distribution": "workspace",
+        "target_path": "release/m1-compatibility.json",
+        "test_owner": "workspace"
+      },
       "release/native/open-brain.spec": {
         "api_status": "workspace-only",
         "artifact_disposition": [
@@ -7290,6 +7684,386 @@
         "target_path": "packages/engine/src/open_brain_engine/portable/schemas/v1/text.json",
         "test_owner": "engine"
       },
+      "schemas/protocol-v1/changes.json": {
+        "api_status": "distribution-private",
+        "artifact_disposition": [
+          "engine-sdist",
+          "engine-wheel"
+        ],
+        "current_path": "packages/engine/src/open_brain_engine/protocol/schemas/v1/changes.json",
+        "import_rewrite": null,
+        "kind": "schema",
+        "movement_state": "moved",
+        "old_import_disposition": "not-applicable",
+        "resource_requirements": [
+          "importlib.resources"
+        ],
+        "runtime_namespace": null,
+        "target_distribution": "engine",
+        "target_path": "packages/engine/src/open_brain_engine/protocol/schemas/v1/changes.json",
+        "test_owner": "engine"
+      },
+      "schemas/protocol-v1/cold-transfer-certificate.json": {
+        "api_status": "distribution-private",
+        "artifact_disposition": [
+          "engine-sdist",
+          "engine-wheel"
+        ],
+        "current_path": "packages/engine/src/open_brain_engine/protocol/schemas/v1/cold-transfer-certificate.json",
+        "import_rewrite": null,
+        "kind": "schema",
+        "movement_state": "moved",
+        "old_import_disposition": "not-applicable",
+        "resource_requirements": [
+          "importlib.resources"
+        ],
+        "runtime_namespace": null,
+        "target_distribution": "engine",
+        "target_path": "packages/engine/src/open_brain_engine/protocol/schemas/v1/cold-transfer-certificate.json",
+        "test_owner": "engine"
+      },
+      "schemas/protocol-v1/commit-batch.json": {
+        "api_status": "distribution-private",
+        "artifact_disposition": [
+          "engine-sdist",
+          "engine-wheel"
+        ],
+        "current_path": "packages/engine/src/open_brain_engine/protocol/schemas/v1/commit-batch.json",
+        "import_rewrite": null,
+        "kind": "schema",
+        "movement_state": "moved",
+        "old_import_disposition": "not-applicable",
+        "resource_requirements": [
+          "importlib.resources"
+        ],
+        "runtime_namespace": null,
+        "target_distribution": "engine",
+        "target_path": "packages/engine/src/open_brain_engine/protocol/schemas/v1/commit-batch.json",
+        "test_owner": "engine"
+      },
+      "schemas/protocol-v1/common.json": {
+        "api_status": "distribution-private",
+        "artifact_disposition": [
+          "engine-sdist",
+          "engine-wheel"
+        ],
+        "current_path": "packages/engine/src/open_brain_engine/protocol/schemas/v1/common.json",
+        "import_rewrite": null,
+        "kind": "schema",
+        "movement_state": "moved",
+        "old_import_disposition": "not-applicable",
+        "resource_requirements": [
+          "importlib.resources"
+        ],
+        "runtime_namespace": null,
+        "target_distribution": "engine",
+        "target_path": "packages/engine/src/open_brain_engine/protocol/schemas/v1/common.json",
+        "test_owner": "engine"
+      },
+      "schemas/protocol-v1/decision.json": {
+        "api_status": "distribution-private",
+        "artifact_disposition": [
+          "engine-sdist",
+          "engine-wheel"
+        ],
+        "current_path": "packages/engine/src/open_brain_engine/protocol/schemas/v1/decision.json",
+        "import_rewrite": null,
+        "kind": "schema",
+        "movement_state": "moved",
+        "old_import_disposition": "not-applicable",
+        "resource_requirements": [
+          "importlib.resources"
+        ],
+        "runtime_namespace": null,
+        "target_distribution": "engine",
+        "target_path": "packages/engine/src/open_brain_engine/protocol/schemas/v1/decision.json",
+        "test_owner": "engine"
+      },
+      "schemas/protocol-v1/durable-job.json": {
+        "api_status": "distribution-private",
+        "artifact_disposition": [
+          "engine-sdist",
+          "engine-wheel"
+        ],
+        "current_path": "packages/engine/src/open_brain_engine/protocol/schemas/v1/durable-job.json",
+        "import_rewrite": null,
+        "kind": "schema",
+        "movement_state": "moved",
+        "old_import_disposition": "not-applicable",
+        "resource_requirements": [
+          "importlib.resources"
+        ],
+        "runtime_namespace": null,
+        "target_distribution": "engine",
+        "target_path": "packages/engine/src/open_brain_engine/protocol/schemas/v1/durable-job.json",
+        "test_owner": "engine"
+      },
+      "schemas/protocol-v1/grant.json": {
+        "api_status": "distribution-private",
+        "artifact_disposition": [
+          "engine-sdist",
+          "engine-wheel"
+        ],
+        "current_path": "packages/engine/src/open_brain_engine/protocol/schemas/v1/grant.json",
+        "import_rewrite": null,
+        "kind": "schema",
+        "movement_state": "moved",
+        "old_import_disposition": "not-applicable",
+        "resource_requirements": [
+          "importlib.resources"
+        ],
+        "runtime_namespace": null,
+        "target_distribution": "engine",
+        "target_path": "packages/engine/src/open_brain_engine/protocol/schemas/v1/grant.json",
+        "test_owner": "engine"
+      },
+      "schemas/protocol-v1/inspect.json": {
+        "api_status": "distribution-private",
+        "artifact_disposition": [
+          "engine-sdist",
+          "engine-wheel"
+        ],
+        "current_path": "packages/engine/src/open_brain_engine/protocol/schemas/v1/inspect.json",
+        "import_rewrite": null,
+        "kind": "schema",
+        "movement_state": "moved",
+        "old_import_disposition": "not-applicable",
+        "resource_requirements": [
+          "importlib.resources"
+        ],
+        "runtime_namespace": null,
+        "target_distribution": "engine",
+        "target_path": "packages/engine/src/open_brain_engine/protocol/schemas/v1/inspect.json",
+        "test_owner": "engine"
+      },
+      "schemas/protocol-v1/provenance.json": {
+        "api_status": "distribution-private",
+        "artifact_disposition": [
+          "engine-sdist",
+          "engine-wheel"
+        ],
+        "current_path": "packages/engine/src/open_brain_engine/protocol/schemas/v1/provenance.json",
+        "import_rewrite": null,
+        "kind": "schema",
+        "movement_state": "moved",
+        "old_import_disposition": "not-applicable",
+        "resource_requirements": [
+          "importlib.resources"
+        ],
+        "runtime_namespace": null,
+        "target_distribution": "engine",
+        "target_path": "packages/engine/src/open_brain_engine/protocol/schemas/v1/provenance.json",
+        "test_owner": "engine"
+      },
+      "schemas/protocol-v1/purge-transition.json": {
+        "api_status": "distribution-private",
+        "artifact_disposition": [
+          "engine-sdist",
+          "engine-wheel"
+        ],
+        "current_path": "packages/engine/src/open_brain_engine/protocol/schemas/v1/purge-transition.json",
+        "import_rewrite": null,
+        "kind": "schema",
+        "movement_state": "moved",
+        "old_import_disposition": "not-applicable",
+        "resource_requirements": [
+          "importlib.resources"
+        ],
+        "runtime_namespace": null,
+        "target_distribution": "engine",
+        "target_path": "packages/engine/src/open_brain_engine/protocol/schemas/v1/purge-transition.json",
+        "test_owner": "engine"
+      },
+      "schemas/protocol-v1/query-continuation.json": {
+        "api_status": "distribution-private",
+        "artifact_disposition": [
+          "engine-sdist",
+          "engine-wheel"
+        ],
+        "current_path": "packages/engine/src/open_brain_engine/protocol/schemas/v1/query-continuation.json",
+        "import_rewrite": null,
+        "kind": "schema",
+        "movement_state": "moved",
+        "old_import_disposition": "not-applicable",
+        "resource_requirements": [
+          "importlib.resources"
+        ],
+        "runtime_namespace": null,
+        "target_distribution": "engine",
+        "target_path": "packages/engine/src/open_brain_engine/protocol/schemas/v1/query-continuation.json",
+        "test_owner": "engine"
+      },
+      "schemas/protocol-v1/query-evidence.json": {
+        "api_status": "distribution-private",
+        "artifact_disposition": [
+          "engine-sdist",
+          "engine-wheel"
+        ],
+        "current_path": "packages/engine/src/open_brain_engine/protocol/schemas/v1/query-evidence.json",
+        "import_rewrite": null,
+        "kind": "schema",
+        "movement_state": "moved",
+        "old_import_disposition": "not-applicable",
+        "resource_requirements": [
+          "importlib.resources"
+        ],
+        "runtime_namespace": null,
+        "target_distribution": "engine",
+        "target_path": "packages/engine/src/open_brain_engine/protocol/schemas/v1/query-evidence.json",
+        "test_owner": "engine"
+      },
+      "schemas/protocol-v1/query.json": {
+        "api_status": "distribution-private",
+        "artifact_disposition": [
+          "engine-sdist",
+          "engine-wheel"
+        ],
+        "current_path": "packages/engine/src/open_brain_engine/protocol/schemas/v1/query.json",
+        "import_rewrite": null,
+        "kind": "schema",
+        "movement_state": "moved",
+        "old_import_disposition": "not-applicable",
+        "resource_requirements": [
+          "importlib.resources"
+        ],
+        "runtime_namespace": null,
+        "target_distribution": "engine",
+        "target_path": "packages/engine/src/open_brain_engine/protocol/schemas/v1/query.json",
+        "test_owner": "engine"
+      },
+      "schemas/protocol-v1/receipt.json": {
+        "api_status": "distribution-private",
+        "artifact_disposition": [
+          "engine-sdist",
+          "engine-wheel"
+        ],
+        "current_path": "packages/engine/src/open_brain_engine/protocol/schemas/v1/receipt.json",
+        "import_rewrite": null,
+        "kind": "schema",
+        "movement_state": "moved",
+        "old_import_disposition": "not-applicable",
+        "resource_requirements": [
+          "importlib.resources"
+        ],
+        "runtime_namespace": null,
+        "target_distribution": "engine",
+        "target_path": "packages/engine/src/open_brain_engine/protocol/schemas/v1/receipt.json",
+        "test_owner": "engine"
+      },
+      "schemas/protocol-v1/record.json": {
+        "api_status": "distribution-private",
+        "artifact_disposition": [
+          "engine-sdist",
+          "engine-wheel"
+        ],
+        "current_path": "packages/engine/src/open_brain_engine/protocol/schemas/v1/record.json",
+        "import_rewrite": null,
+        "kind": "schema",
+        "movement_state": "moved",
+        "old_import_disposition": "not-applicable",
+        "resource_requirements": [
+          "importlib.resources"
+        ],
+        "runtime_namespace": null,
+        "target_distribution": "engine",
+        "target_path": "packages/engine/src/open_brain_engine/protocol/schemas/v1/record.json",
+        "test_owner": "engine"
+      },
+      "schemas/protocol-v1/request-binding.json": {
+        "api_status": "distribution-private",
+        "artifact_disposition": [
+          "engine-sdist",
+          "engine-wheel"
+        ],
+        "current_path": "packages/engine/src/open_brain_engine/protocol/schemas/v1/request-binding.json",
+        "import_rewrite": null,
+        "kind": "schema",
+        "movement_state": "moved",
+        "old_import_disposition": "not-applicable",
+        "resource_requirements": [
+          "importlib.resources"
+        ],
+        "runtime_namespace": null,
+        "target_distribution": "engine",
+        "target_path": "packages/engine/src/open_brain_engine/protocol/schemas/v1/request-binding.json",
+        "test_owner": "engine"
+      },
+      "schemas/protocol-v1/resource-limit-failure.json": {
+        "api_status": "distribution-private",
+        "artifact_disposition": [
+          "engine-sdist",
+          "engine-wheel"
+        ],
+        "current_path": "packages/engine/src/open_brain_engine/protocol/schemas/v1/resource-limit-failure.json",
+        "import_rewrite": null,
+        "kind": "schema",
+        "movement_state": "moved",
+        "old_import_disposition": "not-applicable",
+        "resource_requirements": [
+          "importlib.resources"
+        ],
+        "runtime_namespace": null,
+        "target_distribution": "engine",
+        "target_path": "packages/engine/src/open_brain_engine/protocol/schemas/v1/resource-limit-failure.json",
+        "test_owner": "engine"
+      },
+      "schemas/protocol-v1/revision.json": {
+        "api_status": "distribution-private",
+        "artifact_disposition": [
+          "engine-sdist",
+          "engine-wheel"
+        ],
+        "current_path": "packages/engine/src/open_brain_engine/protocol/schemas/v1/revision.json",
+        "import_rewrite": null,
+        "kind": "schema",
+        "movement_state": "moved",
+        "old_import_disposition": "not-applicable",
+        "resource_requirements": [
+          "importlib.resources"
+        ],
+        "runtime_namespace": null,
+        "target_distribution": "engine",
+        "target_path": "packages/engine/src/open_brain_engine/protocol/schemas/v1/revision.json",
+        "test_owner": "engine"
+      },
+      "schemas/protocol-v1/security-audit-event.json": {
+        "api_status": "distribution-private",
+        "artifact_disposition": [
+          "engine-sdist",
+          "engine-wheel"
+        ],
+        "current_path": "packages/engine/src/open_brain_engine/protocol/schemas/v1/security-audit-event.json",
+        "import_rewrite": null,
+        "kind": "schema",
+        "movement_state": "moved",
+        "old_import_disposition": "not-applicable",
+        "resource_requirements": [
+          "importlib.resources"
+        ],
+        "runtime_namespace": null,
+        "target_distribution": "engine",
+        "target_path": "packages/engine/src/open_brain_engine/protocol/schemas/v1/security-audit-event.json",
+        "test_owner": "engine"
+      },
+      "schemas/protocol-v1/sequencer-stop-proof.json": {
+        "api_status": "distribution-private",
+        "artifact_disposition": [
+          "engine-sdist",
+          "engine-wheel"
+        ],
+        "current_path": "packages/engine/src/open_brain_engine/protocol/schemas/v1/sequencer-stop-proof.json",
+        "import_rewrite": null,
+        "kind": "schema",
+        "movement_state": "moved",
+        "old_import_disposition": "not-applicable",
+        "resource_requirements": [
+          "importlib.resources"
+        ],
+        "runtime_namespace": null,
+        "target_distribution": "engine",
+        "target_path": "packages/engine/src/open_brain_engine/protocol/schemas/v1/sequencer-stop-proof.json",
+        "test_owner": "engine"
+      },
       "src/open_brain/resources/supervisors/launchd.json": {
         "api_status": "distribution-private",
         "artifact_disposition": [
@@ -7382,6 +8156,54 @@
         "target_distribution": "workspace",
         "target_path": "tests/conftest.py",
         "test_owner": "workspace"
+      },
+      "tests/contract/protocol_v1/test_protocol_freeze.py": {
+        "api_status": "test-only",
+        "artifact_disposition": [
+          "excluded"
+        ],
+        "current_path": "packages/engine/tests/contract/protocol_v1/test_protocol_freeze.py",
+        "import_rewrite": null,
+        "kind": "test",
+        "movement_state": "moved",
+        "old_import_disposition": "not-applicable",
+        "resource_requirements": [],
+        "runtime_namespace": null,
+        "target_distribution": "engine",
+        "target_path": "packages/engine/tests/contract/protocol_v1/test_protocol_freeze.py",
+        "test_owner": "engine"
+      },
+      "tests/contract/protocol_v1/test_schemas.py": {
+        "api_status": "test-only",
+        "artifact_disposition": [
+          "excluded"
+        ],
+        "current_path": "packages/engine/tests/contract/protocol_v1/test_schemas.py",
+        "import_rewrite": null,
+        "kind": "test",
+        "movement_state": "moved",
+        "old_import_disposition": "not-applicable",
+        "resource_requirements": [],
+        "runtime_namespace": null,
+        "target_distribution": "engine",
+        "target_path": "packages/engine/tests/contract/protocol_v1/test_schemas.py",
+        "test_owner": "engine"
+      },
+      "tests/contract/protocol_v1/test_signature_vectors.py": {
+        "api_status": "test-only",
+        "artifact_disposition": [
+          "excluded"
+        ],
+        "current_path": "packages/engine/tests/contract/protocol_v1/test_signature_vectors.py",
+        "import_rewrite": null,
+        "kind": "test",
+        "movement_state": "moved",
+        "old_import_disposition": "not-applicable",
+        "resource_requirements": [],
+        "runtime_namespace": null,
+        "target_distribution": "engine",
+        "target_path": "packages/engine/tests/contract/protocol_v1/test_signature_vectors.py",
+        "test_owner": "engine"
       },
       "tests/contract/test_current_record_characterization.py": {
         "api_status": "test-only",
@@ -7822,6 +8644,44 @@
         "runtime_namespace": null,
         "target_distribution": "engine",
         "target_path": "packages/engine/src/open_brain_engine/portable/conformance/v1/cases.json",
+        "test_owner": "engine"
+      },
+      "tests/fixtures/protocol-v1/cases.json": {
+        "api_status": "test-only",
+        "artifact_disposition": [
+          "engine-sdist",
+          "engine-wheel"
+        ],
+        "current_path": "packages/engine/src/open_brain_engine/protocol/conformance/v1/cases.json",
+        "import_rewrite": null,
+        "kind": "fixture",
+        "movement_state": "moved",
+        "old_import_disposition": "not-applicable",
+        "resource_requirements": [
+          "importlib.resources"
+        ],
+        "runtime_namespace": null,
+        "target_distribution": "engine",
+        "target_path": "packages/engine/src/open_brain_engine/protocol/conformance/v1/cases.json",
+        "test_owner": "engine"
+      },
+      "tests/fixtures/protocol-v1/signatures.json": {
+        "api_status": "test-only",
+        "artifact_disposition": [
+          "engine-sdist",
+          "engine-wheel"
+        ],
+        "current_path": "packages/engine/src/open_brain_engine/protocol/conformance/v1/signatures.json",
+        "import_rewrite": null,
+        "kind": "fixture",
+        "movement_state": "moved",
+        "old_import_disposition": "not-applicable",
+        "resource_requirements": [
+          "importlib.resources"
+        ],
+        "runtime_namespace": null,
+        "target_distribution": "engine",
+        "target_path": "packages/engine/src/open_brain_engine/protocol/conformance/v1/signatures.json",
         "test_owner": "engine"
       },
       "tests/integration/__init__.py": {
@@ -10768,6 +11628,22 @@
         "target_path": "tests/phase4/test_engine_distribution.py",
         "test_owner": "workspace"
       },
+      "tests/phase4/test_m1_compatibility_baseline.py": {
+        "api_status": "test-only",
+        "artifact_disposition": [
+          "excluded"
+        ],
+        "current_path": "tests/phase4/test_m1_compatibility_baseline.py",
+        "import_rewrite": null,
+        "kind": "test",
+        "movement_state": "moved",
+        "old_import_disposition": "not-applicable",
+        "resource_requirements": [],
+        "runtime_namespace": null,
+        "target_distribution": "workspace",
+        "target_path": "tests/phase4/test_m1_compatibility_baseline.py",
+        "test_owner": "workspace"
+      },
       "tests/phase4/test_move_manifest.py": {
         "api_status": "test-only",
         "artifact_disposition": [
@@ -10895,6 +11771,22 @@
         "target_distribution": "workspace",
         "target_path": "tests/phase4/test_rewrite_imports.py",
         "test_owner": "workspace"
+      },
+      "tests/security/protocol_v1/test_security_freeze.py": {
+        "api_status": "test-only",
+        "artifact_disposition": [
+          "excluded"
+        ],
+        "current_path": "packages/engine/tests/security/protocol_v1/test_security_freeze.py",
+        "import_rewrite": null,
+        "kind": "test",
+        "movement_state": "moved",
+        "old_import_disposition": "not-applicable",
+        "resource_requirements": [],
+        "runtime_namespace": null,
+        "target_distribution": "engine",
+        "target_path": "packages/engine/tests/security/protocol_v1/test_security_freeze.py",
+        "test_owner": "engine"
       },
       "tests/security/test_appliance_auth.py": {
         "api_status": "test-only",
@@ -12015,6 +12907,56 @@
         "target_distribution": "legacy",
         "target_path": "packages/legacy/tests/unit/test_writer_effect_parameters.py",
         "test_owner": "legacy"
+      },
+      "tools/m1/compatibility_probe.py": {
+        "api_status": "workspace-only",
+        "artifact_disposition": [
+          "excluded"
+        ],
+        "current_path": "tools/m1/compatibility_probe.py",
+        "import_rewrite": null,
+        "kind": "release-tool",
+        "movement_state": "moved",
+        "old_import_disposition": "not-applicable",
+        "resource_requirements": [
+          "native-build"
+        ],
+        "runtime_namespace": null,
+        "target_distribution": "workspace",
+        "target_path": "tools/m1/compatibility_probe.py",
+        "test_owner": "workspace"
+      },
+      "tools/m1/crypto_probe.py": {
+        "api_status": "workspace-only",
+        "artifact_disposition": [
+          "excluded"
+        ],
+        "current_path": "tools/m1/crypto_probe.py",
+        "import_rewrite": null,
+        "kind": "release-tool",
+        "movement_state": "moved",
+        "old_import_disposition": "not-applicable",
+        "resource_requirements": [],
+        "runtime_namespace": null,
+        "target_distribution": "workspace",
+        "target_path": "tools/m1/crypto_probe.py",
+        "test_owner": "workspace"
+      },
+      "tools/m1/synthetic_corpus.py": {
+        "api_status": "workspace-only",
+        "artifact_disposition": [
+          "excluded"
+        ],
+        "current_path": "tools/m1/synthetic_corpus.py",
+        "import_rewrite": null,
+        "kind": "release-tool",
+        "movement_state": "moved",
+        "old_import_disposition": "not-applicable",
+        "resource_requirements": [],
+        "runtime_namespace": null,
+        "target_distribution": "workspace",
+        "target_path": "tools/m1/synthetic_corpus.py",
+        "test_owner": "workspace"
       },
       "tools/phase4/__init__.py": {
         "api_status": "workspace-only",

@@ -245,6 +245,40 @@ def install_command(python: Path, artifacts: Sequence[Path]) -> tuple[str, ...]:
     )
 
 
+def export_runtime_requirements_command(package: str) -> tuple[str, ...]:
+    if package not in {"open-brain", "open-brain-engine"}:
+        raise ValueError("unsupported runtime requirements package")
+    return (
+        "uv",
+        "export",
+        "--locked",
+        "--package",
+        package,
+        "--no-emit-project",
+        "--no-emit-workspace",
+        "--no-dev",
+        "--no-annotate",
+        "--no-header",
+    )
+
+
+def install_runtime_requirements_command(
+    python: Path,
+    requirements: Path,
+) -> tuple[str, ...]:
+    return (
+        "uv",
+        "pip",
+        "install",
+        "--python",
+        os.fspath(python),
+        "--only-binary=:all:",
+        "--require-hashes",
+        "--requirements",
+        os.fspath(requirements),
+    )
+
+
 def export_test_requirements_command() -> tuple[str, ...]:
     return (
         "uv",
@@ -256,8 +290,6 @@ def export_test_requirements_command() -> tuple[str, ...]:
         "--no-emit-workspace",
         "--prune",
         "build",
-        "--prune",
-        "cryptography",
         "--prune",
         "mypy",
         "--prune",
@@ -535,6 +567,15 @@ def engine_isolation_findings(root: Path, work: Path) -> list[Finding]:
     try:
         run_checked(create_environment_command(environment), cwd=run_root)
         python = environment / "bin/python"
+        requirements = run_root / "engine-runtime-requirements.txt"
+        exported = run_checked(
+            export_runtime_requirements_command("open-brain-engine"), cwd=root
+        )
+        requirements.write_text(exported.stdout, encoding="utf-8")
+        run_checked(
+            install_runtime_requirements_command(python, requirements),
+            cwd=run_root,
+        )
         run_checked(install_command(python, [wheel]), cwd=run_root)
         run_checked(create_environment_command(test_environment), cwd=run_root)
         test_python = test_environment / "bin/python"
@@ -741,6 +782,15 @@ def legacy_isolation_findings(root: Path, work: Path) -> list[Finding]:
     try:
         run_checked(create_environment_command(environment), cwd=run_root)
         python = environment / "bin/python"
+        requirements = run_root / "engine-runtime-requirements.txt"
+        exported = run_checked(
+            export_runtime_requirements_command("open-brain-engine"), cwd=root
+        )
+        requirements.write_text(exported.stdout, encoding="utf-8")
+        run_checked(
+            install_runtime_requirements_command(python, requirements),
+            cwd=run_root,
+        )
         stage = "install product wheels"
         run_checked(
             install_command(python, [engine_wheels[0], legacy_wheel]),
@@ -793,7 +843,9 @@ def main() -> None:
     distribution = importlib.metadata.distribution("open-brain")
     assert distribution.version == "0.1.0"
     requirements = tuple(distribution.requires or ())
-    assert "open-brain-engine==0.1.0" in requirements
+    assert "open-brain-engine[node]==0.1.0" in requirements
+    assert "starlette<1,>=0.48" in requirements
+    assert "uvicorn<1,>=0.40" in requirements
     assert not any(
         requirement.casefold().startswith(("open-brain-connectors", "open-brain-legacy"))
         for requirement in requirements
@@ -1947,6 +1999,13 @@ def app_isolation_findings(root: Path, work: Path) -> list[Finding]:
     try:
         run_checked(create_environment_command(environment), cwd=run_root)
         python = environment / "bin/python"
+        requirements = run_root / "app-runtime-requirements.txt"
+        exported = run_checked(export_runtime_requirements_command("open-brain"), cwd=root)
+        requirements.write_text(exported.stdout, encoding="utf-8")
+        run_checked(
+            install_runtime_requirements_command(python, requirements),
+            cwd=run_root,
+        )
         stage = "install product wheels"
         run_checked(
             install_command(python, [engine_wheels[0], app_wheel]),
@@ -2313,6 +2372,13 @@ def connector_isolation_findings(root: Path, work: Path) -> list[Finding]:
     try:
         run_checked(create_environment_command(environment), cwd=run_root)
         python = environment / "bin/python"
+        requirements = run_root / "app-runtime-requirements.txt"
+        exported = run_checked(export_runtime_requirements_command("open-brain"), cwd=root)
+        requirements.write_text(exported.stdout, encoding="utf-8")
+        run_checked(
+            install_runtime_requirements_command(python, requirements),
+            cwd=run_root,
+        )
         stage = "install product wheels"
         run_checked(
             install_command(python, [engine_wheels[0], app_wheel, connector_wheel]),

@@ -1,0 +1,51 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:open-brain:protocol:v1:inspect",
+  "oneOf": [
+    {
+      "type": "object",
+      "properties": {
+        "schema_version": { "$ref": "urn:open-brain:protocol:v1:common#/$defs/schema_version" },
+        "kind": { "const": "request" },
+        "brain_id": { "$ref": "urn:open-brain:protocol:v1:common#/$defs/brain_id" },
+        "entity_kind": { "enum": ["record", "revision", "decision", "job", "receipt"] },
+        "entity_id": { "type": "string", "pattern": "^[a-z]{3}_[a-z2-7]{26}$" },
+        "include_body": { "type": "boolean" }
+      },
+      "required": [
+        "schema_version",
+        "kind",
+        "brain_id",
+        "entity_kind",
+        "entity_id",
+        "include_body"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "schema_version": { "$ref": "urn:open-brain:protocol:v1:common#/$defs/schema_version" },
+        "kind": { "const": "entity" },
+        "entity_kind": { "enum": ["record", "revision", "decision", "job", "receipt"] },
+        "entity_id": { "type": "string", "pattern": "^[a-z]{3}_[a-z2-7]{26}$" },
+        "metadata": { "type": "object" },
+        "body": { "type": "object" }
+      },
+      "required": ["schema_version", "kind", "entity_kind", "entity_id", "metadata"],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "schema_version": { "$ref": "urn:open-brain:protocol:v1:common#/$defs/schema_version" },
+        "kind": { "const": "not_found" },
+        "code": { "const": "not_found" },
+        "message": { "const": "Entity was not found." },
+        "retry_safe": { "const": true }
+      },
+      "required": ["schema_version", "kind", "code", "message", "retry_safe"],
+      "additionalProperties": false
+    }
+  ]
+}

@@ -18,9 +18,11 @@ from tools.phase4.acceptance_harness import (
     build_command,
     create_environment_command,
     engine_test_command,
+    export_runtime_requirements_command,
     export_test_requirements_command,
     import_probe_findings,
     install_command,
+    install_runtime_requirements_command,
     run_checked,
     sanitized_environment,
 )
@@ -80,6 +82,15 @@ def test_build_and_install_commands_enforce_no_sources_and_selected_python(tmp_p
     assert command[5:7] == ("--link-mode", "copy")
     assert "--no-index" in command
     assert "app.whl" in command[-1]
+    runtime_export = export_runtime_requirements_command("open-brain")
+    assert "--locked" in runtime_export
+    assert "--no-emit-workspace" in runtime_export
+    runtime_install = install_runtime_requirements_command(
+        tmp_path / "venv/bin/python",
+        tmp_path / "runtime-requirements.txt",
+    )
+    assert "--only-binary=:all:" in runtime_install
+    assert "--require-hashes" in runtime_install
     export = export_test_requirements_command()
     assert "--locked" in export
     assert "--no-emit-workspace" in export

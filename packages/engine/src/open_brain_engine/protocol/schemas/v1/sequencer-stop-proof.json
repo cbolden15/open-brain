@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:open-brain:protocol:v1:sequencer-stop-proof",
+  "type": "object",
+  "properties": {
+    "schema_version": { "$ref": "urn:open-brain:protocol:v1:common#/$defs/schema_version" },
+    "stop_proof_id": { "$ref": "urn:open-brain:protocol:v1:common#/$defs/stop_proof_id" },
+    "brain_id": { "$ref": "urn:open-brain:protocol:v1:common#/$defs/brain_id" },
+    "node_id": { "$ref": "urn:open-brain:protocol:v1:common#/$defs/node_id" },
+    "machine_instance": { "type": "string", "pattern": "^machine_[a-z2-7]{26}$" },
+    "epoch": { "type": "integer", "minimum": 1 },
+    "last_cursor": { "$ref": "urn:open-brain:protocol:v1:common#/$defs/cursor" },
+    "stopped_at": { "$ref": "urn:open-brain:protocol:v1:common#/$defs/timestamp" },
+    "node_signature": { "$ref": "urn:open-brain:protocol:v1:common#/$defs/base64url" }
+  },
+  "required": [
+    "schema_version",
+    "stop_proof_id",
+    "brain_id",
+    "node_id",
+    "machine_instance",
+    "epoch",
+    "last_cursor",
+    "stopped_at",
+    "node_signature"
+  ],
+  "additionalProperties": false
+}

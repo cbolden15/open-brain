@@ -1,0 +1,15 @@
+[
+  {
+    "case": "query-principal-proof-of-possession-v1",
+    "request_binding": {
+      "body_digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "brain_id": "brn_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "delivery_id": "dlv_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "method": "query",
+      "nonce": "non_aaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    "canonical_request_binding": "{\"body_digest\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"brain_id\":\"brn_aaaaaaaaaaaaaaaaaaaaaaaaaa\",\"delivery_id\":\"dlv_aaaaaaaaaaaaaaaaaaaaaaaaaa\",\"method\":\"query\",\"nonce\":\"non_aaaaaaaaaaaaaaaaaaaaaaaaaa\"}",
+    "principal_public_key": "ebVWLo_mVPlAeLES6KmLp5AfhTrmlb7X4OORC60ElmQ",
+    "principal_signature": "9BnfQQo6rZ-QYILYr1R67pt8aamrSQc2HalVvI2eEAuVBMEn-LDJYsr2jX8GJNMlakW2WW5Ncxh1YoleucnTCQ"
+  }
+]

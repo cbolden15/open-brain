@@ -1,0 +1,39 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:open-brain:protocol:v1:query-evidence",
+  "type": "object",
+  "properties": {
+    "schema_version": { "$ref": "urn:open-brain:protocol:v1:common#/$defs/schema_version" },
+    "brain_id": { "$ref": "urn:open-brain:protocol:v1:common#/$defs/brain_id" },
+    "record_id": { "$ref": "urn:open-brain:protocol:v1:common#/$defs/record_id" },
+    "accepted_revision_id": {
+      "oneOf": [
+        { "$ref": "urn:open-brain:protocol:v1:common#/$defs/revision_id" },
+        { "type": "null" }
+      ]
+    },
+    "source_record_ids": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": { "$ref": "urn:open-brain:protocol:v1:common#/$defs/record_id" }
+    },
+    "body_visibility": { "enum": ["metadata", "body"] },
+    "body": { "type": "object" }
+  },
+  "required": [
+    "schema_version",
+    "brain_id",
+    "record_id",
+    "accepted_revision_id",
+    "source_record_ids",
+    "body_visibility"
+  ],
+  "allOf": [
+    {
+      "if": { "properties": { "body_visibility": { "const": "body" } } },
+      "then": { "required": ["body"] },
+      "else": { "not": { "required": ["body"] } }
+    }
+  ],
+  "additionalProperties": false
+}

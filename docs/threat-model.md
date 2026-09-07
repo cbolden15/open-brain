@@ -29,3 +29,38 @@ engine modules, undeclared dependencies, and dynamic import authority. This boun
 shipped provisional connector. It is not containment for hostile code running as the Brain owner.
 Untrusted third-party connectors require a separate operating-system account, container, or virtual
 machine gate.
+
+## M1 Reference Node boundary
+
+The Reference Node binds HTTP only to a numeric loopback address and validates Host on every
+request. Same-user processes can reach loopback and are inside the host access boundary, but they do
+not receive protocol authority from that fact. Every protocol route still requires a short-lived,
+principal-key-bound grant and an Ed25519 request signature. CORS is disabled, browser Origin is
+rejected unless explicitly configured, and anonymous `/healthz` returns static liveness only.
+
+Owner control is not exposed over HTTP. It uses a mode-`0600` Unix-domain socket beneath a
+mode-`0700` runtime directory, checks peer UID, and returns principal-bound grant bytes only in
+memory. LocalAuthentication on interactive macOS or audited passphrase re-entry on Linux and
+headless macOS proves fresh user presence. Reading an OS keyring entry does not prove presence.
+
+M1 protects application-controlled storage. The encrypted ledger, replay database, FTS files,
+database journals, blob and staging directories, caches, temporary files, versioned key envelopes,
+metadata-only security events, and delivery-erasure tombstones are named purge surfaces. The Node
+keeps SQLite temporary and FTS scratch state in memory or inside the encrypted Brain boundary. It
+does not claim to erase operating-system swap, hibernation images, filesystem snapshots, core dumps,
+or external crash reports; deployments must control those surfaces separately.
+
+The default Brain root is platform-local application data. Bootstrap refuses known network
+filesystems and known synchronized roots. An unrecognized synchronization product is unsupported.
+The sequencer lease binds a generated machine-instance ID, Node ID, and epoch so a copied identity
+cannot write until an owner-authorized cold transfer advances the epoch.
+
+Owner sessions and step-up freshness use a monotonic process clock. Grant expiry uses a persisted
+UTC high-water mark with 300 seconds of skew. Backward wall-clock movement fails closed, and replay
+nonces remain until expiry plus skew. Read requests reserve nonces before execution, so a failed read
+cannot reuse its nonce.
+
+Authorization occurs before body decoding, entity selection, change-page construction, or query
+candidate selection. `inspect` deliberately returns the same response content for absent and
+unauthorized entities. M1 does not claim constant-time database behavior, timing indistinguishability,
+or resistance to an attacker already able to inspect the owner's process memory.

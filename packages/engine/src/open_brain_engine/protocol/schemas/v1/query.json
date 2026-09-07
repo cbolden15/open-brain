@@ -1,0 +1,101 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:open-brain:protocol:v1:query",
+  "oneOf": [
+    {
+      "type": "object",
+      "properties": {
+        "schema_version": { "$ref": "urn:open-brain:protocol:v1:common#/$defs/schema_version" },
+        "kind": { "const": "request" },
+        "brain_id": { "$ref": "urn:open-brain:protocol:v1:common#/$defs/brain_id" },
+        "literal_text": { "type": "string", "minLength": 1, "maxLength": 4096 },
+        "top_k": { "type": "integer", "minimum": 1, "maximum": 100 },
+        "minimum_cursor": {
+          "oneOf": [
+            { "$ref": "urn:open-brain:protocol:v1:common#/$defs/cursor" },
+            { "type": "null" }
+          ]
+        },
+        "continuation": {
+          "oneOf": [
+            { "$ref": "urn:open-brain:protocol:v1:query-continuation" },
+            { "type": "null" }
+          ]
+        }
+      },
+      "required": [
+        "schema_version",
+        "kind",
+        "brain_id",
+        "literal_text",
+        "top_k",
+        "minimum_cursor",
+        "continuation"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "schema_version": { "$ref": "urn:open-brain:protocol:v1:common#/$defs/schema_version" },
+        "kind": { "const": "page" },
+        "ranking": { "enum": ["provisional", "final"] },
+        "results": {
+          "type": "array",
+          "maxItems": 100,
+          "items": {
+            "type": "object",
+            "properties": {
+              "rank": { "type": "integer", "minimum": 1, "maximum": 100 },
+              "evidence": {
+                "type": "array",
+                "minItems": 1,
+                "items": { "$ref": "urn:open-brain:protocol:v1:query-evidence" }
+              }
+            },
+            "required": ["rank", "evidence"],
+            "additionalProperties": false
+          }
+        },
+        "continuation": {
+          "oneOf": [
+            { "$ref": "urn:open-brain:protocol:v1:query-continuation" },
+            { "type": "null" }
+          ]
+        },
+        "visible_watermark": { "type": "string", "pattern": "^qwm_v1_[A-Za-z0-9_-]{16,512}$" }
+      },
+      "required": [
+        "schema_version",
+        "kind",
+        "ranking",
+        "results",
+        "continuation",
+        "visible_watermark"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "schema_version": { "$ref": "urn:open-brain:protocol:v1:common#/$defs/schema_version" },
+        "kind": { "enum": ["projection_lag", "continuation_invalidated"] },
+        "code": { "enum": ["projection_lag", "continuation_invalidated"] },
+        "message": { "type": "string", "minLength": 1, "maxLength": 256 },
+        "retry_safe": { "type": "boolean" },
+        "retry_after_ms": { "type": ["integer", "null"], "minimum": 0 },
+        "visible_watermark": { "type": "string", "pattern": "^qwm_v1_[A-Za-z0-9_-]{16,512}$" }
+      },
+      "required": [
+        "schema_version",
+        "kind",
+        "code",
+        "message",
+        "retry_safe",
+        "retry_after_ms",
+        "visible_watermark"
+      ],
+      "additionalProperties": false
+    }
+  ]
+}

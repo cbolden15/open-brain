@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:open-brain:protocol:v1:durable-job",
+  "type": "object",
+  "properties": {
+    "schema_version": { "$ref": "urn:open-brain:protocol:v1:common#/$defs/schema_version" },
+    "brain_id": { "$ref": "urn:open-brain:protocol:v1:common#/$defs/brain_id" },
+    "job_id": { "$ref": "urn:open-brain:protocol:v1:common#/$defs/job_id" },
+    "job_type": { "enum": ["purge", "projection_rebuild"] },
+    "state": { "enum": ["pending", "running", "succeeded", "failed"] },
+    "compartments": { "$ref": "urn:open-brain:protocol:v1:common#/$defs/compartments" },
+    "attempt": { "type": "integer", "minimum": 0 },
+    "result_ref": { "type": ["string", "null"], "pattern": "^[a-z]{3}_[a-z2-7]{26}$" },
+    "error_code": { "type": ["string", "null"], "pattern": "^[a-z][a-z0-9_]{1,63}$" },
+    "updated_at": { "$ref": "urn:open-brain:protocol:v1:common#/$defs/timestamp" }
+  },
+  "required": [
+    "schema_version",
+    "brain_id",
+    "job_id",
+    "job_type",
+    "state",
+    "compartments",
+    "attempt",
+    "result_ref",
+    "error_code",
+    "updated_at"
+  ],
+  "additionalProperties": false
+}

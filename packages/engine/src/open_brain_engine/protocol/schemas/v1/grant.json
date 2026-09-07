@@ -1,0 +1,38 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:open-brain:protocol:v1:grant",
+  "type": "object",
+  "properties": {
+    "schema_version": { "$ref": "urn:open-brain:protocol:v1:common#/$defs/schema_version" },
+    "grant_id": { "$ref": "urn:open-brain:protocol:v1:common#/$defs/grant_id" },
+    "brain_id": { "$ref": "urn:open-brain:protocol:v1:common#/$defs/brain_id" },
+    "issuer_key_id": { "$ref": "urn:open-brain:protocol:v1:common#/$defs/key_id" },
+    "principal_id": { "$ref": "urn:open-brain:protocol:v1:common#/$defs/principal_id" },
+    "principal_public_key": { "$ref": "urn:open-brain:protocol:v1:common#/$defs/base64url" },
+    "principal_epoch": { "type": "integer", "minimum": 1 },
+    "grant_epoch": { "type": "integer", "minimum": 1 },
+    "scopes": { "$ref": "urn:open-brain:protocol:v1:common#/$defs/scopes" },
+    "compartments": { "$ref": "urn:open-brain:protocol:v1:common#/$defs/compartments" },
+    "issued_at": { "$ref": "urn:open-brain:protocol:v1:common#/$defs/timestamp" },
+    "expires_at": { "$ref": "urn:open-brain:protocol:v1:common#/$defs/timestamp" },
+    "ttl_seconds": { "type": "integer", "minimum": 30, "maximum": 900 },
+    "issuer_signature": { "$ref": "urn:open-brain:protocol:v1:common#/$defs/base64url" }
+  },
+  "required": [
+    "schema_version",
+    "grant_id",
+    "brain_id",
+    "issuer_key_id",
+    "principal_id",
+    "principal_public_key",
+    "principal_epoch",
+    "grant_epoch",
+    "scopes",
+    "compartments",
+    "issued_at",
+    "expires_at",
+    "ttl_seconds",
+    "issuer_signature"
+  ],
+  "additionalProperties": false
+}

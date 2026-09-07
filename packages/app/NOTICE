@@ -2,4 +2,18 @@ Open Brain
 Copyright 2026 Open Brain contributors
 
 This product is licensed under the Apache License, Version 2.0.
-Third-party attribution notices will be added here when dependencies or vendored assets require them.
+
+The M1 Reference Node depends on these separately licensed projects:
+
+- argon2-cffi, MIT License
+- cryptography, Apache-2.0 OR BSD-3-Clause
+- keyring, MIT License
+- pyobjc-framework-LocalAuthentication, MIT License (macOS only)
+- rfc8785.py, Apache License 2.0
+- sqlcipher3 and its pysqlite-derived code, package license and bundled zlib notice
+- SQLCipher Community Edition, BSD-3-Clause
+- Starlette, BSD-3-Clause
+- Uvicorn, BSD-3-Clause
+
+Exact resolved versions are recorded in `uv.lock` and `release/m1-compatibility.json`. License
+texts are distributed by the corresponding dependency packages.

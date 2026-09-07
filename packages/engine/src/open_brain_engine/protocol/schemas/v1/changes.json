@@ -1,0 +1,52 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:open-brain:protocol:v1:changes",
+  "oneOf": [
+    {
+      "type": "object",
+      "properties": {
+        "schema_version": { "$ref": "urn:open-brain:protocol:v1:common#/$defs/schema_version" },
+        "kind": { "const": "request" },
+        "brain_id": { "$ref": "urn:open-brain:protocol:v1:common#/$defs/brain_id" },
+        "after": {
+          "oneOf": [
+            { "$ref": "urn:open-brain:protocol:v1:common#/$defs/cursor" },
+            { "type": "null" }
+          ]
+        },
+        "page_size": { "type": "integer", "minimum": 1, "maximum": 128 }
+      },
+      "required": ["schema_version", "kind", "brain_id", "after", "page_size"],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "schema_version": { "$ref": "urn:open-brain:protocol:v1:common#/$defs/schema_version" },
+        "kind": { "const": "page" },
+        "changes": {
+          "type": "array",
+          "maxItems": 128,
+          "items": {
+            "type": "object",
+            "properties": {
+              "cursor": { "$ref": "urn:open-brain:protocol:v1:common#/$defs/cursor" },
+              "record_id": { "$ref": "urn:open-brain:protocol:v1:common#/$defs/record_id" },
+              "change": { "enum": ["committed", "superseded", "tombstoned"] }
+            },
+            "required": ["cursor", "record_id", "change"],
+            "additionalProperties": false
+          }
+        },
+        "next": {
+          "oneOf": [
+            { "$ref": "urn:open-brain:protocol:v1:common#/$defs/cursor" },
+            { "type": "null" }
+          ]
+        }
+      },
+      "required": ["schema_version", "kind", "changes", "next"],
+      "additionalProperties": false
+    }
+  ]
+}

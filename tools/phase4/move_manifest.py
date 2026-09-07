@@ -130,13 +130,15 @@ def discover_subject_kinds(root: Path, manifest: Mapping[str, object]) -> dict[s
     add(_files(root, "tests/**/*.py") | _files(root, "packages/*/tests/**/*.py"), "test")
     add(
         _files(root, "schemas/**/*")
-        | _files(root, "packages/*/src/*/portable/schemas/**/*"),
+        | _files(root, "packages/*/src/*/portable/schemas/**/*")
+        | _files(root, "packages/*/src/*/protocol/schemas/**/*"),
         "schema",
     )
     add(
         _files(root, "tests/fixtures/**/*")
         | _files(root, "packages/*/tests/fixtures/**/*")
-        | _files(root, "packages/*/src/*/portable/conformance/**/*"),
+        | _files(root, "packages/*/src/*/portable/conformance/**/*")
+        | _files(root, "packages/*/src/*/protocol/conformance/**/*"),
         "fixture",
     )
     parity_resources = _files(root, "packages/*/tests/parity/phase7/capture_scenarios.json")
@@ -150,6 +152,8 @@ def discover_subject_kinds(root: Path, manifest: Mapping[str, object]) -> dict[s
         for pattern in (
             "docs/*.md",
             "docs/architecture/*.md",
+            "docs/architecture/**/*.md",
+            "docs/architecture/*.json",
             "examples/**/*",
             "packages/*/src/*/resources/**/*",
             "src/open_brain/resources/**/*",
@@ -171,6 +175,7 @@ def discover_subject_kinds(root: Path, manifest: Mapping[str, object]) -> dict[s
             "packages/*/hatch_build.py",
             "packages/*/pyproject.toml",
             "release/native/*.spec",
+            "tools/m1/*.py",
             "tools/phase4/*.py",
         )
         for path in _files(root, pattern)

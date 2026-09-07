@@ -17,7 +17,11 @@ classifiers = [
   "Programming Language :: Python :: 3",
   "Programming Language :: Python :: 3.14",
 ]
-dependencies = ["open-brain-engine==0.1.0"]
+dependencies = [
+  "open-brain-engine[node]==0.1.0",
+  "starlette>=0.48,<1",
+  "uvicorn>=0.40,<1",
+]
 
 [project.optional-dependencies]
 cloud = ["openai>=1.99,<3"]
@@ -47,6 +51,19 @@ exclude = ["/.gitignore"]
 [tool.hatch.build.targets.sdist.force-include]
 "../../README.md" = "README.md"
 "../../docs/architecture.md" = "docs/architecture.md"
+"../../docs/architecture/brain-protocol-v1.md" = "docs/architecture/brain-protocol-v1.md"
+"../../docs/architecture/decisions/0001-brain-protocol-v1.md" = "docs/architecture/decisions/0001-brain-protocol-v1.md"
+"../../docs/architecture/decisions/0002-brain-and-record-identity.md" = "docs/architecture/decisions/0002-brain-and-record-identity.md"
+"../../docs/architecture/decisions/0003-idempotency-and-conflict-semantics.md" = "docs/architecture/decisions/0003-idempotency-and-conflict-semantics.md"
+"../../docs/architecture/decisions/0004-capability-authorization.md" = "docs/architecture/decisions/0004-capability-authorization.md"
+"../../docs/architecture/decisions/0005-information-flow-labels.md" = "docs/architecture/decisions/0005-information-flow-labels.md"
+"../../docs/architecture/decisions/0006-provenance-closed-erasure.md" = "docs/architecture/decisions/0006-provenance-closed-erasure.md"
+"../../docs/architecture/decisions/0007-single-sequencer-fencing.md" = "docs/architecture/decisions/0007-single-sequencer-fencing.md"
+"../../docs/architecture/decisions/0008-rebuildable-projections.md" = "docs/architecture/decisions/0008-rebuildable-projections.md"
+"../../docs/architecture/decisions/0009-brainpack-v2.md" = "docs/architecture/decisions/0009-brainpack-v2.md"
+"../../docs/architecture/decisions/0010-m1-wire-storage-and-crypto.md" = "docs/architecture/decisions/0010-m1-wire-storage-and-crypto.md"
+"../../docs/architecture/decisions/0011-m1-authority-information-flow-and-resource-bounds.md" = "docs/architecture/decisions/0011-m1-authority-information-flow-and-resource-bounds.md"
+"../../docs/architecture/m0-contract-manifest.json" = "docs/architecture/m0-contract-manifest.json"
 "../../docs/architecture/proposed-v0-system-architecture.md" = "docs/architecture/proposed-v0-system-architecture.md"
 "../../docs/artifact-characterization.md" = "docs/artifact-characterization.md"
 "../../docs/capture-contract.md" = "docs/capture-contract.md"
@@ -67,6 +84,7 @@ exclude = ["/.gitignore"]
 "../../examples/synthetic-vault/README.md" = "examples/synthetic-vault/README.md"
 "../../release/phase4-compatibility.json" = "release/phase4-compatibility.json"
 "../../release/phase4-toolchain.json" = "release/phase4-toolchain.json"
+"../../release/m1-compatibility.json" = "release/m1-compatibility.json"
 "../../release/public-history-allowlist.json" = "release/public-history-allowlist.json"
 "../../release/v0-artifact-policy.json" = "release/v0-artifact-policy.json"
 

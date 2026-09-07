@@ -1,0 +1,38 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:open-brain:protocol:v1:purge-transition",
+  "type": "object",
+  "properties": {
+    "schema_version": { "$ref": "urn:open-brain:protocol:v1:common#/$defs/schema_version" },
+    "kind": { "const": "purge_transition" },
+    "brain_id": { "$ref": "urn:open-brain:protocol:v1:common#/$defs/brain_id" },
+    "purge_id": { "$ref": "urn:open-brain:protocol:v1:common#/$defs/purge_id" },
+    "target_record_id": { "$ref": "urn:open-brain:protocol:v1:common#/$defs/record_id" },
+    "resolution": { "enum": ["purge", "retain", "replace"] },
+    "replacement_record_id": {
+      "oneOf": [
+        { "$ref": "urn:open-brain:protocol:v1:common#/$defs/record_id" },
+        { "type": "null" }
+      ]
+    },
+    "reason": { "type": "string", "minLength": 1, "maxLength": 256 }
+  },
+  "required": [
+    "schema_version",
+    "kind",
+    "brain_id",
+    "purge_id",
+    "target_record_id",
+    "resolution",
+    "replacement_record_id",
+    "reason"
+  ],
+  "allOf": [
+    {
+      "if": { "properties": { "resolution": { "const": "replace" } } },
+      "then": { "properties": { "replacement_record_id": { "type": "string" } } },
+      "else": { "properties": { "replacement_record_id": { "type": "null" } } }
+    }
+  ],
+  "additionalProperties": false
+}

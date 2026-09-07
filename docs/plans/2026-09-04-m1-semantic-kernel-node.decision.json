@@ -1,7 +1,7 @@
 {
   "id": "2026-09-04-m1-semantic-kernel-node-notes",
   "title": "Implementation notes - M1 public semantic kernel and reference Node",
-  "subtitle": "M1-W0 source traceability recovered · 2026-09-06 21:36 CDT",
+  "subtitle": "M1-W0 complete; W0 gate closed · 2026-09-06 23:33 CDT",
   "introTitle": "How to use",
   "intro": "<p>Each item is a decision, deviation, or tradeoff made during implementation. <strong>Acknowledge</strong> if fine. <strong>Discuss</strong> to write what should change. <strong>Revert</strong> to flag for undo.</p>",
   "actions": [
@@ -41,7 +41,7 @@
         "Spec said": "Publish a sanitized content-hash manifest for the exact accepted M0 decision bundle and make the public ADRs self-sufficient.",
         "What I did": "Located the accepted M0 commit, read ADRs 0001 through 0009 from its immutable Git blobs, copied those exact bytes into the public repository, and recorded only stable M0 ADR IDs, public paths, and SHA-256 values. The private working tree was not modified.",
         "Why": "Exact blob hashing preserves the accepted lineage even though the private working tree currently contains an unrelated user edit.",
-        "Risk": "The local contract proves byte equality and rejects private location markers. Independent review is still required before the complete M1-W0 gate can close."
+        "Risk": "The local contract proves byte equality and rejects private location markers. The corrected contract passed a second independent adversarial review."
       }
     },
     {
@@ -55,6 +55,135 @@
         "What I did": "Classified the M0 manifest and ADR byte-equivalence check as a workspace contract test rather than an engine-owned test.",
         "Why": "The check reads repository architecture documents that are intentionally absent from the installed engine wheel. Keeping it outside packages/engine/tests avoids making engine isolation depend on checkout-only files.",
         "Risk": "The lineage contract runs in the repository verification suite, not when consumers test the installed engine distribution. Runtime protocol contracts remain engine-owned."
+      }
+    },
+    {
+      "id": "N4",
+      "group": "m1-w0",
+      "title": "Closed independent source-traceability review gaps",
+      "where": "tests/contract/test_m0_source_traceability.py",
+      "default": "acknowledge",
+      "body": {
+        "Spec said": "The public source manifest must identify the exact accepted bundle without publishing private locations.",
+        "What I did": "Removed the private repository identifier from public test code, required the exact top-level manifest shape, scanned decoded JSON text, and required exactly nine ordered unique decision IDs.",
+        "Why": "Independent adversarial review proved that raw-byte scanning missed JSON escapes and dictionary comparison could hide duplicate IDs.",
+        "Risk": "Repository-specific denylist values must remain operator-supplied audit inputs rather than literals in public artifacts.",
+        "Followup": "Completed: the corrected contract passed focused tests and a second independent adversarial review."
+      }
+    },
+    {
+      "id": "N5",
+      "group": "m1-w0",
+      "title": "Rejected duplicate JSON keys before decoding",
+      "where": "tests/contract/test_m0_source_traceability.py",
+      "default": "acknowledge",
+      "body": {
+        "Spec said": "The public manifest must reject private metadata and bind one exact decision bundle.",
+        "What I did": "Added duplicate-key rejection through the JSON object-pairs hook for every manifest object, with a focused regression test.",
+        "Why": "The second adversarial pass showed that standard JSON decoding silently discarded an earlier duplicate key before shape and privacy validation.",
+        "Risk": "The manifest parser is intentionally stricter than Python's default JSON loader."
+      }
+    },
+    {
+      "id": "N6",
+      "group": "m1-w0",
+      "title": "Source builds need an explicit writable Conan home",
+      "where": "tools/m1/compatibility_probe.py and release/m1-compatibility.json",
+      "default": "acknowledge",
+      "body": {
+        "Spec said": "Probe source and wheel installation for Python 3.12 through 3.14 on macOS ARM64 and Linux x86_64.",
+        "What I did": "Ran all 12 cells. The first source attempt failed because Conan's default home was outside the writable sandbox. Redirecting CONAN_HOME to an isolated writable directory made the complete source matrix pass.",
+        "Why": "sqlcipher3 source builds use Conan to compile SQLCipher and OpenSSL.",
+        "Risk": "Source builders need Conan 2, CMake, a compiler toolchain, and a writable Conan home. The Linux x86_64 cells ran in official Python containers under Docker x86_64 emulation on Apple Silicon rather than on separate physical hardware."
+      }
+    },
+    {
+      "id": "N7",
+      "group": "m1-w0",
+      "title": "Production databases use derived raw SQLCipher keys",
+      "where": "docs/architecture/decisions/0010-m1-wire-storage-and-crypto.md",
+      "default": "acknowledge",
+      "body": {
+        "Spec said": "Freeze SQLCipher KDF settings and the passphrase-envelope profile before storage work.",
+        "What I did": "Kept SQLCipher compatibility 4 and the 256,000-iteration PBKDF2-HMAC-SHA512 profile for password-keyed migrations, while specifying a 256-bit HKDF-derived raw database key for ordinary production opens. Kept the measured RFC 9106 memory-constrained Argon2id profile for portable root-key envelopes.",
+        "Why": "The Brain root key already supplies high-entropy key material. Applying a password KDF during each database open adds cost without strengthening that key, while migration compatibility still needs fixed password-KDF values.",
+        "Risk": "Later storage code must distinguish raw-key production opens from password-keyed migration opens and reject any profile mismatch."
+      }
+    },
+    {
+      "id": "N8",
+      "group": "m1-w0",
+      "title": "Bounded the synthetic corpus generator after finding a retry loop",
+      "where": "tools/m1/synthetic_corpus.py",
+      "default": "acknowledge",
+      "body": {
+        "Spec said": "Generate 256 reproducible unique exact-label-set shards without reading real Brain data.",
+        "What I did": "Changed deterministic label selection from truncated digest bytes to a hash-ranked 64-label inventory and added a hard retry bound. The corrected generator produces 256 unique sets, including the 16-label and 50,000-record boundaries.",
+        "Why": "The original one-label selection was biased toward the smallest byte value and could retry forever before any benchmark database was created.",
+        "Risk": "The frozen limits are based on this synthetic distribution and must not be presented as measurements of private or real usage."
+      }
+    },
+    {
+      "id": "N9",
+      "group": "m1-w0",
+      "title": "Packaged the complete public decision authority",
+      "where": "packages/app/pyproject.toml and release/v0-artifact-policy.json",
+      "default": "acknowledge",
+      "body": {
+        "Spec said": "Make the public ADRs and schemas self-sufficient and update packaged resources additively.",
+        "What I did": "Included the M0 manifest, ADRs 0001 through 0011, the protocol overview, M1 compatibility evidence, and the protocol schema and conformance trees in the applicable source or engine artifacts. The canonical Phase 4 classifier and generated reports now inventory the additions.",
+        "Why": "A source distribution should carry the public semantic authority it references instead of depending on a repository checkout.",
+        "Risk": "The completed Phase 4 evidence files remain byte-identical; only the coordinator-owned policy, classifier, and canonically generated reports changed."
+      }
+    },
+    {
+      "id": "N10",
+      "group": "m1-w0",
+      "title": "Recorded M1 dependency licensing inputs",
+      "where": "NOTICE, uv.lock, and release/m1-compatibility.json",
+      "default": "acknowledge",
+      "body": {
+        "Spec said": "Update licenses and SBOM inputs when freezing the Node dependency set.",
+        "What I did": "Recorded the selected direct dependency versions, license expressions, and upstream sources in compatibility evidence, refreshed the lock file, and added the dependency attribution inventory to every shipping NOTICE copy.",
+        "Why": "The lock is the transitive SBOM input; the compatibility record and NOTICE make the direct M1 choices reviewable before release assembly changes in a later wave.",
+        "Risk": "Release assembly must still collect exact license texts for the resolved transitive environment when it produces a future M1 candidate."
+      }
+    },
+    {
+      "id": "N11",
+      "group": "m1-w0",
+      "title": "Preserved wheel isolation while installing locked native prerequisites",
+      "where": "tools/phase4/acceptance_harness.py",
+      "default": "acknowledge",
+      "body": {
+        "Spec said": "A clean top-level wheel install must include the Reference Node dependency set without compiling native code on a supported wheel target, while the existing Phase 4 isolation checks remain intact.",
+        "What I did": "Extended the canonical acceptance harness to export and install each artifact's locked third-party runtime requirements as wheels before installing the product wheel with --no-index. The app contract now requires the engine node extra, Starlette, and Uvicorn.",
+        "Why": "The earlier Phase 4 harness intentionally installed product wheels with no dependency index. M1 introduces required third-party runtime dependencies, so those prerequisites must be staged explicitly without weakening product-wheel isolation.",
+        "Risk": "The harness depends on the workspace lock export remaining synchronized with package metadata; the artifact and compatibility baselines enforce that relationship."
+      }
+    },
+    {
+      "id": "N12",
+      "group": "m1-w0",
+      "title": "One unchanged macOS sandbox test is unavailable inside the managed runner",
+      "where": "packages/connectors/tests/unit/capture/extractors/test_media.py",
+      "default": "acknowledge",
+      "body": {
+        "Spec said": "Run coordinator verification after integration and preserve completed v0 and Phase 4 behavior.",
+        "What I did": "Ran the full suite, reproduced the sole failure directly, and confirmed that this managed environment rejects nested /usr/bin/sandbox-exec with sandbox_apply: Operation not permitted. I did not modify or skip the product test in repository configuration. I reran verification with that exact environment-unavailable test deselected: Ruff and MyPy passed, 3,285 tests passed, and artifact verification passed.",
+        "Why": "Changing the connector behavior or weakening its test would be outside M1-W0 and would conceal a runner restriction rather than fix a product defect.",
+        "Risk": "A coordinator with permission to invoke sandbox-exec must rerun that unchanged test before claiming a completely green unrestricted-host suite. All W0-owned tests and installed-artifact checks pass in this environment."
+      }
+    },
+    {
+      "id": "N13",
+      "group": "m1-w0",
+      "title": "Implementation complete",
+      "action": "acknowledge",
+      "body": {
+        "What I did": "Completed every M1-W0 checkbox, froze the executable protocol authority and compatibility evidence, and stopped before M1-W1.",
+        "Verification": "The 82-test focused W0 suite, targeted Ruff, targeted MyPy, artifact policy, packaging isolation, and git diff checks pass. The broader runnable suite has 3,285 passing tests with the single managed-runner sandbox exception recorded in N12.",
+        "Gate": "M1-W1 is allowed to start from the resulting verified local checkpoint; no W1 implementation was started."
       }
     }
   ]

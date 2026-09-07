@@ -1,0 +1,148 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:open-brain:protocol:v1:common",
+  "$defs": {
+    "schema_version": {
+      "const": 1
+    },
+    "timestamp": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "brain_id": {
+      "type": "string",
+      "pattern": "^brn_[a-z2-7]{26}$"
+    },
+    "artifact_id": {
+      "type": "string",
+      "pattern": "^art_[a-z2-7]{26}$"
+    },
+    "commit_id": {
+      "type": "string",
+      "pattern": "^cmt_[a-z2-7]{26}$"
+    },
+    "decision_id": {
+      "type": "string",
+      "pattern": "^dec_[a-z2-7]{26}$"
+    },
+    "delivery_id": {
+      "type": "string",
+      "pattern": "^dlv_[a-z2-7]{26}$"
+    },
+    "grant_id": {
+      "type": "string",
+      "pattern": "^grt_[a-z2-7]{26}$"
+    },
+    "job_id": {
+      "type": "string",
+      "pattern": "^job_[a-z2-7]{26}$"
+    },
+    "key_id": {
+      "type": "string",
+      "pattern": "^key_[a-z2-7]{26}$"
+    },
+    "node_id": {
+      "type": "string",
+      "pattern": "^nod_[a-z2-7]{26}$"
+    },
+    "nonce_id": {
+      "type": "string",
+      "pattern": "^non_[a-z2-7]{26}$"
+    },
+    "principal_id": {
+      "type": "string",
+      "pattern": "^pri_[a-z2-7]{26}$"
+    },
+    "proposal_id": {
+      "type": "string",
+      "pattern": "^prp_[a-z2-7]{26}$"
+    },
+    "purge_id": {
+      "type": "string",
+      "pattern": "^prg_[a-z2-7]{26}$"
+    },
+    "receipt_id": {
+      "type": "string",
+      "pattern": "^rcp_[a-z2-7]{26}$"
+    },
+    "record_id": {
+      "type": "string",
+      "pattern": "^rec_[a-z2-7]{26}$"
+    },
+    "revision_id": {
+      "type": "string",
+      "pattern": "^rev_[a-z2-7]{26}$"
+    },
+    "stop_proof_id": {
+      "type": "string",
+      "pattern": "^stp_[a-z2-7]{26}$"
+    },
+    "transfer_id": {
+      "type": "string",
+      "pattern": "^xfr_[a-z2-7]{26}$"
+    },
+    "digest": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "base64url": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_-]+$"
+    },
+    "cursor": {
+      "type": "string",
+      "pattern": "^cur_v1_[A-Za-z0-9_-]{16,512}$"
+    },
+    "compartments": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 16,
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "pattern": "^[a-z][a-z0-9.-]{0,63}$"
+      }
+    },
+    "scopes": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {
+        "enum": [
+          "commit",
+          "query",
+          "changes",
+          "inspect.metadata",
+          "inspect.body",
+          "compartments.all"
+        ]
+      }
+    },
+    "typed_error_base": {
+      "type": "object",
+      "properties": {
+        "schema_version": {
+          "$ref": "#/$defs/schema_version"
+        },
+        "code": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9_]{1,63}$"
+        },
+        "message": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "retry_safe": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "schema_version",
+        "code",
+        "message",
+        "retry_safe"
+      ]
+    }
+  }
+}

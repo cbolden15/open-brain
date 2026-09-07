@@ -221,6 +221,12 @@ Generated from `docs/v0-package-classification.json`; do not edit by hand.
 | `src/open_brain/production/youtube_bridge.py` | `packages/legacy/src/open_brain_legacy/production/youtube_bridge.py` | `moved` | `open_brain.production.youtube_bridge` | `open_brain_legacy.production.youtube_bridge` | `legacy-private` |
 | `src/open_brain/production/youtube_poll.py` | `packages/connectors/src/open_brain_connectors/production/youtube_poll.py` | `moved` | `open_brain.production.youtube_poll` | `open_brain_connectors.production.youtube_poll` | `remove` |
 | `src/open_brain/profile.py` | `packages/app/src/open_brain/profile.py` | `moved` | `open_brain.profile` | `open_brain.profile` | `retain` |
+| `src/open_brain/protocol/__init__.py` | `packages/engine/src/open_brain_engine/protocol/__init__.py` | `moved` | `open_brain.protocol` | `open_brain_engine.protocol` | `remove` |
+| `src/open_brain/protocol/canonical.py` | `packages/engine/src/open_brain_engine/protocol/canonical.py` | `moved` | `open_brain.protocol.canonical` | `open_brain_engine.protocol.canonical` | `remove` |
+| `src/open_brain/protocol/custody.py` | `packages/engine/src/open_brain_engine/protocol/custody.py` | `moved` | `open_brain.protocol.custody` | `open_brain_engine.protocol.custody` | `remove` |
+| `src/open_brain/protocol/freeze.py` | `packages/engine/src/open_brain_engine/protocol/freeze.py` | `moved` | `open_brain.protocol.freeze` | `open_brain_engine.protocol.freeze` | `remove` |
+| `src/open_brain/protocol/identifiers.py` | `packages/engine/src/open_brain_engine/protocol/identifiers.py` | `moved` | `open_brain.protocol.identifiers` | `open_brain_engine.protocol.identifiers` | `remove` |
+| `src/open_brain/protocol/resources.py` | `packages/engine/src/open_brain_engine/protocol/resources.py` | `moved` | `open_brain.protocol.resources` | `open_brain_engine.protocol.resources` | `remove` |
 | `src/open_brain/providers/__init__.py` | `packages/engine/src/open_brain_engine/providers/__init__.py` | `moved` | `open_brain.providers` | `open_brain_engine.providers` | `remove` |
 | `src/open_brain/providers/base.py` | `packages/engine/src/open_brain_engine/providers/base.py` | `moved` | `open_brain.providers.base` | `open_brain_engine.providers.base` | `remove` |
 | `src/open_brain/providers/deterministic.py` | `packages/engine/src/open_brain_engine/providers/deterministic.py` | `moved` | `open_brain.providers.deterministic` | `open_brain_engine.providers.deterministic` | `remove` |
