@@ -234,6 +234,28 @@ def _source_provenance(
     raise PortabilityMappingError("unsupported provenance family")
 
 
+def _source_value(family: SharedFamily, source_bytes: bytes) -> Mapping[str, object]:
+    try:
+        if family == "brain":
+            return _source_object(
+                tomllib.loads(source_bytes.decode("utf-8")), "Portable Brain profile"
+            )
+        if family in {"space", "page"}:
+            return _source_object(dict(parse_markdown(source_bytes).fields), family)
+        return _source_object(json.loads(source_bytes), family)
+    except (UnicodeDecodeError, json.JSONDecodeError, tomllib.TOMLDecodeError, MarkdownFormatError):
+        raise PortabilityMappingError("shared record source bytes are invalid") from None
+
+
+def _validate_source_brain_binding(
+    *, family: SharedFamily, source_bytes: bytes, source_brain_id: str
+) -> None:
+    validate_portable_identifier(source_brain_id, "tenant")
+    value = _source_value(family, source_bytes)
+    if _source_string(value.get("tenant_id"), f"{family} tenant") != source_brain_id:
+        raise PortabilityMappingError("shared record crosses its source Brain")
+
+
 def _validate_source_binding(
     *,
     family: SharedFamily,
@@ -245,18 +267,7 @@ def _validate_source_binding(
     space_id: str | None,
     provenance_ids: tuple[str, ...],
 ) -> None:
-    try:
-        if family == "brain":
-            value = _source_object(
-                tomllib.loads(source_bytes.decode("utf-8")), "Portable Brain profile"
-            )
-        elif family in {"space", "page"}:
-            value = _source_object(dict(parse_markdown(source_bytes).fields), family)
-        else:
-            value = _source_object(json.loads(source_bytes), family)
-    except (UnicodeDecodeError, json.JSONDecodeError, tomllib.TOMLDecodeError, MarkdownFormatError):
-        raise PortabilityMappingError("shared record source bytes are invalid") from None
-
+    value = _source_value(family, source_bytes)
     actor_field = "owner_actor_id" if family == "brain" else "actor_id"
     timestamp = (
         _source_string(value.get(_TIMESTAMP_FIELDS[family]), f"{family} timestamp")
@@ -531,6 +542,11 @@ class SharedBrain:
             raise PortabilityMappingError("duplicate shared semantic identity")
         known = set(identities)
         for record in records:
+            _validate_source_brain_binding(
+                family=record.family,
+                source_bytes=record.source_bytes,
+                source_brain_id=self.source_brain_id,
+            )
             missing = set(record.provenance_ids) - known
             if missing:
                 raise PortabilityMappingError("shared record provenance target is missing")

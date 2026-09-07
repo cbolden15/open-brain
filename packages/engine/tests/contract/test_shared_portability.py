@@ -554,3 +554,11 @@ def test_shared_envelope_schema_and_validator_bind_each_family_field(
         assert not validator.is_valid(body)
         with pytest.raises(PortabilityMappingError):
             portability.validate_shared_envelope(body)
+
+    other_brain_id = "tenant_123e4567-e89b-42d3-a456-426614174999"
+    for body in bodies.values():
+        cross_brain = dict(body)
+        cross_brain["source_brain_id"] = other_brain_id
+        assert validator.is_valid(cross_brain)
+        with pytest.raises(PortabilityMappingError, match="source Brain"):
+            portability.validate_shared_envelope(cross_brain)

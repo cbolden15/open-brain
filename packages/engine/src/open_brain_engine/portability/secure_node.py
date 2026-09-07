@@ -38,6 +38,7 @@ from .model import (
     SharedBrain,
     SharedFamily,
     SharedRecord,
+    _validate_source_brain_binding,
     validate_portable_identifier,
 )
 from .resources import shared_envelope_schema_bytes
@@ -197,7 +198,7 @@ def _shared_record_from_envelope(
     ):
         raise PortabilityMappingError("shared envelope provenance is invalid")
 
-    return source_brain_id, SharedRecord(
+    mapped = SharedRecord(
         family=family,
         semantic_id=_envelope_string(document, "semantic_id"),
         schema_uri=_envelope_string(document, "source_schema_uri"),
@@ -210,6 +211,12 @@ def _shared_record_from_envelope(
         space_id=raw_space_id,
         provenance_ids=tuple(cast(list[str], raw_provenance)),
     )
+    _validate_source_brain_binding(
+        family=mapped.family,
+        source_bytes=mapped.source_bytes,
+        source_brain_id=source_brain_id,
+    )
+    return source_brain_id, mapped
 
 
 def validate_shared_envelope(document: Mapping[str, object]) -> None:
