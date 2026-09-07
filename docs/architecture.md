@@ -30,10 +30,11 @@ option if the extra cannot pass dependency and release-boundary tests.
 `open-brain` and `python -m open_brain` route to the direct local CLI. The explicit Secure Node
 launchers stay inert until the extra is installed.
 
-The direct local bootstrap scans existing runtime artifacts and daemon authority through read-only
-views before compiling a profile. A conflict permits status and doctor only for an already-current
-Brain. It rejects init, capture, search, and export before creating identity, layout, or SQLite
-state.
+The direct local bootstrap scans existing runtime artifacts plus root-level held or malformed writer
+leases through read-only views before compiling a profile. The lease check does not depend on
+`brain.toml`, so lost identity cannot hide live daemon authority. A conflict permits status and
+doctor only for an already-current Brain. It rejects init, capture, search, and export before
+creating identity, layout, or SQLite state.
 
 The base native artifact has its own entry point and PyInstaller spec under
 `release/open-brain`. Its module inventory excludes the retained appliance, server, connector,

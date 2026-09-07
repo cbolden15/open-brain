@@ -8,7 +8,7 @@
 | Action | Command or state |
 |---|---|
 | Install | `uv sync --frozen --group dev` |
-| Local CLI | `OPEN_BRAIN_ROOT=$HOME/open-brain-data uv run open-brain inbox list --json` |
+| Local CLI | `uv run open-brain status --json` |
 | Full verification | `make verify` |
 | Phase 4 contracts | `make phase4-contracts` |
 | P4-W5 candidate preflight | `make p4w5-preflight` runs focused native/lifecycle contracts, pinned configuration, static checks, manifest validation, and diff integrity |
@@ -78,8 +78,9 @@ its retained predecessor support is confined to `open_brain_legacy._compat`.
 | `release/native/open-brain.spec` | Deterministic PyInstaller onedir spec shared by native macOS ARM64 and Linux x86_64 builders |
 | `tools/phase4/native_build.py` | Exact-source native build, policy-bound membership/digest audit, and frozen recovery/Portable/upgrade/rollback/uninstall smoke |
 | `packages/app/src/open_brain/profile.py` | Single-user local Brain-root compiler and stable owner identity |
-| `packages/app/src/open_brain/services/appliance_entrypoints.py` | Installed `open-brain` and `open-brain-mcp` callables |
-| `packages/app/src/open_brain/services/appliance_daemon.py` | Sole installed mutation authority and control transport |
+| `packages/app/src/open_brain/services/local_entrypoints.py` | Installed default `open-brain` callable |
+| `packages/app/src/open_brain/services/appliance_entrypoints.py` | Retained Secure Node CLI and MCP implementation |
+| `packages/app/src/open_brain/services/appliance_daemon.py` | Secure Node mutation authority and control transport |
 | `packages/app/src/open_brain/services/appliance_supervisors.py` | Source-checkout rendering plus bounded frozen-native unit-file and host-command effects |
 | `packages/app/src/open_brain/resources/supervisors/` | Packaged launchd/systemd templates loaded with `importlib.resources` |
 | `packages/app/src/open_brain/integrations/phase1_ui.py` | Authenticated local UI/API handler over app task capabilities |
@@ -176,6 +177,8 @@ DMG is deferred to a later release. Deployment and publication remain separate g
 **Review receipts bind canonical state.** Review creation must bind the initial aggregate digest; delivery emits only owner text plus the opaque capture reference and verifies output ID, canonical digest, and disposition before closing the outbox.
 
 **One Brain root has one writer.** Every mutating engine task and recovery pass acquires the root-confined shared-writer lease. Treat `LockBusyError` as a retryable ownership conflict; never bypass it with direct store calls.
+
+**Bootstrap ownership checks cannot require `brain.toml`.** Inspect root-level held and malformed leases before profile compilation; a daemon can retain authority after identity-file loss, and compilation would otherwise create a replacement Brain identity.
 
 **Delivery IDs are idempotency keys, not labels.** Reuse one only for the exact same mutation. A conflicting payload is rejected and writes metadata-only quarantine evidence.
 

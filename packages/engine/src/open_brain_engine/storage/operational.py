@@ -11,7 +11,7 @@ from .filesystem import (
     read_confined,
     read_confined_tree,
 )
-from .locks import FileLease, LockBusyError
+from .locks import FileLease, LockBusyError, LockStateSnapshot, inspect_file_leases
 
 __all__ = [
     "RootIdentity",
@@ -19,10 +19,12 @@ __all__ = [
     "WriteState",
     "FileLease",
     "LockBusyError",
+    "LockStateSnapshot",
     "atomic_replace",
     "atomic_write_new",
     "capture_root_identity",
     "confined_unlink",
+    "inspect_file_leases",
     "read_confined",
     "read_confined_tree",
 ]

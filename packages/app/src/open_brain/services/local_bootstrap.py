@@ -18,6 +18,7 @@ from open_brain_engine.engine import (
 from open_brain_engine.storage.operational import (
     RootIdentity,
     StorageError,
+    inspect_file_leases,
     read_confined_tree,
 )
 
@@ -84,15 +85,16 @@ def open_local_brain(
             root=selection.brain_root,
             root_identity=prepared.root_identity,
         )
+        ownership_conflict = runtime_artifacts_present or _writer_ownership_is_present(
+            selection.brain_root
+        )
+        prepared.revalidate()
         existing_profile = (
             open_existing_single_user_local(selection.brain_root)
             if identity_exists
             else None
         )
-        if runtime_artifacts_present or (
-            existing_profile is not None
-            and _daemon_authority_is_present(existing_profile)
-        ):
+        if ownership_conflict:
             if not initialized_before or existing_profile is None:
                 raise LocalRuntimeConflictError("background runtime is active")
             _require_current_local_state(prepared, existing_profile)
@@ -168,7 +170,18 @@ def _background_runtime_is_present(profile: LocalEngineContext) -> bool:
 
 def _daemon_authority_is_present(profile: LocalEngineContext) -> bool:
     maintenance = read_maintenance_snapshot(profile)
-    return "daemon-authority" in maintenance.writer.held_leases
+    return bool(
+        maintenance.writer.malformed_count
+        or "daemon-authority" in maintenance.writer.held_leases
+    )
+
+
+def _writer_ownership_is_present(root: Path) -> bool:
+    try:
+        writer = inspect_file_leases(root / ".open-brain")
+    except StorageError:
+        return True
+    return bool(writer.held_count or writer.malformed_count)
 
 
 def _runtime_artifacts_are_present(

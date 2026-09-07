@@ -17,6 +17,19 @@ from open_brain.local_data import LocalDataError
 from open_brain.profile import compile_single_user_local
 from open_brain.services.local_entrypoints import run_cli
 
+_DAEMON_AUTHORITY_HOLDER_PROGRAM = """
+from pathlib import Path
+import sys
+
+from open_brain.profile import open_existing_single_user_local
+from open_brain_engine.engine import acquire_daemon_authority
+
+profile = open_existing_single_user_local(Path(sys.argv[1]))
+with acquire_daemon_authority(profile):
+    Path(sys.argv[2]).write_text("ready", encoding="ascii")
+    sys.stdin.read(1)
+"""
+
 
 def _filesystem(_path: Path, platform_name: str) -> str:
     return "apfs" if platform_name == "darwin" else "ext4"
@@ -27,6 +40,16 @@ def _private_home(tmp_path: Path) -> Path:
     home.mkdir(mode=0o700)
     home.chmod(0o700)
     return home
+
+
+def _tree_snapshot(root: Path) -> tuple[tuple[str, bytes | None], ...]:
+    return tuple(
+        (
+            path.relative_to(root).as_posix(),
+            path.read_bytes() if path.is_file() else None,
+        )
+        for path in sorted(root.rglob("*"))
+    )
 
 
 def test_local_help_and_version_are_root_free(
@@ -445,25 +468,31 @@ def test_local_doctor_rejects_a_background_runtime_artifact(
     assert token not in failure
 
 
+@pytest.mark.parametrize("ownership_evidence", ("runtime-marker", "malformed-lease"))
 @pytest.mark.parametrize("command", ("init", "capture", "search", "export"))
-def test_local_runtime_artifact_blocks_bootstrap_without_mutating_partial_root(
+def test_local_ownership_evidence_blocks_bootstrap_without_mutating_partial_root(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
     command: str,
+    ownership_evidence: str,
 ) -> None:
     home = _private_home(tmp_path)
     brain_root = home / "partial-brain"
-    runtime_directory = brain_root / ".open-brain/run"
-    runtime_directory.mkdir(mode=0o700, parents=True)
+    operational_root = brain_root / ".open-brain"
+    operational_root.mkdir(mode=0o700, parents=True)
     brain_root.chmod(0o700)
-    (brain_root / ".open-brain").chmod(0o700)
-    runtime_directory.chmod(0o700)
-    marker = runtime_directory / "control.sock"
+    operational_root.chmod(0o700)
+    if ownership_evidence == "runtime-marker":
+        evidence_directory = operational_root / "run"
+        marker = evidence_directory / "control.sock"
+    else:
+        evidence_directory = operational_root / ".open-brain-locks"
+        marker = evidence_directory / "lease.unrecognized"
+    evidence_directory.mkdir(mode=0o700)
+    evidence_directory.chmod(0o700)
     marker.write_bytes(b"synthetic")
     marker.chmod(0o600)
-    original_tree = tuple(
-        sorted(path.relative_to(brain_root).as_posix() for path in brain_root.rglob("*"))
-    )
+    original_tree = _tree_snapshot(brain_root)
 
     private_value = "synthetic-partial-root-private-value"
     arguments = {
@@ -490,9 +519,7 @@ def test_local_runtime_artifact_blocks_bootstrap_without_mutating_partial_root(
         "status": "failed",
     }
     assert private_value not in failure
-    assert tuple(
-        sorted(path.relative_to(brain_root).as_posix() for path in brain_root.rglob("*"))
-    ) == original_tree
+    assert _tree_snapshot(brain_root) == original_tree
     assert marker.read_bytes() == b"synthetic"
     assert not (brain_root / "brain.toml").exists()
     assert not (brain_root / ".open-brain/state/phase1.sqlite3").exists()
@@ -624,20 +651,14 @@ def test_local_status_observes_daemon_authority_and_capture_fails_closed(
     capsys.readouterr()
     brain_root = home / ".local/share/open-brain/brain"
     ready = tmp_path / "daemon-authority-ready"
-    program = """
-from pathlib import Path
-import sys
-
-from open_brain.profile import open_existing_single_user_local
-from open_brain_engine.engine import acquire_daemon_authority
-
-profile = open_existing_single_user_local(Path(sys.argv[1]))
-with acquire_daemon_authority(profile):
-    Path(sys.argv[2]).write_text("ready", encoding="ascii")
-    sys.stdin.read(1)
-"""
     holder = subprocess.Popen(
-        (sys.executable, "-c", program, str(brain_root), str(ready)),
+        (
+            sys.executable,
+            "-c",
+            _DAEMON_AUTHORITY_HOLDER_PROGRAM,
+            str(brain_root),
+            str(ready),
+        ),
         stdin=subprocess.PIPE,
         stdout=subprocess.DEVNULL,
         stderr=subprocess.PIPE,
@@ -706,6 +727,84 @@ with acquire_daemon_authority(profile):
             assert private_value not in failure
         assert not destination.exists()
         assert compile_calls == 0
+    finally:
+        if holder.stdin is not None:
+            holder.stdin.close()
+        try:
+            holder.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            holder.kill()
+            holder.wait(timeout=5)
+
+    assert holder.returncode == 0
+
+
+def test_local_daemon_authority_blocks_identity_recreation_without_mutation(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    home = _private_home(tmp_path)
+    brain_root = home / "partial-brain"
+    environment = {"HOME": str(home)}
+    assert (
+        run_cli(
+            ("init", "--data-dir", str(brain_root)),
+            environment=environment,
+            platform_name="linux",
+            filesystem_type_probe=_filesystem,
+        )
+        == 0
+    )
+    capsys.readouterr()
+    ready = tmp_path / "partial-daemon-authority-ready"
+    holder = subprocess.Popen(
+        (
+            sys.executable,
+            "-c",
+            _DAEMON_AUTHORITY_HOLDER_PROGRAM,
+            str(brain_root),
+            str(ready),
+        ),
+        stdin=subprocess.PIPE,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+    try:
+        deadline = time.monotonic() + 5
+        while not ready.is_file() and holder.poll() is None and time.monotonic() < deadline:
+            time.sleep(0.01)
+        error = (
+            holder.stderr.read()
+            if not ready.is_file() and holder.poll() is not None and holder.stderr is not None
+            else "daemon authority holder did not become ready"
+        )
+        assert ready.is_file(), error
+
+        (brain_root / "brain.toml").unlink()
+        original_tree = _tree_snapshot(brain_root)
+        token = "synthetic-identity-recreation-private-text"
+        assert (
+            run_cli(
+                ("capture", token, "--data-dir", str(brain_root), "--json"),
+                environment=environment,
+                platform_name="linux",
+                filesystem_type_probe=_filesystem,
+            )
+            == 78
+        )
+        failure = capsys.readouterr().out
+        assert json.loads(failure) == {
+            "error": {
+                "code": "local_operation_failed",
+                "message": "Open Brain could not complete the local command.",
+            },
+            "status": "failed",
+        }
+        assert token not in failure
+        assert _tree_snapshot(brain_root) == original_tree
+        assert not (brain_root / "brain.toml").exists()
+        assert (brain_root / ".open-brain/state/phase1.sqlite3").is_file()
     finally:
         if holder.stdin is not None:
             holder.stdin.close()

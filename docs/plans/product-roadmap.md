@@ -28,7 +28,9 @@ commit. The first closure review returned two P1 findings for parser redaction a
 both fixes passed refreshed focused, full, and native gates. The second review confirmed those fixes
 and found one P1: runtime evidence was observed only after profile compilation could change a partial
 root. The tests-first read-only preflight correction now passes focused, full, and native gates.
-Fresh independent review remains.
+The third review found a narrower identity-loss case for held daemon authority and one P2 covering
+two stale contributor-guide references. Root-level lease inspection and guide corrections now pass
+refreshed focused, full, and native gates. Fresh independent review remains.
 
 ## Milestones
 

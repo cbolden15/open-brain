@@ -30,6 +30,21 @@ def test_package_metadata_freezes_base_extra_and_command_graph() -> None:
     }
 
 
+def test_contributor_guide_routes_the_default_and_secure_node_commands() -> None:
+    guide = (ROOT / "CLAUDE.md").read_text(encoding="utf-8")
+
+    assert "| Local CLI | `uv run open-brain status --json` |" in guide
+    assert "OPEN_BRAIN_ROOT=$HOME/open-brain-data uv run open-brain inbox list" not in guide
+    assert (
+        "| `packages/app/src/open_brain/services/local_entrypoints.py` | "
+        "Installed default `open-brain` callable |"
+    ) in guide
+    assert (
+        "| `packages/app/src/open_brain/services/appliance_entrypoints.py` | "
+        "Retained Secure Node CLI and MCP implementation |"
+    ) in guide
+
+
 def test_local_entrypoint_source_has_no_secure_node_import() -> None:
     tree = ast.parse(inspect.getsource(local_entrypoints))
     imports = {
