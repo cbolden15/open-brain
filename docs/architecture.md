@@ -191,7 +191,8 @@ connector interface is provisional v1. Parent discovery reads entry-point metada
 connector code; explicit allow-list and capability checks precede a bounded child process. The
 reference conformance run proves capture-only execution and replay through synthetic host-mediated
 transport. A stable Connector SDK promise remains blocked until reference, event, and measurement
-proofs all pass. The current v0 release path is Python 3.14 source/wheels on macOS and a checksummed
-native archive bundling Python 3.14 on Linux. The P4 macOS native subjects remain unpublished
+proofs all pass. The target default v0 release path uses checksummed native archives bundling Python
+3.14 on macOS arm64 and Linux x86_64. Python 3.14 source and wheel installs remain available for
+development. The separate P4 macOS native subjects remain unpublished Secure Node precursor
 evidence; DMG signing and notarization are deferred to a later release. Public package publication,
 tags, releases, and owner-gated deployment remain separate work.

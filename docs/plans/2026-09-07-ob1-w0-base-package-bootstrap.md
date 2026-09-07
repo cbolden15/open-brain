@@ -1,6 +1,6 @@
 # OB1-W0: base package and automatic bootstrap
 
-Status: reviewed; implementation active
+Status: complete; `OB1-W1` not started
 
 Date: 2026-09-07
 
@@ -144,8 +144,23 @@ Node code and dependencies, stop and use the already accepted separate
 - [x] Update package classification, artifact policy, generated reports, README, and install docs.
 - [x] Run focused tests, Ruff, strict MyPy, shellcheck, build both base artifacts, and inspect their
       dependency and member inventories.
-- [ ] Run `make verify` on the exact committed tree and obtain independent read-only review with no
+- [x] Run `make verify` on the exact committed tree and obtain independent read-only review with no
       unresolved P0 through P2 findings.
+
+## Closure evidence
+
+The implementation is recorded in commits `0abca70` and `ebef782`. The second commit closes all
+findings from the first implementation review.
+
+| Gate | Result on exact implementation commit `ebef782afa066fb5108342f529cd0635b804eacd` |
+|---|---|
+| Repository verification | `make verify` passed Ruff, strict MyPy over 593 source files, 3,510 tests, all six Python artifact builds, and artifact-policy verification. |
+| Focused W0 verification | `make ob1w0-preflight` passed 191 tests, shellcheck, move-manifest validation, focused Ruff and strict MyPy, and diff integrity. `actionlint .github/workflows/ci.yml` and `uv lock --check` also passed. |
+| Native artifact | `make ob1w0-native` built and exercised the Python 3.14 macOS-arm64 archive. Its 208-module inventory digest is `1c0ea3c94466f091d9e80b3ceecc965f8a9eb91a758b999b65b5e5205ca3c4a9`; its tree digest is `e7c64e5fadf6620ae198e4e7718ad4f3e403d70ccacc28668fdf5630f9a59d52`; and its checksum-verified archive digest is `46bbb25bb271d1c6188f403833c93ce8123a08fa0c6765038ea472962876883a`. The build includes the state-free self-check, both documented `init` option orders, idempotent bootstrap, and installer activation smoke. |
+| Independent review | Final read-only review returned `READY` with P0/P1/P2 at 0/0/0. It confirmed that `OB1-W1` commands and `OB1-W2` publication or clean-host execution are absent. |
+
+No artifact was published or pushed. Linux native execution, release assembly, reinstall proof, and
+the exact clean-host 300-second matrix remain in `OB1-W2`.
 
 ## Exit criteria
 

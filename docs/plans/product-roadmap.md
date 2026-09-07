@@ -1,7 +1,7 @@
 # Open Brain and Secure Node roadmap
 
-- Status: Accepted product split; `OB1-W0` implementation complete, closure verification active;
-  `CORE-W0` paused after implementation review
+- Status: Accepted product split; `OB1-W0` complete; `OB1-W1` not started; `CORE-W0` paused after
+  implementation review
 - Date: 2026-09-07
 - Product authority: [`../product-family.md`](../product-family.md)
 - Acceptance authority: [`../acceptance/five-minute-install.md`](../acceptance/five-minute-install.md)
@@ -17,9 +17,11 @@ that work as `SN1-W1`.
 `SN1-W1` is complete after ADR 0013's pre-release schema and lifecycle correction, focused and
 repository-wide gates, and a fresh independent `READY` review with no findings. The first
 `CORE-W0` implementation is preserved at commit `10d0846`, but its final review found three gaps.
-That workstream is paused with `SN1-W2` still gated. `OB1-W0` is in closure verification on the
-separate local branch `goal/open-brain-five-minute-install`. Its base dependency graph, direct
-bootstrap, and unpublished native installer are implemented; `OB1-W1` has not started.
+That workstream is paused with `SN1-W2` still gated. `OB1-W0` completed on the separate local branch
+`goal/open-brain-five-minute-install` at implementation commit `ebef782`. Its small base dependency
+graph, direct private bootstrap, Python 3.14 native artifact, and checksum-verifying installer passed
+the full and focused repository gates plus an independent `READY` review with no P0 through P2
+findings. The artifacts remain unpublished, and `OB1-W1` has not started.
 
 ## Milestones
 
