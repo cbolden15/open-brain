@@ -1,0 +1,35 @@
+{
+  "id": "2026-09-04-m1-semantic-kernel-node-notes",
+  "title": "Implementation notes - M1 public semantic kernel and reference Node",
+  "subtitle": "M1-W0 blocked at source-traceability gate · 2026-09-06 21:27 CDT",
+  "introTitle": "How to use",
+  "intro": "<p>Each item is a decision, deviation, or tradeoff made during implementation. <strong>Acknowledge</strong> if fine. <strong>Discuss</strong> to write what should change. <strong>Revert</strong> to flag for undo.</p>",
+  "actions": [
+    "acknowledge",
+    "discuss",
+    "revert"
+  ],
+  "groups": [
+    {
+      "id": "m1-w0",
+      "label": "M1-W0 - close implementation decisions and freeze executable schemas",
+      "badge": "W0"
+    }
+  ],
+  "items": [
+    {
+      "id": "N1",
+      "group": "m1-w0",
+      "title": "Accepted M0 source hashes are not available in the public repository",
+      "where": "M1-W0 source-manifest prerequisite (plan lines 112-115)",
+      "default": "acknowledge",
+      "body": {
+        "Spec said": "Create a sanitized manifest for the exact accepted M0 decision bundle using stable decision IDs and content SHA-256 values before implementation proceeds.",
+        "What I did": "Validated the plan guardrails and searched the current public tree plus all reachable public Git history for the accepted M0 ADR bundle or its recorded source hashes. Neither is present. I did not inspect a private repository or substitute hashes of newly reconstructed public ADRs.",
+        "Why": "A derived or self-referential hash would not prove traceability to the exact accepted M0 sources and would weaken the plan's explicit W0 stop gate.",
+        "Risk": "M1-W1 is not allowed to start. An operator must provide the stable M0 decision IDs and exact source SHA-256 values as sanitized inputs, without private paths or source content, before M1-W0 can resume.",
+        "Followup": "Supply the sanitized ID-to-SHA-256 mapping for the accepted M0 decision bundle, then rerun M1-W0 from the existing clean code checkpoint."
+      }
+    }
+  ]
+}
