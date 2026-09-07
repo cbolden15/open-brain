@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import base64
+import re
 from collections.abc import Mapping
 from datetime import datetime
 from typing import Final, cast
@@ -26,6 +27,9 @@ SIGNATURE_FIELDS: Final = {
     "receipt": "node_signature",
     "sequencer-stop-proof": "node_signature",
 }
+TIMESTAMP_PATTERN: Final = re.compile(
+    r"^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(?:\.[0-9]{3})?Z$"
+)
 
 
 def _object(value: object, label: str) -> Mapping[str, object]:
@@ -41,14 +45,14 @@ def _integer(value: object, label: str) -> int:
 
 
 def _timestamp(value: object, label: str) -> datetime:
-    if not isinstance(value, str):
-        raise ProtocolContractError(f"{label} must be a timestamp")
+    if not isinstance(value, str) or TIMESTAMP_PATTERN.fullmatch(value) is None:
+        raise ProtocolContractError(
+            f"{label} must be canonical UTC with whole-second or millisecond precision"
+        )
     try:
         parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
     except ValueError as error:
-        raise ProtocolContractError(f"{label} must be a timestamp") from error
-    if parsed.tzinfo is None:
-        raise ProtocolContractError(f"{label} must include an offset")
+        raise ProtocolContractError(f"{label} must be a valid timestamp") from error
     return parsed
 
 

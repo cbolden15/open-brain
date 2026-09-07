@@ -67,6 +67,8 @@ Owner-session and step-up age use the monotonic in-process clock. Grant expiry u
 high-water mark and a fixed 300-second skew allowance. A backward wall-clock observation does not
 move the high-water mark and fails closed when freshness cannot be proved.
 
+Serialized instants use the canonical UTC whole-second or millisecond format frozen in ADR 0010.
+
 Replay state is a dedicated encrypted operational store, outside the canonical ledger transaction
 and BrainPack inventory. After grant and signature validation, the Node atomically reserves the
 nonce before calling `commit`, `query`, `changes`, or `inspect`. The reservation does not roll back

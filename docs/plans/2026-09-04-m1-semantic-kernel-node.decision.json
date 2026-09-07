@@ -1,7 +1,7 @@
 {
   "id": "2026-09-04-m1-semantic-kernel-node-notes",
   "title": "Implementation notes - M1 public semantic kernel and reference Node",
-  "subtitle": "M1-W0 second remediation verified locally; independent rereview pending; W1 locked · 2026-09-07 01:48 CDT",
+  "subtitle": "M1-W0 timestamp remediation verified locally; independent rereview pending; W1 locked · 2026-09-07 02:01 CDT",
   "introTitle": "How to use",
   "intro": "<p>Each item is a decision, deviation, or tradeoff made during implementation. <strong>Acknowledge</strong> if fine. <strong>Discuss</strong> to write what should change. <strong>Revert</strong> to flag for undo.</p>",
   "actions": [
@@ -207,6 +207,18 @@
         "Findings": "Continuity documents disclosed a prior canonical commit digest; owner-key validity did not constrain Node certification or rotation; query pages bypassed nested evidence Brain checks; and the decryption port could not receive the full AEAD associated data.",
         "What I changed": "Replaced public ledger-head details with a domain-separated commitment to the complete signed prior receipt, enforced half-open owner chronology with validly signed boundary tests, recursively validated query evidence, and froze exact ciphertext, wrapped-key, decrypt, and rotation port shapes.",
         "Gate": "Focused verification and full make verify pass: Ruff, strict MyPy over 566 source files, 3,337 tests, six artifacts, and artifact policy are green. A fresh independent verdict remains required before W0 can close or W1 can begin."
+      }
+    },
+    {
+      "id": "N16",
+      "group": "m1-w0",
+      "title": "Follow-up review exposed ambiguous submillisecond timestamps",
+      "default": "acknowledge",
+      "body": {
+        "What happened": "The strict review of exact commit 5f1395a cleared all four preceding findings but returned NOT READY with one new P2. JSON Schema accepted arbitrary RFC 3339 fractional seconds while Python temporal comparison truncated beyond microseconds.",
+        "Counterexamples": "Two independently generated, fully signed chains changed meaning after truncation: Node issuance appeared after owner activation when it was before, and appeared at owner retirement when it was before.",
+        "What I changed": "Wire timestamps now accept canonical UTC Z only, with either whole seconds or exactly three millisecond digits. Schema and semantic parsing enforce the same rule, and tests reproduce both signed counterexamples.",
+        "Gate": "Focused verification and full make verify pass: Ruff, strict MyPy over 566 source files, 3,344 tests, six artifacts, and artifact policy are green. A fresh independent rereview remains required before W0 can close or W1 can begin."
       }
     }
   ]

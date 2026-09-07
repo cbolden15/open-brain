@@ -19,6 +19,11 @@ that package and hashed with SHA-256. The strict protocol decoder rejects duplic
 non-finite numbers, invalid UTF-8, and values outside the RFC 8785 data model before operation
 dispatch. It does not substitute `json.dumps` or another encoder.
 
+All wire timestamps use canonical UTC `Z` with either whole-second precision or exactly three
+fractional digits. Offsets and every other fractional width are rejected before semantic time
+comparison. Millisecond precision is exact across the supported protocol implementations and avoids
+language-specific truncation of RFC 3339 fractional seconds.
+
 The Reference Node uses `sqlcipher3==0.6.2`, which bundles SQLCipher 4.12.0 Community Edition, for
 the encrypted SQLite ledger, replay store, and FTS projections. `sqlcipher3`, `cryptography`,
 `argon2-cffi`, `keyring`, and the macOS LocalAuthentication bridge are in the engine `node` extra.

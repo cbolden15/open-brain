@@ -13,6 +13,10 @@ Brain-boundary, epoch-continuity, and certificate-history rules that Draft 2020-
 The public M0 ADRs explain the contract, while conformance cases and deterministic signature
 vectors prove that its executable forms agree.
 
+Wire timestamps use UTC `Z` only. They contain either whole seconds or exactly three fractional
+digits for milliseconds. Other offsets, fractional widths, and submillisecond values are invalid,
+so every implementation compares the same instant without precision truncation.
+
 ## Canonical bytes and request binding
 
 Protocol JSON is UTF-8 I-JSON. The strict decoder rejects duplicate object names, non-finite

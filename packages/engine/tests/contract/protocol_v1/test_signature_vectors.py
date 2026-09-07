@@ -402,6 +402,40 @@ def test_receipt_owner_certification_rejects_validly_signed_invalid_chronology(
         validate_protocol_semantics("receipt", receipt)
 
 
+@pytest.mark.parametrize(
+    ("genesis_valid_from", "genesis_retired_at", "node_issued_at"),
+    (
+        pytest.param(
+            "2026-09-06T12:00:00.0000009Z",
+            None,
+            "2026-09-06T12:00:00.0000001Z",
+            id="apparent-before-validity-after-truncation",
+        ),
+        pytest.param(
+            "2026-09-06T12:00:00Z",
+            "2026-09-06T12:00:00.0000009Z",
+            "2026-09-06T12:00:00.0000001Z",
+            id="apparent-retirement-after-truncation",
+        ),
+    ),
+)
+def test_receipt_rejects_validly_signed_submillisecond_timestamp_ambiguity(
+    genesis_valid_from: str,
+    genesis_retired_at: str | None,
+    node_issued_at: str,
+) -> None:
+    receipt = _temporal_receipt(
+        genesis_valid_from=genesis_valid_from,
+        genesis_retired_at=genesis_retired_at,
+        successor_valid_from=None,
+        node_issued_at=node_issued_at,
+    )
+
+    _verify_temporal_receipt_signatures(receipt)
+    with pytest.raises(ProtocolContractError, match="canonical UTC"):
+        validate_protocol_semantics("receipt", receipt)
+
+
 def test_cold_transfer_is_bound_to_the_node_stop_proof() -> None:
     vectors = {vector["case"]: vector for vector in load_signature_vectors()}
     receipt = cast(dict[str, object], vectors["node-signed-receipt-chain-v1"]["document"])

@@ -131,6 +131,44 @@ def test_grant_requires_proof_of_possession_binding_and_bounded_ttl() -> None:
         validate_protocol_semantics("grant", grant)
 
 
+@pytest.mark.parametrize(
+    "timestamp",
+    (
+        "2026-09-06T12:00:00.1Z",
+        "2026-09-06T12:00:00.0001Z",
+        "2026-09-06T12:00:00.0000001Z",
+        "2026-09-06T12:00:00+00:00",
+    ),
+)
+def test_protocol_timestamps_reject_noncanonical_or_submillisecond_precision(
+    timestamp: str,
+) -> None:
+    owner = deepcopy(
+        cast(
+            dict[str, object],
+            load_conformance_cases()["valid"]["owner-key-certificate"][0],
+        )
+    )
+    owner["valid_from"] = timestamp
+
+    assert not _validator("owner-key-certificate").is_valid(owner)
+    with pytest.raises(ProtocolContractError, match="canonical UTC"):
+        validate_protocol_semantics("owner-key-certificate", owner)
+
+
+def test_protocol_timestamps_accept_exact_millisecond_precision() -> None:
+    owner = deepcopy(
+        cast(
+            dict[str, object],
+            load_conformance_cases()["valid"]["owner-key-certificate"][0],
+        )
+    )
+    owner["valid_from"] = "2026-09-06T12:00:00.001Z"
+
+    assert _validator("owner-key-certificate").is_valid(owner)
+    validate_protocol_semantics("owner-key-certificate", owner)
+
+
 def test_record_envelope_requires_authority_times_provenance_and_integrity() -> None:
     record = cast(dict[str, object], load_conformance_cases()["valid"]["record"][0])
     required = {

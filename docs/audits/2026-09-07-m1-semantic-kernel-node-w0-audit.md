@@ -6,7 +6,7 @@
 
 **Mode:** strict
 
-**Commits reviewed:** `f1e3ceb..f23b4ce` plus the second W0 remediation working diff
+**Commits reviewed:** `f1e3ceb..5f1395a` plus the timestamp-remediation working diff
 
 **Codebase root:** repository root
 
@@ -16,8 +16,9 @@
 - **Ship readiness:** NOT READY until the second remediation passes independent rereview
 - **W1 gate:** Locked until the independent rereview returns READY
 - **Independent findings at `f23b4ce`:** two P1 and two P2 findings, all remediated locally
+- **Independent finding at `5f1395a`:** one P2 timestamp-precision defect, remediated locally
 - **Current verification:** full `make verify` passed with Ruff, strict MyPy over 566 source files,
-  3,337 tests, six Python artifacts, and the artifact-policy gate. The focused 166-test review set
+  3,344 tests, six Python artifacts, and the artifact-policy gate. The focused 173-test review set
   also passed.
 
 The first independent review rejected commit `a6d92a9` with three P1, five P2, and three P3
@@ -25,7 +26,9 @@ findings. The remediation closes each finding in executable schemas, semantic va
 mutation tests, reproducible evidence, or documentation. This report is the local strict audit,
 not the independent gate result. A second independent review rejected `f23b4ce` with two P1 and
 two P2 findings. The current working diff addresses those findings, but only a fresh independent
-READY verdict can unlock W1.
+READY verdict can unlock W1. The follow-up review of `5f1395a` cleared all four and found one new
+P2 caused by submicrosecond RFC 3339 values being truncated during temporal comparison. The current
+working diff closes that precision ambiguity.
 
 ## Requirement audit
 
@@ -255,6 +258,9 @@ READY verdict can unlock W1.
     freezes owner, step-up, grant, and 300-second skew limits.
   - `docs/architecture/decisions/0011-m1-authority-information-flow-and-resource-bounds.md:58`
     defines monotonic sessions, persisted UTC high-water time, and fail-closed rollback behavior.
+- **Executable precision:** The common timestamp schema and semantic parser accept only canonical
+  UTC whole seconds or exactly three fractional digits. Validly signed submillisecond counterexamples
+  are rejected before temporal comparison.
 - **Notes:** Grant timestamp arithmetic has an executable mutation test at
   `packages/engine/tests/contract/protocol_v1/test_schemas.py:117`.
 
@@ -430,7 +436,7 @@ READY verdict can unlock W1.
     pins completed P4 evidence bytes.
   - `tests/phase4/test_m1_compatibility_baseline.py:45`
     pins the v0 facade and all six artifact coordinates.
-- **Notes:** The full 3,337-test repository suite passed after the second remediation.
+- **Notes:** The full 3,344-test repository suite passed after the timestamp remediation.
 
 ### R34: Extend the coordinator-owned classification manifest
 
@@ -489,6 +495,15 @@ independent acceptance verdict.
 | P2: query pages bypassed nested evidence Brain checks | Recursively validate every evidence contract, then bind its Brain to the page Brain | `test_query_page_rejects_evidence_from_another_brain`; `test_query_page_recursively_rejects_evidence_provenance_boundary` |
 | P2: decrypt could not receive required AEAD associated data | Added expected associated data to `decrypt`, added data-key and ciphertext bindings to typed envelopes, and made rotation select an exact key | `test_key_custody_envelopes_and_aead_inputs_are_exact` |
 
+## Follow-up finding from the `5f1395a` rereview
+
+The strict review of `5f1395a` cleared the preceding four findings and returned NOT READY with zero
+P0, zero P1, one P2, and zero P3 findings.
+
+| Finding | Local remediation | Executable evidence |
+|---|---|---|
+| P2: Python truncated schema-valid submicrosecond timestamps before owner-validity comparison | Restricted wire timestamps to canonical UTC whole seconds or exactly three millisecond digits in both schema and semantic parsing; added both valid-format tests and fully signed reproductions of the two counterexamples | `test_protocol_timestamps_reject_noncanonical_or_submillisecond_precision`; `test_protocol_timestamps_accept_exact_millisecond_precision`; `test_receipt_rejects_validly_signed_submillisecond_timestamp_ambiguity` |
+
 ## Integration audit
 
 - `packages/engine/src/open_brain_engine/protocol/resources.py:12`
@@ -507,8 +522,9 @@ No broken integration, orphaned import, or unclassified W0 runtime/resource was 
 
 - **Regression:** Low. The v0 facade, P4 evidence hashes, package boundaries, Python range, and six
   artifact coordinates are pinned and passed.
-- **Security:** The four findings from the `f23b4ce` rereview are covered by passing local
-  regression tests. They remain gate blockers until the independent reviewer verifies the fix.
+- **Security:** The reviewer independently cleared the four findings from `f23b4ce`. The remaining
+  timestamp P2 from `5f1395a` is covered by passing local regression tests and remains a gate blocker
+  until independently verified.
 - **Performance:** The provisional shard, fan-out, top-k, commit, nonce, and concurrency limits are
   executable constants. Synthetic macOS/Linux measurements passed their frozen bounds.
 - **Delivery:** The Linux x86_64 matrix used official containers under x86_64 emulation on Apple
@@ -517,7 +533,7 @@ No broken integration, orphaned import, or unclassified W0 runtime/resource was 
 
 ## Critical gaps
 
-Independent rereview of the exact second-remediation commit remains open. W1 stays locked.
+Independent rereview of the exact timestamp-remediation commit remains open. W1 stays locked.
 
 ## Integration issues
 
@@ -531,8 +547,8 @@ persisted records use the verified state, as the frozen contract requires.
 
 ## Recommended fixes
 
-Commit the exact verified remediation and request an independent rereview of that commit. Do not
-start W1 without a READY verdict.
+Commit the exact verified timestamp remediation and request an independent rereview of that commit.
+Do not start W1 without a READY verdict.
 
 ## Optional enhancements
 
