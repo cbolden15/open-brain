@@ -11,12 +11,12 @@
   },
   "expected": {
     "brain_id": "brn_ci7ekz7itnbnhjcwijtbif2aaa",
-    "full_plan_digest": "604e2df9d943c318605195e867f17fa15d343f8b7af46a4553ee76c4b6fb1a27",
+    "full_plan_digest": "a42e487291f8013a58db50d4795ce5295d31ecd155b639dd819e6e65c2801983",
     "batch_digests": [
-      "73b9f21cd9e295bf2cb6ab32a1396e9e22fa1cc36066b3f05fe104c1de730af3"
+      "0021ebf2ddf4c39b852f44b384b949b706b193a05b37869cffeeaac91d587dae"
     ],
     "source_manifest_sha256": "140a5d0d675199a33303c8aeb9f473d94e215ba23757e348abdbeefd0012172a",
-    "shared_envelope_schema_sha256": "521ad430e025a42151ab6518e3f5600e1541916f4499a022bb24b9036fc54cd9",
+    "shared_envelope_schema_sha256": "2821a3b5f7bf23c1ef4e4f9e6fb1e980fc71fa9cb229a541d98ccb826ae4602f",
     "family_counts": {
       "action": 1,
       "brain": 1,

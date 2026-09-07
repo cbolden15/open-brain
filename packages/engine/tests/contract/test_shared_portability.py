@@ -11,6 +11,7 @@ from pathlib import Path
 from types import MappingProxyType
 from typing import cast
 
+import open_brain_engine.portability as portability
 import pytest
 from jsonschema import Draft202012Validator, FormatChecker  # type: ignore[import-untyped]
 from open_brain_engine.ledger.model import Record
@@ -478,3 +479,78 @@ def test_batch_and_full_plan_digests_bind_order_and_context(tmp_path: Path) -> N
         plan_secure_node_import(shared, changed_context).full_plan_digest
         != plan.full_plan_digest
     )
+
+
+def test_import_plan_rejects_a_stale_batch_digest_after_record_change(
+    tmp_path: Path,
+) -> None:
+    shared = shared_brain_from_snapshot(validated_portable_snapshot(_fixture_root(tmp_path)))
+    plan = plan_secure_node_import(shared, _context(DELIVERY_A))
+    changed_record = replace(plan.records[0], observed_at="2026-09-07T12:00:01Z")
+    changed_records = (changed_record, *plan.records[1:])
+    stale_batch = replace(plan.batches[0], items=changed_records)
+
+    with pytest.raises(PortabilityMappingError, match="batch digest"):
+        replace(plan, records=changed_records, batches=(stale_batch,))
+
+    changed_batch = replace(
+        stale_batch, digest=canonical_sha256(batch_document(stale_batch))
+    )
+    with pytest.raises(PortabilityMappingError, match="shared source"):
+        replace(plan, records=changed_records, batches=(changed_batch,))
+
+
+def test_trusted_inverse_reads_the_mapped_envelope_bodies(tmp_path: Path) -> None:
+    shared = shared_brain_from_snapshot(validated_portable_snapshot(_fixture_root(tmp_path)))
+    plan = plan_secure_node_import(shared, _context(DELIVERY_A))
+    first = plan.records[0]
+    changed_body = dict(first.body)
+    changed_body["source_bytes_base64"] = base64.b64encode(b"tampered").decode("ascii")
+    changed_record = replace(first, body=changed_body)
+    object.__setattr__(plan, "records", (changed_record, *plan.records[1:]))
+
+    with pytest.raises(PortabilityMappingError, match="digest|source bytes"):
+        plan.reconstruct_file_set()
+
+
+def test_shared_envelope_schema_and_validator_bind_each_family_field(
+    tmp_path: Path,
+) -> None:
+    shared = shared_brain_from_snapshot(validated_portable_snapshot(_fixture_root(tmp_path)))
+    plan = plan_secure_node_import(shared, _context(DELIVERY_A))
+    validator = Draft202012Validator(
+        load_shared_envelope_schema(), format_checker=_FORMAT_CHECKER
+    )
+    bodies = {
+        cast(str, record.body["semantic_family"]): cast(
+            dict[str, object], record_document(record)["body"]
+        )
+        for record in plan.records
+    }
+    for body in bodies.values():
+        validator.validate(body)
+        portability.validate_shared_envelope(body)
+
+    invalid_bodies = []
+    for field in ("semantic_id", "source_schema_uri", "source_path"):
+        changed = dict(bodies["capture"])
+        changed[field] = bodies["page"][field]
+        invalid_bodies.append(changed)
+    families = sorted(bodies)
+    for source_family, target_family in zip(
+        families, (*families[1:], families[0]), strict=True
+    ):
+        changed_family = dict(bodies[source_family])
+        changed_family["semantic_family"] = target_family
+        invalid_bodies.append(changed_family)
+    missing_row_ordinal = dict(bodies["event"])
+    missing_row_ordinal["source_ordinal"] = None
+    invalid_bodies.append(missing_row_ordinal)
+    unexpected_ordinal = dict(bodies["page"])
+    unexpected_ordinal["source_ordinal"] = 0
+    invalid_bodies.append(unexpected_ordinal)
+
+    for body in invalid_bodies:
+        assert not validator.is_valid(body)
+        with pytest.raises(PortabilityMappingError):
+            portability.validate_shared_envelope(body)

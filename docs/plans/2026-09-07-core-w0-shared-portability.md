@@ -1,12 +1,12 @@
 # CORE-W0: shared portability mapping
 
-Status: implementation complete; closure verification and review in progress
+Status: review remediation implemented; focused and full verification pass; independent rereview pending
 
 Date: 2026-09-07
 
 Starting commit: `1aa62f8763c6c41e635a2d6ebae1780a37672157`
 
-Branch: `goal/open-brain-m1`
+Branch: `goal/open-brain-five-minute-install`
 
 ## Objective
 
@@ -135,6 +135,23 @@ IDs also map to producer principal envelope IDs. No operational value becomes sh
       authorization or retrospective encryption claims.
 - [x] Prove wheel-installed code can load the schema and conformance resources without checkout
       paths.
+
+### 6. Final-review remediation
+
+The independent review of implementation commit `10d0846b56144ac8ad316452bd31cf6756844d05`
+returned two P1 findings and one P2 finding. The correction candidate now:
+
+- recomputes every batch digest from its exact mapped wire records before accepting a plan;
+- reconstructs semantic Portable files from the mapped Secure Node envelope bodies;
+- binds every shared family to its identifier prefix, source schema, path family, and ordinal rule
+  in the published schema; and
+- exposes a packaged semantic-envelope validator that checks the exact source-byte binding.
+
+The tests reproduced all three defects before the corrections. The corrected focused gate passes
+123 tests plus Ruff, MyPy, and diff integrity. Repository-wide verification passes 3,537 tests,
+strict MyPy on 593 source files, all six Python artifacts, and artifact policy. The milestone stays
+open until a fresh independent review accepts the exact committed correction tree. Nothing has
+been pushed or published.
 
 ## Planned files
 

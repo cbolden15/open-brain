@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import base64
+import binascii
 import heapq
 import re
 import uuid
@@ -49,6 +50,24 @@ _PROTOCOL_TIMESTAMP = re.compile(
     r"(?:\.(?P<millisecond>[0-9]{3}))?Z"
 )
 _SHARED_ENVELOPE_URI = "urn:open-brain:shared-portability:v1:record-envelope"
+_SHARED_ENVELOPE_FIELDS = frozenset(
+    {
+        "actor_id",
+        "provenance_ids",
+        "schema_version",
+        "semantic_family",
+        "semantic_id",
+        "source_brain_id",
+        "source_bytes_base64",
+        "source_contract",
+        "source_ordinal",
+        "source_path",
+        "source_schema_uri",
+        "source_sha256",
+        "source_timestamp",
+        "space_id",
+    }
+)
 
 
 def _base32_identifier(prefix: str, payload: bytes) -> str:
@@ -128,6 +147,74 @@ def _json_value(value: object) -> object:
     if isinstance(value, tuple):
         return [_json_value(child) for child in value]
     return value
+
+
+def _envelope_string(document: Mapping[str, object], field: str) -> str:
+    value = document.get(field)
+    if not isinstance(value, str):
+        raise PortabilityMappingError(f"shared envelope {field} is invalid")
+    return value
+
+
+def _shared_record_from_envelope(
+    document: Mapping[str, object],
+) -> tuple[str, SharedRecord]:
+    if not isinstance(document, Mapping) or set(document) != _SHARED_ENVELOPE_FIELDS:
+        raise PortabilityMappingError("shared envelope fields are invalid")
+    if document.get("schema_version") != 1:
+        raise PortabilityMappingError("shared envelope schema version is invalid")
+    if document.get("source_contract") != "portable-brain-v1":
+        raise PortabilityMappingError("shared envelope source contract is invalid")
+
+    source_brain_id = _envelope_string(document, "source_brain_id")
+    validate_portable_identifier(source_brain_id, "tenant")
+    raw_family = document.get("semantic_family")
+    if not isinstance(raw_family, str) or raw_family not in FAMILY_ID_PREFIX:
+        raise PortabilityMappingError("shared envelope family is invalid")
+    family = cast(SharedFamily, raw_family)
+    encoded_source = _envelope_string(document, "source_bytes_base64")
+    try:
+        source_bytes = base64.b64decode(encoded_source, validate=True)
+    except (binascii.Error, ValueError) as error:
+        raise PortabilityMappingError("shared envelope source bytes are invalid") from error
+    if base64.b64encode(source_bytes).decode("ascii") != encoded_source:
+        raise PortabilityMappingError("shared envelope source bytes are not canonical Base64")
+
+    raw_ordinal = document.get("source_ordinal")
+    if raw_ordinal is not None and (
+        isinstance(raw_ordinal, bool) or not isinstance(raw_ordinal, int)
+    ):
+        raise PortabilityMappingError("shared envelope source ordinal is invalid")
+    raw_timestamp = document.get("source_timestamp")
+    if raw_timestamp is not None and not isinstance(raw_timestamp, str):
+        raise PortabilityMappingError("shared envelope source timestamp is invalid")
+    raw_space_id = document.get("space_id")
+    if raw_space_id is not None and not isinstance(raw_space_id, str):
+        raise PortabilityMappingError("shared envelope space identity is invalid")
+    raw_provenance = document.get("provenance_ids")
+    if not isinstance(raw_provenance, list) or any(
+        not isinstance(value, str) for value in raw_provenance
+    ):
+        raise PortabilityMappingError("shared envelope provenance is invalid")
+
+    return source_brain_id, SharedRecord(
+        family=family,
+        semantic_id=_envelope_string(document, "semantic_id"),
+        schema_uri=_envelope_string(document, "source_schema_uri"),
+        source_path=_envelope_string(document, "source_path"),
+        source_ordinal=raw_ordinal,
+        source_bytes=source_bytes,
+        source_sha256=_envelope_string(document, "source_sha256"),
+        actor_id=_envelope_string(document, "actor_id"),
+        source_timestamp=raw_timestamp,
+        space_id=raw_space_id,
+        provenance_ids=tuple(cast(list[str], raw_provenance)),
+    )
+
+
+def validate_shared_envelope(document: Mapping[str, object]) -> None:
+    """Validate one installed shared-envelope body and its Portable source binding."""
+    _shared_record_from_envelope(document)
 
 
 def record_document(record: Record) -> dict[str, object]:
@@ -272,6 +359,111 @@ def _shared_body(shared: SharedBrain, record: SharedRecord) -> Mapping[str, obje
     )
 
 
+def _import_records(
+    shared: SharedBrain,
+    context: ImportEnvelopeContext,
+    brain_id: str,
+) -> tuple[Record, ...]:
+    expected_brain_id = reencode_portable_identifier(
+        shared.source_brain_id, "tenant", "brn"
+    )
+    if brain_id != expected_brain_id:
+        raise PortabilityMappingError("import record identity map is incomplete")
+    ordered = _topological_records(shared)
+    record_ids: dict[str, str] = {}
+    seen_envelopes: set[str] = set()
+    for source in ordered:
+        record_id = derive_import_record_id(
+            shared.source_brain_id, source.family, source.semantic_id
+        )
+        if record_id in seen_envelopes:
+            raise PortabilityMappingError("derived record ID collision")
+        validate_identifier(record_id, role="record", brain_id=brain_id)
+        record_ids[source.semantic_id] = record_id
+        seen_envelopes.add(record_id)
+
+    schema = SchemaReference(
+        schema_id="portable-record-envelope",
+        version=1,
+        uri=_SHARED_ENVELOPE_URI,
+        sha256=sha256(shared_envelope_schema_bytes()).hexdigest(),
+    )
+    records = tuple(
+        Record(
+            brain_id=brain_id,
+            record_id=record_ids[source.semantic_id],
+            record_type=f"portable_brain_v1.{source.family}",
+            content_schema=schema,
+            producer_principal_id=reencode_portable_identifier(
+                source.actor_id, "actor", "pri"
+            ),
+            origin_id=source.semantic_id,
+            captured_at=_protocol_captured_at(source.source_timestamp),
+            observed_at=context.observed_at,
+            compartments=tuple(context.compartments),
+            provenance=Provenance(
+                brain_id=brain_id,
+                source_record_ids=tuple(record_ids[item] for item in source.provenance_ids),
+                derivation="import",
+            ),
+            body=_shared_body(shared, source),
+            ciphertext_state="pending",
+            ciphertext_digest=None,
+        )
+        for source in ordered
+    )
+    for record in records:
+        document = record_document(record)
+        validate_shared_envelope(cast(dict[str, object], document["body"]))
+        validate_protocol_semantics("record", document)
+    return records
+
+
+def _import_batches(
+    brain_id: str,
+    records: tuple[Record, ...],
+    context: ImportEnvelopeContext,
+) -> tuple[CommitBatch, ...]:
+    delivery_ids = tuple(context.delivery_ids)
+    expected_batches = (
+        len(records) + RESOURCE_LIMITS.commit_batch_items - 1
+    ) // RESOURCE_LIMITS.commit_batch_items
+    if len(delivery_ids) != expected_batches:
+        raise PortabilityMappingError("exactly one delivery ID is required per import batch")
+    for delivery_id in delivery_ids:
+        try:
+            validate_identifier(delivery_id, role="delivery", brain_id=brain_id)
+        except ValueError as error:
+            raise PortabilityMappingError("import delivery ID is invalid") from error
+
+    batches: list[CommitBatch] = []
+    for index, offset in enumerate(
+        range(0, len(records), RESOURCE_LIMITS.commit_batch_items)
+    ):
+        items = records[offset : offset + RESOURCE_LIMITS.commit_batch_items]
+        batch_body = {
+            "schema_version": 1,
+            "brain_id": brain_id,
+            "delivery_id": delivery_ids[index],
+            "sequencer_epoch": context.sequencer_epoch,
+            "issuer_epoch": context.issuer_epoch,
+            "policy_digest": context.policy_digest,
+            "items": [record_document(record) for record in items],
+        }
+        batch = CommitBatch(
+            brain_id=brain_id,
+            delivery_id=delivery_ids[index],
+            digest=canonical_sha256(batch_body),
+            sequencer_epoch=context.sequencer_epoch,
+            issuer_epoch=context.issuer_epoch,
+            policy_digest=context.policy_digest,
+            items=items,
+        )
+        validate_protocol_semantics("commit-batch", batch_document(batch))
+        batches.append(batch)
+    return tuple(batches)
+
+
 def _full_plan_document(
     shared: SharedBrain,
     brain_id: str,
@@ -347,24 +539,6 @@ class SecureNodeImportPlan:
         records = tuple(replace(record) for record in self.records)
         batches = tuple(replace(batch) for batch in self.batches)
         validate_identifier(self.brain_id, role="brain")
-        ordered_sources = _topological_records(shared)
-        expected_brain_id = reencode_portable_identifier(
-            shared.source_brain_id, "tenant", "brn"
-        )
-        expected_origins = tuple(source.semantic_id for source in ordered_sources)
-        actual_origins = tuple(record.origin_id for record in records)
-        expected_record_ids = tuple(
-            derive_import_record_id(
-                shared.source_brain_id, source.family, source.semantic_id
-            )
-            for source in ordered_sources
-        )
-        if (
-            self.brain_id != expected_brain_id
-            or actual_origins != expected_origins
-            or tuple(record.record_id for record in records) != expected_record_ids
-        ):
-            raise PortabilityMappingError("import record identity map is incomplete")
         all_items = tuple(item for batch in batches for item in tuple(batch.items))
         expected = tuple(item for item in all_items if isinstance(item, Record))
         if (
@@ -378,6 +552,37 @@ class SecureNodeImportPlan:
             or any(batch.brain_id != self.brain_id for batch in batches)
         ):
             raise PortabilityMappingError("import plan batches do not exactly bind its records")
+        if any(
+            batch.digest != canonical_sha256(batch_document(batch)) for batch in batches
+        ):
+            raise PortabilityMappingError("import batch digest mismatch")
+        first_record = records[0]
+        first_batch = batches[0]
+        try:
+            context = ImportEnvelopeContext(
+                observed_at=first_record.observed_at,
+                compartments=tuple(first_record.compartments),
+                policy_digest=first_batch.policy_digest,
+                issuer_epoch=first_batch.issuer_epoch,
+                sequencer_epoch=first_batch.sequencer_epoch,
+                delivery_ids=tuple(batch.delivery_id for batch in batches),
+            )
+        except ValueError as error:
+            raise PortabilityMappingError("import plan context is invalid") from error
+        expected_records = _import_records(shared, context, self.brain_id)
+        if records != expected_records:
+            raise PortabilityMappingError(
+                "import records do not match the shared source and envelope context"
+            )
+        expected_batches = _import_batches(self.brain_id, expected_records, context)
+        if batches != expected_batches:
+            raise PortabilityMappingError("import batches do not match the envelope context")
+        try:
+            _validate_batches_purely(self.brain_id, batches)
+        except ValueError as error:
+            raise PortabilityMappingError(
+                "Secure Node semantic kernel rejected the import plan"
+            ) from error
         _validate_plan_digest(self.full_plan_digest)
         expected_digest = canonical_sha256(
             _full_plan_document(shared, self.brain_id, records, batches)
@@ -390,7 +595,22 @@ class SecureNodeImportPlan:
 
     def reconstruct_file_set(self) -> Mapping[str, bytes]:
         """Trusted test inverse for exact Portable conformance; not a Secure Node export."""
-        return self.shared_brain.reconstruct_file_set()
+        mapped_records: list[SharedRecord] = []
+        for record in self.records:
+            body = cast(dict[str, object], record_document(record)["body"])
+            source_brain_id, mapped = _shared_record_from_envelope(body)
+            if source_brain_id != self.shared_brain.source_brain_id:
+                raise PortabilityMappingError("shared envelope crosses its source Brain")
+            mapped_records.append(mapped)
+        reconstructed = SharedBrain(
+            source_brain_id=self.shared_brain.source_brain_id,
+            owner_actor_id=self.shared_brain.owner_actor_id,
+            evidence=self.shared_brain.evidence,
+            records=tuple(mapped_records),
+            blobs=self.shared_brain.blobs,
+            attachments=self.shared_brain.attachments,
+        )
+        return reconstructed.reconstruct_file_set()
 
 
 def _validate_plan_digest(value: str) -> None:
@@ -419,99 +639,10 @@ def plan_secure_node_import(
         raise PortabilityMappingError("shared Brain and import context are required")
     shared = replace(shared)
     context = replace(context)
-    context_compartments = tuple(context.compartments)
-    delivery_ids = tuple(context.delivery_ids)
     brain_id = reencode_portable_identifier(shared.source_brain_id, "tenant", "brn")
     validate_identifier(brain_id, role="brain")
-    expected_batches = (
-        len(shared.records) + RESOURCE_LIMITS.commit_batch_items - 1
-    ) // RESOURCE_LIMITS.commit_batch_items
-    if len(delivery_ids) != expected_batches:
-        raise PortabilityMappingError("exactly one delivery ID is required per import batch")
-    for delivery_id in delivery_ids:
-        try:
-            validate_identifier(delivery_id, role="delivery", brain_id=brain_id)
-        except ValueError as error:
-            raise PortabilityMappingError("import delivery ID is invalid") from error
-
-    ordered = _topological_records(shared)
-    record_ids: dict[str, str] = {}
-    seen_envelopes: set[str] = set()
-    for source in ordered:
-        record_id = derive_import_record_id(
-            shared.source_brain_id, source.family, source.semantic_id
-        )
-        if record_id in seen_envelopes:
-            raise PortabilityMappingError("derived record ID collision")
-        validate_identifier(record_id, role="record", brain_id=brain_id)
-        record_ids[source.semantic_id] = record_id
-        seen_envelopes.add(record_id)
-
-    schema = SchemaReference(
-        schema_id="portable-record-envelope",
-        version=1,
-        uri=_SHARED_ENVELOPE_URI,
-        sha256=sha256(shared_envelope_schema_bytes()).hexdigest(),
-    )
-    records = tuple(
-        Record(
-            brain_id=brain_id,
-            record_id=record_ids[source.semantic_id],
-            record_type=f"portable_brain_v1.{source.family}",
-            content_schema=schema,
-            producer_principal_id=reencode_portable_identifier(
-                source.actor_id, "actor", "pri"
-            ),
-            origin_id=source.semantic_id,
-            captured_at=_protocol_captured_at(source.source_timestamp),
-            observed_at=context.observed_at,
-            compartments=context_compartments,
-            provenance=Provenance(
-                brain_id=brain_id,
-                source_record_ids=tuple(record_ids[item] for item in source.provenance_ids),
-                derivation="import",
-            ),
-            body=_shared_body(shared, source),
-            ciphertext_state="pending",
-            ciphertext_digest=None,
-        )
-        for source in ordered
-    )
-    for record in records:
-        validate_protocol_semantics("record", record_document(record))
-
-    batches: list[CommitBatch] = []
-    for index, offset in enumerate(
-        range(0, len(records), RESOURCE_LIMITS.commit_batch_items)
-    ):
-        items = records[offset : offset + RESOURCE_LIMITS.commit_batch_items]
-        batch_body = {
-            "schema_version": 1,
-            "brain_id": brain_id,
-            "delivery_id": delivery_ids[index],
-            "sequencer_epoch": context.sequencer_epoch,
-            "issuer_epoch": context.issuer_epoch,
-            "policy_digest": context.policy_digest,
-            "items": [record_document(record) for record in items],
-        }
-        batch = CommitBatch(
-            brain_id=brain_id,
-            delivery_id=delivery_ids[index],
-            digest=canonical_sha256(batch_body),
-            sequencer_epoch=context.sequencer_epoch,
-            issuer_epoch=context.issuer_epoch,
-            policy_digest=context.policy_digest,
-            items=items,
-        )
-        validate_protocol_semantics("commit-batch", batch_document(batch))
-        batches.append(batch)
-    frozen_batches = tuple(batches)
-    try:
-        _validate_batches_purely(brain_id, frozen_batches)
-    except ValueError as error:
-        raise PortabilityMappingError(
-            "Secure Node semantic kernel rejected the import plan"
-        ) from error
+    records = _import_records(shared, context, brain_id)
+    frozen_batches = _import_batches(brain_id, records, context)
     full_plan_digest = canonical_sha256(
         _full_plan_document(shared, brain_id, records, frozen_batches)
     )
@@ -532,4 +663,5 @@ __all__ = [
     "plan_secure_node_import",
     "record_document",
     "reencode_portable_identifier",
+    "validate_shared_envelope",
 ]

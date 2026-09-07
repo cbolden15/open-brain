@@ -18,6 +18,7 @@ from .secure_node import (
     plan_secure_node_import,
     record_document,
     reencode_portable_identifier,
+    validate_shared_envelope,
 )
 
 __all__ = [
@@ -37,4 +38,5 @@ __all__ = [
     "record_document",
     "reencode_portable_identifier",
     "shared_brain_from_snapshot",
+    "validate_shared_envelope",
 ]
