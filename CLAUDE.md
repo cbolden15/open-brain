@@ -15,7 +15,7 @@
 | Native spike | `make p4w5-native P4W5_SOURCE_SHA=<exact-clean-HEAD>` builds, audits, and smokes one target-native PyInstaller onedir subject |
 | Python artifacts | `make verify-artifacts` builds and audits engine+app+connector wheels/sdists |
 | Product authority | `docs/product-family.md`; plain Open Brain is the five-minute default and Secure Node is opt-in |
-| Release state | No artifact implements the accepted five-minute default yet; retained appliance and Secure Node build subjects are unpublished |
+| Release state | The local base artifact implements the five-minute data journey; cross-host proof and publication remain in `OB1-W2` |
 
 The active v0 runtime and ordinary CI use Python 3.14. Python 3.12 remains only in frozen P4 native
 tooling and replay lanes so those historical artifacts and their readiness snapshot stay unchanged.

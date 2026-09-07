@@ -96,6 +96,7 @@ def test_base_native_spec_is_separate_and_excludes_secure_node() -> None:
     assert command[-1] == str(ROOT / "release/open-brain/open-brain.spec")
     assert "local_native_entrypoint.py" in spec
     assert "collect_submodules" not in spec
+    assert 'copy_metadata("open-brain")' in spec
     assert '"open_brain.services.appliance_entrypoints"' in spec
     assert '"open_brain_engine.portability.secure_node"' in spec
     assert '"cryptography"' in spec

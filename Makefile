@@ -1,4 +1,4 @@
-.PHONY: dev build test lint typecheck audit audit-history phase4-contracts ob1w0-focused ob1w0-preflight ob1w0-native p4w5-focused p4w5-native-config p4w5-native-contracts p4w5-preflight p4w5-native p4w6-focused p4w6-native-config p4w6-preflight p4w6-python p4w6-linux p4w6-macos-compatibility p4w6-macos p4w6-clean-host p4w6-assemble p4w6-verify verify-artifacts verify
+.PHONY: dev build test lint typecheck audit audit-history phase4-contracts ob1w0-focused ob1w0-preflight ob1w0-native ob1w1-focused ob1w1-preflight ob1w1-native p4w5-focused p4w5-native-config p4w5-native-contracts p4w5-preflight p4w5-native p4w6-focused p4w6-native-config p4w6-preflight p4w6-python p4w6-linux p4w6-macos-compatibility p4w6-macos p4w6-clean-host p4w6-assemble p4w6-verify verify-artifacts verify
 
 OB1W0_FOCUSED_TESTS = \
 	packages/app/tests/unit/test_local_data.py \
@@ -28,6 +28,22 @@ OB1W0_TOUCHED_PYTHON = \
 	tools/phase4/move_manifest.py
 
 OB1W0_NATIVE_OUTPUT ?= build/ob1-w0-native
+
+OB1W1_FOCUSED_TESTS = \
+	packages/app/tests/integration/services/test_local_entrypoints.py \
+	packages/app/tests/integration/services/test_local_native_entrypoint.py \
+	tests/integration/release/test_v0_artifact_policy.py \
+	tests/phase4/test_base_native.py \
+	tests/security/test_open_brain_product_split.py
+
+OB1W1_TOUCHED_PYTHON = \
+	packages/app/src/open_brain/services/local_bootstrap.py \
+	packages/app/src/open_brain/services/local_entrypoints.py \
+	packages/app/tests/integration/services/test_local_entrypoints.py \
+	tests/integration/release/test_v0_artifact_policy.py \
+	tools/open_brain_dev/base_native.py
+
+OB1W1_NATIVE_OUTPUT ?= build/ob1-w1-native
 
 P4W5_FOCUSED_TESTS = \
 	packages/app/tests/integration/services/test_appliance_entrypoints.py \
@@ -160,6 +176,19 @@ ob1w0-preflight: ob1w0-focused
 
 ob1w0-native:
 	uv run --frozen --python 3.14 --group native-build python -m tools.open_brain_dev.base_native build --root . --output $(OB1W0_NATIVE_OUTPUT)
+
+ob1w1-focused:
+	uv run --package open-brain --extra secure-node pytest -q $(OB1W1_FOCUSED_TESTS)
+
+ob1w1-preflight: ob1w1-focused
+	shellcheck release/open-brain/install.sh
+	uv run python -m tools.phase4.move_manifest validate --root .
+	uv run ruff check $(OB1W1_TOUCHED_PYTHON)
+	uv run --package open-brain --extra secure-node mypy --strict $(OB1W1_TOUCHED_PYTHON)
+	git diff --check
+
+ob1w1-native:
+	uv run --frozen --python 3.14 --group native-build python -m tools.open_brain_dev.base_native build --root . --output $(OB1W1_NATIVE_OUTPUT)
 
 p4w5-focused:
 	uv run --package open-brain --extra secure-node pytest -q $(P4W5_FOCUSED_TESTS)

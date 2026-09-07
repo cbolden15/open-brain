@@ -21,8 +21,10 @@ That workstream is paused with `SN1-W2` still gated. `OB1-W0` completed on the s
 `goal/open-brain-five-minute-install` at implementation commit `ebef782`. Its small base dependency
 graph, direct private bootstrap, Python 3.14 native artifact, and checksum-verifying installer passed
 the full and focused repository gates plus an independent `READY` review with no P0 through P2
-findings. The artifacts remain unpublished. `OB1-W1` is active under
-[`2026-09-07-ob1-w1-direct-local-journey.md`](2026-09-07-ob1-w1-direct-local-journey.md).
+findings. The artifacts remain unpublished. `OB1-W1` now has a local implementation candidate under
+[`2026-09-07-ob1-w1-direct-local-journey.md`](2026-09-07-ob1-w1-direct-local-journey.md). Its focused
+preflight, full verification, and native macOS artifact journey pass; independent closure review
+remains.
 
 ## Milestones
 
@@ -141,7 +143,7 @@ discard, and idempotent retry.
 | Current item | Conflict with split | Disposition |
 |---|---|---|
 | `packages/app/pyproject.toml` made `open-brain` depend on `open-brain-engine[node]`, Starlette, and Uvicorn | Resolved. Plain install now selects only the base engine. | Completed in `OB1-W0`; the renamed dependencies require explicit `[secure-node]`. |
-| Installed mutating CLI routed through the appliance daemon and required `OPEN_BRAIN_ROOT` | Bootstrap conflict resolved. The remaining direct commands are not implemented yet. | `OB1-W0` routes the default to automatic local bootstrap; capture, search, and export remain in `OB1-W1`. |
+| Installed mutating CLI routed through the appliance daemon and required `OPEN_BRAIN_ROOT` | Resolved in the local implementation candidate. | `OB1-W0` routes the default to automatic bootstrap; `OB1-W1` uses direct engine tasks for capture, search, export, status, and doctor. |
 | Existing source/wheel install guide initializes a root and starts a daemon | Yes as a default-product guide. | Retain as transitional Secure Node precursor evidence; replace the quickstart in `OB1`. |
 | `SN1-W0` protocol, crypto, grant, receipt, fencing, purge, and recovery contracts | No after reclassification. | Preserve unchanged as Secure Node authority. |
 | `SN1-W1` semantic-kernel implementation | No direct conflict. It contains advanced compartment and ciphertext state by design. | Preserve as completed Secure Node work; do not route it through the default Open Brain command path. |

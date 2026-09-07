@@ -5,6 +5,11 @@ and MCP behavior belongs to the isolated app distribution; standalone HTTP and l
 scripts are not installed. The 31-family parser below remains compatibility evidence rather than
 the default installed entry point.
 
+The default installed entry point is the separate daemonless `open-brain` parser. Its bounded
+surface is help, version, `init`, `capture`, `search`, `export`, `status`, and `doctor`. The five data
+journey commands use the local engine directly with provider mode `none`; they do not route through
+the retained parser, daemon, HTTP server, connector registry, or Secure Node wrapper.
+
 The machine-readable source is [`tests/fixtures/phase0/public_cli.json`](../tests/fixtures/phase0/public_cli.json). The focused characterization test compares that fixture with the live parser registry, scheduled route registry, static `pyproject.toml` metadata, and stable exit-code constants.
 
 ## Parser surface

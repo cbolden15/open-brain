@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from PyInstaller.utils.hooks import collect_data_files
+from PyInstaller.utils.hooks import collect_data_files, copy_metadata
 
 ROOT = Path(SPECPATH).parents[1]
 ENTRYPOINT = ROOT / "packages/app/src/open_brain/services/local_native_entrypoint.py"
@@ -12,7 +12,8 @@ datas = sorted(
             "portable/**/*.json",
             "portability/**/*.json",
         ],
-    ),
+    )
+    + copy_metadata("open-brain"),
     key=lambda item: (item[1], item[0]),
 )
 

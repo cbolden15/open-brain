@@ -2,16 +2,36 @@
 
 ## Default Open Brain commands
 
-The Open Brain `local` profile currently exposes `init`, help, and version through `open-brain` and
-`python -m open_brain`. `init` creates or reopens one owner, one Brain, and its SQLite schema in the
-platform-local data directory. It requires no explicit root, daemon, listener, grant, certificate,
-or database setup. It reports `profile=local`, `storage=sqlite`, `daemon_running=false`, and
-`application_encryption=false`.
+The Open Brain `local` profile exposes help, version, `init`, `capture`, `search`, `export`,
+`status`, and `doctor` through both `open-brain` and `python -m open_brain`. Every stateful command
+creates or reopens one owner, one Brain, and its SQLite schema in the platform-local data directory.
+The first capture needs no separate init command. No command requires an explicit root, daemon,
+listener, grant, certificate, model, network service, or database setup.
 
-`OB1-W1` will add direct `capture`, `search`, `export`, `status`, and `doctor`. First capture will
-perform the same idempotent setup without requiring a separate init command. The exact first-use
-surface is frozen by
+```sh
+open-brain capture "A note to remember"
+open-brain search "remember"
+open-brain export /absolute/path/to/brain-export --verify
+open-brain status --json
+open-brain doctor --check private-data-directory
+open-brain doctor --check no-background-runtime
+open-brain doctor --check base-dependency-closure
+```
+
+`capture` stores owner-authored text durably before returning. `search` prints bounded public result
+text. `export --verify` promotes and reopens a full Portable Brain v1 export before recording
+metadata-only verification evidence. Status reports `profile=local`, `brain_count=1`,
+`storage=sqlite`, `daemon_running=false`, `application_encryption=false`, and the last verified
+Portable export state. The exact first-use surface is frozen by
 [`acceptance/five-minute-install.md`](acceptance/five-minute-install.md).
+
+An optional absolute `--data-dir` names the Brain root for tests or expert use. The default path
+ignores `OPEN_BRAIN_ROOT`, which remains a Secure Node compatibility setting. Local failures use
+bounded messages and do not echo captured text or private paths.
+
+The `base-dependency-closure` doctor check validates the installed base package declaration.
+Fresh-process tests and the release artifact inventory separately verify that the default command
+loads no Secure Node modules.
 
 Secure Node commands and service operation appear only after an explicit
 `open-brain[secure-node]` install and setup. Plain CLI help and status must not imply Secure Node

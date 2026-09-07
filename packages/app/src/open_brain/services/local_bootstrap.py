@@ -2,15 +2,24 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass
 
 from open_brain_engine.engine import (
     PHASE1_STATE_SCHEMA_VERSION,
+    EngineTaskSet,
+    LocalEngineContext,
     inspect_phase1_state,
     open_local_engine,
 )
 
-from open_brain.local_data import FilesystemTypeProbe, LocalRootSelection, prepare_local_root
+from open_brain.local_data import (
+    FilesystemTypeProbe,
+    LocalRootSelection,
+    PreparedLocalRoot,
+    prepare_local_root,
+)
 from open_brain.profile import compile_single_user_local
 
 _STATE_DATABASE = ".open-brain/state/phase1.sqlite3"
@@ -38,12 +47,23 @@ class LocalInitReceipt:
         }
 
 
-def initialize_local_brain(
+@dataclass(frozen=True, slots=True)
+class LocalBrainSession:
+    """One directly opened Brain while its selected root identity remains pinned."""
+
+    initialized_before: bool
+    prepared: PreparedLocalRoot
+    profile: LocalEngineContext
+    tasks: EngineTaskSet
+
+
+@contextmanager
+def open_local_brain(
     selection: LocalRootSelection,
     *,
     filesystem_type_probe: FilesystemTypeProbe | None = None,
-) -> LocalInitReceipt:
-    """Create or reopen one owner, one Brain, and its direct SQLite state."""
+) -> Iterator[LocalBrainSession]:
+    """Bootstrap and hold one default Brain through a direct local operation."""
     with prepare_local_root(
         selection, filesystem_type_probe=filesystem_type_probe
     ) as prepared:
@@ -54,7 +74,7 @@ def initialize_local_brain(
             selection.brain_root,
             validate_before_identity_write=prepared.revalidate,
         )
-        open_local_engine(profile, validate_before_write=prepared.revalidate)
+        tasks = open_local_engine(profile, validate_before_write=prepared.revalidate)
         prepared.revalidate()
         if not prepared.private_file_exists("brain.toml") or not prepared.private_file_exists(
             _STATE_DATABASE
@@ -63,6 +83,25 @@ def initialize_local_brain(
         schema = inspect_phase1_state(profile)
         if schema.state != "current" or schema.version != PHASE1_STATE_SCHEMA_VERSION:
             raise RuntimeError("local bootstrap did not create the current SQLite schema")
+        yield LocalBrainSession(
+            initialized_before=initialized_before,
+            prepared=prepared,
+            profile=profile,
+            tasks=tasks,
+        )
+        prepared.revalidate()
+
+
+def initialize_local_brain(
+    selection: LocalRootSelection,
+    *,
+    filesystem_type_probe: FilesystemTypeProbe | None = None,
+) -> LocalInitReceipt:
+    """Create or reopen one owner, one Brain, and its direct SQLite state."""
+    with open_local_brain(
+        selection, filesystem_type_probe=filesystem_type_probe
+    ) as session:
+        initialized_before = session.initialized_before
     return LocalInitReceipt(
         status="already_initialized" if initialized_before else "initialized",
         profile="local",
@@ -74,4 +113,9 @@ def initialize_local_brain(
     )
 
 
-__all__ = ["LocalInitReceipt", "initialize_local_brain"]
+__all__ = [
+    "LocalBrainSession",
+    "LocalInitReceipt",
+    "initialize_local_brain",
+    "open_local_brain",
+]

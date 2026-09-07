@@ -1,6 +1,6 @@
 {
-  "policy_version": 6,
-  "phase": "ob1-w0-base-package-bootstrap",
+  "policy_version": 7,
+  "phase": "ob1-w1-direct-local-journey",
   "canonical_manifest": {
     "path": "docs/v0-package-classification.json"
   },

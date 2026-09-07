@@ -1,6 +1,7 @@
 # OB1-W0: base package and automatic bootstrap
 
-Status: complete; `OB1-W1` not started
+Status: complete; `OB1-W1` continued separately under
+[`2026-09-07-ob1-w1-direct-local-journey.md`](2026-09-07-ob1-w1-direct-local-journey.md)
 
 Date: 2026-09-07
 

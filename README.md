@@ -33,8 +33,9 @@ The default installation target is one command on a clean supported macOS or Lin
 five-minute command and release test are specified in
 [the five-minute acceptance test](docs/acceptance/five-minute-install.md). The small base package,
 automatic local bootstrap, native artifact, and checksum-verifying installer are implemented and
-locally verified. No release artifact has been published yet, and capture, search, export, status,
-and doctor remain in `OB1-W1`.
+locally verified. The daemonless capture, search, verified export, status, and doctor path is also
+implemented locally. No release artifact has been published, and the clean-host matrix remains in
+`OB1-W2`.
 
 The current macOS source and local artifact steps are in
 [the macOS installation guide](docs/install-macos.md).
@@ -46,7 +47,10 @@ It ignores the retained Secure Node `OPEN_BRAIN_ROOT` setting.
 
 ```bash
 uv sync --frozen --package open-brain --no-dev
-uv run --frozen --package open-brain --no-dev open-brain init --json
+uv run --frozen --package open-brain --no-dev open-brain capture "A note to remember"
+uv run --frozen --package open-brain --no-dev open-brain search "remember"
+uv run --frozen --package open-brain --no-dev open-brain export "$PWD/brain-export" --verify
+uv run --frozen --package open-brain --no-dev open-brain status --json
 ```
 
 On macOS, state is created under
@@ -111,8 +115,9 @@ The denylist contains one private term per line. Blank lines and lines beginning
 
 `OB1-W0` implements the product boundary, automatic private-directory bootstrap, and unpublished
 base-native installer path. Plain `open-brain` installs no Secure Node dependency and starts no
-daemon. The full five-minute journey is not ready until `OB1-W1` adds capture, search, export,
-status, and doctor and `OB1-W2` passes the published clean-host matrix.
+daemon. `OB1-W1` implements direct capture, search, verified Portable export, status, and doctor.
+The full five-minute release is not ready until `OB1-W1` passes its independent closure review and
+`OB1-W2` passes the published clean-host matrix.
 
 The retained appliance implementation supports one local Brain root, stable portable identities,
 typed capture, spaces, inbox routing, sibling review proposals, terminal decisions, canonical

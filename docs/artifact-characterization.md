@@ -1,6 +1,6 @@
 # v0 artifact characterization
 
-Status: OB1-W0 base artifact contract plus retained P4-W6 historical evidence. Machine policy:
+Status: OB1-W1 local base candidate plus retained P4-W6 historical evidence. Machine policy:
 [`release/v0-artifact-policy.json`](../release/v0-artifact-policy.json).
 
 Product-scope note: the historical sections in this file characterize retained pre-split
@@ -64,10 +64,12 @@ v0 support promise.
 
 ## Default native artifact
 
-`OB1-W0` adds a separate PyInstaller onedir spec at `release/open-brain/open-brain.spec`. It enters
-through the daemonless local CLI and bundles Python 3.12, SQLite support, and the shared Portable
-Brain resources. Its archived module inventory rejects the retained appliance, server, connector,
-legacy, Secure Node custody, service-management, and advanced dependency roots.
+`OB1-W0` added a separate PyInstaller onedir spec at `release/open-brain/open-brain.spec`. It enters
+through the daemonless local CLI and bundles Python 3.14, SQLite support, and the shared Portable
+Brain resources. `OB1-W1` extends its mandatory module inventory and isolated smoke through first
+capture, a later-process search, verified Portable export, exact status, and all three doctor
+checks. Its archived module inventory rejects the retained appliance, server, connector, legacy,
+Secure Node custody, service-management, and advanced dependency roots.
 
 The POSIX installer at `release/open-brain/install.sh` selects macOS arm64 or Linux x86_64, validates
 the bounded release manifest, verifies the selected archive's SHA-256 digest, runs a state-free

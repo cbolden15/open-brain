@@ -1,6 +1,6 @@
 # OB1-W1: direct local capture, search, export, status, and doctor
 
-- Status: Active; implementation not yet accepted
+- Status: Implementation candidate; focused, full, and native gates pass; independent review pending
 - Product: Open Brain default `local` profile
 - Branch: `goal/open-brain-five-minute-install`
 - Starting commit: `4c927660e52d3ea6230f7e14997a74d8ea6062ff`
@@ -63,7 +63,9 @@ bounded generic message that does not echo text or paths.
 4. Validate the promoted export from its destination. Record only the export identifier, timestamp,
    and manifest digest beneath private operational state.
 5. Doctor evidence combines root ownership/mode validation, absence of local daemon artifacts or
-   held writer leases, the running module graph, and the installed base dependency declaration.
+   held writer leases, and the installed base dependency declaration. Fresh-process tests and the
+   native artifact inventory separately prove that loading the base command does not admit Secure
+   Node modules.
 
 ## Tests first
 
@@ -86,19 +88,8 @@ Add focused failing tests that prove:
 Focused gate:
 
 ```sh
-uv run pytest -q \
-  packages/app/tests/integration/services/test_local_entrypoints.py \
-  packages/app/tests/integration/services/test_local_native_entrypoint.py \
-  tests/security/test_open_brain_product_split.py \
-  tests/phase4/test_base_native.py
-uv run ruff check \
-  packages/app/src/open_brain/services/local_entrypoints.py \
-  packages/app/src/open_brain/services/local_bootstrap.py \
-  packages/app/tests/integration/services/test_local_entrypoints.py
-uv run mypy --strict \
-  packages/app/src/open_brain/services/local_entrypoints.py \
-  packages/app/src/open_brain/services/local_bootstrap.py
-git diff --check
+make ob1w1-preflight
+make ob1w1-native
 ```
 
 Full gate: `make verify` from the repository root.

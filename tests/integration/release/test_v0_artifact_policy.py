@@ -102,8 +102,8 @@ def test_phase_four_policy_declares_all_python_artifact_coordinates() -> None:
     policy = _policy()
     distributions = policy["python_distributions"]
 
-    assert policy["policy_version"] == 6
-    assert policy["phase"] == "ob1-w0-base-package-bootstrap"
+    assert policy["policy_version"] == 7
+    assert policy["phase"] == "ob1-w1-direct-local-journey"
     assert isinstance(distributions, dict)
     assert set(distributions) == {"app", "connector", "engine"}
     for name in ("app", "connector", "engine"):

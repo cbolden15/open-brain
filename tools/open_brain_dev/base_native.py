@@ -32,7 +32,11 @@ _REQUIRED_MODULES: Final = frozenset(
         "open_brain.profile",
         "open_brain.services.local_bootstrap",
         "open_brain.services.local_entrypoints",
+        "open_brain_engine.engine.capture",
         "open_brain_engine.engine.local",
+        "open_brain_engine.engine.portability",
+        "open_brain_engine.engine.retrieval",
+        "open_brain_engine.storage.operational",
         "open_brain_engine.storage.sqlite",
     }
 )
@@ -190,14 +194,7 @@ def smoke_base_artifact(artifact: Path) -> dict[str, object]:
         version = _run((os.fspath(executable), "--version"), environment)
         if version.stdout.strip() != f"open-brain {_VERSION}":
             raise BaseNativeError("base native version is invalid")
-        first = json.loads(
-            _run((os.fspath(executable), "init", "--json"), environment).stdout
-        )
-        identity = _brain_root(home) / "brain.toml"
-        identity_bytes = identity.read_bytes()
-        second = json.loads(
-            _run((os.fspath(executable), "--json", "init"), environment).stdout
-        )
+        journey = _smoke_local_journey(executable, home, environment)
         override_root = home / "selected-brain"
         override = json.loads(
             _run(
@@ -212,18 +209,11 @@ def smoke_base_artifact(artifact: Path) -> dict[str, object]:
             ).stdout
         )
         if (
-            first.get("status") != "initialized"
-            or second.get("status") != "already_initialized"
-            or identity.read_bytes() != identity_bytes
-            or first.get("profile") != "local"
-            or first.get("storage") != "sqlite"
-            or first.get("daemon_running") is not False
-            or first.get("application_encryption") is not False
-            or override.get("status") != "initialized"
+            override.get("status") != "initialized"
             or not (override_root / "brain.toml").is_file()
         ):
             raise BaseNativeError("base native bootstrap failed")
-        return {"first_init": first, "second_init": second, "self_check": "passed"}
+        return {"journey": journey, "self_check": "passed"}
 
 
 def write_release_assets(
@@ -299,7 +289,104 @@ def smoke_installer(root: Path, release_directory: Path) -> dict[str, object]:
         version = _run((os.fspath(launcher), "--version"), environment)
         if version.stdout.strip() != f"open-brain {_VERSION}":
             raise BaseNativeError("installed base command is unavailable")
-        return {"command": "open-brain", "status": "installed", "version": _VERSION}
+        journey = _smoke_local_journey(launcher, home, environment)
+        return {
+            "command": "open-brain",
+            "journey": journey,
+            "status": "installed",
+            "version": _VERSION,
+        }
+
+
+def _smoke_local_journey(
+    executable: Path,
+    home: Path,
+    environment: Mapping[str, str],
+) -> dict[str, object]:
+    brain_root = _brain_root(home)
+    if brain_root.exists():
+        raise BaseNativeError("base native journey did not start clean")
+    token = "open-brain-five-minute-acceptance"
+    capture = json.loads(
+        _run((os.fspath(executable), "capture", token, "--json"), environment).stdout
+    )
+    if (
+        capture.get("status") != "captured"
+        or not isinstance(capture.get("capture_id"), str)
+        or token in json.dumps(capture)
+        or not (brain_root / "brain.toml").is_file()
+        or not (brain_root / ".open-brain/state/phase1.sqlite3").is_file()
+    ):
+        raise BaseNativeError("base native first capture failed")
+    identity = brain_root / "brain.toml"
+    identity_bytes = identity.read_bytes()
+    initialized = json.loads(
+        _run((os.fspath(executable), "--json", "init"), environment).stdout
+    )
+    if (
+        initialized.get("status") != "already_initialized"
+        or identity.read_bytes() != identity_bytes
+    ):
+        raise BaseNativeError("base native first-use identity is not stable")
+    search = _run((os.fspath(executable), "search", token), environment)
+    if token not in search.stdout:
+        raise BaseNativeError("base native search failed")
+    export = home / "portable-export"
+    exported = json.loads(
+        _run(
+            (
+                os.fspath(executable),
+                "export",
+                os.fspath(export),
+                "--verify",
+                "--json",
+            ),
+            environment,
+        ).stdout
+    )
+    if (
+        exported.get("status") != "exported"
+        or exported.get("verification") != "verified"
+        or not (export / "portable-manifest.json").is_file()
+        or not any(
+            token.encode("utf-8") in path.read_bytes()
+            for path in export.rglob("*")
+            if path.is_file()
+        )
+        or any(".open-brain" in path.parts for path in export.rglob("*"))
+        or any(path.suffix in {".sqlite", ".sqlite3"} for path in export.rglob("*"))
+    ):
+        raise BaseNativeError("base native verified export failed")
+    status = json.loads(
+        _run((os.fspath(executable), "status", "--json"), environment).stdout
+    )
+    expected_status = {
+        "application_encryption": False,
+        "brain_count": 1,
+        "daemon_running": False,
+        "portable_export": "verified",
+        "profile": "local",
+        "storage": "sqlite",
+    }
+    if status != expected_status:
+        raise BaseNativeError("base native status failed")
+    for check in (
+        "private-data-directory",
+        "no-background-runtime",
+        "base-dependency-closure",
+    ):
+        checked = _run((os.fspath(executable), "doctor", "--check", check), environment)
+        if checked.stdout != f"{check}: ok\n":
+            raise BaseNativeError("base native doctor failed")
+    if any((brain_root / ".open-brain/run").iterdir()):
+        raise BaseNativeError("base native journey left a background runtime artifact")
+    return {
+        "capture": "passed",
+        "doctor": "passed",
+        "export": "verified",
+        "search": "passed",
+        "status": "passed",
+    }
 
 
 def build_base_artifact(root: Path, output: Path) -> tuple[Path, Path, Path]:

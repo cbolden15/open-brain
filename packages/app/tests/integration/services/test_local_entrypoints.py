@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib
+import importlib.metadata
 import json
 import socket
 from pathlib import Path
@@ -29,7 +30,10 @@ def test_local_help_and_version_are_root_free(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     assert run_cli(("--help",), environment={}) == 0
-    assert "daemonless" in capsys.readouterr().out
+    help_output = capsys.readouterr().out
+    assert "daemonless" in help_output
+    for command in ("capture", "search", "export", "status", "doctor"):
+        assert command in help_output
     assert run_cli(("--version",), environment={}) == 0
     assert capsys.readouterr().out == "open-brain 0.1.0\n"
 
@@ -199,3 +203,247 @@ def test_sqlite_revalidation_runs_at_engine_write_boundary(
         bootstrap_module.initialize_local_brain(selection, filesystem_type_probe=_filesystem)
     assert not (root / ".open-brain/state/phase1.sqlite3").exists()
     assert not (home / "pinned/.open-brain/state/phase1.sqlite3").exists()
+
+
+def test_exact_local_data_journey_bootstraps_without_init_or_background_runtime(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    home = _private_home(tmp_path)
+    forbidden_root = tmp_path / "must-not-be-used"
+    environment = {"HOME": str(home), "OPEN_BRAIN_ROOT": str(forbidden_root)}
+    token = "open-brain-five-minute-acceptance"
+
+    def reject_listener(*_args: object, **_kwargs: object) -> object:
+        raise AssertionError("default commands must not open a listener")
+
+    monkeypatch.setattr(socket.socket, "bind", reject_listener)
+
+    assert (
+        run_cli(
+            ("capture", token, "--json"),
+            environment=environment,
+            platform_name="linux",
+            filesystem_type_probe=_filesystem,
+        )
+        == 0
+    )
+    capture = cast(dict[str, object], json.loads(capsys.readouterr().out))
+    assert capture["status"] == "captured"
+    assert isinstance(capture["capture_id"], str)
+    assert token not in json.dumps(capture)
+
+    brain_root = home / ".local/share/open-brain/brain"
+    assert (brain_root / "brain.toml").is_file()
+    assert (brain_root / ".open-brain/state/phase1.sqlite3").is_file()
+    assert not forbidden_root.exists()
+
+    assert (
+        run_cli(
+            ("search", token),
+            environment=environment,
+            platform_name="linux",
+            filesystem_type_probe=_filesystem,
+        )
+        == 0
+    )
+    assert token in capsys.readouterr().out
+
+    assert (
+        run_cli(
+            ("status", "--json"),
+            environment=environment,
+            platform_name="linux",
+            filesystem_type_probe=_filesystem,
+        )
+        == 0
+    )
+    before_export = cast(dict[str, object], json.loads(capsys.readouterr().out))
+    assert before_export == {
+        "application_encryption": False,
+        "brain_count": 1,
+        "daemon_running": False,
+        "portable_export": "absent",
+        "profile": "local",
+        "storage": "sqlite",
+    }
+
+    destination = tmp_path / "brain-export"
+    assert (
+        run_cli(
+            ("export", str(destination), "--verify", "--json"),
+            environment=environment,
+            platform_name="linux",
+            filesystem_type_probe=_filesystem,
+        )
+        == 0
+    )
+    exported = cast(dict[str, object], json.loads(capsys.readouterr().out))
+    assert exported["status"] == "exported"
+    assert exported["verification"] == "verified"
+    assert (destination / "portable-manifest.json").is_file()
+    assert any(
+        token.encode("utf-8") in path.read_bytes()
+        for path in destination.rglob("*")
+        if path.is_file()
+    )
+    assert not any(".open-brain" in path.parts for path in destination.rglob("*"))
+    assert not any(path.suffix in {".sqlite", ".sqlite3"} for path in destination.rglob("*"))
+
+    assert (
+        run_cli(
+            ("status", "--json"),
+            environment=environment,
+            platform_name="linux",
+            filesystem_type_probe=_filesystem,
+        )
+        == 0
+    )
+    after_export = cast(dict[str, object], json.loads(capsys.readouterr().out))
+    assert after_export == before_export | {"portable_export": "verified"}
+
+    for check in (
+        "private-data-directory",
+        "no-background-runtime",
+        "base-dependency-closure",
+    ):
+        assert (
+            run_cli(
+                ("doctor", "--check", check),
+                environment=environment,
+                platform_name="linux",
+                filesystem_type_probe=_filesystem,
+            )
+            == 0
+        )
+        assert capsys.readouterr().out == f"{check}: ok\n"
+
+    assert not (brain_root / ".open-brain/run/control.sock").exists()
+
+
+def test_local_search_json_is_bounded_and_export_failure_is_redacted(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    home = _private_home(tmp_path)
+    environment = {"HOME": str(home)}
+    token = "synthetic-local-search-token"
+
+    assert (
+        run_cli(
+            ("--json", "capture", token),
+            environment=environment,
+            platform_name="linux",
+            filesystem_type_probe=_filesystem,
+        )
+        == 0
+    )
+    capsys.readouterr()
+    assert (
+        run_cli(
+            ("search", token, "--json"),
+            environment=environment,
+            platform_name="linux",
+            filesystem_type_probe=_filesystem,
+        )
+        == 0
+    )
+    payload = cast(dict[str, object], json.loads(capsys.readouterr().out))
+    results = cast(list[dict[str, object]], payload["results"])
+    assert payload["status"] == "ok"
+    assert len(results) == 1
+    assert results[0]["excerpt"] == token
+    assert set(results[0]) == {
+        "capture_id",
+        "excerpt",
+        "payload_family",
+        "record_type",
+        "result_id",
+        "title",
+        "trust",
+    }
+
+    destination = tmp_path / "conflicting-export"
+    destination.mkdir()
+    assert (
+        run_cli(
+            ("export", str(destination), "--verify", "--json"),
+            environment=environment,
+            platform_name="linux",
+            filesystem_type_probe=_filesystem,
+        )
+        == 78
+    )
+    failure = capsys.readouterr().out
+    assert json.loads(failure) == {
+        "error": {
+            "code": "local_operation_failed",
+            "message": "Open Brain could not complete the local command.",
+        },
+        "status": "failed",
+    }
+    assert str(destination) not in failure
+    assert token not in failure
+
+
+def test_local_doctor_rejects_a_background_runtime_artifact(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    home = _private_home(tmp_path)
+    environment = {"HOME": str(home)}
+    assert (
+        run_cli(
+            ("init",),
+            environment=environment,
+            platform_name="linux",
+            filesystem_type_probe=_filesystem,
+        )
+        == 0
+    )
+    capsys.readouterr()
+    marker = home / ".local/share/open-brain/brain/.open-brain/run/control.sock"
+    marker.write_bytes(b"synthetic")
+    marker.chmod(0o600)
+
+    assert (
+        run_cli(
+            ("doctor", "--check", "no-background-runtime", "--json"),
+            environment=environment,
+            platform_name="linux",
+            filesystem_type_probe=_filesystem,
+        )
+        == 1
+    )
+    assert json.loads(capsys.readouterr().out) == {
+        "check": "no-background-runtime",
+        "status": "failed",
+    }
+
+
+def test_local_dependency_doctor_rejects_an_unconditional_secure_node_dependency(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    home = _private_home(tmp_path)
+    monkeypatch.setattr(
+        importlib.metadata,
+        "requires",
+        lambda _distribution: ["open-brain-engine==0.1.0", "starlette>=0.48,<1"],
+    )
+
+    assert (
+        run_cli(
+            ("doctor", "--check", "base-dependency-closure", "--json"),
+            environment={"HOME": str(home)},
+            platform_name="linux",
+            filesystem_type_probe=_filesystem,
+        )
+        == 1
+    )
+    assert json.loads(capsys.readouterr().out) == {
+        "check": "base-dependency-closure",
+        "status": "failed",
+    }
