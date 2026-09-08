@@ -823,6 +823,20 @@ other shape, then require stapling and validation independently.
 
 Discovered: 2026-09-03.
 
+### RELEASE-005: Homebrew rejects local formula files outside a tap
+
+Symptom: `brew install --formula /absolute/path/open-brain.rb` fails even though the formula and
+archive are valid.
+
+Cause: Current Homebrew requires formulae to belong to a tap. Invoking a developer command such as
+`brew tap-new`, even for help, can also enable Homebrew developer mode in user configuration.
+
+Fix: For local smoke tests, create a temporary Git-backed tap, install the fully qualified formula,
+then uninstall and untap it. Avoid `tap-new`; if a developer command was probed, run
+`brew developer off` and verify cleanup.
+
+Discovered: 2026-09-08.
+
 ### LIFECYCLE-003: Copying a symlink path is not portable target-copy behavior
 
 Symptom: A lifecycle copy produces a candidate directory on macOS but a preserved `current`

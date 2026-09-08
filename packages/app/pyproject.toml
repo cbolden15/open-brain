@@ -42,63 +42,12 @@ open-brain-engine = { workspace = true }
 [tool.hatch.build]
 ignore-vcs = true
 
-[tool.hatch.build.hooks.custom]
-path = "hatch_build.py"
-
 [tool.hatch.build.targets.sdist]
 include = [
   "/pyproject.toml",
   "/src/open_brain",
 ]
 exclude = ["/.gitignore"]
-
-[tool.hatch.build.targets.sdist.force-include]
-"../../README.md" = "README.md"
-"../../docs/acceptance/five-minute-install.md" = "docs/acceptance/five-minute-install.md"
-"../../docs/architecture.md" = "docs/architecture.md"
-"../../docs/architecture/brain-protocol-v1.md" = "docs/architecture/brain-protocol-v1.md"
-"../../docs/architecture/decisions/0001-brain-protocol-v1.md" = "docs/architecture/decisions/0001-brain-protocol-v1.md"
-"../../docs/architecture/decisions/0002-brain-and-record-identity.md" = "docs/architecture/decisions/0002-brain-and-record-identity.md"
-"../../docs/architecture/decisions/0003-idempotency-and-conflict-semantics.md" = "docs/architecture/decisions/0003-idempotency-and-conflict-semantics.md"
-"../../docs/architecture/decisions/0004-capability-authorization.md" = "docs/architecture/decisions/0004-capability-authorization.md"
-"../../docs/architecture/decisions/0005-information-flow-labels.md" = "docs/architecture/decisions/0005-information-flow-labels.md"
-"../../docs/architecture/decisions/0006-provenance-closed-erasure.md" = "docs/architecture/decisions/0006-provenance-closed-erasure.md"
-"../../docs/architecture/decisions/0007-single-sequencer-fencing.md" = "docs/architecture/decisions/0007-single-sequencer-fencing.md"
-"../../docs/architecture/decisions/0008-rebuildable-projections.md" = "docs/architecture/decisions/0008-rebuildable-projections.md"
-"../../docs/architecture/decisions/0009-brainpack-v2.md" = "docs/architecture/decisions/0009-brainpack-v2.md"
-"../../docs/architecture/decisions/0010-m1-wire-storage-and-crypto.md" = "docs/architecture/decisions/0010-m1-wire-storage-and-crypto.md"
-"../../docs/architecture/decisions/0011-m1-authority-information-flow-and-resource-bounds.md" = "docs/architecture/decisions/0011-m1-authority-information-flow-and-resource-bounds.md"
-"../../docs/architecture/decisions/0012-open-brain-secure-node-product-split.md" = "docs/architecture/decisions/0012-open-brain-secure-node-product-split.md"
-"../../docs/architecture/decisions/0013-pre-release-semantic-kernel-integrity-erratum.md" = "docs/architecture/decisions/0013-pre-release-semantic-kernel-integrity-erratum.md"
-"../../docs/architecture/decisions/0014-shared-record-import-envelope.md" = "docs/architecture/decisions/0014-shared-record-import-envelope.md"
-"../../docs/architecture/m0-contract-manifest.json" = "docs/architecture/m0-contract-manifest.json"
-"../../docs/architecture/proposed-v0-system-architecture.md" = "docs/architecture/proposed-v0-system-architecture.md"
-"../../docs/artifact-characterization.md" = "docs/artifact-characterization.md"
-"../../docs/capture-contract.md" = "docs/capture-contract.md"
-"../../docs/cli-characterization.md" = "docs/cli-characterization.md"
-"../../docs/cli.md" = "docs/cli.md"
-"../../docs/configuration.md" = "docs/configuration.md"
-"../../docs/current-record-characterization.md" = "docs/current-record-characterization.md"
-"../../docs/install-macos.md" = "docs/install-macos.md"
-"../../docs/operations.md" = "docs/operations.md"
-"../../docs/plans/2026-09-07-core-w0-shared-portability.md" = "docs/plans/2026-09-07-core-w0-shared-portability.md"
-"../../docs/plans/product-roadmap.md" = "docs/plans/product-roadmap.md"
-"../../docs/portable-brain-v1.md" = "docs/portable-brain-v1.md"
-"../../docs/product-family.md" = "docs/product-family.md"
-"../../docs/privacy-model.md" = "docs/privacy-model.md"
-"../../docs/threat-model.md" = "docs/threat-model.md"
-"../../docs/v0-expansion-backlog.md" = "docs/v0-expansion-backlog.md"
-"../../docs/v0-product-contract.md" = "docs/v0-product-contract.md"
-"../../docs/v0-release-boundary.md" = "docs/v0-release-boundary.md"
-"../../examples/config.example.toml" = "examples/config.example.toml"
-"../../examples/ios-shortcut.md" = "examples/ios-shortcut.md"
-"../../examples/synthetic-vault/README.md" = "examples/synthetic-vault/README.md"
-"../../release/phase4-compatibility.json" = "release/phase4-compatibility.json"
-"../../release/phase4-toolchain.json" = "release/phase4-toolchain.json"
-"../../release/m1-compatibility-receipts.json" = "release/m1-compatibility-receipts.json"
-"../../release/m1-compatibility.json" = "release/m1-compatibility.json"
-"../../release/public-history-allowlist.json" = "release/public-history-allowlist.json"
-"../../release/v0-artifact-policy.json" = "release/v0-artifact-policy.json"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/open_brain"]

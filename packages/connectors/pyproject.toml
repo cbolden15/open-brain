@@ -32,21 +32,12 @@ open-brain-engine = { workspace = true }
 [tool.hatch.build]
 ignore-vcs = true
 
-[tool.hatch.build.hooks.custom]
-path = "hatch_build.py"
-
 [tool.hatch.build.targets.sdist]
 include = [
   "/pyproject.toml",
   "/src/open_brain_connectors",
 ]
 exclude = ["/.gitignore"]
-
-[tool.hatch.build.targets.sdist.force-include]
-"../../release/phase4-compatibility.json" = "release/phase4-compatibility.json"
-"../../release/phase4-toolchain.json" = "release/phase4-toolchain.json"
-"../../release/public-history-allowlist.json" = "release/public-history-allowlist.json"
-"../../release/v0-artifact-policy.json" = "release/v0-artifact-policy.json"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/open_brain_connectors"]

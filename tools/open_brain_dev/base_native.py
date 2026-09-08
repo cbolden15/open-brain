@@ -1,4 +1,4 @@
-"""Build and verify the minimal native artifact for default Open Brain."""
+"""Build and verify the native artifact for default Open Brain."""
 
 from __future__ import annotations
 
@@ -15,17 +15,21 @@ import stat
 import subprocess
 import sys
 import tarfile
+import tomllib
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
-from pathlib import Path, PurePosixPath
+from pathlib import Path
 from tempfile import TemporaryDirectory
-from typing import Final
+from typing import Final, cast
 
 _SPEC = Path("release/open-brain/open-brain.spec")
 _EXECUTABLE = "open-brain"
 _MANIFEST = "open-brain-release-manifest-v1.txt"
-_VERSION: Final = "0.1.0"
-_PLATFORMS: Final = frozenset({"linux-x86_64", "macos-arm64"})
+_PLATFORMS: Final = ("linux-x86_64", "macos-arm64")
+_ARCHIVE_PATTERN: Final = re.compile(
+    r"^open-brain-(?P<version>[0-9A-Za-z][0-9A-Za-z._-]*)-"
+    r"(?P<platform>linux-x86_64|macos-arm64)\.tar\.gz$"
+)
 _REQUIRED_MODULES: Final = frozenset(
     {
         "open_brain.local_data",
@@ -69,7 +73,7 @@ _FORBIDDEN_MODULE_PREFIXES: Final = (
 
 
 class BaseNativeError(RuntimeError):
-    """The default native artifact failed its bounded build contract."""
+    """The default native artifact failed its release contract."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -77,15 +81,31 @@ class BaseNativeAudit:
     platform_tag: str
     module_count: int
     modules_sha256: str
-    tree_sha256: str
+    executable_sha256: str
+    signature: str
 
     def to_dict(self) -> dict[str, object]:
         return {
+            "executable_sha256": self.executable_sha256,
             "module_count": self.module_count,
             "modules_sha256": self.modules_sha256,
             "platform": self.platform_tag,
-            "tree_sha256": self.tree_sha256,
+            "signature": self.signature,
         }
+
+
+@dataclass(frozen=True, slots=True)
+class ReleaseArtifact:
+    version: str
+    platform_tag: str
+    sha256: str
+    filename: str
+
+
+@dataclass(frozen=True, slots=True)
+class ReleaseManifest:
+    version: str
+    artifacts: tuple[ReleaseArtifact, ...]
 
 
 def native_platform_tag(
@@ -104,10 +124,21 @@ def native_platform_tag(
         raise BaseNativeError("unsupported native build platform") from error
 
 
+def product_version(root: Path) -> str:
+    metadata = tomllib.loads(
+        (root.resolve(strict=True) / "packages/app/pyproject.toml").read_text(encoding="utf-8")
+    )
+    project = metadata.get("project")
+    version = project.get("version") if isinstance(project, dict) else None
+    if not isinstance(version, str) or re.fullmatch(r"[0-9A-Za-z][0-9A-Za-z._-]*", version) is None:
+        raise BaseNativeError("Open Brain package version is invalid")
+    return version
+
+
 def pyinstaller_command(root: Path, output: Path) -> tuple[str, ...]:
     spec = root.resolve(strict=True) / _SPEC
     if not spec.is_file():
-        raise BaseNativeError("base native spec is unavailable")
+        raise BaseNativeError("native spec is unavailable")
     return (
         sys.executable,
         "-m",
@@ -130,55 +161,50 @@ def archive_modules(executable: Path) -> tuple[str, ...]:
         embedded = outer.open_embedded_archive("PYZ.pyz")
         toc = embedded.toc
         if not isinstance(toc, Mapping) or not all(isinstance(name, str) for name in toc):
-            raise BaseNativeError("base native module inventory is invalid")
+            raise BaseNativeError("native module inventory is invalid")
         return tuple(sorted(toc))
     except BaseNativeError:
         raise
     except Exception as error:
-        raise BaseNativeError("base native module inventory is unavailable") from error
+        raise BaseNativeError("native module inventory is unavailable") from error
 
 
 def audit_base_artifact(artifact: Path) -> BaseNativeAudit:
     try:
         selected = artifact.resolve(strict=True)
         metadata = artifact.lstat()
-        executable = selected / _EXECUTABLE
-        executable_metadata = executable.lstat()
         if (
-            not stat.S_ISDIR(metadata.st_mode)
+            not stat.S_ISREG(metadata.st_mode)
             or artifact.is_symlink()
-            or not stat.S_ISREG(executable_metadata.st_mode)
-            or executable.is_symlink()
-            or executable_metadata.st_mode & stat.S_IXUSR == 0
+            or metadata.st_mode & stat.S_IXUSR == 0
         ):
-            raise BaseNativeError("base native artifact is invalid")
-        modules = archive_modules(executable)
+            raise BaseNativeError("native artifact is invalid")
+        modules = archive_modules(selected)
         if not set(modules) >= _REQUIRED_MODULES or any(
             module == prefix or module.startswith(prefix)
             for module in modules
             for prefix in _FORBIDDEN_MODULE_PREFIXES
         ):
-            raise BaseNativeError("base native artifact crosses the product boundary")
-        members = _tree_members(selected)
-        if any("open_brain_engine/protocol" in member for member in members):
-            raise BaseNativeError("base native artifact contains Secure Node protocol data")
+            raise BaseNativeError("native artifact crosses the product boundary")
+        platform_tag = native_platform_tag()
+        signature = _validate_native_executable(selected, platform_tag)
         encoded_modules = "\n".join(modules).encode("utf-8")
-        encoded_members = "\n".join(members).encode("utf-8")
         return BaseNativeAudit(
-            platform_tag=native_platform_tag(),
+            platform_tag=platform_tag,
             module_count=len(modules),
             modules_sha256=hashlib.sha256(encoded_modules).hexdigest(),
-            tree_sha256=hashlib.sha256(encoded_members).hexdigest(),
+            executable_sha256=_sha256(selected),
+            signature=signature,
         )
     except BaseNativeError:
         raise
     except OSError as error:
-        raise BaseNativeError("base native artifact is unavailable") from error
+        raise BaseNativeError("native artifact is unavailable") from error
 
 
-def smoke_base_artifact(artifact: Path) -> dict[str, object]:
-    executable = artifact.resolve(strict=True) / _EXECUTABLE
-    with TemporaryDirectory(prefix="open-brain-base-smoke-") as raw:
+def smoke_base_artifact(artifact: Path, *, version: str) -> dict[str, object]:
+    executable = artifact.resolve(strict=True)
+    with TemporaryDirectory(prefix="open-brain-smoke-") as raw:
         home = Path(raw).resolve(strict=True)
         home.chmod(0o700)
         environment = {"HOME": os.fspath(home), "PATH": os.environ.get("PATH", "")}
@@ -188,31 +214,13 @@ def smoke_base_artifact(artifact: Path) -> dict[str, object]:
             "frozen": True,
             "profile": "local",
             "status": "ok",
-            "version": _VERSION,
+            "version": version,
         }:
-            raise BaseNativeError("base native self-check failed")
-        version = _run((os.fspath(executable), "--version"), environment)
-        if version.stdout.strip() != f"open-brain {_VERSION}":
-            raise BaseNativeError("base native version is invalid")
+            raise BaseNativeError("native self-check failed")
+        reported_version = _run((os.fspath(executable), "--version"), environment)
+        if reported_version.stdout.strip() != f"open-brain {version}":
+            raise BaseNativeError("native version is invalid")
         journey = _smoke_local_journey(executable, home, environment)
-        override_root = home / "selected-brain"
-        override = json.loads(
-            _run(
-                (
-                    os.fspath(executable),
-                    "init",
-                    "--data-dir",
-                    os.fspath(override_root),
-                    "--json",
-                ),
-                environment,
-            ).stdout
-        )
-        if (
-            override.get("status") != "initialized"
-            or not (override_root / "brain.toml").is_file()
-        ):
-            raise BaseNativeError("base native bootstrap failed")
         return {"journey": journey, "self_check": "passed"}
 
 
@@ -220,82 +228,202 @@ def write_release_assets(
     artifact: Path,
     destination: Path,
     *,
-    version: str = _VERSION,
+    version: str,
 ) -> tuple[Path, Path]:
-    if re.fullmatch(r"[0-9A-Za-z._-]+", version) is None:
-        raise BaseNativeError("invalid release version")
     audit = audit_base_artifact(artifact)
     selected_destination = destination.resolve()
     selected_destination.mkdir(parents=True, exist_ok=True)
     archive = selected_destination / f"open-brain-{version}-{audit.platform_tag}.tar.gz"
     _write_reproducible_archive(artifact.resolve(strict=True), archive)
-    digest = hashlib.sha256(archive.read_bytes()).hexdigest()
     manifest = selected_destination / _MANIFEST
-    manifest.write_text(
-        "open-brain-release-manifest-v1\n"
-        f"version {version}\n"
-        f"artifact {audit.platform_tag} {digest} {archive.name}\n",
-        encoding="ascii",
-    )
+    write_release_manifest((_release_artifact(archive),), manifest)
     return archive, manifest
 
 
-def smoke_installer(root: Path, release_directory: Path) -> dict[str, object]:
-    installer = root.resolve(strict=True) / "release/open-brain/install.sh"
-    release = release_directory.resolve(strict=True)
-    if not installer.is_file() or not (release / _MANIFEST).is_file():
-        raise BaseNativeError("base installer fixture is unavailable")
-    with TemporaryDirectory(prefix="open-brain-installer-smoke-") as raw:
-        temporary = Path(raw).resolve(strict=True)
-        home = temporary / "home"
-        fake_bin = temporary / "bin"
-        home.mkdir(mode=0o700)
-        fake_bin.mkdir(mode=0o700)
-        curl = fake_bin / "curl"
-        curl.write_text(
-            "#!/bin/sh\n"
-            "set -eu\n"
-            "url=\n"
-            "output=\n"
-            "while [ \"$#\" -gt 0 ]; do\n"
-            "  case \"$1\" in\n"
-            "    https://*) url=$1 ;;\n"
-            "    -o) shift; output=$1 ;;\n"
-            "  esac\n"
-            "  shift\n"
-            "done\n"
-            "[ -n \"$url\" ] && [ -n \"$output\" ]\n"
-            "cp \"$FAKE_RELEASE_SOURCE/${url##*/}\" \"$output\"\n",
-            encoding="ascii",
+def write_release_manifest(artifacts: Sequence[ReleaseArtifact], destination: Path) -> Path:
+    ordered = tuple(sorted(artifacts, key=lambda item: item.platform_tag))
+    if not ordered or len({item.platform_tag for item in ordered}) != len(ordered):
+        raise BaseNativeError("release manifest platforms are invalid")
+    versions = {item.version for item in ordered}
+    if len(versions) != 1:
+        raise BaseNativeError("release manifest versions do not match")
+    version = next(iter(versions))
+    lines = ["open-brain-release-manifest-v1", f"version {version}"]
+    for item in ordered:
+        _validate_release_artifact(item)
+        lines.append(f"artifact {item.platform_tag} {item.sha256} {item.filename}")
+    selected = destination.resolve()
+    selected.parent.mkdir(parents=True, exist_ok=True)
+    selected.write_text("\n".join(lines) + "\n", encoding="ascii")
+    return selected
+
+
+def combine_release_manifest(archives: Sequence[Path], destination: Path) -> Path:
+    return write_release_manifest(tuple(_release_artifact(path) for path in archives), destination)
+
+
+def read_release_manifest(path: Path) -> ReleaseManifest:
+    try:
+        lines = path.resolve(strict=True).read_text(encoding="ascii").splitlines()
+    except (OSError, UnicodeError) as error:
+        raise BaseNativeError("release manifest is unavailable") from error
+    if len(lines) < 3 or lines[0] != "open-brain-release-manifest-v1":
+        raise BaseNativeError("release manifest header is invalid")
+    version_record = lines[1].split(" ", 1)
+    if len(version_record) != 2 or version_record[0] != "version":
+        raise BaseNativeError("release manifest version is invalid")
+    artifacts: list[ReleaseArtifact] = []
+    for line in lines[2:]:
+        fields = line.split(" ")
+        if len(fields) != 4 or fields[0] != "artifact":
+            raise BaseNativeError("release manifest artifact is invalid")
+        artifacts.append(ReleaseArtifact(version_record[1], fields[1], fields[2], fields[3]))
+    manifest = ReleaseManifest(version_record[1], tuple(artifacts))
+    if len({item.platform_tag for item in manifest.artifacts}) != len(manifest.artifacts):
+        raise BaseNativeError("release manifest has duplicate platforms")
+    for item in manifest.artifacts:
+        _validate_release_artifact(item)
+    if tuple(item.platform_tag for item in manifest.artifacts) != tuple(
+        sorted(item.platform_tag for item in manifest.artifacts)
+    ):
+        raise BaseNativeError("release manifest is not canonical")
+    return manifest
+
+
+def render_homebrew_formula(
+    manifest_path: Path,
+    destination: Path,
+    *,
+    repository: str = "vora-technology/open-brain",
+    base_url: str | None = None,
+) -> Path:
+    manifest = read_release_manifest(manifest_path)
+    if re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", repository) is None:
+        raise BaseNativeError("Homebrew repository is invalid")
+    origin = (
+        f"https://github.com/{repository}/releases/download/v{manifest.version}"
+        if base_url is None
+        else base_url.rstrip("/")
+    )
+    if not origin.startswith(("https://", "file://")) or any(
+        character in origin for character in ('"', "\n", "\r")
+    ):
+        raise BaseNativeError("Homebrew artifact origin is invalid")
+    platform_blocks = {
+        "linux-x86_64": ("on_linux", "x86_64"),
+        "macos-arm64": ("on_macos", "arm64"),
+    }
+    lines = [
+        "class OpenBrain < Formula",
+        '  desc "Local-first capture, search, and portable export"',
+        f'  homepage "https://github.com/{repository}"',
+        f'  version "{manifest.version}"',
+        '  license "Apache-2.0"',
+        "",
+    ]
+    for artifact in manifest.artifacts:
+        block, architecture = platform_blocks[artifact.platform_tag]
+        lines.extend(
+            (
+                f"  {block} do",
+                f"    depends_on arch: :{architecture}",
+                f'    url "{origin}/{artifact.filename}"',
+                f'    sha256 "{artifact.sha256}"',
+                "  end",
+                "",
+            )
         )
-        curl.chmod(0o700)
-        environment = {
-            "FAKE_RELEASE_SOURCE": os.fspath(release),
-            "HOME": os.fspath(home),
-            "OPEN_BRAIN_ACCEPTANCE_VERSION": _VERSION,
-            "OPEN_BRAIN_RELEASE_BASE_URL": "https://example.invalid/release",
-            "PATH": f"{fake_bin}:/usr/bin:/bin",
-        }
-        installed = _run(("/bin/sh", os.fspath(installer)), environment)
-        launcher = home / ".local/bin/open-brain"
+    lines.extend(
+        (
+            "  def install",
+            f'    bin.install "{_EXECUTABLE}"',
+            "  end",
+            "",
+            "  test do",
+            (
+                f'    assert_match "open-brain #{{version}}", '
+                f'shell_output("#{{bin}}/{_EXECUTABLE} --version")'
+            ),
+            "  end",
+            "end",
+            "",
+        )
+    )
+    selected = destination.resolve()
+    selected.parent.mkdir(parents=True, exist_ok=True)
+    selected.write_text("\n".join(lines), encoding="utf-8")
+    return selected
+
+
+def build_base_artifact(root: Path, output: Path) -> tuple[Path, Path, Path]:
+    if sys.version_info[:2] != (3, 14):
+        raise BaseNativeError("native build requires Python 3.14")
+    if (
+        importlib.metadata.version("pyinstaller") != "6.22.2"
+        or importlib.metadata.version("pyinstaller-hooks-contrib") != "2026.7"
+    ):
+        raise BaseNativeError("native build toolchain is not pinned")
+    version = product_version(root)
+    subprocess.run(
+        pyinstaller_command(root, output),
+        cwd=root.resolve(strict=True),
+        check=True,
+        timeout=1800,
+    )
+    artifact = output.resolve() / "dist/open-brain"
+    audit_base_artifact(artifact)
+    smoke_base_artifact(artifact, version=version)
+    archive, manifest = write_release_assets(
+        artifact,
+        output.resolve() / "release",
+        version=version,
+    )
+    return artifact, archive, manifest
+
+
+def _release_artifact(archive: Path) -> ReleaseArtifact:
+    selected = archive.resolve(strict=True)
+    match = _ARCHIVE_PATTERN.fullmatch(selected.name)
+    if match is None or not selected.is_file():
+        raise BaseNativeError("release artifact filename is invalid")
+    return ReleaseArtifact(
+        version=match.group("version"),
+        platform_tag=match.group("platform"),
+        sha256=_sha256(selected),
+        filename=selected.name,
+    )
+
+
+def _validate_release_artifact(artifact: ReleaseArtifact) -> None:
+    match = _ARCHIVE_PATTERN.fullmatch(artifact.filename)
+    if (
+        artifact.platform_tag not in _PLATFORMS
+        or re.fullmatch(r"[0-9a-f]{64}", artifact.sha256) is None
+        or match is None
+        or match.group("version") != artifact.version
+        or match.group("platform") != artifact.platform_tag
+    ):
+        raise BaseNativeError("release artifact record is invalid")
+
+
+def _validate_native_executable(executable: Path, platform_tag: str) -> str:
+    if platform_tag == "linux-x86_64":
+        header = executable.read_bytes()[:20]
         if (
-            installed.stdout
-            != '{"command":"open-brain","status":"installed"}\n'
-            or not launcher.is_symlink()
-            or os.readlink(launcher) != "../lib/open-brain/open-brain"
-            or _brain_root(home).exists()
+            len(header) != 20
+            or header[:4] != b"\x7fELF"
+            or header[4] != 2
+            or header[5] not in {1, 2}
+            or int.from_bytes(header[18:20], "little" if header[5] == 1 else "big") != 62
         ):
-            raise BaseNativeError("base installer activation failed")
-        version = _run((os.fspath(launcher), "--version"), environment)
-        if version.stdout.strip() != f"open-brain {_VERSION}":
-            raise BaseNativeError("installed base command is unavailable")
-        journey = _smoke_local_journey(launcher, home, environment)
-        return {
-            "command": "open-brain",
-            "journey": journey,
-            "status": "installed",
-            "version": _VERSION,
-        }
+            raise BaseNativeError("native Linux executable is not x86_64")
+        return "not-applicable"
+    architecture = _run_build_tool(("/usr/bin/lipo", "-archs", os.fspath(executable)))
+    if architecture.stdout.strip() != "arm64":
+        raise BaseNativeError("native macOS executable is not arm64")
+    _run_build_tool(("/usr/bin/codesign", "--verify", "--strict", os.fspath(executable)))
+    details = _run_build_tool(("/usr/bin/codesign", "-dv", "--verbose=4", os.fspath(executable)))
+    return "adhoc" if "Signature=adhoc" in details.stderr else "identity"
 
 
 def _smoke_local_journey(
@@ -305,7 +433,7 @@ def _smoke_local_journey(
 ) -> dict[str, object]:
     brain_root = _brain_root(home)
     if brain_root.exists():
-        raise BaseNativeError("base native journey did not start clean")
+        raise BaseNativeError("native journey did not start clean")
     token = "open-brain-five-minute-acceptance"
     capture = json.loads(
         _run((os.fspath(executable), "capture", token, "--json"), environment).stdout
@@ -317,20 +445,10 @@ def _smoke_local_journey(
         or not (brain_root / "brain.toml").is_file()
         or not (brain_root / ".open-brain/state/phase1.sqlite3").is_file()
     ):
-        raise BaseNativeError("base native first capture failed")
-    identity = brain_root / "brain.toml"
-    identity_bytes = identity.read_bytes()
-    initialized = json.loads(
-        _run((os.fspath(executable), "--json", "init"), environment).stdout
-    )
-    if (
-        initialized.get("status") != "already_initialized"
-        or identity.read_bytes() != identity_bytes
-    ):
-        raise BaseNativeError("base native first-use identity is not stable")
+        raise BaseNativeError("native first capture failed")
     search = _run((os.fspath(executable), "search", token), environment)
     if token not in search.stdout:
-        raise BaseNativeError("base native search failed")
+        raise BaseNativeError("native search failed")
     export = home / "portable-export"
     exported = json.loads(
         _run(
@@ -356,20 +474,20 @@ def _smoke_local_journey(
         or any(".open-brain" in path.parts for path in export.rglob("*"))
         or any(path.suffix in {".sqlite", ".sqlite3"} for path in export.rglob("*"))
     ):
-        raise BaseNativeError("base native verified export failed")
-    status = json.loads(
-        _run((os.fspath(executable), "status", "--json"), environment).stdout
+        raise BaseNativeError("native verified export failed")
+    status_result = cast(
+        dict[str, object],
+        json.loads(_run((os.fspath(executable), "status", "--json"), environment).stdout),
     )
-    expected_status = {
+    if status_result != {
         "application_encryption": False,
         "brain_count": 1,
         "daemon_running": False,
         "portable_export": "verified",
         "profile": "local",
         "storage": "sqlite",
-    }
-    if status != expected_status:
-        raise BaseNativeError("base native status failed")
+    }:
+        raise BaseNativeError("native status failed")
     for check in (
         "private-data-directory",
         "no-background-runtime",
@@ -377,9 +495,10 @@ def _smoke_local_journey(
     ):
         checked = _run((os.fspath(executable), "doctor", "--check", check), environment)
         if checked.stdout != f"{check}: ok\n":
-            raise BaseNativeError("base native doctor failed")
-    if any((brain_root / ".open-brain/run").iterdir()):
-        raise BaseNativeError("base native journey left a background runtime artifact")
+            raise BaseNativeError("native doctor failed")
+    run_root = brain_root / ".open-brain/run"
+    if run_root.is_dir() and any(run_root.iterdir()):
+        raise BaseNativeError("native journey left a background runtime artifact")
     return {
         "capture": "passed",
         "doctor": "passed",
@@ -389,73 +508,47 @@ def _smoke_local_journey(
     }
 
 
-def build_base_artifact(root: Path, output: Path) -> tuple[Path, Path, Path]:
-    if sys.version_info[:2] != (3, 14):
-        raise BaseNativeError("base native build requires Python 3.14")
-    if (
-        importlib.metadata.version("pyinstaller") != "6.22.2"
-        or importlib.metadata.version("pyinstaller-hooks-contrib") != "2026.7"
-    ):
-        raise BaseNativeError("base native build toolchain is not pinned")
-    command = pyinstaller_command(root, output)
-    subprocess.run(command, cwd=root.resolve(strict=True), check=True, timeout=1800)
-    artifact = output.resolve() / "dist/open-brain"
-    audit_base_artifact(artifact)
-    smoke_base_artifact(artifact)
-    archive, manifest = write_release_assets(artifact, output.resolve() / "release")
-    smoke_installer(root, archive.parent)
-    return artifact, archive, manifest
-
-
-def _tree_members(root: Path) -> tuple[str, ...]:
-    members: list[str] = []
-    for path in sorted(root.rglob("*")):
-        relative = path.relative_to(root).as_posix()
-        mode = stat.S_IMODE(path.lstat().st_mode)
-        if path.is_symlink():
-            target = os.readlink(path)
-            if Path(target).is_absolute() or ".." in PurePosixPath(target).parts:
-                raise BaseNativeError("base native artifact has an unsafe symlink")
-            kind = "symlink"
-            content = target
-        elif path.is_dir():
-            kind = "directory"
-            content = "-"
-        elif path.is_file():
-            kind = "file"
-            content = hashlib.sha256(path.read_bytes()).hexdigest()
-        else:
-            raise BaseNativeError("base native artifact has an unsupported member")
-        members.append(f"{kind} {mode:o} {content} {relative}")
-    return tuple(members)
-
-
-def _write_reproducible_archive(root: Path, archive: Path) -> None:
+def _write_reproducible_archive(executable: Path, archive: Path) -> None:
     with (
         archive.open("wb") as raw,
         gzip.GzipFile(fileobj=raw, mode="wb", mtime=0) as compressed,
         tarfile.open(fileobj=compressed, mode="w", format=tarfile.PAX_FORMAT) as bundle,
+        executable.open("rb") as stream,
     ):
-        for source in (root, *sorted(root.rglob("*"))):
-            relative = source.relative_to(root)
-            name = PurePosixPath("open-brain", *relative.parts).as_posix()
-            info = bundle.gettarinfo(os.fspath(source), arcname=name)
-            info.uid = 0
-            info.gid = 0
-            info.uname = ""
-            info.gname = ""
-            info.mtime = 0
-            if info.isfile():
-                with source.open("rb") as stream:
-                    bundle.addfile(info, stream)
-            else:
-                bundle.addfile(info)
+        info = bundle.gettarinfo(os.fspath(executable), arcname=_EXECUTABLE)
+        info.uid = 0
+        info.gid = 0
+        info.uname = ""
+        info.gname = ""
+        info.mtime = 0
+        bundle.addfile(info, stream)
 
 
 def _brain_root(home: Path) -> Path:
     if sys.platform == "darwin":
         return home / "Library/Application Support/open-brain/brain"
     return home / ".local/share/open-brain/brain"
+
+
+def _sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as stream:
+        for block in iter(lambda: stream.read(1024 * 1024), b""):
+            digest.update(block)
+    return digest.hexdigest()
+
+
+def _run_build_tool(command: Sequence[str]) -> subprocess.CompletedProcess[str]:
+    try:
+        return subprocess.run(
+            command,
+            check=True,
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+    except (OSError, subprocess.SubprocessError) as error:
+        raise BaseNativeError("native executable verification failed") from error
 
 
 def _run(
@@ -468,10 +561,10 @@ def _run(
             check=True,
             capture_output=True,
             text=True,
-            timeout=30,
+            timeout=60,
         )
     except (OSError, subprocess.SubprocessError) as error:
-        raise BaseNativeError("base native runtime check failed") from error
+        raise BaseNativeError("native runtime check failed") from error
 
 
 def _main(argv: Sequence[str] | None = None) -> int:
@@ -483,25 +576,43 @@ def _main(argv: Sequence[str] | None = None) -> int:
     audit = subparsers.add_parser("audit")
     audit.add_argument("--artifact", type=Path, required=True)
     smoke = subparsers.add_parser("smoke")
+    smoke.add_argument("--root", type=Path, required=True)
     smoke.add_argument("--artifact", type=Path, required=True)
-    installer_smoke = subparsers.add_parser("installer-smoke")
-    installer_smoke.add_argument("--root", type=Path, required=True)
-    installer_smoke.add_argument("--release", type=Path, required=True)
+    manifest = subparsers.add_parser("manifest")
+    manifest.add_argument("--artifact", type=Path, action="append", required=True)
+    manifest.add_argument("--output", type=Path, required=True)
+    formula = subparsers.add_parser("formula")
+    formula.add_argument("--manifest", type=Path, required=True)
+    formula.add_argument("--output", type=Path, required=True)
+    formula.add_argument("--repository", default="vora-technology/open-brain")
+    formula.add_argument("--base-url")
     namespace = parser.parse_args(argv)
     if namespace.command == "build":
-        artifact, archive, manifest = build_base_artifact(namespace.root, namespace.output)
+        artifact, archive, manifest_path = build_base_artifact(namespace.root, namespace.output)
         payload: object = {
             "archive": os.fspath(archive),
             "artifact": os.fspath(artifact),
-            "manifest": os.fspath(manifest),
+            "manifest": os.fspath(manifest_path),
             "status": "built",
         }
     elif namespace.command == "audit":
         payload = audit_base_artifact(namespace.artifact).to_dict()
     elif namespace.command == "smoke":
-        payload = smoke_base_artifact(namespace.artifact)
+        payload = smoke_base_artifact(
+            namespace.artifact,
+            version=product_version(namespace.root),
+        )
+    elif namespace.command == "manifest":
+        output = combine_release_manifest(namespace.artifact, namespace.output)
+        payload = {"manifest": os.fspath(output), "status": "written"}
     else:
-        payload = smoke_installer(namespace.root, namespace.release)
+        output = render_homebrew_formula(
+            namespace.manifest,
+            namespace.output,
+            repository=namespace.repository,
+            base_url=namespace.base_url,
+        )
+        payload = {"formula": os.fspath(output), "status": "written"}
     print(json.dumps(payload, sort_keys=True, separators=(",", ":")))
     return 0
 

@@ -1,13 +1,20 @@
 # Secure Node M1: semantic kernel and node
 
 Status: product scope renamed to Secure Node; `SN1-W0` (`M1-W0`) and `SN1-W1` (`M1-W1`) are
-complete and independently accepted; `CORE-W0` shared portability is active before `SN1-W2`
+complete and independently accepted; `CORE-W0` shared portability is complete; `SN1-W2` remains
+gated while the Open Brain release-surface reduction closes
 
 Date: 2026-09-04
 
 Base commit: `2e5fec28e3d946fee65a30f971d22679734d5071`
 
 Branch: `goal/open-brain-m1`
+
+Release-scope note: [ADR 0015](../architecture/decisions/0015-homebrew-only-distribution.md) removes
+the Phase 4 package classifier, artifact policy, compatibility matrix, and clean-host harness named
+in historical W0/W1 evidence below. Secure Node protocol and product behavior remain accepted; its
+future verification must use direct package, boundary, and conformance tests rather than restoring
+that release system.
 
 ## Objective
 
@@ -157,14 +164,14 @@ moves the default-package changes into `OB1-W0`; Secure Node W0 is not replayed.
       in M1 and is an explicit later portability milestone. W0 verified the dependencies under the
       pre-split engine `node` extra. `OB1-W0` renames that extra to `secure-node` and makes only
       `open-brain[secure-node]` select it. Record the M1 matrix in `release/m1-compatibility.json`
-      without changing the completed P4 compatibility evidence.
+      without restoring the deleted P4 compatibility matrix.
 - [ ] Freeze the dependency and release-evidence strategy before modifying package metadata. Keep
-      the existing six artifact coordinates, preserve the declared Python range `>=3.12,<3.15`, and
-      update `uv.lock`, wheel metadata, licenses, SBOM inputs, packaged resources, and Phase 4
-      classifications additively. A clean `pip install 'open-brain[secure-node]'` equivalent must
-      install the full Secure Node without asking users to enumerate transitive extras or compile
-      native code on a supported wheel target. The Secure Node application dependency set includes
-      the minimal Starlette and Uvicorn ASGI adapter; the engine remains transport-neutral.
+      the declared Python range `>=3.12,<3.15`, and update `uv.lock`, wheel metadata, licenses, SBOM
+      inputs, and packaged resources directly. A clean `pip install 'open-brain[secure-node]'`
+      equivalent must install the full Secure Node without asking users to enumerate transitive
+      extras or compile native code on a supported wheel target. The Secure Node application
+      dependency set includes the minimal Starlette and Uvicorn ASGI adapter; the engine remains
+      transport-neutral.
 - [ ] Freeze a `RootKeyCustodian` port and its bootstrap, unlock, restart, rotation, and destruction
       semantics. The reference setup uses OS-backed secret storage when available and an audited,
       passphrase-encrypted root-key envelope as the portable fallback. Plaintext root keys inside a
@@ -284,13 +291,11 @@ moves the default-package changes into `OB1-W0`; Secure Node W0 is not replayed.
       unsupported. Bind the sequencer lease to a generated machine-instance ID, Node identity, and
       epoch. A copied identity on another machine remains write-paused until the accepted cold
       transfer advances the epoch.
-- [ ] Add characterization tests that freeze the v0 engine facade, six artifact coordinates, P4
-      manifests, and current public imports before adding M1 modules.
-- [ ] Make `docs/v0-package-classification.json` coordinator-owned and add every M1 runtime file and
-      discovered Phase 4 test, schema, package-resource, release-tool, and release-resource subject.
-      Existing records and classification rules remain unchanged; generated reports are refreshed
-      only through their canonical generator.
-- [ ] Add the protocol schema trees to `release/v0-artifact-policy.json`, create
+- [ ] Add characterization tests that freeze the v0 engine facade, default native boundary, package
+      dependency graph, and current public imports before adding M1 modules.
+- [ ] Keep product ownership executable through direct AST import checks and native-module audits.
+      Do not recreate a generated whole-repository classifier or artifact policy.
+- [ ] Package the protocol schema trees through ordinary package metadata, maintain
       `release/m1-compatibility.json`, and update `docs/threat-model.md` for same-user loopback
       trust, application-controlled purge sinks, synchronized-root refusal, clock/skew limits, and
       the absence of constant-time storage claims. These shared files remain coordinator-owned.
@@ -304,8 +309,6 @@ Planned files:
 - `docs/architecture/decisions/0010-m1-wire-storage-and-crypto.md`
 - `docs/architecture/decisions/0011-m1-authority-information-flow-and-resource-bounds.md`
 - `docs/threat-model.md`
-- `docs/v0-package-classification.json`
-- `release/v0-artifact-policy.json`
 - `release/m1-compatibility.json`
 - `packages/engine/pyproject.toml`
 - `packages/app/pyproject.toml`
@@ -313,14 +316,16 @@ Planned files:
 - `packages/engine/src/open_brain_engine/protocol/`
 - `packages/engine/src/open_brain_engine/protocol/schemas/v1/`
 - `packages/engine/tests/contract/protocol_v1/`
-- `tests/phase4/test_m1_compatibility_baseline.py`
+- direct package, compatibility, and product-boundary tests
 
 Focused verification:
 
 ```bash
-uv run pytest -q packages/engine/tests/contract/protocol_v1 tests/phase4/test_m1_compatibility_baseline.py
-uv run ruff check packages/engine/src/open_brain_engine/protocol packages/engine/tests/contract/protocol_v1 tests/phase4/test_m1_compatibility_baseline.py
-uv run mypy packages/engine/src/open_brain_engine/protocol packages/engine/tests/contract/protocol_v1 tests/phase4/test_m1_compatibility_baseline.py
+uv run pytest -q packages/engine/tests/contract/protocol_v1 tests/security
+uv run ruff check packages/engine/src/open_brain_engine/protocol \
+  packages/engine/tests/contract/protocol_v1 tests/security
+uv run mypy packages/engine/src/open_brain_engine/protocol \
+  packages/engine/tests/contract/protocol_v1 tests/security
 git diff --check
 ```
 
@@ -772,18 +777,17 @@ git diff --check
       grant-scoped watermark isolation from unauthorized commits,
       inspect isolation, minimal jobs, FTS isolation, projection rebuild, unsafe-root refusal,
       fencing, and restart recovery.
-- [ ] Verify existing v0 CLI, engine tasks, installed wheels, connectors, legacy quarantine, package
-      classification records, P4 move manifests, and artifact policy remain unchanged in behavior.
-      Additively classify every new M1 runtime and discovered non-runtime subject, refresh generated
-      reports canonically, keep the existing six artifact coordinates, and add the packaged protocol
-      schema trees to `release/v0-artifact-policy.json`.
+- [ ] Verify existing v0 CLI, engine tasks, installed wheels, connectors, and legacy quarantine
+      remain unchanged in behavior. Package protocol schemas through ordinary project metadata and
+      prove the Open Brain boundary with direct import and native-module tests. Do not restore the
+      Phase 4 classifier, artifact policy, move reports, or six-artifact release matrix.
 - [ ] Verify a clean engine/app source or wheel install can initialize and exercise one synthetic
       Brain through all four operations without the private composition repository. Test every
       required CPython 3.12, 3.13, and 3.14 combination on macOS ARM64 and Linux x86_64. Prove the
       `open-brain[secure-node]` installs its full Secure Node dependencies without a user enumerating
       transitive extras or compiling native code on a supported wheel target, while plain
       `open-brain` excludes them. Record the complete result in
-      `release/m1-compatibility.json`; do not rewrite P4 evidence or claim Windows support.
+      `release/m1-compatibility.json`; do not restore P4 evidence or claim Windows support.
 - [ ] Prove every item in the frozen BrainPack semantic inventory survives commit and restart,
       records purge state correctly, and remains independent of projection rebuild.
 - [ ] Prove clean setup and restart with a production root-key custodian, owner-authenticated grant
@@ -816,7 +820,6 @@ Focused verification:
 
 ```bash
 uv run pytest -q packages/engine/tests/contract/protocol_v1 packages/engine/tests/integration/ledger packages/engine/tests/integration/projections packages/engine/tests/security/protocol_v1 packages/app/tests/integration/node
-make phase4-contracts
 make verify
 git diff --check
 ```
@@ -831,10 +834,10 @@ Required semantic-inventory test:
    that disjointness applies within the active wave, not permanently across later serial waves.
 2. Focused tests are written red first, then implementation makes them pass.
 3. Shared schemas, repository adapters, public facades, projection hooks, package metadata,
-   `uv.lock`, `docs/v0-package-classification.json`, generated Phase 4 reports, release evidence,
-   and architecture docs remain coordinator-owned throughout M1. Workers return proposed additions
-   or patches for those surfaces; the coordinator integrates them serially as explicit additive
-   migrations or compatible API changes.
+   `uv.lock`, and architecture docs remain coordinator-owned throughout M1. Workers return proposed
+   additions or patches for those surfaces; the coordinator integrates them serially as explicit
+   additive migrations or compatible API changes. Deleted Phase 4 release inventories must not be
+   recreated.
 4. `make verify` runs only from the coordinator after integration. Independent reviewers may run
    focused checks but cannot mutate files or certify their own fixes.
 5. Every local commit uses a commit-message file. Nothing is pushed, published, deployed, started,
@@ -847,8 +850,8 @@ Secure Node M1 is complete only when all of the following are true:
 - A clean `open-brain[secure-node]` source or wheel install includes the Secure Node
   dependencies, can initialize one synthetic local Brain, and can use all four protocol operations
   through a documented high-level client without private files or manual cryptography. The complete
-  CPython 3.12 through 3.14 matrix passes on macOS ARM64 and Linux x86_64 and is recorded separately
-  from the unchanged P4 evidence; M1 makes no Windows-support claim.
+  CPython 3.12 through 3.14 matrix passes on macOS ARM64 and Linux x86_64 and is recorded in the M1
+  compatibility record; M1 makes no Windows-support claim.
 - Plain `open-brain` neither installs nor imports Secure Node-only dependencies, initializes no
   Secure Node state, starts no listener or daemon, and makes no application-encryption claim.
 - One Brain has one transactionally ordered commit history, opaque cursor, grant namespace, key

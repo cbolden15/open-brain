@@ -8,63 +8,15 @@ The operations package defines scheduler contracts and renders generic manifests
 not install, enable, start, stop, restart, load, unload, or inspect a service. Deployment
 configuration and service actions remain outside the public application.
 
-## P4-W5 native verification
+## Open Brain release verification
 
-Run `make p4w5-preflight` while editing the P4-W5 source candidate. It runs the focused native,
-lifecycle, recovery, Portable, supervisor, artifact-membership, and CI contracts; validates the
-pinned Python 3.12 bundler configuration; checks the movement manifest; runs Ruff and strict MyPy
-on touched Python; validates the workflow; and finishes with `git diff --check`. It does not run the
-full repository suite or a native build.
+Run `make verify` for lint, type checking, tests, and source builds. Run `make native` to build and
+audit one platform-native default executable. Run `make homebrew-smoke` to install that archive with
+a temporary local Homebrew formula and exercise capture, search, verified export, status, and doctor.
 
-After committing a clean source candidate, run
-`make p4w5-native P4W5_SOURCE_SHA=<exact-clean-HEAD>` on a supported target host. The command
-refuses a dirty tree or a mismatched SHA. It extracts that named Git tree into an isolated temporary
-source directory, verifies its digest before and after PyInstaller runs, builds the checked-in onedir
-spec from that directory, and rejects any package resource outside the exact tracked inventory.
-The extraction disables replacement objects, rejects repository-local attributes and replacement
-refs, neutralizes external Git configuration, and compares archive files, modes, and blob IDs with
-`git --no-replace-objects ls-tree`. It then audits members and confined symlinks, activates the
-artifact through the native lifecycle adapter, and runs the frozen executable without a source
-checkout or Python on `PATH`. The smoke covers packaged supervisor resources, the connector child,
-init, supervised daemon start/restart, Portable
-export/import through the public control socket, verified backup and disposable restore, and an
-owner-confirmed upgrade that rolls back an externally corrupted candidate. A second upgrade begins
-with the supervised daemon active, journals and performs quiescence, restarts the target artifact,
-then runs application uninstall and the clean-residue check. Supervisor effects use an isolated
-temporary shim that models launchd KeepAlive: process termination relaunches the daemon, while
-`bootout` unloads it until a later bootstrap. The command starts the real bundled daemon without
-installing a host service, writes bounded ignored evidence under `build/p4w5-native`, and performs no
-signing, notarization, publication, deployment, or host service installation.
-
-## P4-W6 unpublished release candidate
-
-This section preserves the historical P4-W6 candidate procedure. It is not the current v0
-publication path and must not be run as a v0 release gate. v0 uses source/wheels on macOS; a signed
-and notarized DMG is deferred to a later release.
-
-Run `make p4w6-preflight` before freezing a P4-W6 source commit. It checks the release, signing,
-notarization, deterministic archive, clean-host, CI, and manifest contracts without invoking the
-P4-W5 native build targets or the readiness probes.
-
-All artifact builds require `P4W6_SOURCE_SHA` to name the clean current `HEAD`. Build the six Python
-distributions with `make p4w6-python`. Build the Linux x86_64 archive on Ubuntu 24.04 with `make
-p4w6-linux`; the same exact archive must then pass the artifact-only lifecycle harness on Ubuntu
-24.04, Ubuntu 26.04, and Debian 13. Build the source-equivalent compatibility archive and run it on
-the macOS 14 ARM64 CI host with `make p4w6-macos-compatibility` and `make p4w6-clean-host`.
-
-On the private macOS ARM64 coordinator, place the validated Keychain selector only in the process
-environment as `OPEN_BRAIN_NOTARY_PROFILE`, then run `make p4w6-macos`. Do not print the selector or
-persist it in shell history, files, CI, logs, evidence, or the candidate. The command discovers one
-Developer ID Application identity, signs nested code inside-out, creates and signs the DMG,
-requires an accepted zero-issue notary log, staples and validates the ticket, assesses the media,
-and emits only bounded evidence.
-
-Collect the five passed host files as `ubuntu-24.04.json`, `ubuntu-26.04.json`, `debian-13.json`,
-`macos-signed.json`, and `macos-14-source-equivalent.json` under `P4W6_CLEAN_HOST_INPUT`. Run `make
-p4w6-assemble`, then `make p4w6-verify`. Assembly adds the bounded macOS 14 exact-signed-candidate
-runner record, closes all 23 required coordinates, rehashes every file, verifies checksum and
-evidence relationships, and writes `release-candidate.json`. These commands do not tag, publish,
-deploy, or alter production state.
+The current release process has no installer script, VM matrix, service lifecycle, receipt,
+attestation, notarization, or evidence assembly. See
+[`artifact-characterization.md`](artifact-characterization.md) for the complete shipping surface.
 
 ## Capture publication
 

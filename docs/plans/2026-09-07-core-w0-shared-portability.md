@@ -2,6 +2,10 @@
 
 Status: complete; focused and full verification pass; independent review accepted
 
+Historical scope note: the shared record model and Secure Node envelope mapping remain current.
+[ADR 0015](../architecture/decisions/0015-homebrew-only-distribution.md) later removed the package
+classification, artifact policy, and Phase 4 harness named in this closure record.
+
 Date: 2026-09-07
 
 Starting commit: `1aa62f8763c6c41e635a2d6ebae1780a37672157`

@@ -1,16 +1,21 @@
 # Contributing
 
-Open Brain is pre-production. Discuss substantial behavior changes before implementation so the capture, privacy, provenance, provider, ledger, review, and migration contracts remain coherent.
+Open Brain is pre-production. Discuss substantial behavior changes before implementation so capture,
+search, storage, and Portable export remain coherent.
 
 ## Development checks
 
-```bash
-uv sync --group dev
-uv run ruff check .
-uv run mypy
-uv run pytest -q
-uv run python -m build
+Homebrew is required for the installed-product smoke test.
+
+```sh
+uv sync --frozen --group dev --group native-build
+make verify
+make native
+make homebrew-smoke
 ```
+
+`make homebrew-smoke` creates a temporary local tap, installs the native artifact, runs the product
+journey, and removes the formula and tap.
 
 Contributions must use synthetic fixtures. Never include private notes, captures, transcripts, credentials, hostnames, infrastructure addresses, logs, databases, or generated private configuration.
 

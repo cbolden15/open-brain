@@ -75,8 +75,9 @@ pyz = PYZ(analysis.pure)
 executable = EXE(
     pyz,
     analysis.scripts,
+    analysis.binaries,
+    analysis.datas,
     [],
-    exclude_binaries=True,
     name="open-brain",
     debug=False,
     bootloader_ignore_signals=False,
@@ -88,13 +89,4 @@ executable = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
-)
-artifact = COLLECT(
-    executable,
-    analysis.binaries,
-    analysis.datas,
-    strip=False,
-    upx=False,
-    upx_exclude=[],
-    name="open-brain",
 )

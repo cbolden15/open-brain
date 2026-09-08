@@ -8,6 +8,10 @@
 - Acceptance authority: [`../acceptance/five-minute-install.md`](../acceptance/five-minute-install.md)
 - Roadmap authority: [`product-roadmap.md`](product-roadmap.md)
 
+Historical scope note: the command behavior and closure evidence remain current. [ADR
+0015](../architecture/decisions/0015-homebrew-only-distribution.md) supersedes the installer,
+artifact-policy, and 300-second clean-host assumptions recorded below.
+
 ## Objective
 
 Complete the daemonless data journey used by the exact five-minute acceptance test. A first
@@ -16,8 +20,8 @@ SQLite and Portable records, make it immediately searchable, and include it in a
 Portable Brain export. `status --json` and the three named doctor checks must report the observed
 default-product state without importing or claiming Secure Node behavior.
 
-This workstream implements data use only. It does not publish artifacts or claim the cross-host
-300-second gate; those belong to `OB1-W2` after `CORE-W0` closes.
+This workstream implemented data use only. Release distribution was deferred and was later reduced
+to the Homebrew-only `OB1-W2` scope in ADR 0015.
 
 ## Allowed scope
 
