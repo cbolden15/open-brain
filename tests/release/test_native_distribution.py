@@ -170,6 +170,7 @@ def test_ci_has_only_two_native_product_runners() -> None:
     assert {path.name for path in workflows.iterdir() if path.is_file()} == {"ci.yml"}
     assert runs_on == ["ubuntu-latest", "macos-latest"]
     assert workflow.count("make homebrew-smoke") == 2
+    assert "make verify" not in workflow
     assert "docker" not in workflow.lower()
     assert "attestation" not in workflow.lower()
     assert "notar" not in workflow.lower()
