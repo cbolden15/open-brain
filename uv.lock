@@ -20,11 +20,13 @@ dev = [
     { name = "cryptography", specifier = ">=50,<51" },
     { name = "jsonschema", specifier = ">=4.25,<5" },
     { name = "mypy", specifier = ">=1.15,<2" },
+    { name = "open-brain", extras = ["secure-node"], editable = "packages/app" },
     { name = "open-brain-engine", editable = "packages/engine" },
     { name = "pytest", specifier = ">=8.3,<10" },
     { name = "ruff", specifier = ">=0.11,<1" },
 ]
 native-build = [
+    { name = "open-brain", editable = "packages/app" },
     { name = "pyinstaller", specifier = "==6.22.2" },
     { name = "pyinstaller-hooks-contrib", specifier = "==2026.7" },
 ]

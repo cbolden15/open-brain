@@ -3,6 +3,10 @@
 Status: complete; `OB1-W1` continued separately under
 [`2026-09-07-ob1-w1-direct-local-journey.md`](2026-09-07-ob1-w1-direct-local-journey.md)
 
+Historical scope note: this closure record describes the installer and release checks that existed
+at the time. [ADR 0015](../architecture/decisions/0015-homebrew-only-distribution.md) supersedes those
+parts. The automatic local bootstrap, package split, and native product boundary remain current.
+
 Date: 2026-09-07
 
 Starting commit: `10d0846b56144ac8ad316452bd31cf6756844d05`
@@ -162,7 +166,8 @@ findings from the first implementation review.
 | Independent implementation review | Read-only review returned `READY` with P0/P1/P2 at 0/0/0. It confirmed that `OB1-W1` commands and `OB1-W2` publication or clean-host execution are absent. |
 
 No artifact was published or pushed. Linux native execution, release assembly, reinstall proof, and
-the exact clean-host 300-second matrix remain in `OB1-W2`.
+the exact clean-host 300-second matrix were deferred at this checkpoint and later removed by ADR
+0015.
 
 ## Exit criteria
 
@@ -174,5 +179,5 @@ leave unsafe or replaced roots untouched. The default resolved dependency graph 
 artifact must contain no Secure Node-only dependency.
 
 Stop there. `OB1-W1` owns direct capture, search, export, status, and doctor behavior. `OB1-W2`
-owns published artifacts and the exact 300-second host matrix. `CORE-W0` remains paused, and
-`SN1-W2` remains gated.
+now owns only the Homebrew release-surface reduction. `CORE-W0` remains paused at this historical
+checkpoint, and `SN1-W2` remains gated.

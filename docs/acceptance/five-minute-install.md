@@ -1,101 +1,87 @@
 # Five-minute Open Brain acceptance test
 
-- Status: OB1-W1 local journey complete; OB1-W2 published clean-host proof pending
-- Product: Open Brain default only
-- Time limit: 300 seconds from installer start through verified export
-- Secure Node: explicitly excluded
+Status: accepted target contract; public release and tap are not published yet
 
-## Clean-host contract
+Date: 2026-09-08
 
-Run the test with a fresh unprivileged user on every supported release host. The user has a normal
-home directory, outbound HTTPS, POSIX `sh`, `curl`, and standard certificate roots. The host has no
-Open Brain files, command, cache, Python environment, database service, container runtime, or
-background Open Brain process. The installer may provide its own runtime.
+## Supported starting point
 
-The initial release matrix is macOS 14 or newer on Apple Silicon and Linux x86_64 on Ubuntu 24.04
-LTS, Ubuntu 26.04 LTS, and Debian 13. Passing on one host does not support a broader platform claim.
+The test starts with a regular user account on one of these hosts:
 
-## One-command installation
+- macOS on Apple Silicon (`arm64`)
+- Linux on `x86_64`
 
-The public command is:
+Homebrew must already be installed and available as `brew`. The account has no prior Open Brain
+formula or Open Brain data. Network access to Homebrew and GitHub Releases is available.
 
-```sh
-curl --proto '=https' --tlsv1.2 -LsSf https://github.com/vora-technology/open-brain/releases/latest/download/install.sh | sh
-```
+This is a clean Open Brain state, not a factory-clean operating system. Installing Homebrew is
+outside the product journey.
 
-The release gate replaces `latest` with the exact candidate tag and runs without a preinstalled
-Python or package manager. The installer must verify the downloaded release manifest and artifact
-checksum before activation. It installs the base `open-brain` product, never the Secure Node extra.
+## Exact journey
 
-## Exact test
-
-The release harness sets `OPEN_BRAIN_ACCEPTANCE_VERSION` to the candidate version, then runs this
-script in the clean user's login shell:
+Run this block in a fresh shell:
 
 ```sh
 set -eu
 
-started_at="$(date +%s)"
-install_url="https://github.com/vora-technology/open-brain/releases/download/v${OPEN_BRAIN_ACCEPTANCE_VERSION}/install.sh"
+brew --version
+! brew list --formula open-brain >/dev/null 2>&1
 
-test -z "${OPEN_BRAIN_ROOT:-}"
-test ! -e "$HOME/.local/share/open-brain"
-test ! -e "$HOME/Library/Application Support/open-brain"
+TOKEN="five-minute-$(date +%s)-$$"
+EXPORT_PARENT="$(mktemp -d "${TMPDIR:-/tmp}/open-brain-export.XXXXXX")"
 
-curl --proto '=https' --tlsv1.2 -LsSf "$install_url" | sh
-
-PATH="$HOME/.local/bin:$PATH"
-export PATH
-command -v open-brain >/dev/null
-
-token="open-brain-five-minute-acceptance"
-open-brain capture "$token"
-open-brain search "$token" | grep -F "$token" >/dev/null
-
-OPEN_BRAIN_ACCEPTANCE_TMP="$(mktemp -d)"
-open-brain export "$OPEN_BRAIN_ACCEPTANCE_TMP/brain-export" --verify
-test -f "$OPEN_BRAIN_ACCEPTANCE_TMP/brain-export/portable-manifest.json"
-
-status="$(open-brain status --json)"
-compact_status="$(printf '%s' "$status" | tr -d '[:space:]')"
-printf '%s\n' "$compact_status" | grep -F '"profile":"local"' >/dev/null
-printf '%s\n' "$compact_status" | grep -F '"brain_count":1' >/dev/null
-printf '%s\n' "$compact_status" | grep -F '"storage":"sqlite"' >/dev/null
-printf '%s\n' "$compact_status" | grep -F '"daemon_running":false' >/dev/null
-printf '%s\n' "$compact_status" | grep -F '"application_encryption":false' >/dev/null
-printf '%s\n' "$compact_status" | grep -F '"portable_export":"verified"' >/dev/null
-
+brew install vora-technology/tap/open-brain
+open-brain capture "$TOKEN"
+open-brain search "$TOKEN" | grep -F "$TOKEN"
+open-brain export "$EXPORT_PARENT/brain" --verify
+open-brain status --json
 open-brain doctor --check private-data-directory
 open-brain doctor --check no-background-runtime
 open-brain doctor --check base-dependency-closure
-
-finished_at="$(date +%s)"
-test "$((finished_at - started_at))" -le 300
 ```
 
-The harness removes the temporary export and test account after collecting metadata-only timing and
-version evidence. It never publishes captured text or absolute home paths.
+The five-minute product target runs from the start of `brew install` through the successful verified
+export. CI records ordinary job duration, but the repository has no custom 300-second watchdog or
+timing-evidence format.
 
 ## Pass conditions
 
-The test passes only when all of these are true:
+The journey passes when all of these are true:
 
-1. The one installer command succeeds without a prompt, sudo, source checkout, Python setup, Docker,
-   certificate creation, database setup, root selection, config editing, or service installation.
-2. The first capture creates the documented platform-local directory, one local owner, one Brain,
-   and private SQLite state automatically.
-3. The exact captured token is returned by local search and appears in a validated full Portable
-   Brain export.
-4. No daemon or listener remains running, and status explicitly reports that application-level
-   encryption is not enabled for the default product.
-5. The complete sequence finishes in 300 seconds or less with empty Open Brain and package caches.
+1. Homebrew installs one `open-brain` executable and verifies the release archive against the
+   formula's SHA-256.
+2. The first capture creates one private platform-local Brain and SQLite state without a setup
+   prompt, configuration file, storage choice, or database command.
+3. Search returns the exact token, and the verified Portable Brain export contains that capture.
+4. Status reports `profile=local`, `storage=sqlite`, `daemon_running=false`, and
+   `application_encryption=false`.
+5. Every command exits zero and no daemon, listener, service, container, or runtime process remains.
 
-The base artifact also fails acceptance if its installed dependency graph contains the Secure Node
-extra or its help, status, or documentation claims encrypted custody, compartments, grants,
-certified purge, fencing, or multi-client service guarantees.
+The automatic Brain root is:
 
-## Separate Secure Node acceptance
+| Host | Brain root |
+|---|---|
+| macOS | `$HOME/Library/Application Support/open-brain/brain` |
+| Linux | `${XDG_DATA_HOME:-$HOME/.local/share}/open-brain/brain` |
 
-`open-brain[secure-node]` has its own setup and conformance gates. Its installation time, key
-custody, grants, service lifecycle, encrypted storage, and recovery checks do not count toward or
-weaken this five-minute default test.
+## CI smoke
+
+CI has exactly two native jobs: `macos-latest` with an explicit `arm64` assertion and
+`ubuntu-latest` with an explicit `x86_64` assertion. Each job builds the native executable, renders
+a temporary local Homebrew formula from the release manifest, installs it with Homebrew, and runs
+the same capture, search, export, status, and doctor checks in a temporary user home.
+
+The CI formula uses local build output. A published-release smoke uses the public tap and immutable
+GitHub Release URLs.
+
+## Deliberate exclusions
+
+This acceptance test does not cover curl installation, Docker, certificates, grants, service setup,
+manual databases, storage-root selection, reinstall, fault injection, offline behavior, receipt-bound
+uninstall, VM matrices, notarization, artifact attestations, or metadata-only evidence bundles.
+
+`brew uninstall open-brain` removes the Homebrew-managed executable. It does not remove the Brain
+data directory. Data removal is a separate, explicit user action.
+
+Open Brain relies on the operating-system account and disk protections. It does not claim Secure
+Node's application-level encryption, custody, compartment, purge, fencing, or recovery guarantees.

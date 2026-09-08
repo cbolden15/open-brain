@@ -36,16 +36,16 @@ leases through read-only views before compiling a profile. The lease check does 
 doctor only for an already-current Brain. It rejects init, capture, search, and export before
 creating identity, layout, or SQLite state.
 
-The base native artifact has its own entry point and PyInstaller spec under
+The base native artifact has its own entry point and one-file PyInstaller spec under
 `release/open-brain`. Its module inventory excludes the retained appliance, server, connector,
-legacy, service-management, Secure Node custody, and advanced dependency roots. The historical
-artifact under `release/native` remains Secure Node precursor evidence.
+legacy, service-management, Secure Node custody, and advanced dependency roots. Homebrew installs a
+single-executable archive whose SHA-256 comes from the release manifest.
 
 ## Current transitional architecture
 
 The repository is one uv workspace. Engine, app, connector, and private
 legacy code live in separate buildable distributions. Private compatibility source is physically
-quarantined under `packages/legacy`; workspace-only release tooling lives under
+quarantined under `packages/legacy`; the small native build and formula renderer lives under
 `tools/open_brain_dev`. The old
 `src/open_brain` monolith no longer exists. The retained `single-user-local` appliance profile opens
 one engine task set for one owner and one explicit Brain root. It predates the split and is not the
@@ -75,9 +75,8 @@ The package map uses these ownership boundaries:
 
 Private deployment configuration contains values and rendered manifests, never patched or copied application source.
 
-The file-level classification is authoritative across the workspace: every runtime file has one
-owner, such as `engine`, `app`, `connector`, `legacy`, or `workspace`. Every runtime file is now at
-its final P4A path; no file is unclassified or assigned to multiple owners.
+The package directories are the ownership map. A direct AST test checks the allowed import graph
+against package metadata instead of maintaining a second file-level classification database.
 
 The current app-owned `profile` module compiles one `single-user-local` Brain root into an
 engine-owned context. The engine does not import profile, CLI, UI, service, migration,
@@ -131,22 +130,18 @@ daemon control socket submits durable owner-requested `backup-create`, `portable
 `portable-import` jobs to the scheduler attached to the daemon's existing application. They are
 replay-safe requests, not recurring background work. Mutable scheduler state is recreated after a
 restore so retry bookkeeping cannot change the identity of an already published backup.
-Phase 3 W5 keeps upgrade and uninstall at the app boundary. `services/appliance_lifecycle.py`
+Phase 3 W5 keeps Secure Node upgrade and uninstall at the app seam. `services/appliance_lifecycle.py`
 defines the typed `ArtifactLifecyclePort` for bounded candidate identity, compatibility preflight,
 activation, rollback, and removal receipts. Source checkout proves that orchestration only through
 injected fake or disposable adapters, verified backup plus disposable-restore preflight, versioned
 engine and app migration evidence, authority-preserving restart checks, post-migration doctor, and
-data-preserving uninstall. The source-checkout artifact effect boundary stays fail-closed. The P4-W5
-frozen entry point is the first composition that injects the manifest-bound native adapter and
-bounded host supervisor effects; its target-native smoke uses only isolated temporary supervisor
-state. Upgrade checks compatibility while the current daemon is active, journals a quiesce stage,
+data-preserving uninstall. The source-checkout artifact effect remains fail-closed. The previous
+frozen native adapter and its release harness were removed from the current tree. Upgrade checks
+compatibility while the current daemon is active, journals a quiesce stage,
 unloads a launchd KeepAlive job or stops the systemd unit before offline recovery and migrations,
 then resumes the correct job after success or failure. Failure receipts distinguish artifact
-rollback from daemon restoration. Native builds run from an isolated archive of the named Git tree;
-replacement refs and repository-local attributes are rejected, external Git configuration is
-neutralized, and extracted blob IDs and modes must equal the raw no-replace tree. Their
-package-resource inventory is derived from tracked files and rejected on any extra member. A
-distinct kernel-backed lifecycle lease serializes owner requests, while canonical
+rollback from daemon restoration. A distinct kernel-backed lifecycle lease serializes owner requests,
+while canonical
 root-confined journals preserve request identity, stage, terminal receipt, conflict detection, and
 crash rollback across processes. The CLI exposes upgrade and uninstall only when composition injects
 that lifecycle port; it does not run the self-restarting lifecycle inside the daemon control loop.
@@ -167,9 +162,8 @@ closed `OptionalProvider` identity whose immutable registry owns the correspondi
 The registry currently contains only the declared `openai` extra; arbitrary module strings and
 internal package roots are rejected at runtime. Disabled integrations perform no import, while
 enabled installed providers do not depend on unrelated preload state. P4H009 checks a finite
-adversarial corpus for architecture regressions and is not a malicious-code sandbox. The registry
-and its host role are recorded exactly in the package
-classification.
+adversarial corpus for architecture regressions and is not a malicious-code sandbox. Contract tests
+check the registry and its host role directly.
 
 The implemented application layers are:
 
@@ -190,15 +184,14 @@ encoded protected references, absolute paths, credentials, storage-derived slugs
 reversible source-reference digests. This projection affects results only; Portable/source bytes
 remain exact.
 
-Phase 3 owns the appliance lifecycle: initialization, one supervised daemon, internal scheduling,
-launchd/systemd integration, backup/restore, upgrade, and uninstall orchestration. The current
-Phase 4 split produces isolated, unpublished engine, app, and connector wheels and sdists. The
+Phase 3 owns the Secure Node precursor lifecycle: initialization, one supervised daemon, internal
+scheduling, launchd/systemd integration, backup/restore, upgrade, and uninstall orchestration. The
+workspace produces engine, app, and connector wheels and sdists for contributor verification. The
 connector interface is provisional v1. Parent discovery reads entry-point metadata without loading
 connector code; explicit allow-list and capability checks precede a bounded child process. The
 reference conformance run proves capture-only execution and replay through synthetic host-mediated
 transport. A stable Connector SDK promise remains blocked until reference, event, and measurement
-proofs all pass. The target default v0 release path uses checksummed native archives bundling Python
-3.14 on macOS arm64 and Linux x86_64. Python 3.14 source and wheel installs remain available for
-development. The separate P4 macOS native subjects remain unpublished Secure Node precursor
-evidence; DMG signing and notarization are deferred to a later release. Public package publication,
-tags, releases, and owner-gated deployment remain separate work.
+proofs all pass. The default release uses Homebrew plus checksummed native archives bundling Python
+3.14 on macOS arm64 and Linux x86_64. Python source builds remain available for development. The
+macOS executable is ad hoc signed and verified before hashing; notarization is outside the supported
+Homebrew path. Publishing tags, releases, and tap updates remains separate owner-authorized work.

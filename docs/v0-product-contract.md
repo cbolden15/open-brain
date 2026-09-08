@@ -9,7 +9,7 @@
 - v0 target: one owner running one always-on Mac or Linux home server
 
 > This file preserves the accepted v0.5 appliance contract as historical evidence. The current
-> product authority is [`docs/product-family.md`](product-family.md), version `0.6`. In particular,
+> product authority is [`docs/product-family.md`](product-family.md), version `0.7`. In particular,
 > one daemon, a user-selected Brain root, service installation, and the 15-minute target no longer
 > define the default Open Brain product. They belong to the opt-in Secure Node profile where the
 > current contract retains them. The requirements below are intentionally not rewritten because

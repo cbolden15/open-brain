@@ -52,16 +52,13 @@ SQLite sidecars such as `-wal`, `-shm`, or `-journal`. Restore and Portable impo
 fresh empty disposable root first; only the restored appliance generates a new local owner
 credential, initializes fresh scheduler state, and rebuilds indexes before a later live replacement
 decision.
-Phase 3 upgrade and uninstall orchestration stays app-owned and source-checkout scoped. The
-`ArtifactLifecyclePort` accepts only bounded candidate identity plus compatibility, activation,
-rollback, and removal receipts. Its default effect boundary is fail-closed, and the Phase 3 source
-tree ships only injected fake or disposable adapters. The unpublished P4-W5 frozen entry point adds
-the first native-artifact adapter. Its ownership inventory starts empty unless an explicit current
-link identifies the one trusted installed candidate; later candidates enroll only after validated
-lifecycle operations. The current v0 macOS release path is source/wheel installation; native DMG
-signing and notarization are deferred to a later release. Clean-host package proofs, publication,
-and prior-release upgrade evidence remain separate work. Upgrade and uninstall CLI commands still
-fail closed unless composition injects a lifecycle port. Accepted owner requests use one root-scoped
+Secure Node upgrade and uninstall orchestration stays app-owned and source-checkout scoped. The
+`ArtifactLifecyclePort` accepts bounded candidate identity plus compatibility, activation, rollback,
+and removal receipts. Its default effect path is fail-closed, and the source tree uses injected fake
+or disposable adapters. The old frozen native adapter and release harness were removed. Plain Open
+Brain delegates executable upgrade and uninstall to Homebrew and keeps its data outside the prefix.
+Secure Node upgrade and uninstall CLI commands still fail closed unless composition injects a
+lifecycle port. Accepted owner requests use one root-scoped
 lifecycle lease and bounded journals below `.open-brain/state/appliance-lifecycle/`; retries replay
 terminal receipts, conflicting identities fail, and interrupted forward work rolls back before the
 journal becomes terminal.

@@ -22,7 +22,7 @@ Anything new receives an `EXP-*` row before design or implementation starts.
 | `EXP-012` | Client-held end-to-end encryption and client-owned plaintext workers | The hosted execution boundary is approved without changing the common engine or Portable Brain contract. |
 | `EXP-013` | Prism renderer or first-class harness plugin integration | The renderer capability remains read-only and receives its own packaging, authority, and support contract. |
 | `EXP-014` | Additional payload families beyond text, reference or file, event, and measurement | A product decision proves the input cannot be represented by an existing family without losing required semantics. |
-| `EXP-015` | Signed and notarized native macOS DMG | A later release authorizes Apple signing/notarization, clean-host DMG installation, upgrade, uninstall, Gatekeeper assessment, and publication evidence. |
+| `EXP-015` | Direct browser/Finder macOS distribution | A later decision adds Developer ID signing, notarization, Gatekeeper validation, and a non-Homebrew lifecycle before that path is advertised. |
 
 The three hosted decisions still deferred by the approved architecture are tracked by `EXP-001`
 and `EXP-012`: vendor stack, hosted repository publication policy, and the client-held-encryption

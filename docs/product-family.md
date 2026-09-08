@@ -1,8 +1,8 @@
 # Open Brain product-family contract
 
 - Status: Accepted
-- Contract version: `0.6`
-- Date: 2026-09-07
+- Contract version: `0.7`
+- Date: 2026-09-08
 - Supersedes: the default-product boundary in `docs/v0-product-contract.md` version `0.5`
 
 ## Decision
@@ -18,7 +18,7 @@ the default OSS experience.
 
 | Product | Default user | Installation promise | Operating model |
 |---|---|---|---|
-| Open Brain | One local user with one local Brain | One command on a clean supported macOS or Linux host; first use completes automatic setup | Direct local commands over SQLite-backed capture and search; no required daemon or service |
+| Open Brain | One local user with one local Brain | One Homebrew command on a supported macOS or Linux host where Homebrew is already installed; first use completes automatic setup | Direct local commands over SQLite-backed capture and search; no required daemon or service |
 | Secure Node | An owner who explicitly needs stronger custody, isolation, audit, and multi-client controls | Opt-in installation and explicit secure setup | Encrypted custody, authorization, receipts, fencing, recovery controls, and optional service operation |
 
 “Open Brain” without a qualifier means the default product. “Secure Node” means the advanced
@@ -30,7 +30,7 @@ names them `SN1-W0`, `SN1-W1`, and so on.
 
 Open Brain MUST:
 
-- install with one documented command on each supported clean macOS and Linux host;
+- install with `brew install vora-technology/tap/open-brain` on each supported macOS and Linux host;
 - create one private platform-local data directory automatically on first stateful command;
 - create one local owner identity and one Brain without asking for a storage root;
 - capture text locally, find it through SQLite-backed lexical or FTS search, and create a complete
@@ -41,7 +41,8 @@ Open Brain MUST:
 
 The default journey MUST NOT require Docker, TLS certificates, capability grants, key-custody
 setup, daemon configuration, launchd or systemd installation, a storage-root decision, manual TOML,
-or manual database setup.
+or manual database setup. Homebrew is an explicit prerequisite. The product does not provide a curl
+installer or install Homebrew for the user.
 
 The default local data directory is:
 
@@ -160,16 +161,15 @@ contain those two launcher names only as inert wrappers: each must report that
 `open-brain[secure-node]` is not installed before importing advanced code or touching state.
 
 The architecturally strongest alternative is a separate `open-brain-secure-node` distribution with
-its own executable and release cadence. It gives the cleanest dependency and support boundary. It
-is not selected for the next release because the existing app and artifact policy already provide
-one versioned distribution and the extra can preserve that work. Re-evaluate the separate
-distribution before release if dependency isolation, CLI dispatch, artifact-policy checks, or
-independent versioning cannot be proven with the extra. The current arrangement, where plain
-`open-brain` installs the advanced `node` extra automatically, is rejected.
+its own executable and release cadence. It gives the cleanest dependency and support seam. It is not
+selected for the next release because the existing extra preserves the completed implementation while
+the default native module audit proves that advanced code is absent. Re-evaluate the separate
+distribution if dependency isolation, CLI dispatch, or independent versioning cannot stay clear. The
+arrangement where plain `open-brain` installs the advanced extra automatically remains rejected.
 
 | Option | Boundary quality | Cost | Decision |
 |---|---|---|---|
-| `open-brain` plus `open-brain[secure-node]` | One release identity; requires executable tests proving the base neither installs nor imports advanced code | Smallest change to the existing package and artifact work | Selected for the next release |
+| `open-brain` plus `open-brain[secure-node]` | One version identity; requires executable tests proving the base neither installs nor imports advanced code | Preserves the existing product code | Selected for the next release |
 | Separate `open-brain-secure-node` distribution | Strongest dependency, executable, support, and release boundary | Adds an artifact, namespace/entry-point decisions, version coordination, and policy work | Correct-architecture fallback; pending the checks above |
 | Plain `open-brain` automatically installing the old `node` extra | No enforceable product boundary | Preserves current metadata but violates the default promise | Rejected |
 
@@ -177,7 +177,7 @@ independent versioning cannot be proven with the extra. The current arrangement,
 
 | ID | Requirement |
 |---|---|
-| `OB-INSTALL-01` | The exact clean-host test in `docs/acceptance/five-minute-install.md` passes on every supported macOS and Linux release host in 300 seconds or less. |
+| `OB-INSTALL-01` | The exact Homebrew journey in `docs/acceptance/five-minute-install.md` passes on macOS arm64 and Linux x86_64; the five-minute target is measured as ordinary elapsed time, not by a custom release harness. |
 | `OB-INSTALL-02` | First capture creates the platform-local private directory, one owner, one Brain, and SQLite state without an init command, prompt, environment variable, or config file. |
 | `OB-INSTALL-03` | The installed base dependency graph excludes every Secure Node-only dependency and importing the base CLI loads none of them. |
 | `OB-DATA-01` | Capture and search succeed locally with provider mode `none`; a successful capture is durable before the command returns. |
@@ -202,4 +202,4 @@ it cannot redefine them or weaken the default-to-Secure-Node upgrade path.
 This contract is the current product authority. The historical v0.5 appliance contract and plans
 remain useful implementation evidence but cannot make daemon, custody, or Secure Node dependencies
 part of the default Open Brain promise. A change that moves an advanced requirement back into the
-default installation needs a new explicit product decision and replacement clean-host evidence.
+default installation needs a new explicit product decision and replacement product-journey evidence.
