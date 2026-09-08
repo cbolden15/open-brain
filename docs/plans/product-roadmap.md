@@ -1,6 +1,6 @@
 # Open Brain and Secure Node roadmap
 
-- Status: accepted product split; release-surface reduction is active
+- Status: accepted product split; `OB1-W2` release-surface reduction is complete
 - Date: 2026-09-08
 - Product authority: [`../product-family.md`](../product-family.md)
 - Acceptance authority: [`../acceptance/five-minute-install.md`](../acceptance/five-minute-install.md)

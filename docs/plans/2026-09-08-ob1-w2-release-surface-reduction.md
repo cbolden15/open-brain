@@ -1,6 +1,6 @@
 # OB1-W2: reduce the release surface
 
-- Status: implemented locally; Linux x86_64 Homebrew smoke awaits the first pull-request run
+- Status: complete; local verification and both GitHub Actions product smokes pass
 - Date: 2026-09-08
 - Branch: `chore/reduce-release-surface`
 - Decision authority: [ADR 0015](../architecture/decisions/0015-homebrew-only-distribution.md)
@@ -82,6 +82,8 @@ Local verification on macOS 26.3 arm64 passed on 2026-09-08:
   tap and passed capture, search, verified export, status, doctor, and self-check.
 - `actionlint`, `git diff --check`, and `uv lock --check` passed. The temporary formula, tap, trust
   entry, and working directory were absent afterward.
+- GitHub Actions run `34260028605` passed the macOS arm64 smoke in 41 seconds and the Linux x86_64
+  smoke in 1 minute 4 seconds at implementation commit `9ca5206ffad5ca4c9ce2d8a9b0b91a05e7c2395b`.
 
-The workstream closes after the same commit passes both CI jobs. Local macOS verification cannot
-stand in for the Linux x86_64 job. Do not start OB1-W3 search work before that gate is green.
+OB1-W2 is complete. Local macOS verification did not stand in for the Linux x86_64 job. OB1-W3 may
+now begin as a separate product-focused workstream; it is not part of this release-only change.
