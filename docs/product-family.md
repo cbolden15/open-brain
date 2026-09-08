@@ -1,7 +1,7 @@
 # Open Brain product-family contract
 
 - Status: Accepted
-- Contract version: `0.7`
+- Contract version: `0.8`
 - Date: 2026-09-08
 - Supersedes: the default-product boundary in `docs/v0-product-contract.md` version `0.5`
 
@@ -30,7 +30,7 @@ names them `SN1-W0`, `SN1-W1`, and so on.
 
 Open Brain MUST:
 
-- install with `brew install vora-technology/tap/open-brain` on each supported macOS and Linux host;
+- install with `brew install cbolden15/tap/open-brain` on each supported macOS and Linux host;
 - create one private platform-local data directory automatically on first stateful command;
 - create one local owner identity and one Brain without asking for a storage root;
 - capture text locally, find it through SQLite-backed lexical or FTS search, and create a complete

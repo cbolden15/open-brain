@@ -1,6 +1,7 @@
 # Open Brain and Secure Node roadmap
 
-- Status: accepted product split; `OB1-W2` release-surface reduction is complete
+- Status: accepted product split; `OB1-W2` is complete and the `OB1-W3` to `OB1-W7`
+  completion plan is READY
 - Date: 2026-09-08
 - Product authority: [`../product-family.md`](../product-family.md)
 - Acceptance authority: [`../acceptance/five-minute-install.md`](../acceptance/five-minute-install.md)
@@ -20,6 +21,11 @@ formula generated from that manifest, and one product smoke on each supported ar
 No release has been published. No search, import, migration, or MCP feature work belongs in the
 release-surface reduction change.
 
+The public repository is `cbolden15/open-brain`. It was transferred from
+`vora-technology/open-brain` on 2026-09-08 without changing its repository identity, branches, or
+open pull requests. The formula will live in `cbolden15/homebrew-tap`; creating and protecting that
+tap remains a final release prerequisite, not an Open Brain product workstream.
+
 ## Product milestones
 
 | Milestone | Outcome | Gate |
@@ -29,6 +35,8 @@ release-surface reduction change.
 | `UP1` Upgrade proof | A default export imports into a fresh Secure Node | Shared identities and bytes survive; new custody claims start only after import |
 
 ## Ordered Open Brain workstreams
+
+Execution plan: [2026-09-08 OB1 product completion](2026-09-08-ob1-product-completion.md).
 
 ### `OB1-W2`: reduce the release surface
 
@@ -77,8 +85,8 @@ and export validation reports the correct schema version.
 Add a local MCP server with capture and search tools over the same direct application path. It must
 not start a daemon, import Secure Node, or add network transport to the default product.
 
-Usable when a local MCP client can capture and retrieve a record with the same behavior and data as
-the CLI.
+Usable when a local MCP client can capture and retrieve a record from the same Brain and storage path
+as the CLI, with explicit launch-time consent for durable automation writes and whole-Brain reads.
 
 ### `OB1-W7`: make contribution verification ordinary
 

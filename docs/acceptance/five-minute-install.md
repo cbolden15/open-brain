@@ -30,7 +30,7 @@ brew --version
 TOKEN="five-minute-$(date +%s)-$$"
 EXPORT_PARENT="$(mktemp -d "${TMPDIR:-/tmp}/open-brain-export.XXXXXX")"
 
-brew install vora-technology/tap/open-brain
+brew install cbolden15/tap/open-brain
 open-brain capture "$TOKEN"
 open-brain search "$TOKEN" | grep -F "$TOKEN"
 open-brain export "$EXPORT_PARENT/brain" --verify

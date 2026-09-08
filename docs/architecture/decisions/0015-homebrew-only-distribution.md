@@ -26,9 +26,13 @@ Homebrew is a prerequisite on supported macOS and Linux hosts. The only supporte
 uninstall commands are:
 
 ```sh
-brew install vora-technology/tap/open-brain
+brew install cbolden15/tap/open-brain
 brew uninstall open-brain
 ```
+
+The public product repository is `cbolden15/open-brain`. Its Homebrew formula lives in the separate
+`cbolden15/homebrew-tap` repository, which Homebrew addresses as `cbolden15/tap` under its
+[tap naming convention](https://docs.brew.sh/Taps#repository-naming-conventions).
 
 GitHub Releases stores one versioned archive per platform and a small combined manifest. Each archive
 contains one native executable. The external tap formula is generated from the manifest, pins the

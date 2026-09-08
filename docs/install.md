@@ -18,7 +18,7 @@ image, Python runtime requirement, or manual database setup for end users.
 After the first release is published:
 
 ```sh
-brew install vora-technology/tap/open-brain
+brew install cbolden15/tap/open-brain
 ```
 
 Homebrew downloads the platform archive from an immutable GitHub Release URL and verifies the

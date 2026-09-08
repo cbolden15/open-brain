@@ -1,13 +1,13 @@
 # Open Brain
 
-**GitHub:** `vora-technology/open-brain`
+**GitHub:** `cbolden15/open-brain`
 **Stack:** Python 3.14, uv workspace packages, SQLite, Markdown, PyInstaller, Homebrew
 
 ## Quick reference
 
 | Action | Command or authority |
 |---|---|
-| Install target | `brew install vora-technology/tap/open-brain`; Homebrew is a prerequisite |
+| Install target | `brew install cbolden15/tap/open-brain`; Homebrew is a prerequisite |
 | Local CLI | `uv run open-brain status --json` |
 | Full verification | `make verify` |
 | Native build | `make native` |

@@ -837,6 +837,21 @@ then uninstall and untap it. Avoid `tap-new`; if a developer command was probed,
 
 Discovered: 2026-09-08.
 
+### RELEASE-006: A repository transfer can disable security scanning
+
+Symptom: A public repository keeps its branches, workflows, and branch protection after an
+organization-to-personal transfer, but secret scanning and push protection change from enabled to
+disabled.
+
+Cause: GitHub reevaluates account-scoped security settings when repository ownership changes.
+Preserved repository identity does not guarantee that every feature setting remains enabled.
+
+Fix: Snapshot `security_and_analysis`, branch protection, workflows, access, and repository ID
+before transfer. Query the new repository directly afterward, restore any changed security control,
+verify the old URL redirect, and update local remotes to the new URL.
+
+Discovered: 2026-09-08.
+
 ### LIFECYCLE-003: Copying a symlink path is not portable target-copy behavior
 
 Symptom: A lifecycle copy produces a candidate directory on macOS but a preserved `current`

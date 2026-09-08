@@ -18,7 +18,7 @@ Homebrew is the prerequisite on macOS and Linux. After the first release and tap
 entire install is:
 
 ```sh
-brew install vora-technology/tap/open-brain
+brew install cbolden15/tap/open-brain
 ```
 
 The release is not published yet. The exact product journey is in
