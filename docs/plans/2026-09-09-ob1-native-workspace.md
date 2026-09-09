@@ -9,8 +9,8 @@
 
 ## Outcome and scope
 
-A desktop user installs Open Brain, opens its managed Obsidian vault, captures two linked notes,
-views their Graphify connection, edits a note, retrieves the accepted edit, and creates a verified
+A desktop user installs Open Brain, opens its managed Obsidian vault, captures related but unlinked
+notes, discovers an inferred Graphify connection, edits a note, retrieves the accepted edit, and creates a verified
 Portable Brain export. The target is an ordinary elapsed time of at most 300 seconds on macOS arm64
 and Linux x86_64 under a declared, reproducible starting state.
 
@@ -30,12 +30,14 @@ outward-facing actions require the applicable user authorization.
 |---|---|---|
 | Native interface | Managed vault plus thin desktop plugin, with capture, search, refresh, and source navigation | A plugin-free vault and Canvas is a coherent intermediate milestone, but does not deliver the complete in-app experience. An export-only bridge does not meet this outcome. |
 | Existing vaults | Preserve one-way import; offer the managed vault for connected editing | Full two-way arbitrary-vault support is the strongest eventual integration, but adds relocation, deletion, duplicate identity, attachment, conflict, and sync-provider behavior. Plan it as a separate milestone rather than imply it ships. |
-| First graph | Explicit Markdown/wiki links with no model; semantic enrichment separately opt-in | Inferred connections from unlinked prose require provider selection, authorization, model availability, egress rules, and measured runtime inside the acceptance boundary. User preference is pending. |
+| First graph | DECIDED by user on 2026-09-09: inferred connections between previously unlinked notes are required from the start | Model setup and semantic processing belong inside the first-use acceptance boundary. Explicit links alone do not pass. Local versus hosted model delivery is the next open decision. |
 | Installation clock | Include the work needed to obtain and activate the Obsidian experience; Homebrew remains the declared prerequisite | If Obsidian is a prerequisite, explicitly rename the measured claim to workspace setup on an Obsidian-equipped host. Do not report application installation as included. |
 | Runtime packaging | Test a private self-invoked helper mode in the existing executable, with bounded JSON input/output and lazy Graphify loading | In-process integration has less process plumbing but shares failure/global state. A separate helper executable gives the strongest runtime/module boundary and requires an explicit archive-contract change. Select from NW0 evidence. |
 
 These recommendations allow planning to proceed. Product-sensitive choices remain proposed until
 resolved; no elapsed wait constitutes approval. The implementation gate is the completed NW0 record.
+The first-graph decision supersedes the earlier explicit-links-first recommendation. It does not
+select a provider, authorize cloud disclosure, or establish that model setup fits within five minutes.
 
 ## Grounded starting point
 
@@ -162,8 +164,15 @@ results; do not silently inherit a broad upstream recursive scanner.
 
 Render without a CDN or required HTTP server. Treat note titles, URLs, and markup as untrusted
 presentation data: escape HTML, disallow executable navigation schemes, and validate local note
-targets. A first structural graph needs no model. User-approved inferred relations, if later
-supported, need durable provenance outside the disposable graph cache.
+targets. Structural extraction needs no model. If users can explicitly accept inferred relations,
+those decisions need durable provenance outside the disposable graph cache.
+
+Structural extraction is a baseline and fallback, not sufficient first-use acceptance. Add a semantic
+extraction stage using the model-delivery path selected during planning. Record the model/version,
+input revisions, and extraction provenance; distinguish inferred relations from explicit links.
+Show source evidence for a suggested connection. The same stable-ID and bounded-input rules apply.
+Do not treat a missing provider or failed inference as a successful first graph. Preserve headless
+capture/search and the structural fallback when inference is unavailable.
 
 Start the offline feasibility proof with Canvas and an explicit source-filename mapping. The
 inspected HTML renderer references a CDN-hosted vis-network asset; package that asset locally before
@@ -211,9 +220,9 @@ as part of this planning change.
 
 ### NW0: resolve contracts and prove feasibility
 
-Output: a reviewed decision record, synthetic evidence, and a runnable bounded spike. Initial effort
-estimate is 1–2 working days for feasibility experiments; this is not a guaranteed implementation
-duration. External CI, plugin distribution, or a failed compatibility probe may extend it.
+Output: a reviewed decision record, synthetic evidence, and a runnable bounded spike. The earlier
+1–2 working-day estimate covered structural graph experiments only. Re-estimate after selecting
+model delivery; semantic quality, provisioning, and first-use latency are now required probes.
 
 1. Compare sibling workspace projection with a dedicated canonical subtree. Prove one new note and
    one edit reach search and Portable Brain v1 with preserved identity/provenance. Determine exactly
@@ -226,7 +235,10 @@ duration. External CI, plugin distribution, or a failed compatibility probe may 
 3. Produce local graph HTML/Canvas with no remote asset fetch. Demonstrate source-note navigation
    using linked synthetic notes and record all runtime network attempts. Add cross-folder wiki
    links and duplicate basenames to the graph fixture; build twice with network denied and verify
-   repeatable normalized graph JSON and Canvas.
+   repeatable normalized structural graph JSON and Canvas. Separately prove semantic discovery on
+   unlinked related notes, including an unrelated distractor; measure model provisioning and first
+   inference under the selected local/hosted policy. Define an evidence-based semantic-quality rubric
+   and repeated-run threshold; do not require byte-identical model output.
 4. Exercise Obsidian app installation/first launch/plugin activation on the declared supported
    desktop environments. Record required prompts and ordinary elapsed time. Do not redefine
    prerequisites after seeing a slow result.
@@ -254,13 +266,15 @@ alone is insufficient. CI pushes or app installation happen only under the autho
 
 ### NW2: implement bounded Graphify projection and local presentation
 
-1. Add the pinned adapter at the selected app/runtime boundary and consume only validated snapshots.
+1. Add the pinned adapter and selected semantic-model path at the app/runtime boundary; consume
+   only validated snapshots and explicitly authorized model configuration.
 2. Implement link mapping, revision/version status, bounded execution, atomic cache publication,
    and failure/staleness receipts. Avoid a new authoritative graph database.
 3. Package reviewed local viewer assets and generate Canvas/source-note links without overwriting
    user content or configuration. Keep generated files out of every source path.
-4. Exercise structural extraction, ambiguous links, hostile text, output exclusion, provider-none
-   operation, timeout/failure recovery, and graph rebuild determinism using the shared dataset.
+4. Exercise semantic quality/provenance, unauthorized egress refusal, model setup/failure, structural
+   fallback, ambiguous links, hostile text, output exclusion, and timeout/recovery. Prove deterministic
+   structural rebuilds separately from the semantic-quality acceptance rubric.
 5. Run `make verify`, native build, Homebrew smoke, and bounded artifact inspection. Repeat both
    target builds when the dependency closure changes; do not relax native audit limits to pass.
 
@@ -301,10 +315,10 @@ into one physical fixture. Never use personal vault content, real captures, or p
 
 | Case family | Observable assertion |
 |---|---|
-| First use and edit | Two eligible notes appear in the managed vault; one explicit edge resolves to their stable IDs; an accepted edit is retrievable and present in verified export. |
+| First use and edit | Related unlinked notes appear in the managed vault; an inferred connection with source evidence resolves to stable IDs; an accepted edit is retrievable and present in verified export. |
 | Identity and conflicts | Rename retains identity; duplicate IDs and concurrent body edits preserve both versions; incomplete enumeration does not erase active notes. |
 | Recovery and lifecycle | Kill after each durable/promotion boundary; replay produces one accepted revision and correct pending state; disconnect/uninstall retains notes and engine history. |
-| Graph and privacy | Generated output never becomes a source; stale cache remains identifiable; hostile text cannot execute; no model/CDN/remote fetch occurs on the default local path. |
+| Graph and privacy | Generated output never becomes a source; stale cache remains identifiable; hostile text cannot execute; viewing needs no CDN. Inference follows the selected local/hosted authorization policy; provider-none remains a usable fallback but does not pass semantic first-use acceptance. |
 | Portability and caller contracts | Export/import preserves accepted shared IDs/bytes/provenance without paths/settings/cache; MCP cannot gain owner canonical authority through workspace/plugin adapters. |
 
 Initial existing checks and locations to extend:
@@ -329,13 +343,15 @@ before an implementation handoff. Documentation-only planning does not require a
 ### Timed acceptance
 
 Record ordinary wall-clock elapsed time from the declared installation start through verified export.
-Use a small synthetic two-note corpus; full-vault indexing and optional model processing are separate
-measurements. Do not claim an arbitrary corpus completes in five minutes.
+Use a bounded synthetic corpus of related unlinked notes and an unrelated distractor. Include required
+model download/setup or hosted-provider onboarding and first semantic processing in the clock.
+Full-vault indexing is a separate measurement. Do not claim an arbitrary corpus completes in five minutes.
 
 1. Install the candidate through the supported Homebrew lifecycle; obtain/launch Obsidian and
    activate the approved plugin according to the NW0 starting-state decision.
-2. Create/open the default managed vault and capture two linked notes through the supported interface.
-3. Refresh/open Graphify and navigate from the graph to the original note in Obsidian.
+2. Create/open the default managed vault and capture the unlinked acceptance notes.
+3. Run semantic extraction, inspect an inferred connection and its source evidence, and navigate
+   from the graph to the original note in Obsidian.
 4. Save an edit, reconcile it, and retrieve the accepted new text through Open Brain.
 5. Export and verify the Brain; confirm the accepted edit and preserved provenance are present.
 
