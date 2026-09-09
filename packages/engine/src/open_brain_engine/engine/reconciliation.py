@@ -203,7 +203,7 @@ class ReconciliationTasks:
                 )
             finally:
                 projection_connection.close()
-            if trust != projection.trust:
+            if trust != projection.canonical_frontmatter_trust:
                 raise ValueError("canonical page trust changed")
             if (
                 projection.title != cast(str, row["title"])
@@ -278,9 +278,25 @@ def _projection_inputs(
     captures = tuple(
         connection.execute(
             """
-            SELECT capture_id, payload_family, space_id, search_text, accepted_at,
-                   source_origin, source_reference, provenance_json
-            FROM captures
+            SELECT capture_id, payload_family, space_id, search_text, title, accepted_at,
+                   source_origin, source_reference, provenance_json,
+                   (
+                       NOT EXISTS (
+                           SELECT 1
+                           FROM markdown_import_revisions AS r
+                           WHERE r.delivery_id = c.delivery_id
+                       )
+                       OR EXISTS (
+                           SELECT 1
+                           FROM markdown_import_revisions AS r
+                           JOIN markdown_import_files AS f
+                             ON f.file_id = r.file_id
+                            AND f.active_revision_id = r.revision_id
+                           WHERE r.delivery_id = c.delivery_id
+                             AND r.capture_id = c.capture_id
+                       )
+                   ) AS source_projection_active
+            FROM captures AS c
             ORDER BY capture_id
             """
         )
@@ -298,6 +314,10 @@ def _projection_inputs(
         if space_id is not None and space_id not in known_spaces:
             raise ValueError("search projection capture space is unavailable")
         capture_by_id[capture_id] = capture
+        if capture["source_projection_active"] not in {0, 1}:
+            raise ValueError("search projection capture state is invalid")
+        if not bool(capture["source_projection_active"]):
+            continue
         inputs.append(
             _ProjectionInput(
                 result_id=capture_id,
@@ -305,7 +325,11 @@ def _projection_inputs(
                 record_type="source",
                 payload_family=payload_family,
                 space_id=space_id,
-                title=source_search_title(payload_family=payload_family, body=body),
+                title=(
+                    _row_string(capture, "title")
+                    if capture["title"] is not None
+                    else source_search_title(payload_family=payload_family, body=body)
+                ),
                 body=body,
                 canonical_path=None,
                 updated_at=_row_string(capture, "accepted_at"),
@@ -402,7 +426,7 @@ def _projection_inputs(
             body=body,
             canonical_path=canonical_path,
         )
-        if _required_string(fields, "trust") != projection.trust:
+        if _required_string(fields, "trust") != projection.canonical_frontmatter_trust:
             raise ValueError("canonical page trust changed")
         inputs.append(
             _ProjectionInput(

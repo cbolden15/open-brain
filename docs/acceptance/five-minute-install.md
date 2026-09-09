@@ -71,6 +71,12 @@ CI has exactly two native jobs: `macos-latest` with an explicit `arm64` assertio
 a temporary local Homebrew formula from the release manifest, installs it with Homebrew, and runs
 the same capture, search, export, status, and doctor checks in a temporary user home.
 
+The five-minute acceptance boundary ends after the verified export in the timed data journey above.
+The same installed binary then runs status and doctor, followed by the W4 smoke: import the committed
+synthetic Markdown fixture, prove an unchanged rerun, search a nested marker, and verify exact
+exported bytes plus unverified provenance. These post-export checks do not change the five-minute
+acceptance boundary.
+
 The CI formula uses local build output. A published-release smoke uses the public tap and immutable
 GitHub Release URLs.
 

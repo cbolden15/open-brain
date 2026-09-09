@@ -59,6 +59,35 @@ Default status distinguishes them without exposing paths or content. SQLite may 
 or sorter scratch in operating-system temporary storage. Secure Node must separately prove that
 durable indexes and scratch stay inside its encrypted and purgeable boundary.
 
+Markdown import reads an owner-selected source tree outside the Brain. It repeats canonicalization
+and independent descriptor opens around the explicit root so ordinary host aliases work without a
+single resolve/open race, then uses only a pinned root descriptor. Traversal compares directory
+identities, rejects overlap with the Brain and other registered import roots, refuses changed root
+identities, skips symlinks, hardlinks and special files, and uses nonblocking file opens plus
+before-and-after metadata checks so a regular-file-to-FIFO or replacement race cannot hang or escape
+the root. An unreachable registered root fails closed when its stored canonical path could overlap
+the candidate. Aggregate preflight and first-root confirmation run before import-state or capture
+writes. The explicit large-vault flag bypasses only visit, file-count, and aggregate-byte ceilings;
+it never bypasses the one-file limit or confinement checks.
+
+Imported filenames and contents are attacker-controlled text. Paths are normalized and collision
+checked, human output removes terminal controls, and fatal errors do not echo the absolute root.
+Content is stored as inert unverified source. The importer never parses content into commands,
+follows links or embeds, evaluates HTML or code, or loads Obsidian configuration and plugins.
+
+The existing non-reentrant single-writer lease excludes other local mutations without waiting. The
+importer uses a lock-held internal capture primitive so it never reacquires that lease. An
+interrupted traversal or storage failure cannot finalize missing paths. A deterministic failure for
+one observed file preserves that path's prior active revision while allowing unrelated absent paths
+to be finalized.
+
+Descriptor checks prevent accidental traversal and ordinary replacement races. They do not create a
+snapshot against malicious code already running as the same operating-system user, and reads may
+update source access time on some mounts. NFS, FUSE, synchronized source trees, and other filesystems
+with weaker identity or metadata semantics are not trusted snapshot sources in the first release.
+Removing a source file is not a confidentiality purge because immutable capture history remains
+locally readable and exportable.
+
 ## Secure Node M1 boundary
 
 Secure Node binds HTTP only to a numeric loopback address and validates Host on every

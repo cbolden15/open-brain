@@ -1,9 +1,10 @@
 # OB1 product completion plan
 
-- Status: `OB1-W3` complete and merged into `goal/open-brain-five-minute-install`; `OB1-W4` is next
-  and has not started
+- Status: `OB1-W3` complete and merged into `goal/open-brain-five-minute-install`; `OB1-W4`
+  implementation and local gates READY, with exact-head pull-request CI required before merge
 - Date: 2026-09-08
-- Branch: `goal/open-brain-five-minute-install`
+- Integration branch: `goal/open-brain-five-minute-install`
+- Active workstream branch: `feat/ob1-w4-markdown-import`
 - Product authority: [`../product-family.md`](../product-family.md)
 - Acceptance authority: [`../acceptance/five-minute-install.md`](../acceptance/five-minute-install.md)
 - Predecessor: [`2026-09-08-ob1-w2-release-surface-reduction.md`](2026-09-08-ob1-w2-release-surface-reduction.md)
@@ -107,7 +108,7 @@ durable derived index; this plan does not exempt FTS data from that requirement.
 The first import command is:
 
 ```sh
-open-brain import /absolute/path/to/vault
+open-brain import /absolute/path/to/vault [--yes] [--allow-large-vault]
 ```
 
 It recursively considers UTF-8 `.md` files and never changes the source directory. A local-only
@@ -116,18 +117,25 @@ stays in operational SQLite state and never appears in search output or Portable
 Portable provenance uses that root ID plus the normalized relative path, so source identity survives
 export without revealing the host path.
 
+Before a new root is registered, aggregate preflight shows the selected-file count, observed bytes,
+canonical directory, and immutable-history warning. Interactive use requires explicit confirmation;
+the first JSON or other non-interactive import of a new root requires `--yes`. Registered-root reruns
+do not ask again. Cancellation and failed preflight leave no import state. This is the prevention
+boundary for accidental imports because destructive root purge remains outside the first release.
+
 Import opens the selected root as a directory and stores its operational device and inode identity.
 The same identity reuses its existing root ID even when a case-insensitive filesystem reports a path
-alias. Ancestor and descendant checks walk directory identities rather than comparing path strings.
-A new overlapping root is refused with `overlapping_import_root` before any scan or write. Replacing
-a directory at the same path with a different identity is refused; cross-volume root relocation and
-root folding are separate future work.
+alias and the stored path remains valid. Every run rechecks ancestor and descendant identities
+against the Brain and registered roots before scan or write. A potential canonical-path overlap with
+an unreachable root fails closed. A same-identity move or replacement at the stored path is refused;
+root relocation, rebinding, and folding are separate future work.
 
 Each imported file is identified inside that root by its normalized source-relative path. Exact
 source bytes are retained through the existing file/blob capture boundary, and SHA-256 records the
 content revision. A deterministic delivery key over root ID, relative path, and content digest makes
-an unchanged rerun a no-op. Changed bytes create one new immutable capture revision and move the
-active search document to it. Prior capture records remain valid history.
+an unchanged rerun a no-op. Each pending revision also binds the complete capture request digest
+before capture. Changed bytes create one new immutable capture revision and move the active search
+document to it. Prior capture records remain valid history.
 
 Import uses the existing non-owner public-job submission path with `content_origin=unknown`,
 `owner_context=automation_absent`, and capture-only authority. Portable records therefore carry
@@ -135,21 +143,26 @@ Import uses the existing non-owner public-job submission path with `content_orig
 Imported Markdown never gains owner-authored trust or automatic publication authority, even when the
 user wrote the source file.
 
-After a successful complete scan, a previously imported path that is now missing becomes inactive
-and leaves the default search projection, while its immutable capture history remains exportable. If
-the same path and digest reappear, the existing capture is reactivated without creating a revision.
-A rename is an inactive old path plus an active new path. Destructive source pruning and a search
-flag for inactive revisions are outside the first release.
+After a complete deterministic traversal and per-file outcome loop, a previously imported path that
+is now missing becomes inactive and leaves the default search projection, while its immutable capture
+history remains exportable. A failed or skipped observed path preserves its own prior active revision
+without blocking unrelated missing-path finalization. Incomplete traversal, interruption, or fatal
+storage failure withholds finalization. If the same path and digest reappear, the existing capture is
+reactivated without creating a revision. A rename is an inactive old path plus an active new path.
+Destructive source pruning and a search flag for inactive revisions are outside the first release.
 
-Only regular UTF-8 `.md` files are eligible. Each candidate is opened without following symlinks and
-accepted only when descriptor metadata confirms the same regular file observed during enumeration
-and `st_nlink == 1`; symlinks, hardlinks, FIFOs, sockets, devices, file-swap races, and dot-directories
-are skipped and counted.
+Only regular UTF-8 `.md` files are eligible. Enumeration-time symlinks, hardlinks, FIFOs, sockets,
+devices, and dot-directories are skipped and counted. A file selected as a regular one-link Markdown
+candidate is opened without following symlinks and accepted only when descriptor metadata confirms
+the same file observed during enumeration. Identity or metadata changes before or during that read
+are a `file_changed` failure, not a skip.
 Before mutation, enumeration stops and refuses the import if it visits more than 100,000 filesystem
 entries, selects more than 10,000 Markdown files, or observes more than 512 MiB of eligible file data.
 Each read is also bounded by the existing 1 MiB capture limit. Oversized files, invalid UTF-8,
-path-normalization collisions, and unreadable files are reported as failures. Markdown, frontmatter,
-wiki links, HTML, and embed syntax are treated as inert text; import never follows a content link,
+file path-normalization collisions, and unreadable files are reported as failures. A sibling
+directory normalization collision makes the scan incomplete and refuses the import before any
+import-state write. Markdown, frontmatter, wiki links, HTML, and embed syntax are treated as inert
+text; import never follows a content link,
 executes code, or loads an Obsidian plugin. Import commits one file at a time after enumeration,
 returns a summary, and exits nonzero if any selected file failed. A rerun safely resumes the remaining
 work.
@@ -413,17 +426,17 @@ imported markup is untrusted inert content.
    import root.
 
 Rename `examples/synthetic-vault` to `examples/markdown-fixture` and expand it only with regular,
-synthetic Markdown needed to prove nested paths, Obsidian metadata exclusion, changed files,
-collisions, and failures. Construct every symlink, hardlink, socket, FIFO, and file-swap case under a
-test runner temporary directory; never commit those filesystem objects.
+synthetic Markdown needed for the native happy path, nested paths, and Obsidian metadata exclusion.
+Construct collisions, invalid inputs, symlinks, hardlinks, sockets, FIFOs, and file-swap cases under
+a test runner temporary directory; never commit those filesystem objects.
 
 ### W4 gate
 
 W4 is usable when first import makes every eligible note searchable, an unchanged rerun creates no
 records, one changed note creates one revision and one active result, a missing note becomes
-unsearchable without losing its export history, a restored identical note creates no record, special
-files, hardlinks, and swap races cannot hang or escape the root, and same-directory case aliases reuse
-one root ID on macOS. An overlapping root is refused without writes, each default enumeration bound
+unsearchable without losing its export history, a restored identical note creates no record, and the
+named descriptor-open and mutation races cannot hang or escape the root. Same-directory case aliases
+reuse one root ID on macOS. An overlapping root is refused without writes, each default enumeration bound
 fails before writes and succeeds when explicitly retried with `--allow-large-vault`, exact source
 bytes appear in verified export, and all W3 and repository checks still pass. The verified export
 must also show `source.origin=third_party`, `provenance.content_origin=unknown`,

@@ -50,9 +50,13 @@ class RetrievalOperations(_LocalEngineOperations):
             record_type="source",
             payload_family=cast(str, capture["payload_family"]),
             space_id=cast(str | None, capture["space_id"]),
-            title=source_search_title(
-                payload_family=cast(str, capture["payload_family"]),
-                body=cast(str, capture["search_text"]),
+            title=(
+                cast(str, capture["title"])
+                if capture["title"] is not None
+                else source_search_title(
+                    payload_family=cast(str, capture["payload_family"]),
+                    body=cast(str, capture["search_text"]),
+                )
             ),
             body=cast(str, capture["search_text"]),
             canonical_path=None,

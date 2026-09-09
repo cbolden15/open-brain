@@ -72,6 +72,10 @@ canonical `payload` object. Reusing a receipt ID with different bytes is invalid
 existing capture appends a route record. Later routes link to the route they supersede, so export
 and import preserve current space membership without rewriting the immutable source record.
 
+Canonical page `trust` records whether a page is owner-authored or owner-reviewed. Source confidence
+remains on the linked capture. A reviewed page may therefore point to an unverified capture without
+changing either fact; retrieval derives its public trust label from both records.
+
 ## Schemas and fixture evidence
 
 The 15 Draft 2020-12 schemas are under `schemas/portable-brain/v1/`. They have immutable v1

@@ -7,10 +7,13 @@ import importlib.metadata
 import json
 import os
 import re
+import select
+import signal
 import sys
+import time
 import unicodedata
 import uuid
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from datetime import UTC, datetime
 from hashlib import sha256
 from pathlib import Path
@@ -19,6 +22,14 @@ from typing import NoReturn, cast
 from open_brain_engine import __version__
 from open_brain_engine.engine import (
     CaptureReceipt,
+    EngineTaskSet,
+    MarkdownImportCancelled,
+    MarkdownImportEntry,
+    MarkdownImportFailure,
+    MarkdownImportInterrupted,
+    MarkdownImportPreflight,
+    MarkdownImportProgress,
+    MarkdownImportSummary,
     PortabilityReceipt,
     RetrievalResult,
     TextPayload,
@@ -26,6 +37,7 @@ from open_brain_engine.engine import (
     live_search_is_healthy,
     read_maintenance_snapshot,
 )
+from open_brain_engine.storage.locks import LockBusyError
 from open_brain_engine.storage.operational import (
     StorageError,
     atomic_replace,
@@ -92,10 +104,56 @@ def run_cli(
         return 2
     selected_environment = os.environ if environment is None else environment
     json_output = bool(getattr(parsed, "json", False))
+    if parsed.command != "import":
+        return _run_parsed_command(
+            parsed,
+            environment=selected_environment,
+            json_output=json_output,
+            platform_name=platform_name,
+            filesystem_type_probe=filesystem_type_probe,
+            import_interrupted=None,
+        )
+
+    interrupted = False
+
+    def request_interrupt(_signum: int, _frame: object) -> None:
+        nonlocal interrupted
+        interrupted = True
+
+    def should_interrupt() -> bool:
+        return interrupted
+
+    previous_handler = signal.getsignal(signal.SIGINT)
+    signal.signal(signal.SIGINT, request_interrupt)
+    try:
+        return _run_parsed_command(
+            parsed,
+            environment=selected_environment,
+            json_output=json_output,
+            platform_name=platform_name,
+            filesystem_type_probe=filesystem_type_probe,
+            import_interrupted=should_interrupt,
+        )
+    except KeyboardInterrupt:
+        _write_import_interrupted(json_output=json_output)
+        return 130
+    finally:
+        signal.signal(signal.SIGINT, previous_handler)
+
+
+def _run_parsed_command(
+    parsed: argparse.Namespace,
+    *,
+    environment: Mapping[str, object],
+    json_output: bool,
+    platform_name: str | None,
+    filesystem_type_probe: FilesystemTypeProbe | None,
+    import_interrupted: Callable[[], bool] | None,
+) -> int:
     try:
         selection = select_local_root(
             data_dir=getattr(parsed, "data_dir", None),
-            environment=selected_environment,
+            environment=environment,
             platform_name=platform_name,
         )
     except LocalDataError:
@@ -119,11 +177,34 @@ def run_cli(
             selection,
             filesystem_type_probe=filesystem_type_probe,
         ) as session:
-            return _run_local_command(parsed, session, json_output=json_output)
-    except (LocalDataError, ProfileError):
+            return _run_local_command(
+                parsed,
+                session,
+                json_output=json_output,
+                import_interrupted=import_interrupted,
+            )
+    except LocalDataError, ProfileError:
         _write_private_data_failure(json_output=json_output)
         return 78
+    except LockBusyError:
+        if parsed.command == "import":
+            _write_import_busy(json_output=json_output)
+            return 75
+        _write_operation_failure(json_output=json_output)
+        return 78
+    except MarkdownImportCancelled:
+        print("Markdown import cancelled; no import state was written.", file=sys.stderr)
+        return 0
+    except MarkdownImportInterrupted:
+        _write_import_interrupted(json_output=json_output)
+        return 130
+    except MarkdownImportFailure as error:
+        _write_import_failure(error, json_output=json_output)
+        return 78
     except Exception:
+        if parsed.command == "import":
+            _write_import_operation_failure(json_output=json_output)
+            return 78
         _write_operation_failure(json_output=json_output)
         return 78
 
@@ -136,24 +217,38 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
     _add_local_options(parser)
     subparsers = parser.add_subparsers(dest="command", metavar="COMMAND")
-    init_parser = subparsers.add_parser(
-        "init", help="Create or reopen one private local Brain."
-    )
+    init_parser = subparsers.add_parser("init", help="Create or reopen one private local Brain.")
     _add_local_options(init_parser)
     capture_parser = subparsers.add_parser(
         "capture", help="Capture owner-authored text directly into the local Brain."
     )
     _add_local_options(capture_parser)
     capture_parser.add_argument("text", help="Text to capture.")
-    search_parser = subparsers.add_parser(
-        "search", help="Search the local Brain directly."
+    import_parser = subparsers.add_parser(
+        "import",
+        help="Import a Markdown directory into immutable local history.",
+        description=(
+            "Import one Markdown directory. Imported revisions remain in history and export "
+            "after source removal."
+        ),
     )
+    _add_local_options(import_parser)
+    import_parser.add_argument("directory", help="Existing absolute Markdown directory.")
+    import_parser.add_argument(
+        "--yes",
+        action="store_true",
+        help="Confirm a new import root without prompting.",
+    )
+    import_parser.add_argument(
+        "--allow-large-vault",
+        action="store_true",
+        help="Allow aggregate scan bounds; the one-file limit still applies.",
+    )
+    search_parser = subparsers.add_parser("search", help="Search the local Brain directly.")
     _add_local_options(search_parser)
     search_parser.add_argument("query", help="Text to find.")
     search_parser.add_argument("--limit", type=int, default=10, help="Return 1 to 100 results.")
-    export_parser = subparsers.add_parser(
-        "export", help="Create a full Portable Brain export."
-    )
+    export_parser = subparsers.add_parser("export", help="Create a full Portable Brain export.")
     _add_local_options(export_parser)
     export_parser.add_argument("destination", help="New export directory.")
     export_parser.add_argument(
@@ -161,13 +256,9 @@ def _parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Validate the promoted export before reporting success.",
     )
-    status_parser = subparsers.add_parser(
-        "status", help="Report bounded default-product status."
-    )
+    status_parser = subparsers.add_parser("status", help="Report bounded default-product status.")
     _add_local_options(status_parser)
-    doctor_parser = subparsers.add_parser(
-        "doctor", help="Run one bounded default-product check."
-    )
+    doctor_parser = subparsers.add_parser("doctor", help="Run one bounded default-product check.")
     _add_local_options(doctor_parser)
     doctor_parser.add_argument("--check", required=True, choices=_DOCTOR_CHECKS)
     return parser
@@ -192,6 +283,7 @@ def _run_local_command(
     session: LocalBrainSession,
     *,
     json_output: bool,
+    import_interrupted: Callable[[], bool] | None,
 ) -> int:
     if parsed.command == "status":
         _write_status(session, json_output=json_output)
@@ -212,6 +304,15 @@ def _run_local_command(
         )
         _write_capture(capture_receipt, json_output=json_output)
         return 0
+    if parsed.command == "import":
+        if import_interrupted is None:
+            raise ValueError("import interruption callback is unavailable")
+        return _run_markdown_import(
+            parsed,
+            tasks,
+            json_output=json_output,
+            interrupted=import_interrupted,
+        )
     if parsed.command == "search":
         tasks.reconciliation.reconcile()
         results = tasks.retrieval.search(
@@ -232,6 +333,217 @@ def _run_local_command(
         _write_export(export_receipt, verification=verification, json_output=json_output)
         return 0
     raise ValueError("invalid local command")
+
+
+def _run_markdown_import(
+    parsed: argparse.Namespace,
+    tasks: EngineTaskSet,
+    *,
+    json_output: bool,
+    interrupted: Callable[[], bool],
+) -> int:
+    def accept_import(_preflight: MarkdownImportPreflight) -> bool:
+        return True
+
+    def prompt_for_import(preflight: MarkdownImportPreflight) -> bool:
+        return _confirm_markdown_import(preflight, interrupted)
+
+    confirm: Callable[[MarkdownImportPreflight], bool] | None
+    if bool(parsed.yes):
+        confirm = accept_import
+    elif json_output or not (sys.stdin.isatty() and sys.stderr.isatty()):
+        confirm = None
+    else:
+        confirm = prompt_for_import
+    progress = None if json_output or not sys.stderr.isatty() else _write_import_progress
+    summary = tasks.markdown_import.import_directory(
+        cast(str, parsed.directory),
+        allow_large_vault=bool(parsed.allow_large_vault),
+        confirm=confirm,
+        progress=progress,
+        interrupted=interrupted,
+    )
+    _write_import_summary(summary, json_output=json_output)
+    return 1 if summary.failed else 0
+
+
+def _confirm_markdown_import(
+    preflight: MarkdownImportPreflight,
+    interrupted: Callable[[], bool],
+) -> bool:
+    print(
+        f"Markdown directory: {_terminal_text(os.fspath(preflight.canonical_path))}\n"
+        f"Selected Markdown files: {preflight.selected_markdown_files}\n"
+        f"Aggregate bytes: {preflight.aggregate_bytes}\n"
+        "Imported revisions remain in history and export after source removal.",
+        file=sys.stderr,
+    )
+    print("Continue? [y/N] ", end="", file=sys.stderr, flush=True)
+    deadline = time.monotonic() + 60.0
+    while True:
+        if interrupted():
+            raise MarkdownImportInterrupted
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            print(file=sys.stderr)
+            return False
+        try:
+            descriptor = sys.stdin.fileno()
+        except AttributeError, OSError:
+            print(file=sys.stderr)
+            return False
+        readable, _, _ = select.select((descriptor,), (), (), min(remaining, 0.25))
+        if readable:
+            answer = sys.stdin.readline()
+            break
+    return answer.strip().lower() in {"y", "yes"} and answer.strip().isascii()
+
+
+def _write_import_summary(summary: MarkdownImportSummary, *, json_output: bool) -> None:
+    if json_output:
+        _write_json(summary.to_dict())
+        return
+    print(
+        "Markdown import: "
+        f"selected={summary.selected} imported={summary.imported} updated={summary.updated} "
+        f"unchanged={summary.unchanged} missing={summary.missing} skipped={summary.skipped} "
+        f"failed={summary.failed} missing_finalized={str(summary.missing_finalized).lower()}"
+    )
+    if summary.selected == 0:
+        print("No eligible Markdown files found.")
+    for entry in summary.entries:
+        print(_terminal_text(_human_import_entry(entry)))
+    if summary.entries_omitted:
+        noun = "result" if summary.entries_omitted == 1 else "results"
+        print(
+            f"{summary.entries_omitted} additional {noun} omitted; "
+            "counts above include the full run."
+        )
+
+
+def _human_import_entry(entry: MarkdownImportEntry) -> str:
+    suffix = "" if entry.reason is None else f" ({entry.reason})"
+    return f"{entry.outcome} {entry.path}{suffix}"
+
+
+def _write_import_progress(progress: MarkdownImportProgress) -> None:
+    if progress.processed_markdown_files:
+        print(
+            f"Markdown import progress: processed={progress.processed_markdown_files}",
+            file=sys.stderr,
+        )
+    else:
+        print(
+            f"Markdown import progress: visited={progress.visited_entries}",
+            file=sys.stderr,
+        )
+
+
+def _write_import_busy(*, json_output: bool) -> None:
+    message = "Another Open Brain command is using this Brain. Retry after it finishes."
+    if json_output:
+        _write_json(
+            {
+                "error": {
+                    "code": "local_operation_busy",
+                    "details": {"missing_finalized": False},
+                    "message": message,
+                },
+                "status": "failed",
+            }
+        )
+    else:
+        print(message, file=sys.stderr)
+
+
+def _write_import_operation_failure(*, json_output: bool) -> None:
+    message = "Open Brain could not complete the local command."
+    if json_output:
+        _write_json(
+            {
+                "error": {
+                    "code": "local_operation_failed",
+                    "details": {"missing_finalized": False},
+                    "message": message,
+                },
+                "status": "failed",
+            }
+        )
+    else:
+        print(message, file=sys.stderr)
+
+
+def _write_import_interrupted(*, json_output: bool) -> None:
+    json_message = (
+        "Markdown import interrupted. Completed file commits were kept; "
+        "rerun the same command to resume."
+    )
+    if json_output:
+        _write_json(
+            {
+                "error": {
+                    "code": "import_interrupted",
+                    "details": {"missing_finalized": False},
+                    "message": json_message,
+                },
+                "status": "interrupted",
+            }
+        )
+    else:
+        print(
+            "Markdown import interrupted. Completed file commits were kept; missing paths were "
+            "not finalized. Rerun the same command to resume.",
+            file=sys.stderr,
+        )
+
+
+def _write_import_failure(error: MarkdownImportFailure, *, json_output: bool) -> None:
+    details = dict(error.details)
+    message = _import_failure_message(error.code, details)
+    if json_output:
+        _write_json(
+            {
+                "error": {"code": error.code, "details": details, "message": message},
+                "status": "failed",
+            }
+        )
+    else:
+        print(message, file=sys.stderr)
+
+
+def _import_failure_message(code: str, details: Mapping[str, object]) -> str:
+    if code == "import_confirmation_required":
+        return (
+            "Import requires confirmation. Review the selected directory and retention warning, "
+            "then retry with --yes."
+        )
+    if code == "import_directory_unavailable":
+        return "Markdown import requires an existing absolute directory."
+    if code == "large_vault_confirmation_required":
+        return "Vault exceeds the default import limits. Retry with --allow-large-vault."
+    if code == "import_scan_incomplete":
+        return (
+            "Markdown import could not complete the directory scan. Fix directory access or "
+            "filesystem changes, then retry."
+        )
+    if code == "import_root_changed":
+        return (
+            "The selected directory no longer matches registered import "
+            f"{details.get('root_id', 'unknown')}. Restore it at its registered location, or copy "
+            "the content to a new disjoint directory."
+        )
+    if code == "overlapping_import_root" and details.get("conflict") == "brain":
+        return (
+            "The selected directory overlaps Open Brain data. Choose a directory outside the "
+            "Brain data tree."
+        )
+    if code == "overlapping_import_root":
+        return (
+            "The selected directory overlaps registered import "
+            f"{details.get('root_id', 'unknown')}. Use that registered import or choose a "
+            "disjoint directory."
+        )
+    raise ValueError("invalid Markdown import failure")
 
 
 def _write_capture(receipt: CaptureReceipt, *, json_output: bool) -> None:
@@ -343,7 +655,7 @@ def _write_doctor(
     }
     try:
         passed = checks[check](session)
-    except (KeyError, OSError, StorageError, ValueError):
+    except KeyError, OSError, StorageError, ValueError:
         passed = False
     payload = {"check": check, "status": "ok" if passed else "failed"}
     if json_output:
@@ -493,7 +805,7 @@ def _verified_export_state(session: LocalBrainSession) -> str:
         ):
             return "invalid"
         datetime.fromisoformat(value["created_at"].removesuffix("Z") + "+00:00")
-    except (KeyError, TypeError, ValueError, json.JSONDecodeError):
+    except KeyError, TypeError, ValueError, json.JSONDecodeError:
         return "invalid"
     return "verified"
 

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import re
-from collections.abc import Iterator, Mapping, Sequence
+from collections.abc import Callable, Iterator, Mapping, Sequence
 from dataclasses import dataclass
 from enum import StrEnum
 from hashlib import sha256
@@ -221,7 +221,7 @@ class FilePayload:
             raise ValueError("invalid file name")
         if not isinstance(self.media_type, str) or _MEDIA_TYPE.fullmatch(self.media_type) is None:
             raise ValueError("invalid media type")
-        if not isinstance(self.data, bytes) or not self.data or len(self.data) > _MAX_FILE_BYTES:
+        if not isinstance(self.data, bytes) or len(self.data) > _MAX_FILE_BYTES:
             raise ValueError("invalid file payload")
         object.__setattr__(self, "file_name", name)
 
@@ -637,6 +637,150 @@ class ReconciliationReceipt:
         for value in (self.scanned_files, self.page_updates, self.space_updates):
             if type(value) is not int or value < 0:
                 raise ValueError("invalid reconciliation receipt count")
+
+
+class MarkdownImportFailure(RuntimeError):
+    """Bounded import failure whose details are safe for machine output."""
+
+    def __init__(self, code: str, *, details: Mapping[str, object] | None = None) -> None:
+        if code not in {
+            "import_confirmation_required",
+            "import_directory_unavailable",
+            "import_root_changed",
+            "import_scan_incomplete",
+            "large_vault_confirmation_required",
+            "overlapping_import_root",
+        }:
+            raise ValueError("invalid Markdown import failure")
+        super().__init__(code)
+        self.code = code
+        self.details = MappingProxyType(dict(details or {}))
+
+
+class MarkdownImportCancelled(RuntimeError):
+    """The owner declined a new-root import before any import state was written."""
+
+
+class MarkdownImportInterrupted(RuntimeError):
+    """Import stopped at a safe point before missing-path finalization."""
+
+
+@dataclass(frozen=True, slots=True)
+class MarkdownImportPreflight:
+    canonical_path: Path
+    selected_markdown_files: int
+    aggregate_bytes: int
+
+    def __post_init__(self) -> None:
+        if not self.canonical_path.is_absolute():
+            raise ValueError("invalid Markdown import preflight")
+        for value in (self.selected_markdown_files, self.aggregate_bytes):
+            if type(value) is not int or value < 0:
+                raise ValueError("invalid Markdown import preflight")
+
+
+@dataclass(frozen=True, slots=True)
+class MarkdownImportProgress:
+    visited_entries: int
+    processed_markdown_files: int
+
+    def __post_init__(self) -> None:
+        for value in (self.visited_entries, self.processed_markdown_files):
+            if type(value) is not int or value < 0:
+                raise ValueError("invalid Markdown import progress")
+
+
+@dataclass(frozen=True, slots=True)
+class MarkdownImportEntry:
+    outcome: str
+    path: str
+    reason: str | None = None
+
+    def __post_init__(self) -> None:
+        if self.outcome not in {
+            "failed",
+            "imported",
+            "missing",
+            "skipped",
+            "unchanged",
+            "updated",
+        }:
+            raise ValueError("invalid Markdown import outcome")
+        if not isinstance(self.path, str) or not self.path or len(self.path) > _MAX_TEXT:
+            raise ValueError("invalid Markdown import path")
+        if self.reason is not None and self.reason not in {
+            "dot_directory",
+            "file_changed",
+            "file_too_large",
+            "hardlink",
+            "invalid_content",
+            "invalid_path",
+            "invalid_utf8",
+            "non_markdown",
+            "path_collision",
+            "special_file",
+            "symlink",
+            "unreadable",
+        }:
+            raise ValueError("invalid Markdown import reason")
+
+    def to_dict(self) -> dict[str, object]:
+        value: dict[str, object] = {"outcome": self.outcome, "path": self.path}
+        if self.reason is not None:
+            value["reason"] = self.reason
+        return value
+
+
+@dataclass(frozen=True, slots=True)
+class MarkdownImportSummary:
+    entries: tuple[MarkdownImportEntry, ...]
+    entries_omitted: int
+    failed: int
+    imported: int
+    missing: int
+    missing_finalized: bool
+    selected: int
+    skipped: int
+    unchanged: int
+    updated: int
+
+    def __post_init__(self) -> None:
+        if len(self.entries) > 100:
+            raise ValueError("invalid Markdown import summary")
+        for value in (
+            self.entries_omitted,
+            self.failed,
+            self.imported,
+            self.missing,
+            self.selected,
+            self.skipped,
+            self.unchanged,
+            self.updated,
+        ):
+            if type(value) is not int or value < 0:
+                raise ValueError("invalid Markdown import summary")
+        if type(self.missing_finalized) is not bool:
+            raise ValueError("invalid Markdown import summary")
+
+    @property
+    def status(self) -> str:
+        return "partial" if self.failed else "completed"
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "entries": [entry.to_dict() for entry in self.entries],
+            "entries_omitted": self.entries_omitted,
+            "failed": self.failed,
+            "history_retained_after_source_removal": True,
+            "imported": self.imported,
+            "missing": self.missing,
+            "missing_finalized": self.missing_finalized,
+            "selected": self.selected,
+            "skipped": self.skipped,
+            "status": self.status,
+            "unchanged": self.unchanged,
+            "updated": self.updated,
+        }
 
 
 @dataclass(frozen=True, slots=True)
@@ -1159,6 +1303,18 @@ class ReconciliationTask(Protocol):
     def reconcile(self) -> ReconciliationReceipt: ...
 
 
+class MarkdownImportTask(Protocol):
+    def import_directory(
+        self,
+        directory: str,
+        *,
+        allow_large_vault: bool = False,
+        confirm: Callable[[MarkdownImportPreflight], bool] | None = None,
+        progress: Callable[[MarkdownImportProgress], None] | None = None,
+        interrupted: Callable[[], bool] | None = None,
+    ) -> MarkdownImportSummary: ...
+
+
 @dataclass(frozen=True, slots=True)
 class Phase1TaskSet:
     """The minimum task capabilities shared by the Phase 1 representations."""
@@ -1181,6 +1337,7 @@ class EngineTaskSet:
     portability: PortabilityTask
     backup: BackupTask
     reconciliation: ReconciliationTask
+    markdown_import: MarkdownImportTask
     daemon_mutation_path: DaemonMutationPath
     phase1: Phase1TaskSet
 

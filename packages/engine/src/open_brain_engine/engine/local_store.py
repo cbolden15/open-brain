@@ -111,6 +111,54 @@ CREATE TABLE IF NOT EXISTS decisions (
     publication_path TEXT,
     stage INTEGER NOT NULL DEFAULT 0
 );
+CREATE TABLE IF NOT EXISTS markdown_import_roots (
+    root_id TEXT PRIMARY KEY,
+    canonical_path TEXT NOT NULL UNIQUE,
+    device TEXT NOT NULL,
+    inode TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    last_complete_scan_id TEXT,
+    last_complete_scan_at TEXT,
+    UNIQUE (device, inode),
+    CHECK (
+        (last_complete_scan_id IS NULL AND last_complete_scan_at IS NULL)
+        OR
+        (last_complete_scan_id IS NOT NULL AND last_complete_scan_at IS NOT NULL)
+    )
+);
+CREATE TABLE IF NOT EXISTS markdown_import_files (
+    file_id TEXT PRIMARY KEY,
+    root_id TEXT NOT NULL REFERENCES markdown_import_roots(root_id),
+    relative_path TEXT NOT NULL,
+    active_revision_id TEXT,
+    last_observed_scan_id TEXT NOT NULL,
+    last_observed_device TEXT,
+    last_observed_inode TEXT,
+    UNIQUE (root_id, relative_path),
+    UNIQUE (file_id, active_revision_id),
+    CHECK (
+        (last_observed_device IS NULL AND last_observed_inode IS NULL)
+        OR
+        (last_observed_device IS NOT NULL AND last_observed_inode IS NOT NULL)
+    ),
+    FOREIGN KEY (file_id, active_revision_id)
+        REFERENCES markdown_import_revisions(file_id, revision_id)
+        DEFERRABLE INITIALLY DEFERRED
+);
+CREATE TABLE IF NOT EXISTS markdown_import_revisions (
+    revision_id TEXT PRIMARY KEY,
+    file_id TEXT NOT NULL REFERENCES markdown_import_files(file_id),
+    content_sha256 TEXT NOT NULL CHECK (length(content_sha256) = 64),
+    delivery_id TEXT NOT NULL UNIQUE,
+    request_sha256 TEXT NOT NULL CHECK (length(request_sha256) = 64),
+    capture_id TEXT UNIQUE REFERENCES captures(capture_id),
+    first_observed_at TEXT NOT NULL,
+    UNIQUE (file_id, content_sha256),
+    UNIQUE (file_id, revision_id)
+);
+CREATE INDEX IF NOT EXISTS markdown_import_files_finalize_idx
+ON markdown_import_files(root_id, last_observed_scan_id)
+WHERE active_revision_id IS NOT NULL;
 CREATE TABLE IF NOT EXISTS search_documents (
     result_id TEXT PRIMARY KEY NOT NULL,
     capture_id TEXT NOT NULL,

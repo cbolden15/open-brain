@@ -74,7 +74,7 @@ def test_local_help_and_version_are_root_free(
     assert run_cli(("--help",), environment={}) == 0
     help_output = capsys.readouterr().out
     assert "daemonless" in help_output
-    for command in ("capture", "search", "export", "status", "doctor"):
+    for command in ("capture", "import", "search", "export", "status", "doctor"):
         assert command in help_output
     assert run_cli(("--version",), environment={}) == 0
     assert capsys.readouterr().out == "open-brain 0.1.0\n"

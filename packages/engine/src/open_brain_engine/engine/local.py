@@ -52,6 +52,7 @@ from .contracts import (
 )
 from .local_store import _LocalStore, live_search_schema_is_available
 from .maintenance import PHASE1_STATE_DATABASE, PHASE1_STATE_SCHEMA_VERSION, inspect_phase1_state
+from .markdown_import import MarkdownImportTasks
 from .normalization import _done, _utc_now
 from .portability import PortabilityTasks
 from .reconciliation import ReconciliationTasks, rederive_live_search_projection
@@ -164,6 +165,7 @@ class BrainEngine(CaptureOperations, SpaceOperations, ReviewOperations, Retrieva
         self.portability = PortabilityTasks(self)
         self.backup = BackupTasks(self)
         self.reconciliation = ReconciliationTasks(self)
+        self.markdown_import = MarkdownImportTasks(self)
         daemon_mutation_path = DaemonMutationPath.reserved(profile.root)
         phase1 = Phase1TaskSet(
             capture=self.capture,
@@ -180,6 +182,7 @@ class BrainEngine(CaptureOperations, SpaceOperations, ReviewOperations, Retrieva
             portability=self.portability,
             backup=self.backup,
             reconciliation=self.reconciliation,
+            markdown_import=self.markdown_import,
             daemon_mutation_path=daemon_mutation_path,
             phase1=phase1,
         )
