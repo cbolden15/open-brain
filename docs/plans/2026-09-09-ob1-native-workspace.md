@@ -23,8 +23,9 @@ Product roadmap confirmed by the user on 2026-09-09: Open Brain remains open-sou
 a cloud-hosted product offering is planned later. This integration milestone targets the OSS
 desktop product. Cloud LLM inference in that product is separate from hosting Open Brain itself.
 The future hosted offering does not make an Open Brain account or hosted backend a prerequisite
-for this milestone. Bring-your-own provider credentials is the recommended initial access model,
-but the user has not yet selected that model. Hosted-service implementation is outside this plan.
+for this milestone. DECIDED by the user on 2026-09-09: both API-key and subscription access must
+ship in the first release, covering OpenAI and Anthropic through their supported access paths.
+Hosted-service implementation is outside this plan.
 
 This milestone produces the plan, grounded constraints, and a bounded feasibility specification.
 It does not authorize implementation, CI pushes, application installation, release publication,
@@ -44,8 +45,9 @@ outward-facing actions require the applicable user authorization.
 These recommendations allow planning to proceed. Product-sensitive choices remain proposed until
 resolved; no elapsed wait constitutes approval. The implementation gate is the completed NW0 record.
 The first-graph decision supersedes the earlier explicit-links-first recommendation. The user also
-selected cloud inference for the initial release, with local Ollama support later. The cloud provider,
-access/billing model, and credential onboarding remain open. This selects product architecture; it
+selected cloud inference for the initial release, with local Ollama support later, and requires both
+API-key and subscription access at launch. Credential onboarding and runtime packaging still need
+feasibility evidence. This selects product architecture; it
 does not establish the five-minute result or authorize transmitting any particular user's notes.
 
 ## Grounded starting point
@@ -184,17 +186,57 @@ Do not treat a missing provider or failed inference as a successful first graph.
 capture/search and the structural fallback when inference is unavailable.
 
 Keep the semantic request/result contract independent of a provider SDK so a later Ollama adapter
-can reuse input selection, provenance, and graph handling. Implement only the selected cloud path
+can reuse input selection, provenance, and graph handling. Implement the required cloud access paths
 in this release. Ollama installation, local model downloads, hardware sizing, and local inference
 acceptance are deferred; do not add them to initial setup. Configure which selected content reaches
 the provider and bind credentials to the intended adapter rather than inherit ambient credentials.
-Credential storage and cloud usage controls must be resolved with the access/billing decision.
+Credential storage and cloud usage controls must be resolved for each required access path.
 
 Start the offline feasibility proof with Canvas and an explicit source-filename mapping. The
 inspected HTML renderer references a CDN-hosted vis-network asset; package that asset locally before
 claiming an offline HTML view. Upstream export imports also bring in broader graph modules, so
 measure the complete import closure rather than only the function body. Include Graphify's
 `LICENSE`, `LICENSE-MIT`, and `NOTICE` plus required dependency notices in the candidate inventory.
+
+### Model access and existing-code reuse
+
+Both API-key and subscription access are first-release acceptance requirements. The earlier
+recommendation to defer Claude subscription access is superseded. Use one bounded semantic
+request/result contract with separate transports:
+
+| Required access path | Integration boundary |
+|---|---|
+| OpenAI API key | Direct provider API adapter; usage billed to the user's API account. |
+| ChatGPT subscription | Official Codex runtime with provider-owned login and credential refresh. |
+| Anthropic API key | Direct provider API adapter; usage billed to the user's API account. |
+| Claude subscription | Unmodified Claude Code with the user's own provider-managed sign-in, under the applicable product-integration conditions. |
+
+Read-only inspection of the existing agent-config workflow runtime found reusable authentication
+mode selection, sanitized child environments, provider readiness checks, structured output,
+cancellation, attempt limits, and model attribution. Its `src/auth.ts`, `src/adapter.ts`,
+`src/adapters/codex.ts`, `src/adapters/claude.ts`, and associated contract tests are extraction
+candidates, not drop-in public dependencies. The current Claude adapter uses the Agent SDK;
+its subscription mode alone does not demonstrate the required supported-client integration.
+The custom router's default upstream forwarding retains incoming authorization headers. Do not
+carry subscription-token relay or personal credential-file conventions into the public product.
+
+Prefer a small Python implementation of these boundaries for Open Brain's native distribution.
+The strongest shared-maintenance alternative is a separately licensed provider package used by
+both projects; compare its Node/runtime packaging cost before selecting it. Neither approach
+requires adopting the whole workflow orchestrator or a persistent router service.
+
+NW0 must prove all four paths on the supported platforms using synthetic notes, including fresh
+sign-in or key setup, valid semantic output, cancellation, expired authentication, quota exhaustion,
+and unambiguous usage attribution. Never silently switch from subscription to paid API usage or
+to another provider. Define an overall operation deadline across retries and fallback attempts.
+Keep subscriptions owned by the official clients; Open Brain must not collect their session tokens.
+Required client installation and authentication count toward the selected path's setup clock.
+Runtime or policy obstacles require an explicit architecture resolution, not quietly dropping a
+required access path from the release.
+
+Provider references checked on 2026-09-09: [Codex authentication](https://learn.chatgpt.com/docs/auth),
+[Codex app-server integration](https://learn.chatgpt.com/docs/app-server), and
+[Claude Code product integration and credential requirements](https://code.claude.com/docs/en/legal-and-compliance).
 
 ### Obsidian desktop surface
 
@@ -237,8 +279,8 @@ as part of this planning change.
 ### NW0: resolve contracts and prove feasibility
 
 Output: a reviewed decision record, synthetic evidence, and a runnable bounded spike. The earlier
-1–2 working-day estimate covered structural graph experiments only. Re-estimate after selecting
-the cloud provider and access model; semantic quality, onboarding, and first-use latency are now
+1–2 working-day estimate covered structural graph experiments only. Re-estimate after measuring
+the four required cloud access paths; semantic quality, onboarding, and first-use latency are now
 required probes.
 
 1. Compare sibling workspace projection with a dedicated canonical subtree. Prove one new note and
@@ -254,7 +296,7 @@ required probes.
    links and duplicate basenames to the graph fixture; build twice with network denied and verify
    repeatable normalized structural graph JSON and Canvas. Separately prove semantic discovery on
    unlinked related notes, including an unrelated distractor; measure model provisioning and first
-   inference under the selected cloud-provider policy. Define an evidence-based semantic-quality rubric
+   inference for every required API-key and subscription path. Define an evidence-based semantic-quality rubric
    and repeated-run threshold; do not require byte-identical model output.
 4. Exercise Obsidian app installation/first launch/plugin activation on the declared supported
    desktop environments. Record required prompts and ordinary elapsed time. Do not redefine
@@ -361,7 +403,9 @@ before an implementation handoff. Documentation-only planning does not require a
 
 Record ordinary wall-clock elapsed time from the declared installation start through verified export.
 Use a bounded synthetic corpus of related unlinked notes and an unrelated distractor. Include required
-cloud-provider onboarding and first semantic processing in the clock. Local model installation is
+cloud-provider onboarding and first semantic processing in the clock. Run the journey separately
+for each required provider/access path on each supported platform; a user configures only their
+chosen path, not all four. Local model installation is
 deferred with Ollama support.
 Full-vault indexing is a separate measurement. Do not claim an arbitrary corpus completes in five minutes.
 
