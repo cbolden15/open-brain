@@ -11,6 +11,9 @@
   metadata and rejection on C5's Mac boundary; native completion remains closed. Four launch paths
   and frozen packaging remain unproven.
   NW0-C7 records the provider/supervisor contract and local upstream requirements.
+  The parallel A/D/C checkpoint adds four passing grouped private tests, independently reviewed
+  compatibility findings, desktop metadata and direct-API preparation. Durable representation,
+  full release/accounting and GUI/provider gates remain incomplete.
 - Authority: [native workspace plan](2026-09-09-ob1-native-workspace.md), including the user's
   implementation-efficiency guidelines and the subsequent user-authorized Codex deferral.
 - Starting revision: `3468115` on `docs/ob1-native-workspace-plan`.
@@ -285,6 +288,20 @@ The local upstream requirements brief names the missing supported capabilities a
 pass criteria. It has not been sent upstream. C7 is a design checkpoint, not another runtime proof
 or a completed positive subscription path. Preserve C4-C6 tests and add uncovered cases at their
 owning milestones. Claude work remains stopped at those gaps while independent packaging proceeds.
+
+## Parallel A/D/C feasibility wave
+
+The [parallel checkpoint](../audits/2026-09-09-ob1-nw0-parallel-feasibility.md) records a private
+A proof after interface agreement, read-only D desktop readiness and C direct-API contract work.
+The coordinator owns public documents, integration and git. Separate private write scopes and the
+cumulative ledger preserve earlier effort; A reserves 45 minutes, D 20 minutes and C 15 minutes.
+C reuses a completed worker after the runtime refused another simultaneous thread.
+
+Desktop metadata confirms installed Obsidian and UTM, but not the required x86_64 guest or any
+product GUI journey. Architecture diagrams are not Canvas/navigation evidence. C prepares shared
+assertions and reusable provider boundaries without inference. E records independently reviewed
+findings as evidence, not early NW0 closure. B4 remains complete with its failed warm-start result;
+no timer resets, startup remeasurements, shipping changes or NW1 work occur in this wave.
 
 ## Unproven gates and pass/fail criteria
 

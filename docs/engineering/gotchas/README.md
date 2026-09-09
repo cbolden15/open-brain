@@ -1270,3 +1270,20 @@ independently: B4's pure parser passes content inspection but still exceeds the 
 
 Discovered: 2026-09-09, NW0-B4 parser, frontmatter, native-artifact and startup comparisons.
 See the [B4 audit](../../audits/2026-09-09-ob1-nw0-b4-component-adoption.md).
+
+### INTEGRATION-013: Portable validation and import do not prove workspace revision semantics
+
+Symptom: A synthetic page with two known capture provenance references validates and imports,
+but authoritative reconciliation rejects its provenance. An archived imported page remains searchable.
+
+Cause: Portable syntax, import success and active Engine behavior enforce different contracts.
+The current reconciliation path requires one indexed capture reference. Existing archival status
+does not implement managed-workspace deletion from search and graph.
+
+Fix: Test capture, export, import, authoritative reconciliation and retrieval together before
+selecting a same-page revision or inactive-state representation. Keep private lifecycle simulations
+distinct from Portable compatibility evidence; do not infer that every v1 encoding is impossible
+from one failed candidate. No shipping schema change was made by this probe.
+
+Discovered: 2026-09-09, NW0-A real Engine compatibility cases in the
+[parallel checkpoint](../../audits/2026-09-09-ob1-nw0-parallel-feasibility.md).

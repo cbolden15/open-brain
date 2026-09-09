@@ -5,6 +5,8 @@
   but its observed 213 ms repeat-startup penalty exceeds the 200 ms budget. Controlled cold/Linux
   evidence and Engine integration remain open. C7's missing Claude capabilities still block native
   note dispatch; Codex stays deferred. Four launch paths and the full NW0 gate remain open.
+  The parallel A/D/C checkpoint adds reviewed private lifecycle/privacy tests, concrete Portable
+  compatibility gaps, desktop metadata and direct-API contract preparation. It does not close NW0.
 - Date: 2026-09-09.
 - Baseline: `708e30c9d1e736969e2bb0aa6f0454a5f4804489` on `goal/open-brain-five-minute-install`.
 - Planning branch: `docs/ob1-native-workspace-plan`.
@@ -578,6 +580,16 @@ restarting those milestones or resetting experiment budgets.
    Every new abstraction, dependency, or setting must name an agreed requirement or demonstrated
    constraint. Present architectural tradeoffs, including the strongest boundary option, before
    selecting a shortcut. No shortcut removes a launch path or weakens a privacy/acceptance gate.
+
+The authorized parallel NW0 wave gives the coordinator packaging continuity, integration, public
+documentation and git ownership. A receives a 45-minute private durable-state/privacy proof after
+interface agreement; D receives up to 20 minutes of read-only desktop readiness investigation;
+C may use available capacity for bounded direct-API contract preparation without inference.
+These reservations draw from the existing A–E allocations. Preserve completed B4 evidence and
+its elapsed effort; B5 is a separate experiment. Workers own separate private artifacts, with no
+shipping schema, shared dependency, permission or git changes. Serialize builds and desktop
+activity around startup measurements. Verify returned artifacts and independently review conclusions
+before another lane relies on them. E may accumulate evidence but cannot close early; NW1 stays gated.
 
 ### NW0: resolve contracts and prove feasibility
 
