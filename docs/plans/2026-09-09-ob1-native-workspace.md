@@ -255,10 +255,25 @@ Open Brain executable with argument arrays and a versioned JSON contract. Do not
 text into shell commands. Bound process time/output and make missing/incompatible binaries visible.
 Close child processes and unregister listeners when the plugin unloads.
 
-Editor events may request debounced reconciliation while Obsidian is open. The engine operation
-still rescans and validates; an event is a hint, not authority. A reload or dropped event must not
-lose edits. Manual refresh remains available. A long-lived MCP server must not hold a writer lease
-that prevents plugin/CLI operations, nor may a plugin keep a session alive solely for background sync.
+DECIDED by the user on 2026-09-09: inferred connections refresh automatically while Obsidian is
+open, batching nearby edits, with pause and manual-refresh controls. After provider selection,
+editor events request debounced reconciliation and enqueue semantic refresh only for accepted
+changes. The engine still rescans and validates; an event is a hint, not authority. A reload or
+dropped event must not lose edits. Select the debounce interval and maximum batch delay from NW0
+latency and usage measurements; continuous typing must not create unbounded work or starvation.
+
+Coalesce pending changes and bound in-flight inference per workspace. Changes arriving during a
+run remain pending; an older result must not replace a graph for newer accepted revisions. Mark
+the graph stale until its input revisions match the accepted state. Generated graph files must
+not trigger another inference cycle.
+
+Pause stops automatic semantic scheduling without stopping note saves, reconciliation, or search.
+Persist the pause preference across plugin reloads. Manual refresh requests one bounded run using
+the latest accepted state, including while paused, without re-enabling automatic refresh. Repeated
+requests coalesce. Plugin unload cancels owned work and leaves any unfinished projection visibly
+stale; reopening reconciles changes and resumes scheduling only when automatic refresh is enabled.
+A long-lived MCP server must not hold a writer lease that prevents plugin/CLI operations, nor may
+a plugin keep a session alive solely for background sync.
 
 Plugin installation and activation must respect Obsidian's actual trust/activation flow. Stage only
 owned plugin assets and preserve existing vault settings. Do not silently enable arbitrary community
@@ -351,12 +366,15 @@ alone is insufficient. CI pushes or app installation happen only under the autho
 
 1. Add a desktop-only plugin package with a pinned build toolchain, manifest/version compatibility,
    and the approved binary discovery/protocol contract.
-2. Implement capture/search/refresh/navigation, conflict visibility, stale-graph state, and bounded
-   debounced editor events. Verify unload and retry behavior without an always-on engine service.
+2. Implement capture/search/refresh/navigation, conflict visibility, stale-graph state, automatic
+   refresh with edit batching, persistent pause, and one-shot manual refresh. Verify unload and
+   retry behavior without an always-on engine service.
 3. Implement managed-vault create/open and plugin asset staging/upgrade/removal. Keep activation
    explicit where required; preserve user notes, unrelated settings, and unrelated plugins.
 4. Test plugin operations against the same contract fixtures as CLI/MCP, with added adapter-specific
-   process, trust, file-event, renderer, and activation cases.
+   process, trust, file-event, renderer, and activation cases. Cover edit bursts, changes during
+   inference, stale-result rejection, generated-output exclusion, pause across reloads, manual
+   refresh while paused, and cancellation on unload.
 5. Run actual Obsidian GUI journeys on both target desktops. A mocked plugin or CLI smoke cannot
    establish that the app opened, the plugin activated, or source navigation worked.
 
