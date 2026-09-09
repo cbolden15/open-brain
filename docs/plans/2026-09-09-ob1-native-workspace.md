@@ -1,7 +1,7 @@
 # OB1 native Obsidian and Graphify workspace
 
-- Status: NW0-B1 closure/import proof passed with adapter constraints; frozen packaging,
-  subscription isolation, and remaining NW0 gates are unproven.
+- Status: NW0-B1 closure/import proof passed with adapter constraints. NW0-C1 controls are mapped;
+  the note-dispatch gate remains closed. Frozen packaging and remaining NW0 gates are unproven.
 - Date: 2026-09-09.
 - Baseline: `708e30c9d1e736969e2bb0aa6f0454a5f4804489` on `goal/open-brain-five-minute-install`.
 - Planning branch: `docs/ob1-native-workspace-plan`.
@@ -418,6 +418,13 @@ tool/MCP and persistence controls is a candidate, not a proven recipe. Verify eq
 for Codex. Reject incompatible client versions/configurations before submitting note content.
 Preserve all provider-supported authentication methods; do not modify clients or relay their tokens.
 
+NW0-C1's [installed-client audit](../audits/2026-09-09-ob1-nw0-c1-client-isolation.md) found that
+Codex's complete tool catalog and both clients' effective managed-policy boundaries remain open.
+Claude's offline diagnostics showed system-tool context with schema mode enabled despite empty-tool
+flags. The next strict tool-free candidate requests JSON text and applies the shared engine validator;
+schema-valid accepted results and the existing quality requirements remain unchanged. Neither client
+is approved for note dispatch by that offline result.
+
 NW0 must use synthetic hostile notes, excluded-file canaries, and controlled ambient customizations
 to prove no tool effects, unrelated context loading, or extra egress. If tool-free execution cannot
 meet the boundary, test the existing staged-asset execution contract or an independently verified
@@ -826,7 +833,8 @@ two of four lenses; this revision does not claim a new independent review or suc
 | Implementation ownership | Requirement ownership matrix and explicit five-adapter/onboarding exit gates in NW1–NW4. |
 | Bounded feasibility work | NW0-A–E effort/request limits, named desktop target and provisioning dependency, startup measurements, explicit stop conditions. |
 
-Next action: resolve official-client controls in NW0-C1 before a synthetic subscription call.
+Next action: run NW0-C2's zero-inference Codex catalog and policy preflight; C1's remaining
+enforcement gaps must close before a synthetic subscription call.
 Preserve completed NW0-B1 evidence and its required adapter controls; provision the agreed
 UTM guest before Linux GUI checkpoints without blocking local packaging work. Run a formal review
 of the completed NW0 decision record before executing NW1.

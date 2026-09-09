@@ -1105,3 +1105,22 @@ Do not treat a selected input list as the full exclusion boundary or export raw 
 
 Discovered: 2026-09-09, bounded macOS arm64 NW0-B1 closure/import probe. See the
 [decision record](../../plans/2026-09-09-ob1-native-workspace-nw0.md) for results and remaining gates.
+
+### INTEGRATION-004: Official-client flags do not establish a complete isolation boundary
+
+Symptom: A client accepts empty-tool, safe-mode, or ephemeral flags, but the adapter treats that as
+proof of tool-free inference with no ambient effects or retained prompts.
+
+Cause: Codex `0.153.4` can register tools from model metadata independently of shell suppression.
+Claude Code `2.1.265` offline diagnostics added 687 system-tool tokens when `--json-schema` was
+present despite empty/denied tools; the category disappeared without schema mode. Claude safe mode
+also retains managed hooks. Session-persistence controls do not mean no configuration/cache writes.
+
+Fix: Verify the effective tool catalog and policy before sending notes. Keep plain-text JSON with
+engine validation as the strict tool-free candidate; measure its quality. Reject incompatible
+managed policy, enforce runtime egress/time/output bounds, count internal attempts, and test prompt
+retention and active cancellation separately. An idle offline startup does not pass a subscription
+gate, and a staged-executor interface does not supply OS confinement.
+
+Discovered: 2026-09-09, NW0-C1 source/control inspection and synthetic macOS startup probes.
+See the [control audit](../../audits/2026-09-09-ob1-nw0-c1-client-isolation.md).

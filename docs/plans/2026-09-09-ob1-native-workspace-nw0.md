@@ -1,12 +1,14 @@
 # OB1 native workspace NW0 decision record
 
-- Status: open. NW0-B1 closure/import proof passed with required integration controls;
-  frozen packaging and subscription isolation remain unproven.
+- Status: open. NW0-B1 closure/import proof passed with required integration controls.
+  NW0-C1 control mapping is complete; the note-dispatch gate remains closed.
+  Frozen packaging and subscription isolation remain unproven.
 - Authority: [native workspace plan](2026-09-09-ob1-native-workspace.md), including the user's
   implementation-efficiency guidelines and all five required model-access paths.
 - Starting revision: `3468115` on `docs/ob1-native-workspace-plan`.
-- Latest checkpoint: NW0-B1 ran from `d462a3a` on macOS arm64 with a disposable Python 3.14.4
-  environment and synthetic fixtures. No model calls, product implementation, or VM provisioning.
+- Latest checkpoint: NW0-C1 ran from `a38e8fa` on macOS arm64 with installed official clients,
+  generated schemas, pinned source inspection, and network-denied synthetic startup probes.
+  Zero model calls, account inspection, product implementation, or VM provisioning.
 
 ## Established state
 
@@ -81,6 +83,25 @@ artifact/signature audits, five cold/five warm base-startup samples, semantic qu
 Obsidian journeys remain unproven. The original 45-minute limit is a stop limit; completion of this
 bounded probe does not require consuming the remaining time.
 
+## NW0-C1 result: controls mapped; live dispatch is not ready
+
+The [control-to-test audit](../audits/2026-09-09-ob1-nw0-c1-client-isolation.md) records installed
+Codex `0.153.4` and Claude Code `2.1.265` controls, three offline Claude cases, explicit unresolved
+boundaries, and the staged-executor alternative. Codex generated 416 protocol schemas; source
+inspection found model-catalog-driven tools that shell/feature suppression alone does not remove.
+
+Claude accepted the combined isolation flags. Its MCP/context diagnostics reported empty staged
+ambient catalogs. Adding `--json-schema` introduced a 687-token system-tool category; removing it
+removed that category. Use plain JSON text plus engine validation as the next strict tool-free
+candidate, subject to the existing quality gate. This diagnostic is not a serialized model request.
+
+Both clients still need effective managed-policy, authenticated egress, retention, retry accounting,
+and active cancellation proof. Safe mode does not suppress Claude's managed hooks. The private
+test sandbox verified selected denials but excluded real credentials and local managed policy;
+it proves neither subscription compatibility nor a shipping containment mechanism. No note content
+or user/model turn was submitted. The existing staged-asset port is an interface and authority
+check, not an implemented OS sandbox. No path is dropped and no confinement exception is selected.
+
 ## Unproven gates and pass/fail criteria
 
 | Gate | Evidence required to pass | Fail or incomplete condition |
@@ -103,14 +124,14 @@ The complete native, subscription, and desktop proofs remain unproven after this
    `graphify.extract.extract(..., parallel=False)` within 60 seconds, 16 KiB selected input,
    and 16 KiB accepted output per case. Versions/hashes, links/IDs, cache effects, and the
    required integration controls are recorded above. Frozen packaging remains open.
-2. **NW0-C1: resolve official-client controls.** Reserve at most 45 minutes from NW0-C. Inspect
-   supported configuration/protocol controls for the recorded versions and build a control-to-test
-   map covering tools, ambient instructions, managed policy, egress, retention, and cancellation.
-   Start with Codex's unresolved tool/context controls; check the complete Claude candidate recipe
-   independently. Use a scratch directory outside all Brains/vaults. Make zero model calls until
-   every boundary has a concrete enforcement mechanism. Missing controls trigger the staged-asset
-   alternative assessment, not a permissive test run.
-3. **First bounded real subscription probes.** Once C1 passes and the user-selected account is ready,
+2. **NW0-C1: completed mapping; gate closed.** Preserve its audit and offline receipts.
+   Next is **NW0-C2**, at most 45 minutes from the remaining NW0-C allocation: prove Codex's
+   complete pre-dispatch tool inventory and effective policy with explicit configuration/model
+   inputs and synthetic ambient/managed canaries. Require an empty catalog, no ambient effects,
+   and deterministic policy-conflict rejection. If the interface cannot establish these, record
+   the concrete staged-executor design and credential-access constraint for review. No model calls.
+3. **First bounded real subscription probes.** Once every C1 boundary has a concrete enforcement
+   mechanism and the user-selected account is ready,
    run one synthetic hostile-input completion per official client. Reserve each actual attempt
    before dispatch; enforce all existing byte/time limits. Observe process/tool/network/retention
    effects, not only final text. A privacy rejection makes zero inference calls; an eligible hostile
@@ -164,5 +185,6 @@ completion, including native build and Homebrew smoke for packaging changes. Exi
 runs `make contributor-check`; UTM supplies Linux desktop evidence. Do not rerun slow desktop
 journeys until an integration checkpoint or a relevant change invalidates prior evidence.
 
-Next action: run NW0-C1's control-to-test mapping for the installed official clients, starting with
-Codex tool/context removal. NW0-B still requires frozen candidate comparison and native Linux evidence.
+Next action: run NW0-C2's zero-inference Codex catalog and policy preflight. Preserve C1's unresolved
+Claude/authentication boundaries; no note dispatch until all required mechanisms are established.
+NW0-B still requires frozen candidate comparison and native Linux evidence.
