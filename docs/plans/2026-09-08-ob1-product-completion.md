@@ -1,7 +1,7 @@
 # OB1 product completion plan
 
 - Status: `OB1-W3` complete and merged into `goal/open-brain-five-minute-install`; `OB1-W4`
-  documentation gate in progress and runtime implementation not started
+  documentation gate READY and runtime implementation in progress
 - Date: 2026-09-08
 - Integration branch: `goal/open-brain-five-minute-install`
 - Active workstream branch: `feat/ob1-w4-markdown-import`
@@ -133,8 +133,9 @@ root relocation, rebinding, and folding are separate future work.
 Each imported file is identified inside that root by its normalized source-relative path. Exact
 source bytes are retained through the existing file/blob capture boundary, and SHA-256 records the
 content revision. A deterministic delivery key over root ID, relative path, and content digest makes
-an unchanged rerun a no-op. Changed bytes create one new immutable capture revision and move the
-active search document to it. Prior capture records remain valid history.
+an unchanged rerun a no-op. Each pending revision also binds the complete capture request digest
+before capture. Changed bytes create one new immutable capture revision and move the active search
+document to it. Prior capture records remain valid history.
 
 Import uses the existing non-owner public-job submission path with `content_origin=unknown`,
 `owner_context=automation_absent`, and capture-only authority. Portable records therefore carry
@@ -158,8 +159,10 @@ are a `file_changed` failure, not a skip.
 Before mutation, enumeration stops and refuses the import if it visits more than 100,000 filesystem
 entries, selects more than 10,000 Markdown files, or observes more than 512 MiB of eligible file data.
 Each read is also bounded by the existing 1 MiB capture limit. Oversized files, invalid UTF-8,
-path-normalization collisions, and unreadable files are reported as failures. Markdown, frontmatter,
-wiki links, HTML, and embed syntax are treated as inert text; import never follows a content link,
+file path-normalization collisions, and unreadable files are reported as failures. A sibling
+directory normalization collision makes the scan incomplete and refuses the import before any
+import-state write. Markdown, frontmatter, wiki links, HTML, and embed syntax are treated as inert
+text; import never follows a content link,
 executes code, or loads an Obsidian plugin. Import commits one file at a time after enumeration,
 returns a summary, and exits nonzero if any selected file failed. A rerun safely resumes the remaining
 work.

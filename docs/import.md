@@ -132,9 +132,11 @@ pair of root ID and relative path is unique. File identity follows the logical p
 an inactive old path plus a new path even if the filesystem inode is unchanged.
 
 `markdown_import_revisions` stores a random revision ID, file ID, SHA-256 content digest,
-deterministic delivery ID, optional capture ID, and first observation time. File ID plus digest is
-unique. A nullable capture ID is a resumable reservation: a crash after reservation or capture is
-finished by the next run with the same delivery ID.
+deterministic delivery ID, the complete capture request digest, optional capture ID, and first
+observation time. File ID plus digest is unique. The request digest binds the reservation to the
+fixed importer identity, provenance, privacy, title, source reference, and payload before capture.
+A nullable capture ID is a resumable reservation: a crash after reservation or capture is finished
+by the next run with the same delivery ID.
 
 The `markdown-import.` delivery namespace is reserved for this task. Capture accepts a delivery in
 that namespace only when a matching pending revision exists and the request carries the fixed
@@ -154,8 +156,11 @@ visited directory entry counts once. The supplied root itself does not count.
 
 Each relative component must be representable as UTF-8, normalize to Unicode NFC, and contain no
 NUL, slash, backslash, C0/C1 control, or Unicode format character. Empty, `.` and `..` components are
-invalid. If multiple raw paths normalize to one relative path, every member is a
-`path_collision` failure. Paths are not case-folded, so distinct Linux files remain distinct.
+invalid. If multiple raw file paths normalize to one relative path, every member is a
+`path_collision` failure. If sibling directory names normalize to one component, traversal cannot
+prove that it observed every descendant, so aggregate preflight fails with
+`import_scan_incomplete` before any import-state write. Paths are not case-folded, so distinct
+Linux files remain distinct.
 
 Only regular files whose names end in exact lowercase `.md` are selected. Empty Markdown files are
 eligible. Dot-directories, including `.obsidian`, are counted as skipped and are never opened or

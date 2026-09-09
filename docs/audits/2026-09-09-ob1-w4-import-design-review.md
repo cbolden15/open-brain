@@ -132,3 +132,20 @@ Remaining P3 or informational findings: none.
 
 Runtime implementation may begin. W5 remains blocked until W4 implementation and verification are
 complete.
+
+## Runtime-boundary follow-up
+
+Three read-only implementation lenses then mapped the schema, filesystem, and CLI seams. They found
+two design-level P1 gaps before code changed:
+
+- A pending revision did not store the complete capture request digest, so the capture boundary
+  could not cheaply prove that the reserved delivery matched the fixed importer identity,
+  provenance, privacy, title, source reference, and payload. The revision schema now stores
+  `request_sha256` and capture validates it before accepting the reserved namespace.
+- The path-collision rule did not distinguish files from directories. Colliding sibling file names
+  remain bounded `path_collision` outcomes. Colliding sibling directory names now fail aggregate
+  preflight with `import_scan_incomplete`, because skipping both subtrees could conceal a previously
+  imported descendant and make missing-path finalization unsafe.
+
+Both changes preserve the existing product boundary and require no W5 migration work. A focused
+Codex consistency review of this delta returned `READY` with no P0-P2 contradictions or omissions.
