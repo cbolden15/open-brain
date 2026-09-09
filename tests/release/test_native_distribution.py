@@ -55,6 +55,14 @@ def test_native_spec_builds_one_default_product_executable() -> None:
     assert "open_brain_engine.engine.local_schema" in base_native._REQUIRED_MODULES
     assert "open_brain_engine.engine.local_schema_catalog" in base_native._REQUIRED_MODULES
     assert "open_brain_engine.storage.migrations" in base_native._REQUIRED_MODULES
+    for module in (
+        "open_brain.services.local_mcp", "open_brain.services.local_operations",
+        "open_brain.services.mcp_protocol",
+    ):
+        assert module in base_native._REQUIRED_MODULES
+    for module in ("open_brain.integrations", "open_brain.services.mcp_stdio"):
+        assert module in base_native._FORBIDDEN_MODULE_PREFIXES
+        assert f'"{module}"' in spec
 
 
 @pytest.mark.parametrize(

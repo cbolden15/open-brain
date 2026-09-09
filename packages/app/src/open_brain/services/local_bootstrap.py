@@ -16,6 +16,7 @@ from open_brain_engine.engine import (
     read_maintenance_snapshot,
 )
 from open_brain_engine.storage.operational import (
+    LockBusyError,
     RootIdentity,
     StorageError,
     inspect_file_leases,
@@ -181,6 +182,11 @@ def _writer_ownership_is_present(root: Path) -> bool:
         writer = inspect_file_leases(root / ".open-brain")
     except StorageError:
         return True
+    if (
+        writer.held_count and not writer.malformed_count
+        and all(lease.discriminator == "shared-writer" for lease in writer.held_leases)
+    ):
+        raise LockBusyError("local writer is busy")
     return bool(writer.held_count or writer.malformed_count)
 
 

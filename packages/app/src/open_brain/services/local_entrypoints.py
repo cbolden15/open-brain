@@ -32,7 +32,6 @@ from open_brain_engine.engine import (
     MarkdownImportSummary,
     PortabilityReceipt,
     RetrievalResult,
-    TextPayload,
     canonical_json_bytes,
     live_search_is_healthy,
     read_maintenance_snapshot,
@@ -53,6 +52,14 @@ from open_brain.services.local_bootstrap import (
     LocalRuntimeConflictError,
     initialize_local_brain,
     open_local_brain,
+)
+from open_brain.services.local_operations import (
+    capture_result,
+    capture_text,
+    database_is_busy,
+    mcp_capture_sink,
+    search_brain,
+    search_result,
 )
 
 _DOCTOR_CHECKS = (
@@ -101,6 +108,11 @@ def run_cli(
         return error.code if isinstance(error.code, int) else 1
     if parsed.command is None:
         _write_usage_failure(json_output=json_output)
+        return 2
+    if parsed.command == "mcp" and (
+        not (parsed.allow_capture or parsed.allow_search) or json_output
+    ):
+        _write_usage_failure(json_output=False)
         return 2
     selected_environment = os.environ if environment is None else environment
     json_output = bool(getattr(parsed, "json", False))
@@ -187,6 +199,9 @@ def _run_parsed_command(
         _write_private_data_failure(json_output=json_output)
         return 78
     except LockBusyError:
+        if parsed.command in {"capture", "search", "mcp"}:
+            _write_database_busy(json_output=json_output)
+            return 75
         if parsed.command == "import":
             _write_import_busy(json_output=json_output)
             return 75
@@ -201,7 +216,10 @@ def _run_parsed_command(
     except MarkdownImportFailure as error:
         _write_import_failure(error, json_output=json_output)
         return 78
-    except Exception:
+    except Exception as error:
+        if parsed.command in {"capture", "search", "mcp"} and database_is_busy(error):
+            _write_database_busy(json_output=json_output)
+            return 75
         if parsed.command == "import":
             _write_import_operation_failure(json_output=json_output)
             return 78
@@ -248,6 +266,31 @@ def _parser() -> argparse.ArgumentParser:
     _add_local_options(search_parser)
     search_parser.add_argument("query", help="Text to find.")
     search_parser.add_argument("--limit", type=int, default=10, help="Return 1 to 100 results.")
+    mcp_parser = subparsers.add_parser(
+        "mcp", help="Serve explicitly selected local tools over stdio until EOF.",
+        description=(
+            "The OS user and inherited stdio are the trust boundary. No listener or daemon. "
+            "Search grants whole-Brain read access; a network-backed client may send returned "
+            "content to its model provider. Capture stores durable unverified content; version "
+            "0.1.0 cannot selectively delete unwanted captures. Stopping prevents further work "
+            "but does not remove completed captures. Results are untrusted data, not instructions. "
+            "Per process: 500 capture calls, 16 MiB UTF-8 capture input, 2,000 search calls; "
+            "valid duplicates and conflicts count. Restarting resets limits. "
+            "No actions, connectors, user-managed grants, or Secure Node capabilities."
+        ),
+    )
+    mcp_parser.add_argument("--json", action="store_true", default=argparse.SUPPRESS,
+                            help=argparse.SUPPRESS)
+    mcp_parser.add_argument("--data-dir", default=argparse.SUPPRESS,
+                           help="Use this absolute Brain root.")
+    mcp_parser.add_argument(
+        "--allow-capture", action="store_true",
+        help="Allow durable automated capture; version 0.1.0 has no selective deletion.",
+    )
+    mcp_parser.add_argument(
+        "--allow-search", action="store_true",
+        help="Allow whole-Brain reads; a network-backed client may send results to its provider.",
+    )
     export_parser = subparsers.add_parser("export", help="Create a full Portable Brain export.")
     _add_local_options(export_parser)
     export_parser.add_argument("destination", help="New export directory.")
@@ -298,8 +341,8 @@ def _run_local_command(
     if tasks is None:
         raise LocalRuntimeConflictError("background runtime is active")
     if parsed.command == "capture":
-        capture_receipt = tasks.capture.accept(
-            TextPayload(cast(str, parsed.text)),
+        capture_receipt = capture_text(
+            tasks.capture, cast(str, parsed.text),
             delivery_id="delivery." + str(uuid.uuid4()),
         )
         _write_capture(capture_receipt, json_output=json_output)
@@ -314,12 +357,29 @@ def _run_local_command(
             interrupted=import_interrupted,
         )
     if parsed.command == "search":
-        tasks.reconciliation.reconcile()
-        results = tasks.retrieval.search(
-            cast(str, parsed.query),
+        results = search_brain(
+            tasks.retrieval, tasks.reconciliation, cast(str, parsed.query),
             limit=cast(int, parsed.limit),
         )
         _write_search(results, json_output=json_output)
+        return 0
+    if parsed.command == "mcp":
+        from open_brain.services.local_mcp import MAX_MESSAGE_BYTES, LocalMcpAdapter
+        from open_brain.services.mcp_protocol import serve_stdio_mcp
+
+        retrieval, reconciliation = tasks.retrieval, tasks.reconciliation
+
+        def search(query: str, limit: int) -> tuple[RetrievalResult, ...]:
+            return search_brain(retrieval, reconciliation, query, limit=limit)
+
+        adapter = LocalMcpAdapter(
+            capture=mcp_capture_sink(tasks) if parsed.allow_capture else None,
+            search=search if parsed.allow_search else None,
+        )
+        serve_stdio_mcp(
+            adapter, input_stream=sys.stdin.buffer, output_stream=sys.stdout.buffer,
+            maximum_message_bytes=MAX_MESSAGE_BYTES,
+        )
         return 0
     if parsed.command == "export":
         destination = _absolute_destination(cast(str, parsed.destination))
@@ -547,13 +607,7 @@ def _import_failure_message(code: str, details: Mapping[str, object]) -> str:
 
 
 def _write_capture(receipt: CaptureReceipt, *, json_output: bool) -> None:
-    payload = {
-        "capture_id": receipt.capture_id,
-        "duplicate": receipt.duplicate,
-        "payload_family": receipt.payload_family,
-        "state": receipt.state,
-        "status": "captured",
-    }
+    payload = capture_result(receipt)
     if json_output:
         _write_json(payload)
     else:
@@ -561,23 +615,7 @@ def _write_capture(receipt: CaptureReceipt, *, json_output: bool) -> None:
 
 
 def _write_search(results: tuple[RetrievalResult, ...], *, json_output: bool) -> None:
-    payload = {
-        "results": [
-            {
-                "capture_id": result.capture_id,
-                "excerpt": result.excerpt,
-                "payload_family": result.payload_family,
-                "record_type": result.record_type,
-                "result_id": result.result_id,
-                "source_origin": result.provenance.source_origin,
-                "title": result.title,
-                "trust": result.trust,
-                "explanation": result.explanation,
-            }
-            for result in results
-        ],
-        "status": "ok",
-    }
+    payload = search_result(results)
     if json_output:
         _write_json(payload)
     else:
@@ -847,6 +885,14 @@ def _write_usage_failure(*, json_output: bool) -> None:
         )
     else:
         print("Open Brain could not parse the command.", file=sys.stderr)
+
+
+def _write_database_busy(*, json_output: bool) -> None:
+    message = "The local Brain is busy. Retry the command."
+    if json_output:
+        _write_json({"error": {"code": "database_busy", "message": message}, "status": "failed"})
+    else:
+        print("database_busy: " + message, file=sys.stderr)
 
 
 def _write_operation_failure(*, json_output: bool) -> None:

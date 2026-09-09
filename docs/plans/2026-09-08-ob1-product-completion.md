@@ -1,10 +1,10 @@
 # OB1 product completion plan
 
-- Status: `OB1-W4` merged at `5a51797`; `OB1-W5` implemented and locally verified,
-  with owner safety audits and exact-head pull-request CI required before merge
+- Status: `OB1-W5` merged at `14489a2`; `OB1-W6` implemented and locally verified,
+  with committed-candidate safety audits and exact-head CI required before merge; W7 has not started
 - Date: 2026-09-08
 - Integration branch: `goal/open-brain-five-minute-install`
-- Active workstream branch: `feat/ob1-w5-schema-migrations`
+- Active workstream branch: `feat/ob1-w6-local-mcp`
 - Product authority: [`../product-family.md`](../product-family.md)
 - Acceptance authority: [`../acceptance/five-minute-install.md`](../acceptance/five-minute-install.md)
 - Predecessor: [`2026-09-08-ob1-w2-release-surface-reduction.md`](2026-09-08-ob1-w2-release-surface-reduction.md)
@@ -457,7 +457,9 @@ must visibly label each active imported result as unverified.
 
 The [migration contract](../schema-migrations.md) is implemented against W4 base `5a51797`.
 Local verification passed; the [W5 audit](../audits/2026-09-09-ob1-w5-schema-migrations-audit.md)
-records results. Owner safety audits and exact-head CI remain pending. The contract documents
+records the implementation checkpoint. PR #13 and PR #14 subsequently merged in order;
+the goal branch at `14489a2` passed owner safety audits, and both platform CI jobs passed on the
+identical pre-merge W5 tree. The contract documents
 SQLite hot-journal recovery as the narrow exception to byte-level refusal: recovery restores committed
 state before classification; it never authorizes migration of invalid or newer committed state.
 
@@ -500,6 +502,12 @@ schema version 1, and all prior checks pass.
 No external release may occur before this gate is complete.
 
 ## `OB1-W6`: local MCP capture and search
+
+Implementation starts from merged W5 base `14489a2`. The
+[W6 audit](../audits/2026-09-09-ob1-w6-local-mcp-audit.md) records requirement evidence and verification.
+The shared stdio transport is extracted into a neutral module so the native dependency exclusions
+remain unchanged. Local migration contention now has a typed busy error; it remains a schema error
+for existing engine callers and is reported as `database_busy` by the local adapters.
 
 ### Implementation
 

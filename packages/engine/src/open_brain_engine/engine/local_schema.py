@@ -16,9 +16,11 @@ from open_brain_engine.storage.migrations import (
     apply_migrations,
 )
 from open_brain_engine.storage.sqlite import (
+    DatabaseBusyError,
     connect_database,
     connect_database_read_only,
     has_private_rollback_journal,
+    is_database_busy,
 )
 
 from .contracts import LocalEngineContext
@@ -122,6 +124,8 @@ def classify_local_schema(connection: sqlite3.Connection) -> SchemaState:
                     if shape == _expected_shape(era, nullable, False):
                         return SchemaState("legacy" if version == 0 else "pre_ledger", version)
     except sqlite3.Error as error:
+        if is_database_busy(error):
+            raise DatabaseBusyError("database busy") from None
         if getattr(error, "sqlite_errorcode", 0) & 0xFF == sqlite3.SQLITE_READONLY:
             raise LocalRecoveryRequiredError("local state requires SQLite recovery") from None
     except TypeError, ValueError, OverflowError:
@@ -139,6 +143,8 @@ def inspect_phase1_state(profile: LocalEngineContext) -> SchemaState:
         raise ValueError("invalid local profile")
     try:
         connection = open_local_database_read_only(profile, inspect_only=True)
+    except DatabaseBusyError:
+        raise
     except SchemaError:
         try:
             (profile.root / PHASE1_STATE_DATABASE).lstat()
@@ -303,6 +309,8 @@ def _prepare_local_schema(
     except BaseException as error:
         with suppress(sqlite3.Error):
             connection.execute("ROLLBACK")
+        if is_database_busy(error):
+            raise DatabaseBusyError("database busy") from None
         if isinstance(error, SchemaError):
             raise
         if isinstance(error, (ValueError, TypeError, sqlite3.Error)):
