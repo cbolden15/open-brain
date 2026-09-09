@@ -49,6 +49,7 @@ REVIEWED_PRIVATE_IP_MODULES = frozenset(
     {
         ("ipaddress", "57a9a0e800670f6f7f44b51a5c1a3ccaa6e159d8d268c0db939ad096917d2f42"),
         ("urllib.request", "30e71da25ad6fa4f4eb5ceefff79e87c157105cfeed0527247cdee657c061188"),
+        ("urllib.request", "567e733eef044092e919566a3afd9c9a14b7f1d80c8d07e232a5bacde8a994cc"),
     }
 )
 

@@ -3,11 +3,12 @@
 Date: 2026-09-09
 
 Status: approved by the owner on 2026-09-09 and implemented in the bounded artifact auditor.
-The owner replied "approve" to the explicit request for these two exact module/hash exceptions.
+The owner replied "approve" to the initial two exact module/hash exceptions, then "you are
+approved" to the separately reviewed Python 3.14.7 `urllib.request` payload from PR #17 CI.
 
 ## Approved decision
 
-The artifact-only exception covers `private-ip-address` findings in exactly these two expanded
+The artifact-only exception covers `private-ip-address` findings in exactly these three expanded
 PYZ module payloads. Module import identity and the complete expanded marshal SHA-256 must both
 match. No module-name-only, package-wide, pattern-wide, or version-wide exception is proposed.
 
@@ -15,6 +16,7 @@ match. No module-name-only, package-wide, pattern-wide, or version-wide exceptio
 |---|---:|---|
 | `ipaddress` | 94,407 | `57a9a0e800670f6f7f44b51a5c1a3ccaa6e159d8d268c0db939ad096917d2f42` |
 | `urllib.request` | 91,319 | `30e71da25ad6fa4f4eb5ceefff79e87c157105cfeed0527247cdee657c061188` |
+| `urllib.request` | 91,145 | `567e733eef044092e919566a3afd9c9a14b7f1d80c8d07e232a5bacde8a994cc` |
 
 The canonical private denylist, credential rules, home-path rules, forbidden paths/types, parser
 validation, resource bounds, and all other findings remain enforced. Source and history policy are
@@ -35,7 +37,7 @@ docstring in `_proxy_bypass_winreg_override`.
 The installed sources were fetched independently from CPython's `v3.14.4` tag and compared byte for
 byte. The freshly bundled modules also compare equal to code compiled from those sources with
 PyInstaller's filename normalization and optimization level zero. The fresh metadata-cleaned build
-contains the exact two marshal payloads listed above.
+contains the first two marshal payloads listed above.
 
 | Official source | Source SHA-256 |
 |---|---|
@@ -50,11 +52,23 @@ The reviewed docstring digest is
 `ae82384031228da83791438371aca5507170afe7cf6c36f64475932967b46a29`.
 These string digests are supporting evidence, not independent exception keys.
 
-Both old W7 CI archives contain a different `urllib.request` payload,
-`567e733eef044092e919566a3afd9c9a14b7f1d80c8d07e232a5bacde8a994cc`. It is not covered by this
-proposal. Rebuild both platforms and inspect their actual final payloads. The build currently
-selects Python `3.14`, so patch updates may change hashes and require another review. Do not weaken
-matching to accommodate that drift.
+The third payload was initially excluded. Both platforms in
+[PR #17 CI run 34366212024](https://github.com/cbolden15/open-brain/actions/runs/34366212024)
+selected Python 3.14.7 and produced this identical 91,145-byte `urllib.request` payload. Each archive
+completed the bounded owner audit with exactly one private-address finding in that module and no
+other findings. The owner then separately approved this exact additional tuple on 2026-09-09.
+
+The payload matches code compiled from
+[official CPython v3.14.7 source](https://raw.githubusercontent.com/python/cpython/v3.14.7/Lib/urllib/request.py),
+whose SHA-256 is `f3464032de00c1fbc839f4657577065ea6efb30d99e5a86e204b1aefdcb77430`.
+All code fields and recursively typed constants match across 154 code objects. An independent
+read-only review confirmed the provenance, cross-platform byte equality, and exactly one matching
+string: the same `_proxy_bypass_winreg_override` docstring with the digest recorded above.
+No bundled code was executed. The independent reviewer also checked exception scope and ran 16
+boundary tests; no new content or scope concern was found.
+
+The build selects Python `3.14`, so later patch updates may change hashes and require another review.
+Inspect the actual final payloads on both platforms; never weaken matching to accommodate drift.
 
 An independent read-only design review agreed with this scope and rejected removing runtime
 constants or broad standard-library exemptions. This proposal does not attest arbitrary executable

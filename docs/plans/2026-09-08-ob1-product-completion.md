@@ -323,7 +323,8 @@ content, later occurrences, and semantic denylist changes fail closed. Current-t
 content exception. This decision permits retained generic operational context in those
 reviewed historical versions and does not authorize rewriting public `main` or broader exceptions.
 
-Separately, on 2026-09-09 the owner approved the two exact module/hash exceptions in the
+Separately, on 2026-09-09 the owner approved the initial two exact module/hash exceptions and the
+additional Python 3.14.7 `urllib.request` payload from PR #17 CI, as recorded in the
 [standard-library content policy](../audits/2026-09-09-ob1-stdlib-content-policy-proposal.md).
 Only `private-ip-address` findings in those fully parsed and scanned PYZ module payloads are
 suppressed. All owner-denylist terms, other content/path rules, parser validation, resource limits,

@@ -461,7 +461,7 @@ def address_module(extra: str = "") -> bytes:
     return module(f"address = {address!r}\n{extra}")
 
 
-def test_reviewed_policy_contains_only_the_two_approved_payloads() -> None:
+def test_reviewed_policy_contains_only_the_approved_payloads() -> None:
     assert (
         frozenset(
             {
@@ -469,6 +469,10 @@ def test_reviewed_policy_contains_only_the_two_approved_payloads() -> None:
                 (
                     "urllib.request",
                     "30e71da25ad6fa4f4eb5ceefff79e87c157105cfeed0527247cdee657c061188",
+                ),
+                (
+                    "urllib.request",
+                    "567e733eef044092e919566a3afd9c9a14b7f1d80c8d07e232a5bacde8a994cc",
                 ),
             }
         )
