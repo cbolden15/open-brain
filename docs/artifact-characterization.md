@@ -63,8 +63,11 @@ data. It checks the outer archive, ELF or Mach-O payload boundaries, CArchive me
 PYZ modules, and the nested base-library ZIP. A bounded marshal reader scans code strings, names,
 filenames, bytecode, and constants without constructing or executing code objects. PYZ import names
 are checked as module paths ending in `.py`; their original spelling is also content-scanned.
-The owner denylist and generic content rules apply to raw and decoded data. Packaged standard-library
-runtime constants and docstrings receive the same rules as project content.
+The owner denylist and generic content rules apply to raw and decoded data. After full module
+validation and scanning, only `private-ip-address` findings for the two exact name/hash pairs in the
+[approved standard-library policy](audits/2026-09-09-ob1-stdlib-content-policy-proposal.md) are
+suppressed at that module's location. Owner terms and every other rule remain enforced. Changed
+payload hashes require separate review and approval; source/history policy is unchanged.
 
 Each artifact runs in a separate worker with these limits:
 

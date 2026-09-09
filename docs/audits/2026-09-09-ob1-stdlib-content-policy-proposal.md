@@ -2,11 +2,12 @@
 
 Date: 2026-09-09
 
-Status: proposed; not approved or enabled. Archive auditing still has no content exception.
+Status: approved by the owner on 2026-09-09 and implemented in the bounded artifact auditor.
+The owner replied "approve" to the explicit request for these two exact module/hash exceptions.
 
-## Decision requested
+## Approved decision
 
-Approve an artifact-only exception for `private-ip-address` findings in exactly these two expanded
+The artifact-only exception covers `private-ip-address` findings in exactly these two expanded
 PYZ module payloads. Module import identity and the complete expanded marshal SHA-256 must both
 match. No module-name-only, package-wide, pattern-wide, or version-wide exception is proposed.
 
@@ -59,7 +60,7 @@ An independent read-only design review agreed with this scope and rejected remov
 constants or broad standard-library exemptions. This proposal does not attest arbitrary executable
 behavior, authorize publication, or replace the owner audit of complete release archives.
 
-## Options
+## Options considered
 
 1. Approve this exact provenance-backed disposition. This preserves upstream runtime semantics and
    confines the exception to reviewed public content. Recommended.
@@ -68,12 +69,13 @@ behavior, authorize publication, or replace the owner audit of complete release 
 Changing upstream constants, encoding them differently to evade the detector, or skipping complete
 standard-library modules is not a sound alternative.
 
-## Checks required before enabling
+## Verification contract
 
 Add contract tests proving that the approved hash/name/rule combination is the only suppressed
 finding, modified bytes and wrong module identities retain findings, owner terms always fail,
 other rules remain visible, malformed or over-limit artifacts still fail, and source/history scans
 have no exception. Then run full verification and the owner audit against rebuilt platform archives.
 
-The owner approval must explicitly update the current archive-policy statement in the product plan.
-Until that decision is recorded, the implementation must retain both findings.
+The owner approval is recorded here and in the product plan's owner-only private-content checkpoint.
+The implementation keeps upstream runtime code and constants intact. This decision does not approve
+new hashes, pushing, merging, release creation, or tap publication.

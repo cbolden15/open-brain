@@ -1065,5 +1065,8 @@ Related policy trap: `ipaddress` contains three runtime private-network constant
 disposable examples. `urllib.request` also contains a documentation example. Changing those strings
 to hide them from a scanner is not remediation. Any exception needs a separate exact-module,
 payload-hash, and rule-bound decision while owner terms and all other findings remain enforced.
+The [approved two-payload policy](../../audits/2026-09-09-ob1-stdlib-content-policy-proposal.md)
+now records that decision. Python patch changes can alter marshal hashes even for similar source;
+never copy an older CI hash into the policy merely to make its artifact pass.
 
 Discovered: 2026-09-09, native metadata remediation after `46bf308`.

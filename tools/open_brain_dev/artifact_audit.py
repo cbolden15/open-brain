@@ -20,6 +20,7 @@ import unicodedata
 import zipfile
 import zlib
 from collections.abc import Sequence
+from hashlib import sha256
 from pathlib import Path, PurePosixPath
 from typing import NoReturn
 
@@ -41,6 +42,15 @@ NATIVE_NAME = re.compile(
 COOKIE = struct.Struct("!8sIIII64s")
 COOKIE_MAGIC = b"MEI\014\013\012\013\016"
 ENTRY = struct.Struct("!IIIIBc")
+
+# Owner-approved 2026-09-09; see docs/audits/2026-09-09-ob1-stdlib-content-policy-proposal.md.
+# Exact expanded marshal payloads only. New hashes require separate review and approval.
+REVIEWED_PRIVATE_IP_MODULES = frozenset(
+    {
+        ("ipaddress", "57a9a0e800670f6f7f44b51a5c1a3ccaa6e159d8d268c0db939ad096917d2f42"),
+        ("urllib.request", "30e71da25ad6fa4f4eb5ceefff79e87c157105cfeed0527247cdee657c061188"),
+    }
+)
 
 
 class InvalidArtifact(ValueError):
@@ -425,6 +435,9 @@ class Scanner:
             spans.append((start, start + size))
             expanded = self.inflate(data[start : start + size], MAX_MARSHAL)
             self.code(expanded, loc)
+            # Full parsing/scanning must succeed first; all other rules and locations survive.
+            if (name, sha256(expanded).hexdigest()) in REVIEWED_PRIVATE_IP_MODULES:
+                self.findings.discard((loc, "private-ip-address"))
         require(data[12:17] == bytes(5))
         self.contiguous(spans, 17, offset)
 

@@ -11,6 +11,7 @@ import tarfile
 import zipfile
 import zlib
 from collections.abc import Callable
+from hashlib import sha256
 from pathlib import Path
 from typing import NoReturn
 
@@ -446,3 +447,139 @@ def test_native_filename_requires_gzip_encoding() -> None:
     plain = zlib.decompress(compressed, 31)
     with pytest.raises(native.InvalidArtifact):
         native.Scanner([]).archive(plain, "open-brain-0.1.0-linux-x86_64.tar.gz")
+
+
+def reviewed_fixture(monkeypatch: pytest.MonkeyPatch, code: bytes, name: str = "ipaddress") -> None:
+    # Synthetic policy keys exercise the real hash comparison without shipping upstream binaries.
+    monkeypatch.setattr(
+        native, "REVIEWED_PRIVATE_IP_MODULES", frozenset({(name, sha256(code).hexdigest())})
+    )
+
+
+def address_module(extra: str = "") -> bytes:
+    address = " " + ".".join(["192", "168", "5", "8"]) + " "
+    return module(f"address = {address!r}\n{extra}")
+
+
+def test_reviewed_policy_contains_only_the_two_approved_payloads() -> None:
+    assert (
+        frozenset(
+            {
+                ("ipaddress", "57a9a0e800670f6f7f44b51a5c1a3ccaa6e159d8d268c0db939ad096917d2f42"),
+                (
+                    "urllib.request",
+                    "30e71da25ad6fa4f4eb5ceefff79e87c157105cfeed0527247cdee657c061188",
+                ),
+            }
+        )
+        == native.REVIEWED_PRIVATE_IP_MODULES
+    )
+
+
+@pytest.mark.parametrize("name", ["ipaddress", "urllib.request"])
+def test_reviewed_private_ip_requires_exact_name_and_payload(
+    monkeypatch: pytest.MonkeyPatch, name: str
+) -> None:
+    code = address_module()
+    assert any(
+        r == "private-ip-address" for _, r in scan([("PYZ.pyz", b"z", pyz(code, name))]).findings
+    )
+    reviewed_fixture(monkeypatch, code, name)
+    assert not scan([("PYZ.pyz", b"z", pyz(code, name))]).findings
+    for changed, identity in [(address_module("extra = 1"), name), (code, "other." + name)]:
+        assert any(
+            r == "private-ip-address"
+            for _, r in scan([("PYZ.pyz", b"z", pyz(changed, identity))]).findings
+        )
+
+
+@pytest.mark.parametrize(
+    "value,rule",
+    [
+        (TERM, "private-denylist-term"),
+        ("/" + "/".join(["Users", "synthetic", "file"]), "absolute-home-path"),
+        ("api_" + "key=" + "synthetic_value", "credential-assignment"),
+    ],
+)
+def test_reviewed_module_retains_other_rules(
+    monkeypatch: pytest.MonkeyPatch, value: str, rule: str
+) -> None:
+    code = address_module(f"other = {value!r}")
+    reviewed_fixture(monkeypatch, code)
+    scanner = scan([("PYZ.pyz", b"z", pyz(code, "ipaddress"))])
+    assert {r for _, r in scanner.findings} == {rule}
+
+
+@pytest.mark.parametrize("surface", ["loader", "member", "other-module", "toc"])
+def test_reviewed_module_cannot_suppress_other_locations(
+    monkeypatch: pytest.MonkeyPatch, surface: str
+) -> None:
+    code = address_module()
+    reviewed_fixture(monkeypatch, code)
+    address = ".".join(["192", "168", "5", "8"]).encode()
+    data = pyz(code, "ipaddress")
+    if surface == "toc":
+        offset = struct.unpack_from("!I", data, 8)[0]
+        # Scan a marshal string before rejecting its use in an integer slot.
+        data = data[:offset] + marshal.dumps([("ipaddress", (0, 17, address.decode()))])
+        scanner = native.Scanner([])
+        with pytest.raises(native.InvalidArtifact):
+            scanner.pyz(data, "native", 0)
+        assert ("native/toc", "private-ip-address") in scanner.findings
+        return
+    if surface == "other-module":
+        offset = struct.unpack_from("!I", data, 8)[0]
+        packed = zlib.compress(code)
+        toc = [("ipaddress", (0, 17, offset - 17)), ("fixture", (0, offset, len(packed)))]
+        data = (
+            data[:8]
+            + struct.pack("!I", offset + len(packed))
+            + data[12:offset]
+            + packed
+            + marshal.dumps(toc)
+        )
+    entries = [("PYZ.pyz", b"z", data)]
+    if surface == "member":
+        entries.append(("data.txt", b"x", address))
+    scanner = scan(entries, prefix=b"\0" + address + b"\0" if surface == "loader" else b"")
+    expected = {
+        "loader": {"archive", "native"},
+        "member": {"native/pkg-1"},
+        "other-module": {"native/pkg-0/pyz-1"},
+    }
+    assert {loc for loc, r in scanner.findings if r == "private-ip-address"} == expected[surface]
+
+
+@pytest.mark.parametrize("failure", ["marshal", "trailing", "objects", "expanded", "findings"])
+def test_reviewed_payload_still_requires_complete_bounded_validation(
+    monkeypatch: pytest.MonkeyPatch, failure: str
+) -> None:
+    code = address_module()
+    if failure == "marshal":
+        code = marshal.dumps(".".join(["192", "168", "5", "8"]))
+    if failure == "trailing":
+        code += b"trailing"
+    reviewed_fixture(monkeypatch, code)
+    if failure == "objects":
+        monkeypatch.setattr(native, "MAX_OBJECTS", 10)
+    if failure == "expanded":
+        monkeypatch.setattr(native, "MAX_EXPANDED", 10)
+    if failure == "findings":
+        monkeypatch.setattr(native, "MAX_FINDINGS", 1)
+    scanner = native.Scanner([])
+    with pytest.raises(native.InvalidArtifact):
+        scanner.pyz(pyz(code, "ipaddress"), "native", 0)
+    if failure != "objects":
+        assert scanner.findings
+
+
+def test_reviewed_payload_is_not_exempt_outside_pyz(monkeypatch: pytest.MonkeyPatch) -> None:
+    code = address_module()
+    reviewed_fixture(monkeypatch, code)
+    assert "private-ip-address" in content_rule_ids(code, ())
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as archive_file:
+        archive_file.writestr("ipaddress", code)
+    scanner = native.Scanner([])
+    scanner.zip(buffer.getvalue(), "wheel", 0)
+    assert ("ipaddress", "private-ip-address") in scanner.findings
