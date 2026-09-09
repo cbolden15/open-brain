@@ -84,6 +84,8 @@ def cleanup() -> None:
     repository = Path(brew("--repository", TAP))
     if not repository.is_absolute():
         raise ValueError("Homebrew returned a non-absolute tap path")
+    if repository.is_symlink():
+        raise ValueError("reserved smoke tap is not smoke-owned; refusing cleanup")
     owned_names = [name for name in names if name.startswith(f"{TAP}/")]
     if not repository.exists():
         if owned_names:
@@ -91,8 +93,7 @@ def cleanup() -> None:
         return
     marker = repository / MARKER
     if (
-        repository.is_symlink()
-        or not marker.is_file()
+        not marker.is_file()
         or marker.is_symlink()
         or marker.read_bytes() != OWNERSHIP
     ):

@@ -217,6 +217,21 @@ def test_shell_refuses_foreign_tap_without_destructive_commands(
     assert not any(c[0] in ("uninstall", "untap", "install", "tap") for c in harness.commands())
 
 
+@pytest.mark.parametrize("dangling", [True, False])
+def test_shell_refuses_symlinked_tap(tmp_path: Path, dangling: bool) -> None:
+    harness = Harness(tmp_path)
+    foreign = tmp_path / "foreign-tap"
+    if not dangling:
+        foreign.mkdir()
+        (foreign / MARKER).write_bytes(OWNERSHIP)
+    (tmp_path / "tap").symlink_to(foreign, target_is_directory=True)
+    result = harness.run()
+    assert result.returncode != 0
+    assert "not smoke-owned; refusing cleanup" in result.stderr
+    assert (tmp_path / "tap").is_symlink()
+    assert not any(c[0] in ("uninstall", "untap", "install", "tap") for c in harness.commands())
+
+
 @pytest.mark.parametrize("formula", [True, False])
 def test_shell_recovers_owned_startup_residue(tmp_path: Path, formula: bool) -> None:
     harness = Harness(tmp_path)

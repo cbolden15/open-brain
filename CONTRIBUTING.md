@@ -29,7 +29,7 @@ The Homebrew check builds one native executable, audits its dependency inventory
 product journey, and writes a digest manifest. It installs a test-only, keg-only `open-brain-smoke`
 formula in the temporary `open-brain-local/smoke` tap and runs its unlinked binary by absolute path.
 It checks that an existing `open-brain` installation's prefix, version, link, and binary digest stay
-unchanged. If no product is installed, the check leaves it absent. Each normal or interrupted exit
+unchanged. If no product is installed, the check leaves it absent. Each normal exit and INT/TERM interruption
 cleans up smoke-owned Homebrew state; the next run recovers marked tap/formula residue after a forced
 termination. Do not run concurrent Homebrew smoke checks against the same Homebrew installation.
 
