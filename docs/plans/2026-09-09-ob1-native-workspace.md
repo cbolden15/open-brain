@@ -1,7 +1,8 @@
 # OB1 native Obsidian and Graphify workspace
 
-- Status: NW0-B1 closure/import proof passed with adapter constraints. NW0-C1 controls are mapped;
-  the note-dispatch gate remains closed. Frozen packaging and remaining NW0 gates are unproven.
+- Status: NW0-B1 closure/import proof passed with adapter constraints. NW0-C2 did not clear Codex
+  isolation; Codex subscription is deferred under the user-authorized scope change. Four launch
+  access paths remain required; Claude isolation, frozen packaging, and remaining NW0 gates are open.
 - Date: 2026-09-09.
 - Baseline: `708e30c9d1e736969e2bb0aa6f0454a5f4804489` on `goal/open-brain-five-minute-install`.
 - Planning branch: `docs/ob1-native-workspace-plan`.
@@ -24,11 +25,14 @@ Product roadmap confirmed by the user on 2026-09-09: Open Brain remains open-sou
 a cloud-hosted product offering is planned later. This integration milestone targets the OSS
 desktop product. Cloud LLM inference in that product is separate from hosting Open Brain itself.
 The future hosted offering does not make an Open Brain account or hosted backend a prerequisite
-for this milestone. DECIDED by the user on 2026-09-09: both API-key and subscription access must
-ship in the first release, covering OpenAI and Anthropic through their supported access paths.
-The user also added Google Gemini API-key support on 2026-09-09. The first-release matrix therefore
-contains five paths: three direct API adapters and two official-client subscription adapters.
-Hosted-service implementation is outside this plan.
+for this milestone. The user initially required five API-key/subscription paths, including Gemini API.
+During NW0-C2 on 2026-09-09, the user authorized deferring Codex subscription if its isolation work
+proved too costly. The coordinator selected that option after the offline control failures recorded
+in the [C2 audit](../audits/2026-09-09-ob1-nw0-c2-codex-preflight.md). The launch matrix now contains
+four paths: OpenAI API, Anthropic API, Claude subscription, and Gemini API. OpenAI remains available
+through its API-key path. Codex subscription is a later implementation with its isolation requirements
+preserved; it is not a launch setup option or NW0/NW2/NW3/NW4 exit dependency. Hosted-service
+implementation is outside this plan.
 
 The initial planning milestone produced the plan, grounded constraints, and bounded feasibility
 specification. The user's subsequent efficiency instruction authorizes applying the execution
@@ -323,7 +327,7 @@ portable; carry the effective per-note exclusions for existing notes and require
 review before enabling inference for future notes. Never include API keys or official-client
 sessions in exports. A policy change retains historical evidence without authorizing future calls.
 
-All five adapters must pass the final assembled prompt, including retrieved context, through the
+All four launch adapters must pass the final assembled prompt, including retrieved context, through the
 existing versioned cloud redaction/canary check before resolving inference credentials or launching
 a completion client. Separate login/status operations carry no note content.
 Reuse the behavior in `providers/base.py`; any replacement needs an explicit policy decision and
@@ -335,12 +339,12 @@ owner-local graph representation; operational digests and internal references st
 
 Both API-key and subscription access are first-release acceptance requirements. The earlier
 recommendation to defer Claude subscription access is superseded. Use one bounded semantic
-request/result contract with separate transports:
+request/result contract with separate transports. The later user-authorized Codex deferral narrows
+the launch matrix below; Claude subscription remains required:
 
 | Required access path | Integration boundary |
 |---|---|
 | OpenAI API key | Direct provider API adapter; usage billed to the user's API account. |
-| ChatGPT subscription | Official Codex runtime with provider-owned login and credential refresh. |
 | Anthropic API key | Direct provider API adapter; usage billed to the user's API account. |
 | Claude subscription | Unmodified Claude Code with the user's own provider-managed sign-in, under the applicable product-integration conditions. |
 | Google Gemini API key | Direct Gemini API adapter using the user's Google AI Studio API key and project quota/billing configuration. |
@@ -354,13 +358,14 @@ Google documents [API-key authentication](https://ai.google.dev/gemini-api/docs/
 [structured output](https://ai.google.dev/gemini-api/docs/structured-output); these are grounding
 references, not proof of the candidate's native compatibility or semantic quality.
 
-DECIDED by the user on 2026-09-09: setup detects an existing Codex or Claude Code login and offers
-to use it. Query each installed official client's supported authentication-status interface with
+The original login-reuse decision applies to Claude Code at launch; Codex detection/reuse moves
+with the deferred adapter. Query Claude Code's supported authentication-status interface with
 a bounded timeout; do not inspect or copy its credential cache. Detection itself must not submit
 notes or run billable inference. Show the detected provider and access mode, then let the user
-choose it before transmitting selected content. When both clients are available, offer both;
-keep API-key setup and fresh official-client sign-in available. Missing, expired, or indeterminate
-authentication must produce an actionable setup state rather than imply the account is ready.
+choose it before transmitting selected content. Keep API-key setup and fresh Claude Code sign-in
+available. Do not install, detect, or advertise Codex subscription during launch onboarding.
+Missing, expired, or indeterminate authentication must produce an actionable setup state rather
+than imply the account is ready.
 Do not treat successful login detection as proof of remaining quota or model availability.
 
 Read-only inspection of the existing agent-config workflow runtime found reusable authentication
@@ -381,10 +386,10 @@ The strongest shared-maintenance alternative is a separately licensed provider p
 both projects; compare its Node/runtime packaging cost before selecting it. Neither approach
 requires adopting the whole workflow orchestrator or a persistent router service.
 
-NW0 must provide a thin proof of all five paths on both platforms using synthetic notes: explicit
+NW0 must provide a thin proof of all four launch paths on both platforms using synthetic notes: explicit
 access selection, valid semantic output, attribution, privacy rejection, and isolation for the
-subscription paths.
-NW2/NW3 own the exhaustive fresh/existing login, neither/one/both-client detection, cancellation,
+Claude subscription path.
+NW2/NW3 own the exhaustive fresh/existing login, missing/present Claude-client detection, cancellation,
 expired-authentication, quota, and recovery matrices before their exits. Never silently switch from
 subscription to paid API usage or to another provider. Define an overall operation deadline across
 retries and fallback attempts.
@@ -393,7 +398,7 @@ Required client installation and authentication count toward the selected path's
 Runtime or policy obstacles require an explicit architecture resolution, not quietly dropping a
 required access path from the release.
 
-NW3 owns credential onboarding and lifecycle for all five paths. API keys belong in an existing
+NW3 owns credential onboarding and lifecycle for all four launch paths. API keys belong in an existing
 OS credential store where available, with session-only entry when it is unavailable; do not store
 keys in vault files, plugin settings, process arguments, exports, or logs. NW0 verifies the concrete
 macOS/Linux store interface and packaging impact before selecting it. Keep provider-specific
@@ -403,11 +408,12 @@ policy generation; never reuse another adapter's credentials implicitly.
 
 ### Subscription completion isolation
 
-Run Codex and unmodified Claude Code as bounded, tool-disabled completion transports. Supply only
+Run unmodified Claude Code as a bounded, tool-disabled completion transport at launch. The same
+contract applies to Codex when its deferred implementation resumes. Supply only
 the selected, policy-checked note context through private stdio; do not put note text or credentials
 in process arguments. Use an app-owned scratch directory outside the Brain/vault. Disable ambient
 instructions, hooks, skills, plugins, MCP connections, session resumption, and persistent prompt
-history. Neither model may invoke filesystem, shell, browser, network, or subagent tools. The
+history. The model may not invoke filesystem, shell, browser, network, or subagent tools. The
 official runtime may use its own authentication store and provider connection; this does not grant
 model/tool access to the host, home directory, Brain, or unrelated source trees.
 
@@ -415,7 +421,8 @@ NW0 selects and records exact client versions and supported launch controls, inc
 policy behavior, environment filtering, output bounds, process-tree cancellation, and transcript/log
 retention. Claude bare mode alone is unsuitable for subscription login; safe mode plus separate
 tool/MCP and persistence controls is a candidate, not a proven recipe. Verify equivalent controls
-for Codex. Reject incompatible client versions/configurations before submitting note content.
+for Codex before its later release. Reject incompatible client versions/configurations before
+submitting note content.
 Preserve all provider-supported authentication methods; do not modify clients or relay their tokens.
 
 NW0-C1's [installed-client audit](../audits/2026-09-09-ob1-nw0-c1-client-isolation.md) found that
@@ -500,22 +507,23 @@ restarting those milestones or resetting experiment budgets.
 1. Resolve the expensive risks first. Start NW0-B packaging and NW0-C official-client isolation
    before substantial UI work. NW0-A may establish the minimum snapshot, consent, and revision
    contracts in parallel with read-only investigations. Complete the thin proof for OpenAI API,
-   Codex subscription, Anthropic API, Claude subscription, and Gemini API on both targets before
+   Anthropic API, Claude subscription, and Gemini API on both targets before
    NW0 exits. Limit early presentation work to the NW0-D feasibility comparison; UI polish waits
-   until packaging and both subscription boundaries have passed.
+   until packaging and Claude subscription isolation have passed. Preserve C1/C2 evidence for
+   deferred Codex work.
 2. Build one complete vertical slice: capture → infer connection → display source evidence →
    explicitly accept a permanent link → verified export. Use a deterministic fake provider against
    the shared contract during development, including consent denial, exclusions, stale revisions,
    and idempotent acceptance. Inference alone must leave note bytes unchanged. NW0 prototypes the
    flow with disposable code; NW1 implements its engine operations; early NW2 connects the minimal
    presentation and exercises real adapters through the same flow before broadening UI in NW3.
-   Fake-provider success is development evidence only. All five real paths remain required.
+   Fake-provider success is development evidence only. All four launch paths remain required.
 3. Reuse existing EngineTaskSet operations, provider interfaces, privacy checks, and Portable Brain
    records before adding contracts. Inspect agent-config authentication, isolation, cancellation,
    attribution, and attempt-budget code and tests before writing equivalents; record what is reused
    and what fails this product's boundary. Keep the orchestration runtime out of the distribution.
    Use one semantic dataset with format-specific fixtures and one parameterized adapter contract
-   suite across all five paths, plus focused provider-specific tests.
+   suite across all four launch paths, plus focused provider-specific tests.
 4. Keep the fast loop on this Mac. Use existing Linux x86_64 CI for builds/tests and the agreed UTM
    guest for Linux GUI checks. Run focused tests during iteration, then every required project
    check at milestone completion. Repeat slow desktop journeys at NW0-D, integrated NW2/NW3,
@@ -564,7 +572,7 @@ actions occur only under the authorized NW0 execution scope, using synthetic not
 |---|---|---|
 | NW0-A: durable state and privacy | 8 hours: the dedicated vault can preserve identity, revisions, restrictions, and owner decisions using a compatible portable representation | Compare sibling projection with a dedicated canonical subtree. Demonstrate one create/edit, edit conflict, delete/restart/restore, accepted link, and export/import sequence. Prove consent/revocation, mixed-source selection, canary rejection, and restored consent remaining inactive with local test doubles. Stop on unresolved schema/authority semantics; do not build the full editor. |
 | NW0-B: packaging and startup | 8 hours: Graphify can be bounded without regressing the base executable | Pin source/wheel/dependencies; build both targets and inventory the full closure. Compare in-process, self-invoked, and separate-helper candidates. Record archive/expanded sizes, signatures, cold/warm startup samples, and failure cleanup. Stop a candidate that fails package or startup limits. |
-| NW0-C: five inference paths | 8 hours: all five access paths can implement one bounded semantic contract | For each path on each platform, record exact client/API/model versions, explicit auth selection, structured-output validation, initial/incremental latency, and usage. Prove subscription isolation with hostile notes and ambient-config canaries. Stop affected dispatch on privacy, confinement, attribution, or quota failure. |
+| NW0-C: four launch inference paths | 8 hours: all four launch access paths can implement one bounded semantic contract | For each path on each platform, record exact client/API/model versions, explicit auth selection, structured-output validation, initial/incremental latency, and usage. Prove subscription isolation with hostile notes and ambient-config canaries. Stop affected dispatch on privacy, confinement, attribution, or quota failure. |
 | NW0-D: Obsidian presentation and setup | 6 hours: the chosen desktop integration can activate and navigate within the product journey | Run one installation/activation/source-navigation journey per desktop. Compare Canvas and local HTML against evidence display and link acceptance; select the shipping surface(s) explicitly. Record prompts, cold versus reused setup timings, and runtime downloads. Do not substitute hosted CLI CI for GUI evidence. |
 | NW0-E: decision record and coverage | 2 hours: every architecture-changing question has evidence and an implementation owner | Freeze note identity, revision/link/deletion compatibility, conflict promotion, consent/credential lifecycle, exclusions, MCP capabilities, shared budgets, package closure, startup bounds, presentation/protocol, and timed-journey scope. Map unresolved failures to a stopped experiment rather than declare NW0 passed. |
 
@@ -572,8 +580,11 @@ Use one bounded dataset with related unlinked notes, an unrelated distractor, cr
 and duplicate basenames. Separate hostile/redaction canaries from the eligible semantic corpus.
 Start with at most 16 KiB of selected note input and 16 KiB of accepted output per model attempt,
 60 seconds per attempt, two attempts and 90 seconds total per probe. Reserve capacity before each
-dispatch: at most 80 model attempts across NW0, and 16 per access path, including retries. Stop on
-the first exhausted limit. These are experiment limits, not advertised provider billing caps.
+dispatch: retain the original 80-attempt outer ceiling and 16 per access path, including retries.
+The four active launch paths therefore have at most 64 attempts; the deferred Codex allowance is
+not transferred to them. The initial/incremental matrix reserves 32 attempts across the two platforms.
+All C1/C2 effort already spent remains charged to NW0-C. Stop on the first exhausted limit.
+These are experiment limits, not advertised provider billing caps.
 Credential entry, consent tests, and denied canaries must not spend an inference attempt.
 
 For NW0-C, run three initial-graph samples and one incremental sample per path/platform, reserving
@@ -593,7 +604,7 @@ journeys. Compare each candidate with its baseline under the same recorded runne
 UTM measurements establish regression evidence for that emulated environment only. Exceeding
 the budgets triggers helper-architecture reconsideration, not removal of the benchmark.
 
-NW0 exit requires evidence for A–E, all five access paths on both targets, both desktop environments,
+NW0 exit requires evidence for A–E, all four launch access paths on both targets, both desktop environments,
 and no unresolved decision affecting durable schema or first-release acceptance. A missing environment
 or exhausted budget leaves the corresponding experiment incomplete. It does not authorize dropping
 a provider, subscription mode, platform, or setup step. NW0 proves feasibility; NW4 alone establishes
@@ -605,8 +616,8 @@ the final integrated five-minute result with release candidates.
 |---|---|---|
 | Workspace revisions, durable consent/revocation, exclusions, policy generation, and shared budgets | NW1 | Restart/export/import preserve identity and restrictions; restored consent is inactive; mixed-source and unauthorized requests fail closed. |
 | Caller capability matrix and MCP process limits | NW1, with NW2 provider-call assertions | Disabled tools absent; no owner mutation via MCP; limit/revocation failures make zero provider calls. |
-| OpenAI API, Codex subscription, Anthropic API, Claude subscription, and Gemini API adapters | NW2 | All five share semantic/privacy tests; both subscription clients pass isolation; no silent fallback or credential cross-use. |
-| Model-client installation/discovery, API-key custody, login detection/reuse, provider and exclusion setup, credential replacement/removal | NW3 | Fresh/reused onboarding and error flows pass on both desktops for all five paths, including credential-store absence. |
+| OpenAI API, Anthropic API, Claude subscription, and Gemini API adapters | NW2 | All four share semantic/privacy tests; Claude subscription passes isolation; no silent fallback or credential cross-use. |
+| Model-client installation/discovery, API-key custody, login detection/reuse, provider and exclusion setup, credential replacement/removal | NW3 | Fresh/reused onboarding and error flows pass on both desktops for all four launch paths, including credential-store absence. |
 | Integrated product, security documentation, and five-minute acceptance | NW4 | Exact-candidate platform/access matrix, updated threat/privacy contracts, and release evidence meet the unchanged product outcome. |
 
 ### NW1: implement the managed-workspace engine contract
@@ -633,8 +644,8 @@ the final integrated five-minute result with release candidates.
 
 ### NW2: implement bounded Graphify projection and local presentation
 
-1. Add the pinned Graphify adapter and all five model-access adapters: OpenAI API, Codex
-   subscription, Anthropic API, Claude subscription, and Gemini API. Consume validated snapshots
+1. Add the pinned Graphify adapter and all four launch model-access adapters: OpenAI API,
+   Anthropic API, Claude subscription, and Gemini API. Consume validated snapshots
    and effective privacy decisions; share schema validation, redaction, budgets, cancellation,
    attribution, and error semantics. Enforce the verified subscription launch controls.
 2. Connect the smallest complete vertical slice to the presentation and run each real adapter through
@@ -652,7 +663,7 @@ the final integrated five-minute result with release candidates.
    for every applicable adapter. Prove deterministic structural rebuilds separately from semantics.
 5. Run `make verify`, native build, Homebrew smoke, and bounded artifact inspection. Repeat both
    target builds when the dependency closure changes; do not relax native audit limits to pass.
-   NW2 cannot exit until all five adapters pass their applicable shared and provider-specific cases.
+   NW2 cannot exit until all four launch adapters pass their applicable shared and provider-specific cases.
 
 ### NW3: ship the thin Obsidian plugin and setup flow
 
@@ -660,7 +671,7 @@ the final integrated five-minute result with release candidates.
    and the approved binary discovery/protocol contract. Implement the app-owned model-client
    installation flow and plugin-facing discovery,
    provider/access selection, bounded login detection/reuse, API-key custody/replacement/removal,
-   and consent/exclusion onboarding for all five paths. Keep raw keys out of plugin settings.
+   and consent/exclusion onboarding for all four launch paths. Keep raw keys out of plugin settings.
 2. Implement capture/search/refresh/navigation, conflict comparison and explicit resolution,
    stale-graph state, automatic refresh with edit batching, persistent pause, and one-shot manual
    refresh. Add suggestion review and explicit acceptance with a preview of the permanent note edit.
@@ -676,11 +687,11 @@ the final integrated five-minute result with release candidates.
    link, and changed source revisions prevent stale acceptance. Verify both conflict versions
    survive restart, unrelated notes remain usable, concurrent edits reject stale resolutions,
    and repeated resolution does not create duplicate revisions. Cover missing/expired credentials,
-   neither/one/both subscription clients authenticated, provider switching, quota failure, and
+   Claude client missing, unauthenticated, or authenticated, provider switching, quota failure, and
    session-only key entry when the OS store is unavailable.
 5. Run actual Obsidian GUI journeys on both target desktops. A mocked plugin or CLI smoke cannot
    establish that the app opened, the plugin activated, or source navigation worked. NW3 cannot
-   exit until fresh/reused onboarding passes for all five paths on both desktops.
+   exit until fresh/reused onboarding passes for all four launch paths on both desktops.
 
 ### NW4: accept the revised five-minute product and prepare release
 
@@ -705,7 +716,7 @@ the final integrated five-minute result with release candidates.
 Extend the existing semantic fixture approach with synthetic source facts, then materialize distinct
 Markdown, SQLite, CLI/MCP JSON, plugin, graph, and Portable Brain fixtures. Do not force their formats
 into one physical fixture. Never use personal vault content, real captures, or private host paths.
-Parameterize the shared adapter suite over all five access paths. Keep schema/privacy/selection,
+Parameterize the shared adapter suite over all four launch access paths. Keep schema/privacy/selection,
 deadlines, cancellation, budget accounting, attribution, and stale-result assertions common;
 add focused tests for each provider's transport, authentication, and output behavior. Use deterministic
 fake responses for fast iteration and the same input/result contract for bounded real-provider probes.
@@ -744,7 +755,7 @@ Record ordinary wall-clock elapsed time from the declared installation start thr
 Use a bounded synthetic corpus of related unlinked notes and an unrelated distractor. Include required
 cloud-provider onboarding and first semantic processing in the clock. Run the journey separately
 for each required provider/access path on each supported platform; a user configures only their
-chosen path, not all five. DECIDED by the user on 2026-09-09: the clock includes installing Obsidian
+chosen path, not all four. DECIDED by the user on 2026-09-09: the clock includes installing Obsidian
 when missing, plugin activation, and model sign-in or API-key setup. It also includes installation
 of the selected official model client when required. Reuse compatible existing installations and
 offer detected logins, but record those faster journeys separately from missing-app/fresh-login
@@ -830,11 +841,11 @@ two of four lenses; this revision does not claim a new independent review or suc
 | Cloud consent and privacy | Effective request policy, durable restrictions, restoration semantics, final-prompt scan; NW0-A and NW1/NW2. |
 | Subscription-client isolation | Tool-disabled completion, ambient-context controls, credential ownership, hostile-input proof; NW0-C and NW2. |
 | MCP authority and budgets | Explicit capability matrix, new opt-ins and process/shared limits; NW0-E and NW1/NW2. |
-| Implementation ownership | Requirement ownership matrix and explicit five-adapter/onboarding exit gates in NW1–NW4. |
+| Implementation ownership | Requirement ownership matrix and explicit four-adapter/onboarding exit gates in NW1–NW4. |
 | Bounded feasibility work | NW0-A–E effort/request limits, named desktop target and provisioning dependency, startup measurements, explicit stop conditions. |
 
-Next action: run NW0-C2's zero-inference Codex catalog and policy preflight; C1's remaining
-enforcement gaps must close before a synthetic subscription call.
+Next action: continue the bounded Claude policy/retention preflight against C1's remaining controls;
+keep note dispatch closed until those mechanisms are established. Codex work is deferred.
 Preserve completed NW0-B1 evidence and its required adapter controls; provision the agreed
 UTM guest before Linux GUI checkpoints without blocking local packaging work. Run a formal review
 of the completed NW0 decision record before executing NW1.

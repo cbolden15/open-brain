@@ -1,14 +1,16 @@
 # OB1 native workspace NW0 decision record
 
 - Status: open. NW0-B1 closure/import proof passed with required integration controls.
-  NW0-C1 control mapping is complete; the note-dispatch gate remains closed.
-  Frozen packaging and subscription isolation remain unproven.
+  NW0-C2 did not establish Codex isolation; Codex subscription is deferred under the subsequent
+  user-authorized scope change. Four launch access paths remain required; Claude isolation and
+  frozen packaging remain unproven.
 - Authority: [native workspace plan](2026-09-09-ob1-native-workspace.md), including the user's
-  implementation-efficiency guidelines and all five required model-access paths.
+  implementation-efficiency guidelines and the subsequent user-authorized Codex deferral.
 - Starting revision: `3468115` on `docs/ob1-native-workspace-plan`.
-- Latest checkpoint: NW0-C1 ran from `a38e8fa` on macOS arm64 with installed official clients,
-  generated schemas, pinned source inspection, and network-denied synthetic startup probes.
-  Zero model calls, account inspection, product implementation, or VM provisioning.
+- Latest checkpoint: NW0-C2 ran from `243b913` on macOS arm64 with an isolated official Codex
+  app-server, synthetic instruction canaries, and offline configuration/thread probes. Zero model
+  calls, account inspection, product implementation, or VM provisioning. Codex probing stopped
+  when the coordinator selected the user-authorized deferral option.
 
 ## Established state
 
@@ -100,19 +102,37 @@ and active cancellation proof. Safe mode does not suppress Claude's managed hook
 test sandbox verified selected denials but excluded real credentials and local managed policy;
 it proves neither subscription compatibility nor a shipping containment mechanism. No note content
 or user/model turn was submitted. The existing staged-asset port is an interface and authority
-check, not an implemented OS sandbox. No path is dropped and no confinement exception is selected.
+check, not an implemented OS sandbox. At C1, no path was dropped and no confinement exception
+was selected. The subsequent C2 scope decision below supersedes the five-path launch requirement.
+
+## NW0-C2 result and authorized launch-scope change
+
+The [C2 audit](../audits/2026-09-09-ob1-nw0-c2-codex-preflight.md) records two successful offline
+Codex processes, two retained configuration rejections, and the probe-harness recovery. The valid
+thread was ephemeral and idle, with no turns, hooks, or MCP servers. It still listed the synthetic
+user-level `AGENTS.md` as an instruction source and attempted a host-skills scan that the sandbox
+denied. The complete model-visible tool inventory and incompatible-managed-policy rejection remain
+unproven. No model request was sent.
+
+During C2 the user authorized deferring Codex subscription if the isolation work proved too costly.
+The coordinator selected that option based on these results. Launch now requires **OpenAI API,
+Anthropic API, Claude subscription, and Gemini API**. Codex subscription, its installation/login
+onboarding, and its acceptance matrix move to a later implementation; no placeholder ships. Its
+future isolation requirements and the C1/C2 evidence remain available. This is an explicit scope
+change, not a passed gate or a relaxation of the remaining adapters' privacy requirements.
 
 ## Unproven gates and pass/fail criteria
 
 | Gate | Evidence required to pass | Fail or incomplete condition |
 |---|---|---|
 | NW0-B: native Graphify packaging | Pin source `3f82bf7f837a07fb0f7668fbdbd5662801906942` / `graphifyy==0.9.57` and verify their correspondence. Record dependency versions/hashes and full frozen closure on macOS arm64 and Linux x86_64. Execute root-aware extraction on selected synthetic Markdown, resolve IDs/links, bound output/cache/process lifetime, and audit final artifacts. Compare in-process, self-invoked, and separate-helper boundaries with five cold/five warm baseline/candidate samples. Meet existing archive/audit limits and additional median startup budgets of 500 ms cold/200 ms warm. | Missing dependency/resource, unresolved pin mismatch, incorrect links, forbidden modules, audit failure, orphan work, or exceeded startup/size limit rejects the candidate. Source import alone leaves frozen packaging incomplete. Missing Linux candidate evidence leaves the gate incomplete. |
-| NW0-C: Codex subscription isolation | Unmodified official client uses explicit subscription selection and private stdio, returns schema-valid edges/evidence and recorded model attribution, and meets common privacy/budget bounds. Controlled hostile notes and ambient canaries establish no model tool access/effects, unrelated context loading, extra egress, or persistent prompt history. Verify managed-policy behavior and process-tree cancellation. | Read-only sandbox or successful login alone is insufficient. Any missing confinement control stops note dispatch; tool activity, retained prompt, unrelated context, credential relay, or API fallback fails the probe. |
+| Deferred: Codex subscription isolation (not a launch gate) | Unmodified official client uses explicit subscription selection and private stdio, returns schema-valid edges/evidence and recorded model attribution, and meets common privacy/budget bounds. Controlled hostile notes and ambient canaries establish no model tool access/effects, unrelated context loading, extra egress, or persistent prompt history. Verify managed-policy behavior and process-tree cancellation. | Read-only sandbox or successful login alone is insufficient. Any missing confinement control stops note dispatch; tool activity, retained prompt, unrelated context, credential relay, or API fallback fails the probe. |
 | NW0-C: Claude subscription isolation | Same contract as Codex, through the unmodified official Claude client. Verify safe-mode/tool/MCP/persistence controls together while retaining client-owned subscription authentication; test managed settings explicitly. | Agent SDK configuration, CLI help, or bare mode alone is insufficient. The same isolation failures stop dispatch; no OAuth-token handoff or silent API fallback is allowed. |
-| NW0-C: all five access paths | OpenAI API, Codex subscription, Anthropic API, Claude subscription, and Gemini API each run three initial samples and one incremental sample per platform through the common schema and selection boundary. All accepted edges resolve to input IDs/evidence; the known related connection appears in at least two of three initial samples, with no accepted distractor edge. Prove denied input causes zero inference, plus explicit access/model attribution and provider-specific output validation. | A missing path/platform, schema/provenance error, privacy failure, silent fallback, or unmet quality criterion leaves that path failed/incomplete. A deterministic fake does not pass a real-provider gate. |
+| NW0-C: four launch access paths | OpenAI API, Anthropic API, Claude subscription, and Gemini API each run three initial samples and one incremental sample per platform through the common schema and selection boundary. All accepted edges resolve to input IDs/evidence; the known related connection appears in at least two of three initial samples, with no accepted distractor edge. Prove denied input causes zero inference, plus explicit access/model attribution and provider-specific output validation. | A missing path/platform, schema/provenance error, privacy failure, silent fallback, or unmet quality criterion leaves that path failed/incomplete. A deterministic fake does not pass a real-provider gate. |
 | Vertical slice and desktop integration | Capture → infer connection → display evidence → explicit permanent-link acceptance → verified export. Run deterministic fake responses first, then all real adapters through the same operations. Inference preserves note bytes; acceptance checks current revisions, is idempotent, and exports durable provenance. Consent denial and exclusions prevent selection/dispatch. Actual Obsidian activation/navigation runs on both desktops at the planned checkpoints. | A graph screenshot without source evidence, direct note writes during inference, missing exported link/provenance, or bypassed consent fails the slice. Headless/mocked results cannot substitute for GUI evidence or the final 300-second journey. |
 
-Failures are results, not permission to omit a path, weaken confinement, or relax artifact limits.
+Failures alone do not authorize omitting a required launch path, weakening confinement, or relaxing
+artifact limits. Codex deferral is the separately recorded user-authorized scope exception.
 The complete native, subscription, and desktop proofs remain unproven after this checkpoint.
 
 ## Smallest next experiments
@@ -124,19 +144,17 @@ The complete native, subscription, and desktop proofs remain unproven after this
    `graphify.extract.extract(..., parallel=False)` within 60 seconds, 16 KiB selected input,
    and 16 KiB accepted output per case. Versions/hashes, links/IDs, cache effects, and the
    required integration controls are recorded above. Frozen packaging remains open.
-2. **NW0-C1: completed mapping; gate closed.** Preserve its audit and offline receipts.
-   Next is **NW0-C2**, at most 45 minutes from the remaining NW0-C allocation: prove Codex's
-   complete pre-dispatch tool inventory and effective policy with explicit configuration/model
-   inputs and synthetic ambient/managed canaries. Require an empty catalog, no ambient effects,
-   and deterministic policy-conflict rejection. If the interface cannot establish these, record
-   the concrete staged-executor design and credential-access constraint for review. No model calls.
-3. **First bounded real subscription probes.** Once every C1 boundary has a concrete enforcement
-   mechanism and the user-selected account is ready,
-   run one synthetic hostile-input completion per official client. Reserve each actual attempt
-   before dispatch; enforce all existing byte/time limits. Observe process/tool/network/retention
-   effects, not only final text. A privacy rejection makes zero inference calls; an eligible hostile
-   note testing confinement spends one reserved call. Preserve enough capacity for the required
-   initial/incremental matrix; do not repeat already accepted samples under equivalent conditions.
+2. **NW0-C1/C2: recorded; Codex deferred.** Preserve both audits and their receipts. Next is a
+   bounded Claude policy/retention preflight using C1's no-schema candidate and synthetic managed,
+   hook, routing, and writable-location controls. Cap this follow-up at 45 minutes from remaining
+   NW0-C effort, with zero model calls. Establish concrete mechanisms before sending note content;
+   a missing control stops dispatch and requires a documented architecture resolution.
+3. **First bounded real Claude subscription probe.** Once its C1 boundaries have concrete enforcement
+   mechanisms and the user-selected account is ready, run one synthetic hostile-input completion.
+   Reserve each actual attempt before dispatch; retain all byte/time limits. Observe process/tool,
+   network, and retention effects. Privacy rejection makes zero inference calls; eligible hostile
+   input spends a reserved call. Codex receives no calls while deferred. Preserve the mandatory
+   four-path initial/incremental matrix and do not repeat accepted samples without a relevant change.
 4. **Frozen candidate and complete thin matrix.** Build the first candidate from B1, audit its full
    closure and run baseline/candidate startup checks on this Mac and existing Linux x86_64 CI.
    Compare the other packaging boundaries before selecting the architecture. Complete thin proofs
@@ -153,8 +171,9 @@ The complete native, subscription, and desktop proofs remain unproven after this
 These are substeps of the existing NW0 allocations, not extra budgets or new milestones. Preserve
 32 engineer-hours total (A 8, B 8, C 8, D 6, E 2), 80 actual model attempts total and 16 per access
 path, 16 KiB selected input/accepted output per attempt, 60 seconds per attempt, at most two attempts
-and 90 seconds total per probe. The mandatory initial/incremental matrix reserves 40 calls; isolation
-and recovery draw from the remaining capacity. Effort is a stop limit, never a delivery estimate.
+and 90 seconds total per probe. Four active launch paths allow at most 64 attempts; Codex's unused
+allowance is not transferred. The mandatory initial/incremental matrix reserves 32 calls; isolation
+and recovery draw from the remaining active capacity. C1/C2 effort remains charged. Effort is a stop limit, never a delivery estimate.
 Keep one cumulative private effort/attempt ledger across resumed sessions and workers.
 
 ## Reuse decisions and implementation guardrails
@@ -185,6 +204,6 @@ completion, including native build and Homebrew smoke for packaging changes. Exi
 runs `make contributor-check`; UTM supplies Linux desktop evidence. Do not rerun slow desktop
 journeys until an integration checkpoint or a relevant change invalidates prior evidence.
 
-Next action: run NW0-C2's zero-inference Codex catalog and policy preflight. Preserve C1's unresolved
-Claude/authentication boundaries; no note dispatch until all required mechanisms are established.
+Next action: run the bounded Claude policy/retention preflight from C1; no note dispatch until
+its required mechanisms are established. Codex subscription is deferred.
 NW0-B still requires frozen candidate comparison and native Linux evidence.

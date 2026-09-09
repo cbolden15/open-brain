@@ -1124,3 +1124,21 @@ gate, and a staged-executor interface does not supply OS confinement.
 
 Discovered: 2026-09-09, NW0-C1 source/control inspection and synthetic macOS startup probes.
 See the [control audit](../../audits/2026-09-09-ob1-nw0-c1-client-isolation.md).
+
+### INTEGRATION-005: Project instruction limits do not suppress Codex home instructions
+
+Symptom: A Codex thread with no environments, no runtime roots, and zero project-document bytes
+still reports the client-state `AGENTS.md` as an instruction source.
+
+Cause: The `0.153.4` home-instruction provider loads global instructions independently of the
+project-document byte setting. C2 also observed a denied host-skills discovery attempt with the
+proposed skill-suppression flags. Empty hook/MCP inventories do not establish empty model context.
+
+Fix: Test user-level and project-level canaries separately. Keep discovery effects, loaded
+instructions, model tool catalogs, and runtime persistence as separate assertions. A future Codex
+adapter needs verified runtime/auth separation or a supported completion interface; copying tokens
+into an empty client-state directory is not an acceptable workaround. Codex subscription is deferred
+under the user-authorized C2 scope change.
+
+Discovered: 2026-09-09, synthetic NW0-C2 offline thread probe and pinned source inspection.
+See the [C2 audit](../../audits/2026-09-09-ob1-nw0-c2-codex-preflight.md).
