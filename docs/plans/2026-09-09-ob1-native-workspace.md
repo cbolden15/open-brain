@@ -211,6 +211,15 @@ request/result contract with separate transports:
 | Anthropic API key | Direct provider API adapter; usage billed to the user's API account. |
 | Claude subscription | Unmodified Claude Code with the user's own provider-managed sign-in, under the applicable product-integration conditions. |
 
+DECIDED by the user on 2026-09-09: setup detects an existing Codex or Claude Code login and offers
+to use it. Query each installed official client's supported authentication-status interface with
+a bounded timeout; do not inspect or copy its credential cache. Detection itself must not submit
+notes or run billable inference. Show the detected provider and access mode, then let the user
+choose it before transmitting selected content. When both clients are available, offer both;
+keep API-key setup and fresh official-client sign-in available. Missing, expired, or indeterminate
+authentication must produce an actionable setup state rather than imply the account is ready.
+Do not treat successful login detection as proof of remaining quota or model availability.
+
 Read-only inspection of the existing agent-config workflow runtime found reusable authentication
 mode selection, sanitized child environments, provider readiness checks, structured output,
 cancellation, attempt limits, and model attribution. Its `src/auth.ts`, `src/adapter.ts`,
@@ -226,7 +235,8 @@ both projects; compare its Node/runtime packaging cost before selecting it. Neit
 requires adopting the whole workflow orchestrator or a persistent router service.
 
 NW0 must prove all four paths on the supported platforms using synthetic notes, including fresh
-sign-in or key setup, valid semantic output, cancellation, expired authentication, quota exhaustion,
+sign-in or key setup, detection with neither/one/both clients authenticated, explicit selection,
+valid semantic output, cancellation, expired authentication, quota exhaustion,
 and unambiguous usage attribution. Never silently switch from subscription to paid API usage or
 to another provider. Define an overall operation deadline across retries and fallback attempts.
 Keep subscriptions owned by the official clients; Open Brain must not collect their session tokens.
