@@ -1,19 +1,20 @@
 # OB1 native workspace NW0 decision record
 
-- Status: open. Metadata preflight completed; no runtime feasibility gate has passed.
+- Status: open. NW0-B1 closure/import proof passed with required integration controls;
+  frozen packaging and subscription isolation remain unproven.
 - Authority: [native workspace plan](2026-09-09-ob1-native-workspace.md), including the user's
   implementation-efficiency guidelines and all five required model-access paths.
 - Starting revision: `3468115` on `docs/ob1-native-workspace-plan`.
-- Scope of this checkpoint: source/evidence inventory, bounded installed-client version/help probes,
-  and remaining experiment contracts. No model calls, product implementation, or VM provisioning.
+- Latest checkpoint: NW0-B1 ran from `d462a3a` on macOS arm64 with a disposable Python 3.14.4
+  environment and synthetic fixtures. No model calls, product implementation, or VM provisioning.
 
 ## Established state
 
 Completed product work and prior planning/review remain complete. The planning workstream ended at
 `ae9df14`; the review workstream ended at `b87e47a`. The current branch contains the subsequent
 review corrections, Gemini addition, and Mac-host selection. Those older receipts are historical
-evidence, not instructions to repeat resolved decisions. No NW0 runtime proof was found in the
-native-workspace workstreams inspected at this checkpoint.
+evidence, not instructions to repeat resolved decisions. The initial preflight found no prior NW0
+runtime proof; the subsequent B1 experiment below supplies the first closure/import evidence.
 
 The current lockfile contains PyInstaller `6.22.2` and hooks `2026.7`; it contains no Graphify
 dependency. Existing native audit limits remain 64 MiB input/member and 256 MiB expanded, with
@@ -28,6 +29,57 @@ are disabled. Claude's help advertises `--safe-mode`, `--tools ""`, `--strict-mc
 `--no-session-persistence`; safe mode still permits managed settings. These remain candidate
 controls requiring behavioral proof. No authentication status, account identity, credentials,
 or live model availability was inspected. Private evidence retains the exact help output.
+
+## NW0-B1 result: closure/import works; raw output needs the engine adapter
+
+The bounded source-import experiment passed on this Mac. Direct use of the full vault as the scan
+root and publication of raw upstream links failed Open Brain's selection/link requirements. These
+are required adapter controls, not launch-scope exceptions. B1 does not pass the full NW0-B native
+packaging gate.
+
+| Measurement | Observed result |
+|---|---|
+| Pin correspondence | All 221 files inside the wheel's `graphify/` package, including 86 Python modules, matched source commit `3f82bf7f837a07fb0f7668fbdbd5662801906942` byte-for-byte. Wheel SHA-256: `f35c86410e7d92ace69a50ac8dbed568903c880482c656f43437ca657fee8c37`. |
+| Dependency closure | 30 distributions resolved and installed from wheels with a hash-locked requirements file; `uv pip check` passed and installed RECORD hashes verified. Installed distribution files total 110,802,512 bytes. This excludes the interpreter and is not a frozen/archive size measurement. |
+| Synthetic extraction | Six selected notes, 691 input bytes, 12 nodes and 12 edges, 6,103 graph-output bytes. Qualified links with heading/display text and cross-folder bare links resolved to the expected selected pages. |
+| Process timings | First empty-Graphify-cache process: 0.792 seconds; cached process: 0.293 seconds. Relocated/shared-cache, full-vault negative control, and incremental-edit cases each completed in 0.286–0.295 seconds. These are diagnostic source-process samples, not native startup medians or five-minute acceptance evidence. |
+| Verification | Five bounded process cases and 20 persisted-evidence assertions passed. Each process stayed below 60 seconds and 16 KiB response output. Graphify preserved source bytes, read only selected note bodies, made no observed Python-level network/subprocess attempts, and wrote only the private cache. Zero model calls. |
+
+One semantic dataset materialized an eligible snapshot, a relocated snapshot, and a synthetic vault
+with excluded/generated canaries. A separate incremental copy added one explicit link. Cached and
+uncached output matched; selected-page mappings stayed stable across relocation and the edit; the
+new link appeared. No semantic connection was fabricated between the unlinked related notes.
+The dependency lock, installed-file hashes, scripts, dataset, raw results, and verification receipt
+are retained in the private B1 workstream. No product dependency or native build specification changed.
+
+Required controls established by the experiment:
+
+1. **Stage only eligible sources under the scan root.** With the full synthetic vault as `root`,
+   Graphify scanned the excluded folder and resolved a link to an unselected note, despite receiving
+   only selected paths. It did not read that note's body. Passing an isolated eligible snapshot
+   prevented that lookup. A selected path list alone is not the exclusion boundary.
+2. **Keep link resolution and publication under engine control.** `[[shared]]` selected
+   `alpha/shared.md` over another same-basename note without an ambiguity diagnostic. The tested
+   frontmatter alias remained unresolved. Unresolved target IDs encoded the absolute snapshot path
+   and changed after relocation. Resolve supported aliases, detect ambiguity, map accepted endpoints
+   to Brain IDs, and emit path-free diagnostics for unresolved/excluded targets before publication.
+   Never accept an upstream tie-break or path-derived dangling ID as a permanent link.
+3. **Keep the cache private and rebuildable.** B1 verified cache reuse, relocation, and a source-body
+   edit; it did not establish all rename/delete/exclusion-change invalidation semantics. Cache files
+   belong outside the snapshot and must not be exported or reused across an incompatible snapshot,
+   policy, or adapter version. Those lifecycle checks remain in the existing NW0/NW1/NW2 contracts.
+4. **Retain a process boundary as a packaging candidate.** Markdown extraction loaded 46 Graphify
+   modules and raised the process recursion limit from 1,000 to 10,000. A self-invoked helper contains
+   those globals while preserving the current archive shape; a separate helper gives the stronger
+   module boundary at the cost of a release-contract change. In-process integration remains the
+   comparison baseline. B1 selects none of these: frozen closure, audit, startup, and cleanup evidence
+   must determine the architecture.
+
+The Python audit hook recorded and denied out-of-scope Python I/O for this structural probe. It is
+not an OS sandbox or proof of subscription-client confinement. Linux execution, frozen extraction,
+artifact/signature audits, five cold/five warm base-startup samples, semantic quality, and actual
+Obsidian journeys remain unproven. The original 45-minute limit is a stop limit; completion of this
+bounded probe does not require consuming the remaining time.
 
 ## Unproven gates and pass/fail criteria
 
@@ -44,14 +96,13 @@ The complete native, subscription, and desktop proofs remain unproven after this
 
 ## Smallest next experiments
 
-1. **NW0-B1: closure and import on this Mac.** Reserve at most 45 minutes from NW0-B's remaining
-   eight-hour allocation. Use a disposable environment and the plan's synthetic Markdown dataset.
-   Verify the source/package pin, resolve the full dependency closure, and invoke the root-aware
-   `graphify.extract.extract(..., parallel=False)` facade on selected paths. Record versions/hashes,
-   import/resource failures, links/IDs, and local cache effects. Bound the extraction to 60 seconds,
-   16 KiB selected input, and 16 KiB accepted output. Make zero model calls. Pass B1 only if the
-   reproducible import/extraction works within those bounds; it does not pass frozen packaging.
-   Stop at the limit and record the precise packaging obstacle.
+1. **NW0-B1: completed.** Preserve the result above; do not rerun it without a relevant pin,
+   dependency, interpreter, or fixture change. The original experiment reserved at most 45 minutes
+   from NW0-B's eight-hour allocation, using a disposable environment and synthetic Markdown.
+   It verified pin correspondence, resolved the full closure, and exercised
+   `graphify.extract.extract(..., parallel=False)` within 60 seconds, 16 KiB selected input,
+   and 16 KiB accepted output per case. Versions/hashes, links/IDs, cache effects, and the
+   required integration controls are recorded above. Frozen packaging remains open.
 2. **NW0-C1: resolve official-client controls.** Reserve at most 45 minutes from NW0-C. Inspect
    supported configuration/protocol controls for the recorded versions and build a control-to-test
    map covering tools, ambient instructions, managed policy, egress, retention, and cancellation.
@@ -113,4 +164,5 @@ completion, including native build and Homebrew smoke for packaging changes. Exi
 runs `make contributor-check`; UTM supplies Linux desktop evidence. Do not rerun slow desktop
 journeys until an integration checkpoint or a relevant change invalidates prior evidence.
 
-Next action: run NW0-B1 within its 45-minute stop limit and record the closure/import result here.
+Next action: run NW0-C1's control-to-test mapping for the installed official clients, starting with
+Codex tool/context removal. NW0-B still requires frozen candidate comparison and native Linux evidence.

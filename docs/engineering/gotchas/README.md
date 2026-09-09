@@ -1087,3 +1087,21 @@ packaged module inventory. Runtime and native compatibility remain unverified un
 
 Discovered: 2026-09-09, native workspace planning and independent upstream source verification.
 See [the integration plan](../../plans/2026-09-09-ob1-native-workspace.md) for pinned source anchors.
+
+### INTEGRATION-003: Graphify's scan root and raw link IDs need an adapter boundary
+
+Symptom: Root-aware Markdown extraction resolves a link to an unselected note, chooses one of two
+same-basename notes, or emits an unresolved target ID containing an encoded absolute source path.
+
+Cause: At the pinned `graphifyy==0.9.57` source, vault-wide lookup walks the scan root independently
+of the selected input list. Duplicate-name fallback uses a deterministic tie-break, while unresolved
+links retain path-derived IDs. The NW0-B1 synthetic probe reproduced all three behaviors and an
+unresolved frontmatter alias; relocation changed dangling IDs while selected-page mappings remained stable.
+
+Fix: Stage only eligible notes under the scan root. Keep alias/ambiguity resolution, stable Brain-ID
+mapping, and path-free unresolved diagnostics at the engine boundary before graph publication or
+permanent-link acceptance. Keep Graphify cache output private and outside the source snapshot.
+Do not treat a selected input list as the full exclusion boundary or export raw upstream IDs.
+
+Discovered: 2026-09-09, bounded macOS arm64 NW0-B1 closure/import probe. See the
+[decision record](../../plans/2026-09-09-ob1-native-workspace-nw0.md) for results and remaining gates.

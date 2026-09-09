@@ -1,6 +1,7 @@
 # OB1 native Obsidian and Graphify workspace
 
-- Status: review corrections and implementation-efficiency guidelines incorporated; NW0 metadata preflight recorded, runtime feasibility unproven.
+- Status: NW0-B1 closure/import proof passed with adapter constraints; frozen packaging,
+  subscription isolation, and remaining NW0 gates are unproven.
 - Date: 2026-09-09.
 - Baseline: `708e30c9d1e736969e2bb0aa6f0454a5f4804489` on `goal/open-brain-five-minute-install`.
 - Planning branch: `docs/ob1-native-workspace-plan`.
@@ -825,7 +826,7 @@ two of four lenses; this revision does not claim a new independent review or suc
 | Implementation ownership | Requirement ownership matrix and explicit five-adapter/onboarding exit gates in NW1–NW4. |
 | Bounded feasibility work | NW0-A–E effort/request limits, named desktop target and provisioning dependency, startup measurements, explicit stop conditions. |
 
-Next action: run the NW0-B1 pinned Graphify closure/import probe described in the decision record.
-Resolve official-client controls in NW0-C before a synthetic subscription call; provision the agreed
+Next action: resolve official-client controls in NW0-C1 before a synthetic subscription call.
+Preserve completed NW0-B1 evidence and its required adapter controls; provision the agreed
 UTM guest before Linux GUI checkpoints without blocking local packaging work. Run a formal review
 of the completed NW0 decision record before executing NW1.
