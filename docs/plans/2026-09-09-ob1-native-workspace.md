@@ -493,10 +493,12 @@ The coordinator owns the experiment ledger, fixtures, environment inventory, and
 the actual host/VM identity, OS version, desktop session, package source, provider account access,
 and network conditions before the dependent experiment. Planned targets are an isolated macOS
 arm64 test account and an Ubuntu 24.04 LTS x86_64 GNOME desktop on native hardware or a hardware-
-virtualized x86_64 VM. Cross-architecture emulation is unsuitable for the timing claim. The Linux
-desktop is not yet provisioned/verified; that is an entry dependency for its experiments, not a
-reason to drop Linux. The coordinator must identify its owner and execution location in the NW0
-record before running Linux GUI work.
+virtualized x86_64 VM. The user confirmed this target on 2026-09-09. Cross-architecture emulation
+is unsuitable for the timing claim. Read-only local inventory on that date found an arm64 macOS
+coordinator and one registered arm64 UTM guest; neither establishes the required x86_64 desktop.
+Linux target availability remains unverified. Identifying an existing x86_64 host or provisioning
+a suitable desktop on x86_64 hardware is an entry dependency for its experiments, not a reason to
+drop Linux. The coordinator must record its owner and execution location before Linux GUI work.
 
 Homebrew remains the Open Brain lifecycle. Test an official macOS Obsidian package/cask and the
 official x86_64 Debian package on the selected Ubuntu desktop, recording installation and URI
