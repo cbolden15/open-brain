@@ -14,6 +14,39 @@ Secure Node is the opt-in profile that may claim encrypted custody, grants, comp
 receipts, fencing, and certified purge only after its separate conformance gates pass. Plain
 `open-brain` must not install, initialize, advertise, or imply those controls.
 
+## Default-product MCP
+
+The owner explicitly launches `open-brain mcp` with `--allow-capture`, `--allow-search`, or both.
+The inherited stdio channel and invoking OS user are the trust boundary. No token, user-managed
+grant, listener, daemon, connector, or Secure Node capability is created. EOF stops the process and
+closes access. Open Brain itself performs no network egress.
+
+`--allow-search` grants the connected client the same whole-Brain read scope as the CLI. Ten results
+per call is a response bound, not compartment isolation: repeated queries can return private note
+content. A network-backed client may send that content to its model provider. Adding the search flag
+is the owner's explicit choice to allow that client to receive results. Public-text projection
+removes protected paths, credentials, source references, and digests; it does not promise that every
+remaining note excerpt is non-sensitive. CLI help and each README client example disclose this choice.
+
+`--allow-capture` injects a separate non-owner sink with only `capture.accept` authority. Automated
+text carries unknown content origin, automation-absent owner context, personal-local-only privacy,
+and unverified trust. It cannot publish canonical owner content or perform actions. Search results
+show `trust=unverified` and `source_origin=unknown` without a raw source reference.
+
+Automated captures are immutable, searchable, and included in full Portable Brain export. Version
+0.1.0 has no selective deletion, session rollback, or certified purge. An untrusted or looping client
+can leave unwanted durable content. Stopping the process prevents further writes but does not remove
+completed captures. This retention limitation is accepted for the first release and disclosed in the
+capture flag help and README configurations.
+
+A process permits 500 valid capture attempts, 16 MiB of aggregate UTF-8 capture input, and 2,000 valid
+search attempts. Duplicate deliveries, conflicting deliveries, and backend failures count. The next
+over-limit call fails before engine work. Invalid arguments do not count; restarting resets the
+counters. These limits bound accidental loops, not another process running as the same OS user.
+Idempotency keys are hashed into a distinct MCP namespace and bound to exact input text. They are
+never returned or stored as raw identifiers. Conflicts add no capture but retain the engine's bounded
+quarantine evidence. Results remain untrusted data, not instructions or authorization.
+
 ## Retained appliance and connector controls
 
 The retained single-user appliance profile is one owner and one private Brain root. Its provider mode is `none`, and

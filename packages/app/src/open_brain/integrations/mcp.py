@@ -6,9 +6,19 @@ import re
 import secrets
 from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import Literal, TypedDict
+from typing import Literal
 
 from open_brain_engine.engine import RetrievalResult, ScopedRetrievalTask
+
+from open_brain.services.mcp_protocol import (
+    McpCallError as McpCallError,
+)
+from open_brain.services.mcp_protocol import (
+    McpInputSchema as McpInputSchema,
+)
+from open_brain.services.mcp_protocol import (
+    McpToolDefinition as McpToolDefinition,
+)
 
 from .ports import (
     FeedbackOutcome,
@@ -21,11 +31,6 @@ from .ports import (
     WorkRetriever,
 )
 
-
-class McpCallError(ValueError):
-    """Safe adapter error that omits raw service or argument details."""
-
-
 _OPAQUE_ID_PATTERN = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,127}")
 _OPAQUE_ID_SCHEMA = {
     "type": "string",
@@ -33,19 +38,6 @@ _OPAQUE_ID_SCHEMA = {
     "maxLength": 128,
     "pattern": r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$",
 }
-
-
-class McpInputSchema(TypedDict):
-    type: Literal["object"]
-    properties: dict[str, object]
-    required: list[str]
-    additionalProperties: Literal[False]
-
-
-class McpToolDefinition(TypedDict):
-    name: str
-    description: str
-    inputSchema: McpInputSchema
 
 
 @dataclass(slots=True)

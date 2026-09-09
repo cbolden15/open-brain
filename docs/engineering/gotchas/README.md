@@ -998,3 +998,17 @@ revalidate application writes inside `BEGIN IMMEDIATE`. Test process exit after 
 read-only refusal, recovery retry, and schema changes between opening and application work.
 
 Discovered: 2026-09-09, OB1-W5 migration implementation and read-only review.
+
+
+### MCP-001: Default MCP cannot import the retained work adapter
+
+Symptom: Adding a stdio command imports a module excluded by the default native dependency audit.
+
+Cause: The retained transport imported concrete work-scoped adapters from the integrations package.
+Those adapters belong to a separate composition boundary.
+
+Fix: Keep protocol types and bounded framing in the neutral `services/mcp_protocol.py` module.
+Default MCP injects a non-owner capture sink and a separate whole-Brain read operation. The retained
+`mcp_stdio.py` wrapper keeps its scope check and remains excluded from the default artifact.
+
+Discovered: 2026-09-09.

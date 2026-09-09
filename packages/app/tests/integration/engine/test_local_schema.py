@@ -21,7 +21,7 @@ from open_brain_engine.engine.local_schema import (
 )
 from open_brain_engine.engine.local_schema_catalog import LOCAL_MIGRATIONS
 from open_brain_engine.storage import sqlite as storage_sqlite
-from open_brain_engine.storage.sqlite import SchemaError
+from open_brain_engine.storage.sqlite import DatabaseBusyError, SchemaError
 
 from open_brain.profile import compile_single_user_local
 
@@ -544,7 +544,7 @@ def test_upgrade_writer_contention_is_bounded_and_retry_safe(tmp_path: Path) -> 
         held.execute("BEGIN IMMEDIATE")
         before = list(held.iterdump())
         start = time.monotonic()
-        with pytest.raises(SchemaError, match="migration failed"):
+        with pytest.raises(DatabaseBusyError, match="database busy"):
             open_local_database(profile)
         assert 4 <= time.monotonic() - start < 10
         assert list(held.iterdump()) == before

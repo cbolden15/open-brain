@@ -88,6 +88,48 @@ with weaker identity or metadata semantics are not trusted snapshot sources in t
 Removing a source file is not a confidentiality purge because immutable capture history remains
 locally readable and exportable.
 
+## Default-product MCP boundary
+
+`open-brain mcp` is an explicit stdio process with no listener, daemon, child service, connector,
+action execution, user-managed grant, or Secure Node composition. The OS user and inherited stdio
+channel are its trust boundary. Capture and search are independently absent unless their matching
+`--allow-capture` and `--allow-search` flags are supplied. Launching with neither flag returns a
+bounded error.
+
+Search intentionally grants whole-Brain read authority. A network-backed client may send returned
+content to its model provider, including private imported note excerpts. Enabling `--allow-search`
+authorizes delivery to that client; Open Brain itself does not perform the network egress. Ten
+public-safe results per call limits response size, not total readable content. Repeated queries can
+extract the Brain. The default product offers no compartments or selective search grants.
+
+Captured and retrieved text may contain prompt injection. MCP returns it as untrusted data with
+visible trust and source-origin fields. No returned record is an instruction or authorization for
+Open Brain. Injection can still influence a connected model, which may disclose content or use other
+tools enabled by its client. Those client permissions determine the wider blast radius. With both
+flags, a misled client can also persist more unverified text in the Brain.
+
+The write path uses an injected non-owner capture-only sink, separately from read authority. It
+cannot publish canonical content, approve reviews, route to compartments, or invoke actions and
+connectors. Automated records have unknown origin and unverified trust. This prevents trust
+promotion, but cannot prevent poisoning through unwanted immutable captures. Version 0.1.0 accepts
+that it has no selective deletion, session rollback, or certified purge. Stopping the process blocks
+further work and does not erase completed captures or exported copies. Both choices are disclosed in
+CLI help and alongside capture-only, search-only, and combined README configurations.
+
+The bounded transport accepts at most 1 MiB per newline-delimited message. Strict tool arguments,
+redacted failures, 500 valid capture attempts, 16 MiB of aggregate UTF-8 capture input, and 2,000 valid
+search attempts constrain one process. Valid duplicates, conflicts, and backend failures consume the
+budget before engine work; calls exceeding a bound do not partially submit. Limits reset on restart
+and do not constrain hostile code already running as the same OS user. Hashed idempotency keys live
+in a distinct MCP delivery namespace and bind exact input text; conflict quarantine evidence retains
+no new capture.
+
+Concurrent CLI/MCP mutations retain the existing nonblocking writer lease, WAL mode, and five-second
+SQLite busy timeout. Transient shared-writer contention returns `database_busy`; daemon authority,
+runtime artifacts, and malformed leases remain separate refusal conditions. EOF exits without a
+runtime registration file. The retained scoped MCP adapter still denies an empty grant and omits
+results from nonmatching spaces.
+
 ## Secure Node M1 boundary
 
 Secure Node binds HTTP only to a numeric loopback address and validates Host on every

@@ -41,6 +41,19 @@ SCHEMA_VERSION = 1
 _SQLITE_OPEN_LOCK = threading.Lock()
 
 
+class DatabaseBusyError(SchemaError):
+    """SQLite could not acquire a lock within the configured busy timeout."""
+
+
+def is_database_busy(error: BaseException) -> bool:
+    return isinstance(error, DatabaseBusyError) or (
+        isinstance(error, sqlite3.Error)
+        and getattr(error, "sqlite_errorcode", 0) & 255 in (
+            sqlite3.SQLITE_BUSY, sqlite3.SQLITE_LOCKED,
+        )
+    )
+
+
 @dataclass(frozen=True, slots=True)
 class SchemaInspection:
     version: int
@@ -214,9 +227,11 @@ def connect_database(
         if connection is not None:
             connection.close()
         raise
-    except OSError, sqlite3.Error:
+    except (OSError, sqlite3.Error) as error:
         if connection is not None:
             connection.close()
+        if is_database_busy(error):
+            raise DatabaseBusyError("database busy") from None
         raise SchemaError("database connection failed") from None
     except BaseException:
         if connection is not None:
@@ -276,7 +291,9 @@ def connect_database_read_only(
         return connection
     except RootConfinementError, SchemaError:
         raise
-    except OSError, sqlite3.Error:
+    except (OSError, sqlite3.Error) as error:
+        if is_database_busy(error):
+            raise DatabaseBusyError("database busy") from None
         raise SchemaError("database read-only connection failed") from None
     finally:
         if database_fd >= 0:

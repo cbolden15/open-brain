@@ -37,6 +37,9 @@ _REQUIRED_MODULES: Final = frozenset(
         "open_brain.profile",
         "open_brain.services.local_bootstrap",
         "open_brain.services.local_entrypoints",
+        "open_brain.services.local_operations",
+        "open_brain.services.local_mcp",
+        "open_brain.services.mcp_protocol",
         "open_brain_engine.engine.capture",
         "open_brain_engine.engine.local",
         "open_brain_engine.engine.local_schema",
@@ -239,6 +242,8 @@ def smoke_base_artifact(
             repository_root.resolve(strict=True) / "examples/markdown-fixture",
         )
         journey["markdown_import"] = "passed"
+        _smoke_local_mcp(executable, home, environment)
+        journey["local_mcp"] = "passed"
         return {"journey": journey, "self_check": "passed"}
 
 
@@ -739,6 +744,65 @@ def _smoke_markdown_import(
         or trust.get("label") != "unverified"
     ):
         raise BaseNativeError("native Markdown provenance failed")
+
+
+def _smoke_local_mcp(
+    executable: Path, home: Path, environment: Mapping[str, str]
+) -> None:
+    """Exercise installed stdio capabilities after the required CLI journey."""
+    token = "w6-installed-mcp-capture-token"
+    initialize = {
+        "jsonrpc": "2.0", "id": 1, "method": "initialize",
+        "params": {"protocolVersion": "2025-03-26", "capabilities": {}, "clientInfo": {}},
+    }
+
+    def exchange(flag: str, name: str, arguments: dict[str, object]) -> dict[str, object]:
+        requests = [
+            initialize,
+            {"jsonrpc": "2.0", "id": 2, "method": "tools/list"},
+            {"jsonrpc": "2.0", "id": 3, "method": "tools/call",
+             "params": {"name": name, "arguments": arguments}},
+        ]
+        try:
+            process = subprocess.run(
+                (os.fspath(executable), "mcp", flag), env=dict(environment),
+                input="".join(json.dumps(request) + "\n" for request in requests),
+                capture_output=True, text=True, timeout=30, check=True,
+            )
+            responses = [json.loads(line) for line in process.stdout.splitlines()]
+            if (
+                process.stderr or len(responses) != 3
+                or responses[0]["result"]["capabilities"] != {"tools": {}}
+                or [tool["name"] for tool in responses[1]["result"]["tools"]] != [name]
+                or responses[2]["result"].get("isError")
+            ):
+                raise BaseNativeError("native MCP exchange failed")
+            return cast(dict[str, object], responses[2]["result"]["structuredContent"])
+        except (OSError, subprocess.SubprocessError, ValueError, KeyError, TypeError) as error:
+            raise BaseNativeError("native MCP exchange failed") from error
+
+    capture = exchange("--allow-capture", "brain_capture", {
+        "text": token, "idempotency_key": "installed-smoke",
+    })
+    repeated = exchange("--allow-capture", "brain_capture", {
+        "text": token, "idempotency_key": "installed-smoke",
+    })
+    if capture.get("status") != "captured" or repeated != {**capture, "duplicate": True}:
+        raise BaseNativeError("native MCP replay failed")
+    search = exchange("--allow-search", "brain_search", {"query": token})
+    cli_search = json.loads(_run((os.fspath(executable), "search", token, "--json"),
+                                environment).stdout)
+    results = cast(list[dict[str, object]], search.get("results"))
+    if (
+        search != cli_search or len(results) != 1
+        or results[0].get("capture_id") != capture.get("capture_id")
+        or results[0].get("trust") != "unverified"
+        or results[0].get("source_origin") != "unknown"
+    ):
+        raise BaseNativeError("native MCP search failed")
+    run_root = _brain_root(home) / ".open-brain/run"
+    if run_root.is_dir() and any(run_root.iterdir()):
+        raise BaseNativeError("native MCP left a runtime artifact")
 
 
 def _write_reproducible_archive(executable: Path, archive: Path) -> None:

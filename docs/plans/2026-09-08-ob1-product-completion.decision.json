@@ -1,7 +1,7 @@
 {
   "id": "2026-09-08-ob1-product-completion-notes",
   "title": "Implementation notes: OB1 product completion",
-  "subtitle": "OB1-W3 complete and merged; OB1-W4 is next · 2026-09-08 23:10 CDT",
+  "subtitle": "OB1-W6 locally verified; committed-candidate audits and PR CI next · 2026-09-09",
   "introTitle": "How to use",
   "intro": "<p>Each item is a decision, deviation, or tradeoff made during implementation. <strong>Acknowledge</strong> if fine. <strong>Discuss</strong> to write what should change. <strong>Revert</strong> to flag for undo.</p>",
   "actions": [
@@ -113,6 +113,56 @@
         "What I did": "Added a private writer-lease-protected operation that validates all durable inputs first, then atomically replaces search documents, stable identities, and FTS rows. Read-only retrieval exposes no rebuild method.",
         "Why": "An FTS-only rebuild cannot repair text created under an older redaction rule. The maintenance boundary preserves the retrieval contract and gives a projection leak a complete recovery path.",
         "Risk": "The operation is intentionally not a default CLI command in W3. A future supported maintenance surface must preserve the same validation, lease, and all-or-nothing behavior."
+      }
+    },
+    {
+      "id": "W6-1",
+      "group": "ob1-w6",
+      "title": "Extracted the shared stdio transport",
+      "where": "packages/app/src/open_brain/services/mcp_protocol.py",
+      "default": "acknowledge",
+      "body": {
+        "Spec said": "Reuse the existing bounded transport without loading Secure Node composition.",
+        "What I did": "Moved protocol/error/schema types and transport into a dependency-free module; retained work-scoped mcp_stdio delegates with its original admission check.",
+        "Why": "The native artifact forbids integrations and the old MCP module. Neutral extraction preserves all forbidden prefixes.",
+        "Risk": "Both interfaces share transport changes; the retained protocol and empty/nonmatching-grant tests remain required."
+      }
+    },
+    {
+      "id": "W6-2",
+      "group": "ob1-w6",
+      "title": "Separated capture identity from whole-Brain reads",
+      "where": "packages/app/src/open_brain/services/local_operations.py",
+      "default": "acknowledge",
+      "body": {
+        "Spec said": "CLI and MCP share application operations; MCP writes use a non-owner capture-only sink.",
+        "What I did": "Injected a PublicJobCaptureSink separately from the whole-Brain search operation, and shared result formatting with the CLI. Raw UTF-8 input hashes bind exact replay alongside normalized payloads.",
+        "Why": "This preserves non-owner trust and rejects distinct text under a reused key, including canonically equivalent Unicode.",
+        "Risk": "Captures remain immutable. Idempotency conflicts retain existing quarantine evidence but add no capture."
+      }
+    },
+    {
+      "id": "W6-3",
+      "group": "ob1-w6",
+      "title": "Made contention distinguishable from schema failure",
+      "where": "packages/engine/src/open_brain_engine/storage/sqlite.py",
+      "default": "acknowledge",
+      "body": {
+        "Spec said": "Concurrent local access must complete or return a bounded database_busy error.",
+        "What I did": "Preserved typed SQLite busy/locked errors through schema wrappers and distinguished transient shared-writer contention at bootstrap. Kept WAL and the five-second timeout.",
+        "Why": "A transient writer was previously classified as a background runtime or generic schema failure.",
+        "Risk": "Existing migration contention tests now expect the narrower SchemaError subtype and still verify rollback and safe retry."
+      }
+    },
+    {
+      "id": "W6-4",
+      "group": "ob1-w6",
+      "title": "W6 implementation locally verified",
+      "where": "docs/audits/2026-09-09-ob1-w6-local-mcp-audit.md",
+      "default": "acknowledge",
+      "body": {
+        "Result": "3,583 tests passed, 5 filesystem-dependent skips; lint, types, builds, native audit, and Homebrew MCP smoke passed. Final independent read-only review found no blocker.",
+        "Next": "Audit the committed candidate in an isolated single-branch clone, then publish the owner-authorized focused PR and require both exact-head CI jobs before merge. W7 has not started."
       }
     }
   ]
