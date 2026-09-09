@@ -3,7 +3,7 @@ name: CI
 on:
   pull_request:
   push:
-    branches: [main]
+    branches: [main, goal/open-brain-five-minute-install]
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -30,8 +30,7 @@ jobs:
           python-version: "3.14"
           version: "0.12.8"
           enable-cache: true
-      - run: make verify
-      - run: make homebrew-smoke
+      - run: make contributor-check
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: open-brain-linux-x86_64-${{ github.event.pull_request.head.sha || github.sha }}
@@ -52,8 +51,7 @@ jobs:
           python-version: "3.14"
           version: "0.12.8"
           enable-cache: true
-      - run: make verify
-      - run: make homebrew-smoke
+      - run: make contributor-check
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: open-brain-macos-arm64-${{ github.event.pull_request.head.sha || github.sha }}

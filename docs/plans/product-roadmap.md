@@ -1,6 +1,7 @@
 # Open Brain and Secure Node roadmap
 
-- Status: accepted product split; `OB1-W3` is complete and `OB1-W4` is next
+- Status: accepted product split; `OB1-W0` through `OB1-W6` are merged.
+  `OB1-W7` is locally verified, with CI and merge pending.
 - Date: 2026-09-08
 - Product authority: [`../product-family.md`](../product-family.md)
 - Acceptance authority: [`../acceptance/five-minute-install.md`](../acceptance/five-minute-install.md)
@@ -8,17 +9,19 @@
 ## Current state
 
 The product split preserves the existing engineering. Completed protocol, schema, crypto, and
-semantic-kernel work belongs to Secure Node. Completed `OB1-W0` through `OB1-W3` work gives Open Brain
+semantic-kernel work belongs to Secure Node. Completed `OB1-W0` through `OB1-W6` work gives Open Brain
 a small default dependency graph, automatic private bootstrap, direct capture, ranked SQLite FTS5
-search, verified Portable Brain export, status, doctor, and a native build.
+search, idempotent Markdown import, guarded schema migrations, local MCP capture/search, verified
+Portable Brain export, status, doctor, and a native build.
 
 `OB1-W2` no longer builds a distribution system. It removes the custom installer, transactional
 activation, receipts, clean-host matrix, notarization pipeline, attestations, and release-evidence
 assembly. The replacement is a native executable in a small archive, a digest manifest, a Homebrew
 formula generated from that manifest, and one product smoke on each supported architecture.
 
-No release has been published. No search, import, migration, or MCP feature work belongs in the
-release-surface reduction change.
+No release has been published. W7 adds one contributor command and a smoke formula that preserves
+any installed product. The documented frozen setup and `make contributor-check` passed from a fresh
+clone on macOS arm64. Linux and macOS CI at the exact goal-branch head remain the W7 merge gate.
 
 The public repository is `cbolden15/open-brain`. It was transferred from
 `vora-technology/open-brain` on 2026-09-08 without changing its repository identity, branches, or
@@ -95,6 +98,8 @@ accounts, or private infrastructure.
 
 Usable when a new contributor can follow the checked-in commands on macOS or Linux and reproduce the
 same smoke used by CI.
+
+Local W7 evidence is recorded in [the contributor-path audit](../audits/2026-09-09-ob1-w7-contributor-path-audit.md).
 
 ## Shared record and encryption seam
 
