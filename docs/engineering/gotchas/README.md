@@ -1027,3 +1027,20 @@ not as evidence that the product is absent. Test the actual smoke shell with a c
 fake Homebrew, including an installed product and interrupted-run recovery.
 
 Discovered: 2026-09-09, OB1-W7 contributor path.
+
+
+### RELEASE-007: Source audit success does not establish native artifact safety
+
+Symptom: Both platform CI jobs and source/history owner audits pass, but the required artifact-aware
+owner audit rejects both actual release archives with `content-scan-limit-exceeded`.
+
+Cause: The archive scanner feeds the bundled executable into a source-text rule capped at 2 MiB.
+The observed native executables are about 10 MB and 13.7 MB. The native dependency inventory verifies
+module names and format/signature, but does not scan packaged contents with the owner denylist.
+
+Required follow-up: retain fail-closed source limits and add a bounded native-artifact content audit.
+Use synthetic large and compressed-content regressions plus both actual platform archives. Do not
+skip the binary, add a history exception, or treat a larger raw-byte limit as proof that compressed
+packaged contents were inspected. The repair is not part of the read-only readiness audit.
+
+Discovered: 2026-09-09, public release readiness audit at goal commit `d81bb64`.
