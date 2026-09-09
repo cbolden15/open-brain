@@ -14,6 +14,35 @@ from tools.open_brain_dev.public_history_audit import HistoryFinding, audit_hist
 from tools.open_brain_dev.release_audit import audit
 
 
+def test_native_module_policy_does_not_exempt_tree_or_history(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from tools.open_brain_dev import artifact_audit
+
+    repository = tmp_path / "source"
+    repository.mkdir()
+    git(repository, "init")
+    git(repository, "config", "user.name", "Synthetic Test")
+    git(repository, "config", "user.email", "synthetic@example.invalid")
+    value = ".".join(["192", "168", "5", "8"]).encode()
+    monkeypatch.setattr(
+        artifact_audit,
+        "REVIEWED_PRIVATE_IP_MODULES",
+        frozenset({("ipaddress", sha256(value).hexdigest())}),
+    )
+    for name in ("LICENSE", "NOTICE", "README.md"):
+        (repository / name).write_text("synthetic")
+    (repository / "ipaddress").write_bytes(value)
+    denylist = tmp_path / "denylist.txt"
+    denylist.write_text("synthetic_owner_marker")
+    message = tmp_path / "commit-message.txt"
+    message.write_text("Add synthetic fixture\n")
+    git(repository, "add", ".")
+    git(repository, "commit", "-F", str(message))
+    assert "private-ip-address" in {finding.rule for finding in audit(repository, denylist)}
+    assert "private-ip-address" in {finding.rule for finding in audit_history(repository, denylist)}
+
+
 def git(repository: Path, *args: str) -> str:
     result = run(
         ["git", "-C", str(repository), *args],

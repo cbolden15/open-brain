@@ -319,9 +319,17 @@ The owner approved one [inherited-history exception](../audits/2026-09-09-inheri
 on 2026-09-09 for two already-public document versions and their 90 reviewed occurrences. The
 version-2 history policy binds those exceptions to exact paths, blob hashes, reviewed commit IDs,
 and the complete normalized owner-denylist fingerprint. All 12 terms remain enforced; changed
-content, later occurrences, and semantic denylist changes fail closed. Current-tree and archive
-audits have no exception. This decision permits retained generic operational context in those
+content, later occurrences, and semantic denylist changes fail closed. Current-tree audits have no
+content exception. This decision permits retained generic operational context in those
 reviewed historical versions and does not authorize rewriting public `main` or broader exceptions.
+
+Separately, on 2026-09-09 the owner approved the initial two exact module/hash exceptions and the
+additional Python 3.14.7 `urllib.request` payload from PR #17 CI, as recorded in the
+[standard-library content policy](../audits/2026-09-09-ob1-stdlib-content-policy-proposal.md).
+Only `private-ip-address` findings in those fully parsed and scanned PYZ module payloads are
+suppressed. All owner-denylist terms, other content/path rules, parser validation, resource limits,
+and findings at other locations remain enforced. Changed hashes require separate review and
+approval. This archive-only decision does not alter source/history policy or authorize publication.
 
 The audit policy is not weakened for fixtures. Public `main` already contains the exact historical
 prefix `examples/synthetic-vault/`, so W3 adds one code-level legacy fixture exception for that prefix
