@@ -1,7 +1,7 @@
 # OB1 product completion plan
 
-- Status: `OB1-W3` implemented and locally verified; exact-head two-platform CI and the owner-only
-  private-denylist audit remain before merge, and `OB1-W4` has not started
+- Status: `OB1-W3` complete and merged into `goal/open-brain-five-minute-install`; `OB1-W4` is next
+  and has not started
 - Date: 2026-09-08
 - Branch: `goal/open-brain-five-minute-install`
 - Product authority: [`../product-family.md`](../product-family.md)
@@ -20,10 +20,10 @@ notarization, release attestations, clean-host infrastructure, daemons, or Secur
 
 ## Starting state
 
-`OB1-W0`, `OB1-W1`, and `OB1-W2` are complete on the goal branch. The default native executable
-already performs automatic private bootstrap, direct text capture, basic substring search, verified
-Portable Brain export, status, and doctor. The local Homebrew smoke passes on macOS arm64, and the
-same source passed the macOS arm64 and Linux x86_64 CI jobs.
+`OB1-W0` through `OB1-W3` are complete on the goal branch. The default native executable performs
+automatic private bootstrap, direct text capture, ranked SQLite FTS5 search, verified Portable Brain
+export, status, and doctor. The local Homebrew smoke passes on macOS arm64, and the W3 candidate
+passed the macOS arm64 and Linux x86_64 CI jobs.
 
 Version `0.1.0` remains unreleased. The public source repository is `cbolden15/open-brain`, and this
 checkout's `origin` uses that URL. The repository was transferred from

@@ -1,7 +1,7 @@
 {
   "id": "2026-09-08-ob1-product-completion-notes",
   "title": "Implementation notes: OB1 product completion",
-  "subtitle": "OB1-W3 of 5 locally complete; remote gates pending · 2026-09-08 21:16 CDT",
+  "subtitle": "OB1-W3 complete and merged; OB1-W4 is next · 2026-09-08 23:10 CDT",
   "introTitle": "How to use",
   "intro": "<p>Each item is a decision, deviation, or tradeoff made during implementation. <strong>Acknowledge</strong> if fine. <strong>Discuss</strong> to write what should change. <strong>Revert</strong> to flag for undo.</p>",
   "actions": [

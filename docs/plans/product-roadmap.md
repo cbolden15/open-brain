@@ -1,7 +1,6 @@
 # Open Brain and Secure Node roadmap
 
-- Status: accepted product split; `OB1-W2` is complete and the `OB1-W3` to `OB1-W7`
-  completion plan is READY
+- Status: accepted product split; `OB1-W3` is complete and `OB1-W4` is next
 - Date: 2026-09-08
 - Product authority: [`../product-family.md`](../product-family.md)
 - Acceptance authority: [`../acceptance/five-minute-install.md`](../acceptance/five-minute-install.md)
@@ -9,9 +8,9 @@
 ## Current state
 
 The product split preserves the existing engineering. Completed protocol, schema, crypto, and
-semantic-kernel work belongs to Secure Node. Completed `OB1-W0` and `OB1-W1` work gives Open Brain a
-small default dependency graph, automatic private bootstrap, direct capture, basic search, verified
-Portable Brain export, status, doctor, and a native build.
+semantic-kernel work belongs to Secure Node. Completed `OB1-W0` through `OB1-W3` work gives Open Brain
+a small default dependency graph, automatic private bootstrap, direct capture, ranked SQLite FTS5
+search, verified Portable Brain export, status, doctor, and a native build.
 
 `OB1-W2` no longer builds a distribution system. It removes the custom installer, transactional
 activation, receipts, clean-host matrix, notarization pipeline, attestations, and release-evidence
