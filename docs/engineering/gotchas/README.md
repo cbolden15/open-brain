@@ -1142,3 +1142,23 @@ under the user-authorized C2 scope change.
 
 Discovered: 2026-09-09, synthetic NW0-C2 offline thread probe and pinned source inspection.
 See the [C2 audit](../../audits/2026-09-09-ob1-nw0-c2-codex-preflight.md).
+
+### INTEGRATION-006: Claude login preference and parent policy do not establish subscription isolation
+
+Symptom: Claude Code `2.1.265` initializes with an API-key source despite
+`forceLoginMethod: claudeai`. Valid parent policy retains permission denials but drops
+`disableAllHooks`; a separate SDK policy resolver can return admin hooks and routing unchanged.
+
+Cause: Login selection, active credential precedence, and managed policy are distinct controls.
+Host-supplied policy is filtered and can be displaced by admin policy. The inspected resolver uses
+an older bundled client version and does not execute policy helpers. A no-auth startup cannot
+establish the account's effective policy.
+
+Fix: Check active credential source and effective policy before note bytes. Reject missing,
+stale, incompatible, or unverified policy; preserve organizational restrictions. Pair version-matched
+observation with independent runtime containment and client-owned authentication. Include
+session-discovery metadata in crash cleanup checks: persistence-off left such a file in C3,
+although no synthetic context was retained in the tested startup/control paths.
+
+Discovered: 2026-09-09, synthetic NW0-C3 offline Claude and policy-resolver probes.
+See the [C3 audit](../../audits/2026-09-09-ob1-nw0-c3-claude-preflight.md).

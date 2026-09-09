@@ -1,8 +1,8 @@
 # OB1 native Obsidian and Graphify workspace
 
-- Status: NW0-B1 closure/import proof passed with adapter constraints. NW0-C2 did not clear Codex
-  isolation; Codex subscription is deferred under the user-authorized scope change. Four launch
-  access paths remain required; Claude isolation, frozen packaging, and remaining NW0 gates are open.
+- Status: NW0-B1 closure/import proof passed with adapter constraints. NW0-C3 established partial
+  Claude settings/retention evidence; subscription isolation and note dispatch remain blocked.
+  Codex subscription stays deferred. Four launch paths, frozen packaging, and other NW0 gates remain open.
 - Date: 2026-09-09.
 - Baseline: `708e30c9d1e736969e2bb0aa6f0454a5f4804489` on `goal/open-brain-five-minute-install`.
 - Planning branch: `docs/ob1-native-workspace-plan`.
@@ -432,6 +432,15 @@ flags. The next strict tool-free candidate requests JSON text and applies the sh
 schema-valid accepted results and the existing quality requirements remain unchanged. Neither client
 is approved for note dispatch by that offline result.
 
+NW0-C3's [Claude policy/retention audit](../audits/2026-09-09-ob1-nw0-c3-claude-preflight.md)
+demonstrated the running client's effective-settings read and startup/control-path retention checks.
+It also showed that `forceLoginMethod: claudeai` does not prevent an API-key source from being selected.
+Verify the active credential source separately from provider identity. Parent policy cannot supply
+managed-hook suppression, and the inspected SDK resolver neither runs policy helpers nor matches
+the installed client's version. Missing policy in a no-auth sandbox is not a safe-policy verdict.
+The next proof needs a version-matched policy rejection path and a concrete runtime/auth boundary;
+startup-only retention and idle termination do not pass active inference or login reuse.
+
 NW0 must use synthetic hostile notes, excluded-file canaries, and controlled ambient customizations
 to prove no tool effects, unrelated context loading, or extra egress. If tool-free execution cannot
 meet the boundary, test the existing staged-asset execution contract or an independently verified
@@ -583,7 +592,7 @@ Start with at most 16 KiB of selected note input and 16 KiB of accepted output p
 dispatch: retain the original 80-attempt outer ceiling and 16 per access path, including retries.
 The four active launch paths therefore have at most 64 attempts; the deferred Codex allowance is
 not transferred to them. The initial/incremental matrix reserves 32 attempts across the two platforms.
-All C1/C2 effort already spent remains charged to NW0-C. Stop on the first exhausted limit.
+All C1/C2/C3 effort already spent remains charged to NW0-C. Stop on the first exhausted limit.
 These are experiment limits, not advertised provider billing caps.
 Credential entry, consent tests, and denied canaries must not spend an inference attempt.
 
@@ -844,8 +853,9 @@ two of four lenses; this revision does not claim a new independent review or suc
 | Implementation ownership | Requirement ownership matrix and explicit four-adapter/onboarding exit gates in NW1–NW4. |
 | Bounded feasibility work | NW0-A–E effort/request limits, named desktop target and provisioning dependency, startup measurements, explicit stop conditions. |
 
-Next action: continue the bounded Claude policy/retention preflight against C1's remaining controls;
-keep note dispatch closed until those mechanisms are established. Codex work is deferred.
+Next action: produce the bounded Claude supervisor design and zero-inference policy-rejection proof
+specified by C3, including version-matched policy observation and client-owned login/runtime separation.
+Keep note dispatch closed until those mechanisms are established. Codex work is deferred.
 Preserve completed NW0-B1 evidence and its required adapter controls; provision the agreed
 UTM guest before Linux GUI checkpoints without blocking local packaging work. Run a formal review
 of the completed NW0 decision record before executing NW1.
