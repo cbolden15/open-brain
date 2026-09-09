@@ -39,7 +39,7 @@ outward-facing actions require the applicable user authorization.
 | Native interface | Managed vault plus thin desktop plugin, with capture, search, refresh, and source navigation | A plugin-free vault and Canvas is a coherent intermediate milestone, but does not deliver the complete in-app experience. An export-only bridge does not meet this outcome. |
 | Existing vaults | DECIDED by user on 2026-09-09: start with a dedicated Open Brain vault; preserve one-way import from existing vaults | Full two-way arbitrary-vault support is the strongest eventual integration, but adds relocation, deletion, duplicate identity, attachment, conflict, and sync-provider behavior. Plan it as a separate milestone rather than imply it ships. |
 | First graph | DECIDED by user on 2026-09-09: inferred connections between previously unlinked notes are required from the start, using a cloud model initially | Provider setup and semantic processing belong inside the first-use acceptance boundary. Explicit links alone do not pass. Local inference through Ollama is deferred. |
-| Installation clock | Include the work needed to obtain and activate the Obsidian experience; Homebrew remains the declared prerequisite | If Obsidian is a prerequisite, explicitly rename the measured claim to workspace setup on an Obsidian-equipped host. Do not report application installation as included. |
+| Installation clock | DECIDED by user on 2026-09-09: include installing Obsidian when missing, plugin activation, and chosen model-access setup; reuse existing installations and logins | Homebrew remains the declared prerequisite. An Obsidian-equipped-host-only measurement does not satisfy the selected first-use target. |
 | Runtime packaging | Test a private self-invoked helper mode in the existing executable, with bounded JSON input/output and lazy Graphify loading | In-process integration has less process plumbing but shares failure/global state. A separate helper executable gives the strongest runtime/module boundary and requires an explicit archive-contract change. Select from NW0 evidence. |
 
 These recommendations allow planning to proceed. Product-sensitive choices remain proposed until
@@ -506,12 +506,18 @@ Record ordinary wall-clock elapsed time from the declared installation start thr
 Use a bounded synthetic corpus of related unlinked notes and an unrelated distractor. Include required
 cloud-provider onboarding and first semantic processing in the clock. Run the journey separately
 for each required provider/access path on each supported platform; a user configures only their
-chosen path, not all four. Local model installation is
-deferred with Ollama support.
+chosen path, not all four. DECIDED by the user on 2026-09-09: the clock includes installing Obsidian
+when missing, plugin activation, and model sign-in or API-key setup. It also includes installation
+of the selected official model client when required. Reuse compatible existing installations and
+offer detected logins, but record those faster journeys separately from missing-app/fresh-login
+acceptance. Do not pause the clock for downloads, activation prompts, or authentication steps.
+Declare provider account/access prerequisites and network conditions before measurement; do not
+silently move setup steps outside the clock after a failed run. Local model installation is deferred
+with Ollama support.
 Full-vault indexing is a separate measurement. Do not claim an arbitrary corpus completes in five minutes.
 
-1. Install the candidate through the supported Homebrew lifecycle; obtain/launch Obsidian and
-   activate the approved plugin according to the NW0 starting-state decision.
+1. Install the candidate through the supported Homebrew lifecycle; install/launch Obsidian as
+   needed, activate the approved plugin, and configure the chosen model access within the clock.
 2. Create/open the default managed vault and capture the unlinked acceptance notes.
 3. Run semantic extraction, inspect an inferred connection and its source evidence, and navigate
    from the graph to the original note in Obsidian.
