@@ -255,7 +255,6 @@ class CaptureOperations(_LocalEngineOperations):
                         space_id=cast(str, row["space_id"]),
                         title=self._capture_title(row),
                         body=cast(str, row["search_text"]),
-                        trust="owner",
                         canonical_path=cast(str, row["canonical_path"]),
                         updated_at=cast(str, row["accepted_at"]),
                     )

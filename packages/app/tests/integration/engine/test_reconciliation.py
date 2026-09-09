@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import sqlite3
 from pathlib import Path
 
+import pytest
 from open_brain_engine.engine import (
     CaptureAction,
     TextPayload,
@@ -68,3 +70,44 @@ def test_reconciliation_updates_retrieval_and_space_name_without_rewriting_owner
     assert renamed.name == "Renamed Studio"
     assert page.read_bytes() == expected_page
     assert space_file.read_bytes() == expected_space
+
+
+def test_reconciliation_repairs_stored_trust_but_rejects_edited_trust(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "brain"
+    tasks = open_local_engine(compile_single_user_local(root, starter_spaces=("Notes",)))
+    space = tasks.inbox.spaces()[0]
+    capture = tasks.capture.accept(
+        TextPayload("Durable trust canary"),
+        delivery_id="reconcile.trust.capture",
+        action=CaptureAction.CANONICAL_NOTE,
+        space_id=space.space_id,
+    )
+    page = next((root / "content/spaces").rglob("page_*.md"))
+    with sqlite3.connect(root / ".open-brain/state/phase1.sqlite3") as connection:
+        connection.execute(
+            "UPDATE search_documents SET trust = 'unverified' "
+            "WHERE capture_id = ? AND record_type = 'canonical'",
+            (capture.capture_id,),
+        )
+
+    repaired = tasks.reconciliation.reconcile()
+    result = tasks.retrieval.search("Durable trust canary", record_type="canonical")[0]
+
+    assert repaired.page_updates == 1
+    assert result.trust == "owner"
+
+    parsed = parse_markdown(page.read_bytes())
+    page.write_bytes(
+        render_markdown(
+            fields={**parsed.fields, "trust": "unverified"},
+            body=parsed.body,
+        ).encode("utf-8")
+    )
+
+    with pytest.raises(ValueError, match="canonical"):
+        tasks.reconciliation.reconcile()
+    assert tasks.retrieval.search("Durable trust canary", record_type="canonical")[0].trust == (
+        "owner"
+    )

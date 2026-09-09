@@ -6,7 +6,6 @@ import os
 import subprocess
 import sys
 import tempfile
-import time
 from pathlib import Path
 from typing import cast
 
@@ -37,20 +36,45 @@ from open_brain_legacy.cli.main import main
 
 TOKEN = "synthetic-ui-token"
 AUTHORIZATION = (("Authorization", f"Bearer {TOKEN}"),)
-REPOSITORY_ROOT = Path(__file__).resolve().parents[3]
+REPOSITORY_ROOT = Path(__file__).resolve().parents[5]
 SOURCE_CHECKOUT_PATHS = [
-    str(REPOSITORY_ROOT / "src"),
+    str(REPOSITORY_ROOT / "packages" / "app" / "src"),
     str(REPOSITORY_ROOT / "packages" / "engine" / "src"),
+    str(REPOSITORY_ROOT / "packages" / "legacy" / "src"),
 ]
 
 
-def _source_checkout_module_command(module: str, *arguments: str) -> tuple[str, ...]:
+def _source_checkout_daemon_command(root: Path) -> tuple[str, ...]:
     program = (
-        "import runpy, sys; "
+        "import sys; "
         f"sys.path[:0] = {SOURCE_CHECKOUT_PATHS!r}; "
-        f"runpy.run_module({module!r}, run_name='__main__', alter_sys=True)"
+        "from open_brain.services.appliance_daemon import main; "
+        "raise SystemExit(main(('--root', sys.argv[1]), enable_http_listener=False))"
     )
-    return (sys.executable, "-I", "-B", "-c", program, *arguments)
+    return (sys.executable, "-I", "-B", "-c", program, str(root))
+
+
+def _source_checkout_status_command(root: Path) -> tuple[str, ...]:
+    program = (
+        "import sys, time\n"
+        "from pathlib import Path\n"
+        f"sys.path[:0] = {SOURCE_CHECKOUT_PATHS!r}\n"
+        "from open_brain.services.appliance_daemon import (\n"
+        "    ApplianceControlUnavailableError, request_status,\n"
+        ")\n"
+        "deadline = time.monotonic() + 15\n"
+        "while True:\n"
+        "    remaining = deadline - time.monotonic()\n"
+        "    if remaining <= 0:\n"
+        "        raise SystemExit('appliance daemon status did not become ready')\n"
+        "    try:\n"
+        "        request_status(Path(sys.argv[1]), timeout=remaining)\n"
+        "    except ApplianceControlUnavailableError:\n"
+        "        time.sleep(min(0.05, remaining))\n"
+        "        continue\n"
+        "    break\n"
+    )
+    return (sys.executable, "-I", "-B", "-c", program, str(root))
 
 
 def _source_checkout_secure_node_command(*arguments: str) -> tuple[str, ...]:
@@ -436,6 +460,7 @@ def test_ui_authenticates_before_mutating_or_parsing_private_body(tmp_path: Path
 
 def test_source_checkout_cli_uses_one_brain_root_across_processes(tmp_path: Path) -> None:
     del tmp_path
+    assert all(Path(source).is_dir() for source in SOURCE_CHECKOUT_PATHS)
     with tempfile.TemporaryDirectory(prefix="ob-", dir=Path("/tmp").resolve()) as directory:
         root = Path(directory) / "brain"
         initialize_appliance(root, starter_spaces=())
@@ -448,53 +473,55 @@ def test_source_checkout_cli_uses_one_brain_root_across_processes(tmp_path: Path
             {
                 "NO_COLOR": "1",
                 "OPEN_BRAIN_ROOT": str(root),
-                "OPEN_BRAIN_UI_PORT": str(_free_port()),
                 "PYTHONUTF8": "1",
             }
-        )
-        status_probe = (
-            "import sys; from pathlib import Path; "
-            f"sys.path[:0] = {SOURCE_CHECKOUT_PATHS!r}; "
-            "from open_brain.services.appliance_daemon import request_status; "
-            "request_status(Path(sys.argv[1]), timeout=0.25)"
         )
 
         def start_daemon() -> subprocess.Popen[str]:
             process = subprocess.Popen(
-                _source_checkout_module_command(
-                    "open_brain.services.appliance_daemon",
-                    "--root",
-                    str(root),
-                ),
+                _source_checkout_daemon_command(root),
                 cwd=REPOSITORY_ROOT,
                 env=environment,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
                 text=True,
             )
-            deadline = time.monotonic() + 5
-            while time.monotonic() < deadline:
-                if process.poll() is not None:
-                    assert process.stderr is not None
-                    raise AssertionError(process.stderr.read())
+            try:
+                probe = subprocess.run(
+                    _source_checkout_status_command(root),
+                    cwd=REPOSITORY_ROOT,
+                    env=environment,
+                    capture_output=True,
+                    text=True,
+                    timeout=20,
+                )
+            except subprocess.TimeoutExpired as error:
+                if process.poll() is None:
+                    process.terminate()
                 try:
-                    probe = subprocess.run(
-                        (sys.executable, "-I", "-B", "-c", status_probe, str(root)),
-                        cwd=REPOSITORY_ROOT,
-                        env=environment,
-                        capture_output=True,
-                        text=True,
-                        timeout=1,
-                    )
+                    _, daemon_stderr = process.communicate(timeout=5)
                 except subprocess.TimeoutExpired:
-                    pass
-                else:
-                    if probe.returncode == 0:
-                        return process
-                time.sleep(0.05)
-            process.terminate()
-            process.wait(timeout=5)
-            raise AssertionError("appliance daemon status did not become ready")
+                    process.kill()
+                    _, daemon_stderr = process.communicate(timeout=5)
+                raise AssertionError(
+                    "appliance daemon status probe exceeded 20 seconds; "
+                    f"daemon stderr={daemon_stderr[-2000:]!r}"
+                ) from error
+            if probe.returncode == 0 and process.poll() is None:
+                return process
+            if process.poll() is None:
+                process.terminate()
+            try:
+                _, daemon_stderr = process.communicate(timeout=5)
+            except subprocess.TimeoutExpired:
+                process.kill()
+                _, daemon_stderr = process.communicate(timeout=5)
+            raise AssertionError(
+                "appliance daemon status did not become ready; "
+                f"probe return code={probe.returncode}; "
+                f"probe stderr={probe.stderr[-2000:]!r}; "
+                f"daemon stderr={daemon_stderr[-2000:]!r}"
+            )
 
         daemon = start_daemon()
         try:
@@ -598,23 +625,3 @@ def test_source_checkout_cli_uses_one_brain_root_across_processes(tmp_path: Path
         assert [capture["capture_id"] for capture in captures] == [first_payload["capture_id"]]
         assert [space["space_id"] for space in spaces] == [space_id]
         assert {result["capture_id"] for result in results} == {first_payload["capture_id"]}
-
-
-def _free_port() -> int:
-    result = subprocess.run(
-        [
-            sys.executable,
-            "-c",
-            (
-                "import socket; "
-                "listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM); "
-                "listener.bind(('127.0.0.1', 0)); "
-                "print(listener.getsockname()[1]); "
-                "listener.close()"
-            ),
-        ],
-        check=True,
-        capture_output=True,
-        text=True,
-    )
-    return int(result.stdout.strip())

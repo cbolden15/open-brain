@@ -167,6 +167,12 @@
       "path": "tests/security/test_appliance_auth.py",
       "reason": "phase3-private-bind-fixture-assembled",
       "rule": "private-ip-address"
+    },
+    {
+      "blob_sha256": "76455a87729c64f9003cd90a6cea915eee773a3a46e6467142d392e1884f0456",
+      "path": ".github/workflows/ci.yml",
+      "reason": "w2-linuxbrew-runner-path",
+      "rule": "absolute-home-path"
     }
   ],
   "policy_version": 1

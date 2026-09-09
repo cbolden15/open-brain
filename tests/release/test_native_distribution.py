@@ -169,8 +169,13 @@ def test_ci_has_only_two_native_product_runners() -> None:
 
     assert {path.name for path in workflows.iterdir() if path.is_file()} == {"ci.yml"}
     assert runs_on == ["ubuntu-latest", "macos-latest"]
+    assert workflow.count("make verify") == 2
     assert workflow.count("make homebrew-smoke") == 2
-    assert "make verify" not in workflow
+    for job in ("linux-x86-64", "macos-arm64"):
+        job_body = workflow.split(f"  {job}:", maxsplit=1)[1]
+        if job == "linux-x86-64":
+            job_body = job_body.split("  macos-arm64:", maxsplit=1)[0]
+        assert job_body.index("make verify") < job_body.index("make homebrew-smoke")
     assert "docker" not in workflow.lower()
     assert "attestation" not in workflow.lower()
     assert "notar" not in workflow.lower()

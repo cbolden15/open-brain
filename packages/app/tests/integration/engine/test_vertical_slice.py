@@ -528,7 +528,7 @@ def test_sibling_proposals_have_independent_terminal_results(tmp_path: Path) -> 
     assert {result.trust for result in canonical_results} == {"reviewed"}
 
 
-def test_retrieval_is_exact_lexical_typed_space_scoped_and_fresh_after_edit(
+def test_retrieval_is_exact_lexical_typed_space_scoped_and_fresh_after_reconciliation(
     tmp_path: Path,
 ) -> None:
     root = tmp_path / "brain"
@@ -566,7 +566,17 @@ def test_retrieval_is_exact_lexical_typed_space_scoped_and_fresh_after_edit(
         ),
         encoding="utf-8",
     )
-    assert engine.retrieval.search("Fresh owner edit token")[0].capture_id == first.capture_id
+    assert engine.retrieval.search("Fresh owner edit token", record_type="canonical") == ()
+
+    receipt = engine.reconciliation.reconcile()
+
+    assert receipt.page_updates == 1
+    assert engine.retrieval.search(
+        "Fresh owner edit token", record_type="canonical"
+    )[0].capture_id == first.capture_id
+    assert engine.retrieval.search(
+        "Exact synthetic phrase", record_type="canonical"
+    ) == ()
 
 
 def test_generated_source_records_are_canonical_json(tmp_path: Path) -> None:

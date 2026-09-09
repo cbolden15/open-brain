@@ -8,6 +8,7 @@ import json
 import os
 import re
 import sys
+import unicodedata
 import uuid
 from collections.abc import Mapping
 from datetime import UTC, datetime
@@ -22,6 +23,7 @@ from open_brain_engine.engine import (
     RetrievalResult,
     TextPayload,
     canonical_json_bytes,
+    live_search_is_healthy,
     read_maintenance_snapshot,
 )
 from open_brain_engine.storage.operational import (
@@ -45,6 +47,7 @@ _DOCTOR_CHECKS = (
     "private-data-directory",
     "no-background-runtime",
     "base-dependency-closure",
+    "search-index",
 )
 _BASE_DEPENDENCY_REQUIREMENTS = {
     "open-brain": ("open-brain-engine==0.1.0",),
@@ -147,6 +150,7 @@ def _parser() -> argparse.ArgumentParser:
     )
     _add_local_options(search_parser)
     search_parser.add_argument("query", help="Text to find.")
+    search_parser.add_argument("--limit", type=int, default=10, help="Return 1 to 100 results.")
     export_parser = subparsers.add_parser(
         "export", help="Create a full Portable Brain export."
     )
@@ -209,7 +213,11 @@ def _run_local_command(
         _write_capture(capture_receipt, json_output=json_output)
         return 0
     if parsed.command == "search":
-        results = tasks.retrieval.search(cast(str, parsed.query))
+        tasks.reconciliation.reconcile()
+        results = tasks.retrieval.search(
+            cast(str, parsed.query),
+            limit=cast(int, parsed.limit),
+        )
         _write_search(results, json_output=json_output)
         return 0
     if parsed.command == "export":
@@ -249,8 +257,10 @@ def _write_search(results: tuple[RetrievalResult, ...], *, json_output: bool) ->
                 "payload_family": result.payload_family,
                 "record_type": result.record_type,
                 "result_id": result.result_id,
+                "source_origin": result.provenance.source_origin,
                 "title": result.title,
                 "trust": result.trust,
+                "explanation": result.explanation,
             }
             for result in results
         ],
@@ -260,7 +270,12 @@ def _write_search(results: tuple[RetrievalResult, ...], *, json_output: bool) ->
         _write_json(payload)
     else:
         for result in results:
-            print(result.excerpt)
+            print(
+                _terminal_text(
+                    f"[{_human_trust(result)} | {result.provenance.source_origin}] "
+                    f"{result.title}: {result.excerpt}"
+                )
+            )
 
 
 def _write_export(
@@ -293,7 +308,9 @@ def _write_status(session: LocalBrainSession, *, json_output: bool) -> None:
         "application_encryption": False,
         "brain_count": 1,
         "daemon_running": daemon_running,
+        "live_search": maintenance.live_search.to_dict(),
         "portable_export": _verified_export_state(session),
+        "portable_snapshot": maintenance.index.to_dict(),
         "profile": "local",
         "storage": "sqlite",
     }
@@ -302,6 +319,10 @@ def _write_status(session: LocalBrainSession, *, json_output: bool) -> None:
     else:
         print(
             "Profile: local. Brain count: 1. Storage: SQLite. "
+            f"Live search: {maintenance.live_search.state} "
+            f"({maintenance.live_search.fts_count} documents). "
+            f"Portable snapshot: {maintenance.index.state}, non-authoritative, "
+            "potentially stale. "
             f"Portable export: {payload['portable_export']}. "
             f"Daemon running: {str(daemon_running).lower()}. "
             "Application encryption: false."
@@ -318,6 +339,7 @@ def _write_doctor(
         "private-data-directory": _private_data_directory_is_safe,
         "no-background-runtime": _no_background_runtime,
         "base-dependency-closure": _base_dependency_closure_is_safe,
+        "search-index": _search_index_is_healthy,
     }
     try:
         passed = checks[check](session)
@@ -371,6 +393,33 @@ def _base_dependency_closure_is_safe(_session: LocalBrainSession) -> bool:
         if unconditional != expected:
             return False
     return True
+
+
+def _search_index_is_healthy(session: LocalBrainSession) -> bool:
+    session.prepared.revalidate()
+    healthy = live_search_is_healthy(session.profile)
+    session.prepared.revalidate()
+    return healthy
+
+
+def _human_trust(result: RetrievalResult) -> str:
+    if result.provenance.source_origin == "owner_authored":
+        return "owner"
+    if result.provenance.source_origin == "third_party":
+        return "third-party"
+    return "unverified"
+
+
+def _terminal_text(value: str) -> str:
+    safe = "".join(
+        " "
+        if ord(character) < 32
+        or 0x7F <= ord(character) <= 0x9F
+        or unicodedata.category(character) == "Cf"
+        else character
+        for character in value
+    )
+    return " ".join(safe.split())
 
 
 def _absolute_destination(value: str) -> Path:

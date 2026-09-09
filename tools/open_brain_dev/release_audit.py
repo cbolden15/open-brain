@@ -74,6 +74,7 @@ PORTABLE_FIXTURE_PATHS = (
     ("open_brain_engine", "portable", "conformance", "v1", "brain-root"),
     ("src", "open_brain_engine", "portable", "conformance", "v1", "brain-root"),
 )
+LEGACY_SYNTHETIC_VAULT_PREFIX = ("examples", "synthetic-vault")
 
 
 @dataclass(frozen=True)
@@ -101,6 +102,10 @@ def _is_portable_fixture(path: PurePosixPath) -> bool:
     )
 
 
+def _is_legacy_synthetic_vault(path: PurePosixPath) -> bool:
+    return path.parts[: len(LEGACY_SYNTHETIC_VAULT_PREFIX)] == LEGACY_SYNTHETIC_VAULT_PREFIX
+
+
 def _path_rules(name: str) -> list[Finding]:
     normalized = name.replace("\\", "/")
     path = PurePosixPath(normalized)
@@ -110,6 +115,8 @@ def _path_rules(name: str) -> list[Finding]:
     forbidden_parts = {part.lower() for part in path.parts} & FORBIDDEN_PARTS
     if _is_portable_fixture(path):
         forbidden_parts -= {"captures", "content"}
+    if _is_legacy_synthetic_vault(path):
+        forbidden_parts -= {"vault"}
     if forbidden_parts:
         findings.append(Finding(_safe_location(normalized), "forbidden-path-family"))
     lowered_name = path.name.lower()
