@@ -1,6 +1,7 @@
 # Five-minute Open Brain acceptance test
 
-Status: accepted target contract; public release and tap are not published yet
+Status: accepted target contract; W7 contributor checks pass locally on macOS arm64; exact-head
+two-platform CI is pending. The public release and tap are not published yet.
 
 Date: 2026-09-08
 
@@ -67,14 +68,22 @@ The automatic Brain root is:
 ## CI smoke
 
 CI has exactly two native jobs: `macos-latest` with an explicit `arm64` assertion and
-`ubuntu-latest` with an explicit `x86_64` assertion. Each job builds the native executable, renders
-a temporary local Homebrew formula from the release manifest, installs it with Homebrew, and runs
-the same capture, search, export, status, and doctor checks in a temporary user home.
+`ubuntu-latest` with an explicit `x86_64` assertion. Each invokes `make contributor-check`, the same
+command documented for contributors. It runs repository verification before building the native
+executable, rendering a temporary keg-only `open-brain-smoke` formula from the release manifest,
+installing it with Homebrew, and invoking its unlinked binary by absolute prefix path.
+
+The smoke snapshots any existing product's prefix, version, link, and binary digest and requires them
+to remain unchanged. It does not install a product-named stand-in when the real product is absent.
+Production-shell tests with a command-recording fake Homebrew prove preservation of a modeled
+installed product, INT/TERM cleanup, and next-run recovery after SIGKILL. The local live run verified
+the absent-product case. Private release audits are separate owner checks, excluded from this target.
 
 The five-minute acceptance boundary ends after the verified export in the timed data journey above.
 The same installed binary then runs status and doctor, followed by the W4 smoke: import the committed
 synthetic Markdown fixture, prove an unchanged rerun, search a nested marker, and verify exact
-exported bytes plus unverified provenance. These post-export checks do not change the five-minute
+exported bytes plus unverified provenance. Capture-only MCP replay and search-only MCP exchange
+then verify the W6 CLI/MCP contract. These post-export checks do not change the five-minute
 acceptance boundary.
 
 The CI formula uses local build output. A published-release smoke uses the public tap and immutable
