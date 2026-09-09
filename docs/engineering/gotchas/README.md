@@ -1215,3 +1215,23 @@ for further interface work: applying a nested sandbox from the confined SDK host
 
 Discovered: 2026-09-09, NW0-C6 real-SDK/fake-process contracts and native supervisor bridge.
 See the [C6 interface check](../../audits/2026-09-09-ob1-nw0-c6-sdk-supervisor-interface.md).
+
+### INTEGRATION-010: Frozen extraction can work while bounded artifact inspection is incomplete
+
+Symptom: The pinned Graphify Markdown fixture executes in signed Mac binaries, but content auditing
+finds upstream home-path examples and a tree-sitter binary match, then stops at the object budget.
+The combined archive reports `artifact-invalid`; the separate helper reports `artifact-limit-exceeded`.
+
+Cause: Installed dependency closure, exercised imports, compressed size, and inspection work are
+different measurements. The combined candidate's container-length check fails with 499,997 objects
+already decoded; the helper reaches 500,001. Collecting every dependency root adds unrelated modules
+and resources. Even the narrow candidate's Markdown root lookup still imports broad Graphify code.
+
+Fix: Preserve failed/incomplete audit results and inspect bounded diagnostics before interpreting
+their labels. Keep the strongest separate-helper option visible, but audit that helper too. Pursue
+a supported root-aware component boundary or a concrete reviewed dependency/content-policy change;
+do not raise limits, waive findings, or remove validation just to obtain a green probe. Treat observed
+findings as a lower bound until the entire artifact is inspected.
+
+Discovered: 2026-09-09, NW0-B2 frozen Graphify builds and unchanged native content auditor.
+See the [B2 packaging record](../../audits/2026-09-09-ob1-nw0-b2-frozen-graphify.md).

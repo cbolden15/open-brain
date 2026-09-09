@@ -204,7 +204,8 @@ NW0-A schema/authority, frozen Graphify packaging, real-provider matrix and desk
 
 The Claude experiment is stopped at the explicit missing-capability brief above. Preserve its
 working lifecycle and resume authentication work only against a concrete supported mechanism.
-The next independent experiment is NW0-B2: build and audit a frozen Graphify candidate on this Mac,
-compare the planned runtime boundaries and startup impact using B1's synthetic dataset, and retain
-Linux CI as separate evidence. Reserve at most 45 minutes from remaining NW0-B for that first bounded
-candidate; do not count an incomplete comparison as a packaging pass. No model calls are needed.
+C7's next independent experiment was NW0-B2. The subsequent
+[B2 record](../audits/2026-09-09-ob1-nw0-b2-frozen-graphify.md) demonstrates frozen extraction but
+fails content/object-budget and measured startup acceptance. The current next packaging step is
+NW0-B3's Markdown-only interface/closure check; Linux evidence remains separate. This does not
+change the provider/supervisor contract or authorize Claude note dispatch.

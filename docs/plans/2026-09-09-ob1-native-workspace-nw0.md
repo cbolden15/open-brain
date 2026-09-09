@@ -1,6 +1,8 @@
 # OB1 native workspace NW0 decision record
 
 - Status: open. NW0-B1 closure/import proof passed with required integration controls.
+  NW0-B2 runs frozen Markdown extraction, but its Graphify candidates fail content/object-budget
+  inspection and measured startup acceptance. No candidate is selected for shipping.
   NW0-C2 did not establish Codex isolation; Codex subscription is deferred under the subsequent
   user-authorized scope change. NW0-C6 connects the existing SDK lifecycle to supervised pre-input
   metadata and rejection on C5's Mac boundary; native completion remains closed. Four launch paths
@@ -9,7 +11,7 @@
 - Authority: [native workspace plan](2026-09-09-ob1-native-workspace.md), including the user's
   implementation-efficiency guidelines and the subsequent user-authorized Codex deferral.
 - Starting revision: `3468115` on `docs/ob1-native-workspace-plan`.
-- Latest runtime checkpoint: NW0-C6 ran from `d6c7766` on macOS arm64. The final real-SDK/fake-process
+- Latest subscription runtime checkpoint: NW0-C6 ran from `d6c7766` on macOS arm64. The final real-SDK/fake-process
   suite passed 15 assertions; the native sibling bridge passed ten checks after connecting C4's
   validator. SDK and native exits were zero with input withheld. A nested-sandbox launch failure
   remains recorded. Zero model calls or native note input; no real account inspection, product
@@ -17,6 +19,9 @@
 - Latest design checkpoint: NW0-C7 at `77012ea` specifies the held-input contract, authority and
   budget ownership, rejection/revocation behavior, and missing native capabilities. No new native
   or model calls; no shipping interfaces or schema changes.
+- Latest packaging checkpoint: NW0-B2 from `72dd1fc` built five Mac executables and verified
+  frozen B1 fixture behavior. The baseline content audit and native smoke pass; Graphify content
+  scans fail, and the combined Markdown smoke reaches its 240-second cap. Zero model calls.
 
 ## Established state
 
@@ -89,7 +94,35 @@ The Python audit hook recorded and denied out-of-scope Python I/O for this struc
 not an OS sandbox or proof of subscription-client confinement. Linux execution, frozen extraction,
 artifact/signature audits, five cold/five warm base-startup samples, semantic quality, and actual
 Obsidian journeys remain unproven. The original 45-minute limit is a stop limit; completion of this
-bounded probe does not require consuming the remaining time.
+bounded probe does not require consuming the remaining time. These are B1's historical limits;
+B2 below adds frozen evidence without passing the full packaging gate.
+
+## NW0-B2 result: frozen extraction works; packaging candidates fail
+
+The [B2 frozen packaging record](../audits/2026-09-09-ob1-nw0-b2-frozen-graphify.md) compares
+the existing baseline, a broad combined/helper pair, and a narrower Markdown combined/helper pair.
+All five pass arm64/signature checks and contain no forbidden product modules. Frozen extraction,
+cache reuse, relocation, and an incremental edit preserve B1's output and selected-source behavior.
+The self-invoked helper contains the observed recursion-limit change; a separate helper leaves
+Graphify out of the baseline module inventory.
+
+The broad combined archive is 25,181,744 bytes; the Markdown combined archive is 12,726,046 bytes
+against a 9,837,828-byte baseline. The narrow combined candidate adds about 1.615 seconds to the
+repeat-series startup median. Five first/repeat-process samples per path were collected, but OS
+cache eviction was uncontrolled; true cold-start passage is not established.
+
+All Graphify candidates fail the unchanged content auditor. Narrow collection leaves observed
+path matches in two Graphify modules and the tree-sitter binary, then exhausts the 500,000-object
+inspection budget. Those are incomplete scans, not exhaustive finding lists. The baseline passes
+the authoritative content audit and native product smoke; the narrow combined smoke exceeds its
+240-second harness cap. The final evidence verifier passes 69 consistency checks, not packaging
+approval. No audit limit, content exception, shipping dependency, or specification was changed.
+
+Next, examine a supported root-aware Markdown-only Graphify seam in NW0-B3. The current per-file
+Markdown extractor imports the broad extraction module during root lookup; calling it directly
+does not establish the smaller boundary. Compare an upstream-compatible separation with a broader
+dependency that needs reproducible binary cleanup and explicit content/budget review. Preserve B1
+link/selection controls and the separate-helper option; do not raise limits or waive findings silently.
 
 ## NW0-C1 result: controls mapped; live dispatch is not ready
 
@@ -240,7 +273,8 @@ The complete native, subscription, and desktop proofs remain unproven after this
    It verified pin correspondence, resolved the full closure, and exercised
    `graphify.extract.extract(..., parallel=False)` within 60 seconds, 16 KiB selected input,
    and 16 KiB accepted output per case. Versions/hashes, links/IDs, cache effects, and the
-   required integration controls are recorded above. Frozen packaging remains open.
+   required integration controls are recorded above. B2's frozen extraction works, but content and
+   startup acceptance fail; B3 must resolve the dependency/interface boundary before another candidate.
 2. **NW0-C1–C7: recorded; Codex deferred.** Preserve the audits, receipts, demonstrated SDK
    lifecycle, and provider/supervisor contract. C7 records missing upstream requirements locally.
    Resume authentication experiments only against a concrete supported mechanism. Complete native
@@ -271,6 +305,7 @@ and 90 seconds total per probe. Four active launch paths allow at most 64 attemp
 allowance is not transferred. The mandatory initial/incremental matrix reserves 32 calls; isolation
 and recovery draw from the remaining active capacity. C1/C2/C3/C4/C5/C6/C7 effort remains charged. Effort is a stop limit, never a delivery estimate.
 Keep one cumulative private effort/attempt ledger across resumed sessions and workers.
+B1 and B2 effort remains charged to NW0-B; the unsuccessful candidates do not reset that allocation.
 
 ## Reuse decisions and implementation guardrails
 
@@ -300,7 +335,8 @@ completion, including native build and Homebrew smoke for packaging changes. Exi
 runs `make contributor-check`; UTM supplies Linux desktop evidence. Do not rerun slow desktop
 journeys until an integration checkpoint or a relevant change invalidates prior evidence.
 
-Next action: NW0-B2, build and audit a first frozen Graphify candidate on this Mac with B1's synthetic
-dataset, capped at 45 minutes from remaining NW0-B and zero model calls. Compare runtime boundaries
-and startup impact; leave incomplete packaging comparisons explicit. Native Linux evidence remains
-required separately. Claude dispatch stays closed at C7's missing capabilities; Codex remains deferred.
+Next action: NW0-B3, a bounded Markdown-only Graphify interface/closure check, capped at 45 minutes
+from remaining NW0-B with synthetic fixtures and zero model calls. Compare upstream-compatible
+separation with the recorded broader-dependency remediation requirements. Preserve existing audit
+limits until an explicit architecture/policy decision. Native Linux evidence remains separate;
+Claude dispatch stays closed at C7's missing capabilities and Codex remains deferred.
