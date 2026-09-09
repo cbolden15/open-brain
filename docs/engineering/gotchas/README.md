@@ -1070,3 +1070,20 @@ now records that decision. Python patch changes can alter marshal hashes even fo
 never copy an older CI hash into the policy merely to make its artifact pass.
 
 Discovered: 2026-09-09, native metadata remediation after `46bf308`.
+
+### INTEGRATION-002: A narrow Graphify callable does not imply a narrow runtime
+
+Symptom: Planning treats `graphify.extractors.markdown.extract_markdown` as a standalone
+Markdown-only dependency and assumes it resolves links throughout an Obsidian vault.
+
+Cause: At upstream commit `3f82bf7f837a07fb0f7668fbdbd5662801906942`, the extractor package
+initializer eagerly imports other extractors. Vault-global wiki-link resolution also depends on
+root context supplied by the larger extraction facade, which checks tree-sitter before dispatch.
+
+Fix: Measure the complete import closure and use root-aware extraction as the correctness baseline.
+Test cross-folder links and duplicate basenames, keep the cache outside the source snapshot, and
+verify any proposed narrow API against that baseline. Process isolation alone does not reduce the
+packaged module inventory. Runtime and native compatibility remain unverified until the spike.
+
+Discovered: 2026-09-09, native workspace planning and independent upstream source verification.
+See [the integration plan](../../plans/2026-09-09-ob1-native-workspace.md) for pinned source anchors.
