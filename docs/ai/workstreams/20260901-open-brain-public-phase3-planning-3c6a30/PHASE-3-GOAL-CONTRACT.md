@@ -176,13 +176,9 @@ same-commit requirement.
 
 ## 4. Authorized scope
 
-> Standing authority: full unattended homelab authority — SSH to homelab
-> nodes, package installs, wipe/recreate non-production databases, edit
-> `/opt/*` and homelab-setup compose files, push branches, open/merge PRs to
-> main after the required gates pass. The Mac mini and Hetzner runner are
-> execution/build/test resources.
+> Authority is limited to the goal-specific scope recorded below.
 
-This goal deliberately narrows that standing authority to:
+The goal-specific authorized scope is:
 
 - Source, tests, documentation, CI, and repository-local build metadata in
   `<repo-root>` that directly implement
@@ -202,8 +198,7 @@ This goal deliberately narrows that standing authority to:
 
 > - Hetzner production is READ-ONLY: no deployments, migrations, writes, or
 >   config changes, ever. Reading prod state is allowed.
-> - No changes that risk other projects sharing the homelab, Mac mini, or
->   Hetzner runner.
+> - No changes that risk unrelated projects on shared infrastructure.
 > - No force-pushes, branch-protection bypasses, destructive history
 >   rewrites, or silencing/weakening of required checks or tests.
 > - No secrets, credentials, database URLs, or sensitive data in logs,

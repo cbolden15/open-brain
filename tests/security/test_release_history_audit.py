@@ -5,11 +5,13 @@ from dataclasses import fields
 from hashlib import sha256
 from pathlib import Path
 from subprocess import run
+from typing import Any
 
 import pytest
 from pytest import CaptureFixture
 
 from tools.open_brain_dev.public_history_audit import HistoryFinding, audit_history, main
+from tools.open_brain_dev.release_audit import audit
 
 
 def git(repository: Path, *args: str) -> str:
@@ -257,4 +259,172 @@ def test_history_allowlist_rejects_inexact_or_unsafe_entries(tmp_path: Path) -> 
     )
 
     with pytest.raises(ValueError, match="allowlist path"):
+        audit_history(repository, denylist)
+
+
+def private_history(
+    tmp_path: Path, *, extra: str = ""
+) -> tuple[Path, Path, str, dict[str, Any]]:
+    repository = tmp_path / "repository"
+    repository.mkdir()
+    git(repository, "init")
+    git(repository, "config", "user.name", "Synthetic Test")
+    git(repository, "config", "user.email", "synthetic@example.invalid")
+    denylist = tmp_path / "denylist.txt"
+    denylist.write_text("synthetic-history-token\ncafé\n")
+    payload = "synthetic-history-token" + extra
+    (repository / "reviewed.txt").write_text(payload)
+    for name in ("LICENSE", "NOTICE"):
+        (repository / name).write_text("Synthetic fixture")
+    git(repository, "add", ".")
+    git(repository, "commit", "-m", "record synthetic historical fixture")
+    reviewed = git(repository, "rev-parse", "HEAD")
+    git(repository, "rm", "reviewed.txt")
+    git(repository, "commit", "-m", "remove synthetic historical fixture")
+    policy = {
+        "policy_version": 2,
+        "entries": [
+            {
+                "blob_sha256": sha256(payload.encode()).hexdigest(),
+                "path": "reviewed.txt",
+                "rule": "private-denylist-term",
+                "reason": "owner-reviewed-synthetic-history",
+                "reviewed_commits": [reviewed],
+                "normalized_denylist_sha256": sha256(
+                    b'["caf\\u00e9","synthetic-history-token"]'
+                ).hexdigest(),
+            }
+        ],
+    }
+    (repository / "release").mkdir()
+    save_private_policy(repository, policy)
+    return repository, denylist, payload, policy
+
+
+def save_private_policy(repository: Path, policy: dict[str, Any]) -> None:
+    (repository / "release/public-history-allowlist.json").write_text(json.dumps(policy))
+
+
+def test_reviewed_private_history_is_exception_free_in_current_tree_and_archive(
+    tmp_path: Path,
+) -> None:
+    import zipfile
+
+    repository, denylist, payload, _ = private_history(tmp_path)
+    assert audit_history(repository, denylist) == []
+    assert audit(repository, denylist) == []
+    (repository / "reviewed.txt").write_text(payload)
+    assert {finding.rule for finding in audit(repository, denylist)} == {"private-denylist-term"}
+    (repository / "reviewed.txt").unlink()
+    archive = tmp_path / "synthetic.zip"
+    with zipfile.ZipFile(archive, "w") as output:
+        output.writestr("reviewed.txt", payload)
+    assert {finding.rule for finding in audit(repository, denylist, [archive])} == {
+        "private-denylist-term"
+    }
+
+
+@pytest.mark.parametrize("field", ("blob_sha256", "path", "reviewed_commits"))
+def test_private_history_approval_requires_exact_blob_path_and_commit(
+    tmp_path: Path, field: str
+) -> None:
+    repository, denylist, _, policy = private_history(tmp_path)
+    entry = policy["entries"][0]
+    entry[field] = {
+        "blob_sha256": "0" * 64,
+        "path": "another.txt",
+        "reviewed_commits": ["0" * 40],
+    }[field]
+    save_private_policy(repository, policy)
+    findings = audit_history(repository, denylist)
+    assert len(findings) == 1
+    assert findings[0].rule == "private-denylist-term"
+
+
+@pytest.mark.parametrize("new_path", ("reviewed.txt", "copied.txt"))
+def test_later_reintroduction_of_identical_private_blob_is_not_approved(
+    tmp_path: Path, new_path: str
+) -> None:
+    repository, denylist, payload, _ = private_history(tmp_path)
+    (repository / new_path).write_text(payload)
+    git(repository, "add", new_path)
+    git(repository, "commit", "-m", "reintroduce synthetic fixture")
+    later = git(repository, "rev-parse", "HEAD")
+    git(repository, "rm", new_path)
+    git(repository, "commit", "-m", "remove reintroduced fixture")
+    assert audit_history(repository, denylist) == [
+        HistoryFinding(later, new_path, "private-denylist-term")
+    ]
+
+
+def test_private_history_approval_does_not_suppress_other_rules(tmp_path: Path) -> None:
+    repository, denylist, _, _ = private_history(
+        tmp_path, extra=" " + ".".join(("192", "168", "1", "10"))
+    )
+    findings = audit_history(repository, denylist)
+    assert len(findings) == 1
+    assert findings[0].rule == "private-ip-address"
+
+
+def test_private_history_fingerprint_uses_semantic_normalized_term_set(tmp_path: Path) -> None:
+    repository, denylist, _, _ = private_history(tmp_path)
+    denylist.write_text("# comment\nCAFE\u0301\nSYNTHETIC-HISTORY-TOKEN\ncafé\n\n")
+    assert audit_history(repository, denylist) == []
+
+
+@pytest.mark.parametrize(
+    "terms", ("café\n", "café\nsynthetic-history-token\nadded-term\n", "changed-term\n")
+)
+def test_semantic_denylist_changes_invalidate_history_approval(tmp_path: Path, terms: str) -> None:
+    repository, denylist, _, _ = private_history(tmp_path)
+    denylist.write_text(terms)
+    with pytest.raises(ValueError, match="approval fingerprint"):
+        audit_history(repository, denylist)
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    (
+        "missing_fingerprint",
+        "bad_fingerprint",
+        "missing_commits",
+        "empty_commits",
+        "bad_commit",
+        "duplicate_commit",
+        "too_many_commits",
+        "unknown_field",
+        "unsupported_rule",
+        "version_one",
+        "missing_version",
+    ),
+)
+def test_private_history_policy_fails_closed_on_invalid_metadata(
+    tmp_path: Path, mutation: str
+) -> None:
+    repository, denylist, _, policy = private_history(tmp_path)
+    entry = policy["entries"][0]
+    if mutation == "missing_fingerprint":
+        del entry["normalized_denylist_sha256"]
+    elif mutation == "bad_fingerprint":
+        entry["normalized_denylist_sha256"] = "0" * 64
+    elif mutation == "missing_commits":
+        del entry["reviewed_commits"]
+    elif mutation == "empty_commits":
+        entry["reviewed_commits"] = []
+    elif mutation == "bad_commit":
+        entry["reviewed_commits"] = ["HEAD"]
+    elif mutation == "duplicate_commit":
+        entry["reviewed_commits"] *= 2
+    elif mutation == "too_many_commits":
+        entry["reviewed_commits"] *= 257
+    elif mutation == "unknown_field":
+        entry["unrecognized"] = True
+    elif mutation == "unsupported_rule":
+        entry["rule"] = "credential-assignment"
+    elif mutation == "version_one":
+        policy["policy_version"] = 1
+    else:
+        del policy["policy_version"]
+    save_private_policy(repository, policy)
+    with pytest.raises(ValueError):
         audit_history(repository, denylist)
