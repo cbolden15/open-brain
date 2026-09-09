@@ -1235,3 +1235,21 @@ findings as a lower bound until the entire artifact is inspected.
 
 Discovered: 2026-09-09, NW0-B2 frozen Graphify builds and unchanged native content auditor.
 See the [B2 packaging record](../../audits/2026-09-09-ob1-nw0-b2-frozen-graphify.md).
+
+### INTEGRATION-011: A direct Markdown import can still load every language extractor
+
+Symptom: Removing Markdown's root lookup back-edge reduces the frozen closure, but still leaves
+36 Graphify modules and an incomplete content audit.
+
+Cause: The extractor package initializer eagerly loads its language registry. Markdown also reaches
+runtime discovery and path code through shared skip rules and sanitization. A per-file function name
+does not establish a small import boundary. Separately, undeclared optional PyYAML changes frontmatter
+behavior: the pinned closure drops nested metadata even though basic synthetic extraction passes.
+
+Fix: Verify both runtime and frozen module inventories. B3's private prototype passes root context
+explicitly, makes compatibility exports lazy, and moves unchanged shared logic into small modules.
+Preserve source provenance and upstream tests when evaluating adoption; keep pre-existing failures
+visible. A clean artifact audit cannot establish nested-frontmatter support or a supported dependency.
+
+Discovered: 2026-09-09, NW0-B3 component, artifact and original/patched upstream test comparisons.
+See the [B3 component record](../../audits/2026-09-09-ob1-nw0-b3-markdown-component.md).

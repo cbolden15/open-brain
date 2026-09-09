@@ -1,7 +1,8 @@
 # OB1 native Obsidian and Graphify workspace
 
-- Status: NW0-B2 demonstrated frozen Markdown extraction but its candidates fail content/object-budget
-  inspection and measured startup acceptance. B1's adapter constraints remain required. NW0-C6 connected the existing
+- Status: NW0-B3 isolates a private Markdown component whose Mac archives pass content inspection.
+  Observed repeat-startup overhead is 103 ms and the combined native smoke passes. Adoption, an existing
+  nested-frontmatter failure, controlled cold/Linux evidence and B1's adapter work remain open. NW0-C6 connected the existing
   SDK lifecycle to supervised pre-input metadata and rejection on C5's Mac boundary; native completion remains blocked.
   NW0-C7 specifies the provider/supervisor contract and missing capabilities without new runtime probes.
   Codex subscription stays deferred. Four launch paths, frozen packaging, and other NW0 gates remain open.
@@ -885,12 +886,12 @@ two of four lenses; this revision does not claim a new independent review or suc
 | Implementation ownership | Requirement ownership matrix and explicit four-adapter/onboarding exit gates in NW1–NW4. |
 | Bounded feasibility work | NW0-A–E effort/request limits, named desktop target and provisioning dependency, startup measurements, explicit stop conditions. |
 
-Next action: NW0-B3, a Markdown-only Graphify interface/closure check, capped at 45 minutes from
-remaining NW0-B with synthetic fixtures and zero model calls. The
-[B2 packaging record](../audits/2026-09-09-ob1-nw0-b2-frozen-graphify.md) demonstrates extraction
-but records content/object-budget failures and excess startup overhead. Compare a supported
-upstream-compatible separation with broader-dependency remediation before selecting a new candidate;
-do not silently change audit limits or content exceptions. Preserve B1/B2 effort in the NW0-B ledger.
+Next action: NW0-B4, a component-adoption and frontmatter-contract review capped at 45 minutes
+from remaining NW0-B, using synthetic fixtures and zero model calls. The
+[B3 component record](../audits/2026-09-09-ob1-nw0-b3-markdown-component.md) demonstrates a small,
+auditable private seam. Review upstream support or an explicit maintained-patch decision and resolve
+the existing nested-frontmatter failure before adopting a parser dependency. Preserve B1/B2/B3 effort,
+Engine link/selection controls, existing audit limits and the outstanding cold/Linux gates.
 C7 records the missing Claude capabilities. Resume its authentication experiments only against a
 concrete supported mechanism; native note dispatch stays closed and Codex remains deferred.
 Preserve completed NW0-B1 evidence and its required adapter controls; provision the agreed
