@@ -192,6 +192,21 @@ acceptance are deferred; do not add them to initial setup. Configure which selec
 the provider and bind credentials to the intended adapter rather than inherit ambient credentials.
 Credential storage and cloud usage controls must be resolved for each required access path.
 
+DECIDED by the user on 2026-09-09: cloud inference includes all eligible notes in the managed
+vault by default, with folder and individual-note exclusions available during setup and afterward.
+Show this scope when the user selects a provider. Eligibility still requires accepted content and
+the existing source/trust rules; it does not include unrelated vaults, private Brain internals,
+history, or generated artifacts. Cloud exclusion does not remove a note from local saving, search,
+or portability.
+
+Apply exclusions in the shared semantic input-selection boundary for automatic and manual refresh,
+including retries and related-note context retrieval. Recheck the current policy before dispatch;
+an excluded record must not re-enter a request through a cached excerpt or candidate lookup.
+Persist individual-note exclusions by stable identity so renaming a note does not clear them;
+evaluate folder exclusions against the current managed-vault-relative path. Policy changes invalidate
+pending selections and affected semantic projections. Already transmitted data cannot be recalled;
+stop further dispatch of newly excluded records and reject results based on superseded policy.
+
 Start the offline feasibility proof with Canvas and an explicit source-filename mapping. The
 inspected HTML renderer references a CDN-hosted vis-network asset; package that asset locally before
 claiming an offline HTML view. Upstream export imports also bring in broader graph modules, so
@@ -357,7 +372,9 @@ alone is insufficient. CI pushes or app installation happen only under the autho
 3. Package reviewed local viewer assets and generate Canvas/source-note links without overwriting
    user content or configuration. Keep generated files out of every source path.
 4. Exercise semantic quality/provenance, unauthorized egress refusal, model setup/failure, structural
-   fallback, ambiguous links, hostile text, output exclusion, and timeout/recovery. Prove deterministic
+   fallback, ambiguous links, hostile text, output exclusion, and timeout/recovery. Verify folder
+   and note exclusions across automatic/manual requests, retries, context retrieval, renames, and
+   policy changes during queued or in-flight work. Prove deterministic
    structural rebuilds separately from the semantic-quality acceptance rubric.
 5. Run `make verify`, native build, Homebrew smoke, and bounded artifact inspection. Repeat both
    target builds when the dependency closure changes; do not relax native audit limits to pass.
