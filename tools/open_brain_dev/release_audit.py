@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import argparse
 import re
-import stat
 import sys
 import tarfile
 import unicodedata
@@ -127,7 +126,13 @@ def _path_rules(name: str) -> list[Finding]:
     return findings
 
 
-def _content_rules(location: str, data: bytes, deny_terms: Sequence[str]) -> list[Finding]:
+def _content_rules(
+    location: str,
+    data: bytes,
+    deny_terms: Sequence[str],
+    *,
+    limit: int = TEXT_SCAN_LIMIT,
+) -> list[Finding]:
     findings: list[Finding] = []
     if ABSOLUTE_HOME_RE.search(data):
         findings.append(Finding(location, "absolute-home-path"))
@@ -135,7 +140,7 @@ def _content_rules(location: str, data: bytes, deny_terms: Sequence[str]) -> lis
         findings.append(Finding(location, "private-ip-address"))
     if CREDENTIAL_ASSIGNMENT_RE.search(data):
         findings.append(Finding(location, "credential-assignment"))
-    if len(data) > TEXT_SCAN_LIMIT:
+    if len(data) > limit:
         findings.append(Finding(location, "content-scan-limit-exceeded"))
         return findings
     normalized = _normalize_text(data.decode("utf-8", errors="surrogateescape"))
@@ -170,9 +175,7 @@ def _load_denylist(path: Path) -> tuple[str, ...]:
         for line in path.read_text(encoding="utf-8").splitlines()
         if line.strip()
     )
-    terms = tuple(
-        line for line in lines if not line.startswith("#")
-    )
+    terms = tuple(line for line in lines if not line.startswith("#"))
     if terms:
         return terms
     if lines == (NO_ADDITIONAL_TERMS_MARKER,):
@@ -189,27 +192,6 @@ def _iter_tree(root: Path) -> Iterable[tuple[str, bytes]]:
         if path.is_symlink() or not path.is_file() or set(relative.parts) & TREE_SKIP_PARTS:
             continue
         yield relative.as_posix(), path.read_bytes()
-
-
-def _iter_archive(path: Path) -> Iterable[tuple[str, bytes | None]]:
-    if zipfile.is_zipfile(path):
-        with zipfile.ZipFile(path) as archive:
-            for info in archive.infolist():
-                if not info.is_dir():
-                    mode = (info.external_attr >> 16) & 0o170000
-                    yield info.filename, None if mode == stat.S_IFLNK else archive.read(info)
-        return
-    if tarfile.is_tarfile(path):
-        with tarfile.open(path) as archive:
-            for member in archive.getmembers():
-                if member.issym() or member.islnk():
-                    yield member.name, None
-                if member.isfile():
-                    handle = archive.extractfile(member)
-                    if handle is not None:
-                        yield member.name, handle.read()
-        return
-    raise ValueError(f"unsupported release artifact: {path.name}")
 
 
 def audit(root: Path, denylist: Path, artifacts: Sequence[Path] = ()) -> list[Finding]:
@@ -232,17 +214,15 @@ def audit(root: Path, denylist: Path, artifacts: Sequence[Path] = ()) -> list[Fi
         findings.extend(_path_rules(name))
         findings.extend(_content_rules(name, data, terms))
 
-    for artifact in artifacts:
+    from tools.open_brain_dev.artifact_audit import inspect_artifact, safe_name
+
+    for index, artifact in enumerate(artifacts):
+        label = safe_name(artifact.name, terms, f"artifact-{index}")
         if not artifact.is_file():
-            findings.append(Finding(artifact.name, "missing-release-artifact"))
+            findings.append(Finding(label, "missing-release-artifact"))
             continue
-        for name, archive_data in _iter_archive(artifact):
-            location = f"{artifact.name}:{_safe_location(name)}"
-            findings.extend(Finding(location, finding.rule) for finding in _path_rules(name))
-            if archive_data is None:
-                findings.append(Finding(location, "symlink-not-allowed"))
-                continue
-            findings.extend(_content_rules(location, archive_data, terms))
+        for location, rule in inspect_artifact(artifact, terms):
+            findings.append(Finding(f"{label}:{location}" if location else label, rule))
 
     return sorted(set(findings), key=lambda item: (item.location, item.rule))
 

@@ -1038,9 +1038,14 @@ Cause: The archive scanner feeds the bundled executable into a source-text rule 
 The observed native executables are about 10 MB and 13.7 MB. The native dependency inventory verifies
 module names and format/signature, but does not scan packaged contents with the owner denylist.
 
-Required follow-up: retain fail-closed source limits and add a bounded native-artifact content audit.
-Use synthetic large and compressed-content regressions plus both actual platform archives. Do not
-skip the binary, add a history exception, or treat a larger raw-byte limit as proof that compressed
-packaged contents were inspected. The repair is not part of the read-only readiness audit.
+Fix: `artifact_audit.py` retains source limits and adds bounded inspection of native containers,
+compressed CArchive/PYZ members, base-library ZIPs, and marshaled code data. Synthetic large and
+hostile fixtures cover the parser; both actual platform archives complete inspection. They still
+fail content policy on build paths and standard-library address examples. No exemption was added.
+
+Parser trap: standard-library archive readers can allocate metadata before yielding a member.
+Preflight ZIP directories and tar extension records before those readers, and reject uncovered ZIP
+payload gaps or nonzero tar padding. PYZ keys are module identities; map them to module paths before
+applying file-suffix rules so a module ending in `.sqlite` is not mistaken for a database file.
 
 Discovered: 2026-09-09, public release readiness audit at goal commit `d81bb64`.
