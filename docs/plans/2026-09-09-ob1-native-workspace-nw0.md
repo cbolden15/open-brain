@@ -14,6 +14,8 @@
   The parallel A/D/C checkpoint adds four passing grouped private tests, independently reviewed
   compatibility findings, desktop metadata and direct-API preparation. Durable representation,
   full release/accounting and GUI/provider gates remain incomplete.
+  A2 adds eight passing grouped representation tests, a working v1 byte carrier with unenforced
+  policy flags, and an old-reader version-refusal control. The complete typed format remains open.
 - Authority: [native workspace plan](2026-09-09-ob1-native-workspace.md), including the user's
   implementation-efficiency guidelines and the subsequent user-authorized Codex deferral.
 - Starting revision: `3468115` on `docs/ob1-native-workspace-plan`.
@@ -302,6 +304,23 @@ product GUI journey. Architecture diagrams are not Canvas/navigation evidence. C
 assertions and reusable provider boundaries without inference. E records independently reviewed
 findings as evidence, not early NW0 closure. B4 remains complete with its failed warm-start result;
 no timer resets, startup remeasurements, shipping changes or NW1 work occur in this wave.
+
+## NW0-A2 representation comparison
+
+The [A2 comparison](../audits/2026-09-09-ob1-nw0-a2-portable-representations.md) exercises eight grouped
+synthetic tests. An edited active page with original provenance and a generic event carrier survives
+real validation, import and authoritative reconciliation. Its embedded lifecycle and policy flags
+remain ordinary content. The separate archived control identifies a missing canonical search row
+after import; original source text remains retrievable. An unchanged import control passes.
+
+A private typed replay preserves tested revision/link history and restrictions. A future-version
+marker makes the current reader refuse the export. Neither proves a complete future Portable format:
+actual base-record joins, full manifest/catalog validation, authenticated authority and shared-record
+conversion remain open. Generic actions and the closed v1 shared envelope are not automatic policy
+or arbitrary-family carriers. Prefer a required new reader contract for the next proof, without
+selecting a shipping version or migration. The next A proof must bind actual exported base records
+and validate the complete candidate through import, reconciliation and retrieval. B5 remains
+independent; NW1 remains gated.
 
 ## Unproven gates and pass/fail criteria
 

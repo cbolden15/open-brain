@@ -7,6 +7,8 @@
   note dispatch; Codex stays deferred. Four launch paths and the full NW0 gate remain open.
   The parallel A/D/C checkpoint adds reviewed private lifecycle/privacy tests, concrete Portable
   compatibility gaps, desktop metadata and direct-API contract preparation. It does not close NW0.
+  A2 proves a v1 carrier preserves bytes without enforcing workspace restrictions and tests explicit
+  version refusal. A complete typed representation and its shared-record compatibility remain open.
 - Date: 2026-09-09.
 - Baseline: `708e30c9d1e736969e2bb0aa6f0454a5f4804489` on `goal/open-brain-five-minute-install`.
 - Planning branch: `docs/ob1-native-workspace-plan`.
