@@ -175,8 +175,8 @@ results; do not silently inherit a broad upstream recursive scanner.
 
 Render without a CDN or required HTTP server. Treat note titles, URLs, and markup as untrusted
 presentation data: escape HTML, disallow executable navigation schemes, and validate local note
-targets. Structural extraction needs no model. If users can explicitly accept inferred relations,
-those decisions need durable provenance outside the disposable graph cache.
+targets. Structural extraction needs no model. User acceptance of inferred relations needs durable
+provenance outside the disposable graph cache.
 
 Structural extraction is a baseline and fallback, not sufficient first-use acceptance. Add a semantic
 extraction stage using the selected cloud-model path. Record the model/version,
@@ -184,6 +184,21 @@ input revisions, and extraction provenance; distinguish inferred relations from 
 Show source evidence for a suggested connection. The same stable-ID and bounded-input rules apply.
 Do not treat a missing provider or failed inference as a successful first graph. Preserve headless
 capture/search and the structural fallback when inference is unavailable.
+
+DECIDED by the user on 2026-09-09: show inferred connections in the graph as soon as a valid
+semantic result is published; add permanent note links only when the user accepts a suggestion.
+Clearly distinguish suggested edges from explicit note links and expose the source evidence.
+Automatic refresh must never rewrite notes or silently promote a suggestion to an accepted link.
+
+Acceptance invokes a shared engine operation with stable endpoint IDs, the reviewed suggestion
+and evidence, expected note revisions, and an idempotency key. Present the intended note edit
+before acceptance. Revalidate endpoints and revisions; a changed source requires renewed review
+rather than applying an outdated edit. Use the normal conflict-preserving revision flow to add
+the approved link without duplicating an existing link or repeated acceptance. Record the user's
+acceptance and inference provenance durably, preserving the distinction between model output and
+the user's decision. Accepted links and their required provenance must survive graph-cache removal
+and Portable Brain export/import. NW0 must prove the portable representation and select the exact
+link placement and direction before implementation.
 
 Keep the semantic request/result contract independent of a provider SDK so a later Ollama adapter
 can reuse input selection, provenance, and graph handling. Implement the required cloud access paths
@@ -354,7 +369,8 @@ alone is insufficient. CI pushes or app installation happen only under the autho
 1. Add neutral task contracts and one explicit migration for durable mappings/pending operations.
    Keep the existing schema runner small and dependency-free; preserve frozen catalog checksums.
 2. Implement bounded source enumeration, stable-ID mapping, revision acceptance, conflict state,
-   rename/delete semantics, replay, and crash recovery from the NW0 decision.
+   rename/delete semantics, replay, and crash recovery from the NW0 decision. Add suggestion
+   acceptance through the same revision flow with durable provenance and idempotency.
 3. Add shared CLI/MCP operations with separate caller authority and safe result projections.
    Preserve the default headless capture/search path and define eligible workspace materialization.
 4. Ensure accepted edits and required history survive verified export/import; regenerate local
@@ -368,7 +384,8 @@ alone is insufficient. CI pushes or app installation happen only under the autho
 1. Add the pinned adapter and selected semantic-model path at the app/runtime boundary; consume
    only validated snapshots and explicitly authorized model configuration.
 2. Implement link mapping, revision/version status, bounded execution, atomic cache publication,
-   and failure/staleness receipts. Avoid a new authoritative graph database.
+   and failure/staleness receipts. Display inferred suggestions immediately with evidence and
+   explicit-link distinction. Avoid a new authoritative graph database.
 3. Package reviewed local viewer assets and generate Canvas/source-note links without overwriting
    user content or configuration. Keep generated files out of every source path.
 4. Exercise semantic quality/provenance, unauthorized egress refusal, model setup/failure, structural
@@ -384,14 +401,17 @@ alone is insufficient. CI pushes or app installation happen only under the autho
 1. Add a desktop-only plugin package with a pinned build toolchain, manifest/version compatibility,
    and the approved binary discovery/protocol contract.
 2. Implement capture/search/refresh/navigation, conflict visibility, stale-graph state, automatic
-   refresh with edit batching, persistent pause, and one-shot manual refresh. Verify unload and
-   retry behavior without an always-on engine service.
+   refresh with edit batching, persistent pause, and one-shot manual refresh. Add suggestion review
+   and explicit acceptance with a preview of the permanent note edit. Verify unload and retry
+   behavior without an always-on engine service.
 3. Implement managed-vault create/open and plugin asset staging/upgrade/removal. Keep activation
    explicit where required; preserve user notes, unrelated settings, and unrelated plugins.
 4. Test plugin operations against the same contract fixtures as CLI/MCP, with added adapter-specific
    process, trust, file-event, renderer, and activation cases. Cover edit bursts, changes during
    inference, stale-result rejection, generated-output exclusion, pause across reloads, manual
-   refresh while paused, and cancellation on unload.
+   refresh while paused, and cancellation on unload. Verify inference leaves note bytes unchanged,
+   accepted links survive cache rebuild/export/import, repeated acceptance does not duplicate a
+   link, and changed source revisions prevent stale acceptance.
 5. Run actual Obsidian GUI journeys on both target desktops. A mocked plugin or CLI smoke cannot
    establish that the app opened, the plugin activated, or source navigation worked.
 
