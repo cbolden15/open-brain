@@ -19,6 +19,13 @@ vault is its foundation. Graphify produces a rebuildable view of accepted notes.
 MCP behavior remains usable independently of the editor. No required server or always-on engine
 process is introduced.
 
+Product roadmap confirmed by the user on 2026-09-09: Open Brain remains open-source software;
+a cloud-hosted product offering is planned later. This integration milestone targets the OSS
+desktop product. Cloud LLM inference in that product is separate from hosting Open Brain itself.
+The future hosted offering does not make an Open Brain account or hosted backend a prerequisite
+for this milestone. Bring-your-own provider credentials is the recommended initial access model,
+but the user has not yet selected that model. Hosted-service implementation is outside this plan.
+
 This milestone produces the plan, grounded constraints, and a bounded feasibility specification.
 It does not authorize implementation, CI pushes, application installation, release publication,
 or repository-setting changes. Later implementation can use reversible work under its approved scope;
