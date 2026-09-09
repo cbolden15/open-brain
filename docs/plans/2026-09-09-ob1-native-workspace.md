@@ -491,14 +491,17 @@ replan explicitly. Do not quietly reduce a launch requirement or expand the spik
 
 The coordinator owns the experiment ledger, fixtures, environment inventory, and evidence. Confirm
 the actual host/VM identity, OS version, desktop session, package source, provider account access,
-and network conditions before the dependent experiment. Planned targets are an isolated macOS
-arm64 test account and an Ubuntu 24.04 LTS x86_64 GNOME desktop on native hardware or a hardware-
-virtualized x86_64 VM. The user confirmed this target on 2026-09-09. Cross-architecture emulation
-is unsuitable for the timing claim. Read-only local inventory on that date found an arm64 macOS
-coordinator and one registered arm64 UTM guest; neither establishes the required x86_64 desktop.
-Linux target availability remains unverified. Identifying an existing x86_64 host or provisioning
-a suitable desktop on x86_64 hardware is an entry dependency for its experiments, not a reason to
-drop Linux. The coordinator must record its owner and execution location before Linux GUI work.
+and network conditions before the dependent experiment. DECIDED by the user on 2026-09-09: use
+the current arm64 Mac for both targets. Run macOS checks in an isolated test account and Linux
+checks in a separate UTM guest emulating an Ubuntu 24.04 LTS x86_64 GNOME desktop. This supersedes
+the earlier native-hardware or hardware-virtualized x86_64 environment requirement. UTM supports
+[x86/x64 emulation on Apple Silicon](https://mac.getutm.app/), with reduced performance.
+Read-only inventory found UTM and an existing arm64 guest; the dedicated x86_64 guest has not been
+created or verified. Provisioning and verifying that desktop remain entry dependencies for Linux
+experiments. Preserve the existing guest. Record the selected host, guest architecture, UTM version,
+CPU/memory/disk configuration, desktop session, and execution location in the private experiment ledger.
+Use the emulated desktop for Linux functional and GUI evidence; label all Linux timing results as
+emulated and make no inference about native x86_64 performance from them.
 
 Homebrew remains the Open Brain lifecycle. Test an official macOS Obsidian package/cask and the
 official x86_64 Debian package on the selected Ubuntu desktop, recording installation and URI
@@ -534,7 +537,9 @@ cold and five warm base `status --json` invocations per target before and after 
 record how cold state is established without altering the user's system. Provisional startup
 regression budgets are at most 500 ms additional median cold latency and 200 ms warm latency,
 with absolute times retained for the 300-second journey. Treat these as design budgets, not measured
-results. Exceeding them triggers helper-architecture reconsideration, not removal of the benchmark.
+results. Compare each Linux candidate and its baseline under the same recorded UTM configuration;
+these measurements establish regression evidence for that emulated environment only. Exceeding
+the budgets triggers helper-architecture reconsideration, not removal of the benchmark.
 
 NW0 exit requires evidence for A–E, all five access paths on both targets, both desktop environments,
 and no unresolved decision affecting durable schema or first-release acceptance. A missing environment
@@ -686,6 +691,10 @@ acceptance. Do not pause the clock for downloads, activation prompts, or authent
 Declare provider account/access prerequisites and network conditions before measurement; do not
 silently move setup steps outside the clock after a failed run. Local model installation is deferred
 with Ollama support.
+Record Linux timings with the selected UTM host/guest configuration and identify the journey as
+emulated. Keep the 300-second target; a pass supports that measured environment, while a miss requires
+a product decision and does not establish that native Linux would fail. Do not describe these results
+as native x86_64 timing evidence.
 Full-vault indexing is a separate measurement. Do not claim an arbitrary corpus completes in five minutes.
 
 1. Install the candidate through the supported Homebrew lifecycle; install/launch Obsidian as
@@ -762,6 +771,7 @@ two of four lenses; this revision does not claim a new independent review or suc
 | Implementation ownership | Requirement ownership matrix and explicit five-adapter/onboarding exit gates in NW1–NW4. |
 | Bounded feasibility work | NW0-A–E effort/request limits, named desktop target and provisioning dependency, startup measurements, explicit stop conditions. |
 
-Next action: open the NW0 decision record and confirm the execution environments and authorized
-experiment scope. The Linux desktop remains an explicit unverified prerequisite for its dependent
-experiments. Run a formal review of the resulting NW0 decision record before executing NW1.
+Next action: open the NW0 decision record and record the selected Mac host and dedicated x86_64 UTM
+guest setup. Provision and verify the isolated Linux desktop within the authorized NW0 execution
+scope before its dependent experiments. Run a formal review of the resulting NW0 decision record
+before executing NW1.
