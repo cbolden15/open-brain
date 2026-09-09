@@ -2,14 +2,15 @@
 
 - Status: open. NW0-B1 closure/import proof passed with required integration controls.
   NW0-C2 did not establish Codex isolation; Codex subscription is deferred under the subsequent
-  user-authorized scope change. NW0-C3 adds partial Claude policy/retention evidence; its isolation
-  gate remains closed. Four launch paths and frozen packaging remain required and unproven.
+  user-authorized scope change. NW0-C4 adds a working Claude rejection prototype and supervisor
+  design; native completion remains closed. Four launch paths and frozen packaging remain unproven.
 - Authority: [native workspace plan](2026-09-09-ob1-native-workspace.md), including the user's
   implementation-efficiency guidelines and the subsequent user-authorized Codex deferral.
 - Starting revision: `3468115` on `docs/ob1-native-workspace-plan`.
-- Latest checkpoint: NW0-C3 ran from `51ee523` on macOS arm64 with nine offline Claude processes,
-  six SDK policy-resolution cases, and sandbox negative controls. Zero model calls, real account
-  inspection, product implementation, or VM provisioning. Codex remains deferred.
+- Latest checkpoint: NW0-C4 ran from `d188333` on macOS arm64. A private supervisor prototype
+  passed 61 contract tests and five existing engine-boundary security tests. Six native metadata
+  processes were retained, with live rejection in the final four. Zero note bytes or model calls;
+  no real account inspection, product runtime changes, or VM provisioning. Codex remains deferred.
 
 ## Established state
 
@@ -139,6 +140,26 @@ with a native runtime boundary through the existing staged-execution seam. It mu
 client-owned login without credential relay and reject indeterminate/conflicting policy before note
 bytes. C3 recommends a bounded design/prototype step; no shipping sandbox or new dependency is selected.
 
+## NW0-C4 supervisor design and rejection result
+
+The [C4 design/probe record](../audits/2026-09-09-ob1-nw0-c4-claude-supervisor.md) defines the app-owned
+supervisor states, engine authority/consent boundary, runtime asset policy, and client-owned login
+constraint. The prototype uses native `2.1.265` settings metadata rather than the older SDK resolver.
+It made live rejection decisions for incomplete preflight and observed routing changes, with zero
+note bytes to the client. All owned processes were terminated and waited for.
+
+Fake-only tests exercise a positive release, stale/malformed metadata, policy and access conflicts,
+exclusions/redaction/authority denial, bound permits, observed revocation, and replay rejection.
+No fake witness can authorize the native path. The native executor has no completion writer.
+This completes the requested design/rejection prototype, not subscription feasibility: applicable
+policy completeness/freshness, full tool catalog, real login reuse, independent containment,
+unobserved policy changes, active retention/cancellation, and request accounting remain unproven.
+
+The next containment candidate preserves the official client's existing auth namespace while
+isolating other runtime state. Prove its minimal auth/bootstrap reads and rotation writes with
+synthetic fixtures before an authenticated no-note check. A second dedicated login is not selected
+as a shortcut around the agreed login-reuse requirement.
+
 ## Unproven gates and pass/fail criteria
 
 | Gate | Evidence required to pass | Fail or incomplete condition |
@@ -162,11 +183,11 @@ The complete native, subscription, and desktop proofs remain unproven after this
    `graphify.extract.extract(..., parallel=False)` within 60 seconds, 16 KiB selected input,
    and 16 KiB accepted output per case. Versions/hashes, links/IDs, cache effects, and the
    required integration controls are recorded above. Frozen packaging remains open.
-2. **NW0-C1/C2/C3: recorded; Codex deferred.** Preserve the audits and receipts. Next is the
-   concrete Claude supervisor design and zero-inference policy-rejection prototype specified in C3.
-   Cap it at 45 minutes from remaining NW0-C effort. Establish version-matched policy observation,
-   missing/stale/conflicting-policy rejection, policy-change handling, and the client-owned
-   authentication/runtime boundary. No note dispatch while a required mechanism remains unproven.
+2. **NW0-C1–C4: recorded; Codex deferred.** Preserve the audits and receipts. Next is C4's native
+   runtime-layout proof on this Mac using synthetic auth/bootstrap and policy fixtures. Cap it at
+   45 minutes from remaining NW0-C with zero model calls. Exercise permitted auth-file operations,
+   denied unrelated access, required-policy failure, policy changes, and owned-workload termination.
+   Unsupported policy/auth states reject the run; native note dispatch remains closed.
 3. **First bounded real Claude subscription probe.** Once its C1 boundaries have concrete enforcement
    mechanisms and the user-selected account is ready, run one synthetic hostile-input completion.
    Reserve each actual attempt before dispatch; retain all byte/time limits. Observe process/tool,
@@ -191,7 +212,7 @@ These are substeps of the existing NW0 allocations, not extra budgets or new mil
 path, 16 KiB selected input/accepted output per attempt, 60 seconds per attempt, at most two attempts
 and 90 seconds total per probe. Four active launch paths allow at most 64 attempts; Codex's unused
 allowance is not transferred. The mandatory initial/incremental matrix reserves 32 calls; isolation
-and recovery draw from the remaining active capacity. C1/C2/C3 effort remains charged. Effort is a stop limit, never a delivery estimate.
+and recovery draw from the remaining active capacity. C1/C2/C3/C4 effort remains charged. Effort is a stop limit, never a delivery estimate.
 Keep one cumulative private effort/attempt ledger across resumed sessions and workers.
 
 ## Reuse decisions and implementation guardrails
@@ -222,6 +243,6 @@ completion, including native build and Homebrew smoke for packaging changes. Exi
 runs `make contributor-check`; UTM supplies Linux desktop evidence. Do not rerun slow desktop
 journeys until an integration checkpoint or a relevant change invalidates prior evidence.
 
-Next action: run C3's bounded Claude supervisor design and zero-inference policy-rejection proof;
-no note dispatch until its required mechanisms are established. Codex subscription is deferred.
+Next action: run C4's bounded native runtime-layout proof with synthetic auth/bootstrap and policy
+fixtures; no native note dispatch until its required mechanisms are established. Codex remains deferred.
 NW0-B still requires frozen candidate comparison and native Linux evidence.

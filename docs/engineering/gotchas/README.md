@@ -1162,3 +1162,21 @@ although no synthetic context was retained in the tested startup/control paths.
 
 Discovered: 2026-09-09, synthetic NW0-C3 offline Claude and policy-resolver probes.
 See the [C3 audit](../../audits/2026-09-09-ob1-nw0-c3-claude-preflight.md).
+
+### INTEGRATION-007: A matching settings snapshot is not a dispatch authorization
+
+Symptom: A native settings read looks compatible, but does not establish complete policy,
+subscription identity, an empty tool catalog, or runtime confinement. Settings can change after
+the read. A replayed or fake permit can appear to fill those gaps unless its trust boundary is explicit.
+
+Cause: Metadata observation, independent enforcement, and engine consent are separate inputs.
+A timestamp records when metadata was observed; it does not establish remote-policy freshness.
+
+Fix: Keep content out of client startup, reject missing controls, and bind any future authorization
+to the request, client instance/version, accepted revisions, current policy generation, and lifetime.
+Recheck before release and reject observed changes. A second read alone does not close the external
+policy-change race. Keep fake-only witnesses out of native transports. C4's live rejection precedes
+termination; its first post-stop iteration remains labeled as development evidence.
+
+Discovered: 2026-09-09, NW0-C4 supervisor contract tests and native metadata rejection probes.
+See the [C4 design and probe](../../audits/2026-09-09-ob1-nw0-c4-claude-supervisor.md).
