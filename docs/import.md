@@ -148,19 +148,22 @@ portable history.
 
 ## Relative paths and eligibility
 
-Directory traversal is iterative and deterministic. Entries within each directory sort by their
-raw filesystem bytes. Valid paths process in normalized relative-path order. Invalid raw path bytes
-sort after valid paths by their original byte sequence and are rendered only as stable run-local
-tokens such as `<invalid-path-000001>`; raw invalid bytes never reach terminal or JSON output. Every
-visited directory entry counts once. The supplied root itself does not count.
+Directory traversal is iterative and deterministic. Raw names are collected incrementally and
+reserved against the global visited-entry limit before each directory is sorted by raw filesystem
+bytes. Classification then advances in that sorted order. Valid paths process in normalized
+relative-path order. Invalid raw path bytes sort after valid paths by their original byte sequence
+and are rendered only as stable run-local tokens such as `<invalid-path-000001>`; raw invalid bytes
+never reach terminal or JSON output. Every visited directory entry counts once. The supplied root
+itself does not count.
 
 Each relative component must be representable as UTF-8, normalize to Unicode NFC, and contain no
 NUL, slash, backslash, C0/C1 control, or Unicode format character. Empty, `.` and `..` components are
-invalid. If multiple raw file paths normalize to one relative path, every member is a
-`path_collision` failure. If sibling directory names normalize to one component, traversal cannot
-prove that it observed every descendant, so aggregate preflight fails with
-`import_scan_incomplete` before any import-state write. Paths are not case-folded, so distinct
-Linux files remain distinct.
+invalid. If multiple raw Markdown-shaped non-directory paths normalize to one relative path, every
+member is a `path_collision` failure. This collision outcome overrides the normal candidate,
+symlink, hardlink, or special-file outcome. If sibling directory names normalize to one component,
+traversal cannot prove that it observed every descendant, so aggregate preflight fails with
+`import_scan_incomplete` before any import-state write. Paths are not case-folded, so distinct Linux
+files remain distinct.
 
 Only regular files whose names end in exact lowercase `.md` are selected. Empty Markdown files are
 eligible. Dot-directories, including `.obsidian`, are counted as skipped and are never opened or
@@ -188,6 +191,11 @@ count, so malformed inputs cannot evade an aggregate gate. A total-limit refusal
 `large_vault_confirmation_required`, creates no import state, and includes observed counts, exact
 limits, and the exceeded field names without including any path or content. Human output includes
 this exact recovery sentence:
+
+A refusal during raw-name collection reports the first refusing visited count and only the
+visited-entry gate. Its selected-file and aggregate-byte values reflect the last entry fully
+classified in deterministic order. Other total-limit refusals report all gates exceeded at the
+current fully classified entry.
 
 ```text
 Vault exceeds the default import limits. Retry with --allow-large-vault.
@@ -269,6 +277,10 @@ The importer submits through a fixed non-owner, capture-only public-job context.
 `provenance.owner_context=automation_absent`. The durable Portable record consequently uses
 `source.origin=third_party` and `trust.label=unverified`. Imported content never gains owner trust,
 automatic publication authority, or a space assignment.
+
+If the owner later approves a canonical page derived from an imported capture, Portable canonical
+Markdown records the page's review state as `trust=reviewed`. The linked capture keeps its
+unverified source trust, and search therefore continues to label the canonical result `unverified`.
 
 While holding the outer writer lease, the importer constructs the same
 `CaptureSubmission.for_public_job` value but calls an engine-private lock-held capture primitive.
@@ -419,14 +431,17 @@ Interactive human mode writes metadata-only progress to stderr after every 10,00
 and every 100 processed Markdown files. It prints no progress when stderr is not a TTY, and JSON
 stdout remains clean.
 
-The CLI installs an import-specific SIGINT handler that records an interruption request instead of
-raising in the middle of a transaction. Enumeration checks the flag after each visited entry, once
-its counters and candidate state agree. The confirmation input loop polls at most every 250
-milliseconds so it can honor the flag. The task checks again immediately before root registration,
-after each stable file read but before revision reservation, after each durable per-file outcome and
-its in-memory count agree, and immediately before missing-path finalization. A request observed at
-any safe point stops before the next mutation, retains completed per-file commits, and returns 130.
-A `KeyboardInterrupt` raised before that completion boundary has the same result.
+The CLI installs an import-specific SIGINT handler before selecting or opening the Brain. It records
+an interruption request instead of raising in the middle of a transaction. Enumeration polls the
+flag during raw-name collection without advancing public counters, then after each fully classified
+entry once its counters and candidate state agree. The confirmation input loop polls at most every
+250 milliseconds so it can honor the flag; a TTY-like input without a pollable file descriptor
+cancels instead of blocking. The task checks again immediately after acquiring writer authority,
+before root registration, after each stable file read but before revision reservation, after each
+durable per-file outcome and its in-memory count agree, and immediately before missing-path
+finalization. A request observed at any safe point stops before the next mutation, retains completed
+per-file commits, and returns 130. A `KeyboardInterrupt` raised before that completion boundary has
+the same result.
 
 Starting the missing-path transaction crosses the completion boundary. From that point through
 completed-summary delivery, SIGINT is deferred and cannot change the run to an interrupted result.
@@ -460,10 +475,11 @@ the same command produces an authoritative completed summary.
 
 ## Verification boundary
 
-W4 tests build every symlink, hardlink, FIFO, socket, invalid byte stream, oversize file, and swap
-race under a temporary directory. The committed fixture contains only synthetic regular Markdown.
-Tests cover the exact bound and one-past-bound behavior with injected smaller limits while asserting
-the production constants.
+W4 tests build symlinks, hardlinks, FIFOs, sockets, invalid byte streams, and oversize files under a
+temporary directory. Deterministic race injections cover root double-open, directory stat/open,
+candidate type and mid-read changes, and root replacement before registration and finalization. The
+committed fixture contains only synthetic regular Markdown. Tests cover the exact bound and
+one-past-bound behavior with injected smaller limits while asserting the production constants.
 
 The native smoke copies the committed fixture into its temporary workspace, imports it through the
 frozen executable, finds a nested token, proves an unchanged rerun, and verifies exact exported bytes

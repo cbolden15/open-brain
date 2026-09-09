@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import shutil
+import stat
 import tarfile
 import zipfile
 from io import BytesIO
@@ -88,6 +90,20 @@ def test_public_portable_fixture_paths_are_narrowly_allowed(tmp_path: Path) -> N
     private_content.parent.mkdir(parents=True)
     private_content.write_text("synthetic", encoding="utf-8")
     assert "forbidden-path-family" in {finding.rule for finding in audit(root, denylist)}
+
+
+def test_committed_markdown_import_fixture_is_regular_and_public_safe(tmp_path: Path) -> None:
+    source = Path(__file__).resolve().parents[2] / "examples/markdown-fixture"
+    for path in source.rglob("*"):
+        mode = path.lstat().st_mode
+        assert not stat.S_ISLNK(mode)
+        assert stat.S_ISDIR(mode) or stat.S_ISREG(mode)
+
+    root = tmp_path / "project"
+    denylist = write_safe_tree(root)
+    shutil.copytree(source, root / "examples/markdown-fixture")
+
+    assert audit(root, denylist) == []
 
 
 def test_engine_source_portable_fixture_paths_are_narrowly_allowed(tmp_path: Path) -> None:

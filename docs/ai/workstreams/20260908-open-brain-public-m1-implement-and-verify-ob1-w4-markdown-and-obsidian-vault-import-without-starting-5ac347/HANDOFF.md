@@ -2,12 +2,13 @@
 
 status: active
 workstream: 20260908-open-brain-public-m1-implement-and-verify-ob1-w4-markdown-and-obsidian-vault-import-without-starting-5ac347
-milestone: documentation-gate-ready
+milestone: implementation-locally-ready
 branch: feat/ob1-w4-markdown-import
-head: 54b7d0e5922b9bae9c04f176ab4289e99f84b0ce
-last_verified.command: git diff --check plus independent Codex documentation synthesis
-last_verified.result: passed; READY with no remaining P0-P3 findings
-changes: docs/import.md,docs/privacy-model.md,docs/threat-model.md,docs/plans/2026-09-08-ob1-product-completion.md,docs/audits/2026-09-09-ob1-w4-import-design-review.md,STATE.md,HANDOFF.md
+base: 54b7d0e5922b9bae9c04f176ab4289e99f84b0ce
+candidate: commit containing this handoff
+last_verified.command: make verify; make homebrew-smoke; actionlint .github/workflows/ci.yml; git diff --check
+last_verified.result: passed; 3462 tests, 5 expected filesystem skips, macOS arm64 installed smoke, three final Codex rereviews READY
+changes: W4 design and audit docs; Markdown fixture; engine import state, traversal, and lifecycle; local CLI; native smoke; focused regression suites
 blocker: null
-next_action: implement W4 engine contracts, local tables, and descriptor-safe import task
+next_action: push the frozen candidate, require macOS arm64 and Linux x86_64 CI, then merge into goal/open-brain-five-minute-install
 safe_to_start_new_thread: false

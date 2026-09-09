@@ -50,6 +50,8 @@ def test_native_spec_builds_one_default_product_executable() -> None:
         "cryptography",
     ):
         assert f'"{forbidden}"' in spec
+    assert "open_brain_engine.engine.markdown_import" in base_native._REQUIRED_MODULES
+    assert "open_brain_engine.engine.markdown_import_fs" in base_native._REQUIRED_MODULES
 
 
 @pytest.mark.parametrize(

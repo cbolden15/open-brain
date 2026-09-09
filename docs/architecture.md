@@ -33,7 +33,7 @@ launchers stay inert until the extra is installed.
 The direct local bootstrap scans existing runtime artifacts plus root-level held or malformed writer
 leases through read-only views before compiling a profile. The lease check does not depend on
 `brain.toml`, so lost identity cannot hide live daemon authority. A conflict permits status and
-doctor only for an already-current Brain. It rejects init, capture, search, and export before
+doctor only for an already-current Brain. It rejects init, capture, import, search, and export before
 creating identity, layout, or SQLite state.
 
 The base native artifact has its own entry point and one-file PyInstaller spec under
@@ -55,8 +55,9 @@ The package map uses these ownership boundaries:
 
 - `core`: immutable values, policies, and ports; no filesystem, network, provider, CLI, HTTP, configuration, integration, or operations imports.
 - `capture`, `ledger`, and `review`: application services that depend on typed ports.
-- `engine`: the public task surface for Portable identities, generic capture, spaces, independent
-  review, publication, recovery, lexical retrieval, and validate/export/clean-import/index-rebuild.
+- `engine`: the public task surface for Portable identities, generic capture, Markdown-directory
+  import, spaces, independent review, publication, recovery, lexical retrieval, and
+  validate/export/clean-import/index-rebuild.
 - `app`: profile and application composition. It owns the direct default CLI plus the opt-in Secure
   Node composition and supplies only
   the capability each one needs: CLI, authenticated HTTP/share, local UI, scoped stdio MCP, and

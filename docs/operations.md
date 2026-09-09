@@ -13,6 +13,9 @@ configuration and service actions remain outside the public application.
 Run `make verify` for lint, type checking, tests, and source builds. Run `make native` to build and
 audit one platform-native default executable. Run `make homebrew-smoke` to install that archive with
 a temporary local Homebrew formula and exercise capture, search, verified export, status, and doctor.
+The five-minute timer ends at verified export; status and doctor are post-export checks. The smoke
+then imports the committed synthetic Markdown fixture, proves an unchanged rerun, searches one
+nested record, and verifies its exact exported bytes and unverified provenance.
 
 The current release process has no installer script, VM matrix, service lifecycle, receipt,
 attestation, notarization, or evidence assembly. See

@@ -11,6 +11,7 @@ import json
 import os
 import platform
 import re
+import shutil
 import stat
 import subprocess
 import sys
@@ -38,6 +39,8 @@ _REQUIRED_MODULES: Final = frozenset(
         "open_brain.services.local_entrypoints",
         "open_brain_engine.engine.capture",
         "open_brain_engine.engine.local",
+        "open_brain_engine.engine.markdown_import",
+        "open_brain_engine.engine.markdown_import_fs",
         "open_brain_engine.engine.portability",
         "open_brain_engine.engine.retrieval",
         "open_brain_engine.storage.operational",
@@ -202,7 +205,12 @@ def audit_base_artifact(artifact: Path) -> BaseNativeAudit:
         raise BaseNativeError("native artifact is unavailable") from error
 
 
-def smoke_base_artifact(artifact: Path, *, version: str) -> dict[str, object]:
+def smoke_base_artifact(
+    artifact: Path,
+    *,
+    version: str,
+    repository_root: Path,
+) -> dict[str, object]:
     executable = artifact.resolve(strict=True)
     with TemporaryDirectory(prefix="open-brain-smoke-") as raw:
         home = Path(raw).resolve(strict=True)
@@ -221,6 +229,13 @@ def smoke_base_artifact(artifact: Path, *, version: str) -> dict[str, object]:
         if reported_version.stdout.strip() != f"open-brain {version}":
             raise BaseNativeError("native version is invalid")
         journey = _smoke_local_journey(executable, home, environment)
+        _smoke_markdown_import(
+            executable,
+            home,
+            environment,
+            repository_root.resolve(strict=True) / "examples/markdown-fixture",
+        )
+        journey["markdown_import"] = "passed"
         return {"journey": journey, "self_check": "passed"}
 
 
@@ -372,7 +387,7 @@ def build_base_artifact(root: Path, output: Path) -> tuple[Path, Path, Path]:
     )
     artifact = output.resolve() / "dist/open-brain"
     audit_base_artifact(artifact)
-    smoke_base_artifact(artifact, version=version)
+    smoke_base_artifact(artifact, version=version, repository_root=root)
     archive, manifest = write_release_assets(
         artifact,
         output.resolve() / "release",
@@ -594,6 +609,133 @@ def _smoke_local_journey(
     }
 
 
+def _smoke_markdown_import(
+    executable: Path,
+    home: Path,
+    environment: Mapping[str, str],
+    fixture: Path,
+) -> None:
+    if not fixture.is_dir():
+        raise BaseNativeError("Markdown fixture is unavailable")
+    vault = home / "markdown-fixture"
+    shutil.copytree(fixture, vault)
+    imported = cast(
+        dict[str, object],
+        json.loads(
+            _run(
+                (os.fspath(executable), "import", os.fspath(vault), "--yes", "--json"),
+                environment,
+            ).stdout
+        ),
+    )
+    if (
+        imported.get("status") != "completed"
+        or imported.get("selected") != 3
+        or imported.get("imported") != 3
+        or imported.get("skipped") != 1
+        or imported.get("missing_finalized") is not True
+    ):
+        raise BaseNativeError("native Markdown import failed")
+
+    search = cast(
+        dict[str, object],
+        json.loads(
+            _run(
+                (
+                    os.fspath(executable),
+                    "search",
+                    "w4-nested-markdown-fixture-token",
+                    "--limit",
+                    "1",
+                    "--json",
+                ),
+                environment,
+            ).stdout
+        ),
+    )
+    results = cast(list[dict[str, object]], search.get("results"))
+    if (
+        len(results) != 1
+        or results[0].get("title") != "Nested fixture note"
+        or results[0].get("trust") != "unverified"
+        or results[0].get("source_origin") != "unknown"
+    ):
+        raise BaseNativeError("native Markdown search failed")
+    ignored = cast(
+        dict[str, object],
+        json.loads(
+            _run(
+                (
+                    os.fspath(executable),
+                    "search",
+                    "w4-obsidian-metadata-must-not-search",
+                    "--json",
+                ),
+                environment,
+            ).stdout
+        ),
+    )
+    if ignored.get("results") != []:
+        raise BaseNativeError("native Markdown metadata exclusion failed")
+
+    repeated = cast(
+        dict[str, object],
+        json.loads(
+            _run(
+                (os.fspath(executable), "import", os.fspath(vault), "--json"),
+                environment,
+            ).stdout
+        ),
+    )
+    if (
+        repeated.get("unchanged") != 3
+        or repeated.get("imported") != 0
+        or repeated.get("updated") != 0
+    ):
+        raise BaseNativeError("native Markdown import replay failed")
+
+    export = home / "portable-export-after-import"
+    exported = cast(
+        dict[str, object],
+        json.loads(
+            _run(
+                (
+                    os.fspath(executable),
+                    "export",
+                    os.fspath(export),
+                    "--verify",
+                    "--json",
+                ),
+                environment,
+            ).stdout
+        ),
+    )
+    source_bytes = (fixture / "nested/search-note.md").read_bytes()
+    source_digest = hashlib.sha256(source_bytes).hexdigest()
+    blob = export / f"sources/blobs/sha256/{source_digest[:2]}/{source_digest}"
+    capture_id = results[0].get("capture_id")
+    captures = tuple((export / "sources/captures").rglob(f"{capture_id}.json"))
+    if (
+        exported.get("status") != "exported"
+        or exported.get("verification") != "verified"
+        or not blob.is_file()
+        or blob.read_bytes() != source_bytes
+        or len(captures) != 1
+    ):
+        raise BaseNativeError("native Markdown export failed")
+    capture = cast(dict[str, object], json.loads(captures[0].read_bytes()))
+    source = cast(dict[str, object], capture.get("source"))
+    provenance = cast(dict[str, object], capture.get("provenance"))
+    trust = cast(dict[str, object], capture.get("trust"))
+    if (
+        source.get("origin") != "third_party"
+        or provenance.get("content_origin") != "unknown"
+        or provenance.get("owner_context") != "automation_absent"
+        or trust.get("label") != "unverified"
+    ):
+        raise BaseNativeError("native Markdown provenance failed")
+
+
 def _write_reproducible_archive(executable: Path, archive: Path) -> None:
     with (
         archive.open("wb") as raw,
@@ -687,6 +829,7 @@ def _main(argv: Sequence[str] | None = None) -> int:
         payload = smoke_base_artifact(
             namespace.artifact,
             version=product_version(namespace.root),
+            repository_root=namespace.root,
         )
     elif namespace.command == "manifest":
         output = combine_release_manifest(namespace.artifact, namespace.output)

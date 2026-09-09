@@ -2,7 +2,7 @@
 
 ## Default Open Brain commands
 
-The Open Brain `local` profile exposes help, version, `init`, `capture`, `search`, `export`,
+The Open Brain `local` profile exposes help, version, `init`, `capture`, `import`, `search`, `export`,
 `status`, and `doctor` through both `open-brain` and `python -m open_brain`. Every stateful command
 creates or reopens one owner, one Brain, and its SQLite schema in the platform-local data directory.
 The first capture needs no separate init command. No command requires an explicit root, daemon,
@@ -10,6 +10,7 @@ listener, grant, certificate, model, network service, or database setup.
 
 ```sh
 open-brain capture "A note to remember"
+open-brain import /absolute/path/to/markdown --yes
 open-brain search "remember"
 open-brain export /absolute/path/to/brain-export --verify
 open-brain status --json
@@ -18,8 +19,14 @@ open-brain doctor --check no-background-runtime
 open-brain doctor --check base-dependency-closure
 ```
 
-`capture` stores owner-authored text durably before returning. `search` prints bounded public result
-text. `export --verify` promotes and reopens a full Portable Brain v1 export before recording
+`capture` stores owner-authored text durably before returning. `import` recursively captures
+lowercase `.md` files without changing the source tree, skips Obsidian metadata directories, and
+labels imported records unverified. Its first run for a directory warns that immutable revisions
+remain in history and export after source removal. The first non-interactive import of a new root
+requires `--yes`; registered-root reruns do not. An explicit `--allow-large-vault` retry bypasses
+only aggregate scan bounds. Markdown links, frontmatter, HTML, and embeds remain inert text. `search`
+prints bounded public result text. `export --verify` promotes
+and reopens a full Portable Brain v1 export before recording
 metadata-only verification evidence. Status reports `profile=local`, `brain_count=1`,
 `storage=sqlite`, `daemon_running=false`, `application_encryption=false`, and the last verified
 Portable export state. The exact first-use surface is frozen by
@@ -31,7 +38,7 @@ bounded messages and do not echo captured text, rejected arguments, or private p
 output remains bounded whether `--json` appears before or after the subcommand.
 
 Status observes the daemon-authority lease instead of assuming it is absent. If daemon authority or
-runtime artifacts are present, direct local initialization, capture, search, and export fail closed;
+runtime artifacts are present, direct local initialization, capture, import, search, and export fail closed;
 status remains available, and `no-background-runtime` reports the conflict. The
 `base-dependency-closure` doctor check validates the complete installed base declaration chain from
 `open-brain` through `open-brain-engine` and `rfc8785`. Fresh-process tests and the release artifact

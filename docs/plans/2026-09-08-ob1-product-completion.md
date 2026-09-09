@@ -1,7 +1,7 @@
 # OB1 product completion plan
 
 - Status: `OB1-W3` complete and merged into `goal/open-brain-five-minute-install`; `OB1-W4`
-  documentation gate READY and runtime implementation in progress
+  implementation and local gates READY, with exact-head pull-request CI required before merge
 - Date: 2026-09-08
 - Integration branch: `goal/open-brain-five-minute-install`
 - Active workstream branch: `feat/ob1-w4-markdown-import`
@@ -119,9 +119,9 @@ export without revealing the host path.
 
 Before a new root is registered, aggregate preflight shows the selected-file count, observed bytes,
 canonical directory, and immutable-history warning. Interactive use requires explicit confirmation;
-JSON and other non-interactive use requires `--yes`. Cancellation and failed preflight leave no
-import state. This is the prevention boundary for accidental imports because destructive root purge
-remains outside the first release.
+the first JSON or other non-interactive import of a new root requires `--yes`. Registered-root reruns
+do not ask again. Cancellation and failed preflight leave no import state. This is the prevention
+boundary for accidental imports because destructive root purge remains outside the first release.
 
 Import opens the selected root as a directory and stores its operational device and inode identity.
 The same identity reuses its existing root ID even when a case-insensitive filesystem reports a path
@@ -426,17 +426,17 @@ imported markup is untrusted inert content.
    import root.
 
 Rename `examples/synthetic-vault` to `examples/markdown-fixture` and expand it only with regular,
-synthetic Markdown needed to prove nested paths, Obsidian metadata exclusion, changed files,
-collisions, and failures. Construct every symlink, hardlink, socket, FIFO, and file-swap case under a
-test runner temporary directory; never commit those filesystem objects.
+synthetic Markdown needed for the native happy path, nested paths, and Obsidian metadata exclusion.
+Construct collisions, invalid inputs, symlinks, hardlinks, sockets, FIFOs, and file-swap cases under
+a test runner temporary directory; never commit those filesystem objects.
 
 ### W4 gate
 
 W4 is usable when first import makes every eligible note searchable, an unchanged rerun creates no
 records, one changed note creates one revision and one active result, a missing note becomes
-unsearchable without losing its export history, a restored identical note creates no record, special
-files, hardlinks, and swap races cannot hang or escape the root, and same-directory case aliases reuse
-one root ID on macOS. An overlapping root is refused without writes, each default enumeration bound
+unsearchable without losing its export history, a restored identical note creates no record, and the
+named descriptor-open and mutation races cannot hang or escape the root. Same-directory case aliases
+reuse one root ID on macOS. An overlapping root is refused without writes, each default enumeration bound
 fails before writes and succeeds when explicitly retried with `--allow-large-vault`, exact source
 bytes appear in verified export, and all W3 and repository checks still pass. The verified export
 must also show `source.origin=third_party`, `provenance.content_origin=unknown`,

@@ -11,8 +11,15 @@
 ## Active milestone
 
 - Status: active
-- Milestone: documentation gate READY; runtime implementation not started
+- Milestone: implementation and local verification READY; exact-head pull-request CI pending
 - Starting head: `54b7d0e5922b9bae9c04f176ab4289e99f84b0ce`
-- Review: every P0-P2 finding resolved; final Codex synthesis verdict `READY`
+- Documentation commits: `d427de1` and `80e92b5`
+- Implementation: daemonless recursive Markdown import, descriptor-safe traversal, idempotent
+  revisions, active search projection, Portable history, CLI summaries, and native smoke complete
+- Verification: `make verify` passed Ruff, MyPy, 3,462 tests with 5 expected filesystem-dependent
+  skips, and three package builds; macOS arm64 `make homebrew-smoke`, Actionlint, and diff checks passed
+- Review: three final Codex rereviews returned `READY` with no P0-P3 findings; strict plan audit is
+  `docs/audits/2026-09-09-ob1-w4-markdown-import-audit.md`
 - Preserved: five-minute acceptance block, W3 behavior, Secure Node boundaries, and AIOS exclusion
-- Next action: implement the W4 engine contracts, operational tables, and descriptor-safe importer
+- Next action: commit and push the frozen candidate, require both GitHub Actions jobs, then merge W4
+  without starting W5

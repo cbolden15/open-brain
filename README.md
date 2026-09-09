@@ -29,6 +29,7 @@ in [the installation guide](docs/install.md).
 
 ```sh
 open-brain capture "A note to remember"
+open-brain import /absolute/path/to/markdown --yes
 open-brain search "remember"
 open-brain export "$PWD/brain-export" --verify
 open-brain status --json
@@ -36,6 +37,11 @@ open-brain status --json
 
 The first capture creates the private data directory, owner identity, Brain identity, and SQLite
 state automatically.
+
+Markdown import scans nested lowercase `.md` files, skips Obsidian metadata directories, and leaves
+the source tree unchanged. Imported records are labeled unverified. Prior revisions remain in full
+export after a source file changes or disappears, so review the first-run summary before confirming.
+Markdown links, frontmatter, HTML, and embeds are stored as inert text.
 
 | Host | Brain root |
 |---|---|

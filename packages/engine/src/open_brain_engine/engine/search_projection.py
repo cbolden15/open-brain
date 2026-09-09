@@ -97,6 +97,7 @@ class SearchDocumentProjection:
     title: str
     body: str
     trust: str
+    canonical_frontmatter_trust: str | None
     provenance_json: str
 
 
@@ -127,8 +128,9 @@ def project_search_document(
     origin = _durable_source_origin(capture)
     if record_type == "source":
         trust = source_trust(origin)
+        canonical_frontmatter_trust = None
     elif record_type == "canonical":
-        trust = _canonical_trust(
+        trust, canonical_frontmatter_trust = _canonical_trust(
             connection,
             capture=capture,
             origin=origin,
@@ -141,6 +143,7 @@ def project_search_document(
         title=public_search_text(title, protected_source_reference=source_reference),
         body=public_search_text(body, protected_source_reference=source_reference),
         trust=trust,
+        canonical_frontmatter_trust=canonical_frontmatter_trust,
         provenance_json=portable_canonical_json_bytes({"capture_id": capture_id}).decode("utf-8"),
     )
 
@@ -152,15 +155,13 @@ def _canonical_trust(
     origin: str,
     result_id: str,
     canonical_path: str | None,
-) -> str:
-    if origin in {ContentOrigin.UNKNOWN.value, ContentOrigin.MIXED.value}:
-        return "unverified"
+) -> tuple[str, str]:
     if (
         origin == ContentOrigin.OWNER_AUTHORED.value
         and capture["action"] == "canonical_note"
         and capture["canonical_path"] == canonical_path
     ):
-        return "owner"
+        return ("owner", "owner")
     reviewed = connection.execute(
         """
         SELECT 1
@@ -174,7 +175,12 @@ def _canonical_trust(
     ).fetchone()
     if reviewed is None:
         raise ValueError("canonical search trust is unavailable")
-    return "reviewed"
+    search_trust = (
+        "unverified"
+        if origin in {ContentOrigin.UNKNOWN.value, ContentOrigin.MIXED.value}
+        else "reviewed"
+    )
+    return (search_trust, "reviewed")
 
 
 def upsert_search_document(

@@ -28,6 +28,7 @@ SHA-256 stored in the formula.
 
 ```sh
 open-brain capture "A note to remember"
+open-brain import /absolute/path/to/markdown --yes
 open-brain search "remember"
 open-brain export "$PWD/brain-export" --verify
 open-brain status --json
@@ -42,6 +43,12 @@ The first stateful command creates one owner and one Brain automatically. Data l
 
 Directories and private files use owner-only permissions where the host supports POSIX modes. Open
 Brain does not start a daemon or service.
+
+The import command recursively reads lowercase `.md` files and does not change the source tree.
+The first import of a directory requires confirmation; `--yes` is the explicit non-interactive
+form. Imported records are unverified, and immutable prior revisions remain in full export after a
+source file changes or disappears. Use `--allow-large-vault` only after the default aggregate scan
+limits refuse a directory. It never bypasses the one-file safety limit.
 
 ## Privacy
 

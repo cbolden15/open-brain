@@ -6,8 +6,10 @@ scripts are not installed. The 31-family parser below remains compatibility evid
 the default installed entry point.
 
 The default installed entry point is the separate daemonless `open-brain` parser. Its bounded
-surface is help, version, `init`, `capture`, `search`, `export`, `status`, and `doctor`. The five data
-journey commands use the local engine directly with provider mode `none`; they do not route through
+surface is help, version, `init`, `capture`, `import`, `search`, `export`, `status`, and `doctor`. The
+timed data journey ends at verified export; status and doctor validate the same installed binary
+afterward, followed by the import smoke. These commands use the local engine directly with provider
+mode `none` and do not route through
 the retained parser, daemon, HTTP server, connector registry, or Secure Node wrapper.
 
 The machine-readable source is [`tests/fixtures/phase0/public_cli.json`](../tests/fixtures/phase0/public_cli.json). The focused characterization test compares that fixture with the live parser registry, scheduled route registry, static `pyproject.toml` metadata, and stable exit-code constants.
