@@ -1,0 +1,11 @@
+{
+  "captures": [
+    "Café migration nebula",
+    "A ledger records the nebula drift"
+  ],
+  "markdown": {
+    "active.md": "# Imported migration\nactive nebula revision",
+    "missing.md": "# Missing migration\nmissing nebula revision"
+  },
+  "changed": "# Imported migration\nrestored nebula revision"
+}

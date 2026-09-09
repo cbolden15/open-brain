@@ -17,35 +17,28 @@ from open_brain_engine.storage.locks import inspect_file_leases
 from open_brain_engine.storage.sqlite import SchemaError, connect_database_read_only
 
 from .contracts import LocalEngineContext
+from .local_schema import (
+    PHASE1_STATE_DATABASE as PHASE1_STATE_DATABASE,
+)
+from .local_schema import (
+    PHASE1_STATE_SCHEMA_VERSION as PHASE1_STATE_SCHEMA_VERSION,
+)
+from .local_schema import (
+    SchemaState as SchemaState,
+)
+from .local_schema import (
+    classify_local_schema,
+    open_local_database_read_only,
+)
+from .local_schema import (
+    inspect_phase1_state as inspect_phase1_state,
+)
 from .local_store import live_search_schema_is_available
 
-PHASE1_STATE_DATABASE = ".open-brain/state/phase1.sqlite3"
-PHASE1_STATE_SCHEMA_VERSION = 1
 SEARCH_INDEX_DATABASE = ".open-brain/indexes/search.sqlite3"
 APPLIANCE_BACKUP_EVIDENCE = Path(".open-brain/state/appliance-backup-evidence.json")
 APPLIANCE_EXPORT_EVIDENCE = Path(".open-brain/state/appliance-export-evidence.json")
-_STATE_TABLES = frozenset(
-    {
-        "captures",
-        "spaces",
-        "space_operations",
-        "route_operations",
-        "proposal_sets",
-        "proposals",
-        "decisions",
-        "search_documents",
-    }
-)
 _HEX64 = re.compile(r"^[0-9a-f]{64}$")
-
-
-@dataclass(frozen=True, slots=True)
-class SchemaState:
-    state: str
-    version: int | None
-
-    def to_dict(self) -> dict[str, object]:
-        return {"state": self.state, "version": self.version}
 
 
 @dataclass(frozen=True, slots=True)
@@ -153,44 +146,6 @@ class MaintenanceSnapshot:
         }
 
 
-def inspect_phase1_state(profile: LocalEngineContext) -> SchemaState:
-    """Inspect the app-owned engine state database without creating or migrating it."""
-    if not isinstance(profile, LocalEngineContext):
-        raise ValueError("invalid local profile")
-    try:
-        connection = connect_database_read_only(
-            root=profile.root,
-            database_name=PHASE1_STATE_DATABASE,
-            expected_root_identity=profile.root_identity,
-        )
-    except SchemaError:
-        database = profile.root / PHASE1_STATE_DATABASE
-        try:
-            database.lstat()
-        except FileNotFoundError:
-            return SchemaState(state="absent", version=None)
-        except OSError:
-            pass
-        return SchemaState(state="invalid", version=None)
-    try:
-        version = int(connection.execute("PRAGMA user_version").fetchone()[0])
-        tables = {
-            cast(str, row["name"])
-            for row in connection.execute("SELECT name FROM sqlite_master WHERE type = 'table'")
-        }
-    except (TypeError, ValueError, sqlite3.Error):
-        return SchemaState(state="invalid", version=None)
-    finally:
-        connection.close()
-    if version > PHASE1_STATE_SCHEMA_VERSION:
-        return SchemaState(state="newer", version=version)
-    if version == 0 and tables >= _STATE_TABLES:
-        return SchemaState(state="legacy", version=version)
-    if version == PHASE1_STATE_SCHEMA_VERSION and tables >= _STATE_TABLES:
-        return SchemaState(state="current", version=version)
-    return SchemaState(state="invalid", version=version)
-
-
 def read_maintenance_snapshot(profile: LocalEngineContext) -> MaintenanceSnapshot:
     """Read bounded schema, index, writer, backup, export, and queue evidence."""
     if not isinstance(profile, LocalEngineContext):
@@ -216,11 +171,7 @@ def inspect_live_search(profile: LocalEngineContext) -> LiveSearchState:
     if not isinstance(profile, LocalEngineContext):
         raise ValueError("invalid local profile")
     try:
-        connection = connect_database_read_only(
-            root=profile.root,
-            database_name=PHASE1_STATE_DATABASE,
-            expected_root_identity=profile.root_identity,
-        )
+        connection = open_local_database_read_only(profile, inspect_only=True)
     except SchemaError:
         database = profile.root / PHASE1_STATE_DATABASE
         return LiveSearchState(
@@ -252,7 +203,9 @@ def inspect_live_search(profile: LocalEngineContext) -> LiveSearchState:
                 result_ids_agree=False,
                 contents_agree=False,
             )
-        schema_available = live_search_schema_is_available(connection)
+        schema_available = classify_local_schema(
+            connection
+        ).state == "current" and live_search_schema_is_available(connection)
         projection_count = int(
             connection.execute("SELECT count(*) FROM search_documents").fetchone()[0]
         )
@@ -306,7 +259,7 @@ def inspect_live_search(profile: LocalEngineContext) -> LiveSearchState:
             ).fetchone()[0]
         )
         connection.execute("COMMIT")
-    except (TypeError, ValueError, sqlite3.Error):
+    except TypeError, ValueError, sqlite3.Error:
         with suppress(sqlite3.Error):
             connection.execute("ROLLBACK")
         return LiveSearchState(
@@ -324,9 +277,7 @@ def inspect_live_search(profile: LocalEngineContext) -> LiveSearchState:
     contents_agree = not content_mismatch
     return LiveSearchState(
         state=(
-            "current"
-            if schema_available and result_ids_agree and contents_agree
-            else "invalid"
+            "current" if schema_available and result_ids_agree and contents_agree else "invalid"
         ),
         projection_count=projection_count,
         identity_count=identity_count,
@@ -394,7 +345,7 @@ def _inspect_index(profile: LocalEngineContext) -> IndexState:
         document_count = int(
             connection.execute("SELECT count(*) FROM search_documents").fetchone()[0]
         )
-    except (TypeError, ValueError, sqlite3.Error):
+    except TypeError, ValueError, sqlite3.Error:
         return IndexState(state="invalid", generation=None, document_count=0)
     finally:
         with suppress(Exception):
@@ -432,7 +383,7 @@ def _read_evidence(profile: LocalEngineContext, relative: Path, *, prefix: str) 
         )
     try:
         decoded = json.loads(payload.decode("utf-8"))
-    except (UnicodeDecodeError, json.JSONDecodeError):
+    except UnicodeDecodeError, json.JSONDecodeError:
         return EvidenceState("invalid", None, None, None)
     if (
         not isinstance(decoded, dict)
@@ -444,8 +395,10 @@ def _read_evidence(profile: LocalEngineContext, relative: Path, *, prefix: str) 
     operation_id = decoded.get(operation_key)
     recorded_at = decoded.get("created_at")
     digest = decoded.get("manifest_digest_sha256")
-    if not isinstance(operation_id, str) or not isinstance(recorded_at, str) or not isinstance(
-        digest, str
+    if (
+        not isinstance(operation_id, str)
+        or not isinstance(recorded_at, str)
+        or not isinstance(digest, str)
     ):
         return EvidenceState("invalid", None, None, None)
     try:

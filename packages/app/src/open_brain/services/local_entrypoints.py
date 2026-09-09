@@ -600,6 +600,7 @@ def _write_export(
         "captures": receipt.captures,
         "history_records": receipt.history_records,
         "portable_files": receipt.portable_files,
+        "schema_version": 1,
         "status": receipt.status,
         "verification": verification,
     }

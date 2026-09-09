@@ -119,7 +119,7 @@ def test_initialize_appliance_rejects_newer_state_before_writer_or_credential_ch
     credential_before = credential_path.read_bytes()
     database = root / ".open-brain" / "state" / "phase1.sqlite3"
     with sqlite3.connect(database) as connection:
-        connection.execute("PRAGMA user_version = 2")
+        connection.execute("PRAGMA user_version = 3")
     lock_root = root / ".open-brain" / ".open-brain-locks"
     locks_before = {
         path.name: path.read_bytes() for path in lock_root.iterdir()
@@ -131,7 +131,7 @@ def test_initialize_appliance_rejects_newer_state_before_writer_or_credential_ch
     assert excinfo.value.receipt.failed_check == "state_schema"
     assert credential_path.read_bytes() == credential_before
     with sqlite3.connect(database) as connection:
-        assert connection.execute("PRAGMA user_version").fetchone() == (2,)
+        assert connection.execute("PRAGMA user_version").fetchone() == (3,)
     locks_after = {
         path.name: path.read_bytes() for path in lock_root.iterdir()
     } if lock_root.exists() else {}

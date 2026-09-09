@@ -12,8 +12,11 @@ from open_brain_engine.engine import (
     ProposalDraft,
     TextPayload,
 )
+from open_brain_engine.storage.sqlite import SchemaError
 
 from open_brain.profile import compile_single_user_local
+
+from ._local_schema_fixtures import rematerialize_w2
 
 
 def _engine(root: Path, *, starter_spaces: tuple[str, ...] = ()) -> BrainEngine:
@@ -46,15 +49,7 @@ def _database(root: Path) -> Path:
 
 
 def _drop_live_search(connection: sqlite3.Connection) -> None:
-    for trigger in (
-        "search_documents_result_id_immutable",
-        "search_documents_fts_insert",
-        "search_documents_fts_update",
-        "search_documents_fts_delete",
-    ):
-        connection.execute(f"DROP TRIGGER {trigger}")
-    connection.execute("DROP TABLE search_documents_fts")
-    connection.execute("DROP TABLE search_fts_identity")
+    rematerialize_w2(connection)
 
 
 def test_live_search_schema_uses_fts5_and_synchronizes_mutations(tmp_path: Path) -> None:
@@ -518,7 +513,7 @@ def test_version_one_adoption_is_public_safe_atomic_and_idempotent(tmp_path: Pat
     assert reopened.retrieval.search("synthetic-protected-source") == ()
     assert reopened.retrieval.search("adoption-secret") == ()
     with sqlite3.connect(_database(root)) as connection:
-        assert connection.execute("PRAGMA user_version").fetchone() == (1,)
+        assert connection.execute("PRAGMA user_version").fetchone() == (2,)
         first_identity = connection.execute(
             "SELECT fts_rowid, result_id FROM search_fts_identity"
         ).fetchall()
@@ -565,7 +560,7 @@ def test_version_one_adoption_is_public_safe_atomic_and_idempotent(tmp_path: Pat
             ),
         )
 
-    with pytest.raises(ValueError, match="capture is unavailable"):
+    with pytest.raises(SchemaError, match="projection is invalid"):
         _engine(orphan_root)
     with sqlite3.connect(_database(orphan_root)) as connection:
         assert connection.execute(
@@ -601,7 +596,7 @@ def test_version_one_adoption_rejects_malformed_or_unlinked_provenance(
             (provenance_json, captured.capture_id),
         )
 
-    with pytest.raises(ValueError, match="search projection provenance is invalid"):
+    with pytest.raises(SchemaError, match="search projection provenance is invalid"):
         _engine(root)
 
     with sqlite3.connect(_database(root)) as connection:

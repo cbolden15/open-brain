@@ -51,6 +51,8 @@ def _receipt(
     duplicate: bool = False,
     index_generation: int | None = None,
 ) -> PortabilityReceipt:
+    if type(manifest.get("schema_version")) is not int or manifest["schema_version"] != 1:
+        raise ValueError("unsupported Portable Brain schema")
     entries = cast(list[dict[str, object]], manifest["files"])
     paths = [cast(str, entry["path"]) for entry in entries]
     return PortabilityReceipt(

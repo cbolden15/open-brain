@@ -26,6 +26,7 @@ from open_brain_engine.storage.filesystem import (
 )
 from open_brain_engine.storage.sqlite import connect_database_read_only
 
+from .local_schema import classify_local_schema
 from .maintenance import PHASE1_STATE_DATABASE
 from .portability_ports import LocalTenantStorage
 
@@ -240,7 +241,8 @@ def _validate_init_state(record: dict[str, object], *, tenant_id: str) -> None:
         or record.get("profile") != "single-user-local"
         or record.get("provider_mode") not in {"none", "local", "cloud"}
         or record.get("schema_version") != 1
-        or record.get("state_schema_version") != 1
+        or type(record.get("state_schema_version")) is not int
+        or record.get("state_schema_version") not in (1, 2)
         or record.get("tenant_id") != tenant_id
         or not isinstance(starters, list)
         or len(starters) > 64
@@ -332,13 +334,20 @@ def _sqlite_backup_bytes(
     *,
     expected_root_identity: RootIdentity,
 ) -> bytes:
+    source = None
     try:
         source = connect_database_read_only(
             root=root,
             database_name=database_name,
             expected_root_identity=expected_root_identity,
         )
+        source.execute("BEGIN")
+        if classify_local_schema(source).state in {"invalid", "newer"}:
+            source.close()
+            raise ValueError("required backup SQLite source is unavailable")
     except StorageError as error:
+        if source is not None:
+            source.close()
         raise ValueError("required backup SQLite source is unavailable") from error
     descriptor, temp_name = tempfile.mkstemp(prefix="open-brain-backup-", suffix=".sqlite3")
     os.close(descriptor)
@@ -380,13 +389,7 @@ def validate_sqlite_backup_bytes(payload: bytes) -> None:
         try:
             if connection.execute("PRAGMA quick_check").fetchone() != ("ok",):
                 raise ValueError("backup SQLite snapshot failed integrity verification")
-            tables = {
-                str(row[0])
-                for row in connection.execute(
-                    "SELECT name FROM sqlite_master WHERE type = 'table'"
-                )
-            }
-            if not {"captures", "spaces", "search_documents"}.issubset(tables):
+            if classify_local_schema(connection).state in {"invalid", "newer"}:
                 raise ValueError("backup SQLite snapshot schema is invalid")
         finally:
             connection.close()

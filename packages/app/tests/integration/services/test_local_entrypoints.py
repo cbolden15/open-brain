@@ -121,7 +121,7 @@ def test_local_init_creates_exact_default_once_without_daemon_or_environment_roo
         "brain_count": 1,
         "daemon_running": False,
         "profile": "local",
-        "state_schema_version": 1,
+        "state_schema_version": 2,
         "status": "initialized",
         "storage": "sqlite",
     }
@@ -340,6 +340,7 @@ def test_exact_local_data_journey_bootstraps_without_init_or_background_runtime(
     exported = cast(dict[str, object], json.loads(capsys.readouterr().out))
     assert exported["status"] == "exported"
     assert exported["verification"] == "verified"
+    assert exported["schema_version"] == 1
     assert (destination / "portable-manifest.json").is_file()
     assert any(
         token.encode("utf-8") in path.read_bytes()
