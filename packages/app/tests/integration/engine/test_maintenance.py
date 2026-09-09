@@ -25,6 +25,8 @@ from open_brain_engine.engine.maintenance import (
 from open_brain.profile import compile_single_user_local, open_existing_single_user_local
 from open_brain.services.appliance_init import initialize_appliance
 
+from ._local_schema_fixtures import rematerialize_w2
+
 
 def test_open_local_read_view_rejects_absent_and_newer_schema_without_mutation(
     tmp_path: Path,
@@ -44,16 +46,16 @@ def test_open_local_read_view_rejects_absent_and_newer_schema_without_mutation(
     lock_directory = newer_root / ".open-brain" / ".open-brain-locks"
     lock_before = _lock_bytes(lock_directory)
     with sqlite3.connect(database) as connection:
-        connection.execute("PRAGMA user_version = 2")
+        connection.execute("PRAGMA user_version = 3")
     after_schema_change = database.read_bytes()
 
     with pytest.raises(ReadViewUnavailableError, match="schema is newer"):
         open_local_read_view(open_existing_single_user_local(newer_root))
 
-    assert sqlite3.connect(database).execute("PRAGMA user_version").fetchone() == (2,)
+    assert sqlite3.connect(database).execute("PRAGMA user_version").fetchone() == (3,)
     lock_after = _lock_bytes(lock_directory)
     assert lock_after == lock_before
-    assert sqlite3.connect(database).execute("PRAGMA user_version").fetchone() == (2,)
+    assert sqlite3.connect(database).execute("PRAGMA user_version").fetchone() == (3,)
     assert database.read_bytes() == after_schema_change
 
 
@@ -64,7 +66,7 @@ def test_mutating_engine_rejects_newer_schema_before_writer_acquisition(
     initialize_appliance(root)
     database = root / ".open-brain" / "state" / "phase1.sqlite3"
     with sqlite3.connect(database) as connection:
-        connection.execute("PRAGMA user_version = 2")
+        connection.execute("PRAGMA user_version = 3")
     lock_directory = root / ".open-brain" / ".open-brain-locks"
     locks_before = _lock_bytes(lock_directory)
 
@@ -73,7 +75,7 @@ def test_mutating_engine_rejects_newer_schema_before_writer_acquisition(
 
     assert _lock_bytes(lock_directory) == locks_before
     with sqlite3.connect(database) as connection:
-        assert connection.execute("PRAGMA user_version").fetchone() == (2,)
+        assert connection.execute("PRAGMA user_version").fetchone() == (3,)
 
 
 def test_read_only_view_rejects_missing_live_search_schema_without_adopting_it(
@@ -98,7 +100,7 @@ def test_read_only_view_rejects_missing_live_search_schema_without_adopting_it(
         connection.execute("DROP TABLE search_fts_identity")
     locks_before = _lock_bytes(root / ".open-brain/.open-brain-locks")
 
-    with pytest.raises(ReadViewUnavailableError, match="live search schema is unavailable"):
+    with pytest.raises(ReadViewUnavailableError, match="state schema is invalid"):
         open_local_read_view(open_existing_single_user_local(root))
 
     assert _lock_bytes(root / ".open-brain/.open-brain-locks") == locks_before
@@ -121,13 +123,13 @@ def test_mutating_engine_migrates_legacy_schema_without_replacing_content(
     )
     database = root / ".open-brain" / "state" / "phase1.sqlite3"
     with sqlite3.connect(database) as connection:
-        connection.execute("PRAGMA user_version = 0")
+        rematerialize_w2(connection, version=0)
 
     reopened = open_local_engine(open_existing_single_user_local(root))
 
     assert reopened.retrieval.fetch(captured.capture_id) is not None
     with sqlite3.connect(database) as connection:
-        assert connection.execute("PRAGMA user_version").fetchone() == (1,)
+        assert connection.execute("PRAGMA user_version").fetchone() == (2,)
 
 
 def test_maintenance_snapshot_projects_schema_index_writer_backup_export_and_queue_evidence(
@@ -197,7 +199,7 @@ with FileLease(root / ".open-brain", "synthetic-holder").acquire_shared_writer()
     stderr = holder.stderr.read() if holder.stderr is not None else ""
 
     assert snapshot.schema.state == "current"
-    assert snapshot.schema.version == 1
+    assert snapshot.schema.version == 2
     assert snapshot.live_search.state == "current"
     assert snapshot.live_search.projection_count >= 1
     assert snapshot.live_search.projection_count == snapshot.live_search.identity_count

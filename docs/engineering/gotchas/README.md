@@ -981,3 +981,20 @@ keep that request open for the remaining bounded startup budget. Exclude unrelat
 control-only integration test.
 
 Discovered: 2026-09-08.
+
+
+### SQLITE-001: Read-only validation cannot recover a hot rollback journal
+
+Symptom: After an interrupted migration with dirty-page spill, read-only SQLite inspection reports
+that recovery needs a writable database. Treating that result as malformed state prevents retry.
+
+Cause: SQLite must restore committed pages from its rollback journal before it can read the schema.
+A read-only connection cannot perform that recovery. Separately, committing a validation transaction
+before the caller's query leaves a race between validation and use.
+
+Fix: Classify a private, confined hot-journal candidate as `recovery_required` and allow SQLite to
+recover before locked schema validation. Keep normal readers in their validated read transaction;
+revalidate application writes inside `BEGIN IMMEDIATE`. Test process exit after dirty-page spill,
+read-only refusal, recovery retry, and schema changes between opening and application work.
+
+Discovered: 2026-09-09, OB1-W5 migration implementation and read-only review.

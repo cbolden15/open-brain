@@ -39,12 +39,15 @@ _REQUIRED_MODULES: Final = frozenset(
         "open_brain.services.local_entrypoints",
         "open_brain_engine.engine.capture",
         "open_brain_engine.engine.local",
+        "open_brain_engine.engine.local_schema",
+        "open_brain_engine.engine.local_schema_catalog",
         "open_brain_engine.engine.markdown_import",
         "open_brain_engine.engine.markdown_import_fs",
         "open_brain_engine.engine.portability",
         "open_brain_engine.engine.retrieval",
         "open_brain_engine.storage.operational",
         "open_brain_engine.storage.sqlite",
+        "open_brain_engine.storage.migrations",
     }
 )
 _FORBIDDEN_MODULE_PREFIXES: Final = (
@@ -549,6 +552,7 @@ def _smoke_local_journey(
     if (
         exported.get("status") != "exported"
         or exported.get("verification") != "verified"
+        or exported.get("schema_version") != 1
         or not (export / "portable-manifest.json").is_file()
         or not any(
             token.encode("utf-8") in path.read_bytes()
@@ -718,6 +722,7 @@ def _smoke_markdown_import(
     if (
         exported.get("status") != "exported"
         or exported.get("verification") != "verified"
+        or exported.get("schema_version") != 1
         or not blob.is_file()
         or blob.read_bytes() != source_bytes
         or len(captures) != 1

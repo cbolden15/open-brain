@@ -52,6 +52,9 @@ def test_native_spec_builds_one_default_product_executable() -> None:
         assert f'"{forbidden}"' in spec
     assert "open_brain_engine.engine.markdown_import" in base_native._REQUIRED_MODULES
     assert "open_brain_engine.engine.markdown_import_fs" in base_native._REQUIRED_MODULES
+    assert "open_brain_engine.engine.local_schema" in base_native._REQUIRED_MODULES
+    assert "open_brain_engine.engine.local_schema_catalog" in base_native._REQUIRED_MODULES
+    assert "open_brain_engine.storage.migrations" in base_native._REQUIRED_MODULES
 
 
 @pytest.mark.parametrize(

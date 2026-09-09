@@ -1,6 +1,6 @@
 # Local SQLite migration contract
 
-Status: W5 design only. Runtime implementation and the W5 usability gate are pending.
+Status: W5 implemented and locally verified; owner safety audits and exact-head CI remain pending.
 Base: `5a51797`, the merged W4 commit on `goal/open-brain-five-minute-install`.
 Authority: [OB1 product completion plan](plans/2026-09-08-ob1-product-completion.md),
 “Schema sequencing” and “OB1-W5”.
@@ -21,10 +21,10 @@ This is the selected architecture. A general migration framework would add depen
 configuration without improving the two fixed migrations. Copying the event runner into the engine
 would create two implementations of ordering, checksums, and rollback. Neither is needed here.
 
-Proposed module boundary: `storage/migrations.py` owns the shared primitive and
-`engine/local_schema.py` owns local versions, SQL, recognition, and guarded connection functions.
-`_LocalStore` remains the consumer of those functions. Names can follow repository conventions;
-the ownership and single transaction boundary are mandatory.
+`storage/migrations.py` owns the shared primitive. `engine/local_schema_catalog.py` owns the frozen
+SQL, and `engine/local_schema.py` owns local versions, recognition, and guarded connection functions.
+`_LocalStore` consumes those functions and validates again inside application write transactions.
+Read connections retain their validated transaction until the consumer closes them.
 
 ## Recognized input states
 
@@ -40,6 +40,7 @@ must come from the indicated commits, independently of the new catalog.
 | Current, version 2 | Exact target structure and valid ledger rows 1 and 2 | Validate; no migration work | Allow current readers |
 | Newer | `user_version > 2`, or a structurally readable ledger contains a version above 2 | Refuse | Report newer; refuse retrieval |
 | Invalid | Every other layout, version, or ledger combination | Refuse | Report invalid; refuse retrieval |
+| Recovery required | SQLite reports read-only recovery failure and a confined private rollback journal passes the checks below | Let SQLite restore committed state, then classify and migrate or refuse | Report recovery required; never recover |
 
 W2 is commit `24b2845`: eight base tables, search index, and `route_identity_idx`, with all
 capture-submission and route columns already present. W3 is `aaa902f`: W2 plus the live FTS objects.
@@ -71,13 +72,13 @@ without a ledger is invalid. Never repair or overwrite ledger mismatches.
 
 Use the existing `schema_migrations(version, name, checksum, applied_at)` ledger in the local
 database. Checksums use the existing canonical serialization of version, name, and ordered SQL
-statements followed by SHA-256. Freeze the two names and statement tuples when implementation is
-verified; do not publish placeholder checksums. A later SQL change requires a new migration, not
+statements followed by SHA-256. Names and statement tuples are frozen in the catalog and checked
+against `tests/fixtures/local-schema/catalog-checksums.json`. A later SQL change requires a new migration, not
 an edited checksum for an applied version. Application timestamps use the injected UTC clock.
 
 Exactly two entries exist:
 
-| Version and proposed name | Responsibility |
+| Version and name | Responsibility |
 | --- | --- |
 | 1, `local_baseline` | Idempotently create the complete W2 baseline and its indexes. Use the historical W2 search-table declaration. Preserve existing records and already-present W3/W4 objects. |
 | 2, `local_search_and_import` | Idempotently create W4 import structures and the W3 live-search structures; normalize the search table, project its text safely, and rebuild derived FTS once. |
@@ -144,7 +145,24 @@ Read-only WAL access must include committed WAL state; never use `immutable=1` t
 on a live database. SQLite may maintain WAL shared-memory coordination files even for a reader;
 the contract does not promise unchanged transient lock/shared-memory bytes.
 [SQLite WAL documentation](https://sqlite.org/wal.html#read_only_databases)
-explains this distinction. Refusal tests must cover both checkpointed and live-WAL fixtures.
+explains this distinction. Refusal tests cover both checkpointed and live-WAL fixtures.
+
+SQLite rollback-journal recovery is the one exception to byte-level refusal. An interrupted
+transaction can spill uncommitted pages into the main file; a read-only connection cannot restore
+them. Only when SQLite reports `SQLITE_READONLY` during inspection and the adjacent journal is a
+no-follow regular file owned by this OS user, has one link, grants no group/other access, and has a
+nonzero header may the deferred writable opener allow SQLite recovery. Its size must exceed 512
+bytes and be no larger than twice the database size plus 1 MiB. This bounds the candidate check
+without loading database contents into Python. SQLite validates the journal and performs recovery;
+Open Brain never replays or deletes journal records itself.
+
+Recovery can restore main-file bytes and remove the hot journal before the recovered schema is
+classifiable, including when that committed schema is subsequently refused as invalid or newer.
+It does not authorize changes to committed application state, migration history, or version.
+After recovery, the normal locked classification still precedes migrations, WAL configuration,
+permission changes, and application work. An unsafe journal is refused intact. This exception is
+required for retry after a process crash under rollback-journal mode; the subprocess test forces
+dirty-page spill before abrupt exit. See [SQLite hot-journal recovery](https://sqlite.org/lockingv3.html#dealing_with_hot_journals).
 
 An interruption before commit leaves the prior committed schema and data intact. A subsequent supported
 write open retries the same pair or pending suffix. A successful current reopen performs no DDL,
@@ -204,9 +222,8 @@ backup inputs, disposable indexes, and the in-memory FTS capability probe do not
 catalog. Tests should audit phase1 callers, not ban every `sqlite3.connect` in the repository.
 
 Default CLI startup may upgrade through its existing writable engine opening. Explicit read-only
-maintenance and scoped read views must remain read-only. Report absent, legacy, pre-ledger,
-supported-old, current, invalid, and newer distinctly; finalize public string spellings with
-existing CLI/maintenance contract tests during implementation. Errors expose bounded categories,
+maintenance and scoped read views remain read-only. Report `absent`, `legacy`, `pre_ledger`,
+`supported_old`, `current`, `invalid`, `newer`, and `recovery_required` distinctly. Errors expose bounded categories,
 never SQL, absolute paths, note content, references, or callback exception details.
 
 ## Fixtures and implementation acceptance
@@ -231,7 +248,8 @@ Export continues to validate the Portable manifest and reports its `schema_versi
 SQLite files and ledger rows in the export. Native packaging must include the extracted modules
 without broadening the default dependency closure.
 
-Implementation verification remains `make verify`, `git diff --check`, and
-`actionlint .github/workflows/ci.yml`. Run native/Homebrew smoke for the packaging changes and require
-both supported CI platforms at the exact implementation head before merging W5. This document does
-not claim those gates have run or that W5 is complete.
+Local verification passed: `make verify` (3,523 passed, 5 skipped), native/Homebrew smoke,
+`git diff --check`, and `actionlint .github/workflows/ci.yml`. The
+[W5 audit](audits/2026-09-09-ob1-w5-schema-migrations-audit.md) records evidence and the recovery
+exception. Owner-denylist tree/history audits and both supported CI platforms at the exact candidate
+head are still required before merging W5.

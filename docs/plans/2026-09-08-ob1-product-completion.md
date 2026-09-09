@@ -1,10 +1,10 @@
 # OB1 product completion plan
 
-- Status: `OB1-W3` complete and merged into `goal/open-brain-five-minute-install`; `OB1-W4`
-  implementation and local gates READY, with exact-head pull-request CI required before merge
+- Status: `OB1-W4` merged at `5a51797`; `OB1-W5` implemented and locally verified,
+  with owner safety audits and exact-head pull-request CI required before merge
 - Date: 2026-09-08
 - Integration branch: `goal/open-brain-five-minute-install`
-- Active workstream branch: `feat/ob1-w4-markdown-import`
+- Active workstream branch: `feat/ob1-w5-schema-migrations`
 - Product authority: [`../product-family.md`](../product-family.md)
 - Acceptance authority: [`../acceptance/five-minute-install.md`](../acceptance/five-minute-install.md)
 - Predecessor: [`2026-09-08-ob1-w2-release-surface-reduction.md`](2026-09-08-ob1-w2-release-surface-reduction.md)
@@ -447,8 +447,11 @@ must visibly label each active imported result as unverified.
 
 ### Migration contract
 
-The [migration design](../schema-migrations.md) is drafted against W4 base `5a51797`.
-This is a design-only checkpoint; the catalog, runtime changes, fixtures, and W5 gate remain pending.
+The [migration contract](../schema-migrations.md) is implemented against W4 base `5a51797`.
+Local verification passed; the [W5 audit](../audits/2026-09-09-ob1-w5-schema-migrations-audit.md)
+records results. Owner safety audits and exact-head CI remain pending. The contract documents
+SQLite hot-journal recovery as the narrow exception to byte-level refusal: recovery restores committed
+state before classification; it never authorizes migration of invalid or newer committed state.
 
 Add `docs/schema-migrations.md` and one local migration catalog. Version 2 is the first released local
 schema. Migration history is ordered, checksummed, and applied inside one SQLite transaction before

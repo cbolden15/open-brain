@@ -36,7 +36,10 @@ open-brain status --json
 ```
 
 The first capture creates the private data directory, owner identity, Brain identity, and SQLite
-state automatically.
+state automatically. Existing supported local databases upgrade transactionally when opened for
+writing. Local SQLite schema version 2 is separate from Portable Brain schema version 1, which
+`open-brain export --json` reports. See [schema migrations](docs/schema-migrations.md) for supported
+older layouts, refusal behavior, and interrupted-transaction recovery.
 
 Markdown import scans nested lowercase `.md` files, skips Obsidian metadata directories, and leaves
 the source tree unchanged. Imported records are labeled unverified. Prior revisions remain in full

@@ -10,7 +10,7 @@ from hashlib import sha256
 from open_brain_engine.providers.base import ProviderMode
 from open_brain_engine.storage.filesystem import assert_root_identity
 from open_brain_engine.storage.locks import FileLease
-from open_brain_engine.storage.sqlite import SchemaError, connect_database_read_only
+from open_brain_engine.storage.sqlite import SchemaError
 
 from .authority import require_daemon_authority
 from .backup import BackupTasks
@@ -50,8 +50,9 @@ from .contracts import (
     SpaceRecord,
     TextPayload,
 )
+from .local_schema import open_local_database_read_only
 from .local_store import _LocalStore, live_search_schema_is_available
-from .maintenance import PHASE1_STATE_DATABASE, PHASE1_STATE_SCHEMA_VERSION, inspect_phase1_state
+from .maintenance import inspect_phase1_state
 from .markdown_import import MarkdownImportTasks
 from .normalization import _done, _utc_now
 from .portability import PortabilityTasks
@@ -74,11 +75,7 @@ class _ReadOnlyStore:
         self._profile = profile
 
     def connect(self) -> sqlite3.Connection:
-        return connect_database_read_only(
-            root=self._profile.root,
-            database_name=PHASE1_STATE_DATABASE,
-            expected_root_identity=self._profile.root_identity,
-        )
+        return open_local_database_read_only(self._profile)
 
 
 class _ReadOnlyRetrieval(RetrievalOperations):
@@ -156,8 +153,7 @@ class BrainEngine(CaptureOperations, SpaceOperations, ReviewOperations, Retrieva
             parent_root_identity=profile.root_identity,
         )
         with self._writer_lease.acquire_shared_writer():
-            self._store = _LocalStore(profile)
-            _ensure_phase1_state_schema(self._store)
+            self._store = _LocalStore(profile, clock=self._clock)
         self.capture = CaptureTasks(self)
         self.inbox = InboxSpaceTasks(self)
         self.review = ReviewTasks(self)
@@ -323,35 +319,21 @@ def open_local_read_view(
         raise ReadViewUnavailableError("read-only state schema is absent")
     if schema.state == "newer":
         raise ReadViewUnavailableError("read-only state schema is newer than this application")
+    if schema.state == "recovery_required":
+        raise ReadViewUnavailableError("read-only state requires writable SQLite recovery")
     if schema.state != "current":
         raise ReadViewUnavailableError("read-only state schema is invalid")
     try:
-        connection = connect_database_read_only(
-            root=profile.root,
-            database_name=PHASE1_STATE_DATABASE,
-            expected_root_identity=profile.root_identity,
-        )
+        connection = open_local_database_read_only(profile)
         try:
             search_available = live_search_schema_is_available(connection)
         finally:
             connection.close()
-    except (SchemaError, sqlite3.Error):
+    except SchemaError, sqlite3.Error:
         search_available = False
     if not search_available:
         raise ReadViewUnavailableError("read-only live search schema is unavailable")
     return _ReadOnlyRetrieval(profile, allowed_space_ids=allowed_space_ids)
-
-
-def _ensure_phase1_state_schema(store: _LocalStore) -> None:
-    connection = store.connect()
-    try:
-        version = int(connection.execute("PRAGMA user_version").fetchone()[0])
-        if version < PHASE1_STATE_SCHEMA_VERSION:
-            connection.execute(f"PRAGMA user_version = {PHASE1_STATE_SCHEMA_VERSION}")
-    except (TypeError, ValueError, sqlite3.Error, SchemaError) as error:
-        raise ValueError("invalid local state schema") from error
-    finally:
-        connection.close()
 
 
 __all__ = [
