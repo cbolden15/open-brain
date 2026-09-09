@@ -447,6 +447,9 @@ must visibly label each active imported result as unverified.
 
 ### Migration contract
 
+The [migration design](../schema-migrations.md) is drafted against W4 base `5a51797`.
+This is a design-only checkpoint; the catalog, runtime changes, fixtures, and W5 gate remain pending.
+
 Add `docs/schema-migrations.md` and one local migration catalog. Version 2 is the first released local
 schema. Migration history is ordered, checksummed, and applied inside one SQLite transaction before
 normal operations open the database.
