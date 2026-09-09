@@ -5,7 +5,7 @@ status: complete
 workstream: 20260908-open-brain-ob1-w3-search-1864f1
 milestone: ob1-w3-local-complete
 branch: feat/ob1-w3-search
-head: b98bd90819ecc78bd129b88733095946f7ad3cf6
+head: f65458f0345ec4194d3d39203c68bea8b46ed5fe
 last_verified.command: make verify; make native; make homebrew-smoke; actionlint; git diff --check
 last_verified.result: passed: 3400 tests plus lint, typecheck, builds, native arm64, and Homebrew journey
 changes: ["docs/retrieval.md","docs/engineering/gotchas/README.md","packages/engine/src/open_brain_engine/engine","packages/app/src/open_brain/services/local_entrypoints.py","packages/app/tests","packages/legacy/src/open_brain_legacy/operations/cutover_doctor.py","packages/legacy/tests/integration","tests/release/test_native_distribution.py","tests/security/test_release_audit.py","tools/open_brain_dev"]

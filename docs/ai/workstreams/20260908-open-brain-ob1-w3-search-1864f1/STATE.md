@@ -5,7 +5,7 @@
 - Remote identity SHA-256 fingerprint: `0aaeca2a6d1b421eaa7439b39b3228c836f6c7c55026bac150b0aeda757566cf`
 - Worktree: primary OB1 worktree
 - Branch: feat/ob1-w3-search
-- Head: b98bd90819ecc78bd129b88733095946f7ad3cf6
+- Head: f65458f0345ec4194d3d39203c68bea8b46ed5fe
 - Objective: Complete OB1-W3 FTS5 search usability gate
 - Created date: 2026-09-08
 - Status: local implementation complete; remote acceptance pending

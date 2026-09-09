@@ -8,7 +8,7 @@
 
 **Mode:** strict
 
-**Commits reviewed:** `7ec92c9..b98bd90`
+**Commits reviewed:** `7ec92c9..f65458f`
 
 **Codebase root:** repository root
 
@@ -175,10 +175,11 @@ exact-head rerun remains part of R10.
   - Local `actionlint .github/workflows/ci.yml` and `git diff --check` passed.
   - `docs/ai/workstreams/20260908-open-brain-ob1-w3-search-1864f1/HANDOFF.md:8` records the local
     verification and the remaining blocker.
-- **Notes:** Source commit `b98bd90` has not run on GitHub's macOS arm64 and Linux x86_64 jobs. The
-  owner has not supplied the untracked `PRIVATE_DENYLIST`, so `make audit` and `make audit-history`
-  have not run. The two prior Linux runs passed, but the new head includes the macOS process-boundary
-  repair and therefore needs both jobs again. The plan forbids merging without both gates.
+- **Notes:** The sanitized source commit is `f65458f`. The owner approved the exact
+  `# no additional project terms` marker. The rewritten exact head still needs the tree and
+  reachable-history audits plus both GitHub CI jobs. Earlier exact-head CI passed before the audit
+  remediation, but the rewritten lineage must be verified again. The plan forbids merging without
+  both gates.
 
 ## Critical gaps
 
