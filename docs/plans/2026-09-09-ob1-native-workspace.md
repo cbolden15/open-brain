@@ -138,8 +138,22 @@ NW0 must demonstrate the chosen conflict-preserving write-back protocol under an
 promotion, or restrict automatic write-back until that protocol is proven.
 
 Managed-vault rename preserves the stable note ID. A copied ID is a conflict, not a second alias for
-the same writable record. Removing a note from the workspace is distinct from purging retained
-history. NW0 must select the supported initial deletion behavior and its search/export consequences.
+the same writable record.
+
+DECIDED by the user on 2026-09-09: deleting a note in Obsidian removes it from the active workspace,
+search, and graph while retaining recoverable history. Permanent erasure is a separate explicit
+action; an editor deletion never authorizes it. Record deletion as a durable inactive state under
+the stable note identity. Reconciliation must not silently recreate the note, and stale graph jobs
+must not republish it. Exclude inactive notes from semantic input and related-note context retrieval.
+Distinguish a confirmed deletion from a rename, inaccessible root, partial scan, or concurrent edit;
+uncertain or conflicting observations preserve data and require reconciliation.
+
+Provide an explicit restore operation that preserves identity and retained provenance, checks for
+path/identity conflicts, and returns the restored note to active search and graph processing.
+Verified export/import must preserve both retained history and inactive status without resurrecting
+deleted notes. NW0 must prove deletion, restart, restore, and export/import behavior in the selected
+portable representation before freezing the schema. This decision does not add a permanent-erasure
+implementation milestone.
 Initially do not claim filesystem trash, arbitrary vault relocation, external sync conflict repair,
 or attachment synchronization unless covered by an explicit acceptance test.
 
@@ -374,7 +388,8 @@ alone is insufficient. CI pushes or app installation happen only under the autho
 3. Add shared CLI/MCP operations with separate caller authority and safe result projections.
    Preserve the default headless capture/search path and define eligible workspace materialization.
 4. Ensure accepted edits and required history survive verified export/import; regenerate local
-   mappings after import without preserving host paths. Fail export visibly if required workspace
+   mappings after import without preserving host paths. Preserve inactive notes and demonstrate
+   explicit restoration without accidental resurrection during reconciliation or import. Fail export visibly if required workspace
    reconciliation cannot establish a consistent accepted snapshot.
 5. Prove semantic and recovery cases below through engine and adapter contract tests, then run
    `make verify`. No Obsidian-specific dependency may enter the engine.
