@@ -315,6 +315,14 @@ affected gate and audit. Never rewrite public `main`. If an affected object has 
 public remote, treat it as a disclosure, rotate any credential, follow the host's removal process,
 and do not describe history rewriting alone as remediation.
 
+The owner approved one [inherited-history exception](../audits/2026-09-09-inherited-history-exception.md)
+on 2026-09-09 for two already-public document versions and their 90 reviewed occurrences. The
+version-2 history policy binds those exceptions to exact paths, blob hashes, reviewed commit IDs,
+and the complete normalized owner-denylist fingerprint. All 12 terms remain enforced; changed
+content, later occurrences, and semantic denylist changes fail closed. Current-tree and archive
+audits have no exception. This decision permits retained generic operational context in those
+reviewed historical versions and does not authorize rewriting public `main` or broader exceptions.
+
 The audit policy is not weakened for fixtures. Public `main` already contains the exact historical
 prefix `examples/synthetic-vault/`, so W3 adds one code-level legacy fixture exception for that prefix
 which suppresses only its `vault` path-part finding. Tests require content rules, forbidden suffixes,

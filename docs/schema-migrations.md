@@ -248,7 +248,7 @@ Export continues to validate the Portable manifest and reports its `schema_versi
 SQLite files and ledger rows in the export. Native packaging must include the extracted modules
 without broadening the default dependency closure.
 
-Local verification passed: `make verify` (3,523 passed, 5 skipped), native/Homebrew smoke,
+Local verification passed: integrated `make verify` (3,545 passed, 5 skipped), native/Homebrew smoke,
 `git diff --check`, and `actionlint .github/workflows/ci.yml`. The
 [W5 audit](audits/2026-09-09-ob1-w5-schema-migrations-audit.md) records evidence and the recovery
 exception. Owner-denylist tree/history audits and both supported CI platforms at the exact candidate

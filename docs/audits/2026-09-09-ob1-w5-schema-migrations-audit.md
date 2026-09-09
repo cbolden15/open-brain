@@ -16,7 +16,9 @@ to the repository root.
 The implementation covers the W5 migration requirements. Local repository and Homebrew checks pass.
 The implementation adds one documented recovery exception to the original byte-preservation
 contract. The workstream is not cleared for merge: owner-only safety audits and both supported
-platform CI jobs remain pending. W6 and W7 have not started.
+platform CI jobs remain required at the integrated head. The separately committed
+[owner-approved history exception](2026-09-09-inherited-history-exception.md) resolves the inherited
+policy blocker while preserving all 12 denylist terms. W6 and W7 have not started.
 
 ## Requirement evidence
 
@@ -57,11 +59,11 @@ privacy, or documentation blocker. This is review evidence, not a substitute for
 | Check | Result |
 | --- | --- |
 | `uv run --frozen pytest -q packages/app/tests/integration/engine/test_local_schema.py -x` | PASS: 61 tests in 7.17 seconds. |
-| `make verify` | PASS: Ruff; MyPy across 577 source files; 3,523 tests passed, 5 skipped in 63.37 seconds; engine, app, and connector package builds. |
+| `make verify` | PASS on the integrated tree: Ruff; MyPy across 577 source files; 3,545 tests passed, 5 skipped in 66.26 seconds; engine, app, and connector package builds. |
 | `make homebrew-smoke` (includes `make native`) | PASS on macOS arm64: native build and audit, Homebrew installation, capture, search, Markdown import, verified export, status, doctor, and self-check; command exited 0 after cleanup. |
 | `git diff --check` | PASS. |
 | `actionlint .github/workflows/ci.yml` | PASS. |
-| Owner-only `make audit` and `make audit-history` | NOT RUN: `PRIVATE_DENYLIST` is not configured. No substitute denylist was used. |
+| Owner-only `make audit` and `make audit-history` | Both pass on safety prerequisite `88f2d64` with the consolidated 12-term denylist in a disposable single-branch clone. Rerun at the frozen integrated head before publication; no substitute denylist was used. |
 | macOS arm64 and Linux x86_64 CI at the implementation head | NOT RUN for this local branch. W4's passing jobs are not W5 evidence. |
 
 The five local skips are the existing filesystem-dependent Markdown path cases. Linux CI remains
