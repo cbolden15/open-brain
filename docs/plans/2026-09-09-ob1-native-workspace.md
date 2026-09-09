@@ -37,7 +37,7 @@ outward-facing actions require the applicable user authorization.
 | Decision | Working recommendation | Alternative and consequence |
 |---|---|---|
 | Native interface | Managed vault plus thin desktop plugin, with capture, search, refresh, and source navigation | A plugin-free vault and Canvas is a coherent intermediate milestone, but does not deliver the complete in-app experience. An export-only bridge does not meet this outcome. |
-| Existing vaults | Preserve one-way import; offer the managed vault for connected editing | Full two-way arbitrary-vault support is the strongest eventual integration, but adds relocation, deletion, duplicate identity, attachment, conflict, and sync-provider behavior. Plan it as a separate milestone rather than imply it ships. |
+| Existing vaults | DECIDED by user on 2026-09-09: start with a dedicated Open Brain vault; preserve one-way import from existing vaults | Full two-way arbitrary-vault support is the strongest eventual integration, but adds relocation, deletion, duplicate identity, attachment, conflict, and sync-provider behavior. Plan it as a separate milestone rather than imply it ships. |
 | First graph | DECIDED by user on 2026-09-09: inferred connections between previously unlinked notes are required from the start, using a cloud model initially | Provider setup and semantic processing belong inside the first-use acceptance boundary. Explicit links alone do not pass. Local inference through Ollama is deferred. |
 | Installation clock | Include the work needed to obtain and activate the Obsidian experience; Homebrew remains the declared prerequisite | If Obsidian is a prerequisite, explicitly rename the measured claim to workspace setup on an Obsidian-equipped host. Do not report application installation as included. |
 | Runtime packaging | Test a private self-invoked helper mode in the existing executable, with bounded JSON input/output and lazy Graphify loading | In-process integration has less process plumbing but shares failure/global state. A separate helper executable gives the strongest runtime/module boundary and requires an explicit archive-contract change. Select from NW0 evidence. |
@@ -97,7 +97,11 @@ unconditional overwrite source. Persist a mapping from stable note ID to workspa
 last accepted revision, and last materialized body digest.
 
 The default location is automatic; the introductory user flow does not ask for a storage backend or
-root. A human-facing open/reveal operation can show the vault location without exposing operational
+root. Setup creates or reopens the dedicated Open Brain vault; it does not register an arbitrary
+existing vault for two-way editing. One-way import preserves the existing import/provenance contract
+and does not modify the source vault or establish bidirectional synchronization. This product
+decision leaves the sibling-projection versus dedicated-canonical-subtree packaging question to NW0.
+A human-facing open/reveal operation can show the vault location without exposing operational
 paths to MCP or public search results. Validate root identity and containment on every operation.
 Do not use a symlink from the vault to the private canonical tree. Preserve private permissions and
 the current rejection of known synchronized/network storage until a separate policy supports those
