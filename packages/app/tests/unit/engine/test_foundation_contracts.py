@@ -419,6 +419,7 @@ def test_public_job_sink_accepts_unknown_ingress_without_owner_publication_autho
     assert source["trust"]["label"] == "unverified"
     result = tasks.retrieval.search("unknown public-job capture")[0]
     assert result.provenance.source_origin == "unknown"
+    assert result.trust == "unverified"
 
 
 def test_public_job_context_rejects_owner_spoofing_tenant_mismatch_and_bad_roles(

@@ -844,7 +844,8 @@ async def _supervise_probe_workers(
                     _stop_probe_worker(worker, terminate=True)
                     del pending[probe]
                 elif not worker.process.is_alive():
-                    results[probe] = ("failure", None)
+                    worker.process.join(_WORKER_STOP_GRACE_SECONDS)
+                    results[probe] = _receive_worker_result(worker) or ("failure", None)
                     _stop_probe_worker(worker, terminate=False)
                     del pending[probe]
             if pending:

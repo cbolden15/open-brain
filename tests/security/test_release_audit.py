@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from tools.open_brain_dev.release_audit import audit, main
+from tools.open_brain_dev.release_audit import _path_rules, audit, main
 
 
 def write_safe_tree(root: Path) -> Path:
@@ -104,6 +104,34 @@ def test_engine_source_portable_fixture_paths_are_narrowly_allowed(tmp_path: Pat
     assert audit(root, denylist) == []
 
 
+def test_legacy_synthetic_vault_exception_suppresses_only_its_vault_path_part(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "project"
+    denylist = write_safe_tree(root)
+    allowed = root / "examples/synthetic-vault/vault/note.md"
+    allowed.parent.mkdir(parents=True)
+    allowed.write_text("synthetic public fixture", encoding="utf-8")
+
+    assert audit(root, denylist) == []
+
+    adjacent = root / "examples/customer-vault/vault/note.md"
+    adjacent.parent.mkdir(parents=True)
+    adjacent.write_text("synthetic", encoding="utf-8")
+    forbidden_type = root / "examples/synthetic-vault/vault/state.sqlite3"
+    forbidden_type.write_text("synthetic", encoding="utf-8")
+    sensitive = root / "examples/synthetic-vault/vault/sensitive.md"
+    sensitive.write_text("api" + "_key=" + "abcdefghijklmnop", encoding="utf-8")
+
+    findings = {(finding.location, finding.rule) for finding in audit(root, denylist)}
+    assert ("examples/customer-vault/vault/note.md", "forbidden-path-family") in findings
+    assert "forbidden-path-family" in {
+        finding.rule for finding in _path_rules("EXAMPLES/SYNTHETIC-VAULT/vault/note.md")
+    }
+    assert ("examples/synthetic-vault/vault/state.sqlite3", "forbidden-file-type") in findings
+    assert ("examples/synthetic-vault/vault/sensitive.md", "credential-assignment") in findings
+
+
 def test_oversized_content_fails_closed(tmp_path: Path) -> None:
     root = tmp_path / "project"
     denylist = write_safe_tree(root)
@@ -187,6 +215,45 @@ def test_packaged_portable_fixture_paths_are_narrowly_allowed(tmp_path: Path) ->
     assert "forbidden-path-family" in {
         finding.rule for finding in audit(root, denylist, [artifact])
     }
+
+
+def test_packaged_legacy_synthetic_vault_exception_is_exact(tmp_path: Path) -> None:
+    root = tmp_path / "project"
+    denylist = write_safe_tree(root)
+    artifact = tmp_path / "release.whl"
+    with zipfile.ZipFile(artifact, "w") as archive:
+        archive.writestr(
+            "examples/synthetic-vault/vault/note.md",
+            "synthetic public fixture",
+        )
+
+    assert audit(root, denylist, [artifact]) == []
+
+    with zipfile.ZipFile(artifact, "a") as archive:
+        archive.writestr("examples/customer-vault/vault/note.md", "synthetic")
+        archive.writestr("EXAMPLES/SYNTHETIC-VAULT/vault/note.md", "synthetic")
+        archive.writestr("examples/synthetic-vault/vault/state.sqlite3", "synthetic")
+        archive.writestr(
+            "examples/synthetic-vault/vault/sensitive.md",
+            "api" + "_key=" + "abcdefghijklmnop",
+        )
+    findings = {(finding.location, finding.rule) for finding in audit(root, denylist, [artifact])}
+    assert (
+        "release.whl:examples/customer-vault/vault/note.md",
+        "forbidden-path-family",
+    ) in findings
+    assert (
+        "release.whl:EXAMPLES/SYNTHETIC-VAULT/vault/note.md",
+        "forbidden-path-family",
+    ) in findings
+    assert (
+        "release.whl:examples/synthetic-vault/vault/state.sqlite3",
+        "forbidden-file-type",
+    ) in findings
+    assert (
+        "release.whl:examples/synthetic-vault/vault/sensitive.md",
+        "credential-assignment",
+    ) in findings
 
 
 def test_zip_traversal_name_is_rejected(tmp_path: Path) -> None:

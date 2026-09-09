@@ -50,11 +50,11 @@ from .contracts import (
     SpaceRecord,
     TextPayload,
 )
-from .local_store import _LocalStore
+from .local_store import _LocalStore, live_search_schema_is_available
 from .maintenance import PHASE1_STATE_DATABASE, PHASE1_STATE_SCHEMA_VERSION, inspect_phase1_state
 from .normalization import _done, _utc_now
 from .portability import PortabilityTasks
-from .reconciliation import ReconciliationTasks
+from .reconciliation import ReconciliationTasks, rederive_live_search_projection
 from .retrieval import RetrievalOperations, RetrievalTasks, ScopedRetrieval
 from .review import ReviewOperations, ReviewTasks
 from .spaces import InboxSpaceTasks, SpaceOperations
@@ -218,6 +218,9 @@ class BrainEngine(CaptureOperations, SpaceOperations, ReviewOperations, Retrieva
         with self._writer_lease.acquire_shared_writer():
             return self._recover()
 
+    def _rederive_live_search_projection(self) -> None:
+        rederive_live_search_projection(self)
+
     def _recover(self) -> int:
         recovered = 0
         for table, processor in (
@@ -319,6 +322,20 @@ def open_local_read_view(
         raise ReadViewUnavailableError("read-only state schema is newer than this application")
     if schema.state != "current":
         raise ReadViewUnavailableError("read-only state schema is invalid")
+    try:
+        connection = connect_database_read_only(
+            root=profile.root,
+            database_name=PHASE1_STATE_DATABASE,
+            expected_root_identity=profile.root_identity,
+        )
+        try:
+            search_available = live_search_schema_is_available(connection)
+        finally:
+            connection.close()
+    except (SchemaError, sqlite3.Error):
+        search_available = False
+    if not search_available:
+        raise ReadViewUnavailableError("read-only live search schema is unavailable")
     return _ReadOnlyRetrieval(profile, allowed_space_ids=allowed_space_ids)
 
 

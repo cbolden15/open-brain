@@ -1,6 +1,7 @@
 # OB1 product completion plan
 
-- Status: READY for `OB1-W3` implementation; all surfaced P0-P2 findings are resolved
+- Status: `OB1-W3` implemented and locally verified; exact-head two-platform CI and the owner-only
+  private-denylist audit remain before merge, and `OB1-W4` has not started
 - Date: 2026-09-08
 - Branch: `goal/open-brain-five-minute-install`
 - Product authority: [`../product-family.md`](../product-family.md)

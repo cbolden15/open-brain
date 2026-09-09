@@ -928,3 +928,56 @@ a bounded sandbox that permits the required verification services while retainin
 contract. Never rebuild a frozen candidate from one unreproduced sandboxed signature error.
 
 Discovered: 2026-09-03.
+
+### SEARCH-001: Project private text before deriving snippets
+
+Symptom: A protected source reference disappears from stored search text but a partial prefix or
+suffix still appears in a result snippet.
+
+Cause: Snippet generation or length clamping ran before the complete field passed through the
+public-safe projection boundary. The shortened fragment no longer matched the protected value.
+
+Fix: Apply the public-safe projection to complete title and body fields before indexing,
+highlighting, snippet generation, or truncation. Reapply the projection at the output boundary.
+
+Discovered: 2026-09-08.
+
+### TOOLING-004: MyPy recognizes static platform guards
+
+Symptom: A platform-only import passes MyPy on its supported host but fails with `import-not-found`
+and `unused-ignore` on another CI operating system.
+
+Cause: The runtime branch used `platform.system()`, which MyPy does not use to prune unreachable
+platform code.
+
+Fix: Guard platform-only imports with `sys.platform` and run focused MyPy checks with each supported
+`--platform` value.
+
+Discovered: 2026-09-08.
+
+### CONTROL-002: Process exit can race pipe observation
+
+Symptom: A worker sends a valid receipt and exits, but the supervisor reports `probe-failure` because
+the first nonblocking pipe poll found nothing just before process exit became visible.
+
+Cause: The supervisor treated a dead process as proof that no unread IPC result remained.
+
+Fix: Join a completed worker, drain its receive pipe once more, and classify failure only when no
+valid receipt remains.
+
+Discovered: 2026-09-08.
+
+### CONTROL-003: Short readiness retries can poison a socket backlog
+
+Symptom: A daemon process stays alive and owns its Unix socket, but a readiness loop never receives a
+status response on a slower host.
+
+Cause: Each short-lived probe connects, times out, and closes before the single-threaded server begins
+accepting. Those abandoned connections remain queued, so the server drains stale requests while the
+probe loop adds more. Starting a fresh interpreter for every attempt adds avoidable startup variance.
+
+Fix: Use one isolated probe process. Retry only while the socket is unavailable; after connecting,
+keep that request open for the remaining bounded startup budget. Exclude unrelated listeners from a
+control-only integration test.
+
+Discovered: 2026-09-08.

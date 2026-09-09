@@ -46,6 +46,19 @@ SQLite or FTS, cryptographic key destruction, compartment isolation, signed rece
 purge, or resistance to another process running as the same user. Those claims belong only to a
 conforming Secure Node installation.
 
+The live FTS5 table indexes only the NFC-normalized public projection of title and body text. Public
+projection happens before matching so protected paths, credentials, source references, and digests
+cannot act as retrieval selectors, then runs again on returned fields as defense in depth. Generated
+literal queries prevent quotes, operators, prefix markers, parentheses, and column-looking input
+from becoming FTS5 syntax. Space authorization and metadata filters run in the same SQL statement
+before ranking and `LIMIT`.
+
+FTS rows are derived but still sensitive plaintext. The authoritative live table resides in
+`phase1.sqlite3`; the separate portability index is a non-authoritative snapshot that may be stale.
+Default status distinguishes them without exposing paths or content. SQLite may place transient FTS
+or sorter scratch in operating-system temporary storage. Secure Node must separately prove that
+durable indexes and scratch stay inside its encrypted and purgeable boundary.
+
 ## Secure Node M1 boundary
 
 Secure Node binds HTTP only to a numeric loopback address and validates Host on every

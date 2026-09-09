@@ -7,14 +7,30 @@ import socket
 import subprocess
 import sys
 import time
+import unicodedata
 from pathlib import Path
 from typing import NoReturn, cast
 
 import pytest
+from open_brain_engine.core.models import (
+    Authority,
+    CaptureWhyOrigin,
+    ContentOrigin,
+    PrivacyDecision,
+    PrivacyReason,
+    PrivacyTier,
+    Provenance,
+)
+from open_brain_engine.engine import (
+    CaptureAction,
+    PublicJobCaptureContext,
+    TextPayload,
+    open_local_engine,
+)
 
 import open_brain.services.local_bootstrap as bootstrap_module
 from open_brain.local_data import LocalDataError
-from open_brain.profile import compile_single_user_local
+from open_brain.profile import compile_single_user_local, open_existing_single_user_local
 from open_brain.services.local_entrypoints import run_cli
 
 _DAEMON_AUTHORITY_HOLDER_PROGRAM = """
@@ -290,7 +306,23 @@ def test_exact_local_data_journey_bootstraps_without_init_or_background_runtime(
         "application_encryption": False,
         "brain_count": 1,
         "daemon_running": False,
+        "live_search": {
+            "authoritative": True,
+            "contents_agree": True,
+            "fts_count": 1,
+            "identity_count": 1,
+            "projection_count": 1,
+            "result_ids_agree": True,
+            "state": "current",
+        },
         "portable_export": "absent",
+        "portable_snapshot": {
+            "authoritative": False,
+            "document_count": 0,
+            "freshness": "potentially_stale",
+            "generation": None,
+            "state": "absent",
+        },
         "profile": "local",
         "storage": "sqlite",
     }
@@ -333,6 +365,7 @@ def test_exact_local_data_journey_bootstraps_without_init_or_background_runtime(
         "private-data-directory",
         "no-background-runtime",
         "base-dependency-closure",
+        "search-index",
     ):
         assert (
             run_cli(
@@ -368,7 +401,7 @@ def test_local_search_json_is_bounded_and_export_failure_is_redacted(
     capsys.readouterr()
     assert (
         run_cli(
-            ("search", token, "--json"),
+            ("search", token, "--limit", "1", "--json"),
             environment=environment,
             platform_name="linux",
             filesystem_type_probe=_filesystem,
@@ -379,15 +412,17 @@ def test_local_search_json_is_bounded_and_export_failure_is_redacted(
     results = cast(list[dict[str, object]], payload["results"])
     assert payload["status"] == "ok"
     assert len(results) == 1
-    assert results[0]["excerpt"] == token
+    assert str(results[0]["excerpt"]).replace("[", "").replace("]", "") == token
     assert set(results[0]) == {
         "capture_id",
         "excerpt",
         "payload_family",
         "record_type",
         "result_id",
+        "source_origin",
         "title",
         "trust",
+        "explanation",
     }
 
     destination = tmp_path / "conflicting-export"
@@ -411,6 +446,194 @@ def test_local_search_json_is_bounded_and_export_failure_is_redacted(
     }
     assert str(destination) not in failure
     assert token not in failure
+
+
+def test_local_search_reconciles_owner_markdown_and_renders_one_safe_line(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    home = _private_home(tmp_path)
+    environment = {"HOME": str(home)}
+    assert (
+        run_cli(
+            ("init", "--json"),
+            environment=environment,
+            platform_name="linux",
+            filesystem_type_probe=_filesystem,
+        )
+        == 0
+    )
+    capsys.readouterr()
+    root = home / ".local/share/open-brain/brain"
+    tasks = open_local_engine(open_existing_single_user_local(root))
+    space = tasks.spaces.create_space("Notes", delivery_id="search.cli.space")
+    tasks.capture.accept(
+        TextPayload("Original owner search body"),
+        delivery_id="search.cli.canonical",
+        action=CaptureAction.CANONICAL_NOTE,
+        space_id=space.space_id,
+        title="Owner note",
+    )
+    page = next((root / "content/spaces").rglob("page_*.md"))
+    page.write_text(
+        page.read_text(encoding="utf-8").replace(
+            "Original owner search body",
+            "Fresh owner search body",
+        ),
+        encoding="utf-8",
+    )
+
+    assert (
+        run_cli(
+            ("search", "Fresh owner search"),
+            environment=environment,
+            platform_name="linux",
+            filesystem_type_probe=_filesystem,
+        )
+        == 0
+    )
+    output = capsys.readouterr().out
+
+    assert len(output.splitlines()) == 2
+    assert "Owner note" in output
+    assert "owner" in output
+    assert "owner_authored" in output
+    assert all(
+        not (ord(character) < 32 or 0x7F <= ord(character) <= 0x9F)
+        and unicodedata.category(character) != "Cf"
+        for line in output.splitlines()
+        for character in line
+    )
+
+
+def test_local_search_renders_owner_and_unknown_automation_labels_in_both_formats(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    home = _private_home(tmp_path)
+    environment = {"HOME": str(home)}
+    assert (
+        run_cli(
+            ("init", "--json"),
+            environment=environment,
+            platform_name="linux",
+            filesystem_type_probe=_filesystem,
+        )
+        == 0
+    )
+    capsys.readouterr()
+    root = home / ".local/share/open-brain/brain"
+    tasks = open_local_engine(open_existing_single_user_local(root))
+    tasks.capture.accept(
+        TextPayload("Shared trust canary owner"),
+        delivery_id="search.cli.trust.owner",
+    )
+    actor_id = "actor_00000000-0000-4000-8000-000000000101"
+    context = PublicJobCaptureContext.create(
+        profile=tasks.profile,
+        actor_id=actor_id,
+        role_claim={
+            "actor_id": actor_id,
+            "capabilities": ["capture.accept"],
+            "role_claim_id": "role_claim_00000000-0000-4000-8000-000000000102",
+            "role_id": "role_00000000-0000-4000-8000-000000000103",
+            "tenant_id": tasks.profile.tenant_id,
+        },
+    )
+    source_reference = "urn:synthetic:private-automation-reference"
+    tasks.capture.public_job_sink(context).submit(
+        TextPayload("Shared trust canary automation"),
+        delivery_id="search.cli.trust.unknown",
+        source_origin=ContentOrigin.UNKNOWN,
+        source_reference=source_reference,
+        provenance=Provenance.create(
+            source_ref=source_reference,
+            content_origin=ContentOrigin.UNKNOWN,
+            owner_context=CaptureWhyOrigin.AUTOMATION_ABSENT,
+        ),
+        privacy=PrivacyDecision.create(
+            tier=PrivacyTier.PERSONAL,
+            reason=PrivacyReason.PERSONAL_LOCAL_ONLY,
+            policy_version="privacy-v1",
+            authority=Authority(cloud=False, external_egress=False),
+        ),
+    )
+
+    assert (
+        run_cli(
+            ("search", "Shared trust canary", "--json"),
+            environment=environment,
+            platform_name="linux",
+            filesystem_type_probe=_filesystem,
+        )
+        == 0
+    )
+    json_output = capsys.readouterr().out
+    payload = cast(dict[str, object], json.loads(json_output))
+    results = cast(list[dict[str, object]], payload["results"])
+    labels = {
+        cast(str, result["source_origin"]): cast(str, result["trust"])
+        for result in results
+    }
+
+    assert labels == {"owner_authored": "owner", "unknown": "unverified"}
+    assert source_reference not in json_output
+
+    assert (
+        run_cli(
+            ("search", "Shared trust canary"),
+            environment=environment,
+            platform_name="linux",
+            filesystem_type_probe=_filesystem,
+        )
+        == 0
+    )
+    human_output = capsys.readouterr().out
+
+    assert "[owner | owner_authored]" in human_output
+    assert "[unverified | unknown]" in human_output
+    assert source_reference not in human_output
+
+
+def test_local_search_human_output_removes_terminal_and_bidi_controls(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    home = _private_home(tmp_path)
+    environment = {"HOME": str(home)}
+    unsafe = "Visible unsafe \x1b]0;title\x07\rline \u202eoverride \u2066isolate"
+    assert (
+        run_cli(
+            ("capture", unsafe, "--json"),
+            environment=environment,
+            platform_name="linux",
+            filesystem_type_probe=_filesystem,
+        )
+        == 0
+    )
+    capsys.readouterr()
+
+    assert (
+        run_cli(
+            ("search", "override isolate"),
+            environment=environment,
+            platform_name="linux",
+            filesystem_type_probe=_filesystem,
+        )
+        == 0
+    )
+    output = capsys.readouterr().out
+
+    assert len(output.splitlines()) == 1
+    assert "Visible" in output
+    assert "title" in output
+    assert "override" in output
+    assert "isolate" in output
+    assert all(
+        not (ord(character) < 32 or 0x7F <= ord(character) <= 0x9F)
+        and unicodedata.category(character) != "Cf"
+        for character in output.rstrip("\n")
+    )
 
 
 def test_local_doctor_rejects_a_background_runtime_artifact(

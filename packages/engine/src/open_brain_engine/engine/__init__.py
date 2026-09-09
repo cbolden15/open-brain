@@ -91,8 +91,11 @@ from .local import (
 )
 from .maintenance import (
     PHASE1_STATE_SCHEMA_VERSION,
+    LiveSearchState,
     MaintenanceSnapshot,
+    inspect_live_search,
     inspect_phase1_state,
+    live_search_is_healthy,
     read_maintenance_snapshot,
 )
 
@@ -130,6 +133,7 @@ __all__ = [
     "InjectedFault",
     "InboxSpaceTask",
     "LocalEngineContext",
+    "LiveSearchState",
     "LockScope",
     "MaintenanceSnapshot",
     "MeasurementPayload",
@@ -171,6 +175,8 @@ __all__ = [
     "canonical_json_bytes",
     "validate_identifier",
     "inspect_phase1_state",
+    "inspect_live_search",
+    "live_search_is_healthy",
     "acquire_daemon_authority",
     "open_authoritative_local_engine",
     "open_local_engine",

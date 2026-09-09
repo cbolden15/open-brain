@@ -6,6 +6,7 @@ import importlib.metadata
 import json
 import platform
 import statistics
+import sys
 import time
 from typing import Any
 
@@ -54,7 +55,7 @@ def _probe() -> dict[str, Any]:
         raise AssertionError("AES-256-GCM round trip failed")
 
     local_authentication = "not-applicable"
-    if platform.system() == "Darwin":
+    if sys.platform == "darwin":
         import LocalAuthentication  # type: ignore[import-untyped] # noqa: F401
 
         local_authentication = "passed"

@@ -446,9 +446,78 @@ def _smoke_local_journey(
         or not (brain_root / ".open-brain/state/phase1.sqlite3").is_file()
     ):
         raise BaseNativeError("native first capture failed")
-    search = _run((os.fspath(executable), "search", token), environment)
-    if token not in search.stdout:
+    diacritic = json.loads(
+        _run(
+            (os.fspath(executable), "capture", "Café constellation", "--json"),
+            environment,
+        ).stdout
+    )
+    title_hit = json.loads(
+        _run(
+            (os.fspath(executable), "capture", "Aurora field atlas\nQuiet body", "--json"),
+            environment,
+        ).stdout
+    )
+    body_hit = json.loads(
+        _run(
+            (
+                os.fspath(executable),
+                "capture",
+                "Ordinary heading\nAn aurora atlas for observers",
+                "--json",
+            ),
+            environment,
+        ).stdout
+    )
+    search = cast(
+        dict[str, object],
+        json.loads(
+            _run(
+                (os.fspath(executable), "search", token, "--limit", "1", "--json"),
+                environment,
+            ).stdout
+        ),
+    )
+    search_results = cast(list[dict[str, object]], search.get("results"))
+    if not search_results or search_results[0].get("capture_id") != capture.get("capture_id"):
         raise BaseNativeError("native search failed")
+    unicode_search = cast(
+        dict[str, object],
+        json.loads(
+            _run(
+                (os.fspath(executable), "search", "CAFE", "--limit", "1", "--json"),
+                environment,
+            ).stdout
+        ),
+    )
+    unicode_results = cast(list[dict[str, object]], unicode_search.get("results"))
+    if not unicode_results or unicode_results[0].get("capture_id") != diacritic.get("capture_id"):
+        raise BaseNativeError("native FTS tokenizer failed")
+    ranked_search = cast(
+        dict[str, object],
+        json.loads(
+            _run(
+                (
+                    os.fspath(executable),
+                    "search",
+                    "aurora atlas",
+                    "--limit",
+                    "2",
+                    "--json",
+                ),
+                environment,
+            ).stdout
+        ),
+    )
+    ranked_results = cast(list[dict[str, object]], ranked_search.get("results"))
+    if (
+        [result.get("capture_id") for result in ranked_results]
+        != [title_hit.get("capture_id"), body_hit.get("capture_id")]
+        or ranked_results[0].get("explanation") != "title match"
+        or "[" not in str(ranked_results[0].get("excerpt"))
+        or ranked_results[0].get("source_origin") != "owner_authored"
+    ):
+        raise BaseNativeError("native FTS ranking failed")
     export = home / "portable-export"
     exported = json.loads(
         _run(
@@ -483,7 +552,23 @@ def _smoke_local_journey(
         "application_encryption": False,
         "brain_count": 1,
         "daemon_running": False,
+        "live_search": {
+            "authoritative": True,
+            "contents_agree": True,
+            "fts_count": 4,
+            "identity_count": 4,
+            "projection_count": 4,
+            "result_ids_agree": True,
+            "state": "current",
+        },
         "portable_export": "verified",
+        "portable_snapshot": {
+            "authoritative": False,
+            "document_count": 0,
+            "freshness": "potentially_stale",
+            "generation": None,
+            "state": "absent",
+        },
         "profile": "local",
         "storage": "sqlite",
     }:
@@ -492,6 +577,7 @@ def _smoke_local_journey(
         "private-data-directory",
         "no-background-runtime",
         "base-dependency-closure",
+        "search-index",
     ):
         checked = _run((os.fspath(executable), "doctor", "--check", check), environment)
         if checked.stdout != f"{check}: ok\n":

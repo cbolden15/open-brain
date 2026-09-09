@@ -449,6 +449,35 @@ def test_p1_003_orchestration_cancels_late_and_never_completing_probes() -> None
     assert result.checks[2].findings == (CutoverFindingClass.PROBE_TIMEOUT,)
 
 
+def test_probe_supervisor_drains_a_result_after_the_worker_exits(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    probe = CutoverProbeName.CONFIG_SECRETS
+    worker = cutover_doctor_module._start_probe_worker(
+        mp.get_context("fork"),
+        _constant_probe(_healthy_evidence()[probe]),
+        1.0,
+    )
+    worker.process.join(5.0)
+    assert worker.process.is_alive() is False
+    receive = cutover_doctor_module._receive_worker_result
+    calls = 0
+
+    def delay_first_receive(
+        candidate: cutover_doctor_module._ProbeWorker,
+    ) -> tuple[str, CutoverEvidence | None] | None:
+        nonlocal calls
+        calls += 1
+        return None if calls == 1 else receive(candidate)
+
+    monkeypatch.setattr(cutover_doctor_module, "_receive_worker_result", delay_first_receive)
+
+    results = asyncio.run(cutover_doctor_module._supervise_probe_workers({probe: worker}))
+
+    assert calls == 2
+    assert results[probe][0] == "healthy"
+
+
 def test_p1_003_rejects_synchronous_probe_callbacks() -> None:
     evidence = _healthy_evidence()[CutoverProbeName.CONFIG_SECRETS]
 

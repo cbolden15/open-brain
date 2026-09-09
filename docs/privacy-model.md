@@ -53,11 +53,20 @@ keeps the retry cursor so later work is not starved and the evidence remains ret
 
 Ledger model text is untrusted. Sanitized leaves are one line, escaped, redaction-checked, directive-checked, and revalidated at merge and synthesis boundaries. Third-party source text can enter review records for audit, but owner-authored output contains only owner text and a deterministic opaque capture reference.
 
-All public task and representation results use an engine-owned projection after storage and
-ranking. It protects raw and bounded percent/HTML-encoded source references, bare SHA-256-shaped
-tokens, absolute POSIX/Windows paths, credential assignments, storage-derived space slugs and
-canonical paths, and other protected literals while retaining useful searchable text, opaque IDs,
-and bounded provenance. Query explanations never echo query terms, and MCP retrieval IDs are
-random opaque values rather than hashes or other derivatives of the query. Renderers consume the
-projection; they do not implement separate redaction. Portable/source bytes and internal trusted
-records remain unchanged.
+All public search text uses an engine-owned projection before indexing and matching, then crosses
+the same projection again before representation. This prevents a protected value from selecting or
+ranking a result even when the returned excerpt would have been redacted. The projection protects
+raw and bounded percent/HTML-encoded source references, bare SHA-256-shaped tokens, absolute
+POSIX/Windows paths, credential assignments, storage-derived space slugs and canonical paths, and
+other protected literals while retaining useful searchable text, opaque IDs, and bounded
+provenance. Query explanations never echo query terms, and MCP retrieval IDs are random opaque
+values rather than hashes or other derivatives of the query. Renderers consume the projection;
+they do not implement separate redaction. Portable/source bytes and internal trusted records remain
+unchanged.
+
+Default Open Brain stores its live public-safe FTS5 projection as plaintext in
+`.open-brain/state/phase1.sqlite3`. The separate `.open-brain/indexes/search.sqlite3` portability
+snapshot is also plaintext, non-authoritative, and potentially stale. SQLite FTS and sorter scratch
+may use operating-system temporary storage outside the Brain root. Owner-only permissions protect
+these surfaces from other operating-system users, but Open Brain does not claim application-level
+encryption, encrypted temporary storage, or resistance to another process running as the owner.
