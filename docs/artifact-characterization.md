@@ -15,6 +15,14 @@ Each archive contains only the executable named `open-brain`. The executable bun
 the default app path, the base engine, SQLite support, and Portable Brain schemas. Its module audit
 rejects Secure Node, server, connector, legacy, and advanced cryptography dependencies.
 
+The frozen distribution retains dependency/version metadata, entry-point metadata, and legal notices.
+Installer records such as `direct_url.json`, `RECORD`, and uv caches are omitted. Generated Python
+`sysconfig` data keeps its complete scalar mapping, with references to its declared build prefixes
+relocated to the frozen interpreter's `sys.prefix` and `sys.exec_prefix`. Unrelated values are
+preserved; an unexpected home path outside those prefixes fails the build. This runtime is not a
+Python extension-building SDK. The native self-check verifies relocated library/bin paths and the
+pointer ABI before the product smoke runs.
+
 The macOS build must be exactly arm64. PyInstaller applies an ad hoc signature, and the build rejects
 the artifact unless `codesign --verify --strict` succeeds before the archive is hashed. The Linux
 build checks the ELF header for x86_64.
@@ -56,7 +64,7 @@ PYZ modules, and the nested base-library ZIP. A bounded marshal reader scans cod
 filenames, bytecode, and constants without constructing or executing code objects. PYZ import names
 are checked as module paths ending in `.py`; their original spelling is also content-scanned.
 The owner denylist and generic content rules apply to raw and decoded data. Packaged standard-library
-examples and build metadata receive the same rules as project content.
+runtime constants and docstrings receive the same rules as project content.
 
 Each artifact runs in a separate worker with these limits:
 

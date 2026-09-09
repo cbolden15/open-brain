@@ -1,6 +1,10 @@
+import sysconfig
 from pathlib import Path
 
+from PyInstaller.config import CONF
 from PyInstaller.utils.hooks import collect_data_files, copy_metadata
+
+from tools.open_brain_dev.native_metadata import relocated_sysconfig, runtime_metadata
 
 ROOT = Path(SPECPATH).parents[1]
 ENTRYPOINT = ROOT / "packages/app/src/open_brain/services/local_native_entrypoint.py"
@@ -71,6 +75,19 @@ analysis = Analysis(
     noarchive=False,
     optimize=0,
 )
+analysis.datas = runtime_metadata(analysis.datas)
+# Preserve PyInstaller's other module-graph code transformations. Its pinned PYZ
+# implementation consumes this cache before reading module source paths.
+code_cache = CONF["code_cache"].get(id(analysis.pure))
+if code_cache is None:
+    raise ValueError("native sysconfig code cache is unavailable")
+sysconfig_modules = [entry for entry in analysis.pure if entry[0].startswith("_sysconfigdata_")]
+if len(sysconfig_modules) != 1 or sysconfig_modules[0][0] != sysconfig._get_sysconfigdata_name():
+    raise ValueError("native sysconfig module inventory is unexpected")
+name, source, kind = sysconfig_modules[0]
+if name not in code_cache or kind != "PYMODULE":
+    raise ValueError("native sysconfig cached module is unavailable")
+code_cache[name] = relocated_sysconfig(Path(source).read_text(encoding="utf-8"), name)
 pyz = PYZ(analysis.pure)
 executable = EXE(
     pyz,

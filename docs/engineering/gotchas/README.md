@@ -1049,3 +1049,21 @@ payload gaps or nonzero tar padding. PYZ keys are module identities; map them to
 applying file-suffix rules so a module ending in `.sqlite` is not mistaken for a database file.
 
 Discovered: 2026-09-09, public release readiness audit at goal commit `d81bb64`.
+
+### RELEASE-008: Frozen metadata must describe the runtime, not its builder
+
+Symptom: A native bundle contains installer paths in distribution metadata and generated sysconfig
+values, even though its Python code filenames were normalized by PyInstaller.
+
+Fix: Positively select runtime and legal dist-info files. Retain the full sysconfig scalar mapping,
+but compile references to its own installation prefixes as frozen runtime-prefix expressions.
+Do not derive those prefixes from the builder's virtual environment, delete unknown variables,
+or remove `sysconfig` from the module graph. Preserve all other PyInstaller cached code objects.
+Test the actual frozen metadata paths and pointer ABI as part of the existing self-check.
+
+Related policy trap: `ipaddress` contains three runtime private-network constants; they are not
+disposable examples. `urllib.request` also contains a documentation example. Changing those strings
+to hide them from a scanner is not remediation. Any exception needs a separate exact-module,
+payload-hash, and rule-bound decision while owner terms and all other findings remain enforced.
+
+Discovered: 2026-09-09, native metadata remediation after `46bf308`.
