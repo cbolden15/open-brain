@@ -5,6 +5,12 @@
   startup acceptance, controlled cold starts and Linux execution remain open.
 - Evidence: [B4 audit](../audits/2026-09-09-ob1-nw0-b4-component-adoption.md).
 
+B5's [separate-resource proof](../audits/2026-09-09-ob1-nw0-a3-b5-feasibility.md) rebuilds this
+component with the pure parser in a helper. Both native archives pass Mac content inspection and
+the unchanged base meets the observed ordinary warm-status budget in the proposed layout.
+This candidate needs explicit resource identity, asset naming, manifest/formula and install-lifecycle
+support. Controlled cold/Linux and shipping integration remain open; the combined B4 failure stands.
+
 ## Dependency ownership
 
 Prefer a supported upstream Markdown component. If upstream support is unavailable when integration

@@ -9,6 +9,9 @@
   compatibility gaps, desktop metadata and direct-API contract preparation. It does not close NW0.
   A2 proves a v1 carrier preserves bytes without enforcing workspace restrictions and tests explicit
   version refusal. A complete typed representation and its shared-record compatibility remain open.
+  A3 binds private state to a real validated export. B5's separate-resource Mac candidate passes
+  content inspection and the observed ordinary warm-status budget; its release/install contract,
+  controlled cold starts and Linux execution remain open. The whole-NW0 goal continues locally.
 - Date: 2026-09-09.
 - Baseline: `708e30c9d1e736969e2bb0aa6f0454a5f4804489` on `goal/open-brain-five-minute-install`.
 - Planning branch: `docs/ob1-native-workspace-plan`.
@@ -901,12 +904,12 @@ two of four lenses; this revision does not claim a new independent review or suc
 | Implementation ownership | Requirement ownership matrix and explicit four-adapter/onboarding exit gates in NW1–NW4. |
 | Bounded feasibility work | NW0-A–E effort/request limits, named desktop target and provisioning dependency, startup measurements, explicit stop conditions. |
 
-Next action: NW0-B5, a startup-cost and reproducible-packaging probe capped at 45 minutes from
-remaining NW0-B, with synthetic fixtures and zero model calls. Preserve the
-[B4 audit](../audits/2026-09-09-ob1-nw0-b4-component-adoption.md): the pure parser's 213 ms warm
-delta fails the 200 ms budget. Investigate a concrete packaging change and prepare versioned inputs
-for Linux CI. Keep the approved upstream-first/maintained-patch policy, canonical frontmatter rules,
-completed effort, Engine authority and controlled cold/Linux gates intact.
+Next action: continue the remaining NW0 proofs under the cumulative ledger. The
+[A3/B5 checkpoint](../audits/2026-09-09-ob1-nw0-a3-b5-feasibility.md) binds real source records and
+tests a separate native helper. The next packaging experiment is NW0-B6: prove the resource identity,
+manifest/formula and install lifecycle, capped at 45 minutes from remaining NW0-B. Preserve B4's
+failed combined candidate, B5's measured candidate and all limits. Complete the durable authority,
+future-format import and promotion/accounting proofs independently where possible.
 C7 records the missing Claude capabilities. Resume its authentication experiments only against a
 concrete supported mechanism; native note dispatch stays closed and Codex remains deferred.
 Preserve completed NW0-B1 evidence and its required adapter controls; provision the agreed

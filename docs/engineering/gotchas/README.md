@@ -1290,3 +1290,17 @@ from one failed candidate. No shipping schema change was made by this probe.
 Discovered: 2026-09-09, NW0-A real Engine compatibility cases in the
 [parallel checkpoint](../../audits/2026-09-09-ob1-nw0-parallel-feasibility.md), isolated by the
 [A2 comparison](../../audits/2026-09-09-ob1-nw0-a2-portable-representations.md).
+
+### INTEGRATION-014: A native helper needs a distribution contract as well as a clean binary
+
+Symptom: Both executables pass individual content inspection, but a two-executable bundle fails.
+
+Cause: Generic archives have a smaller member cap; the native archive contract expects one
+executable named `open-brain`. A helper also needs distinct asset identity, installation and updates.
+
+Fix: Keep the auditor unchanged. Compare separately audited native resources with an explicitly
+versioned layout. Verify resource naming, manifest/formula and installation before shipping.
+Measure ordinary base status separately from helper execution; do not equate it with cold startup
+or the full five-minute journey. Same-input archive comparisons must use the same gzip filename.
+
+Discovered: 2026-09-09, [NW0-B5](../../audits/2026-09-09-ob1-nw0-a3-b5-feasibility.md).

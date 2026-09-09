@@ -16,6 +16,9 @@
   full release/accounting and GUI/provider gates remain incomplete.
   A2 adds eight passing grouped representation tests, a working v1 byte carrier with unenforced
   policy flags, and an old-reader version-refusal control. The complete typed format remains open.
+  A3 binds the private composition to actual validated source records. B5's separate-resource Mac
+  candidate passes content inspection and the observed ordinary warm-status budget; distribution,
+  controlled cold/Linux and the remaining A–E gates stay open.
 - Authority: [native workspace plan](2026-09-09-ob1-native-workspace.md), including the user's
   implementation-efficiency guidelines and the subsequent user-authorized Codex deferral.
 - Starting revision: `3468115` on `docs/ob1-native-workspace-plan`.
@@ -322,6 +325,25 @@ selecting a shipping version or migration. The next A proof must bind actual exp
 and validate the complete candidate through import, reconciliation and retrieval. B5 remains
 independent; NW1 remains gated.
 
+## A3/B5 continuation and desktop prerequisites
+
+The [continuation record](../audits/2026-09-09-ob1-nw0-a3-b5-feasibility.md) preserves A2 and B4.
+A3 validates exact base-record bindings and demonstrates the remaining current-Engine import gap.
+Six grouped tests include the corrected empty/wrong-type source-evidence cases; source consistency
+still does not authenticate owner approval or establish a future Portable/shared-record contract.
+
+B5 rebuilds a pure helper from pinned reconstructed inputs. Base and helper archives separately
+pass the unchanged content auditor. The base executable stays unchanged; five paired ordinary warm
+status samples add 20.503 ms under the proposed layout. B4 used the installer self-check, so its
+failed delta is not a directly comparable before/after measurement. Controlled cold/Linux are open.
+A rejected two-executable bundle demonstrates why resource identity, asset naming, formula/manifest
+and install lifecycle need a separate proof before selecting this shipping architecture.
+
+D2 confirms the UTM CLI and preserved arm64 guest. The isolated test-account name and noninteractive
+administrator capability checks do not establish a usable isolated Mac desktop; the separate x86_64
+guest remains unverified. Provisioning was already authorized. Continue safe independent work while
+establishing the actual environment and resource dependencies; do not reopen product decisions.
+
 ## Unproven gates and pass/fail criteria
 
 | Gate | Evidence required to pass | Fail or incomplete condition |
@@ -407,9 +429,9 @@ completion, including native build and Homebrew smoke for packaging changes. Exi
 runs `make contributor-check`; UTM supplies Linux desktop evidence. Do not rerun slow desktop
 journeys until an integration checkpoint or a relevant change invalidates prior evidence.
 
-Next action: NW0-B5, a startup-cost and reproducible-packaging probe capped at 45 minutes from
-remaining NW0-B, with synthetic fixtures and zero model calls. Preserve B4's 213 ms measured warm
-failure and the existing 200 ms budget. Make changes concrete before remeasurement; prepare the
-selected patch/parser inputs for Linux CI without claiming Linux execution from wheel inspection.
-Controlled cold/Linux, Engine integration and the rest of NW0 remain open. Claude stays closed at
-C7 and Codex remains deferred.
+Next action: NW0-B6 resource/install-contract proof, capped at 45 minutes from remaining NW0-B,
+using the B5 candidate and synthetic fixtures. Keep source-binding/authority and desktop prerequisite
+work independent where possible. Preserve all prior effort, the failed B4 candidate and unchanged
+audit/startup limits. Controlled cold/Linux, full Engine integration and the rest of NW0 remain open.
+Claude stays closed at C7 and Codex remains deferred. The active whole-NW0 goal does not authorize
+publication or early NW1.
