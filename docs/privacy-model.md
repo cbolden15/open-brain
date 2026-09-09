@@ -70,3 +70,24 @@ snapshot is also plaintext, non-authoritative, and potentially stale. SQLite FTS
 may use operating-system temporary storage outside the Brain root. Owner-only permissions protect
 these surfaces from other operating-system users, but Open Brain does not claim application-level
 encryption, encrypted temporary storage, or resistance to another process running as the owner.
+
+Markdown import adds one explicit local read surface. The command canonicalizes and descriptor-checks
+only the absolute root the owner names, then follows no links during traversal or file reads. It
+ignores Obsidian metadata directories, loads no plugins, and performs no source-tree writes. The
+canonical source root, device, inode, and active-revision bookkeeping stay in operational SQLite and
+are excluded from search and Portable export. Portable capture provenance retains only a random
+import-root ID and normalized relative path. The sanitized canonical source root appears only in the
+interactive new-root confirmation; JSON, errors, progress, search, and completed summaries
+exclude it.
+
+Imported bytes, filenames, derived titles, historical revisions, blobs, and public-safe search text
+can contain personal information. They receive the same owner-only filesystem protection as other
+default Open Brain data and remain readable plaintext. Every imported capture is third-party source
+with unknown content origin, automation-absent owner context, unverified trust, personal-local-only
+privacy, and hold intent. Markdown, frontmatter, wiki links, embeds, HTML, and code blocks remain
+inert content; import does not treat them as instructions or authorization.
+
+Source deletion removes an imported note only from live search. Its immutable capture, filename,
+bytes, and prior revisions remain in local history and Portable export. Version 0.1.0 has no
+per-root or per-file purge and no supported post-import erasure workflow. First registration
+requires an explicit retention acknowledgment before any import state is written.
