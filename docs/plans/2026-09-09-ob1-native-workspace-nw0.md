@@ -1,10 +1,11 @@
 # OB1 native workspace NW0 decision record
 
 - Status: open. NW0-B1 closure/import proof passed with required integration controls.
-  NW0-B2 candidates remain failed. NW0-B3 isolates a private Markdown component: both Mac archives
-  pass content inspection, observed repeat-startup overhead is 103 ms, and the combined native smoke
-  passes. Upstream adoption, an existing nested-frontmatter failure, cold/Linux evidence and shipping
-  selection remain open.
+  NW0-B4 records the authorized upstream-first/maintained-patch policy and an explicit parser contract.
+  Nested-frontmatter tests now pass in the private parser candidate; its pure-Python Mac archive
+  passes content inspection and native smoke but adds 213 ms in the repeat-startup series, exceeding
+  the 200 ms budget. The C-containing alternative fails content inspection. No shipping candidate
+  is selected; controlled cold starts, Linux execution and Engine integration remain open.
   NW0-C2 did not establish Codex isolation; Codex subscription is deferred under the subsequent
   user-authorized scope change. NW0-C6 connects the existing SDK lifecycle to supervised pre-input
   metadata and rejection on C5's Mac boundary; native completion remains closed. Four launch paths
@@ -21,9 +22,9 @@
 - Latest design checkpoint: NW0-C7 at `77012ea` specifies the held-input contract, authority and
   budget ownership, rejection/revocation behavior, and missing native capabilities. No new native
   or model calls; no shipping interfaces or schema changes.
-- Latest packaging checkpoint: NW0-B3 from `e2efa31` reduces the frozen Graphify component to seven
-  modules. Both component archives pass content inspection; the combined native smoke passes.
-  Original and patched source share one failed nested-frontmatter test. Zero model calls.
+- Latest packaging checkpoint: NW0-B4 from `9ace4e4` keeps the eight-file B3 patch and tests explicit
+  PyYAML profiles. All 47 selected upstream tests and two registry tests pass. Pure-profile content
+  and native smoke pass; measured warm-start acceptance fails by 13.4 ms. Zero model calls.
 
 ## Established state
 
@@ -135,9 +136,28 @@ evidence checks pass. The focused upstream tests report 46 passed and one failed
 and patched source: optional PyYAML is absent, so nested frontmatter is lost. Preserve that failed
 test and B1's Engine adapter requirements. The component is a private patch, not the published pin.
 
-Next is NW0-B4's component-adoption/frontmatter review. Upstream support or an explicit maintained
-patch, frontmatter semantics, cache lifecycle, helper layout if chosen, Linux and all remaining NW0
-evidence must be settled before shipping. No audit limit or content exception changed.
+B3 led to the NW0-B4 review below. Preserve B3's parser-absent results as historical evidence;
+the explicit parser changes the closure and must satisfy its own contracts. Helper layout if chosen,
+Linux and all remaining NW0 evidence still precede shipping. No audit limit or content exception changed.
+
+## NW0-B4 result: adoption policy and frontmatter contract recorded
+
+The owner approved upstream-first with an explicitly maintained patch allowed. The
+[component contract](2026-09-09-ob1-graphify-component-contract.md) identifies
+`ob1-graphify-markdown-1`, keeps the eight-file B3 patch unchanged, and records a local upstream
+proposal. No upstream submission or shipping dependency change occurred.
+
+The [B4 audit](../audits/2026-09-09-ob1-nw0-b4-component-adoption.md) pins PyYAML 6.0.3 and resolves
+the selected nested-frontmatter test failure. A bounded private preflight preserves canonical
+aliases separately from Graphify's display metadata and rejects cycles/duplicates before extraction.
+It establishes a candidate contract, not a completed Engine/plugin integration or alias resolver.
+
+The pure-profile archive is 9,990,282 bytes and passes unchanged content inspection and native
+smoke. Its observed repeat-startup delta is 213 ms, above the 200 ms budget; the C-containing
+alternative fails on a native-extension home-path finding. Neither is approved for shipping.
+The final verifier passes 61 evidence checks. Linux wheel Python files match the Mac wheel;
+Linux execution and controlled cold starts remain unproven. Next is bounded NW0-B5 startup and
+reproducible packaging work, preserving these outcomes and all existing limits.
 
 ## NW0-C1 result: controls mapped; live dispatch is not ready
 
@@ -289,8 +309,8 @@ The complete native, subscription, and desktop proofs remain unproven after this
    `graphify.extract.extract(..., parallel=False)` within 60 seconds, 16 KiB selected input,
    and 16 KiB accepted output per case. Versions/hashes, links/IDs, cache effects, and the
    required integration controls are recorded above. B2's frozen extraction works, but content and
-   startup acceptance fail. B3 proves a smaller private component; B4 must settle adoption and
-   frontmatter behavior before shipping selection.
+   startup acceptance fail. B3 proves the smaller component; B4 settles the adoption policy and
+   candidate frontmatter contract. B5 must address the new warm overrun and reproducible inputs.
 2. **NW0-C1–C7: recorded; Codex deferred.** Preserve the audits, receipts, demonstrated SDK
    lifecycle, and provider/supervisor contract. C7 records missing upstream requirements locally.
    Resume authentication experiments only against a concrete supported mechanism. Complete native
@@ -321,7 +341,7 @@ and 90 seconds total per probe. Four active launch paths allow at most 64 attemp
 allowance is not transferred. The mandatory initial/incremental matrix reserves 32 calls; isolation
 and recovery draw from the remaining active capacity. C1/C2/C3/C4/C5/C6/C7 effort remains charged. Effort is a stop limit, never a delivery estimate.
 Keep one cumulative private effort/attempt ledger across resumed sessions and workers.
-B1, B2 and B3 effort remains charged to NW0-B; the unsuccessful candidates do not reset that allocation.
+B1, B2, B3 and B4 effort remains charged to NW0-B; the unsuccessful candidates do not reset that allocation.
 
 ## Reuse decisions and implementation guardrails
 
@@ -351,8 +371,9 @@ completion, including native build and Homebrew smoke for packaging changes. Exi
 runs `make contributor-check`; UTM supplies Linux desktop evidence. Do not rerun slow desktop
 journeys until an integration checkpoint or a relevant change invalidates prior evidence.
 
-Next action: NW0-B4, a component-adoption and frontmatter-contract review, capped at 45 minutes
-from remaining NW0-B with synthetic fixtures and zero model calls. Review the private B3 patch for
-upstream support or an explicitly maintained dependency, and resolve the existing nested-frontmatter
-failure before changing the parser closure. Preserve audit limits and completed effort. Controlled
-cold/Linux evidence remains open; Claude dispatch stays closed at C7 and Codex remains deferred.
+Next action: NW0-B5, a startup-cost and reproducible-packaging probe capped at 45 minutes from
+remaining NW0-B, with synthetic fixtures and zero model calls. Preserve B4's 213 ms measured warm
+failure and the existing 200 ms budget. Make changes concrete before remeasurement; prepare the
+selected patch/parser inputs for Linux CI without claiming Linux execution from wheel inspection.
+Controlled cold/Linux, Engine integration and the rest of NW0 remain open. Claude stays closed at
+C7 and Codex remains deferred.

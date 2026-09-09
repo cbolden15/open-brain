@@ -1253,3 +1253,20 @@ visible. A clean artifact audit cannot establish nested-frontmatter support or a
 
 Discovered: 2026-09-09, NW0-B3 component, artifact and original/patched upstream test comparisons.
 See the [B3 component record](../../audits/2026-09-09-ob1-nw0-b3-markdown-component.md).
+
+### INTEGRATION-012: A YAML parser does not make sanitized metadata an alias catalog
+
+Symptom: Adding PyYAML fixes nested metadata, but cyclic values raise recursion errors, duplicate
+keys keep the last value, unquoted alias names become booleans, and Graphify escapes alias text.
+
+Cause: Parser availability, bounded construction, property-specific types and display sanitization
+are separate concerns. Graphify's string/list caps and HTML escaping are unsuitable for canonical
+alias identity. The optional parser accelerator can also introduce a failing native-artifact path.
+
+Fix: Pin and audit the actual parser profile. Preflight eligible snapshots before extraction;
+reject duplicate/cyclic/oversized input and preserve literal alias names in the Engine-owned catalog.
+Keep original source bytes and display metadata separate. Verify native content and startup limits
+independently: B4's pure parser passes content inspection but still exceeds the warm budget.
+
+Discovered: 2026-09-09, NW0-B4 parser, frontmatter, native-artifact and startup comparisons.
+See the [B4 audit](../../audits/2026-09-09-ob1-nw0-b4-component-adoption.md).

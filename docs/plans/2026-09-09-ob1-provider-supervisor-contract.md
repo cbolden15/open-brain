@@ -204,9 +204,9 @@ NW0-A schema/authority, frozen Graphify packaging, real-provider matrix and desk
 
 The Claude experiment is stopped at the explicit missing-capability brief above. Preserve its
 working lifecycle and resume authentication work only against a concrete supported mechanism.
-C7's next independent experiment was NW0-B2. B2's candidates remain failed. The subsequent
-[B3 component record](../audits/2026-09-09-ob1-nw0-b3-markdown-component.md) demonstrates smaller
-Mac artifacts that pass content inspection, lower observed startup overhead and a passing combined
-native smoke. NW0-B4 reviews component adoption and the existing nested-frontmatter failure;
-controlled cold/Linux evidence remains separate. This does not change the provider/supervisor
-contract or authorize Claude note dispatch.
+C7's next independent experiment was NW0-B2. Its candidates remain failed. B3 demonstrated a
+smaller component; [B4](../audits/2026-09-09-ob1-nw0-b4-component-adoption.md) records the authorized
+upstream-first/maintained-patch policy and a candidate frontmatter contract. The pure parser passes
+Mac content inspection and native smoke but misses the warm-start budget. NW0-B5 addresses startup
+and reproducible inputs; controlled cold/Linux evidence remains open. None of this changes the
+provider/supervisor contract or authorizes Claude note dispatch.

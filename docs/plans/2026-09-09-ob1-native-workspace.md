@@ -1,11 +1,10 @@
 # OB1 native Obsidian and Graphify workspace
 
-- Status: NW0-B3 isolates a private Markdown component whose Mac archives pass content inspection.
-  Observed repeat-startup overhead is 103 ms and the combined native smoke passes. Adoption, an existing
-  nested-frontmatter failure, controlled cold/Linux evidence and B1's adapter work remain open. NW0-C6 connected the existing
-  SDK lifecycle to supervised pre-input metadata and rejection on C5's Mac boundary; native completion remains blocked.
-  NW0-C7 specifies the provider/supervisor contract and missing capabilities without new runtime probes.
-  Codex subscription stays deferred. Four launch paths, frozen packaging, and other NW0 gates remain open.
+- Status: NW0-B4 records the authorized upstream-first/maintained-patch policy and a working private
+  frontmatter contract. The pure parser candidate passes Mac content inspection and native smoke,
+  but its observed 213 ms repeat-startup penalty exceeds the 200 ms budget. Controlled cold/Linux
+  evidence and Engine integration remain open. C7's missing Claude capabilities still block native
+  note dispatch; Codex stays deferred. Four launch paths and the full NW0 gate remain open.
 - Date: 2026-09-09.
 - Baseline: `708e30c9d1e736969e2bb0aa6f0454a5f4804489` on `goal/open-brain-five-minute-install`.
 - Planning branch: `docs/ob1-native-workspace-plan`.
@@ -217,18 +216,20 @@ or attachment synchronization unless covered by an explicit acceptance test.
 
 ### Graph projection
 
-The narrow upstream callable is `graphify.extractors.markdown.extract_markdown(Path)`, but importing
-it runs the extractor package initializer, which loads other extractors. Its full-vault wiki-link
-lookup depends on root context managed by the larger extraction facade. The candidate root-aware
-path is `graphify.extract.extract(paths, root=..., cache_root=..., parallel=False)` with selected
-Markdown paths only. It checks tree-sitter and retains a broad declared dependency closure. A direct
-module import is not proof of a minimal Markdown-only installation.
+The pinned upstream Markdown callable has broad import/root dependencies. B3 demonstrated an
+eight-file separation; B4 records the owner's upstream-first policy with a versioned maintained
+patch allowed. Use the [component contract](2026-09-09-ob1-graphify-component-contract.md) as the
+candidate boundary: explicit root-aware Markdown, lazy registry exports, shared pure utilities and
+an explicit parser profile. The unchanged broad `graphify.extract.extract(...)` path remains an
+oracle, not the selected minimal runtime. No shipping pin has changed.
 
-Test this path in an app-owned, self-invoked private worker mode, with no inherited provider
-credentials, bounded request/output, private cache, and a deadline. This separates process globals
-and failure handling but does not remove Graphify modules from the executable. A separately packaged
-helper is the stronger module boundary if lazy loading and inventory rules cannot preserve the
-base path. Do not restore excluded legacy/connectors to reach the integration.
+Run selected snapshots through Engine-owned preflight and private worker/serialized batch state.
+Preserve canonical frontmatter and literal aliases separately from Graphify's sanitized display
+metadata. Reset link-index state per batch; keep consent, exclusions, identity mapping and revision
+checks in the Engine. Process isolation does not remove modules from the combined executable.
+The separately packaged helper remains the stronger module boundary if combined packaging cannot
+meet startup limits, but it requires a distinct release contract. Do not restore excluded legacy
+or connectors to reach this integration. The B4 pure profile still misses the warm-start budget.
 
 Reconcile eligible notes, form a consistent snapshot, and run deterministic extraction on that
 snapshot. Record a snapshot digest, accepted revision references, adapter version, and selected
@@ -886,12 +887,12 @@ two of four lenses; this revision does not claim a new independent review or suc
 | Implementation ownership | Requirement ownership matrix and explicit four-adapter/onboarding exit gates in NW1–NW4. |
 | Bounded feasibility work | NW0-A–E effort/request limits, named desktop target and provisioning dependency, startup measurements, explicit stop conditions. |
 
-Next action: NW0-B4, a component-adoption and frontmatter-contract review capped at 45 minutes
-from remaining NW0-B, using synthetic fixtures and zero model calls. The
-[B3 component record](../audits/2026-09-09-ob1-nw0-b3-markdown-component.md) demonstrates a small,
-auditable private seam. Review upstream support or an explicit maintained-patch decision and resolve
-the existing nested-frontmatter failure before adopting a parser dependency. Preserve B1/B2/B3 effort,
-Engine link/selection controls, existing audit limits and the outstanding cold/Linux gates.
+Next action: NW0-B5, a startup-cost and reproducible-packaging probe capped at 45 minutes from
+remaining NW0-B, with synthetic fixtures and zero model calls. Preserve the
+[B4 audit](../audits/2026-09-09-ob1-nw0-b4-component-adoption.md): the pure parser's 213 ms warm
+delta fails the 200 ms budget. Investigate a concrete packaging change and prepare versioned inputs
+for Linux CI. Keep the approved upstream-first/maintained-patch policy, canonical frontmatter rules,
+completed effort, Engine authority and controlled cold/Linux gates intact.
 C7 records the missing Claude capabilities. Resume its authentication experiments only against a
 concrete supported mechanism; native note dispatch stays closed and Codex remains deferred.
 Preserve completed NW0-B1 evidence and its required adapter controls; provision the agreed
