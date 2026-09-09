@@ -2,16 +2,17 @@
 
 - Status: open. NW0-B1 closure/import proof passed with required integration controls.
   NW0-C2 did not establish Codex isolation; Codex subscription is deferred under the subsequent
-  user-authorized scope change. NW0-C5 adds a tested Mac file/process boundary with synthetic auth
-  and policy; native completion remains closed. Four launch paths and frozen packaging remain unproven.
+  user-authorized scope change. NW0-C6 connects the existing SDK lifecycle to supervised pre-input
+  metadata and rejection on C5's Mac boundary; native completion remains closed. Four launch paths
+  and frozen packaging remain unproven.
 - Authority: [native workspace plan](2026-09-09-ob1-native-workspace.md), including the user's
   implementation-efficiency guidelines and the subsequent user-authorized Codex deferral.
 - Starting revision: `3468115` on `docs/ob1-native-workspace-plan`.
-- Latest checkpoint: NW0-C5 ran from `131e9d9` on macOS arm64. The completed OS run passed 25
-  checks; three host-policy failures rejected before native launch and two deadline cases passed.
-  Nine native metadata processes include two startup failures and seven live rejection cases;
-  a separate synthetic status process demonstrated local auth selection. Zero model calls or selected
-  note bytes; no real account inspection, product runtime changes, or VM provisioning.
+- Latest checkpoint: NW0-C6 ran from `d6c7766` on macOS arm64. The final real-SDK/fake-process
+  suite passed 15 assertions; the native sibling bridge passed ten checks after connecting C4's
+  validator. SDK and native exits were zero with input withheld. A nested-sandbox launch failure
+  remains recorded. Zero model calls or native note input; no real account inspection, product
+  runtime changes, or VM provisioning.
 
 ## Established state
 
@@ -181,6 +182,25 @@ was alive. This does not establish complete organizational policy or eliminate t
 Keep the Mac file/process candidate and check supported interfaces for the remaining client-owned
 auth and complete same-process policy/capability boundaries before an authenticated no-note probe.
 
+## NW0-C6 SDK/supervisor interface result
+
+The [C6 interface check](../audits/2026-09-09-ob1-nw0-c6-sdk-supervisor-interface.md) verified
+that the installed official TypeScript SDK can start with a held asynchronous input stream, return
+public native metadata, and close on supervisor rejection before any note is yielded. A disposable
+custom-process bridge connects that lifecycle to C4's unchanged validator, which rejects the missing
+policy snapshot. Fake-only cases exercise structured results, single release, abort, and cleanup.
+
+Reuse the existing adapter's lifecycle with a wider input seam and supervisor-owned launch/lifetime.
+Its current immediate string prompt and cached separate-process readiness cannot implement this gate.
+`accountInfo()` also caches initialization; `reinitialize()` saw a changed fake account, but does not
+establish complete native policy or atomic change handling. Runtime `getSettings()` is absent from
+the installed public Query interface. Missing settings remain unknown in the C4 mapping.
+
+Nested Mac sandbox application failed; separately sandboxed SDK and native sibling processes worked.
+That result keeps the SDK option viable without selecting Node distribution or weakening the native
+profile. Existing-Keychain reuse, complete policy/capability evidence, and native positive dispatch
+remain unproven. Do not repeat the completed lifecycle discovery or treat this as full NW0-C passage.
+
 ## Unproven gates and pass/fail criteria
 
 | Gate | Evidence required to pass | Fail or incomplete condition |
@@ -204,12 +224,11 @@ The complete native, subscription, and desktop proofs remain unproven after this
    `graphify.extract.extract(..., parallel=False)` within 60 seconds, 16 KiB selected input,
    and 16 KiB accepted output per case. Versions/hashes, links/IDs, cache effects, and the
    required integration controls are recorded above. Frozen packaging remains open.
-2. **NW0-C1–C5: recorded; Codex deferred.** Preserve the audits and receipts. Next, check supported
-   interfaces for client-owned Keychain access and complete same-process auth/policy evidence.
-   Cap that check at 30 minutes from remaining NW0-C, zero model calls, and no live credential access.
-   Use C5's demonstrated file/process boundary; identify a concrete mechanism or record its absence
-   before another authentication experiment. Preserve existing-login reuse and reject unsupported
-   policy/auth states. Native note dispatch remains closed.
+2. **NW0-C1–C6: recorded; Codex deferred.** Preserve the audits, receipts, and demonstrated SDK
+   lifecycle. Next, specify the provider/supervisor contract around held input, Engine authority,
+   supported versus missing observations, and release/revocation. Record missing upstream interface
+   requirements locally before another authentication experiment. Complete native policy evidence
+   and isolated existing-Keychain reuse remain unproven; native note dispatch stays closed.
 3. **First bounded real Claude subscription probe.** Once its C1 boundaries have concrete enforcement
    mechanisms and the user-selected account is ready, run one synthetic hostile-input completion.
    Reserve each actual attempt before dispatch; retain all byte/time limits. Observe process/tool,
@@ -234,7 +253,7 @@ These are substeps of the existing NW0 allocations, not extra budgets or new mil
 path, 16 KiB selected input/accepted output per attempt, 60 seconds per attempt, at most two attempts
 and 90 seconds total per probe. Four active launch paths allow at most 64 attempts; Codex's unused
 allowance is not transferred. The mandatory initial/incremental matrix reserves 32 calls; isolation
-and recovery draw from the remaining active capacity. C1/C2/C3/C4/C5 effort remains charged. Effort is a stop limit, never a delivery estimate.
+and recovery draw from the remaining active capacity. C1/C2/C3/C4/C5/C6 effort remains charged. Effort is a stop limit, never a delivery estimate.
 Keep one cumulative private effort/attempt ledger across resumed sessions and workers.
 
 ## Reuse decisions and implementation guardrails
@@ -265,6 +284,7 @@ completion, including native build and Homebrew smoke for packaging changes. Exi
 runs `make contributor-check`; UTM supplies Linux desktop evidence. Do not rerun slow desktop
 journeys until an integration checkpoint or a relevant change invalidates prior evidence.
 
-Next action: identify supported client-owned Keychain and complete same-process auth/policy mechanisms
-before another authentication experiment. Native note dispatch stays closed; Codex remains deferred.
+Next action: specify the provider/supervisor contract around C6's held-input SDK seam and the missing
+upstream auth/policy observations before another authentication experiment. Native note dispatch stays
+closed; Codex remains deferred.
 NW0-B still requires frozen candidate comparison and native Linux evidence.

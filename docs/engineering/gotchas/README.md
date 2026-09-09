@@ -1198,3 +1198,20 @@ file-data allowlist. A profile that prevents startup has not passed integration.
 
 Discovered: 2026-09-09, synthetic NW0-C5 native runtime-layout and status probes.
 See the [C5 runtime-layout proof](../../audits/2026-09-09-ob1-nw0-c5-native-runtime-layout.md).
+
+### INTEGRATION-009: SDK lifecycle support does not supply fresh policy authorization
+
+Symptom: The real SDK starts with held input and returns native metadata, but `accountInfo()` retains
+the initial account response. Runtime JavaScript has a settings getter absent from public Query types.
+
+Cause: A usable completion lifecycle, cached metadata, and a supported live policy contract are
+different interfaces. An internal wire request type does not prove completeness or freshness.
+
+Fix: Reuse the lifecycle with held asynchronous input and supervisor-owned rejection/cleanup. Treat
+cached account data as an initial observation. Record missing settings as unknown and reject before
+release; do not cast to an internal method to imply a supported contract. Keep native authorization
+separate from fake-only release tests. On the tested Mac, use the proven sibling-process prototype
+for further interface work: applying a nested sandbox from the confined SDK host failed.
+
+Discovered: 2026-09-09, NW0-C6 real-SDK/fake-process contracts and native supervisor bridge.
+See the [C6 interface check](../../audits/2026-09-09-ob1-nw0-c6-sdk-supervisor-interface.md).
