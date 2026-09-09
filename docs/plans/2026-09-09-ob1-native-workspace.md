@@ -1,7 +1,7 @@
 # OB1 native Obsidian and Graphify workspace
 
-- Status: NW0-B1 closure/import proof passed with adapter constraints. NW0-C4 produced the Claude
-  supervisor design and a working zero-inference rejection prototype; native completion remains blocked.
+- Status: NW0-B1 closure/import proof passed with adapter constraints. NW0-C5 demonstrated a Mac
+  file/process boundary with synthetic auth and policy fixtures; native completion remains blocked.
   Codex subscription stays deferred. Four launch paths, frozen packaging, and other NW0 gates remain open.
 - Date: 2026-09-09.
 - Baseline: `708e30c9d1e736969e2bb0aa6f0454a5f4804489` on `goal/open-brain-five-minute-install`.
@@ -448,6 +448,14 @@ while withholding note bytes. Fake-only tests exercise bound, expiring, revocabl
 dispatch authorization; they cannot open the native content path. The remaining runtime/auth layout,
 complete policy/catalog evidence, and unobserved policy-change race still require concrete proof.
 
+NW0-C5's [native runtime-layout proof](../audits/2026-09-09-ob1-nw0-c5-native-runtime-layout.md)
+adds OS-enforced file-data separation, tested fork/spawn denial, synthetic replacement/termination,
+and successful native metadata under that boundary. Synthetic auth namespace reuse works; the
+official status command also reports a login from nonfunctional fixture data, so it is not a server
+authentication verdict. Real Keychain reuse, native rotation, complete same-process auth/policy
+evidence, and active inference controls remain unproven. The next check must identify supported
+mechanisms for those boundaries before another authentication experiment.
+
 NW0 must use synthetic hostile notes, excluded-file canaries, and controlled ambient customizations
 to prove no tool effects, unrelated context loading, or extra egress. If tool-free execution cannot
 meet the boundary, test the existing staged-asset execution contract or an independently verified
@@ -599,7 +607,7 @@ Start with at most 16 KiB of selected note input and 16 KiB of accepted output p
 dispatch: retain the original 80-attempt outer ceiling and 16 per access path, including retries.
 The four active launch paths therefore have at most 64 attempts; the deferred Codex allowance is
 not transferred to them. The initial/incremental matrix reserves 32 attempts across the two platforms.
-All C1/C2/C3/C4 effort already spent remains charged to NW0-C. Stop on the first exhausted limit.
+All C1/C2/C3/C4/C5 effort already spent remains charged to NW0-C. Stop on the first exhausted limit.
 These are experiment limits, not advertised provider billing caps.
 Credential entry, consent tests, and denied canaries must not spend an inference attempt.
 
@@ -860,9 +868,11 @@ two of four lenses; this revision does not claim a new independent review or suc
 | Implementation ownership | Requirement ownership matrix and explicit four-adapter/onboarding exit gates in NW1–NW4. |
 | Bounded feasibility work | NW0-A–E effort/request limits, named desktop target and provisioning dependency, startup measurements, explicit stop conditions. |
 
-Next action: prove C4's recommended native runtime layout on this Mac with synthetic auth/bootstrap
-and policy fixtures, within a 45-minute zero-inference cap. Preserve official login ownership and
-reject unsupported policy/auth states. Native note dispatch stays closed; Codex work is deferred.
+Next action: check supported interfaces for client-owned Keychain access and complete same-process
+auth/policy evidence, capped at 30 minutes from remaining NW0-C with zero model calls and no live
+credential access. Use C5's demonstrated Mac file/process boundary. Identify a concrete mechanism
+or record its absence before another authentication experiment. Native note dispatch stays closed;
+Codex work is deferred.
 Preserve completed NW0-B1 evidence and its required adapter controls; provision the agreed
 UTM guest before Linux GUI checkpoints without blocking local packaging work. Run a formal review
 of the completed NW0 decision record before executing NW1.

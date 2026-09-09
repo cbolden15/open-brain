@@ -2,15 +2,16 @@
 
 - Status: open. NW0-B1 closure/import proof passed with required integration controls.
   NW0-C2 did not establish Codex isolation; Codex subscription is deferred under the subsequent
-  user-authorized scope change. NW0-C4 adds a working Claude rejection prototype and supervisor
-  design; native completion remains closed. Four launch paths and frozen packaging remain unproven.
+  user-authorized scope change. NW0-C5 adds a tested Mac file/process boundary with synthetic auth
+  and policy; native completion remains closed. Four launch paths and frozen packaging remain unproven.
 - Authority: [native workspace plan](2026-09-09-ob1-native-workspace.md), including the user's
   implementation-efficiency guidelines and the subsequent user-authorized Codex deferral.
 - Starting revision: `3468115` on `docs/ob1-native-workspace-plan`.
-- Latest checkpoint: NW0-C4 ran from `d188333` on macOS arm64. A private supervisor prototype
-  passed 61 contract tests and five existing engine-boundary security tests. Six native metadata
-  processes were retained, with live rejection in the final four. Zero note bytes or model calls;
-  no real account inspection, product runtime changes, or VM provisioning. Codex remains deferred.
+- Latest checkpoint: NW0-C5 ran from `131e9d9` on macOS arm64. The completed OS run passed 25
+  checks; three host-policy failures rejected before native launch and two deadline cases passed.
+  Nine native metadata processes include two startup failures and seven live rejection cases;
+  a separate synthetic status process demonstrated local auth selection. Zero model calls or selected
+  note bytes; no real account inspection, product runtime changes, or VM provisioning.
 
 ## Established state
 
@@ -160,6 +161,26 @@ isolating other runtime state. Prove its minimal auth/bootstrap reads and rotati
 synthetic fixtures before an authenticated no-note check. A second dedicated login is not selected
 as a shortcut around the agreed login-reuse requirement.
 
+## NW0-C5 native runtime-layout result
+
+The [C5 runtime-layout record](../audits/2026-09-09-ob1-nw0-c5-native-runtime-layout.md) demonstrates
+a macOS file-data allowlist with selected synthetic auth/bootstrap reads, unrelated-file and adjacent
+history/settings denial, narrow synthetic replacement writes, fork/spawn denial, and bounded teardown.
+The pinned official client reached metadata after required loader/timezone reads were identified.
+Earlier startup failures remain failures, not positive isolation evidence.
+
+Two native sessions reused a synthetic file-backed namespace with separate runtime directories.
+The separate official status command accepted nonfunctional fixture data as a local login; neither
+that result nor a subscription label verifies a real account. Missing native source evidence still
+rejects dispatch. Native runs kept auth files read-only; actual refresh/rotation and Keychain reuse
+were not exercised. The helper's replacement operation is not a native credential-rotation proof.
+
+Unreadable, missing, or malformed required host-policy fixtures prevented native launch. Readable
+host policy appeared in native settings, and an observed routing change rejected while the client
+was alive. This does not establish complete organizational policy or eliminate the check/send race.
+Keep the Mac file/process candidate and check supported interfaces for the remaining client-owned
+auth and complete same-process policy/capability boundaries before an authenticated no-note probe.
+
 ## Unproven gates and pass/fail criteria
 
 | Gate | Evidence required to pass | Fail or incomplete condition |
@@ -183,11 +204,12 @@ The complete native, subscription, and desktop proofs remain unproven after this
    `graphify.extract.extract(..., parallel=False)` within 60 seconds, 16 KiB selected input,
    and 16 KiB accepted output per case. Versions/hashes, links/IDs, cache effects, and the
    required integration controls are recorded above. Frozen packaging remains open.
-2. **NW0-C1–C4: recorded; Codex deferred.** Preserve the audits and receipts. Next is C4's native
-   runtime-layout proof on this Mac using synthetic auth/bootstrap and policy fixtures. Cap it at
-   45 minutes from remaining NW0-C with zero model calls. Exercise permitted auth-file operations,
-   denied unrelated access, required-policy failure, policy changes, and owned-workload termination.
-   Unsupported policy/auth states reject the run; native note dispatch remains closed.
+2. **NW0-C1–C5: recorded; Codex deferred.** Preserve the audits and receipts. Next, check supported
+   interfaces for client-owned Keychain access and complete same-process auth/policy evidence.
+   Cap that check at 30 minutes from remaining NW0-C, zero model calls, and no live credential access.
+   Use C5's demonstrated file/process boundary; identify a concrete mechanism or record its absence
+   before another authentication experiment. Preserve existing-login reuse and reject unsupported
+   policy/auth states. Native note dispatch remains closed.
 3. **First bounded real Claude subscription probe.** Once its C1 boundaries have concrete enforcement
    mechanisms and the user-selected account is ready, run one synthetic hostile-input completion.
    Reserve each actual attempt before dispatch; retain all byte/time limits. Observe process/tool,
@@ -212,7 +234,7 @@ These are substeps of the existing NW0 allocations, not extra budgets or new mil
 path, 16 KiB selected input/accepted output per attempt, 60 seconds per attempt, at most two attempts
 and 90 seconds total per probe. Four active launch paths allow at most 64 attempts; Codex's unused
 allowance is not transferred. The mandatory initial/incremental matrix reserves 32 calls; isolation
-and recovery draw from the remaining active capacity. C1/C2/C3/C4 effort remains charged. Effort is a stop limit, never a delivery estimate.
+and recovery draw from the remaining active capacity. C1/C2/C3/C4/C5 effort remains charged. Effort is a stop limit, never a delivery estimate.
 Keep one cumulative private effort/attempt ledger across resumed sessions and workers.
 
 ## Reuse decisions and implementation guardrails
@@ -243,6 +265,6 @@ completion, including native build and Homebrew smoke for packaging changes. Exi
 runs `make contributor-check`; UTM supplies Linux desktop evidence. Do not rerun slow desktop
 journeys until an integration checkpoint or a relevant change invalidates prior evidence.
 
-Next action: run C4's bounded native runtime-layout proof with synthetic auth/bootstrap and policy
-fixtures; no native note dispatch until its required mechanisms are established. Codex remains deferred.
+Next action: identify supported client-owned Keychain and complete same-process auth/policy mechanisms
+before another authentication experiment. Native note dispatch stays closed; Codex remains deferred.
 NW0-B still requires frozen candidate comparison and native Linux evidence.

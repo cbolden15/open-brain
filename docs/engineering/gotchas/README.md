@@ -1180,3 +1180,21 @@ termination; its first post-stop iteration remains labeled as development eviden
 
 Discovered: 2026-09-09, NW0-C4 supervisor contract tests and native metadata rejection probes.
 See the [C4 design and probe](../../audits/2026-09-09-ob1-nw0-c4-claude-supervisor.md).
+
+### INTEGRATION-008: Local login metadata can succeed with a synthetic credential
+
+Symptom: Claude's offline status reports a logged-in subscription from a nonfunctional synthetic
+credential file. The initialization response carries a subscription label but lacks the source field
+required by the prototype. Neither observation verifies a real subscription or authorizes content.
+
+Cause: Local credential selection, server authentication, and same-process dispatch authority are
+different checks. A settings/status response also does not prove that denied bootstrap writes worked.
+
+Fix: Preserve those distinctions in adapter diagnostics and acceptance criteria. Keep native dispatch
+closed without source/policy/runtime evidence. Test the existing official namespace and Keychain
+behavior separately from file-backed fixtures; helper replacement writes do not prove native refresh.
+Treat loader/system-data failures as runtime failures, and retain their evidence when refining a
+file-data allowlist. A profile that prevents startup has not passed integration.
+
+Discovered: 2026-09-09, synthetic NW0-C5 native runtime-layout and status probes.
+See the [C5 runtime-layout proof](../../audits/2026-09-09-ob1-nw0-c5-native-runtime-layout.md).
