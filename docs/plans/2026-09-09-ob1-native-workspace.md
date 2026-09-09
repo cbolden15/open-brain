@@ -2,6 +2,7 @@
 
 - Status: NW0-B1 closure/import proof passed with adapter constraints. NW0-C6 connected the existing
   SDK lifecycle to supervised pre-input metadata and rejection on C5's Mac boundary; native completion remains blocked.
+  NW0-C7 specifies the provider/supervisor contract and missing capabilities without new runtime probes.
   Codex subscription stays deferred. Four launch paths, frozen packaging, and other NW0 gates remain open.
 - Date: 2026-09-09.
 - Baseline: `708e30c9d1e736969e2bb0aa6f0454a5f4804489` on `goal/open-brain-five-minute-install`.
@@ -465,6 +466,12 @@ does not expose the runtime's live settings getter or establish complete policy/
 Nested Mac sandbox launch failed; separately sandboxed SDK/native sibling processes worked.
 This is interface evidence, not a Node packaging selection or a real-authentication proof.
 
+NW0-C7's [provider/supervisor contract](2026-09-09-ob1-provider-supervisor-contract.md) defines
+Engine-owned selection and budgets, held-input release, revocation, result validation, and the
+supported observations still required from Claude. It composes existing ports without changing
+their serialized forms or forcing direct APIs into a native-client sandbox. The local upstream
+requirements brief is complete; positive native dispatch and runtime packaging remain unproven.
+
 NW0 must use synthetic hostile notes, excluded-file canaries, and controlled ambient customizations
 to prove no tool effects, unrelated context loading, or extra egress. If tool-free execution cannot
 meet the boundary, test the existing staged-asset execution contract or an independently verified
@@ -616,7 +623,7 @@ Start with at most 16 KiB of selected note input and 16 KiB of accepted output p
 dispatch: retain the original 80-attempt outer ceiling and 16 per access path, including retries.
 The four active launch paths therefore have at most 64 attempts; the deferred Codex allowance is
 not transferred to them. The initial/incremental matrix reserves 32 attempts across the two platforms.
-All C1/C2/C3/C4/C5/C6 effort already spent remains charged to NW0-C. Stop on the first exhausted limit.
+All C1/C2/C3/C4/C5/C6/C7 effort already spent remains charged to NW0-C. Stop on the first exhausted limit.
 These are experiment limits, not advertised provider billing caps.
 Credential entry, consent tests, and denied canaries must not spend an inference attempt.
 
@@ -877,12 +884,11 @@ two of four lenses; this revision does not claim a new independent review or suc
 | Implementation ownership | Requirement ownership matrix and explicit four-adapter/onboarding exit gates in NW1–NW4. |
 | Bounded feasibility work | NW0-A–E effort/request limits, named desktop target and provisioning dependency, startup measurements, explicit stop conditions. |
 
-Next action: specify the provider/supervisor contract around C6's proven held-input SDK seam,
-including Engine-owned inputs, missing native auth/policy observations, and release/revocation
-authority. Record the missing upstream interface requirements locally before another authentication
-experiment. C6 did not establish complete same-process policy evidence or isolated existing-Keychain
-reuse. Preserve its working lifecycle rather than repeating discovery. Native note dispatch stays
-closed; Codex work is deferred.
+Next action: NW0-B2, a first frozen Graphify candidate and audit on this Mac, capped at 45 minutes
+from remaining NW0-B with synthetic fixtures and zero model calls. Compare the planned runtime
+boundaries and startup impact using B1 evidence; an incomplete comparison does not pass packaging.
+C7 records the missing Claude capabilities. Resume its authentication experiments only against a
+concrete supported mechanism; native note dispatch stays closed and Codex remains deferred.
 Preserve completed NW0-B1 evidence and its required adapter controls; provision the agreed
 UTM guest before Linux GUI checkpoints without blocking local packaging work. Run a formal review
 of the completed NW0 decision record before executing NW1.

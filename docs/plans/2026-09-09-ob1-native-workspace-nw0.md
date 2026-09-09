@@ -5,14 +5,18 @@
   user-authorized scope change. NW0-C6 connects the existing SDK lifecycle to supervised pre-input
   metadata and rejection on C5's Mac boundary; native completion remains closed. Four launch paths
   and frozen packaging remain unproven.
+  NW0-C7 records the provider/supervisor contract and local upstream requirements.
 - Authority: [native workspace plan](2026-09-09-ob1-native-workspace.md), including the user's
   implementation-efficiency guidelines and the subsequent user-authorized Codex deferral.
 - Starting revision: `3468115` on `docs/ob1-native-workspace-plan`.
-- Latest checkpoint: NW0-C6 ran from `d6c7766` on macOS arm64. The final real-SDK/fake-process
+- Latest runtime checkpoint: NW0-C6 ran from `d6c7766` on macOS arm64. The final real-SDK/fake-process
   suite passed 15 assertions; the native sibling bridge passed ten checks after connecting C4's
   validator. SDK and native exits were zero with input withheld. A nested-sandbox launch failure
   remains recorded. Zero model calls or native note input; no real account inspection, product
   runtime changes, or VM provisioning.
+- Latest design checkpoint: NW0-C7 at `77012ea` specifies the held-input contract, authority and
+  budget ownership, rejection/revocation behavior, and missing native capabilities. No new native
+  or model calls; no shipping interfaces or schema changes.
 
 ## Established state
 
@@ -201,6 +205,19 @@ That result keeps the SDK option viable without selecting Node distribution or w
 profile. Existing-Keychain reuse, complete policy/capability evidence, and native positive dispatch
 remain unproven. Do not repeat the completed lifecycle discovery or treat this as full NW0-C passage.
 
+## NW0-C7 provider/supervisor contract
+
+The [contract](2026-09-09-ob1-provider-supervisor-contract.md) specifies a semantic envelope around
+existing ports, a private single-use release capability, Engine/supervisor ownership, and bounded
+result/error projection. Direct APIs share semantic controls while Claude adds native auth/policy
+and runtime evidence. Engine generation does not substitute for native policy change semantics.
+The contract includes uncertain-dispatch accounting and hidden-client-attempt acceptance criteria.
+
+The local upstream requirements brief names the missing supported capabilities and equivalent
+pass criteria. It has not been sent upstream. C7 is a design checkpoint, not another runtime proof
+or a completed positive subscription path. Preserve C4-C6 tests and add uncovered cases at their
+owning milestones. Claude work remains stopped at those gaps while independent packaging proceeds.
+
 ## Unproven gates and pass/fail criteria
 
 | Gate | Evidence required to pass | Fail or incomplete condition |
@@ -224,11 +241,10 @@ The complete native, subscription, and desktop proofs remain unproven after this
    `graphify.extract.extract(..., parallel=False)` within 60 seconds, 16 KiB selected input,
    and 16 KiB accepted output per case. Versions/hashes, links/IDs, cache effects, and the
    required integration controls are recorded above. Frozen packaging remains open.
-2. **NW0-C1–C6: recorded; Codex deferred.** Preserve the audits, receipts, and demonstrated SDK
-   lifecycle. Next, specify the provider/supervisor contract around held input, Engine authority,
-   supported versus missing observations, and release/revocation. Record missing upstream interface
-   requirements locally before another authentication experiment. Complete native policy evidence
-   and isolated existing-Keychain reuse remain unproven; native note dispatch stays closed.
+2. **NW0-C1–C7: recorded; Codex deferred.** Preserve the audits, receipts, demonstrated SDK
+   lifecycle, and provider/supervisor contract. C7 records missing upstream requirements locally.
+   Resume authentication experiments only against a concrete supported mechanism. Complete native
+   policy evidence and isolated existing-Keychain reuse remain unproven; native dispatch stays closed.
 3. **First bounded real Claude subscription probe.** Once its C1 boundaries have concrete enforcement
    mechanisms and the user-selected account is ready, run one synthetic hostile-input completion.
    Reserve each actual attempt before dispatch; retain all byte/time limits. Observe process/tool,
@@ -253,7 +269,7 @@ These are substeps of the existing NW0 allocations, not extra budgets or new mil
 path, 16 KiB selected input/accepted output per attempt, 60 seconds per attempt, at most two attempts
 and 90 seconds total per probe. Four active launch paths allow at most 64 attempts; Codex's unused
 allowance is not transferred. The mandatory initial/incremental matrix reserves 32 calls; isolation
-and recovery draw from the remaining active capacity. C1/C2/C3/C4/C5/C6 effort remains charged. Effort is a stop limit, never a delivery estimate.
+and recovery draw from the remaining active capacity. C1/C2/C3/C4/C5/C6/C7 effort remains charged. Effort is a stop limit, never a delivery estimate.
 Keep one cumulative private effort/attempt ledger across resumed sessions and workers.
 
 ## Reuse decisions and implementation guardrails
@@ -284,7 +300,7 @@ completion, including native build and Homebrew smoke for packaging changes. Exi
 runs `make contributor-check`; UTM supplies Linux desktop evidence. Do not rerun slow desktop
 journeys until an integration checkpoint or a relevant change invalidates prior evidence.
 
-Next action: specify the provider/supervisor contract around C6's held-input SDK seam and the missing
-upstream auth/policy observations before another authentication experiment. Native note dispatch stays
-closed; Codex remains deferred.
-NW0-B still requires frozen candidate comparison and native Linux evidence.
+Next action: NW0-B2, build and audit a first frozen Graphify candidate on this Mac with B1's synthetic
+dataset, capped at 45 minutes from remaining NW0-B and zero model calls. Compare runtime boundaries
+and startup impact; leave incomplete packaging comparisons explicit. Native Linux evidence remains
+required separately. Claude dispatch stays closed at C7's missing capabilities; Codex remains deferred.
