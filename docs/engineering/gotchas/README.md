@@ -1012,3 +1012,18 @@ Default MCP injects a non-owner capture sink and a separate whole-Brain read ope
 `mcp_stdio.py` wrapper keeps its scope check and remains excluded from the default artifact.
 
 Discovered: 2026-09-09.
+
+
+### TOOLING-005: Homebrew name and version inventory need separate commands
+
+Symptom: A preservation check fails before its smoke starts with `Options --full-name and
+--versions are mutually exclusive`.
+
+Cause: `brew list` cannot combine fully qualified formula names with version output.
+
+Fix: Read identities with `brew list --formula --full-name`, then read the selected product's
+versions with `brew list --formula --versions <full-name>`. Treat any inventory failure as an error,
+not as evidence that the product is absent. Test the actual smoke shell with a command-recording
+fake Homebrew, including an installed product and interrupted-run recovery.
+
+Discovered: 2026-09-09, OB1-W7 contributor path.

@@ -161,7 +161,9 @@ def test_two_platform_manifest_is_canonical_and_drives_the_homebrew_formula(
     assert "depends_on arch: :arm64" in formula
     assert 'sha256 "a' in formula
     assert 'sha256 "b' in formula
-    assert "releases/download/v0.1.0" in formula
+    assert "https://github.com/cbolden15/open-brain/releases/download/v0.1.0" in formula
+    assert "class OpenBrain < Formula" in formula
+    assert "keg_only" not in formula
     assert 'bin.install "open-brain"' in formula
 
 
@@ -182,13 +184,10 @@ def test_ci_has_only_two_native_product_runners() -> None:
 
     assert {path.name for path in workflows.iterdir() if path.is_file()} == {"ci.yml"}
     assert runs_on == ["ubuntu-latest", "macos-latest"]
-    assert workflow.count("make verify") == 2
-    assert workflow.count("make homebrew-smoke") == 2
-    for job in ("linux-x86-64", "macos-arm64"):
-        job_body = workflow.split(f"  {job}:", maxsplit=1)[1]
-        if job == "linux-x86-64":
-            job_body = job_body.split("  macos-arm64:", maxsplit=1)[0]
-        assert job_body.index("make verify") < job_body.index("make homebrew-smoke")
+    assert workflow.count("make contributor-check") == 2
+    assert "make verify" not in workflow
+    assert "make homebrew-smoke" not in workflow
+    assert "goal/open-brain-five-minute-install" in workflow
     assert "docker" not in workflow.lower()
     assert "attestation" not in workflow.lower()
     assert "notar" not in workflow.lower()
@@ -202,17 +201,16 @@ def test_native_build_group_installs_the_base_application() -> None:
     assert "open-brain[secure-node]==0.1.0" in workspace["dependency-groups"]["dev"]
     assert "open-brain==0.1.0" in workspace["dependency-groups"]["native-build"]
     assert workspace["tool"]["uv"]["sources"]["open-brain"] == {"workspace": True}
-    assert makefile.count("--no-dev --group native-build") == 4
+    assert makefile.count("--no-dev --group native-build") == 3
 
 
 def test_local_homebrew_smoke_uses_a_temporary_tap() -> None:
     makefile = (ROOT / "Makefile").read_text(encoding="utf-8")
 
-    assert "HOMEBREW_SMOKE_TAP = open-brain-local/smoke" in makefile
-    assert 'brew tap "$$smoke_tap"' in makefile
-    assert 'brew install "$$smoke_tap/open-brain"' in makefile
-    assert 'brew untap --force "$$smoke_tap"' in makefile
-    assert "brew install --formula" not in makefile
+    assert 'bash tools/homebrew-smoke.sh' in makefile
+    target = makefile.split("contributor-check:\n", 1)[1].split("\n\n", 1)[0]
+    assert target.splitlines() == ["\t$(MAKE) verify", "\t$(MAKE) homebrew-smoke"]
+    assert "contributor-check" in makefile.splitlines()[0]
 
 
 def test_removed_release_stack_does_not_regrow() -> None:

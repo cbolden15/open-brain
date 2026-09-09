@@ -1,9 +1,8 @@
-.PHONY: dev build test lint typecheck audit audit-history native smoke homebrew-smoke verify
+.PHONY: dev build test lint typecheck audit audit-history native smoke homebrew-smoke verify contributor-check
 
 NATIVE_OUTPUT ?= build/native
 NATIVE_ARTIFACT = $(NATIVE_OUTPUT)/dist/open-brain
 NATIVE_MANIFEST = $(NATIVE_OUTPUT)/release/open-brain-release-manifest-v1.txt
-HOMEBREW_SMOKE_TAP = open-brain-local/smoke
 
 dev:
 	PYTHONPATH=packages/app/src:packages/connectors/src:packages/engine/src uv run python -m open_brain --version
@@ -38,44 +37,10 @@ smoke:
 	uv run --frozen --python 3.14 --no-dev --group native-build python -m tools.open_brain_dev.base_native smoke --root . --artifact $(NATIVE_ARTIFACT)
 
 homebrew-smoke: native
-	@set -eu; \
-		command -v brew >/dev/null; \
-		if brew list --formula open-brain >/dev/null 2>&1; then \
-			echo "open-brain is already installed by Homebrew; refusing to replace it" >&2; \
-			exit 2; \
-		fi; \
-		smoke_tap="$(HOMEBREW_SMOKE_TAP)"; \
-		smoke_tap_path="$$(brew --repository "$$smoke_tap")"; \
-		if [ -d "$$smoke_tap_path" ]; then \
-			echo "$$smoke_tap is already tapped; refusing to replace it" >&2; \
-			exit 2; \
-		fi; \
-		smoke_root="$$(mktemp -d "$${TMPDIR:-/tmp}/open-brain-homebrew.XXXXXX")"; \
-		cleanup() { \
-			HOMEBREW_NO_AUTO_UPDATE=1 brew uninstall --force "$$smoke_tap/open-brain" >/dev/null 2>&1 || true; \
-			HOMEBREW_NO_AUTO_UPDATE=1 brew untap --force "$$smoke_tap" >/dev/null 2>&1 || true; \
-			rm -rf "$$smoke_root"; \
-		}; \
-		trap cleanup EXIT INT TERM; \
-		mkdir -p "$$smoke_root/tap/Formula"; \
-		uv run --frozen --python 3.14 --no-dev --group native-build python -m tools.open_brain_dev.base_native formula \
-			--manifest $(NATIVE_MANIFEST) \
-			--output "$$smoke_root/tap/Formula/open-brain.rb" \
-			--base-url file://$(abspath $(NATIVE_OUTPUT)/release); \
-		git -C "$$smoke_root/tap" init --quiet --initial-branch=main; \
-		git -C "$$smoke_root/tap" add Formula/open-brain.rb; \
-		printf '%s\n' "Local Open Brain Homebrew smoke" > "$$smoke_root/commit-message"; \
-		git -C "$$smoke_root/tap" \
-			-c user.name="Open Brain CI" \
-			-c user.email="ci@open-brain.invalid" \
-			-c commit.gpgsign=false \
-			commit --quiet -F "$$smoke_root/commit-message"; \
-		HOMEBREW_NO_AUTO_UPDATE=1 brew tap "$$smoke_tap" "file://$$smoke_root/tap"; \
-		HOMEBREW_NO_AUTO_UPDATE=1 brew install "$$smoke_tap/open-brain"; \
-		uv run --frozen --python 3.14 --no-dev --group native-build python -m tools.open_brain_dev.base_native smoke \
-			--root . \
-			--artifact "$$(brew --prefix "$$smoke_tap/open-brain")/bin/open-brain"; \
-		cleanup; \
-		trap - EXIT INT TERM
+	uv run --frozen --python 3.14 --no-dev --group native-build bash tools/homebrew-smoke.sh "$(CURDIR)" "$(abspath $(NATIVE_MANIFEST))" "$(abspath $(NATIVE_OUTPUT)/release)"
+
+contributor-check:
+	$(MAKE) verify
+	$(MAKE) homebrew-smoke
 
 verify: lint typecheck test build

@@ -19,6 +19,13 @@ classifiers = [
 ]
 dependencies = ["rfc8785>=0.1.4,<0.2"]
 
+[project.urls]
+Homepage = "https://github.com/cbolden15/open-brain"
+Repository = "https://github.com/cbolden15/open-brain"
+Documentation = "https://github.com/cbolden15/open-brain/blob/main/README.md"
+Issues = "https://github.com/cbolden15/open-brain/issues"
+Changelog = "https://github.com/cbolden15/open-brain/blob/main/CHANGELOG.md"
+
 [project.optional-dependencies]
 secure-node = [
   "argon2-cffi>=25.1,<26",

@@ -317,8 +317,9 @@ def render_homebrew_formula(
     manifest_path: Path,
     destination: Path,
     *,
-    repository: str = "vora-technology/open-brain",
+    repository: str = "cbolden15/open-brain",
     base_url: str | None = None,
+    smoke: bool = False,
 ) -> Path:
     manifest = read_release_manifest(manifest_path)
     if re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", repository) is None:
@@ -337,13 +338,15 @@ def render_homebrew_formula(
         "macos-arm64": ("on_macos", "arm64"),
     }
     lines = [
-        "class OpenBrain < Formula",
+        "class OpenBrainSmoke < Formula" if smoke else "class OpenBrain < Formula",
         '  desc "Local-first capture, search, and portable export"',
         f'  homepage "https://github.com/{repository}"',
         f'  version "{manifest.version}"',
         '  license "Apache-2.0"',
         "",
     ]
+    if smoke:
+        lines.extend(('  keg_only "Temporary contributor smoke fixture"', ""))
     for artifact in manifest.artifacts:
         block, architecture = platform_blocks[artifact.platform_tag]
         lines.extend(
@@ -881,8 +884,9 @@ def _main(argv: Sequence[str] | None = None) -> int:
     formula = subparsers.add_parser("formula")
     formula.add_argument("--manifest", type=Path, required=True)
     formula.add_argument("--output", type=Path, required=True)
-    formula.add_argument("--repository", default="vora-technology/open-brain")
+    formula.add_argument("--repository", default="cbolden15/open-brain")
     formula.add_argument("--base-url")
+    formula.add_argument("--smoke", action="store_true")
     namespace = parser.parse_args(argv)
     if namespace.command == "build":
         artifact, archive, manifest_path = build_base_artifact(namespace.root, namespace.output)
@@ -909,6 +913,7 @@ def _main(argv: Sequence[str] | None = None) -> int:
             namespace.output,
             repository=namespace.repository,
             base_url=namespace.base_url,
+            smoke=namespace.smoke,
         )
         payload = {"formula": os.fspath(output), "status": "written"}
     print(json.dumps(payload, sort_keys=True, separators=(",", ":")))

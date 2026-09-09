@@ -11,6 +11,7 @@
 | Local CLI | `uv run open-brain status --json` |
 | Full verification | `make verify` |
 | Native build | `make native` |
+| Complete contributor check | `make contributor-check` |
 | Homebrew product smoke | `make homebrew-smoke` |
 | Product authority | `docs/product-family.md` |
 | Roadmap | `docs/plans/product-roadmap.md` |
@@ -75,11 +76,15 @@ make verify
 make native
 make smoke
 make homebrew-smoke
+make contributor-check
 ```
 
-`make homebrew-smoke` refuses to replace an existing Homebrew installation of `open-brain`, installs
-the local archive, runs capture/search/export/status/doctor in a temporary home, and uninstalls only
-the formula it installed.
+`make contributor-check` runs `make verify` followed by `make homebrew-smoke`, matching both CI jobs.
+The smoke installs only the keg-only `open-brain-smoke` formula, invokes its unlinked binary by absolute
+prefix, and verifies any existing product's prefix, version, link, and digest remain unchanged.
+`tools/homebrew-smoke.sh` owns orchestration and signal teardown; the guard in
+`tools/open_brain_dev/homebrew_smoke.py` permits cleanup only of the marked reserved tap/formula.
+Private release audits remain separate owner checks.
 
 ## Data and configuration
 
