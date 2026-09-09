@@ -1,6 +1,6 @@
 # OB1 native Obsidian and Graphify workspace
 
-- Status: reviewed planning draft with five contract corrections incorporated; NW0 has not started.
+- Status: review corrections and implementation-efficiency guidelines incorporated; NW0 metadata preflight recorded, runtime feasibility unproven.
 - Date: 2026-09-09.
 - Baseline: `708e30c9d1e736969e2bb0aa6f0454a5f4804489` on `goal/open-brain-five-minute-install`.
 - Planning branch: `docs/ob1-native-workspace-plan`.
@@ -29,10 +29,11 @@ The user also added Google Gemini API-key support on 2026-09-09. The first-relea
 contains five paths: three direct API adapters and two official-client subscription adapters.
 Hosted-service implementation is outside this plan.
 
-This milestone produces the plan, grounded constraints, and a bounded feasibility specification.
-It does not authorize implementation, CI pushes, application installation, release publication,
-or repository-setting changes. Later implementation can use reversible work under its approved scope;
-outward-facing actions require the applicable user authorization.
+The initial planning milestone produced the plan, grounded constraints, and bounded feasibility
+specification. The user's subsequent efficiency instruction authorizes applying the execution
+guidelines and continuing bounded NW0 preflight within existing scope. It does not mark NW0 complete
+or bypass the reviewed decision-record gate for NW1. CI pushes, application installation, release
+publication, and repository-setting changes still require their applicable authorization.
 
 ### Proposed first-release decisions
 
@@ -480,7 +481,44 @@ does not make cross-process filesystem and SQLite writes atomic.
 One coordinator owns edits and git state. Use one focused branch/PR per milestone, splitting a large
 milestone into ordered PRs when reviewability requires it. Start subsequent work from the merged
 goal branch. Read-only grounding and reviews may run in parallel. No runtime implementation starts
-as part of this planning change.
+as part of this planning change; disposable NW0 probes are distinct from product implementation.
+
+### Execution order and efficiency
+
+These guidelines govern remaining work. Preserve completed W5–W7/readiness evidence, planning,
+review, and the five incorporated corrections. The NW0 decision record tracks new evidence without
+restarting those milestones or resetting experiment budgets.
+
+1. Resolve the expensive risks first. Start NW0-B packaging and NW0-C official-client isolation
+   before substantial UI work. NW0-A may establish the minimum snapshot, consent, and revision
+   contracts in parallel with read-only investigations. Complete the thin proof for OpenAI API,
+   Codex subscription, Anthropic API, Claude subscription, and Gemini API on both targets before
+   NW0 exits. Limit early presentation work to the NW0-D feasibility comparison; UI polish waits
+   until packaging and both subscription boundaries have passed.
+2. Build one complete vertical slice: capture → infer connection → display source evidence →
+   explicitly accept a permanent link → verified export. Use a deterministic fake provider against
+   the shared contract during development, including consent denial, exclusions, stale revisions,
+   and idempotent acceptance. Inference alone must leave note bytes unchanged. NW0 prototypes the
+   flow with disposable code; NW1 implements its engine operations; early NW2 connects the minimal
+   presentation and exercises real adapters through the same flow before broadening UI in NW3.
+   Fake-provider success is development evidence only. All five real paths remain required.
+3. Reuse existing EngineTaskSet operations, provider interfaces, privacy checks, and Portable Brain
+   records before adding contracts. Inspect agent-config authentication, isolation, cancellation,
+   attribution, and attempt-budget code and tests before writing equivalents; record what is reused
+   and what fails this product's boundary. Keep the orchestration runtime out of the distribution.
+   Use one semantic dataset with format-specific fixtures and one parameterized adapter contract
+   suite across all five paths, plus focused provider-specific tests.
+4. Keep the fast loop on this Mac. Use existing Linux x86_64 CI for builds/tests and the agreed UTM
+   guest for Linux GUI checks. Run focused tests during iteration, then every required project
+   check at milestone completion. Repeat slow desktop journeys at NW0-D, integrated NW2/NW3,
+   and final NW4 checkpoints, or when a changed boundary invalidates their evidence. Label emulated
+   timings and compare baselines within the same environment. Effort budgets are stop limits.
+5. Keep one coordinator responsible for edits, integration, and git state. Bound parallel read-only
+   investigations/reviews by question, effort, and output. Before delegating implementation, agree
+   on interfaces and assign disjoint file ownership. Integrate small working changes frequently.
+   Every new abstraction, dependency, or setting must name an agreed requirement or demonstrated
+   constraint. Present architectural tradeoffs, including the strongest boundary option, before
+   selecting a shortcut. No shortcut removes a launch path or weakens a privacy/acceptance gate.
 
 ### NW0: resolve contracts and prove feasibility
 
@@ -489,18 +527,23 @@ code/evidence. The planning timebox is 32 engineer-hours, allocated below; this 
 not a completion estimate. Stop an experiment at its limit, record what remains unproven, and
 replan explicitly. Do not quietly reduce a launch requirement or expand the spike into NW1–NW3.
 
+Track probe status, pass/fail criteria, and the smallest next experiments in
+[the NW0 decision record](2026-09-09-ob1-native-workspace-nw0.md). Metadata availability, existing
+base-product CI, and source inspection do not prove Graphify packaging or subscription isolation.
+
 The coordinator owns the experiment ledger, fixtures, environment inventory, and evidence. Confirm
 the actual host/VM identity, OS version, desktop session, package source, provider account access,
 and network conditions before the dependent experiment. DECIDED by the user on 2026-09-09: use
-the current arm64 Mac for both targets. Run macOS checks in an isolated test account and Linux
-checks in a separate UTM guest emulating an Ubuntu 24.04 LTS x86_64 GNOME desktop. This supersedes
+the current arm64 Mac for desktop checks on both targets. Run macOS checks in an isolated test
+account and Linux GUI checks in a separate UTM guest emulating an Ubuntu 24.04 LTS x86_64 GNOME
+desktop; existing native Linux x86_64 CI supplies Linux builds/tests. This supersedes
 the earlier native-hardware or hardware-virtualized x86_64 environment requirement. UTM supports
 [x86/x64 emulation on Apple Silicon](https://mac.getutm.app/), with reduced performance.
 Read-only inventory found UTM and an existing arm64 guest; the dedicated x86_64 guest has not been
 created or verified. Provisioning and verifying that desktop remain entry dependencies for Linux
-experiments. Preserve the existing guest. Record the selected host, guest architecture, UTM version,
+GUI experiments. Preserve the existing guest. Record the selected host, guest architecture, UTM version,
 CPU/memory/disk configuration, desktop session, and execution location in the private experiment ledger.
-Use the emulated desktop for Linux functional and GUI evidence; label all Linux timing results as
+Use the emulated desktop for Linux GUI evidence; label its timing results as
 emulated and make no inference about native x86_64 performance from them.
 
 Homebrew remains the Open Brain lifecycle. Test an official macOS Obsidian package/cask and the
@@ -537,8 +580,9 @@ cold and five warm base `status --json` invocations per target before and after 
 record how cold state is established without altering the user's system. Provisional startup
 regression budgets are at most 500 ms additional median cold latency and 200 ms warm latency,
 with absolute times retained for the 300-second journey. Treat these as design budgets, not measured
-results. Compare each Linux candidate and its baseline under the same recorded UTM configuration;
-these measurements establish regression evidence for that emulated environment only. Exceeding
+results. Use native Linux CI for packaging/startup measurements and the UTM guest for desktop
+journeys. Compare each candidate with its baseline under the same recorded runner or VM configuration;
+UTM measurements establish regression evidence for that emulated environment only. Exceeding
 the budgets triggers helper-architecture reconsideration, not removal of the benchmark.
 
 NW0 exit requires evidence for A–E, all five access paths on both targets, both desktop environments,
@@ -574,7 +618,9 @@ the final integrated five-minute result with release candidates.
    mappings after import without preserving host paths. Preserve inactive notes and demonstrate
    explicit restoration without accidental resurrection during reconciliation or import. Fail
    export visibly if workspace reconciliation cannot establish a consistent accepted snapshot.
-5. Prove semantic and recovery cases below through engine and adapter contract tests, then run
+5. Exercise the vertical slice's engine operations with the deterministic fake provider, including
+   evidence, accepted-link provenance, and verified export. Prove semantic and recovery cases below
+   through engine and adapter contract tests, then run
    `make verify`. No Obsidian-specific dependency may enter the engine.
 
 ### NW2: implement bounded Graphify projection and local presentation
@@ -583,7 +629,9 @@ the final integrated five-minute result with release candidates.
    subscription, Anthropic API, Claude subscription, and Gemini API. Consume validated snapshots
    and effective privacy decisions; share schema validation, redaction, budgets, cancellation,
    attribution, and error semantics. Enforce the verified subscription launch controls.
-2. Implement link mapping, revision/version status, bounded execution, atomic cache publication,
+2. Connect the smallest complete vertical slice to the presentation and run each real adapter through
+   the same flow used by the fake provider. Implement link mapping, revision/version status,
+   bounded execution, atomic cache publication,
    and failure/staleness receipts. Display inferred suggestions immediately with evidence and
    explicit-link distinction. Avoid a new authoritative graph database.
 3. Package the NW0-selected presentation surface(s) with reviewed local assets and source-note
@@ -649,6 +697,10 @@ the final integrated five-minute result with release candidates.
 Extend the existing semantic fixture approach with synthetic source facts, then materialize distinct
 Markdown, SQLite, CLI/MCP JSON, plugin, graph, and Portable Brain fixtures. Do not force their formats
 into one physical fixture. Never use personal vault content, real captures, or private host paths.
+Parameterize the shared adapter suite over all five access paths. Keep schema/privacy/selection,
+deadlines, cancellation, budget accounting, attribution, and stale-result assertions common;
+add focused tests for each provider's transport, authentication, and output behavior. Use deterministic
+fake responses for fast iteration and the same input/result contract for bounded real-provider probes.
 
 | Case family | Observable assertion |
 |---|---|
@@ -672,8 +724,9 @@ Initial existing checks and locations to extend:
   and `tests/security/test_architecture_imports.py`.
 
 New workspace, Graphify, and plugin tests should exercise observable contracts, not mirror internal
-functions. Select exact new test locations during implementation. After code edits, run the project's
-real `make verify`; after packaging changes, run `make native` and `make homebrew-smoke`, with CI
+functions. Select exact new test locations during implementation. Run focused tests while iterating.
+Before handing off a code change and at milestone completion, run the project's real `make verify`;
+after packaging changes, run `make native` and `make homebrew-smoke`, with CI
 providing the other architecture. Run `git diff --check` and `actionlint .github/workflows/ci.yml`
 before an implementation handoff. Documentation-only planning does not require a new runtime build.
 
@@ -691,7 +744,7 @@ acceptance. Do not pause the clock for downloads, activation prompts, or authent
 Declare provider account/access prerequisites and network conditions before measurement; do not
 silently move setup steps outside the clock after a failed run. Local model installation is deferred
 with Ollama support.
-Record Linux timings with the selected UTM host/guest configuration and identify the journey as
+Record Linux desktop timings with the selected UTM host/guest configuration and identify the journey as
 emulated. Keep the 300-second target; a pass supports that measured environment, while a miss requires
 a product decision and does not establish that native Linux would fail. Do not describe these results
 as native x86_64 timing evidence.
@@ -702,7 +755,8 @@ Full-vault indexing is a separate measurement. Do not claim an arbitrary corpus 
 2. Create/open the default managed vault and capture the unlinked acceptance notes.
 3. Run semantic extraction, inspect an inferred connection and its source evidence, and navigate
    from the graph to the original note in Obsidian.
-4. Save an edit, reconcile it, and retrieve the accepted new text through Open Brain.
+4. Save an edit, preview and accept the suggested permanent link, reconcile the note revisions,
+   and retrieve the accepted text through Open Brain. Confirm inference alone did not write the link.
 5. Export and verify the Brain; confirm the accepted edit and preserved provenance are present.
 
 Pass only when the journey takes at most 300 seconds and every operation succeeds. A missed time
@@ -771,7 +825,7 @@ two of four lenses; this revision does not claim a new independent review or suc
 | Implementation ownership | Requirement ownership matrix and explicit five-adapter/onboarding exit gates in NW1–NW4. |
 | Bounded feasibility work | NW0-A–E effort/request limits, named desktop target and provisioning dependency, startup measurements, explicit stop conditions. |
 
-Next action: open the NW0 decision record and record the selected Mac host and dedicated x86_64 UTM
-guest setup. Provision and verify the isolated Linux desktop within the authorized NW0 execution
-scope before its dependent experiments. Run a formal review of the resulting NW0 decision record
-before executing NW1.
+Next action: run the NW0-B1 pinned Graphify closure/import probe described in the decision record.
+Resolve official-client controls in NW0-C before a synthetic subscription call; provision the agreed
+UTM guest before Linux GUI checkpoints without blocking local packaging work. Run a formal review
+of the completed NW0 decision record before executing NW1.
