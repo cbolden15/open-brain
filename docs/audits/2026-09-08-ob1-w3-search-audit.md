@@ -8,19 +8,17 @@
 
 **Mode:** strict
 
-**Commits reviewed:** `7ec92c9..f65458f`
+**Commits reviewed:** `7ec92c9..aaa902f`
 
 **Codebase root:** repository root
 
 ## Executive summary
 
-- **Completion:** 90% (9 of 10 W3 requirements complete)
-- **Ship readiness:** NOT READY
+- **Completion:** 100% (10 of 10 W3 requirements complete)
+- **Ship readiness:** READY and merged
 - **Code gaps:** None found after the three independent review passes and remediation
-- **Remaining gates:** Exact-head macOS arm64 and Linux x86_64 CI, plus the owner's private-denylist
-  tree and history audits
-- **Next workstream:** OB1-W4 remains locked until both external gates pass and W3 merges into
-  `goal/open-brain-five-minute-install`
+- **Remaining gates:** None for OB1-W3
+- **Next workstream:** OB1-W4 is unlocked but has not started
 
 The implementation replaces the Python substring scan with SQLite FTS5 and keeps authorization,
 ranking, snippets, and result limiting in the SQL query. The live projection is maintained with
@@ -42,8 +40,8 @@ daemon remained alive but did not answer the aggressive readiness loop. Review f
 could queue abandoned short-timeout socket connections faster than the single-threaded daemon drained
 them. The latest repair uses one bounded protocol probe, excludes the unrelated HTTP listener from
 that CLI-only test, and retains failure diagnostics. The cross-process test passed 10 consecutive
-local runs, its 29-test related suite passed, and the full 3,400-test suite passed. The final
-exact-head rerun remains part of R10.
+local runs, its 29-test related suite passed, and the full 3,400-test suite passed. The sanitized
+candidate then passed both exact-head CI jobs and both owner-only audits before merge.
 
 ## Requirement audit
 
@@ -166,25 +164,25 @@ exact-head rerun remains part of R10.
 
 ### R10: Pass every exact-head merge gate
 
-- **Status:** PARTIAL
+- **Status:** COMPLETE
 - **Evidence:**
   - Local `make verify` passed Ruff, MyPy, package builds, and 3,400 tests.
   - The repaired cross-process test passed 10 consecutive runs, and its 29-test daemon and legacy
     integration suite passed.
   - Local `make native` and `make homebrew-smoke` passed on macOS arm64.
   - Local `actionlint .github/workflows/ci.yml` and `git diff --check` passed.
-  - `docs/ai/workstreams/20260908-open-brain-ob1-w3-search-1864f1/HANDOFF.md:8` records the local
-    verification and the remaining blocker.
-- **Notes:** The sanitized source commit is `f65458f`. The owner approved the exact
-  `# no additional project terms` marker. The rewritten exact head still needs the tree and
-  reachable-history audits plus both GitHub CI jobs. Earlier exact-head CI passed before the audit
-  remediation, but the rewritten lineage must be verified again. The plan forbids merging without
-  both gates.
+  - Candidate `dc2c61c` passed `make audit` and `make audit-history` in a disposable single-branch
+    clone with the owner's approved `# no additional project terms` marker.
+  - GitHub Actions run `34309675896` passed `make verify` and `make homebrew-smoke` on macOS arm64
+    and Linux x86_64 against exact candidate `dc2c61c`.
+  - Pull request 10 merged as `aaa902f`; its tree is byte-identical to candidate `dc2c61c`.
+  - Both owner audits passed again from a fresh single-branch clone of merged commit `aaa902f`.
+- **Notes:** GitHub permits squash merges only. The audited candidate's tree was preserved exactly in
+  the resulting goal-branch commit.
 
 ## Critical gaps
 
-- Exact-head Linux x86_64 native and Homebrew behavior is unverified.
-- The owner-only private-content tree and reachable-history audit is unverified.
+None for OB1-W3.
 
 ## Integration issues
 
@@ -193,16 +191,13 @@ SQLite projection, diagnostics, native build smoke, and both CI job definitions.
 
 ## Quality concerns
 
-No unresolved P0 through P2 code findings remain. The remaining risk is missing external evidence,
-not a known implementation defect.
+No unresolved P0 through P2 code findings remain. Required local, remote, source, and history evidence
+is complete.
 
 ## Recommended fixes
 
-1. **[CRITICAL]** Push the exact candidate and require both GitHub CI jobs to pass.
-2. **[CRITICAL]** Run `make audit` and `make audit-history` from the frozen candidate using the
-   owner's absolute, untracked `PRIVATE_DENYLIST` file.
-3. **[HIGH]** Merge the unchanged candidate into `goal/open-brain-five-minute-install` only after
-   both gates are green.
+Begin the OB1-W4 Markdown and Obsidian import design on a new branch from merged goal commit
+`aaa902f`. Keep runtime implementation locked until that design passes its documentation review.
 
 ## Optional enhancements
 
