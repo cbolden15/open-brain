@@ -131,6 +131,20 @@ not satisfy this contract. Review portable import reconstruction as well as expo
 | Duplicate identity, malformed metadata, unsafe path, or uncertain traversal | Refuse the affected mutation, return a bounded diagnostic, retain accepted data. Do not infer deletion from an incomplete scan. |
 | Crash between accepted record and materialization | Resume from an explicit pending operation, bind it to the original request, and avoid duplicate revision creation. |
 
+DECIDED by the user on 2026-09-09: when Obsidian and Open Brain both change a note, preserve both
+versions and ask the user to resolve the conflict. Do not automatically merge or choose a winner
+at launch. Persist the conflicting versions and their base revision so restarting cannot discard
+either side. Show both versions and let the user select one or explicitly compose a resolution.
+Resolving a conflict uses the normal revision-acceptance operation, checks that the reviewed
+versions are still current, and records one idempotent accepted revision. Further edits require
+renewed review rather than overwriting a newer version.
+
+Limit the pending conflict to the affected note. Other notes remain usable. Search and graph views
+may retain the last accepted revision with visible conflict status; the unaccepted conflicting
+version must not enter semantic inference or be presented as accepted content. Store conflict
+artifacts outside normal source enumeration. Export must not silently omit unresolved edits or
+claim a fully reconciled workspace; retain the existing fail-visible reconciliation requirement.
+
 Filesystem replacement and SQLite commit do not form one atomic transaction. NW1 needs a small
 recoverable operation journal and defined reconciliation states. External editors do not honor the
 engine's writer lease; a check followed by rename alone is not a proof against concurrent edits.
@@ -415,7 +429,8 @@ alone is insufficient. CI pushes or app installation happen only under the autho
 
 1. Add a desktop-only plugin package with a pinned build toolchain, manifest/version compatibility,
    and the approved binary discovery/protocol contract.
-2. Implement capture/search/refresh/navigation, conflict visibility, stale-graph state, automatic
+2. Implement capture/search/refresh/navigation, conflict comparison and explicit resolution,
+   stale-graph state, automatic
    refresh with edit batching, persistent pause, and one-shot manual refresh. Add suggestion review
    and explicit acceptance with a preview of the permanent note edit. Verify unload and retry
    behavior without an always-on engine service.
@@ -426,7 +441,9 @@ alone is insufficient. CI pushes or app installation happen only under the autho
    inference, stale-result rejection, generated-output exclusion, pause across reloads, manual
    refresh while paused, and cancellation on unload. Verify inference leaves note bytes unchanged,
    accepted links survive cache rebuild/export/import, repeated acceptance does not duplicate a
-   link, and changed source revisions prevent stale acceptance.
+   link, and changed source revisions prevent stale acceptance. Verify both conflict versions
+   survive restart, unrelated notes remain usable, concurrent edits reject stale resolutions,
+   and repeated resolution does not create duplicate revisions.
 5. Run actual Obsidian GUI journeys on both target desktops. A mocked plugin or CLI smoke cannot
    establish that the app opened, the plugin activated, or source navigation worked.
 
