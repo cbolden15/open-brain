@@ -30,14 +30,16 @@ outward-facing actions require the applicable user authorization.
 |---|---|---|
 | Native interface | Managed vault plus thin desktop plugin, with capture, search, refresh, and source navigation | A plugin-free vault and Canvas is a coherent intermediate milestone, but does not deliver the complete in-app experience. An export-only bridge does not meet this outcome. |
 | Existing vaults | Preserve one-way import; offer the managed vault for connected editing | Full two-way arbitrary-vault support is the strongest eventual integration, but adds relocation, deletion, duplicate identity, attachment, conflict, and sync-provider behavior. Plan it as a separate milestone rather than imply it ships. |
-| First graph | DECIDED by user on 2026-09-09: inferred connections between previously unlinked notes are required from the start | Model setup and semantic processing belong inside the first-use acceptance boundary. Explicit links alone do not pass. Local versus hosted model delivery is the next open decision. |
+| First graph | DECIDED by user on 2026-09-09: inferred connections between previously unlinked notes are required from the start, using a cloud model initially | Provider setup and semantic processing belong inside the first-use acceptance boundary. Explicit links alone do not pass. Local inference through Ollama is deferred. |
 | Installation clock | Include the work needed to obtain and activate the Obsidian experience; Homebrew remains the declared prerequisite | If Obsidian is a prerequisite, explicitly rename the measured claim to workspace setup on an Obsidian-equipped host. Do not report application installation as included. |
 | Runtime packaging | Test a private self-invoked helper mode in the existing executable, with bounded JSON input/output and lazy Graphify loading | In-process integration has less process plumbing but shares failure/global state. A separate helper executable gives the strongest runtime/module boundary and requires an explicit archive-contract change. Select from NW0 evidence. |
 
 These recommendations allow planning to proceed. Product-sensitive choices remain proposed until
 resolved; no elapsed wait constitutes approval. The implementation gate is the completed NW0 record.
-The first-graph decision supersedes the earlier explicit-links-first recommendation. It does not
-select a provider, authorize cloud disclosure, or establish that model setup fits within five minutes.
+The first-graph decision supersedes the earlier explicit-links-first recommendation. The user also
+selected cloud inference for the initial release, with local Ollama support later. The cloud provider,
+access/billing model, and credential onboarding remain open. This selects product architecture; it
+does not establish the five-minute result or authorize transmitting any particular user's notes.
 
 ## Grounded starting point
 
@@ -168,11 +170,18 @@ targets. Structural extraction needs no model. If users can explicitly accept in
 those decisions need durable provenance outside the disposable graph cache.
 
 Structural extraction is a baseline and fallback, not sufficient first-use acceptance. Add a semantic
-extraction stage using the model-delivery path selected during planning. Record the model/version,
+extraction stage using the selected cloud-model path. Record the model/version,
 input revisions, and extraction provenance; distinguish inferred relations from explicit links.
 Show source evidence for a suggested connection. The same stable-ID and bounded-input rules apply.
 Do not treat a missing provider or failed inference as a successful first graph. Preserve headless
 capture/search and the structural fallback when inference is unavailable.
+
+Keep the semantic request/result contract independent of a provider SDK so a later Ollama adapter
+can reuse input selection, provenance, and graph handling. Implement only the selected cloud path
+in this release. Ollama installation, local model downloads, hardware sizing, and local inference
+acceptance are deferred; do not add them to initial setup. Configure which selected content reaches
+the provider and bind credentials to the intended adapter rather than inherit ambient credentials.
+Credential storage and cloud usage controls must be resolved with the access/billing decision.
 
 Start the offline feasibility proof with Canvas and an explicit source-filename mapping. The
 inspected HTML renderer references a CDN-hosted vis-network asset; package that asset locally before
@@ -222,7 +231,8 @@ as part of this planning change.
 
 Output: a reviewed decision record, synthetic evidence, and a runnable bounded spike. The earlier
 1–2 working-day estimate covered structural graph experiments only. Re-estimate after selecting
-model delivery; semantic quality, provisioning, and first-use latency are now required probes.
+the cloud provider and access model; semantic quality, onboarding, and first-use latency are now
+required probes.
 
 1. Compare sibling workspace projection with a dedicated canonical subtree. Prove one new note and
    one edit reach search and Portable Brain v1 with preserved identity/provenance. Determine exactly
@@ -237,7 +247,7 @@ model delivery; semantic quality, provisioning, and first-use latency are now re
    links and duplicate basenames to the graph fixture; build twice with network denied and verify
    repeatable normalized structural graph JSON and Canvas. Separately prove semantic discovery on
    unlinked related notes, including an unrelated distractor; measure model provisioning and first
-   inference under the selected local/hosted policy. Define an evidence-based semantic-quality rubric
+   inference under the selected cloud-provider policy. Define an evidence-based semantic-quality rubric
    and repeated-run threshold; do not require byte-identical model output.
 4. Exercise Obsidian app installation/first launch/plugin activation on the declared supported
    desktop environments. Record required prompts and ordinary elapsed time. Do not redefine
@@ -318,7 +328,7 @@ into one physical fixture. Never use personal vault content, real captures, or p
 | First use and edit | Related unlinked notes appear in the managed vault; an inferred connection with source evidence resolves to stable IDs; an accepted edit is retrievable and present in verified export. |
 | Identity and conflicts | Rename retains identity; duplicate IDs and concurrent body edits preserve both versions; incomplete enumeration does not erase active notes. |
 | Recovery and lifecycle | Kill after each durable/promotion boundary; replay produces one accepted revision and correct pending state; disconnect/uninstall retains notes and engine history. |
-| Graph and privacy | Generated output never becomes a source; stale cache remains identifiable; hostile text cannot execute; viewing needs no CDN. Inference follows the selected local/hosted authorization policy; provider-none remains a usable fallback but does not pass semantic first-use acceptance. |
+| Graph and privacy | Generated output never becomes a source; stale cache remains identifiable; hostile text cannot execute; viewing needs no CDN. Inference follows the selected cloud-provider authorization policy; provider-none remains a usable fallback but does not pass semantic first-use acceptance. |
 | Portability and caller contracts | Export/import preserves accepted shared IDs/bytes/provenance without paths/settings/cache; MCP cannot gain owner canonical authority through workspace/plugin adapters. |
 
 Initial existing checks and locations to extend:
@@ -344,7 +354,8 @@ before an implementation handoff. Documentation-only planning does not require a
 
 Record ordinary wall-clock elapsed time from the declared installation start through verified export.
 Use a bounded synthetic corpus of related unlinked notes and an unrelated distractor. Include required
-model download/setup or hosted-provider onboarding and first semantic processing in the clock.
+cloud-provider onboarding and first semantic processing in the clock. Local model installation is
+deferred with Ollama support.
 Full-vault indexing is a separate measurement. Do not claim an arbitrary corpus completes in five minutes.
 
 1. Install the candidate through the supported Homebrew lifecycle; obtain/launch Obsidian and
