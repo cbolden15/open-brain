@@ -443,9 +443,9 @@ completion, including native build and Homebrew smoke for packaging changes. Exi
 runs `make contributor-check`; UTM supplies Linux desktop evidence. Do not rerun slow desktop
 journeys until an integration checkpoint or a relevant change invalidates prior evidence.
 
-Next action: the smallest private helper discovery/compatibility proof from B6, with an explicit
-reservation against remaining NW0-B before work. Continue A4 authority and C9 synthetic API transport
-in independent private scopes. Preserve all prior effort, the failed B4 candidate and unchanged
-audit/startup limits. Controlled cold/Linux, full Engine integration and the rest of NW0 remain open.
-Claude stays closed at C7 and Codex remains deferred. The active whole-NW0 goal does not authorize
-publication or early NW1.
+Next action: integrate the independently reviewed A4 authority and corrected C9 transport boundaries
+in a bounded synthetic proof. The [A4/B7/C9 checkpoint](../audits/2026-09-09-ob1-nw0-a4-b7-c9-boundaries.md)
+records the passed private contracts and the real helper's missing capability protocol. Reserve each
+experiment against its remaining allocation. Preserve prior effort, B4's failed candidate and all
+audit/startup limits. Full portable/Engine integration, controlled cold/Linux and desktop gates remain
+open. Claude stays closed at C7; Codex remains deferred. No publication or early NW1 is authorized.
