@@ -443,9 +443,8 @@ completion, including native build and Homebrew smoke for packaging changes. Exi
 runs `make contributor-check`; UTM supplies Linux desktop evidence. Do not rerun slow desktop
 journeys until an integration checkpoint or a relevant change invalidates prior evidence.
 
-Next action: integrate the independently reviewed A4 authority and corrected C9 transport boundaries
-in a bounded synthetic proof. The [A4/B7/C9 checkpoint](../audits/2026-09-09-ob1-nw0-a4-b7-c9-boundaries.md)
-records the passed private contracts and the real helper's missing capability protocol. Reserve each
-experiment against its remaining allocation. Preserve prior effort, B4's failed candidate and all
-audit/startup limits. Full portable/Engine integration, controlled cold/Linux and desktop gates remain
-open. Claude stays closed at C7; Codex remains deferred. No publication or early NW1 is authorized.
+Next action: retain the reviewed [private vertical-slice checkpoint](../audits/2026-09-09-ob1-nw0-private-vertical-slice.md)
+and resolve its remaining installed-schema, live-provider, native Linux and desktop gates before
+resuming dependent work. A5/B8/corrected C10 and A6 now have scoped independent review. The cumulative
+E allocation reaches its 120-minute stop limit; unused A–D effort cannot replace it. C7 remains closed,
+Codex remains deferred, and NW0 is incomplete. Preserve existing evidence and limits. No push or NW1.

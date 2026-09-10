@@ -1318,3 +1318,26 @@ Do not infer that a local archive URL confines every Homebrew side effect or tha
 reaps all work. Preserve the failed receipt and charge its effort.
 
 Discovered: 2026-09-09, [NW0-B6](../../audits/2026-09-09-ob1-nw0-b6-resource-install.md).
+
+### INTEGRATION-016: Source authority can change inside adapter construction
+
+Symptom: A private constructor accepts an edit after the handoff policy check. Stale synthetic input
+reaches the loopback endpoint, even though later publication is rejected.
+
+Cause: A reentrant coordinator lock serializes other threads but permits same-thread callbacks.
+
+Fix: Revalidate authoritative body, revision, privacy and policy after construction and before the
+trusted held-input start. Keep the failing regression; require zero requests, not only zero results.
+
+Discovered: 2026-09-09, [NW0 private slice](../../audits/2026-09-09-ob1-nw0-private-vertical-slice.md).
+
+### INTEGRATION-017: A normalized graph identifier is not evidence that a target exists
+
+Symptom: A missing reference normalizes to the identifier of a different selected page.
+
+Cause: Upstream identifiers can collide across missing and existing targets.
+
+Fix: Join an existing-file target stamp to the eligible inventory. Reject unresolved references;
+do not promote them using the normalized identifier alone. Test the actual frozen helper.
+
+Discovered: 2026-09-09, [NW0 private slice](../../audits/2026-09-09-ob1-nw0-private-vertical-slice.md).

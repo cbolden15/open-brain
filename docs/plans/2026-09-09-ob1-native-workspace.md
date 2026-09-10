@@ -905,9 +905,8 @@ two of four lenses; this revision does not claim a new independent review or suc
 | Implementation ownership | Requirement ownership matrix and explicit four-adapter/onboarding exit gates in NW1–NW4. |
 | Bounded feasibility work | NW0-A–E effort/request limits, named desktop target and provisioning dependency, startup measurements, explicit stop conditions. |
 
-Next action: continue bounded synthetic authority/transport integration under the cumulative ledger.
-The [A4/B7/C9 checkpoint](../audits/2026-09-09-ob1-nw0-a4-b7-c9-boundaries.md) records reviewed private
-boundaries after the successful B6 resource-install proof. Complete portable-record composition,
-source evidence, the actual helper protocol, controlled cold/native Linux and isolated desktop gates.
-C7 remains closed pending concrete supported Claude capabilities; Codex remains deferred. Preserve
-all prior evidence and limits. Review the completed NW0 decision record before NW1.
+Next action: retain the reviewed [private vertical-slice checkpoint](../audits/2026-09-09-ob1-nw0-private-vertical-slice.md)
+and resolve its remaining installed-schema, live-provider, native Linux and desktop gates before
+resuming dependent work. A5/B8/corrected C10 and A6 now have scoped independent review. The cumulative
+E allocation reaches its 120-minute stop limit; unused A–D effort cannot replace it. C7 remains closed,
+Codex remains deferred, and NW0 is incomplete. Preserve existing evidence and limits. No push or NW1.
