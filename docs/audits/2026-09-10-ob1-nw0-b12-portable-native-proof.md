@@ -1,6 +1,6 @@
 # NW0-B12 portable native packaging proof
 
-Status: corrected macOS proof passes; native Linux CI remains pending. NW0 remains open.
+Status: corrected macOS and native Linux CI proofs pass. NW0 remains open.
 
 The helper source, synthetic fixtures, hash-pinned wheel inputs, and maintained Graphify patch now
 live in `tools/nw0_graphify_probe`. The same command builds and checks both supported native targets.
@@ -26,6 +26,24 @@ Corrected helper SHA-256:
 Corrected archive SHA-256:
 `75ca9d637239fd4c0842e8e9768671705f4b0505c86901b56366d14bf4c9410d`.
 These identify this build only. CI produces fresh platform receipts and hashes.
+
+## Native CI evidence
+
+[CI run 34516216636](https://github.com/cbolden15/open-brain/actions/runs/34516216636)
+passed on both native targets at commit `4fe79512287c5b52c41e5ae2f89ca4a8fdd4276e`.
+Both jobs passed the contributor check and 84 frozen-helper runtime checks. Downloaded artifacts
+passed owner-private content inspection. An independent reviewer verified the exact run, commit,
+five-member envelopes, embedded helper hashes, runtime receipts and diagnostic-module absence.
+The reviewer inspected the private-audit receipt; the coordinator executed that audit.
+
+| Target | Archive bytes | Archive SHA-256 |
+|---|---:|---|
+| Linux x86_64 | 13,836,351 | `c96b90cc022490ca0039d8fb90d6c853273e5e1ed444a09fdc4acb49d8c9f51b` |
+| macOS arm64 | 9,546,701 | `17c1c260146a98259e1ebd95fac6cda1249b87d4da7e6322f1d2c35313bcd9a4` |
+
+Linux helper SHA-256: `9ecc0ff16d8613b3b52bfe914e6073fead436c9beb3a9bdb557d0883657f0b39`.
+macOS helper SHA-256: `a2f25829aa3a09970664727135ff9fcda99d279d44b5c085268e713313c3cee2`.
+These are fresh builds, not claims of bit-identical rebuilding or cold-start passage.
 
 ## Corrections retained from independent review
 
@@ -65,5 +83,5 @@ disposable-start control; the required x86_64 desktop guest and journey remain u
 
 The owner authorized continued effort beyond previous ceilings and necessary publication. All
 prior effort remains charged; product call/byte/time, synthetic-data and consent controls remain.
-Next: require macOS/Linux CI on the exact published commit and independently audit downloaded
-artifacts before relying on their native platform evidence. C7 remains closed and NW1 remains gated.
+Next: complete the separate Linux desktop proof and controlled startup evidence. The native CI
+gate above is satisfied for this candidate. C7 remains closed and NW1 remains gated.

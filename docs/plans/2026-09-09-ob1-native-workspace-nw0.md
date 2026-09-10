@@ -1,9 +1,12 @@
 # OB1 native workspace NW0 decision record
 
-- Current continuation: B12 makes the reviewed Markdown helper reproducible in native CI.
+- Current continuation: B12 passed native macOS arm64 and Linux x86_64 CI at `4fe7951`,
+  with 84 frozen-helper checks per target, private artifact audits and independent review.
+  See the [exact candidate receipt](../audits/2026-09-10-ob1-nw0-b12-portable-native-proof.md).
+  Controlled cold startup, live providers and the complete desktop slice remain open.
   The owner has lifted effort ceilings and authorized necessary pushes; product privacy and model
   limits remain unchanged. Prior results below retain their original scope and failures.
-- Status: open. NW0-B1 closure/import proof passed with required integration controls.
+- Historical checkpoint status (superseded where newer receipts say so): NW0-B1 closure/import proof passed with required integration controls.
   NW0-B4 records the authorized upstream-first/maintained-patch policy and an explicit parser contract.
   Nested-frontmatter tests now pass in the private parser candidate; its pure-Python Mac archive
   passes content inspection and native smoke but adds 213 ms in the repeat-startup series, exceeding
@@ -451,6 +454,20 @@ instruction to continue NW0 beyond existing effort budgets and publish where nec
 effort remains charged. Synthetic-data, consent, isolation, model-attempt, byte, and timeout limits
 remain in force. C7 remains closed, Codex remains deferred, and NW1 must not start early.
 
-Next action: verify and publish the [B12 portable native proof](../../tools/nw0_graphify_probe/README.md)
-for fresh macOS and Linux CI evidence. Preserve the reviewed private vertical slice and the later
+Next action: complete the separate Linux desktop proof and controlled startup evidence, using the
+verified [B12 portable native proof](../../tools/nw0_graphify_probe/README.md). Preserve the private vertical slice and the later
 A9 current-link and A10 managed-identity proofs; they do not implement shipping schema or write-back.
+
+The closure-scope review distinguishes feasibility from shipping implementation. NW0-A must compose
+and freeze the identity, acceptance, privacy and portable-representation contracts in a private
+proof. Installed migrations and production writer/owner enforcement are NW1 implementation.
+NW0-B must prove the selected artifact, distribution boundary and startup budget; the complete
+application adapter and plugin remain NW2/NW3. NW0-D still requires actual desktop activation,
+evidence navigation and a minimal safe acceptance bridge. The complete release journey remains NW4.
+These distinctions do not remove the four-path live-provider matrix or close Claude C7.
+
+B13 adds a CI-only comparison of five disk-cache-cold and five warm base starts per layout and
+native target. Both layouts use identical base bytes; the candidate contains the audited dormant
+helper. Every sample and a sanitized failure phase are retained. macOS `purge` and Linux
+`sync`/`drop_caches` run only on disposable hosted runners. They establish a controlled disk-cache
+condition, not a reboot or helper activation. Numeric passage remains pending its CI receipts.

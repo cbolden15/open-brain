@@ -60,7 +60,26 @@ It checks archive reproducibility from the same executable, not bit-identical
 rebuilds. CI runs generic content rules. The owner's private denylist audit remains a separate gate
 before using downloaded artifacts as final publication evidence.
 
+## CI-only startup comparison
+
+After the helper proof, CI runs `python -m tools.nw0_graphify_probe.startup` on each disposable
+GitHub-hosted runner. The command refuses ordinary local and self-hosted environments. It compares
+five alternating baseline/candidate observations for each of disk-cache-cold and warm base
+`status --json`, against one initialized synthetic Brain. Both layouts contain identical base
+bytes; the candidate also contains the exact audited helper, which remains dormant.
+
+Each cold observation follows macOS `purge` or Linux `sync` plus `drop_caches=3`, outside the timed
+interval. This approximates cold disk-buffer-cache conditions, not a reboot or anonymous-memory
+reset. The [Linux kernel documentation](https://www.kernel.org/doc/html/latest/admin-guide/sysctl/vm.html)
+limits this technique to testing/debugging; it is never run on the development Mac.
+The warm series starts with one untimed invocation per layout. Each invocation has a 60-second
+deadline, 16 KiB log cap, process-group cleanup and temporary-directory check. Every measured sample
+is retained; additional median budgets remain 500 ms cold and 200 ms warm. The path-free
+`startup-verification.json` identifies the exact base/helper bytes and records all samples, including
+a budget failure. Helper activation, first installation and the complete journey are separate gates.
+
 Only the archive and path-free verification reports are uploaded under the dedicated `nw0-graphify`
 artifact name. Build logs and staged inputs remain local to the runner. This is packaging and runtime
-evidence, not controlled cold-start timing, a Homebrew paired-resource test, shipping compatibility
+evidence. The separate startup report adds only the scoped layout comparison above. Neither proves
+a Homebrew paired-resource test, shipping compatibility
 negotiation, provider passage, or a completed NW0 gate.

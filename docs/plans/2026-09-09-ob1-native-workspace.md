@@ -1,6 +1,10 @@
 # OB1 native Obsidian and Graphify workspace
 
-- Status: NW0-B4 records the authorized upstream-first/maintained-patch policy and a working private
+- Current status: B12 passes native macOS arm64 and Linux x86_64 CI, 84 helper checks per target,
+  private artifact inspection and independent review. See the
+  [candidate receipt](../audits/2026-09-10-ob1-nw0-b12-portable-native-proof.md).
+  Controlled cold startup, live providers and the complete desktop slice remain open.
+- Historical checkpoints: NW0-B4 records the authorized upstream-first/maintained-patch policy and a working private
   frontmatter contract. The pure parser candidate passes Mac content inspection and native smoke,
   but its observed 213 ms repeat-startup penalty exceeds the 200 ms budget. Controlled cold/Linux
   evidence and Engine integration remain open. C7's missing Claude capabilities still block native
