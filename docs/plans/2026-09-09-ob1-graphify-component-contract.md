@@ -8,8 +8,11 @@
 B5's [separate-resource proof](../audits/2026-09-09-ob1-nw0-a3-b5-feasibility.md) rebuilds this
 component with the pure parser in a helper. Both native archives pass Mac content inspection and
 the unchanged base meets the observed ordinary warm-status budget in the proposed layout.
-This candidate needs explicit resource identity, asset naming, manifest/formula and install-lifecycle
-support. Controlled cold/Linux and shipping integration remain open; the combined B4 failure stands.
+The [B6 install proof](../audits/2026-09-09-ob1-nw0-b6-resource-install.md) adds distinct private resource
+identities and a component manifest. One Homebrew formula installs the helper under `libexec`, upgrades
+the pair, preserves it after observed failures and removes the owned smoke installation. Shipping
+manifest/formula support, runtime discovery/protocol compatibility, controlled cold/Linux and Engine
+integration remain open; the combined B4 failure stands.
 
 ## Dependency ownership
 

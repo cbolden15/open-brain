@@ -1304,3 +1304,17 @@ Measure ordinary base status separately from helper execution; do not equate it 
 or the full five-minute journey. Same-input archive comparisons must use the same gzip filename.
 
 Discovered: 2026-09-09, [NW0-B5](../../audits/2026-09-09-ob1-nw0-a3-b5-feasibility.md).
+
+### INTEGRATION-015: Disabling Homebrew API installation can trigger a shared core clone
+
+Symptom: A local-only resource smoke begins cloning the core tap while indexing its private tap.
+
+Cause: `HOMEBREW_NO_INSTALL_FROM_API` requests a local core checkout; it is not an offline switch.
+Stopping the harness process group did not stop the observed orphan git clone automatically.
+
+Fix: Omit that flag for the local resource proof. Keep auto-update disabled and cache/log/home state
+isolated. On interruption, identify owned descendants and verify cleanup and product preservation.
+Do not infer that a local archive URL confines every Homebrew side effect or that killing the parent
+reaps all work. Preserve the failed receipt and charge its effort.
+
+Discovered: 2026-09-09, [NW0-B6](../../audits/2026-09-09-ob1-nw0-b6-resource-install.md).

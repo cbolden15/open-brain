@@ -17,7 +17,8 @@
   A2 adds eight passing grouped representation tests, a working v1 byte carrier with unenforced
   policy flags, and an old-reader version-refusal control. The complete typed format remains open.
   A3 binds the private composition to actual validated source records. B5's separate-resource Mac
-  candidate passes content inspection and the observed ordinary warm-status budget; distribution,
+  candidate passes content inspection and the observed ordinary warm-status budget. B6 proves the
+  private paired-resource Homebrew lifecycle on this Mac. Shipping distribution/runtime integration,
   controlled cold/Linux and the remaining A–E gates stay open.
 - Authority: [native workspace plan](2026-09-09-ob1-native-workspace.md), including the user's
   implementation-efficiency guidelines and the subsequent user-authorized Codex deferral.
@@ -344,6 +345,19 @@ administrator capability checks do not establish a usable isolated Mac desktop; 
 guest remains unverified. Provisioning was already authorized. Continue safe independent work while
 establishing the actual environment and resource dependencies; do not reopen product decisions.
 
+## NW0-B6 paired-resource installation
+
+The [B6 proof](../audits/2026-09-09-ob1-nw0-b6-resource-install.md) gives the base and helper distinct
+archive identities under one private component manifest and one Homebrew formula. Each passes the
+unchanged native content auditor. The actual reserved smoke installs the helper under `libexec`,
+upgrades the pair, preserves the old pair after digest and staged-install failures, recovers and
+uninstalls. The installed base passes its full native smoke; the helper passes 20 frontmatter checks.
+Four grouped contract tests and 48 evidence checks pass, independently reviewed.
+
+The initial Homebrew core-clone incident and recovery remain recorded. No shipping manifest/formula
+or runtime dispatcher was implemented. Native Linux, controlled cold starts and helper compatibility
+under upgrade concurrency remain open; B5's scoped warm result and B4's failure are unchanged.
+
 ## Unproven gates and pass/fail criteria
 
 | Gate | Evidence required to pass | Fail or incomplete condition |
@@ -429,9 +443,9 @@ completion, including native build and Homebrew smoke for packaging changes. Exi
 runs `make contributor-check`; UTM supplies Linux desktop evidence. Do not rerun slow desktop
 journeys until an integration checkpoint or a relevant change invalidates prior evidence.
 
-Next action: NW0-B6 resource/install-contract proof, capped at 45 minutes from remaining NW0-B,
-using the B5 candidate and synthetic fixtures. Keep source-binding/authority and desktop prerequisite
-work independent where possible. Preserve all prior effort, the failed B4 candidate and unchanged
+Next action: the smallest private helper discovery/compatibility proof from B6, with an explicit
+reservation against remaining NW0-B before work. Continue A4 authority and C9 synthetic API transport
+in independent private scopes. Preserve all prior effort, the failed B4 candidate and unchanged
 audit/startup limits. Controlled cold/Linux, full Engine integration and the rest of NW0 remain open.
 Claude stays closed at C7 and Codex remains deferred. The active whole-NW0 goal does not authorize
 publication or early NW1.

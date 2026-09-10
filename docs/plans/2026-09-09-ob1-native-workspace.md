@@ -10,8 +10,9 @@
   A2 proves a v1 carrier preserves bytes without enforcing workspace restrictions and tests explicit
   version refusal. A complete typed representation and its shared-record compatibility remain open.
   A3 binds private state to a real validated export. B5's separate-resource Mac candidate passes
-  content inspection and the observed ordinary warm-status budget; its release/install contract,
-  controlled cold starts and Linux execution remain open. The whole-NW0 goal continues locally.
+  content inspection and the observed ordinary warm-status budget. B6 proves the private paired-resource
+  Homebrew lifecycle on this Mac; shipping distribution/runtime integration, controlled cold starts
+  and Linux execution remain open. The whole-NW0 goal continues locally.
 - Date: 2026-09-09.
 - Baseline: `708e30c9d1e736969e2bb0aa6f0454a5f4804489` on `goal/open-brain-five-minute-install`.
 - Planning branch: `docs/ob1-native-workspace-plan`.
