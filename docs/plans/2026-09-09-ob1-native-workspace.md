@@ -13,6 +13,10 @@
   content inspection and the observed ordinary warm-status budget. B6 proves the private paired-resource
   Homebrew lifecycle on this Mac; shipping distribution/runtime integration, controlled cold starts
   and Linux execution remain open. The whole-NW0 goal continues locally.
+- September 10 continuation: the owner lifted effort ceilings and authorized publication needed to
+  complete NW0. Preserve cumulative charges and all synthetic-data, consent, isolation, model-call,
+  byte and timeout controls. The historical hour allocations remain planning records. This overrides
+  effort-stop and no-push clauses below, without closing C7 or permitting early NW1 implementation.
 - Date: 2026-09-09.
 - Baseline: `708e30c9d1e736969e2bb0aa6f0454a5f4804489` on `goal/open-brain-five-minute-install`.
 - Planning branch: `docs/ob1-native-workspace-plan`.

@@ -1,5 +1,8 @@
 # OB1 native workspace NW0 decision record
 
+- Current continuation: B12 makes the reviewed Markdown helper reproducible in native CI.
+  The owner has lifted effort ceilings and authorized necessary pushes; product privacy and model
+  limits remain unchanged. Prior results below retain their original scope and failures.
 - Status: open. NW0-B1 closure/import proof passed with required integration controls.
   NW0-B4 records the authorized upstream-first/maintained-patch policy and an explicit parser contract.
   Nested-frontmatter tests now pass in the private parser candidate; its pure-Python Mac archive
@@ -443,8 +446,11 @@ completion, including native build and Homebrew smoke for packaging changes. Exi
 runs `make contributor-check`; UTM supplies Linux desktop evidence. Do not rerun slow desktop
 journeys until an integration checkpoint or a relevant change invalidates prior evidence.
 
-Next action: retain the reviewed [private vertical-slice checkpoint](../audits/2026-09-09-ob1-nw0-private-vertical-slice.md)
-and resolve its remaining installed-schema, live-provider, native Linux and desktop gates before
-resuming dependent work. A5/B8/corrected C10 and A6 now have scoped independent review. The cumulative
-E allocation reaches its 120-minute stop limit; unused A–D effort cannot replace it. C7 remains closed,
-Codex remains deferred, and NW0 is incomplete. Preserve existing evidence and limits. No push or NW1.
+The earlier E effort stop and no-push checkpoint are superseded by the owner's September 10
+instruction to continue NW0 beyond existing effort budgets and publish where necessary. All elapsed
+effort remains charged. Synthetic-data, consent, isolation, model-attempt, byte, and timeout limits
+remain in force. C7 remains closed, Codex remains deferred, and NW1 must not start early.
+
+Next action: verify and publish the [B12 portable native proof](../../tools/nw0_graphify_probe/README.md)
+for fresh macOS and Linux CI evidence. Preserve the reviewed private vertical slice and the later
+A9 current-link and A10 managed-identity proofs; they do not implement shipping schema or write-back.

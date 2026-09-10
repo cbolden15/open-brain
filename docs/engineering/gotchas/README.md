@@ -1341,3 +1341,22 @@ Fix: Join an existing-file target stamp to the eligible inventory. Reject unreso
 do not promote them using the normalized identifier alone. Test the actual frozen helper.
 
 Discovered: 2026-09-09, [NW0 private slice](../../audits/2026-09-09-ob1-nw0-private-vertical-slice.md).
+
+
+### INTEGRATION-018: Test-only native routes can bypass the public input contract
+
+Symptom: A helper advertises selected-body extraction, but a bundled diagnostic accepts a directory
+and reads fixture files directly. Reusing the base archive writer also gives the helper the wrong
+executable name and leaves its distribution contract implicit.
+
+Cause: Private diagnostic entrypoints and base-product packaging assumptions survive a proof's
+move into reproducible CI support.
+
+Fix: Keep filesystem diagnostics source-only and test rejection by the actual frozen executable.
+Use an explicit helper envelope with a fixed executable name and bounded legal-file inventory.
+B12 adds that narrow envelope to the native auditor; it does not widen the base one-member contract,
+content exceptions, decompression limits, or generic archive member cap. Test both accepted envelopes
+and missing, extra, duplicate, oversized, symbolic-link, and incorrectly named members.
+
+Discovered: 2026-09-10, independent review of the
+[B12 portable native proof](../../../tools/nw0_graphify_probe/README.md).

@@ -31,6 +31,14 @@ jobs:
           version: "0.12.8"
           enable-cache: true
       - run: make contributor-check
+      - name: Verify experimental Graphify native helper
+        run: uv run --frozen --python 3.14 --no-dev --group native-build python -m tools.nw0_graphify_probe.run
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: nw0-graphify-linux-x86_64-${{ github.event.pull_request.head.sha || github.sha }}
+          path: build/nw0-graphify/release
+          if-no-files-found: error
+          retention-days: 7
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: open-brain-linux-x86_64-${{ github.event.pull_request.head.sha || github.sha }}
@@ -52,6 +60,14 @@ jobs:
           version: "0.12.8"
           enable-cache: true
       - run: make contributor-check
+      - name: Verify experimental Graphify native helper
+        run: uv run --frozen --python 3.14 --no-dev --group native-build python -m tools.nw0_graphify_probe.run
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: nw0-graphify-macos-arm64-${{ github.event.pull_request.head.sha || github.sha }}
+          path: build/nw0-graphify/release
+          if-no-files-found: error
+          retention-days: 7
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: open-brain-macos-arm64-${{ github.event.pull_request.head.sha || github.sha }}
