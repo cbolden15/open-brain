@@ -1,0 +1,228 @@
+from __future__ import annotations
+
+# ruff: noqa: I001 -- fixture import intentionally establishes frozen sys.path
+
+import asyncio
+import math
+import time
+import unittest
+from unittest.mock import patch
+
+import test_async_transport as fixtures
+import async_transport as candidate
+from direct_api import HttpResponse, build_request, parse_response, route_for
+
+
+class CorrectionTests(unittest.IsolatedAsyncioTestCase):
+    def request(self):
+        route = route_for("openai_api", fixtures.MODELS["openai_api"], timeout_seconds=1)
+        return route, build_request(route, "synthetic prompt", "synthetic-key")
+
+    async def assert_overrun_cleanup(self, *, slow_validate: bool):
+        dns_transport, _, dns_port = await fixtures.dns_server()
+        seen = asyncio.Event()
+        route, request = self.request()
+        runner, blocker, tls_port = await fixtures.https_server(
+            "success", fixtures.success("openai_api"), seen
+        )
+        evidence = candidate.Evidence()
+        sessions = []
+        resolvers = []
+        real_session = candidate.aiohttp.ClientSession
+        real_resolver = candidate.DnsPythonResolver
+
+        def session_factory(*args, **kwargs):
+            value = real_session(*args, **kwargs)
+            sessions.append(value)
+            return value
+
+        class TrackingResolver(real_resolver):
+            def __init__(self, *args, **kwargs):
+                super().__init__(*args, **kwargs)
+                resolvers.append(self)
+
+        def delay():
+            time.sleep(0.15)
+
+        def parse(status, headers, body):
+            if not slow_validate:
+                delay()
+            return parse_response(route, HttpResponse(status, headers, body))
+
+        try:
+            with (
+                patch.object(candidate.aiohttp, "ClientSession", session_factory),
+                patch.object(candidate, "DnsPythonResolver", TrackingResolver),
+                self.assertRaisesRegex(candidate.TransportRejected, "cleanup/deadline failure"),
+            ):
+                await candidate.exchange(
+                    request,
+                    dns_port=dns_port,
+                    tls_port=tls_port,
+                    ca_file=str(fixtures.FIXTURES / "ca.pem"),
+                    timeout=0.12,
+                    cancel=asyncio.Event(),
+                    release=lambda: None,
+                    evidence=evidence,
+                    validate_after=delay if slow_validate else (lambda: None),
+                    parse=parse,
+                )
+            self.assertEqual((len(sessions), len(resolvers)), (1, 1))
+            self.assertTrue(evidence.session_closed)
+            self.assertTrue(evidence.resolver_closed)
+            self.assertTrue(sessions[0].closed)
+            self.assertTrue(resolvers[0]._closed)
+            live = [
+                task.get_name()
+                for task in asyncio.all_tasks()
+                if task is not asyncio.current_task()
+                and task.get_name().startswith("c25-owned")
+            ]
+            self.assertEqual(live, [])
+        finally:
+            for session in sessions:
+                if not session.closed:
+                    await session.close()
+            for resolver in resolvers:
+                if not resolver._closed:
+                    await resolver.close()
+            blocker.set()
+            await runner.cleanup()
+            dns_transport.close()
+
+    async def test_validation_overrun_attempts_all_cleanup_and_fails(self):
+        await self.assert_overrun_cleanup(slow_validate=True)
+
+    async def test_actual_c15_parse_overrun_is_inside_clock_and_fails(self):
+        await self.assert_overrun_cleanup(slow_validate=False)
+
+    async def test_invalid_timeouts_reject_before_construction(self):
+        _, request = self.request()
+        for timeout in (True, False, 0, -1, 61, math.nan, math.inf, -math.inf):
+            evidence = candidate.Evidence()
+            credentials = []
+            with self.subTest(timeout=timeout), self.assertRaises(candidate.TransportRejected):
+                await candidate.guarded_exchange(
+                    True,
+                    lambda credentials=credentials: credentials.append(1) or "synthetic-key",
+                    request,
+                    dns_port=1, tls_port=1,
+                    ca_file=str(fixtures.FIXTURES / "ca.pem"), timeout=timeout,
+                    cancel=asyncio.Event(), release=lambda: None, evidence=evidence,
+                    parse=lambda *_: None,
+                )
+            self.assertEqual((evidence.clients, evidence.resolvers), (0, 0))
+            self.assertEqual(credentials, [])
+
+    async def test_preset_cancel_rejects_before_construction(self):
+        _, request = self.request()
+        cancel = asyncio.Event(); cancel.set(); evidence = candidate.Evidence(); credentials = []
+        with self.assertRaises(asyncio.CancelledError):
+            await candidate.guarded_exchange(
+                True, lambda: credentials.append(1) or "synthetic-key", request,
+                dns_port=1, tls_port=1,
+                ca_file=str(fixtures.FIXTURES / "ca.pem"), timeout=1,
+                cancel=cancel, release=lambda: None, evidence=evidence,
+                parse=lambda *_: None,
+            )
+        self.assertEqual((evidence.clients, evidence.resolvers), (0, 0))
+        self.assertEqual(credentials, [])
+
+    async def test_cancel_set_by_release_prevents_body_yield(self):
+        dns_transport, _, dns_port = await fixtures.dns_server()
+        seen = asyncio.Event(); _, request = self.request(); cancel = asyncio.Event()
+        runner, blocker, tls_port = await fixtures.https_server(
+            "success", fixtures.success("openai_api"), seen
+        )
+        evidence = candidate.Evidence()
+        try:
+            with self.assertRaises(asyncio.CancelledError):
+                await candidate.exchange(
+                    request, dns_port=dns_port, tls_port=tls_port,
+                    ca_file=str(fixtures.FIXTURES / "ca.pem"), timeout=1,
+                    cancel=cancel, release=cancel.set, evidence=evidence,
+                    parse=lambda *_: None,
+                )
+            self.assertEqual(evidence.releases, 0)
+            self.assertTrue(evidence.connector_closed)
+            self.assertTrue(evidence.resolver_closed)
+        finally:
+            blocker.set(); await runner.cleanup(); dns_transport.close()
+
+    async def test_client_construction_failure_closes_connector_and_resolver(self):
+        _, request = self.request(); evidence = candidate.Evidence()
+        with (
+            patch.object(candidate.aiohttp, "ClientSession", side_effect=RuntimeError("construct")),
+            self.assertRaisesRegex(RuntimeError, "construct"),
+        ):
+            await candidate.exchange(
+                request, dns_port=1, tls_port=1,
+                ca_file=str(fixtures.FIXTURES / "ca.pem"), timeout=1,
+                cancel=asyncio.Event(), release=lambda: None, evidence=evidence,
+                parse=lambda *_: None,
+            )
+        self.assertTrue(evidence.connector_closed)
+        self.assertTrue(evidence.resolver_closed)
+
+    async def test_redirect_not_followed_and_c15_rejects_inside_clock(self):
+        dns_transport, _, dns_port = await fixtures.dns_server()
+        seen = asyncio.Event(); route, request = self.request()
+        runner, blocker, tls_port = await fixtures.https_server("redirect", b"", seen)
+        evidence = candidate.Evidence()
+        try:
+            with self.assertRaisesRegex(Exception, "HTTP status"):
+                await candidate.exchange(
+                    request, dns_port=dns_port, tls_port=tls_port,
+                    ca_file=str(fixtures.FIXTURES / "ca.pem"), timeout=1,
+                    cancel=asyncio.Event(), release=lambda: None, evidence=evidence,
+                    parse=lambda status, headers, body: parse_response(
+                        route, HttpResponse(status, headers, body)
+                    ),
+                )
+            self.assertTrue(evidence.session_closed)
+            self.assertTrue(evidence.resolver_closed)
+            self.assertEqual(evidence.dns_queries, 1)
+        finally:
+            blocker.set(); await runner.cleanup(); dns_transport.close()
+
+    async def test_session_close_error_does_not_skip_resolver_close(self):
+        dns_transport, _, dns_port = await fixtures.dns_server()
+        seen = asyncio.Event(); route, request = self.request()
+        runner, blocker, tls_port = await fixtures.https_server(
+            "success", fixtures.success("openai_api"), seen
+        )
+        evidence = candidate.Evidence()
+        real_session = candidate.aiohttp.ClientSession
+
+        class FailingCloseSession:
+            def __init__(self, *args, **kwargs):
+                self.inner = real_session(*args, **kwargs)
+
+            def __getattr__(self, name):
+                return getattr(self.inner, name)
+
+            async def close(self):
+                await self.inner.close()
+                raise RuntimeError("synthetic close failure")
+
+        try:
+            with (
+                patch.object(candidate.aiohttp, "ClientSession", FailingCloseSession),
+                self.assertRaisesRegex(candidate.TransportRejected, "session close"),
+            ):
+                await candidate.exchange(
+                    request, dns_port=dns_port, tls_port=tls_port,
+                    ca_file=str(fixtures.FIXTURES / "ca.pem"), timeout=1,
+                    cancel=asyncio.Event(), release=lambda: None, evidence=evidence,
+                    parse=lambda status, headers, body: parse_response(
+                        route, HttpResponse(status, headers, body)
+                    ),
+                )
+            self.assertTrue(evidence.session_closed)
+            self.assertTrue(evidence.resolver_closed)
+        finally:
+            blocker.set(); await runner.cleanup(); dns_transport.close()
+
+
+if __name__ == "__main__":
+    unittest.main(verbosity=2)
