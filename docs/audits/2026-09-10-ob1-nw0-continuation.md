@@ -4,6 +4,57 @@ Status: NW0 remains incomplete. This record updates current status without repla
 failures or treating private prototypes as shipping implementation. No real-provider sample has
 run. The required four-path, two-platform matrix still needs 32 samples.
 
+## September 11 checkpoint
+
+This checkpoint supersedes the in-progress correction statuses in the retained chronology below.
+Earlier failures and their evidence remain part of the record.
+
+The shared proof coordinator at commit `f0950125438d72cbb5a62b93f7d65fbca1ae243d` passed
+3,739 local tests, with five filesystem-dependent skips, lint, type checks and three package builds.
+Independent review passed. The exact 947-file public-tree privacy audit found no issues.
+[CI run 34587771347](https://github.com/cbolden15/open-brain/actions/runs/34587771347)
+passed all four jobs. Both native synthetic transport receipts passed independent review:
+23 tests normally and 23 with optimization on each of Linux x86_64 and macOS arm64, with source,
+implementation and dependency bindings and known child cleanup. Eight altered-receipt controls
+were rejected. These are transport results, not the private authority suite or real-provider samples.
+
+D22's fourth correction passed independent response-validation and actual local-pipe checks.
+D24 then passed the headless presentation-to-Portable composition with an explicitly paused restart.
+The corrected D26 scheduler and D27 composition subsequently passed the unpaused restart path on
+fresh synthetic fixtures. Each D27 run retained exactly one accepted link, imported the export
+byte-exact with consent inactive, rebuilt poisoned derived rows through authoritative reconciliation,
+and retrieved the expected notes. Tampered authority rejected before retrieval; owned helper sessions
+terminated. The optimized D27 run optimized the Python orchestrator, not the staged helper.
+These results resolve the recorded headless restart/presentation gaps. They are not new desktop GUI
+observations, a shipping materializer, or a real-adapter journey. All consumed fixtures stay preserved.
+
+C20's third correction passed its finite recovery-bound checks, but a retained native readiness
+failure and the wider initial-launch assumptions remain unresolved. It is not a complete native
+launch approval. Direct APIs do not inherently require that native child topology. The later owned
+async transport has native synthetic evidence, while actual kernel connect/write-stall proof remains
+open. Buffer observations and injected delays do not establish those kernel phases.
+
+C44 fixes the private authority's credential-preflight close ownership and rejects reentrant async
+close before it can wait on its own caller. Independent verification passed 40 tests normally and
+40 with optimization, plus a pending resolver that cleaned up at its original one-second deadline.
+The unused reservation was cancelled without durable dispatch intent. An initial reviewer exception
+expectation was wrong; its failed test is retained alongside the corrected check. An earlier demand
+for cancellation within two event-loop turns was not established by the contract. Bounded draining
+within the original operation deadline remains the supported semantics.
+
+C44's pass is local semantic evidence. Its reused dependency environment is not hermetic provenance,
+and the public preparatory authority profile still declares 28 tests, not this 40-test candidate.
+The authority bundle, complete dependency/import provenance, current public inventory and fresh native
+authority execution remain gated. No private authority candidate was activated by the transport CI.
+
+Current ownership is unchanged: NW2 owns later adapters and presentation, NW3 owns installation and
+credential custody, and NW4 owns the release-candidate timed journey. Remaining NW0 work is the
+reviewed native authority bundle, actual kernel-phase evidence, supported Claude access/confinement,
+closed direct-API trust and credential selection, all 32 real-provider samples, Linux bridge approval
+and GUI evidence, fresh integrated desktop journeys, and final independently reviewed coverage.
+The original Linux review block remains in force. No provider fallback, scope reduction, service
+deletion, fixture reset or NW1 implementation is authorized by these scoped passes.
+
 ## Native packaging and startup
 
 B12's selected separate-helper candidate passed native builds, runtime checks, artifact inspection
