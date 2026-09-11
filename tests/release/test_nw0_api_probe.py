@@ -70,8 +70,10 @@ def test_materialization_does_not_reread_verified_inputs(
     source = source_tree(tmp_path)
     original = run.load_inputs
 
-    def changed_after_read(path: Path) -> tuple[dict[str, str], dict[str, bytes], str]:
-        value = original(path)
+    def changed_after_read(
+        path: Path, candidate_files: tuple[str, ...] = CANDIDATE_FILES,
+    ) -> tuple[dict[str, str], dict[str, bytes], str]:
+        value = original(path, candidate_files)
         (path / "requirements.txt").write_text("changed")
         (path / "dependency-wheels.json").write_text("changed")
         return value

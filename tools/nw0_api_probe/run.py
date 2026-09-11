@@ -1,4 +1,4 @@
-"""Run the synthetic async transport proof in a separate dependency directory."""
+"""Run a fixed synthetic NW0 proof in a separate dependency directory."""
 from __future__ import annotations
 
 import argparse
@@ -8,6 +8,7 @@ import math
 import platform
 import shutil
 import sys
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -25,11 +26,46 @@ CANDIDATE_FILES = (
     "test_boundary_adversarial.py",
     "tls_fixture.py",
 )
-INPUT_FILES = (
-    "requirements.txt",
-    "dependency-wheels.json",
-    *(f"payload/{name}.txt" for name in CANDIDATE_FILES),
-    "payload/run_bundle.py.txt",
+
+
+def input_files(candidate_files: tuple[str, ...]) -> tuple[str, ...]:
+    return (
+        "requirements.txt",
+        "dependency-wheels.json",
+        *(f"payload/{name}.txt" for name in candidate_files),
+        "payload/run_bundle.py.txt",
+    )
+
+
+INPUT_FILES = input_files(CANDIDATE_FILES)
+
+
+@dataclass(frozen=True)
+class ProofProfile:
+    name: str
+    source: Path
+    candidate_files: tuple[str, ...]
+    expected_tests: int
+    base_sources: tuple[tuple[str, Path, str], ...] = ()
+
+
+TRANSPORT_PROFILE = ProofProfile("api", SOURCE, CANDIDATE_FILES, 23)
+AUTHORITY_PROFILE = ProofProfile(
+    "authority", REPO / "tools/nw0_authority_probe",
+    (
+        "authority_gate.py", "async_bridge.py", "async_transport.py", "direct_api.py",
+        "bridge.py", "wire.py", "source_binding.py", "test_authority_gate.py",
+        "test_async_authority.py", "test_terminal_ownership.py", "test_host_lifetime.py",
+        "test_async_transport.py", "tls_fixture.py", "test_source_binding.py",
+        "semantic-dataset.json",
+    ),
+    28,
+    (
+        ("engine", REPO / "packages/engine/src",
+         "7f64ba6517dcf86a9ec87bf3d0c0be82257ef4ae601f6d3df4891a1f7b15fe05"),
+        ("app", REPO / "packages/app/src",
+         "acad205b1378c882aeb8b46d86a6ff4236add67d424037ba001e62b28e0238d2"),
+    ),
 )
 
 
@@ -41,14 +77,17 @@ def verify_inputs(source: Path) -> dict[str, str]:
     return load_inputs(source)[0]
 
 
-def load_inputs(source: Path) -> tuple[dict[str, str], dict[str, bytes], str]:
+def load_inputs(
+    source: Path, candidate_files: tuple[str, ...] = CANDIDATE_FILES,
+) -> tuple[dict[str, str], dict[str, bytes], str]:
     manifest_bytes = (source / "source-manifest.json").read_bytes()
     manifest = json.loads(manifest_bytes)
-    if not isinstance(manifest, dict) or set(manifest) != set(INPUT_FILES):
+    expected_files = input_files(candidate_files)
+    if not isinstance(manifest, dict) or set(manifest) != set(expected_files):
         raise ValueError("unexpected proof input inventory")
     result = {}
     contents = {}
-    for name in INPUT_FILES:
+    for name in expected_files:
         path = source / name
         expected = manifest[name]
         if (
@@ -68,13 +107,15 @@ def load_inputs(source: Path) -> tuple[dict[str, str], dict[str, bytes], str]:
     return result, contents, hashlib.sha256(manifest_bytes).hexdigest()
 
 
-def materialize(source: Path, output: Path) -> tuple[dict[str, str], str]:
-    bindings, contents, manifest_sha256 = load_inputs(source)
+def materialize(
+    source: Path, output: Path, candidate_files: tuple[str, ...] = CANDIDATE_FILES,
+) -> tuple[dict[str, str], str]:
+    bindings, contents, manifest_sha256 = load_inputs(source, candidate_files)
     candidate = output / "runtime" / "candidate"
     runner = output / "runtime" / "runner"
     candidate.mkdir(parents=True)
     runner.mkdir()
-    for name in CANDIDATE_FILES:
+    for name in candidate_files:
         (candidate / name).write_bytes(contents[f"payload/{name}.txt"])
     (candidate / "requirements.txt").write_bytes(contents["requirements.txt"])
     (runner / "run_bundle.py").write_bytes(contents["payload/run_bundle.py.txt"])
@@ -90,7 +131,9 @@ def implementation_sha256(manifest_sha256: str) -> dict[str, str]:
     }
 
 
-def public_result(value: Any, expected_versions: dict[str, str]) -> dict[str, Any]:
+def public_result(
+    value: Any, expected_versions: dict[str, str], expected_tests: int = 23,
+) -> dict[str, Any]:
     """Project only fixed, path-free fields; never publish raw commands or errors."""
     if not isinstance(value, dict) or value.get("ok") is not True:
         raise ValueError("runner did not pass")
@@ -108,7 +151,7 @@ def public_result(value: Any, expected_versions: dict[str, str]) -> dict[str, An
         if (
             not isinstance(row, dict)
             or row.get("label") != label
-            or type(row.get("tests")) is not int or row["tests"] != 23
+            or type(row.get("tests")) is not int or row["tests"] != expected_tests
             or type(row.get("returncode")) is not int or row["returncode"] != 0
             or row.get("failure") is not None
             or row.get("reaped") is not True
@@ -130,9 +173,24 @@ def public_result(value: Any, expected_versions: dict[str, str]) -> dict[str, An
     return {"runs": selected, "dependency_versions": versions}
 
 
-def main() -> int:
+def base_source_arguments(profile: ProofProfile) -> list[str]:
+    return [
+        arg for name, path, _ in profile.base_sources for arg in (f"--{name}-source", str(path))
+    ]
+
+
+def base_source_result(value: Any, profile: ProofProfile) -> dict[str, Any]:
+    if not profile.base_sources:
+        return {}
+    expected = {name: pin for name, _, pin in profile.base_sources}
+    if not isinstance(value, dict) or value.get("base_source_sha256") != expected:
+        raise ValueError("executed base source binding mismatch")
+    return {"base_source_sha256": expected}
+
+
+def run_proof(profile: ProofProfile) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--output", type=Path, default=REPO / "build/nw0-api")
+    parser.add_argument("--output", type=Path, default=REPO / f"build/nw0-{profile.name}")
     parser.add_argument("--wheelhouse", type=Path)
     args = parser.parse_args()
     output = args.output.absolute()
@@ -140,7 +198,7 @@ def main() -> int:
     release = output / "release"
     release.mkdir()
     result: dict[str, Any] = {
-        "schema": "open-brain-nw0-api-proof-v1",
+        "schema": f"open-brain-nw0-{profile.name}-proof-v1",
         "passed": False,
         "system": platform.system(),
         "machine": platform.machine(),
@@ -157,7 +215,7 @@ def main() -> int:
         }:
             raise ValueError("unsupported proof target")
         phase = "materialize"
-        bindings, manifest_sha256 = materialize(SOURCE, output)
+        bindings, manifest_sha256 = materialize(profile.source, output, profile.candidate_files)
         result["source_sha256"] = bindings
         result["implementation_sha256"] = implementation_sha256(manifest_sha256)
         wheels = json.loads((output / "runtime/dependency-wheels.json").read_bytes())
@@ -193,6 +251,7 @@ def main() -> int:
                 sys.executable, "-B", str(output / "runtime/runner/run_bundle.py"),
                 str(output / "tests"), "--interpreter", sys.executable,
                 "--dependency-path", str(inputs),
+                *base_source_arguments(profile),
             ],
             output, environment, "runner", timeout=90, max_log_bytes=1024 * 1024,
         )
@@ -201,12 +260,13 @@ def main() -> int:
         if receipt.get("runner_sha256") != bindings["payload/run_bundle.py.txt"]:
             raise ValueError("executed runner binding mismatch")
         candidate_bindings = {
-            name: bindings[f"payload/{name}.txt"] for name in CANDIDATE_FILES
+            name: bindings[f"payload/{name}.txt"] for name in profile.candidate_files
         }
         candidate_bindings["requirements.txt"] = bindings["requirements.txt"]
         if receipt.get("candidate_files_sha256") != candidate_bindings:
             raise ValueError("executed payload binding mismatch")
-        result.update(public_result(receipt, expected_versions))
+        result.update(public_result(receipt, expected_versions, profile.expected_tests))
+        result.update(base_source_result(receipt, profile))
         result["passed"] = True
         phase = "complete"
         return 0
@@ -224,6 +284,10 @@ def main() -> int:
         (release / "verification.json").write_text(
             json.dumps(result, indent=2, sort_keys=True) + "\n"
         )
+
+
+def main() -> int:
+    return run_proof(TRANSPORT_PROFILE)
 
 
 if __name__ == "__main__":
