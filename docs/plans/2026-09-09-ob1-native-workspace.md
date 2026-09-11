@@ -1,9 +1,12 @@
 # OB1 native Obsidian and Graphify workspace
 
-- Current status: B12 passes native macOS arm64 and Linux x86_64 CI, 84 helper checks per target,
-  private artifact inspection and independent review. See the
-  [candidate receipt](../audits/2026-09-10-ob1-nw0-b12-portable-native-proof.md).
-  Controlled cold startup, live providers and the complete desktop slice remain open.
+- Current status: B12/B13 pass native macOS arm64 and Linux x86_64 packaging and the controlled
+  cold/warm startup comparisons. The isolated Mac deterministic bridge journey passed; preserve
+  its accepted-link fixture. See the
+  [current evidence and remaining gates](../audits/2026-09-10-ob1-nw0-continuation.md).
+  A12 and corrected C15 passed scoped independent review; containment and refresh work continue.
+  Real providers, Linux bridge GUI and presentation
+  decisions remain open. Full NW0 is incomplete and Claude subscription dispatch stays closed.
 - Historical checkpoints: NW0-B4 records the authorized upstream-first/maintained-patch policy and a working private
   frontmatter contract. The pure parser candidate passes Mac content inspection and native smoke,
   but its observed 213 ms repeat-startup penalty exceeds the 200 ms budget. Controlled cold/Linux
@@ -624,9 +627,10 @@ account and Linux GUI checks in a separate UTM guest emulating an Ubuntu 24.04 L
 desktop; existing native Linux x86_64 CI supplies Linux builds/tests. This supersedes
 the earlier native-hardware or hardware-virtualized x86_64 environment requirement. UTM supports
 [x86/x64 emulation on Apple Silicon](https://mac.getutm.app/), with reduced performance.
-Read-only inventory found UTM and an existing arm64 guest; the dedicated x86_64 guest has not been
-created or verified. Provisioning and verifying that desktop remain entry dependencies for Linux
-GUI experiments. Preserve the existing guest. Record the selected host, guest architecture, UTM version,
+D12 subsequently created and verified the dedicated x86_64 GNOME guest, installed official
+Obsidian and exercised static Canvas/navigation. Its live session remains preserved. Linux bridge
+acceptance/export is a separate open gate; a newly created unbooted VM is not evidence of passage.
+Preserve existing guests. Record the selected host, guest architecture, UTM version,
 CPU/memory/disk configuration, desktop session, and execution location in the private experiment ledger.
 Use the emulated desktop for Linux GUI evidence; label its timing results as
 emulated and make no inference about native x86_64 performance from them.
@@ -913,8 +917,9 @@ two of four lenses; this revision does not claim a new independent review or suc
 | Implementation ownership | Requirement ownership matrix and explicit four-adapter/onboarding exit gates in NW1–NW4. |
 | Bounded feasibility work | NW0-A–E effort/request limits, named desktop target and provisioning dependency, startup measurements, explicit stop conditions. |
 
-Next action: retain the reviewed [private vertical-slice checkpoint](../audits/2026-09-09-ob1-nw0-private-vertical-slice.md)
-and resolve its remaining installed-schema, live-provider, native Linux and desktop gates before
-resuming dependent work. A5/B8/corrected C10 and A6 now have scoped independent review. The cumulative
-E allocation reaches its 120-minute stop limit; unused A–D effort cannot replace it. C7 remains closed,
-Codex remains deferred, and NW0 is incomplete. Preserve existing evidence and limits. No push or NW1.
+Next action: use the [current continuation record](../audits/2026-09-10-ob1-nw0-continuation.md)
+to finish independent A/C/refresh reviews, Linux bridge desktop evidence and the real-provider gates.
+Native B packaging/startup is complete within its measured scope. Installed migrations and the
+production writer belong to NW1, not an extra NW0 implementation. The September 10 effort/publication
+amendment supersedes the earlier E stop/no-push status; all prior charges and product limits remain.
+Claude stays closed, Codex stays deferred, and NW1 cannot start before full NW0 passage.

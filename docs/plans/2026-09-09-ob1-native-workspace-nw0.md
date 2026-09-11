@@ -1,9 +1,12 @@
 # OB1 native workspace NW0 decision record
 
-- Current continuation: B12 passed native macOS arm64 and Linux x86_64 CI at `4fe7951`,
-  with 84 frozen-helper checks per target, private artifact audits and independent review.
-  See the [exact candidate receipt](../audits/2026-09-10-ob1-nw0-b12-portable-native-proof.md).
-  Controlled cold startup, live providers and the complete desktop slice remain open.
+- Current continuation: B12/B13 pass both native targets, artifact inspection and all four
+  cold/warm startup comparisons at `fc493715`. The isolated Mac deterministic bridge journey
+  passed and its one-link fixture is preserved. A12 composition and corrected C15 offline transport
+  passed scoped independent review. C16 containment is in progress; D19 scheduling still has findings.
+  See the [current evidence and remaining gates](../audits/2026-09-10-ob1-nw0-continuation.md).
+  Claude remains closed, the real-provider matrix is unrun, and Linux bridge/refresh/presentation
+  work remains incomplete. Full NW0 is not passed.
   The owner has lifted effort ceilings and authorized necessary pushes; product privacy and model
   limits remain unchanged. Prior results below retain their original scope and failures.
 - Historical checkpoint status (superseded where newer receipts say so): NW0-B1 closure/import proof passed with required integration controls.
@@ -454,9 +457,11 @@ instruction to continue NW0 beyond existing effort budgets and publish where nec
 effort remains charged. Synthetic-data, consent, isolation, model-attempt, byte, and timeout limits
 remain in force. C7 remains closed, Codex remains deferred, and NW1 must not start early.
 
-Next action: complete the separate Linux desktop proof and controlled startup evidence, using the
-verified [B12 portable native proof](../../tools/nw0_graphify_probe/README.md). Preserve the private vertical slice and the later
-A9 current-link and A10 managed-identity proofs; they do not implement shipping schema or write-back.
+Next action: review and integrate the new private A/C/D proofs, complete Linux bridge desktop
+evidence and resolve the supported-provider gates. The
+[B12/B13 native proof](../audits/2026-09-10-ob1-nw0-continuation.md) is complete within its scope;
+do not rerun its controlled startup series. Preserve all earlier fixtures and failures. No shipping
+schema or automatic writeback is implemented.
 
 The closure-scope review distinguishes feasibility from shipping implementation. NW0-A must compose
 and freeze the identity, acceptance, privacy and portable-representation contracts in a private
@@ -470,4 +475,6 @@ B13 adds a CI-only comparison of five disk-cache-cold and five warm base starts 
 native target. Both layouts use identical base bytes; the candidate contains the audited dormant
 helper. Every sample and a sanitized failure phase are retained. macOS `purge` and Linux
 `sync`/`drop_caches` run only on disposable hosted runners. They establish a controlled disk-cache
-condition, not a reboot or helper activation. Numeric passage remains pending its CI receipts.
+condition, not a reboot or helper activation. Run `34520192774` at `fc493715` passed all four
+comparisons, with independent artifact/median review. The
+[continuation record](../audits/2026-09-10-ob1-nw0-continuation.md) retains the exact medians and limits.

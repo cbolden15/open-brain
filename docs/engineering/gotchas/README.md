@@ -1360,3 +1360,17 @@ and missing, extra, duplicate, oversized, symbolic-link, and incorrectly named m
 
 Discovered: 2026-09-10, independent review of the
 [B12 portable native proof](../../../tools/nw0_graphify_probe/README.md).
+
+### INTEGRATION-019: A disposable desktop can depend on its live boot medium
+
+Symptom: A preserved live guest needs new test assets, but its data image is fixed and only the
+boot CD can be exchanged through the available controls.
+
+Cause: Disposable changes are not persistent across shutdown, and the live filesystem may still
+read its boot image. A paused VM is not a portable snapshot of the current desktop.
+
+Fix: Preserve the running guest and its boot medium. Prepare a separate isolated test environment
+with a distinct removable read-only data CD before boot. Verify actual saved configuration rather
+than assuming a wizard click added the drive. Do not count the new environment as prior GUI evidence.
+
+Discovered: 2026-09-10, [NW0 continuation](../../audits/2026-09-10-ob1-nw0-continuation.md).
