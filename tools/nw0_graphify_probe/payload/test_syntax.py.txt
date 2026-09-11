@@ -1,0 +1,59 @@
+import json
+import unittest
+from pathlib import Path
+
+import helper_protocol as helper
+from syntax_links import UnsupportedSyntax, references
+
+ROOT = Path(__file__).resolve().parent
+
+
+class SyntaxTests(unittest.TestCase):
+    def test_nesting_exhaustion_rejects_instead_of_silently_dropping_links(self):
+        for depth in (1, 10, 18):
+            self.assertEqual(references("> " * depth + "[[battery]]")[0][0], "battery")
+        for depth in (20, 21, 25, 100):
+            with self.subTest(depth=depth), self.assertRaises(UnsupportedSyntax):
+                references("> " * depth + "[[battery]]")
+
+    def test_inline_recursion_boundaries_reject(self):
+        from markdown_it import MarkdownIt
+        from markdown_it.rules_inline.state_inline import StateInline
+        from syntax_links import BoundedInline
+
+        md = MarkdownIt("commonmark", {"maxNesting": 20})
+        for operation in ("tokenize", "skipToken"):
+            state = StateInline("[[battery]]", md, {}, [])
+            state.level = 20
+            with self.subTest(operation=operation), self.assertRaises(UnsupportedSyntax):
+                getattr(BoundedInline(), operation)(state)
+
+    def test_actual_cache_presence_contract(self):
+        fixture = json.loads((ROOT / "cache-fixture.json").read_text())
+        value = fixture["request"]
+        expected = {row["id"]: bool(row["resolved"]) for row in fixture["observed"]}
+        target = value["notes"][0]
+        for note in value["notes"][1:]:
+            with self.subTest(case=note["id"]):
+                notes = helper.request(helper.encode({**value, "notes": [target, note]}))
+                if note["id"] in ("depth-20", "property-two"):
+                    with self.assertRaises(UnsupportedSyntax):
+                        helper.extract(notes)
+                    continue
+                result = helper.extract(notes)
+                self.assertEqual(result["status"], "ok")
+                self.assertEqual(result["diagnostics"], [])
+                actual = any(
+                    e["source"] == note["id"] and e["target"] == target["id"]
+                    for e in result["links"]
+                )
+                self.assertEqual(actual, expected[note["id"]])
+
+    def test_complex_wiki_rejects_without_partial_result(self):
+        for source in ("[[battery]] [[bat\\tery]]", "[[bat\ntery]]"):
+            with self.subTest(source=source), self.assertRaises(UnsupportedSyntax):
+                references(source)
+
+
+if __name__ == "__main__":
+    unittest.main()

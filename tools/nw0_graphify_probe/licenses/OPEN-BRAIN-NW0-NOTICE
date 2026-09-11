@@ -1,0 +1,11 @@
+Open Brain NW0 experimental Graphify Markdown helper
+
+Modified by Open Brain contributors in September 2026 from Graphify 0.9.57.
+Changes make extractor exports lazy, separate pure metadata and discovery rules,
+and use a bounded Markdown parser against a caller-selected snapshot root.
+These modifications are a maintained experimental patch, not an upstream release.
+
+The accompanying LICENSE, LICENSE-MIT, and NOTICE preserve Graphify's licensing
+and attribution. Other dependency notices are included as distribution metadata
+inside the frozen executable. Proof source and patch manifest are available in
+the tools/nw0_graphify_probe directory of the Open Brain repository.

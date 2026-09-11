@@ -1,0 +1,541 @@
+{
+  "request": {
+    "notes": [
+      {
+        "body": "# Storage\nA home battery stores daytime renewable electricity and supplies it after sunset.\n",
+        "id": "synthetic-battery",
+        "path": "notes/d8-battery.md"
+      },
+      {
+        "body": "# Synthetic case\n\n[[d8-battery]]\n",
+        "id": "plain-wiki",
+        "path": "plain-wiki.md"
+      },
+      {
+        "body": "# Synthetic case\n\n[Battery](notes/d8-battery.md)\n",
+        "id": "plain-markdown",
+        "path": "plain-markdown.md"
+      },
+      {
+        "body": "# Synthetic case\n\nThe previous permanent link was removed.\n",
+        "id": "removed",
+        "path": "removed.md"
+      },
+      {
+        "body": "# Synthetic case\n\n`[[d8-battery]]`\n",
+        "id": "inline-code",
+        "path": "inline-code.md"
+      },
+      {
+        "body": "# Synthetic case\n\n```md\n[[d8-battery]]\n```\n",
+        "id": "backtick-fence",
+        "path": "backtick-fence.md"
+      },
+      {
+        "body": "# Synthetic case\n\n~~~md\n[[d8-battery]]\n~~~\n",
+        "id": "tilde-fence",
+        "path": "tilde-fence.md"
+      },
+      {
+        "body": "# Synthetic case\n\n    [[d8-battery]]\n",
+        "id": "indented-code",
+        "path": "indented-code.md"
+      },
+      {
+        "body": "# Synthetic case\n\n````md\n```\n[[d8-battery]]\n```\n````\n",
+        "id": "nested-fence",
+        "path": "nested-fence.md"
+      },
+      {
+        "body": "# Synthetic case\n\n%%\n[[d8-battery]]\n%%\n",
+        "id": "obsidian-comment",
+        "path": "obsidian-comment.md"
+      },
+      {
+        "body": "# Synthetic case\n\n<!-- [[d8-battery]] -->\n",
+        "id": "html-comment",
+        "path": "html-comment.md"
+      },
+      {
+        "body": "# Synthetic case\n\n\\[[d8-battery]]\n",
+        "id": "escaped-bracket",
+        "path": "escaped-bracket.md"
+      },
+      {
+        "body": "$[[d8-battery]]$\n",
+        "id": "math-inline",
+        "path": "math-inline.md"
+      },
+      {
+        "body": "$$\n[[d8-battery]]\n$$\n",
+        "id": "math-block",
+        "path": "math-block.md"
+      },
+      {
+        "body": "A battery costs $20. [[d8-battery]]\n",
+        "id": "currency",
+        "path": "currency.md"
+      },
+      {
+        "body": "![[d8-battery]]\n",
+        "id": "wiki-embed",
+        "path": "wiki-embed.md"
+      },
+      {
+        "body": "![Storage](notes/d8-battery.md)\n",
+        "id": "markdown-embed",
+        "path": "markdown-embed.md"
+      },
+      {
+        "body": "---\nrelated: \"[[d8-battery]]\"\n---\nNo body link.\n",
+        "id": "frontmatter-property",
+        "path": "frontmatter-property.md"
+      },
+      {
+        "body": "---\naliases: [\"[[d8-battery]]\"]\n---\nNo body link.\n",
+        "id": "frontmatter-alias",
+        "path": "frontmatter-alias.md"
+      },
+      {
+        "body": "before %% comment\n\n[[d8-battery]]\n%%\n",
+        "id": "cross-paragraph-comment",
+        "path": "cross-paragraph-comment.md"
+      },
+      {
+        "body": "text <span>[[d8-battery]]</span>\n",
+        "id": "inline-html",
+        "path": "inline-html.md"
+      },
+      {
+        "body": "<div>\n\n[[d8-battery]]\n\n</div>\n",
+        "id": "html-block",
+        "path": "html-block.md"
+      },
+      {
+        "body": "[unused]: notes/d8-battery.md\n",
+        "id": "unused-reference",
+        "path": "unused-reference.md"
+      },
+      {
+        "body": "[label][ref]\n\n[ref]: notes/d8-battery.md\n",
+        "id": "used-reference",
+        "path": "used-reference.md"
+      },
+      {
+        "body": "> > > > > > > > > > > > > > > > > > > [[d8-battery]]\n",
+        "id": "depth-19",
+        "path": "depth-19.md"
+      },
+      {
+        "body": "> > > > > > > > > > > > > > > > > > > > [[d8-battery]]\n",
+        "id": "depth-20",
+        "path": "depth-20.md"
+      },
+      {
+        "id": "html-tight",
+        "path": "html-tight.md",
+        "body": "<div>\n[[d8-battery]]\n</div>\n"
+      },
+      {
+        "id": "html-script",
+        "path": "html-script.md",
+        "body": "<script>\n[[d8-battery]]\n</script>\n"
+      },
+      {
+        "id": "html-style",
+        "path": "html-style.md",
+        "body": "<style>[[d8-battery]]</style>\n"
+      },
+      {
+        "id": "html-attribute",
+        "path": "html-attribute.md",
+        "body": "<span data-x=\"[[d8-battery]]\">text</span>\n"
+      },
+      {
+        "id": "comment-fence",
+        "path": "comment-fence.md",
+        "body": "%%\n```\n[[d8-battery]]\n```\n%%\n"
+      },
+      {
+        "id": "comment-inline",
+        "path": "comment-inline.md",
+        "body": "text %% [[d8-battery]] %% tail\n"
+      },
+      {
+        "id": "comment-inline-code",
+        "path": "comment-inline-code.md",
+        "body": "%% `[[d8-battery]]` %%\n"
+      },
+      {
+        "id": "htmlcomment-after",
+        "path": "htmlcomment-after.md",
+        "body": "<!-- skip --> [[d8-battery]]\n"
+      },
+      {
+        "id": "math-follow",
+        "path": "math-follow.md",
+        "body": "$x$ [[d8-battery]]\n"
+      },
+      {
+        "id": "math-space",
+        "path": "math-space.md",
+        "body": "$ [[d8-battery]] $\n"
+      },
+      {
+        "id": "math-currency-pair",
+        "path": "math-currency-pair.md",
+        "body": "$20 and $30 [[d8-battery]]\n"
+      },
+      {
+        "id": "math-double-inline",
+        "path": "math-double-inline.md",
+        "body": "Text $$[[d8-battery]]$$.\n"
+      },
+      {
+        "id": "math-unclosed",
+        "path": "math-unclosed.md",
+        "body": "$[[d8-battery]]\n"
+      },
+      {
+        "id": "math-blank-block",
+        "path": "math-blank-block.md",
+        "body": "$$\n\n[[d8-battery]]\n\n$$\n"
+      },
+      {
+        "id": "frontmatter-math",
+        "path": "frontmatter-math.md",
+        "body": "---\nrelated: \"$[[d8-battery]]$\"\n---\n\n"
+      },
+      {
+        "id": "frontmatter-code",
+        "path": "frontmatter-code.md",
+        "body": "---\nrelated: \"`[[d8-battery]]`\"\n---\n\n"
+      },
+      {
+        "id": "frontmatter-md",
+        "path": "frontmatter-md.md",
+        "body": "---\nrelated: \"[Battery](notes/d8-battery.md)\"\n---\n\n"
+      },
+      {
+        "id": "yaml-comment",
+        "path": "yaml-comment.md",
+        "body": "---\n# [[d8-battery]]\nrelated: none\n---\n"
+      },
+      {
+        "id": "yaml-key",
+        "path": "yaml-key.md",
+        "body": "---\n\"[[d8-battery]]\": value\n---\n"
+      },
+      {
+        "id": "yaml-block",
+        "path": "yaml-block.md",
+        "body": "---\nrelated: |\n  [[d8-battery]]\n---\n"
+      },
+      {
+        "id": "yaml-nested",
+        "path": "yaml-nested.md",
+        "body": "---\nrelated:\n  child: \"[[d8-battery]]\"\n---\n"
+      },
+      {
+        "id": "yaml-comment-after",
+        "path": "yaml-comment-after.md",
+        "body": "---\nrelated: value # [[d8-battery]]\n---\n"
+      },
+      {
+        "id": "yaml-escaped",
+        "path": "yaml-escaped.md",
+        "body": "---\nrelated: \"\\u005b\\u005bd8-battery\\u005d\\u005d\"\n---\n"
+      },
+      {
+        "id": "yaml-quoted-code",
+        "path": "yaml-quoted-code.md",
+        "body": "---\nrelated: \"hello `[[d8-battery]]`\"\n---\n"
+      },
+      {
+        "id": "yaml-multiline-list",
+        "path": "yaml-multiline-list.md",
+        "body": "---\nrelated:\n  - \"[[d8-battery]]\"\n---\n"
+      },
+      {
+        "id": "property-prose",
+        "path": "property-prose.md",
+        "body": "---\nrelated: \"before [[d8-battery]] after\"\n---\n"
+      },
+      {
+        "id": "property-two",
+        "path": "property-two.md",
+        "body": "---\nrelated: \"[[d8-battery]] [[d8-battery]]\"\n---\n"
+      },
+      {
+        "id": "property-space",
+        "path": "property-space.md",
+        "body": "---\nrelated: \" [[d8-battery]] \"\n---\n"
+      },
+      {
+        "id": "property-newline",
+        "path": "property-newline.md",
+        "body": "---\nrelated: \"[[d8-battery]]\\n\"\n---\n"
+      },
+      {
+        "id": "property-alias",
+        "path": "property-alias.md",
+        "body": "---\nrelated: \"[[d8-battery|Storage]]\"\n---\n"
+      },
+      {
+        "id": "property-embed",
+        "path": "property-embed.md",
+        "body": "---\nrelated: \"![[d8-battery]]\"\n---\n"
+      },
+      {
+        "id": "property-markdown-prose",
+        "path": "property-markdown-prose.md",
+        "body": "---\nrelated: \"before [Battery](notes/d8-battery.md) after\"\n---\n"
+      },
+      {
+        "id": "property-markdown-space",
+        "path": "property-markdown-space.md",
+        "body": "---\nrelated: \" [Battery](notes/d8-battery.md) \"\n---\n"
+      }
+    ],
+    "operation": "extract_markdown",
+    "protocol": "nw0-graphify-helper-v1"
+  },
+  "observed": [
+    {
+      "id": "synthetic-battery",
+      "resolved": false
+    },
+    {
+      "id": "plain-wiki",
+      "resolved": true
+    },
+    {
+      "id": "plain-markdown",
+      "resolved": true
+    },
+    {
+      "id": "removed",
+      "resolved": false
+    },
+    {
+      "id": "inline-code",
+      "resolved": false
+    },
+    {
+      "id": "backtick-fence",
+      "resolved": false
+    },
+    {
+      "id": "tilde-fence",
+      "resolved": false
+    },
+    {
+      "id": "indented-code",
+      "resolved": false
+    },
+    {
+      "id": "nested-fence",
+      "resolved": false
+    },
+    {
+      "id": "obsidian-comment",
+      "resolved": true
+    },
+    {
+      "id": "html-comment",
+      "resolved": false
+    },
+    {
+      "id": "escaped-bracket",
+      "resolved": false
+    },
+    {
+      "id": "math-inline",
+      "resolved": false
+    },
+    {
+      "id": "math-block",
+      "resolved": false
+    },
+    {
+      "id": "currency",
+      "resolved": true
+    },
+    {
+      "id": "wiki-embed",
+      "resolved": true
+    },
+    {
+      "id": "markdown-embed",
+      "resolved": true
+    },
+    {
+      "id": "frontmatter-property",
+      "resolved": true
+    },
+    {
+      "id": "frontmatter-alias",
+      "resolved": true
+    },
+    {
+      "id": "cross-paragraph-comment",
+      "resolved": true
+    },
+    {
+      "id": "inline-html",
+      "resolved": true
+    },
+    {
+      "id": "html-block",
+      "resolved": true
+    },
+    {
+      "id": "unused-reference",
+      "resolved": false
+    },
+    {
+      "id": "used-reference",
+      "resolved": false
+    },
+    {
+      "id": "depth-19",
+      "resolved": true
+    },
+    {
+      "id": "depth-20",
+      "resolved": true
+    },
+    {
+      "id": "html-tight",
+      "resolved": false
+    },
+    {
+      "id": "html-script",
+      "resolved": false
+    },
+    {
+      "id": "html-style",
+      "resolved": false
+    },
+    {
+      "id": "html-attribute",
+      "resolved": false
+    },
+    {
+      "id": "comment-fence",
+      "resolved": false
+    },
+    {
+      "id": "comment-inline",
+      "resolved": true
+    },
+    {
+      "id": "comment-inline-code",
+      "resolved": false
+    },
+    {
+      "id": "htmlcomment-after",
+      "resolved": false
+    },
+    {
+      "id": "math-follow",
+      "resolved": true
+    },
+    {
+      "id": "math-space",
+      "resolved": true
+    },
+    {
+      "id": "math-currency-pair",
+      "resolved": true
+    },
+    {
+      "id": "math-double-inline",
+      "resolved": false
+    },
+    {
+      "id": "math-unclosed",
+      "resolved": true
+    },
+    {
+      "id": "math-blank-block",
+      "resolved": false
+    },
+    {
+      "id": "frontmatter-math",
+      "resolved": false
+    },
+    {
+      "id": "frontmatter-code",
+      "resolved": false
+    },
+    {
+      "id": "frontmatter-md",
+      "resolved": true
+    },
+    {
+      "id": "yaml-comment",
+      "resolved": false
+    },
+    {
+      "id": "yaml-key",
+      "resolved": false
+    },
+    {
+      "id": "yaml-block",
+      "resolved": false
+    },
+    {
+      "id": "yaml-nested",
+      "resolved": true
+    },
+    {
+      "id": "yaml-comment-after",
+      "resolved": false
+    },
+    {
+      "id": "yaml-escaped",
+      "resolved": true
+    },
+    {
+      "id": "yaml-quoted-code",
+      "resolved": false
+    },
+    {
+      "id": "yaml-multiline-list",
+      "resolved": true
+    },
+    {
+      "id": "property-prose",
+      "resolved": false
+    },
+    {
+      "id": "property-two",
+      "resolved": false
+    },
+    {
+      "id": "property-space",
+      "resolved": false
+    },
+    {
+      "id": "property-newline",
+      "resolved": false
+    },
+    {
+      "id": "property-alias",
+      "resolved": true
+    },
+    {
+      "id": "property-embed",
+      "resolved": false
+    },
+    {
+      "id": "property-markdown-prose",
+      "resolved": false
+    },
+    {
+      "id": "property-markdown-space",
+      "resolved": false
+    }
+  ]
+}

@@ -1,0 +1,250 @@
+"""Private C27 composition of actual A4/C10 authority with reviewed C25 I/O."""
+
+from __future__ import annotations
+
+import asyncio
+import json
+import threading
+import time
+from dataclasses import dataclass
+
+import wire
+from async_transport import Evidence, exchange
+from authority_gate import ProviderReply, SelectedSource, SourceBinding, digest, require
+from bridge import bound_result
+from direct_api import HttpResponse, build_request, encode, parse_response, route_for
+
+
+class ThreadAwareCancel:
+    def __init__(self, loop: asyncio.AbstractEventLoop) -> None:
+        self._loop = loop
+        self._thread = threading.Event()
+        self._async = asyncio.Event()
+
+    def is_set(self) -> bool:
+        return self._thread.is_set() or self._async.is_set()
+
+    async def wait(self) -> None:
+        await self._async.wait()
+
+    def set(self) -> None:
+        self._thread.set()
+        self._loop.call_soon_threadsafe(self._async.set)
+
+
+@dataclass(frozen=True, slots=True)
+class AsyncRoute:
+    gate_provider: str
+    model: str
+    dns_port: int
+    tls_port: int
+    ca_file: str
+
+    @property
+    def identity(self) -> str:
+        route = route_for(self.gate_provider, self.model)
+        public = {
+            "c15": route.identity,
+            "ca_file": self.ca_file,
+            "dns_port": self.dns_port,
+            "tls_port": self.tls_port,
+            "transport": "c27-reviewed-c25",
+        }
+        return f"{self.gate_provider}:c27-async:{digest(encode(public))}"
+
+
+class AsyncFlight:
+    def __init__(
+        self,
+        route,
+        request,
+        bindings,
+        gate,
+        capability,
+        reservation_id,
+        selections,
+        deadline,
+        max_output_bytes,
+    ) -> None:
+        self.route = route
+        self.request = request
+        self.bindings = bindings
+        self.gate = gate
+        self.capability = capability
+        self.reservation_id = reservation_id
+        self.selections = selections
+        self.deadline = deadline
+        self.max_output_bytes = max_output_bytes
+        self.started = time.monotonic()
+        self.cancelled = ThreadAwareCancel(asyncio.get_running_loop())
+        self.evidence = Evidence()
+        self.waited = False
+        self.cancel_calls = 0
+
+    def cancel(self) -> None:
+        if not self.cancelled.is_set():
+            self.cancel_calls += 1
+            self.cancelled.set()
+
+    def recheck(self) -> None:
+        if self.cancelled.is_set():
+            raise asyncio.CancelledError("revoked")
+        self.gate.recheck_release(
+            self.capability,
+            reservation_id=self.reservation_id,
+            provider=self.route.gate_provider,
+            adapter_identity=self.route.identity,
+            operation="semantic_graph",
+            selected_sources=self.selections,
+        )
+
+    async def wait(self) -> ProviderReply:
+        require(not self.waited, "one wait per handoff")
+        self.waited = True
+        remaining = self.deadline - time.monotonic()
+        require(remaining > 0, "attempt timeout")
+
+        def parse(status, headers, body):
+            parsed = parse_response(
+                route_for(self.route.gate_provider, self.route.model),
+                HttpResponse(status, headers, body),
+            )
+            return bound_result(parsed, self.bindings)
+
+        result, _ = await exchange(
+            self.request,
+            dns_port=self.route.dns_port,
+            tls_port=self.route.tls_port,
+            ca_file=self.route.ca_file,
+            timeout=remaining,
+            cancel=self.cancelled,
+            release=self.recheck,
+            validate_after=self.recheck,
+            parse=parse,
+            evidence=self.evidence,
+        )
+        encoded = wire.encode(result)
+        require(len(encoded) <= self.max_output_bytes, "bound output limit")
+        require(time.monotonic() <= self.deadline, "attempt timeout")
+        return ProviderReply(encoded.decode(), time.monotonic() - self.started)
+
+
+@dataclass(frozen=True, slots=True)
+class AsyncPreparedAdapter:
+    route: AsyncRoute
+    bindings: tuple[SourceBinding, ...]
+    gate: object
+    capability: object
+    reservation_id: str
+    selections: tuple[SelectedSource, ...]
+    deadline: float
+    credential: str
+    observer: object
+
+    def start(self, prompt, *, timeout_seconds, max_output_bytes):
+        expected = {
+            "operation": "semantic_graph",
+            "selected_sources": [
+                {"source": f"source-{index + 1}", "body": item.body}
+                for index, item in enumerate(self.bindings)
+            ],
+        }
+        require(json.loads(prompt) == expected, "derived prompt binding")
+        require(time.monotonic() < self.deadline, "build deadline")
+        request = build_request(
+            route_for(
+                self.route.gate_provider,
+                self.route.model,
+                timeout_seconds=timeout_seconds,
+            ),
+            prompt,
+            self.credential,
+        )
+        require(time.monotonic() < self.deadline, "build deadline")
+        self.observer.starts += 1
+        flight = AsyncFlight(
+            self.route,
+            request,
+            self.bindings,
+            self.gate,
+            self.capability,
+            self.reservation_id,
+            self.selections,
+            self.deadline,
+            max_output_bytes,
+        )
+        self.observer.flight = flight
+        return flight
+
+
+class AsyncAccess:
+    def __init__(
+        self, route: AsyncRoute, bindings: tuple[SourceBinding, ...], *, on_resolve=None
+    ):
+        self.selected_route = route
+        self.bindings = tuple(SourceBinding(**item.as_dict()) for item in bindings)
+        self.on_resolve = on_resolve
+        self.resolves = self.constructions = self.starts = 0
+        self.flight = None
+
+    @property
+    def identity(self):
+        return self.selected_route.identity
+
+    @property
+    def selections(self):
+        return tuple(
+            SelectedSource(item.note_id, item.revision_id, item.privacy_digest)
+            for item in self.bindings
+        )
+
+    def reserve(self, gate, capability, *, probe_id="c27", timeout=2, max_output=16384):
+        return gate.reserve(
+            capability,
+            probe_id=probe_id,
+            provider=self.selected_route.gate_provider,
+            adapter_identity=self.identity,
+            operation="semantic_graph",
+            selected_sources=self.selections,
+            max_output_bytes=max_output,
+            timeout_seconds=timeout,
+        )
+
+    def resolve(self):
+        self.resolves += 1
+        if self.on_resolve:
+            self.on_resolve()
+        return "synthetic-key"
+
+    async def release(self, gate, capability, reservation_id, **kwargs):
+        route = self.selected_route
+        bindings = tuple(SourceBinding(**item.as_dict()) for item in self.bindings)
+        selections = tuple(self.selections)
+        identity = route.identity
+
+        def construct(credential: str, deadline: float):
+            require(self.identity == identity, "adapter changed during construction")
+            self.constructions += 1
+            return AsyncPreparedAdapter(
+                route,
+                bindings,
+                gate,
+                capability,
+                reservation_id,
+                selections,
+                deadline,
+                credential,
+                self,
+            )
+
+        return await gate.release_async(
+            capability,
+            reservation_id=reservation_id,
+            provider=route.gate_provider,
+            adapter_identity=identity,
+            operation="semantic_graph",
+            selected_sources=selections,
+            resolve_credential=self.resolve,
+            construct_provider=construct,
+            **kwargs,
+        )

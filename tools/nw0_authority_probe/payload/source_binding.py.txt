@@ -1,0 +1,426 @@
+"""Private A3 source-bound composition proof; not a shipping Portable contract."""
+
+from __future__ import annotations
+
+import json
+import re
+import uuid
+from copy import deepcopy
+from datetime import UTC, datetime
+from hashlib import sha256
+from pathlib import Path
+from typing import Any
+
+import tomllib
+from open_brain_engine.core.ids import portable_canonical_json_bytes as canonical
+from open_brain_engine.portable.v1 import validated_portable_snapshot
+from open_brain_engine.storage.markdown import parse_markdown
+
+FORMAT = "nw0-a3-source-bound-composition-proof"
+MAX_BYTES = 65536
+_IDENTIFIER = re.compile(
+    r"^(?P<prefix>[a-z][a-z0-9_]*)_"
+    r"(?P<uuid>[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})$"
+)
+_DIGEST = re.compile(r"^[0-9a-f]{64}$")
+
+
+class Rejected(ValueError):
+    pass
+
+
+def require(condition: bool, reason: str) -> None:
+    if not condition:
+        raise Rejected(reason)
+
+
+def digest(value: bytes | object) -> str:
+    return sha256(value if isinstance(value, bytes) else canonical(value)).hexdigest()
+
+
+def identifier(value: object, prefix: str) -> str:
+    require(isinstance(value, str), f"invalid {prefix} identity")
+    matched = _IDENTIFIER.fullmatch(value)
+    require(matched is not None and matched["prefix"] == prefix, f"invalid {prefix} identity")
+    parsed = uuid.UUID(matched["uuid"])
+    require(parsed.version == 4 and value == f"{prefix}_{parsed}", f"invalid {prefix} identity")
+    return value
+
+
+def timestamp(value: object) -> str:
+    require(isinstance(value, str) and value.endswith("Z"), "invalid timestamp")
+    try:
+        parsed = datetime.fromisoformat(value.removesuffix("Z") + "+00:00")
+    except ValueError as error:
+        raise Rejected("invalid timestamp") from error
+    require(parsed.utcoffset() == UTC.utcoffset(parsed), "invalid timestamp")
+    return value
+
+
+def derived_id(prefix: str, value: object) -> str:
+    raw = bytearray(sha256(canonical(value)).digest()[:16])
+    raw[6] = (raw[6] & 0x0F) | 0x40
+    raw[8] = (raw[8] & 0x3F) | 0x80
+    return f"{prefix}_{uuid.UUID(bytes=bytes(raw))}"
+
+
+def bind_snapshot(root: Path) -> dict[str, Any]:
+    snapshot = validated_portable_snapshot(root)
+    files = snapshot.files
+    profile = tomllib.loads(files["brain.toml"].decode("utf-8"))
+    tenant_id = identifier(profile["tenant_id"], "tenant")
+    owner_id = identifier(profile["owner_actor_id"], "actor")
+    require(snapshot.manifest["tenant_id"] == tenant_id, "manifest tenant mismatch")
+
+    inventory = [
+        {"path": path, "sha256": digest(payload)} for path, payload in sorted(files.items())
+    ]
+    capture_paths: dict[str, str] = {}
+    captures: dict[str, dict[str, Any]] = {}
+    for path, payload in files.items():
+        if not path.startswith("sources/captures/") or not path.endswith(".json"):
+            continue
+        record = json.loads(payload)
+        capture_id = identifier(record.get("capture_id"), "capture")
+        require(capture_id not in captures, "duplicate capture binding")
+        captures[capture_id] = record
+        capture_paths[capture_id] = path
+
+    origins = []
+    seen_pages: set[str] = set()
+    bound_captures: set[str] = set()
+    for path, payload in sorted(files.items()):
+        if not path.startswith("content/spaces/") or "/notes/" not in path:
+            continue
+        parsed = parse_markdown(payload)
+        fields = dict(parsed.fields)
+        page_id = identifier(fields.get("page_id"), "page")
+        provenance = fields.get("provenance")
+        require(
+            isinstance(provenance, list) and len(provenance) == 1,
+            "one capture provenance required",
+        )
+        capture_id = identifier(provenance[0], "capture")
+        require(page_id not in seen_pages, "duplicate page binding")
+        require(capture_id not in bound_captures, "duplicate canonical capture binding")
+        require(capture_id in captures, "missing capture binding")
+        capture = captures[capture_id]
+        require(fields.get("actor_id") == owner_id, "page owner mismatch")
+        require(capture.get("actor_id") == owner_id, "capture owner mismatch")
+        require(fields.get("tenant_id") == tenant_id, "page tenant mismatch")
+        require(capture.get("tenant_id") == tenant_id, "capture tenant mismatch")
+        require(fields.get("status") == "active", "active base page required")
+        require(fields.get("privacy") == capture.get("privacy"), "immutable privacy mismatch")
+        capture_path = capture_paths[capture_id]
+        privacy = deepcopy(capture["privacy"])
+        origin_core = {
+            "page_id": page_id,
+            "page_path": path,
+            "page_sha256": digest(payload),
+            "capture_id": capture_id,
+            "capture_path": capture_path,
+            "capture_sha256": digest(files[capture_path]),
+            "body": parsed.body,
+            "body_digest": digest(parsed.body.encode("utf-8")),
+            "privacy": privacy,
+            "privacy_digest": digest(privacy),
+        }
+        origins.append({**origin_core, "initial_revision": derived_id("revision", origin_core)})
+        seen_pages.add(page_id)
+        bound_captures.add(capture_id)
+    require(origins, "no canonical origins")
+    binding_core = {
+        "tenant_id": tenant_id,
+        "owner_actor_id": owner_id,
+        "manifest_sha256": digest(files["portable-manifest.json"]),
+        "inventory": inventory,
+        "inventory_sha256": digest(inventory),
+        "origins": origins,
+    }
+    return {**binding_core, "snapshot_sha256": digest(binding_core)}
+
+
+def make_record(
+    family: str,
+    record_id: str,
+    note_id: str,
+    parent: str,
+    data: dict[str, Any],
+) -> dict[str, Any]:
+    core = {
+        "family": family,
+        "record_id": record_id,
+        "note_id": note_id,
+        "parent": parent,
+        "data": data,
+    }
+    return {**core, "record_sha256": digest(core)}
+
+
+def encode_composition(base: dict[str, Any], records: list[dict[str, Any]]) -> bytes:
+    value = {
+        "format": FORMAT,
+        "version": 1,
+        "base_snapshot": base,
+        "origins": base["origins"],
+        "records": records,
+    }
+    return canonical(value)
+
+
+def _decode(payload: bytes) -> dict[str, Any]:
+    require(
+        isinstance(payload, bytes) and len(payload) <= MAX_BYTES, "bounded composition required"
+    )
+
+    def unique(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+        result = {}
+        for key, value in pairs:
+            require(key not in result, "duplicate key")
+            result[key] = value
+        return result
+
+    try:
+        value = json.loads(payload, object_pairs_hook=unique)
+    except (ValueError, RecursionError) as error:
+        raise Rejected("invalid composition JSON") from error
+    require(payload == canonical(value), "canonical composition required")
+    require(
+        isinstance(value, dict)
+        and set(value) == {"format", "version", "base_snapshot", "origins", "records"},
+        "composition shape",
+    )
+    require(value["format"] == FORMAT and type(value["version"]) is int, "format/version shape")
+    require(value["version"] == 1, "unknown composition version")
+    return value
+
+
+def replay(root: Path, payload: bytes) -> dict[str, Any]:
+    value = _decode(payload)
+    actual_base = bind_snapshot(root)
+    require(value["base_snapshot"] == actual_base, "base snapshot binding mismatch")
+    require(value["origins"] == actual_base["origins"], "origin inventory mismatch")
+    require(isinstance(value["records"], list) and len(value["records"]) <= 64, "record bound")
+
+    notes: dict[str, dict[str, Any]] = {}
+    heads: dict[str, str] = {}
+    references: set[str] = set()
+    for origin in actual_base["origins"]:
+        note_id = origin["page_id"]
+        notes[note_id] = {
+            "page_id": note_id,
+            "capture_id": origin["capture_id"],
+            "privacy": deepcopy(origin["privacy"]),
+            "body": origin["body"],
+            "body_digest": origin["body_digest"],
+            "accepted_revision": origin["initial_revision"],
+            "active": True,
+            "excluded": False,
+            "conflict": None,
+            "history": [origin["initial_revision"]],
+            "accepted_links": [],
+        }
+        heads[note_id] = origin["initial_revision"]
+        references.add(origin["initial_revision"])
+
+    operation_ids: set[str] = set()
+    policy_generation = 0
+    consent_audit: list[dict[str, Any]] = []
+    latest_consent: tuple[str, str] | None = None
+    for item in value["records"]:
+        require(
+            isinstance(item, dict)
+            and set(item) == {"family", "record_id", "note_id", "parent", "data", "record_sha256"},
+            "record shape",
+        )
+        family = item["family"]
+        require(family in {"note_revision", "owner_policy", "conflict"}, "unknown record family")
+        expected_prefix = {
+            "note_revision": "revision",
+            "owner_policy": "policy",
+            "conflict": "conflict",
+        }[family]
+        record_id = identifier(item["record_id"], expected_prefix)
+        core = {key: item[key] for key in ("family", "record_id", "note_id", "parent", "data")}
+        require(item["record_sha256"] == digest(core), "record digest mismatch")
+        require(record_id not in references, "duplicate record identity")
+        note_id = identifier(item["note_id"], "page")
+        require(note_id in notes, "missing note reference")
+        require(item["parent"] == heads[note_id], "missing or out-of-order parent")
+        note = notes[note_id]
+        data = item["data"]
+        require(isinstance(data, dict), "record data shape")
+
+        if family == "note_revision":
+            require(
+                set(data)
+                == {
+                    "operation_id",
+                    "kind",
+                    "base_revision",
+                    "base_body_digest",
+                    "body",
+                    "body_digest",
+                    "active",
+                    "accepted_by",
+                    "link",
+                },
+                "revision shape",
+            )
+            operation_id = identifier(data["operation_id"], "operation")
+            require(operation_id not in operation_ids, "duplicate operation identity")
+            operation_ids.add(operation_id)
+            require(data["accepted_by"] == actual_base["owner_actor_id"], "owner label mismatch")
+            require(data["base_revision"] == note["accepted_revision"], "stale base revision")
+            require(data["base_body_digest"] == note["body_digest"], "stale base body")
+            require(
+                isinstance(data["body"], str)
+                and data["body_digest"] == digest(data["body"].encode("utf-8")),
+                "revision body digest mismatch",
+            )
+            require(type(data["active"]) is bool, "active state shape")
+            kind = data["kind"]
+            require(kind in {"edit", "accept_link", "deactivate", "restore"}, "revision kind")
+            if kind == "deactivate":
+                require(note["active"] and not data["active"], "deactivate transition")
+                require(data["body"] == note["body"] and data["link"] is None, "deactivate bytes")
+            elif kind == "restore":
+                require(not note["active"] and data["active"], "restore transition")
+                require(data["body"] == note["body"] and data["link"] is None, "restore bytes")
+            else:
+                require(note["active"] and data["active"], "inactive content mutation")
+                if kind == "edit":
+                    require(data["link"] is None, "unexpected edit link")
+                else:
+                    link = data["link"]
+                    require(
+                        isinstance(link, dict)
+                        and set(link)
+                        == {
+                            "target_note",
+                            "source_revision",
+                            "target_revision",
+                            "source_quote",
+                            "target_quote",
+                            "provider",
+                            "model",
+                        },
+                        "link shape",
+                    )
+                    target_id = identifier(link["target_note"], "page")
+                    require(
+                        target_id in notes and notes[target_id]["active"], "inactive link target"
+                    )
+                    target = notes[target_id]
+                    require(link["source_revision"] == note["accepted_revision"], "stale source")
+                    require(link["target_revision"] == target["accepted_revision"], "stale target")
+                    source_quote = link["source_quote"]
+                    target_quote = link["target_quote"]
+                    require(
+                        isinstance(source_quote, str) and bool(source_quote.strip()),
+                        "invalid source evidence",
+                    )
+                    require(
+                        isinstance(target_quote, str) and bool(target_quote.strip()),
+                        "invalid target evidence",
+                    )
+                    require(source_quote in note["body"], "missing source evidence")
+                    require(target_quote in target["body"], "missing target evidence")
+                    require(
+                        all(
+                            isinstance(link[key], str) and link[key]
+                            for key in ("provider", "model")
+                        ),
+                        "link provenance",
+                    )
+                    require(
+                        data["body"] == note["body"] + f"\n[[{target_id}]]\n",
+                        "accepted link differs from preview",
+                    )
+                    require(
+                        target_id not in [entry["target_note"] for entry in note["accepted_links"]],
+                        "duplicate accepted link",
+                    )
+                    note["accepted_links"].append(deepcopy(link))
+            note.update(
+                body=data["body"],
+                body_digest=data["body_digest"],
+                accepted_revision=record_id,
+                active=data["active"],
+            )
+            note["history"].append(record_id)
+        elif family == "conflict":
+            require(
+                set(data)
+                == {
+                    "base_revision",
+                    "accepted_revision",
+                    "candidate_body",
+                    "candidate_body_digest",
+                    "observed_at",
+                },
+                "conflict shape",
+            )
+            require(data["accepted_revision"] == note["accepted_revision"], "conflict accepted ref")
+            require(data["base_revision"] in note["history"], "conflict base ref")
+            require(
+                isinstance(data["candidate_body"], str)
+                and data["candidate_body_digest"] == digest(data["candidate_body"].encode("utf-8")),
+                "conflict candidate digest",
+            )
+            timestamp(data["observed_at"])
+            note["conflict"] = deepcopy(data)
+        else:
+            require(
+                set(data)
+                == {
+                    "kind",
+                    "owner",
+                    "generation",
+                    "provider_access",
+                    "issued_at",
+                    "confirmation_ref",
+                },
+                "policy shape",
+            )
+            require(data["owner"] == actual_base["owner_actor_id"], "policy owner mismatch")
+            require(type(data["generation"]) is int, "policy generation shape")
+            require(data["generation"] == policy_generation + 1, "policy generation order")
+            policy_generation = data["generation"]
+            timestamp(data["issued_at"])
+            kind = data["kind"]
+            require(kind in {"exclude", "consent", "revoke"}, "policy kind")
+            if kind == "exclude":
+                require(
+                    data["provider_access"] is None and data["confirmation_ref"] is None,
+                    "exclusion authority",
+                )
+                note["excluded"] = True
+            elif kind == "consent":
+                require(
+                    data["provider_access"]
+                    in {"openai_api", "anthropic_api", "gemini_api", "claude_subscription"},
+                    "provider access",
+                )
+                require(data["confirmation_ref"] is None, "consent self-reference")
+                latest_consent = (record_id, data["provider_access"])
+                consent_audit.append(deepcopy(item))
+            else:
+                require(latest_consent is not None, "revocation without consent")
+                require(data["confirmation_ref"] == latest_consent[0], "revocation reference")
+                require(data["provider_access"] == latest_consent[1], "revocation provider")
+                consent_audit.append(deepcopy(item))
+                latest_consent = None
+        heads[note_id] = record_id
+        references.add(record_id)
+
+    return {
+        "format": FORMAT,
+        "source_snapshot_sha256": actual_base["snapshot_sha256"],
+        "notes": notes,
+        "policy_generation": policy_generation,
+        "consent_audit": consent_audit,
+        "active_destination_consent": False,
+        "local_search_ids": sorted(note_id for note_id, note in notes.items() if note["active"]),
+        "cloud_eligible_ids": [],
+    }

@@ -39,6 +39,11 @@ WORKER_TIMEOUT = 45
 NATIVE_NAME = re.compile(
     r"open-brain-[0-9A-Za-z][0-9A-Za-z._-]*-(linux-x86_64|macos-arm64)\.tar\.gz"
 )
+GRAPHIFY_PROOF_NAME = re.compile(r"open-brain-graphify-proof-(linux-x86_64|macos-arm64)\.tar\.gz")
+GRAPHIFY_PROOF_LEGAL = frozenset(
+    "licenses/graphify/" + name
+    for name in ("LICENSE", "LICENSE-MIT", "NOTICE", "OPEN-BRAIN-NW0-NOTICE")
+)
 COOKIE = struct.Struct("!8sIIII64s")
 COOKIE_MAGIC = b"MEI\014\013\012\013\016"
 ENTRY = struct.Struct("!IIIIBc")
@@ -635,6 +640,7 @@ class Scanner:
         self.charge(len(data))
         self.content("archive", data, native=True)
         native = NATIVE_NAME.fullmatch(filename)
+        helper = GRAPHIFY_PROOF_NAME.fullmatch(filename) is not None
         require(native is None or data.startswith(b"\x1f\x8b"))
         if data.startswith(b"PK"):
             require(native is None)
@@ -654,6 +660,8 @@ class Scanner:
                 self.unique(member.name, names, aliases=native is not None)
                 loc = safe_name(member.name, self.terms, f"member-{count}")
                 self.name(member.name, loc)
+                if helper:
+                    require(member.name in GRAPHIFY_PROOF_LEGAL | {"open-brain-graphify"})
                 for key, value in member.pax_headers.items():
                     self.content(f"member-{count}/metadata", (key + value).encode())
                 last_end = member.offset_data + ((member.size + 511) // 512) * 512
@@ -665,6 +673,9 @@ class Scanner:
                     continue
                 require(member.isfile() and not member.sparse)
                 limit = MAX_MEMBER if native else 2 * 1024 * 1024
+                if helper and member.name in GRAPHIFY_PROOF_LEGAL:
+                    limit = MAX_HEADER
+                    require(member.mode == 0o644)
                 if member.size > limit:
                     self.add(loc, "content-scan-limit-exceeded")
                     continue
@@ -675,14 +686,25 @@ class Scanner:
                 payload = stream.read(member.size + 1)
                 require(len(payload) == member.size)
                 if native:
-                    require(count == 1 and member.name == "open-brain" and member.mode & 0o100 != 0)
                     require(not member.pax_headers)
-                    self.native(payload, native.group(1), "native", 1)
+                    if helper and member.name in GRAPHIFY_PROOF_LEGAL:
+                        self.content(loc, payload)
+                    else:
+                        expected_name = "open-brain-graphify" if helper else "open-brain"
+                        require(member.name == expected_name and member.mode & 0o100 != 0)
+                        require(helper or count == 1)
+                        self.native(payload, native.group(1), "native", 1)
                 else:
                     self.content(loc, payload)
         require(last_end + 1024 <= len(data) and not any(data[last_end:]))
         if native:
-            require(count == 1)
+            if helper:
+                require(
+                    names
+                    == {name.casefold() for name in GRAPHIFY_PROOF_LEGAL} | {"open-brain-graphify"}
+                )
+            else:
+                require(count == 1)
 
 
 def worker() -> int:

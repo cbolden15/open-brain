@@ -1,0 +1,167 @@
+"""Experimental bounded Markdown helper protocol; selected bodies only."""
+
+import hashlib
+import json
+import re
+import sys
+import tempfile
+from pathlib import Path, PurePosixPath
+
+PROTOCOL = "nw0-graphify-helper-v1"
+LIMIT = 16384
+CAPABILITIES = {
+    "protocol": PROTOCOL,
+    "operations": ["extract_markdown"],
+    "max_input_bytes": LIMIT,
+    "max_output_bytes": LIMIT,
+}
+
+
+class Rejected(ValueError):
+    pass
+
+
+def require(value):
+    if not value:
+        raise Rejected("request rejected")
+
+
+def encode(value):
+    return json.dumps(
+        value, sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False
+    ).encode()
+
+
+def request(raw):
+    require(isinstance(raw, bytes) and len(raw) <= LIMIT)
+
+    def unique(pairs):
+        value = {}
+        for key, child in pairs:
+            require(key not in value)
+            value[key] = child
+        return value
+
+    value = json.loads(raw, object_pairs_hook=unique)
+    require(encode(value) == raw)
+    require(isinstance(value, dict) and set(value) == {"protocol", "operation", "notes"})
+    require(value["protocol"] == PROTOCOL and value["operation"] == "extract_markdown")
+    require(isinstance(value["notes"], list) and 0 < len(value["notes"]) <= 64)
+    ids, paths = set(), set()
+    for note in value["notes"]:
+        require(isinstance(note, dict) and set(note) == {"id", "path", "body"})
+        require(isinstance(note["id"], str) and re.fullmatch(r"[A-Za-z0-9_-]{1,64}", note["id"]))
+        require(note["id"] not in ids and isinstance(note["body"], str))
+        path = note["path"]
+        require(isinstance(path, str) and re.fullmatch(r"[A-Za-z0-9_./ -]{1,256}\.md", path))
+        parts = PurePosixPath(path).parts
+        require(
+            not path.startswith("/")
+            and str(PurePosixPath(path)) == path
+            and all(part not in (".", "..") for part in parts)
+        )
+        require(path.casefold() not in paths)
+        ids.add(note["id"])
+        paths.add(path.casefold())
+    require(not any(other.startswith(path + "/") for path in paths for other in paths))
+    return value["notes"]
+
+
+def extract(notes):
+    from frontmatter_contract import parse_frontmatter
+    from graphify.extractors.markdown import _MD_LINK_INDEX_CACHE, extract_markdown
+
+    for note in notes:
+        parse_frontmatter(note["body"])
+
+    # Whole-request diagnostic avoids resolving any ambiguous basename by upstream order.
+    basenames = [PurePosixPath(note["path"]).name.casefold() for note in notes]
+    if len(basenames) != len(set(basenames)):
+        return {
+            "protocol": PROTOCOL,
+            "status": "blocked",
+            "pages": [],
+            "links": [],
+            "diagnostics": [{"code": "ambiguous_snapshot"}],
+        }
+    with tempfile.TemporaryDirectory(prefix="ob1-graphify-") as temporary:
+        root = Path(temporary).resolve()
+        selected = {str(root / note["path"]): note["id"] for note in notes}
+        hashes = {}
+        for note in notes:
+            path = root / note["path"]
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(note["body"], encoding="utf-8")
+            hashes[str(path)] = hashlib.sha256(path.read_bytes()).hexdigest()
+        _MD_LINK_INDEX_CACHE.clear()
+        parts = [extract_markdown(root / note["path"], scan_root=root) for note in notes]
+        require(all(not part.get("error") for part in parts))
+        upstream_pages = [
+            node for part in parts for node in part["nodes"] if node.get("node_kind") == "page"
+        ]
+        require(len(upstream_pages) == len(notes))
+        aliases = {node["id"]: selected[node["source_file"]] for node in upstream_pages}
+        require(len(aliases) == len(notes))
+        links, diagnostics = set(), set()
+        for part in parts:
+            for edge in part["edges"]:
+                if edge.get("relation") != "references":
+                    continue
+                source = aliases.get(edge["source"])
+                # A missing target can normalize to an existing page's upstream ID.
+                # Only the existing-file stamp, joined to the selected inventory, is authority.
+                target = selected.get(edge.get("target_file"))
+                require(source is not None and selected.get(edge.get("source_file")) == source)
+                if target is None:
+                    diagnostics.add((source, "unresolved_reference"))
+                elif target != source:
+                    links.add((source, target))
+        require(
+            all(
+                hashlib.sha256(Path(path).read_bytes()).hexdigest() == expected
+                for path, expected in hashes.items()
+            )
+        )
+        return {
+            "protocol": PROTOCOL,
+            "status": "ok",
+            "pages": sorted(selected.values()),
+            "links": [
+                {"source": source, "target": target, "kind": "explicit_reference"}
+                for source, target in sorted(links)
+            ],
+            "diagnostics": [
+                {"source": source, "code": code} for source, code in sorted(diagnostics)
+            ],
+        }
+
+
+def deny_network_and_processes(event, _args):
+    if event.startswith("socket.") or event in (
+        "subprocess.Popen",
+        "os.system",
+        "os.fork",
+        "os.posix_spawn",
+    ):
+        raise Rejected("unexpected runtime activity")
+
+
+def main():
+    try:
+        if sys.argv[1:] == ["--capabilities"]:
+            result = CAPABILITIES
+        else:
+            require(sys.argv[1:] == ["--extract-markdown"])
+            notes = request(sys.stdin.buffer.read(LIMIT + 1))
+            sys.addaudithook(deny_network_and_processes)
+            result = extract(notes)
+        output = encode(result)
+        require(len(output) <= LIMIT)
+        sys.stdout.buffer.write(output)
+    except Exception:  # noqa: BLE001 - bounded path-free rejection, never upstream traceback
+        sys.stderr.write("helper request rejected\n")
+        raise SystemExit(2) from None
+
+
+if __name__ == "__main__":
+    main()

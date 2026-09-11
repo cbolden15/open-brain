@@ -1,0 +1,298 @@
+"""Bounded isolated native invocation; no model or external service calls."""
+
+import hashlib
+import json
+import os
+import selectors
+import shutil
+import signal
+import subprocess
+import sys
+import time
+from contextlib import suppress
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parent
+from types import SimpleNamespace
+from tools.open_brain_dev.base_native import native_platform_tag
+from helper_protocol import LIMIT, PROTOCOL, encode  # noqa: E402
+from test_helper import fixture  # noqa: E402
+
+
+def run(executable, arguments, payload=b"", *, label, timeout=20, hold_input=False):
+    temporary = ROOT / "runtime" / label
+    temporary.mkdir(parents=True)
+    environment = {
+        "HOME": str(ROOT / "home"),
+        "TMPDIR": str(temporary),
+        "PATH": "/usr/bin:/bin",
+        "LANG": "en_US.UTF-8",
+        "PYTHONNOUSERSITE": "1",
+    }
+    command = [str(executable), *arguments]
+    started = time.monotonic()
+    deadline = started + timeout
+    work_deadline = deadline - min(0.2, timeout / 3)
+    child = subprocess.Popen(
+        command,
+        env=environment,
+        cwd=ROOT,
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        start_new_session=True,
+        bufsize=0,
+    )
+    selector = selectors.DefaultSelector()
+    streams = (
+        (child.stdout, "stdout", selectors.EVENT_READ),
+        (child.stderr, "stderr", selectors.EVENT_READ),
+    )
+    if not hold_input:
+        streams += ((child.stdin, "stdin", selectors.EVENT_WRITE),)
+    for stream, name, event in streams:
+        os.set_blocking(stream.fileno(), False)
+        selector.register(stream, event, name)
+    buffers = {"stdout": bytearray(), "stderr": bytearray()}
+    offset, reason = 0, "exit"
+    try:
+        while selector.get_map() or child.poll() is None:
+            if time.monotonic() >= work_deadline:
+                reason = "deadline"
+                break
+            for key, _ in selector.select(min(0.02, max(0, work_deadline - time.monotonic()))):
+                if key.data == "stdin":
+                    try:
+                        if offset < len(payload):
+                            offset += os.write(
+                                key.fileobj.fileno(), payload[offset : offset + 4096]
+                            )
+                    except BrokenPipeError:
+                        offset = len(payload)
+                    if offset == len(payload):
+                        selector.unregister(key.fileobj)
+                        key.fileobj.close()
+                else:
+                    part = os.read(key.fileobj.fileno(), 4096)
+                    if not part:
+                        selector.unregister(key.fileobj)
+                        key.fileobj.close()
+                    else:
+                        buffers[key.data].extend(part)
+                        if len(buffers[key.data]) > (LIMIT if key.data == "stdout" else 4096):
+                            reason = "output_limit"
+                            break
+            if reason != "exit":
+                break
+    finally:
+        selector.close()
+        for stream in (child.stdin, child.stdout, child.stderr):
+            stream.close()
+        if child.poll() is None:
+            with suppress(ProcessLookupError):
+                os.killpg(child.pid, signal.SIGTERM)
+            try:
+                child.wait(timeout=min(0.08, max(0.001, deadline - time.monotonic())))
+            except subprocess.TimeoutExpired:
+                with suppress(ProcessLookupError):
+                    os.killpg(child.pid, signal.SIGKILL)
+        child.wait(timeout=max(0.001, deadline - time.monotonic()))
+    result = {
+        "reason": reason,
+        "exit": child.returncode,
+        "reaped": child.poll() is not None,
+        "elapsed_seconds": time.monotonic() - started,
+        "timeout_seconds": timeout,
+        "stdin_bytes": len(payload),
+        "stdout_bytes": len(buffers["stdout"]),
+        "stderr_bytes": len(buffers["stderr"]),
+        "temporary_files_after": sorted(
+            str(p.relative_to(temporary)) for p in temporary.rglob("*")
+        ),
+    }
+    for name, data in buffers.items():
+        (ROOT / (label + "." + name)).write_bytes(data)
+    (ROOT / (label + ".receipt.json")).write_text(json.dumps(result, indent=2) + "\n")
+    return bytes(buffers["stdout"]), result
+
+
+def main():
+    base = Path(sys.argv[1]).resolve(strict=True)
+    baseline_hash = hashlib.sha256(base.read_bytes()).hexdigest()
+    helper = ROOT / "native/dist/open-brain-graphify"
+    helper_hash = hashlib.sha256(helper.read_bytes()).hexdigest()
+    relocated = ROOT / "relocated/libexec/open-brain-graphify"
+    relocated.parent.mkdir(parents=True)
+    shutil.copy2(helper, relocated)
+    pinned = SimpleNamespace(executable=relocated)
+    checks, receipts = {}, {}
+    data, receipts["capabilities"] = run(
+        pinned.executable, ["--capabilities"], label="capabilities"
+    )
+    checks["capability_response_contract"] = json.loads(data) == {"protocol": PROTOCOL, "operations": ["extract_markdown"], "max_input_bytes": LIMIT, "max_output_bytes": LIMIT}
+    selected = fixture()
+    input_bytes = encode(selected)
+    outputs = []
+    for label in ("selected", "relocated"):
+        data, receipts[label] = run(
+            pinned.executable, ["--extract-markdown"], input_bytes, label=label
+        )
+        outputs.append(json.loads(data))
+    checks["stable_across_isolated_staging_roots"] = outputs[0] == outputs[1]
+    checks["selected_sources_only"] = outputs[0]["pages"] == sorted(
+        note["id"] for note in selected["notes"]
+    )
+    checks["expected_explicit_links"] = {
+        (x["source"], x["target"]) for x in outputs[0]["links"]
+    } == {("synthetic-index", "synthetic-solar"), ("synthetic-index", "synthetic-battery")}
+    checks["path_free_output"] = b"/" not in encode(outputs[0]) and b"CANARY" not in encode(
+        outputs[0]
+    )
+    selected["notes"][2]["body"] += "\n[[solar]]\n"
+    data, receipts["incremental"] = run(
+        pinned.executable, ["--extract-markdown"], encode(selected), label="incremental"
+    )
+    checks["incremental_explicit_link"] = len(json.loads(data)["links"]) == 3
+    collision = fixture()
+    collision["notes"] = collision["notes"][:2]
+    collision["notes"][0]["body"] = "# Index\n[[other name]]\n"
+    collision["notes"][1]["path"] = "other-name.md"
+    data, receipts["missing-target-collision"] = run(
+        pinned.executable,
+        ["--extract-markdown"],
+        encode(collision),
+        label="missing-target-collision",
+    )
+    checks["missing_target_collision_rejected"] = not json.loads(data)["links"] and bool(
+        json.loads(data)["diagnostics"]
+    )
+    ambiguous = fixture()
+    ambiguous["notes"] += [
+        {"id": "alpha", "path": "alpha/shared.md", "body": "# Alpha\n"},
+        {"id": "beta", "path": "beta/shared.md", "body": "# Beta\n"},
+    ]
+    data, receipts["ambiguous"] = run(
+        pinned.executable, ["--extract-markdown"], encode(ambiguous), label="ambiguous"
+    )
+    checks["ambiguous_blocked"] = (
+        json.loads(data)["status"] == "blocked" and not json.loads(data)["links"]
+    )
+    for label, args, raw in [
+        ("unknown", ["--unknown"], b""),
+        ("malformed", ["--extract-markdown"], b"invalid"),
+        ("oversized", ["--extract-markdown"], b"a" * (LIMIT + 1)),
+    ]:
+        data, receipts[label] = run(pinned.executable, args, raw, label=label)
+        checks[label + "_rejected"] = not data and receipts[label]["exit"] == 2
+    many = {
+        "protocol": PROTOCOL,
+        "operation": "extract_markdown",
+        "notes": [
+            {
+                "id": f"note-{i}",
+                "path": f"note-{i}.md",
+                "body": "\n".join(f"[[note-{j}]]" for j in range(20)),
+            }
+            for i in range(20)
+        ],
+    }
+    require_input = encode(many)
+    assert len(require_input) <= LIMIT
+    data, receipts["output-bound"] = run(
+        pinned.executable, ["--extract-markdown"], require_input, label="output-bound"
+    )
+    checks["output_bound_rejected"] = not data and receipts["output-bound"]["exit"] == 2
+    data, receipts["removed-diagnostic"] = run(
+        pinned.executable, ["--frontmatter-probe", str(ROOT)], label="removed-diagnostic"
+    )
+    checks["filesystem_diagnostic_not_exposed"] = (
+        not data and receipts["removed-diagnostic"]["exit"] == 2
+    )
+    for path in sorted((ROOT / "frontmatter-fixtures").glob("*.md")):
+        value = fixture()
+        value["notes"][0]["body"] = path.read_text()
+        label = "frontmatter-" + path.stem
+        data, receipts[label] = run(
+            pinned.executable, ["--extract-markdown"], encode(value), label=label
+        )
+        expected_rejection = path.stem in ("cycle", "duplicate", "scalar_alias")
+        checks[label] = (
+            (not data and receipts[label]["exit"] == 2) if expected_rejection
+            else (receipts[label]["exit"] == 0 and json.loads(data)["status"] == "ok")
+        )
+    _, receipts["held-input-timeout"] = run(
+        pinned.executable,
+        ["--extract-markdown"],
+        label="held-input-timeout",
+        timeout=4,
+        hold_input=True,
+    )
+    checks["timeout_reaped"] = (
+        receipts["held-input-timeout"]["reason"] == "deadline"
+        and receipts["held-input-timeout"]["reaped"]
+    )
+    cache_fixture = json.loads((ROOT / "cache-fixture.json").read_text())
+    value = cache_fixture["request"]
+    expected = {row["id"]: bool(row["resolved"]) for row in cache_fixture["observed"]}
+    value["notes"] = [n for n in value["notes"] if n["id"] not in ("depth-20", "property-two")]
+    data, receipts["actual-cache-cases"] = run(
+        pinned.executable, ["--extract-markdown"], encode(value), label="actual-cache-cases"
+    )
+    result = json.loads(data)
+    checks["cache_status_and_diagnostics"] = (
+        result["status"] == "ok" and result["diagnostics"] == []
+    )
+    linked = {e["source"] for e in result["links"] if e["target"] == "synthetic-battery"}
+    for note in value["notes"][1:]:
+        checks["cache_" + note["id"]] = (note["id"] in linked) == expected[note["id"]]
+    for label, body in [
+        ("depth-limit", "> " * 20 + "[[solar]]"),
+        ("complex-property", '---\nrelated: "[[solar]] [[solar]]"\n---\n'),
+        ("complex-wiki", "[[solar]] [[so\\lar]]"),
+    ]:
+        value = fixture()
+        value["notes"][0]["body"] = body
+        data, receipts[label] = run(
+            pinned.executable, ["--extract-markdown"], encode(value), label=label
+        )
+        checks[label + "_rejects_without_partial_output"] = (
+            not data and receipts[label]["exit"] == 2
+        )
+    checks["all_temporary_staging_cleaned"] = all(
+        not r["temporary_files_after"] for r in receipts.values()
+    )
+    checks["all_within_deadlines"] = all(
+        r["elapsed_seconds"] <= r["timeout_seconds"] for r in receipts.values()
+    )
+    checks["base_bytes_unchanged"] = (
+        hashlib.sha256(base.read_bytes()).hexdigest() == baseline_hash
+    )
+    checks["relocated_helper_unchanged"] = (
+        hashlib.sha256(pinned.executable.read_bytes()).hexdigest() == helper_hash
+    )
+    result = {
+        "passed": all(checks.values()),
+        "checks": checks,
+        "receipts": receipts,
+        "helper_sha256": helper_hash,
+        "native_platform": native_platform_tag(),
+        "os_sandbox_enforced": False,
+        "model_attempts": 0,
+        "shipping_protocol_passed": False,
+        "cold_startup_measurement": False,
+    }
+    (ROOT / "runtime-verification.json").write_text(json.dumps(result, indent=2) + "\n")
+    print(
+        json.dumps(
+            {
+                "passed": result["passed"],
+                "checks": len(checks),
+                "failed": [key for key, ok in checks.items() if not ok],
+            }
+        )
+    )
+    assert result["passed"]
+
+
+if __name__ == "__main__":
+    main()

@@ -1,0 +1,217 @@
+"""Private synthetic transport: a parent owns the whole deadline and child lifetime."""
+import base64
+import json
+import os
+import re
+import selectors
+import signal
+import subprocess
+import sys
+import time
+from http.client import HTTPConnection
+from pathlib import Path
+
+LIMIT = 16384
+MODEL = "synthetic-model-1"
+PROVIDERS = ("openai", "anthropic", "gemini")
+
+
+class Rejected(ValueError):
+    pass
+
+
+def require(test, reason):
+    if not test:
+        raise Rejected(reason)
+
+
+def encode(value):
+    return json.dumps(value, ensure_ascii=False, separators=(",", ":"), allow_nan=False).encode()
+
+
+def decode(raw):
+    def unique(pairs):
+        result = {}
+        for key, value in pairs:
+            require(key not in result, "duplicate JSON key")
+            result[key] = value
+        return result
+    def constant(_):
+        raise Rejected("nonfinite JSON")
+    try:
+        return json.loads(raw, object_pairs_hook=unique, parse_constant=constant)
+    except (ValueError, TypeError, RecursionError) as error:
+        raise Rejected("malformed JSON") from error
+
+
+def request(provider, model, selected):
+    require(provider in PROVIDERS, "provider")
+    require(isinstance(model, str) and re.fullmatch(r"[A-Za-z0-9_.-]{1,128}", model), "model")
+    require(isinstance(selected, str) and len(selected.encode()) <= LIMIT, "selected input")
+    schema = {"type": "object", "additionalProperties": False, "required": ["edges"],
+              "properties": {"edges": {"type": "array", "items": {"type": "object",
+              "properties": {"source": {"type": "string"}, "target": {"type": "string"}},
+              "required": ["source", "target"], "additionalProperties": False}}}}
+    if provider == "openai":
+        path = "/v1/responses"
+        value = {"model": model, "input": selected, "store": False, "max_output_tokens": 1024,
+                 "tools": [], "text": {"format": {"type": "json_schema", "name": "edges",
+                 "strict": True, "schema": schema}}}
+    elif provider == "anthropic":
+        path = "/v1/messages"
+        value = {"model": model, "max_tokens": 1024,
+                 "messages": [{"role": "user", "content": selected}],
+                 "output_config": {"format": {"type": "json_schema", "schema": schema}}}
+    else:
+        path = f"/v1beta/models/{model}:generateContent"
+        value = {"contents": [{"role": "user", "parts": [{"text": selected}]}],
+                 "generationConfig": {"responseMimeType": "application/json", "responseJsonSchema": schema,
+                                      "candidateCount": 1, "maxOutputTokens": 1024}}
+    body = encode(value)
+    require(len(body) <= LIMIT, "wire input limit")
+    return path, body
+
+
+def extract(provider, value, expected_model):
+    require(provider in PROVIDERS and isinstance(value, dict), "response type")
+    actual = value.get("modelVersion" if provider == "gemini" else "model")
+    require(isinstance(actual, str) and actual == expected_model, "actual model")
+    if provider == "openai":
+        require(value.get("status") == "completed" and not value.get("error")
+                and not value.get("incomplete_details"), "response not complete")
+        items = value.get("output")
+        require(isinstance(items, list) and len(items) == 1 and isinstance(items[0], dict), "output items")
+        item = items[0]
+        require(item.get("type") == "message" and item.get("role") == "assistant"
+                and item.get("status") == "completed", "output message")
+        parts = item.get("content")
+        kind = "output_text"
+    elif provider == "anthropic":
+        require(value.get("type") == "message" and value.get("role") == "assistant"
+                and value.get("stop_reason") == "end_turn", "response not complete")
+        parts = value.get("content")
+        kind = "text"
+    else:
+        feedback = value.get("promptFeedback", {})
+        require(isinstance(feedback, dict) and not feedback.get("blockReason"), "blocked prompt")
+        candidates = value.get("candidates")
+        require(isinstance(candidates, list) and len(candidates) == 1 and isinstance(candidates[0], dict), "candidate")
+        candidate = candidates[0]
+        require(candidate.get("finishReason") == "STOP", "response not complete")
+        content = candidate.get("content")
+        require(isinstance(content, dict) and content.get("role") == "model", "candidate content")
+        parts = content.get("parts")
+        kind = None
+    require(isinstance(parts, list) and len(parts) == 1 and isinstance(parts[0], dict), "text parts")
+    part = parts[0]
+    if kind is None:
+        require(set(part) == {"text"}, "nontext part")
+    else:
+        require(part.get("type") == kind and not any(k in part for k in ("functionCall", "tool_use", "refusal")), "nontext part")
+    text = part.get("text")
+    require(isinstance(text, str) and len(text.encode()) <= LIMIT, "text limit")
+    payload = decode(text)
+    require(isinstance(payload, dict) and set(payload) == {"edges"}
+            and isinstance(payload["edges"], list) and len(payload["edges"]) <= 64, "payload schema")
+    for edge in payload["edges"]:
+        require(isinstance(edge, dict) and set(edge) == {"source", "target"}
+                and all(isinstance(v, str) and 0 < len(v) <= 128 for v in edge.values()), "edge schema")
+    return {"provider": provider, "access": "api", "actual_model": actual, "payload": payload}
+
+
+def _child():
+    try:
+        raw = sys.stdin.buffer.read(32769)
+        require(len(raw) <= 32768, "control input limit")
+        args = decode(raw)
+        require(args["host"] == "127.0.0.1" and type(args["port"]) is int and 0 < args["port"] < 65536, "synthetic endpoint")
+        body = base64.b64decode(args["body"], validate=True)
+        require(len(body) <= LIMIT, "wire input limit")
+        conn = HTTPConnection(args["host"], args["port"], timeout=60)
+        try:
+            conn.request("POST", args["path"], body, {"Content-Type": "application/json"})
+            response = conn.getresponse()
+            require(response.status == 200, "HTTP status")
+            raw = response.read(LIMIT + 1)
+            require(len(raw) <= LIMIT, "wire output limit")
+            result = {"ok": True, "result": extract(args["provider"], decode(raw), args["model"])}
+        finally:
+            conn.close()
+    except Exception:  # noqa: BLE001 - child returns a closed error, never a traceback or server data
+        result = {"ok": False, "error": "transport or response rejected"}
+    encoded = encode(result)
+    require(len(encoded) <= LIMIT, "control output limit")
+    sys.stdout.buffer.write(encoded)
+
+
+def call(endpoint, provider, selected="source-a:solar;source-b:heat", *, timeout=2, cancel=None,
+         expected_model=MODEL, lifecycle=None):
+    started = time.monotonic()
+    require(type(timeout) in (int, float) and 0 < timeout <= 60, "operation timeout")
+    deadline = started + timeout
+    require(isinstance(endpoint, tuple) and len(endpoint) == 2 and endpoint[0] == "127.0.0.1"
+            and type(endpoint[1]) is int and 0 < endpoint[1] < 65536, "synthetic endpoint")
+    path, body = request(provider, expected_model, selected)
+    require(not (cancel and cancel.is_set()), "cancelled before construction")
+    control = encode({"host": endpoint[0], "port": endpoint[1], "provider": provider,
+                      "model": expected_model, "path": path, "body": base64.b64encode(body).decode()})
+    require(len(control) <= 32768, "control input")
+    require(time.monotonic() < deadline - min(.15, timeout / 3), "expired before construction")
+    # No ambient routing, credentials, Python paths, proxies or SDK settings are inherited.
+    environment = {"PATH": "/usr/bin:/bin", "PYTHONNOUSERSITE": "1", "PYTHONDONTWRITEBYTECODE": "1"}
+    child = subprocess.Popen([sys.executable, "-I", "-B", str(Path(__file__).resolve()), "--child"],
+                             stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                             env=environment, start_new_session=True, bufsize=0)
+    if lifecycle is not None:
+        lifecycle.update(pid=child.pid, constructed=True, reaped=False)
+    sel = selectors.DefaultSelector()
+    for stream, name, event in [(child.stdin, "input", selectors.EVENT_WRITE),
+                                (child.stdout, "output", selectors.EVENT_READ),
+                                (child.stderr, "error", selectors.EVENT_READ)]:
+        os.set_blocking(stream.fileno(), False)
+        sel.register(stream, event, name)
+    offset = 0
+    buffers = {"output": bytearray(), "error": bytearray()}
+    work_deadline = deadline - min(.15, timeout / 3)
+    try:
+        while sel.get_map() or child.poll() is None:
+            require(not (cancel and cancel.is_set()), "cancelled in flight")
+            require(time.monotonic() < work_deadline, "operation deadline")
+            for key, _ in sel.select(min(.01, max(0, work_deadline - time.monotonic()))):
+                if key.data == "input":
+                    offset += os.write(key.fileobj.fileno(), control[offset:offset + 4096])
+                    if offset == len(control):
+                        sel.unregister(key.fileobj)
+                        key.fileobj.close()
+                else:
+                    data = os.read(key.fileobj.fileno(), 4096)
+                    if not data:
+                        sel.unregister(key.fileobj)
+                        key.fileobj.close()
+                        continue
+                    buffers[key.data].extend(data)
+                    require(len(buffers[key.data]) <= (LIMIT if key.data == "output" else 4096), "child output bound")
+        require(child.returncode == 0, "child failure")
+        result = decode(bytes(buffers["output"]))
+        require(isinstance(result, dict) and result.get("ok") is True, "response rejected")
+        require(not (cancel and cancel.is_set()) and time.monotonic() < work_deadline, "late result")
+        return result["result"]
+    except (OSError, ValueError, KeyError) as error:
+        raise Rejected("bounded transport rejected") from error
+    finally:
+        sel.close()
+        for stream in (child.stdin, child.stdout, child.stderr):
+            stream.close()
+        if child.poll() is None:
+            os.killpg(child.pid, signal.SIGTERM)
+            try:
+                child.wait(timeout=min(.05, max(.001, deadline - time.monotonic())))
+            except subprocess.TimeoutExpired:
+                os.killpg(child.pid, signal.SIGKILL)
+        child.wait(timeout=max(.001, deadline - time.monotonic()))
+        if lifecycle is not None:
+            lifecycle.update(reaped=True, exit=child.returncode, elapsed_seconds=time.monotonic() - started)
+
+
+if __name__ == "__main__" and sys.argv[1:] == ["--child"]:
+    _child()

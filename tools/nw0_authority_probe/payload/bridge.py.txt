@@ -1,0 +1,205 @@
+"""Private C10 adapter joining frozen authority and bounded loopback transport."""
+
+from __future__ import annotations
+
+import json
+import threading
+import time
+from dataclasses import dataclass
+
+import wire
+from authority_gate import ProviderReply, SelectedSource, SourceBinding, digest, require
+
+PROVIDERS = {"openai_api": "openai", "anthropic_api": "anthropic", "gemini_api": "gemini"}
+
+
+def bound_result(result, bindings):
+    aliases = {f"source-{index + 1}": source for index, source in enumerate(bindings)}
+    edges = []
+    seen = set()
+    for edge in result["payload"]["edges"]:
+        left, right = edge["source"], edge["target"]
+        require(left in aliases and right in aliases and left != right, "source alias")
+        pair = tuple(sorted((left, right)))
+        require(pair not in seen, "duplicate inferred edge")
+        seen.add(pair)
+        endpoints = []
+        for alias in (left, right):
+            source = aliases[alias]
+            endpoints.append(
+                {
+                    "note_id": source.note_id,
+                    "revision_id": source.revision_id,
+                    "body_digest": source.body_digest,
+                    "body": source.body,
+                    "privacy_digest": source.privacy_digest,
+                }
+            )
+        edges.append({"kind": "inferred", "source": endpoints[0], "target": endpoints[1]})
+    return {
+        "provider": result["provider"],
+        "access": result["access"],
+        "actual_model": result["actual_model"],
+        "edges": edges,
+        "evidence_kind": "attached_source_context",
+        "permanent_links_written": 0,
+    }
+
+
+@dataclass(frozen=True, slots=True)
+class Route:
+    endpoint: tuple
+    provider: str
+    transport_timeout: float
+
+    @property
+    def identity(self):
+        binding = digest(
+            wire.encode({"endpoint": self.endpoint, "timeout": self.transport_timeout})
+        )
+        return f"{self.provider}:c10-loopback-{wire.MODEL}:{binding}"
+
+
+class Flight:
+    def __init__(self, route, bindings, prompt, timeout, max_output):
+        self.cancelled = threading.Event()
+        self.started = time.monotonic()
+        self.deadline = self.started + min(timeout, route.transport_timeout)
+        self.endpoint = route.endpoint
+        self.provider = route.provider
+        self.bindings = tuple(SourceBinding(**item.as_dict()) for item in bindings)
+        self.prompt = prompt
+        self.max_output = max_output
+        self.lifecycle = {}
+        self.cancel_calls = 0
+        self.waited = False
+
+    def cancel(self):
+        self.cancel_calls += 1
+        self.cancelled.set()
+
+    def wait(self):
+        require(not self.waited, "one wait per handoff")
+        self.waited = True
+        result = wire.call(
+            self.endpoint,
+            PROVIDERS[self.provider],
+            self.prompt,
+            timeout=self.deadline - time.monotonic(),
+            cancel=self.cancelled,
+            expected_model=wire.MODEL,
+            lifecycle=self.lifecycle,
+        )
+        encoded = wire.encode(bound_result(result, self.bindings))
+        require(len(encoded) <= self.max_output, "bound output limit")
+        require(
+            not self.cancelled.is_set() and time.monotonic() < self.deadline,
+            "cancelled or late result",
+        )
+        return ProviderReply(encoded.decode(), time.monotonic() - self.started)
+
+
+@dataclass(frozen=True, slots=True)
+class PreparedAdapter:
+    route: Route
+    bindings: tuple
+    observer: object
+
+    def start(self, prompt, *, timeout_seconds, max_output_bytes):
+        expected = {
+            "operation": "semantic_graph",
+            "selected_sources": [
+                {"source": f"source-{index + 1}", "body": item.body}
+                for index, item in enumerate(self.bindings)
+            ],
+        }
+        require(json.loads(prompt) == expected, "derived prompt binding")
+        for item in self.bindings:
+            require(
+                digest(item.body.encode()) == item.body_digest
+                and digest(item.privacy) == item.privacy_digest,
+                "immutable source binding",
+            )
+        self.observer.prompt_digest = digest(prompt.encode())
+        self.observer.starts += 1
+        flight = Flight(self.route, self.bindings, prompt, timeout_seconds, max_output_bytes)
+        self.observer.flight = flight
+        return flight
+
+
+class SyntheticAccess:
+    def __init__(self, endpoint, provider, bindings, *, transport_timeout=2, on_resolve=None):
+        require(provider in PROVIDERS, "direct synthetic API only")
+        require(
+            type(transport_timeout) in (int, float) and 0 < transport_timeout <= 60,
+            "transport timeout",
+        )
+        self.endpoint = endpoint
+        self.provider = provider
+        # Freeze nested caller-owned data before reservation or asynchronous dispatch.
+        self.bindings = tuple(SourceBinding(**item.as_dict()) for item in bindings)
+        self.transport_timeout = transport_timeout
+        self.on_resolve = on_resolve
+        self.resolves = self.constructions = self.starts = 0
+        self.flight = None
+        self.prompt_digest = None
+
+    @property
+    def route(self):
+        return Route(tuple(self.endpoint), self.provider, self.transport_timeout)
+
+    @property
+    def identity(self):
+        return self.route.identity
+
+    @property
+    def selections(self):
+        return tuple(
+            SelectedSource(x.note_id, x.revision_id, x.privacy_digest) for x in self.bindings
+        )
+
+    def resolve(self):
+        self.resolves += 1
+        if self.on_resolve:
+            self.on_resolve()
+        return "synthetic-no-credential"
+
+    def construct(self, marker):
+        require(marker == "synthetic-no-credential", "synthetic marker")
+        self.constructions += 1
+        return self
+
+    def reserve(self, gate, capability, probe_id="c10-probe", *, timeout=2, max_output=16384):
+        return gate.reserve(
+            capability,
+            probe_id=probe_id,
+            provider=self.provider,
+            adapter_identity=self.identity,
+            operation="semantic_graph",
+            selected_sources=self.selections,
+            max_output_bytes=max_output,
+            timeout_seconds=timeout,
+        )
+
+    def release(self, gate, capability, reservation):
+        route = self.route
+        identity = route.identity
+        bindings = tuple(SourceBinding(**item.as_dict()) for item in self.bindings)
+        prepared = PreparedAdapter(route, bindings, self)
+
+        def construct(marker):
+            require(self.identity == identity, "adapter changed after credential resolution")
+            require(self.construct(marker) is self, "unexpected synthetic construction")
+            require(self.identity == identity, "adapter changed during construction")
+            return prepared
+
+        return gate.release(
+            capability,
+            reservation_id=reservation,
+            provider=self.provider,
+            adapter_identity=identity,
+            operation="semantic_graph",
+            selected_sources=self.selections,
+            resolve_credential=self.resolve,
+            construct_provider=construct,
+        )

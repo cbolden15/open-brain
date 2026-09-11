@@ -587,3 +587,64 @@ def test_reviewed_payload_is_not_exempt_outside_pyz(monkeypatch: pytest.MonkeyPa
     scanner = native.Scanner([])
     scanner.zip(buffer.getvalue(), "wheel", 0)
     assert ("ipaddress", "private-ip-address") in scanner.findings
+
+
+@pytest.mark.parametrize("platform", ["linux-x86_64", "macos-arm64"])
+def test_graphify_proof_envelope_scans_binary_and_all_notices(
+    tmp_path: Path, platform: str
+) -> None:
+    from tools.nw0_graphify_probe.run import write_archive
+
+    helper = tmp_path / "helper"
+    binary = executable(
+        package([("PYZ.pyz", b"z", pyz(module()))]), platform, b"X" * (3 * 1024 * 1024)
+    )
+    helper.write_bytes(binary)
+    target = tmp_path / f"open-brain-graphify-proof-{platform}.tar.gz"
+    write_archive(helper, target)
+    assert native.inspect_artifact(target, ()) == []
+    assert "private-denylist-term" in {
+        rule
+        for _, rule in native.inspect_artifact(target, ("modified by open brain contributors",))
+    }
+    helper.write_bytes(
+        executable(package([("PYZ.pyz", b"z", pyz(module(f"x={TERM!r}")))]), platform)
+    )
+    write_archive(helper, target)
+    assert "private-denylist-term" in {r for _, r in native.inspect_artifact(target, (TERM,))}
+
+
+@pytest.mark.parametrize(
+    "bad", ["missing", "extra", "symlink", "large-notice", "duplicate", "wrong-binary"]
+)
+def test_graphify_proof_envelope_rejects_invalid_members(bad: str) -> None:
+    binary = executable(package([("PYZ.pyz", b"z", pyz(module()))]), "linux-x86_64")
+    members = [(name, b"safe") for name in sorted(native.GRAPHIFY_PROOF_LEGAL)]
+    members.append(("open-brain-graphify", binary))
+    if bad == "missing":
+        members.pop(0)
+    elif bad == "extra":
+        members.append(("unreviewed", b"safe"))
+    elif bad == "large-notice":
+        members[0] = (members[0][0], b"x" * (native.MAX_HEADER + 1))
+    elif bad == "duplicate":
+        members.append(members[0])
+    elif bad == "wrong-binary":
+        members[-1] = ("open-brain", binary)
+    buffer = io.BytesIO()
+    with tarfile.open(fileobj=buffer, mode="w:gz", format=tarfile.USTAR_FORMAT) as archive_file:
+        for index, (name, data) in enumerate(members):
+            entry = tarfile.TarInfo(name)
+            entry.size = len(data)
+            entry.mode = 0o755 if name.startswith("open-brain") else 0o644
+            if bad == "symlink" and index == 0:
+                entry.type = tarfile.SYMTYPE
+                entry.linkname = "outside"
+                entry.size = 0
+            archive_file.addfile(entry, io.BytesIO(data))
+    scanner = native.Scanner(())
+    try:
+        scanner.archive(buffer.getvalue(), "open-brain-graphify-proof-linux-x86_64.tar.gz")
+    except native.InvalidArtifact:
+        return
+    assert scanner.findings
