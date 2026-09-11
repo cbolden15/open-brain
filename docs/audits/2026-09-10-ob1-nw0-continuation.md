@@ -47,6 +47,30 @@ and the public preparatory authority profile still declares 28 tests, not this 4
 The authority bundle, complete dependency/import provenance, current public inventory and fresh native
 authority execution remain gated. No private authority candidate was activated by the transport CI.
 
+C45's closed API profile and C47's separate owned transport now have independently reviewed local
+proofs. The transport captures the selected route, CA bytes, credential reference, timeout and
+resolver policy before release. It starts all acquired resource closes before draining any one
+task and retains the C44 owner until every inner task is terminal. Root verification passed ten
+unit tests normally and with optimization, plus eleven controlled TLS cases. Independent review
+added a held-cleanup ownership control and a four-case TLS subset. These checks used no providers.
+The original author's local verification-cap overrun and the reviewer's contextual lint failure
+remain preserved; neither is counted as passing evidence.
+
+C49 then identified a separate result-projection gap: the strict parser validated normalized
+usage, but the source-bound result discarded it. C50 preserves that validated field before final
+encoding and output-byte checks, with a distinct adapter identity. Three regression cases reproduce
+the omission in C47. The successor passes all six new result tests and ten related authority tests
+both normally and with optimization, including Anthropic cache counters and Gemini reasoning usage.
+Malformed usage, an oversized result and missing response-model attribution reject without success.
+Independent source-and-receipt review passed. Final project-configured lint passed after three
+test-only line wraps; the executed pre-format tests and initial lint failure remain preserved.
+
+These are scoped private feasibility results, not installed adapters or current account access.
+The production resolver and CA policy, explicitly selected credential contexts and accessible model
+pins still need approval and proof in each target context. The system-resolver-helper proposal is
+not an approved runtime or a substitute for kernel/OS-broker confinement and native packaging.
+No authentication probe or provider attempt was repeated by these corrections.
+
 Current ownership is unchanged: NW2 owns later adapters and presentation, NW3 owns installation and
 credential custody, and NW4 owns the release-candidate timed journey. Remaining NW0 work is the
 reviewed native authority bundle, actual kernel-phase evidence, supported Claude access/confinement,

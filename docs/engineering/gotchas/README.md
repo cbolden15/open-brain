@@ -1394,3 +1394,31 @@ do not hide a concrete child-side wait inside a general scheduling assumption.
 Discovered: 2026-09-10, independent NW0 launch review; see the
 [Linux spawn](https://man7.org/linux/man-pages/man3/posix_spawn.3.html) and
 [vfork semantics](https://man7.org/linux/man-pages/man2/vfork.2.html).
+
+### INTEGRATION-021: Validated usage can disappear at a narrower result projection
+
+Symptom: A provider response passes strict token-usage validation, but the final source-bound
+operation result has no usage fields.
+
+Cause: A reused graph-result projection keeps source evidence and model attribution but intentionally
+omits transport metadata. Validation before that projection does not preserve the discarded value.
+
+Fix: Attach only the normalized, validated usage to the bound result before its final encoding and
+byte-limit check. Test all provider shapes through the actual authority return boundary, including
+cache and reasoning counters. A parser-only test cannot prove the returned result retains them.
+
+Discovered: 2026-09-11, [NW0 continuation](../../audits/2026-09-10-ob1-nw0-continuation.md).
+
+### INTEGRATION-022: An explicit lint configuration can still depend on the working directory
+
+Symptom: The same frozen sources and Ruff configuration pass in the candidate directory but report
+different import-order findings from a receipt directory.
+
+Cause: Selecting the configuration file does not also freeze default source roots used to classify
+first-party imports.
+
+Fix: Record or explicitly set the source roots as well as the binary, configuration and source
+hashes for standalone proof checks. Preserve the failed check; do not rewrite frozen imports to
+chase unrelated working directories or claim that test execution verified a later formatting edit.
+
+Discovered: 2026-09-11, [NW0 continuation](../../audits/2026-09-10-ob1-nw0-continuation.md).
