@@ -1,0 +1,586 @@
+from __future__ import annotations
+
+import tempfile
+import threading
+import unittest
+from dataclasses import replace
+from pathlib import Path
+
+from authority_gate import (
+    ACTIVE_PROVIDERS,
+    AuthorityGate,
+    ProviderReply,
+    Rejected,
+    SelectedSource,
+    SimulatedCrash,
+    bindings_from_snapshot,
+    digest,
+)
+from test_source_binding import SourceBoundCompositionTests
+
+
+class FakeFlight:
+    def __init__(self, reply: ProviderReply, *, blocking: bool) -> None:
+        self.reply = reply
+        self.cancel_calls = 0
+        self._done = threading.Event()
+        if not blocking:
+            self._done.set()
+
+    def wait(self) -> ProviderReply:
+        if not self._done.wait(2):
+            raise AssertionError("fake provider wait timed out")
+        return self.reply
+
+    def cancel(self) -> None:
+        self.cancel_calls += 1
+        self._done.set()
+
+
+class FakeAccess:
+    def __init__(
+        self,
+        *,
+        output: str = '{"edges":[]}',
+        elapsed_seconds: float = 0.01,
+        blocking: bool = False,
+        on_resolve=None,
+    ) -> None:
+        self.output = output
+        self.elapsed_seconds = elapsed_seconds
+        self.blocking = blocking
+        self.on_resolve = on_resolve
+        self.resolve_calls = 0
+        self.construct_calls = 0
+        self.dispatch_calls = 0
+        self.handoff = threading.Event()
+        self.flight: FakeFlight | None = None
+
+    def resolve(self) -> str:
+        self.resolve_calls += 1
+        if self.on_resolve is not None:
+            self.on_resolve()
+        return "synthetic-credential"
+
+    def construct(self, credential: str) -> FakeAccess:
+        if credential != "synthetic-credential":
+            raise AssertionError("wrong credential")
+        self.construct_calls += 1
+        return self
+
+    def start(
+        self, prompt: str, *, timeout_seconds: int, max_output_bytes: int
+    ) -> FakeFlight:
+        if not prompt or timeout_seconds > 60 or max_output_bytes > 16 * 1024:
+            raise AssertionError("gate failed to enforce provider boundary")
+        self.dispatch_calls += 1
+        self.flight = FakeFlight(
+            ProviderReply(self.output, self.elapsed_seconds), blocking=self.blocking
+        )
+        self.handoff.set()
+        return self.flight
+
+    @property
+    def calls(self) -> tuple[int, int, int]:
+        return self.resolve_calls, self.construct_calls, self.dispatch_calls
+
+
+class AuthorityGateTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.temp = tempfile.TemporaryDirectory()
+        self.root = Path(self.temp.name).resolve()
+        self.a3 = SourceBoundCompositionTests()
+        self.a3.setUp()
+        self.bindings = bindings_from_snapshot(self.a3.base)
+        self.owner = self.a3.base["owner_actor_id"]
+        self.trusted = object()
+        self.gate = AuthorityGate.create(
+            self.root / "authority.sqlite",
+            owner_id=self.owner,
+            sources=self.bindings,
+            trusted_process=self.trusted,
+        )
+
+    def tearDown(self) -> None:
+        self.gate.close()
+        self.a3.tearDown()
+        self.temp.cleanup()
+
+    def authorize(self, provider: str = "openai_api"):
+        initial = self.gate.mint_owner_capability(self.trusted)
+        self.gate.grant_consent(initial, provider=provider, operation="semantic_graph")
+        return self.gate.mint_owner_capability(self.trusted)
+
+    def selected(self) -> tuple[SelectedSource, ...]:
+        return tuple(
+            SelectedSource(item.note_id, item.revision_id, item.privacy_digest)
+            for item in self.bindings
+        )
+
+    def reserve(
+        self, capability, *, probe: str = "probe-a", provider: str = "openai_api", **kw
+    ):
+        return self.gate.reserve(
+            capability,
+            probe_id=probe,
+            provider=provider,
+            adapter_identity=f"{provider}:synthetic-v1",
+            operation="semantic_graph",
+            selected_sources=self.selected(),
+            prompt=kw.pop("prompt", None),
+            max_output_bytes=kw.pop("max_output_bytes", 1024),
+            timeout_seconds=kw.pop("timeout_seconds", 45),
+            **kw,
+        )
+
+    def release(self, capability, reservation, access: FakeAccess, **kw):
+        return self.gate.release(
+            capability,
+            reservation_id=reservation,
+            provider="openai_api",
+            adapter_identity="openai_api:synthetic-v1",
+            operation="semantic_graph",
+            selected_sources=self.selected(),
+            prompt=kw.pop("prompt", None),
+            resolve_credential=access.resolve,
+            construct_provider=access.construct,
+            **kw,
+        )
+
+    def test_real_a3_bindings_require_process_capability_and_allow_one_dispatch(
+        self,
+    ) -> None:
+        with self.assertRaisesRegex(Rejected, "trusted process"):
+            self.gate.mint_owner_capability(object())
+        with self.assertRaisesRegex(Rejected, "owner capability"):
+            self.reserve({"owner_id": self.owner})
+
+        capability = self.authorize()
+        access = FakeAccess()
+        reservation = self.reserve(capability)
+        result = self.release(capability, reservation, access)
+
+        self.assertEqual(result, '{"edges":[]}')
+        self.assertEqual(access.calls, (1, 1, 1))
+        snapshot = self.gate.snapshot()
+        self.assertEqual(snapshot["attempts"][0]["status"], "succeeded")
+        expected_sources = [item.as_dict() for item in self.bindings]
+        self.assertEqual(snapshot["sources"], expected_sources)
+        self.bindings[0].privacy["tier"] = "secret"
+        self.assertEqual(self.gate.snapshot()["sources"], expected_sources)
+        with self.assertRaisesRegex(Rejected, "reservation"):
+            self.release(capability, reservation, access)
+        self.assertEqual(access.calls, (1, 1, 1))
+        self.assertEqual(self.gate.snapshot()["charged_attempts"], 1)
+
+    def test_denials_and_revocation_stop_before_credentials_construction_or_charge(
+        self,
+    ) -> None:
+        stale = self.gate.mint_owner_capability(self.trusted)
+        capability = self.authorize()
+        access = FakeAccess()
+        with self.assertRaisesRegex(Rejected, "stale owner capability"):
+            self.reserve(stale)
+        with self.assertRaisesRegex(Rejected, "caller prompt forbidden"):
+            self.reserve(capability, prompt=self.bindings[0].body)
+        wrong = list(self.selected())
+        wrong[0] = SelectedSource(
+            wrong[0].note_id, "revision_wrong", wrong[0].privacy_digest
+        )
+        with self.assertRaisesRegex(Rejected, "stale source revision"):
+            self.gate.reserve(
+                capability,
+                probe_id="wrong-revision",
+                provider="openai_api",
+                adapter_identity="openai_api:synthetic-v1",
+                operation="semantic_graph",
+                selected_sources=tuple(wrong),
+                max_output_bytes=10,
+                timeout_seconds=1,
+            )
+        self.assertEqual(self.gate.snapshot()["charged_attempts"], 0)
+
+        reservation = self.reserve(capability)
+        self.gate.revoke_consent(capability, provider="openai_api")
+        current = self.gate.mint_owner_capability(self.trusted)
+        with self.assertRaises(Rejected):
+            self.release(current, reservation, access)
+        self.assertEqual(access.calls, (0, 0, 0))
+        self.assertEqual(self.gate.snapshot()["charged_attempts"], 0)
+        self.assertEqual(self.gate.snapshot()["attempts"][0]["status"], "cancelled")
+
+        for label, body, reason in (
+            ("canary", "api_key=" + "A" * 32, "redaction"),
+            ("oversize", "x" * (16 * 1024 + 1), "input limit"),
+        ):
+            binding = replace(
+                self.bindings[0], body=body, body_digest=digest(body.encode())
+            )
+            denied = AuthorityGate.create(
+                self.root / f"{label}.sqlite",
+                owner_id=self.owner,
+                sources=(binding,),
+                trusted_process=self.trusted,
+            )
+            try:
+                denied_cap = denied.mint_owner_capability(self.trusted)
+                denied.grant_consent(
+                    denied_cap, provider="openai_api", operation="semantic_graph"
+                )
+                denied_cap = denied.mint_owner_capability(self.trusted)
+                with self.assertRaisesRegex(Rejected, reason):
+                    denied.reserve(
+                        denied_cap,
+                        probe_id=label,
+                        provider="openai_api",
+                        adapter_identity="openai_api:synthetic-v1",
+                        operation="semantic_graph",
+                        selected_sources=(
+                            SelectedSource(
+                                binding.note_id,
+                                binding.revision_id,
+                                binding.privacy_digest,
+                            ),
+                        ),
+                        max_output_bytes=1,
+                        timeout_seconds=1,
+                    )
+                self.assertEqual(denied.snapshot()["charged_attempts"], 0)
+            finally:
+                denied.close()
+
+    def test_exclusions_adapter_binding_and_all_attempt_caps(self) -> None:
+        capability = self.authorize()
+        reservation = self.reserve(capability)
+        with self.assertRaisesRegex(Rejected, "reservation binding"):
+            self.gate.release(
+                capability,
+                reservation_id=reservation,
+                provider="openai_api",
+                adapter_identity="openai_api:changed",
+                operation="semantic_graph",
+                selected_sources=self.selected(),
+                resolve_credential=lambda: (_ for _ in ()).throw(AssertionError()),
+                construct_provider=lambda _: (_ for _ in ()).throw(AssertionError()),
+            )
+        capability = self.gate.mint_owner_capability(self.trusted)
+        self.gate.exclude_source(capability, note_id=self.bindings[0].note_id)
+        capability = self.gate.mint_owner_capability(self.trusted)
+        with self.assertRaisesRegex(Rejected, "excluded source"):
+            self.reserve(capability, probe="excluded")
+
+        swapped = AuthorityGate.create(
+            self.root / "swapped.sqlite",
+            owner_id=self.owner,
+            sources=self.bindings,
+            trusted_process=self.trusted,
+        )
+        try:
+            swap_cap = swapped.mint_owner_capability(self.trusted)
+            swapped.grant_consent(
+                swap_cap, provider="openai_api", operation="semantic_graph"
+            )
+            swap_cap = swapped.mint_owner_capability(self.trusted)
+            swapped.exclude_source(swap_cap, note_id=self.bindings[0].note_id)
+            swap_cap = swapped.mint_owner_capability(self.trusted)
+            eligible = self.bindings[1]
+            with self.assertRaisesRegex(Rejected, "caller prompt forbidden"):
+                swapped.reserve(
+                    swap_cap,
+                    probe_id="swapped-bytes",
+                    provider="openai_api",
+                    adapter_identity="openai_api:synthetic-v1",
+                    operation="semantic_graph",
+                    selected_sources=(
+                        SelectedSource(
+                            eligible.note_id,
+                            eligible.revision_id,
+                            eligible.privacy_digest,
+                        ),
+                    ),
+                    max_output_bytes=1,
+                    timeout_seconds=1,
+                    prompt=self.bindings[0].body,
+                )
+            self.assertEqual(swapped.snapshot()["charged_attempts"], 0)
+        finally:
+            swapped.close()
+
+        other = AuthorityGate.create(
+            self.root / "caps.sqlite",
+            owner_id=self.owner,
+            sources=self.bindings,
+            trusted_process=self.trusted,
+        )
+        try:
+            cap = other.mint_owner_capability(self.trusted)
+            for provider in ACTIVE_PROVIDERS:
+                other.grant_consent(cap, provider=provider, operation="semantic_graph")
+                cap = other.mint_owner_capability(self.trusted)
+            selection = self.selected()
+            for provider in ACTIVE_PROVIDERS:
+                for index in range(16):
+                    other.reserve(
+                        cap,
+                        probe_id=f"{provider}-{index}",
+                        provider=provider,
+                        adapter_identity=f"{provider}:synthetic-v1",
+                        operation="semantic_graph",
+                        selected_sources=selection,
+                        max_output_bytes=16 * 1024,
+                        timeout_seconds=60,
+                    )
+            self.assertEqual(other.snapshot()["charged_attempts"], 64)
+            with self.assertRaisesRegex(Rejected, "attempt cap"):
+                other.reserve(
+                    cap,
+                    probe_id="overflow",
+                    provider="openai_api",
+                    adapter_identity="openai_api:synthetic-v1",
+                    operation="semantic_graph",
+                    selected_sources=selection,
+                    max_output_bytes=1,
+                    timeout_seconds=1,
+                )
+        finally:
+            other.close()
+
+    def test_probe_limits_crash_uncertain_restart_and_import_consent(self) -> None:
+        capability = self.authorize()
+        first = self.reserve(capability, probe="bounded", timeout_seconds=60)
+        with self.assertRaisesRegex(Rejected, "probe time"):
+            self.reserve(capability, probe="bounded", timeout_seconds=31)
+        second = self.reserve(capability, probe="bounded", timeout_seconds=30)
+        with self.assertRaisesRegex(Rejected, "probe attempt"):
+            self.reserve(capability, probe="bounded", timeout_seconds=1)
+        self.assertNotEqual(first, second)
+
+        crash = self.reserve(capability, probe="crash")
+        access = FakeAccess()
+        with self.assertRaises(SimulatedCrash):
+            self.release(capability, crash, access, crash_after_intent=True)
+        # Credential preflight now precedes the durable crash point.
+        self.assertEqual(access.calls, (1, 0, 0))
+        self.gate.close()
+
+        new_trusted = object()
+        self.gate = AuthorityGate.open(
+            self.root / "authority.sqlite", trusted_process=new_trusted
+        )
+        snapshot = self.gate.snapshot()
+        self.assertEqual(
+            [attempt["status"] for attempt in snapshot["attempts"]].count("uncertain"),
+            1,
+        )
+        self.assertEqual(
+            [attempt["status"] for attempt in snapshot["attempts"]].count("cancelled"),
+            2,
+        )
+        self.assertEqual(snapshot["charged_attempts"], 1)
+        self.assertFalse(snapshot["consents"]["openai_api"])
+        with self.assertRaisesRegex(Rejected, "owner capability"):
+            self.reserve(capability, probe="old-capability")
+
+        cap = self.gate.mint_owner_capability(new_trusted)
+        self.gate.grant_consent(cap, provider="openai_api", operation="semantic_graph")
+        cap = self.gate.mint_owner_capability(new_trusted)
+        retry = self.reserve(cap, probe="crash")
+        retry_access = FakeAccess()
+        self.release(cap, retry, retry_access)
+        self.assertEqual(retry_access.calls, (1, 1, 1))
+        with self.assertRaisesRegex(Rejected, "probe attempt"):
+            self.reserve(cap, probe="crash")
+
+        imported = AuthorityGate.create(
+            self.root / "imported.sqlite",
+            owner_id=self.owner,
+            sources=self.bindings,
+            trusted_process=new_trusted,
+            imported_consents=("openai_api",),
+        )
+        try:
+            imported_cap = imported.mint_owner_capability(new_trusted)
+            with self.assertRaisesRegex(Rejected, "active consent"):
+                imported.reserve(
+                    imported_cap,
+                    probe_id="import",
+                    provider="openai_api",
+                    adapter_identity="openai_api:synthetic-v1",
+                    operation="semantic_graph",
+                    selected_sources=self.selected(),
+                    max_output_bytes=1,
+                    timeout_seconds=1,
+                )
+        finally:
+            imported.close()
+
+    def test_output_limit_is_charged_and_rejected_before_publication(self) -> None:
+        capability = self.authorize()
+        reservation = self.reserve(capability, max_output_bytes=10)
+        access = FakeAccess(output="x" * 11)
+        with self.assertRaisesRegex(Rejected, "output limit"):
+            self.release(capability, reservation, access)
+        self.assertEqual(access.calls, (1, 1, 1))
+        snapshot = self.gate.snapshot()
+        self.assertEqual(snapshot["attempts"][0]["status"], "failed")
+        self.assertEqual(snapshot["charged_attempts"], 1)
+
+        second = self.reserve(capability, probe="timeout", timeout_seconds=45)
+        late = FakeAccess(elapsed_seconds=45.01)
+        with self.assertRaisesRegex(Rejected, "attempt timeout"):
+            self.release(capability, second, late)
+        self.assertEqual(late.calls, (1, 1, 1))
+        self.assertEqual(self.gate.snapshot()["attempts"][1]["status"], "failed")
+
+    def test_revision_recheck_and_serialized_release_revocation_ordering(self) -> None:
+        capability = self.authorize()
+        reservation = self.reserve(capability)
+        self.gate.observe_revision(self.bindings[0].note_id, "revision_new")
+        access = FakeAccess()
+        with self.assertRaisesRegex(Rejected, "stale source revision"):
+            self.release(capability, reservation, access)
+        self.assertEqual(access.calls, (0, 0, 0))
+
+        newer = AuthorityGate.create(
+            self.root / "release-wins.sqlite",
+            owner_id=self.owner,
+            sources=self.bindings,
+            trusted_process=self.trusted,
+        )
+        try:
+            cap = newer.mint_owner_capability(self.trusted)
+            newer.grant_consent(cap, provider="openai_api", operation="semantic_graph")
+            cap = newer.mint_owner_capability(self.trusted)
+            reservation = newer.reserve(
+                cap,
+                probe_id="race",
+                provider="openai_api",
+                adapter_identity="openai_api:synthetic-v1",
+                operation="semantic_graph",
+                selected_sources=self.selected(),
+                max_output_bytes=1024,
+                timeout_seconds=45,
+            )
+            intent = threading.Event()
+            proceed = threading.Event()
+            result: list[str] = []
+            errors: list[str] = []
+            race_access = FakeAccess()
+
+            def after_intent() -> None:
+                intent.set()
+                self.assertTrue(proceed.wait(2))
+
+            def release() -> None:
+                try:
+                    result.append(
+                        newer.release(
+                            cap,
+                            reservation_id=reservation,
+                            provider="openai_api",
+                            adapter_identity="openai_api:synthetic-v1",
+                            operation="semantic_graph",
+                            selected_sources=self.selected(),
+                            resolve_credential=race_access.resolve,
+                            construct_provider=race_access.construct,
+                            after_intent=after_intent,
+                        )
+                    )
+                except Rejected as error:
+                    errors.append(str(error))
+
+            worker = threading.Thread(target=release)
+            worker.start()
+            self.assertTrue(intent.wait(2))
+            newer.revoke_consent(cap, provider="openai_api")
+            proceed.set()
+            worker.join(2)
+            self.assertFalse(worker.is_alive())
+            self.assertEqual(result, [])
+            self.assertTrue(errors)
+            self.assertEqual(race_access.calls, (1, 0, 0))
+            self.assertFalse(newer.snapshot()["consents"]["openai_api"])
+            self.assertEqual(newer.snapshot()["attempts"][0]["status"], "cancelled")
+
+            cap = newer.mint_owner_capability(self.trusted)
+            newer.grant_consent(cap, provider="openai_api", operation="semantic_graph")
+            cap = newer.mint_owner_capability(self.trusted)
+            resolver_race = newer.reserve(
+                cap,
+                probe_id="resolver-race",
+                provider="openai_api",
+                adapter_identity="openai_api:synthetic-v1",
+                operation="semantic_graph",
+                selected_sources=self.selected(),
+                max_output_bytes=1024,
+                timeout_seconds=45,
+            )
+            resolver_access = FakeAccess(
+                on_resolve=lambda: newer.revoke_consent(cap, provider="openai_api")
+            )
+            with self.assertRaises(Rejected):
+                newer.release(
+                    cap,
+                    reservation_id=resolver_race,
+                    provider="openai_api",
+                    adapter_identity="openai_api:synthetic-v1",
+                    operation="semantic_graph",
+                    selected_sources=self.selected(),
+                    resolve_credential=resolver_access.resolve,
+                    construct_provider=resolver_access.construct,
+                )
+            self.assertEqual(resolver_access.calls, (1, 0, 0))
+            self.assertEqual(newer.snapshot()["attempts"][1]["status"], "cancelled")
+
+            cap = newer.mint_owner_capability(self.trusted)
+            newer.grant_consent(cap, provider="openai_api", operation="semantic_graph")
+            cap = newer.mint_owner_capability(self.trusted)
+            handoff_race = newer.reserve(
+                cap,
+                probe_id="handoff-race",
+                provider="openai_api",
+                adapter_identity="openai_api:synthetic-v1",
+                operation="semantic_graph",
+                selected_sources=self.selected(),
+                max_output_bytes=1024,
+                timeout_seconds=45,
+            )
+            handed_off = FakeAccess(blocking=True)
+            late_results: list[str] = []
+            late_errors: list[str] = []
+
+            def release_handed_off() -> None:
+                try:
+                    late_results.append(
+                        newer.release(
+                            cap,
+                            reservation_id=handoff_race,
+                            provider="openai_api",
+                            adapter_identity="openai_api:synthetic-v1",
+                            operation="semantic_graph",
+                            selected_sources=self.selected(),
+                            resolve_credential=handed_off.resolve,
+                            construct_provider=handed_off.construct,
+                        )
+                    )
+                except Rejected as error:
+                    late_errors.append(str(error))
+
+            worker = threading.Thread(target=release_handed_off)
+            worker.start()
+            self.assertTrue(handed_off.handoff.wait(2))
+            newer.revoke_consent(cap, provider="openai_api")
+            worker.join(2)
+            self.assertFalse(worker.is_alive())
+            self.assertEqual(late_results, [])
+            self.assertEqual(late_errors, ["late publication denied"])
+            self.assertEqual(handed_off.calls, (1, 1, 1))
+            self.assertIsNotNone(handed_off.flight)
+            self.assertEqual(handed_off.flight.cancel_calls, 1)
+            self.assertEqual(newer.snapshot()["attempts"][2]["status"], "superseded")
+        finally:
+            newer.close()
+
+
+if __name__ == "__main__":
+    unittest.main()

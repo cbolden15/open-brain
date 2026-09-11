@@ -1,0 +1,464 @@
+from __future__ import annotations
+
+import json
+import shutil
+import tempfile
+import unittest
+from copy import deepcopy
+from hashlib import sha256
+from pathlib import Path
+from typing import Any
+
+from open_brain.profile import (
+    compile_single_user_local,
+    open_existing_single_user_local,
+)
+from open_brain_engine.core.ids import portable_canonical_json_bytes as canonical
+from open_brain_engine.engine import (
+    BrainEngine,
+    CaptureAction,
+    TextPayload,
+    acquire_daemon_authority,
+    open_authoritative_local_engine,
+)
+from open_brain_engine.portable import PortableValidationError, validate_portable_root
+from open_brain_engine.portable.v1 import validated_portable_snapshot
+from open_brain_engine.storage.markdown import parse_markdown, render_markdown
+from source_binding import (
+    Rejected,
+    bind_snapshot,
+    digest,
+    encode_composition,
+    make_record,
+    replay,
+)
+
+DATASET = Path(__file__).with_name("semantic-dataset.json")
+DATA = json.loads(DATASET.read_bytes())
+
+
+def portable_id(prefix: str, number: int) -> str:
+    return f"{prefix}_00000000-0000-4000-8000-{number:012d}"
+
+
+def rewrite_manifest(root: Path) -> None:
+    manifest_path = root / "portable-manifest.json"
+    manifest = json.loads(manifest_path.read_bytes())
+    manifest["files"] = [
+        {
+            "path": path.relative_to(root).as_posix(),
+            "sha256": sha256(path.read_bytes()).hexdigest(),
+        }
+        for path in sorted(root.rglob("*"))
+        if path.is_file() and path != manifest_path
+    ]
+    manifest_path.write_bytes(canonical(manifest))
+
+
+def authoritative_reconcile(root: Path) -> None:
+    profile = open_existing_single_user_local(root)
+    with acquire_daemon_authority(profile) as authority:
+        open_authoritative_local_engine(profile, authority).reconciliation.reconcile()
+
+
+def record_builder(base: dict[str, Any]):
+    heads = {
+        origin["page_id"]: origin["initial_revision"] for origin in base["origins"]
+    }
+    records: list[dict[str, Any]] = []
+    counter = 100
+
+    def add(family: str, note_id: str, data: dict[str, Any]) -> dict[str, Any]:
+        nonlocal counter
+        prefix = {
+            "note_revision": "revision",
+            "owner_policy": "policy",
+            "conflict": "conflict",
+        }[family]
+        item = make_record(
+            family, portable_id(prefix, counter), note_id, heads[note_id], data
+        )
+        counter += 1
+        records.append(item)
+        heads[note_id] = item["record_id"]
+        return item
+
+    return heads, records, add
+
+
+def composition_fixture(
+    base: dict[str, Any], *, restore: bool = False
+) -> tuple[bytes, dict[str, str]]:
+    first, second = base["origins"][:2]
+    note_a, note_b = first["page_id"], second["page_id"]
+    _heads, records, add = record_builder(base)
+    owner = base["owner_actor_id"]
+    body_a = first["body"] + "\nSynthetic source-bound edit.\n"
+    edit = add(
+        "note_revision",
+        note_a,
+        {
+            "operation_id": portable_id("operation", 1),
+            "kind": "edit",
+            "base_revision": first["initial_revision"],
+            "base_body_digest": first["body_digest"],
+            "body": body_a,
+            "body_digest": digest(body_a.encode()),
+            "active": True,
+            "accepted_by": owner,
+            "link": None,
+        },
+    )
+    linked_body = body_a + f"\n[[{note_b}]]\n"
+    link = add(
+        "note_revision",
+        note_a,
+        {
+            "operation_id": portable_id("operation", 2),
+            "kind": "accept_link",
+            "base_revision": edit["record_id"],
+            "base_body_digest": digest(body_a.encode()),
+            "body": linked_body,
+            "body_digest": digest(linked_body.encode()),
+            "active": True,
+            "accepted_by": owner,
+            "link": {
+                "target_note": note_b,
+                "source_revision": edit["record_id"],
+                "target_revision": second["initial_revision"],
+                "source_quote": body_a.splitlines()[0],
+                "target_quote": second["body"].splitlines()[0],
+                "provider": "deterministic_fake",
+                "model": "synthetic-fixture-1",
+            },
+        },
+    )
+    add(
+        "conflict",
+        note_a,
+        {
+            "base_revision": edit["record_id"],
+            "accepted_revision": link["record_id"],
+            "candidate_body": "Synthetic conflicting editor bytes.\n",
+            "candidate_body_digest": digest(b"Synthetic conflicting editor bytes.\n"),
+            "observed_at": "2026-09-09T23:00:00Z",
+        },
+    )
+    deactivated = add(
+        "note_revision",
+        note_b,
+        {
+            "operation_id": portable_id("operation", 3),
+            "kind": "deactivate",
+            "base_revision": second["initial_revision"],
+            "base_body_digest": second["body_digest"],
+            "body": second["body"],
+            "body_digest": second["body_digest"],
+            "active": False,
+            "accepted_by": owner,
+            "link": None,
+        },
+    )
+    if restore:
+        add(
+            "note_revision",
+            note_b,
+            {
+                "operation_id": portable_id("operation", 4),
+                "kind": "restore",
+                "base_revision": deactivated["record_id"],
+                "base_body_digest": second["body_digest"],
+                "body": second["body"],
+                "body_digest": second["body_digest"],
+                "active": True,
+                "accepted_by": owner,
+                "link": None,
+            },
+        )
+    add(
+        "owner_policy",
+        note_a,
+        {
+            "kind": "exclude",
+            "owner": owner,
+            "generation": 1,
+            "provider_access": None,
+            "issued_at": "2026-09-09T23:01:00Z",
+            "confirmation_ref": None,
+        },
+    )
+    consent = add(
+        "owner_policy",
+        note_a,
+        {
+            "kind": "consent",
+            "owner": owner,
+            "generation": 2,
+            "provider_access": "gemini_api",
+            "issued_at": "2026-09-09T23:02:00Z",
+            "confirmation_ref": None,
+        },
+    )
+    add(
+        "owner_policy",
+        note_a,
+        {
+            "kind": "revoke",
+            "owner": owner,
+            "generation": 3,
+            "provider_access": "gemini_api",
+            "issued_at": "2026-09-09T23:03:00Z",
+            "confirmation_ref": consent["record_id"],
+        },
+    )
+    return encode_composition(base, records), {
+        "a": note_a,
+        "b": note_b,
+        "link": link["record_id"],
+    }
+
+
+class SourceBoundCompositionTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.temp = tempfile.TemporaryDirectory()
+        self.root = Path(self.temp.name).resolve()
+        self.brain = self.root / "brain"
+        self.engine = BrainEngine.open(
+            compile_single_user_local(self.brain, starter_spaces=("Notes",))
+        )
+        space = self.engine.inbox.spaces()[0]
+        self.captures = [
+            self.engine.capture.accept(
+                TextPayload(DATA[index]["body"]),
+                delivery_id=f"a3-capture-{index}",
+                action=CaptureAction.CANONICAL_NOTE,
+                space_id=space.space_id,
+            )
+            for index in (1, 2)
+        ]
+        self.exported = self.root / "exported"
+        self.engine.tasks.portability.export(
+            self.exported,
+            export_id=portable_id("export", 1),
+        )
+        validate_portable_root(self.exported)
+        self.base = bind_snapshot(self.exported)
+
+    def tearDown(self) -> None:
+        self.temp.cleanup()
+
+    def test_real_snapshot_joins_complete_inventory_capture_privacy_and_page_bytes(
+        self,
+    ) -> None:
+        snapshot = validated_portable_snapshot(self.exported)
+        self.assertEqual(len(self.base["inventory"]), len(snapshot.files))
+        self.assertEqual(self.base["inventory_sha256"], digest(self.base["inventory"]))
+        self.assertEqual(
+            {origin["capture_id"] for origin in self.base["origins"]},
+            {capture.capture_id for capture in self.captures},
+        )
+        for origin in self.base["origins"]:
+            capture = json.loads(snapshot.files[origin["capture_path"]])
+            page = parse_markdown(snapshot.files[origin["page_path"]])
+            self.assertEqual(capture["privacy"], origin["privacy"])
+            self.assertEqual(page.fields["privacy"], origin["privacy"])
+            self.assertEqual(page.fields["provenance"], [origin["capture_id"]])
+            self.assertEqual(
+                digest(snapshot.files[origin["page_path"]]), origin["page_sha256"]
+            )
+            self.assertEqual(
+                digest(snapshot.files[origin["capture_path"]]), origin["capture_sha256"]
+            )
+
+    def test_private_import_preserves_lifecycle_restrictions_links_conflict_and_restart(
+        self,
+    ) -> None:
+        payload, ids = composition_fixture(self.base)
+        state = replay(self.exported, payload)
+        restarted = replay(self.exported, payload)
+        self.assertEqual(state, restarted)
+        self.assertEqual(state["source_snapshot_sha256"], self.base["snapshot_sha256"])
+        self.assertEqual(state["notes"][ids["a"]]["accepted_revision"], ids["link"])
+        self.assertTrue(state["notes"][ids["a"]]["excluded"])
+        self.assertIsNotNone(state["notes"][ids["a"]]["conflict"])
+        self.assertFalse(state["notes"][ids["b"]]["active"])
+        self.assertEqual(state["local_search_ids"], [ids["a"]])
+        self.assertEqual(state["policy_generation"], 3)
+        self.assertFalse(state["active_destination_consent"])
+        self.assertEqual(state["cloud_eligible_ids"], [])
+
+        restored_payload, restored_ids = composition_fixture(self.base, restore=True)
+        restored = replay(self.exported, restored_payload)
+        self.assertTrue(restored["notes"][restored_ids["b"]]["active"])
+        self.assertFalse(restored["active_destination_consent"])
+
+    def test_rehashed_valid_snapshot_is_not_owner_approval_for_bound_composition(
+        self,
+    ) -> None:
+        payload, _ = composition_fixture(self.base)
+        manipulated = self.root / "manipulated"
+        shutil.copytree(self.exported, manipulated)
+        page = next((manipulated / "content/spaces").rglob("page_*.md"))
+        parsed = parse_markdown(page.read_bytes())
+        page.write_text(
+            render_markdown(
+                fields={**parsed.fields, "modified_at": "2026-09-09T23:10:00Z"},
+                body=parsed.body + "\nRehashed but unauthenticated edit.\n",
+            )
+        )
+        rewrite_manifest(manipulated)
+        validate_portable_root(manipulated)
+        with self.assertRaisesRegex(Rejected, "base snapshot binding mismatch"):
+            replay(manipulated, payload)
+
+        archived = self.root / "archived"
+        shutil.copytree(self.exported, archived)
+        page = next((archived / "content/spaces").rglob("page_*.md"))
+        parsed = parse_markdown(page.read_bytes())
+        page.write_text(
+            render_markdown(
+                fields={**parsed.fields, "status": "archived"}, body=parsed.body
+            )
+        )
+        rewrite_manifest(archived)
+        validate_portable_root(archived)
+        with self.assertRaisesRegex(Rejected, "active base page required"):
+            bind_snapshot(archived)
+
+    def test_tamper_duplicate_binding_unknown_family_version_and_missing_refs_reject(
+        self,
+    ) -> None:
+        payload, _ = composition_fixture(self.base)
+        value = json.loads(payload)
+        cases: list[tuple[str, dict[str, Any]]] = []
+
+        missing_inventory = deepcopy(value)
+        missing_inventory["base_snapshot"]["inventory"].pop()
+        cases.append(("inventory", missing_inventory))
+
+        duplicate_binding = deepcopy(value)
+        duplicate_binding["origins"][1]["capture_id"] = duplicate_binding["origins"][0][
+            "capture_id"
+        ]
+        cases.append(("duplicate-binding", duplicate_binding))
+
+        unknown_version = deepcopy(value)
+        unknown_version["version"] = 2
+        cases.append(("version", unknown_version))
+
+        unknown_family = deepcopy(value)
+        unknown_family["records"][0]["family"] = "future_family"
+        core = {
+            key: unknown_family["records"][0][key]
+            for key in ("family", "record_id", "note_id", "parent", "data")
+        }
+        unknown_family["records"][0]["record_sha256"] = digest(core)
+        cases.append(("family", unknown_family))
+
+        missing_ref = deepcopy(value)
+        missing_ref["records"][0]["parent"] = portable_id("revision", 999)
+        core = {
+            key: missing_ref["records"][0][key]
+            for key in ("family", "record_id", "note_id", "parent", "data")
+        }
+        missing_ref["records"][0]["record_sha256"] = digest(core)
+        cases.append(("reference", missing_ref))
+
+        wrong_owner = deepcopy(value)
+        wrong_owner["records"][0]["data"]["accepted_by"] = portable_id("actor", 999)
+        core = {
+            key: wrong_owner["records"][0][key]
+            for key in ("family", "record_id", "note_id", "parent", "data")
+        }
+        wrong_owner["records"][0]["record_sha256"] = digest(core)
+        cases.append(("owner-label", wrong_owner))
+
+        wrong_revocation_provider = deepcopy(value)
+        revocation = next(
+            record
+            for record in wrong_revocation_provider["records"]
+            if record["family"] == "owner_policy" and record["data"]["kind"] == "revoke"
+        )
+        revocation["data"]["provider_access"] = "openai_api"
+        core = {
+            key: revocation[key]
+            for key in ("family", "record_id", "note_id", "parent", "data")
+        }
+        revocation["record_sha256"] = digest(core)
+        cases.append(("revocation-provider", wrong_revocation_provider))
+
+        for name, candidate in cases:
+            with self.subTest(name=name), self.assertRaises(Rejected):
+                replay(self.exported, canonical(candidate))
+
+        changed = self.root / "changed"
+        shutil.copytree(self.exported, changed)
+        capture = next((changed / "sources/captures").rglob("*.json"))
+        capture.write_bytes(capture.read_bytes() + b" ")
+        with self.assertRaises(PortableValidationError):
+            bind_snapshot(changed)
+
+    def test_link_evidence_requires_nonempty_strings_for_both_endpoints(self) -> None:
+        payload, _ = composition_fixture(self.base)
+        value = json.loads(payload)
+        cases = (
+            ("source_quote", "", "invalid source evidence"),
+            ("source_quote", 7, "invalid source evidence"),
+            ("target_quote", "   ", "invalid target evidence"),
+            ("target_quote", [], "invalid target evidence"),
+        )
+        for field, invalid, reason in cases:
+            candidate = deepcopy(value)
+            revision = next(
+                record
+                for record in candidate["records"]
+                if record["family"] == "note_revision"
+                and record["data"]["kind"] == "accept_link"
+            )
+            revision["data"]["link"][field] = invalid
+            core = {
+                key: revision[key]
+                for key in ("family", "record_id", "note_id", "parent", "data")
+            }
+            revision["record_sha256"] = digest(core)
+            with (
+                self.subTest(field=field, invalid=invalid),
+                self.assertRaisesRegex(Rejected, reason),
+            ):
+                replay(self.exported, canonical(candidate))
+
+    def test_legacy_engine_gap_is_executable_and_unchanged_control_passes(self) -> None:
+        payload, ids = composition_fixture(self.base)
+        imported = self.root / "unchanged-import"
+        self.engine.tasks.portability.import_clean(
+            self.exported,
+            imported,
+            import_id=portable_id("import", 1),
+        )
+        authoritative_reconcile(imported)
+        legacy = BrainEngine.open(open_existing_single_user_local(imported))
+        self.assertTrue(legacy.retrieval.search(DATA[1]["body"].splitlines()[1]))
+        self.assertTrue(legacy.retrieval.search(DATA[2]["body"].splitlines()[1]))
+
+        private_state = replay(self.exported, payload)
+        self.assertFalse(private_state["notes"][ids["b"]]["active"])
+        self.assertTrue(legacy.retrieval.search(DATA[2]["body"].splitlines()[1]))
+
+        candidate = self.root / "candidate-with-state"
+        shutil.copytree(self.exported, candidate)
+        (candidate / "workspace-state.proof.json").write_bytes(payload)
+        rewrite_manifest(candidate)
+        with self.assertRaises(PortableValidationError):
+            validate_portable_root(candidate)
+        rejected_target = self.root / "candidate-import"
+        with self.assertRaises(ValueError):
+            self.engine.tasks.portability.import_clean(
+                candidate,
+                rejected_target,
+                import_id=portable_id("import", 2),
+            )
+        self.assertFalse(rejected_target.exists())
+
+
+if __name__ == "__main__":
+    unittest.main()

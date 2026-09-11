@@ -1,0 +1,53 @@
+[
+  {
+    "id": "synthetic-index",
+    "path": "index.md",
+    "eligible": true,
+    "body": "# Index\n[[notes/solar#Summary|Solar]]\n[[battery]]\n[[shared]]\n[[solar-alias]]\n[[missing]]\n[[excluded-secret]]\n"
+  },
+  {
+    "id": "synthetic-solar",
+    "path": "notes/solar.md",
+    "eligible": true,
+    "aliases": [
+      "solar-alias"
+    ],
+    "body": "# Summary\nRooftop solar panels produce electricity at midday. Store the surplus for evening use.\n"
+  },
+  {
+    "id": "synthetic-battery",
+    "path": "notes/battery.md",
+    "eligible": true,
+    "body": "# Storage\nA home battery stores daytime renewable electricity and supplies it after sunset.\n"
+  },
+  {
+    "id": "synthetic-alpha",
+    "path": "alpha/shared.md",
+    "eligible": true,
+    "body": "# Alpha\nFirst independent shared-name note.\n"
+  },
+  {
+    "id": "synthetic-beta",
+    "path": "beta/shared.md",
+    "eligible": true,
+    "body": "# Beta\nSecond independent shared-name note.\n"
+  },
+  {
+    "id": "synthetic-distractor",
+    "path": "notes/distractor.md",
+    "eligible": true,
+    "body": "# Bread\nKnead flour and water. Allow the dough to rise before baking.\n"
+  },
+  {
+    "id": "synthetic-excluded",
+    "path": "private/excluded-secret.md",
+    "eligible": false,
+    "body": "# Excluded\nSYNTHETIC_EXCLUDED_BODY_CANARY\n"
+  },
+  {
+    "id": "synthetic-generated",
+    "path": "graphify-out/view.md",
+    "eligible": false,
+    "body": "# Generated\nSYNTHETIC_GENERATED_BODY_CANARY\n"
+  }
+]

@@ -1,0 +1,660 @@
+"""Private offline candidate for direct-provider HTTPS behind the C10 gate.
+
+The production connector is defined but never invoked by C15. Tests inject a
+fake connector and synthetic credentials. No environment or credential store is
+read here.
+"""
+
+from __future__ import annotations
+
+import base64
+import http.client
+import json
+import re
+import ssl
+import threading
+import time
+from collections.abc import Callable
+from dataclasses import dataclass
+from typing import Any
+
+import bridge
+from authority_gate import ProviderReply, SelectedSource, SourceBinding, digest, require
+
+LIMIT = 16 * 1024
+IPC_LIMIT = 32 * 1024
+MAX_SECONDS = 60
+MAX_USAGE_TOKENS = (1 << 53) - 1
+
+
+class Rejected(ValueError):
+    pass
+
+
+def _require(condition: bool, reason: str) -> None:
+    if not condition:
+        raise Rejected(reason)
+
+
+def encode(value: object) -> bytes:
+    try:
+        return json.dumps(
+            value, ensure_ascii=False, separators=(",", ":"), allow_nan=False
+        ).encode()
+    except (TypeError, ValueError, RecursionError) as error:
+        raise Rejected("JSON encoding") from error
+
+
+def decode(raw: bytes | str) -> object:
+    def unique(pairs: list[tuple[str, object]]) -> dict[str, object]:
+        result: dict[str, object] = {}
+        for key, value in pairs:
+            _require(key not in result, "duplicate JSON key")
+            result[key] = value
+        return result
+
+    def constant(_: str) -> None:
+        raise Rejected("nonfinite JSON")
+
+    try:
+        return json.loads(raw, object_pairs_hook=unique, parse_constant=constant)
+    except (UnicodeDecodeError, ValueError, TypeError, RecursionError) as error:
+        if isinstance(error, Rejected):
+            raise
+        raise Rejected("malformed JSON") from error
+
+
+EDGE_SCHEMA = {
+    "type": "object",
+    "additionalProperties": False,
+    "required": ["edges"],
+    "properties": {
+        "edges": {
+            "type": "array",
+            "maxItems": 64,
+            "items": {
+                "type": "object",
+                "additionalProperties": False,
+                "required": ["source", "target"],
+                "properties": {
+                    "source": {"type": "string", "maxLength": 128},
+                    "target": {"type": "string", "maxLength": 128},
+                },
+            },
+        }
+    },
+}
+
+
+@dataclass(frozen=True, slots=True)
+class Route:
+    gate_provider: str
+    provider: str
+    host: str
+    path: str
+    model: str
+    timeout_seconds: float
+
+    @property
+    def identity(self) -> str:
+        public = {
+            "host": self.host,
+            "path": self.path,
+            "model": self.model,
+            "port": 443,
+            "provider": self.provider,
+            "transport": "c15-stdlib-https-v1",
+        }
+        return f"{self.gate_provider}:c15-direct:{digest(encode(public))}"
+
+
+@dataclass(frozen=True, slots=True)
+class HttpRequest:
+    method: str
+    host: str
+    port: int
+    server_hostname: str
+    path: str
+    headers: tuple[tuple[str, str], ...]
+    body: bytes
+
+
+@dataclass(frozen=True, slots=True)
+class HttpResponse:
+    status: int
+    headers: tuple[tuple[str, str], ...]
+    body: bytes
+
+
+def route_for(gate_provider: str, model: str, *, timeout_seconds: int = 60) -> Route:
+    _require(
+        isinstance(model, str) and re.fullmatch(r"[A-Za-z0-9_.:-]{1,128}", model) is not None,
+        "model",
+    )
+    _require(
+        type(timeout_seconds) is int and 0 < timeout_seconds <= MAX_SECONDS,
+        "timeout",
+    )
+    if gate_provider == "openai_api":
+        return Route(
+            gate_provider, "openai", "api.openai.com", "/v1/responses", model, timeout_seconds
+        )
+    if gate_provider == "anthropic_api":
+        return Route(
+            gate_provider, "anthropic", "api.anthropic.com", "/v1/messages", model, timeout_seconds
+        )
+    if gate_provider == "gemini_api":
+        path = f"/v1beta/models/{model}:generateContent"
+        return Route(
+            gate_provider,
+            "gemini",
+            "generativelanguage.googleapis.com",
+            path,
+            model,
+            timeout_seconds,
+        )
+    raise Rejected("provider")
+
+
+def _headers(route: Route, credential: str) -> tuple[tuple[str, str], ...]:
+    _require(isinstance(credential, str) and 0 < len(credential.encode()) <= 4096, "credential")
+    _require("\r" not in credential and "\n" not in credential, "credential")
+    values = [
+        ("Accept", "application/json"),
+        ("Content-Type", "application/json"),
+        ("User-Agent", "open-brain-nw0-offline/1"),
+    ]
+    if route.provider == "gemini":
+        values.append(("x-goog-api-key", credential))
+    else:
+        values.append(("Authorization", f"Bearer {credential}"))
+    if route.provider == "anthropic":
+        values.append(("anthropic-version", "2023-06-01"))
+    return tuple(values)
+
+
+def build_request(route: Route, prompt: str, credential: str) -> HttpRequest:
+    _require(isinstance(prompt, str) and len(prompt.encode()) <= LIMIT, "selected input")
+    if route.provider == "openai":
+        payload = {
+            "model": route.model,
+            "input": prompt,
+            "store": False,
+            "max_output_tokens": 1024,
+            "tools": [],
+            "text": {
+                "format": {
+                    "type": "json_schema",
+                    "name": "edges",
+                    "strict": True,
+                    "schema": EDGE_SCHEMA,
+                }
+            },
+        }
+    elif route.provider == "anthropic":
+        payload = {
+            "model": route.model,
+            "max_tokens": 1024,
+            "messages": [{"role": "user", "content": prompt}],
+            "output_config": {"format": {"type": "json_schema", "schema": EDGE_SCHEMA}},
+        }
+    else:
+        payload = {
+            "contents": [{"role": "user", "parts": [{"text": prompt}]}],
+            "generationConfig": {
+                "candidateCount": 1,
+                "maxOutputTokens": 1024,
+                "responseMimeType": "application/json",
+                "responseJsonSchema": EDGE_SCHEMA,
+            },
+        }
+    body = encode(payload)
+    _require(len(body) <= LIMIT, "wire input limit")
+    request = HttpRequest(
+        "POST", route.host, 443, route.host, route.path, _headers(route, credential), body
+    )
+    control = encode(
+        {
+            "body": base64.b64encode(body).decode(),
+            "headers": list(request.headers),
+            "host": request.host,
+            "method": request.method,
+            "path": request.path,
+            "port": request.port,
+            "server_hostname": request.server_hostname,
+        }
+    )
+    _require(len(control) <= IPC_LIMIT, "IPC input limit")
+    return request
+
+
+def _nonnegative_int(value: object, reason: str) -> int:
+    # Keep normalized counters exactly representable by every JSON consumer.
+    _require(type(value) is int and 0 <= value <= MAX_USAGE_TOKENS, reason)
+    return value
+
+
+def _optional_nonnegative_int(value: object, reason: str) -> int:
+    return 0 if value is None else _nonnegative_int(value, reason)
+
+
+def _payload(text: object) -> dict[str, object]:
+    _require(isinstance(text, str) and len(text.encode()) <= LIMIT, "text limit")
+    value = decode(text)
+    _require(isinstance(value, dict) and set(value) == {"edges"}, "payload schema")
+    edges = value["edges"]
+    _require(isinstance(edges, list) and len(edges) <= 64, "payload schema")
+    for edge in edges:
+        _require(
+            isinstance(edge, dict)
+            and set(edge) == {"source", "target"}
+            and all(isinstance(item, str) and 0 < len(item) <= 128 for item in edge.values()),
+            "edge schema",
+        )
+    return value
+
+
+def parse_response(route: Route, response: HttpResponse) -> dict[str, object]:
+    _require(response.status == 200, "HTTP status")
+    headers = {key.lower(): value for key, value in response.headers}
+    _require(len(headers) == len(response.headers), "duplicate response header")
+    content_type = headers.get("content-type", "").split(";", 1)[0].strip().lower()
+    _require(content_type == "application/json", "content type")
+    _require(headers.get("content-encoding", "identity").lower() == "identity", "content encoding")
+    _require("set-cookie" not in headers, "response cookie")
+    if "content-length" in headers:
+        try:
+            declared = int(headers["content-length"])
+        except ValueError as error:
+            raise Rejected("content length") from error
+        _require(0 <= declared <= LIMIT and declared == len(response.body), "content length")
+    _require(len(response.body) <= LIMIT, "wire output limit")
+    value = decode(response.body)
+    _require(isinstance(value, dict), "response type")
+    actual_model = value.get("modelVersion" if route.provider == "gemini" else "model")
+    _require(isinstance(actual_model, str) and actual_model == route.model, "actual model")
+
+    if route.provider == "openai":
+        _require(
+            value.get("object") == "response"
+            and value.get("status") == "completed"
+            and value.get("error") is None
+            and value.get("incomplete_details") is None,
+            "response not complete",
+        )
+        output = value.get("output")
+        _require(isinstance(output, list) and len(output) == 1, "one output item")
+        item = output[0]
+        _require(
+            isinstance(item, dict)
+            and item.get("type") == "message"
+            and item.get("role") == "assistant"
+            and item.get("status") == "completed",
+            "output message",
+        )
+        parts = item.get("content")
+        _require(isinstance(parts, list) and len(parts) == 1, "one terminal payload")
+        part = parts[0]
+        _require(isinstance(part, dict) and part.get("type") == "output_text", "text output")
+        payload = _payload(part.get("text"))
+        usage = value.get("usage")
+        _require(isinstance(usage, dict), "usage")
+        input_tokens = _nonnegative_int(usage.get("input_tokens"), "input usage")
+        output_tokens = _nonnegative_int(usage.get("output_tokens"), "output usage")
+        total_tokens = _nonnegative_int(usage.get("total_tokens"), "total usage")
+        _require(total_tokens == input_tokens + output_tokens, "usage total")
+        normalized = {
+            "input_tokens": input_tokens,
+            "output_tokens": output_tokens,
+            "total_tokens": total_tokens,
+        }
+    elif route.provider == "anthropic":
+        _require(
+            value.get("type") == "message"
+            and value.get("role") == "assistant"
+            and value.get("stop_reason") == "end_turn"
+            and value.get("stop_details") in (None, {}),
+            "response not complete",
+        )
+        parts = value.get("content")
+        _require(isinstance(parts, list) and len(parts) == 1, "one terminal payload")
+        part = parts[0]
+        _require(isinstance(part, dict) and part.get("type") == "text", "text output")
+        payload = _payload(part.get("text"))
+        usage = value.get("usage")
+        _require(isinstance(usage, dict), "usage")
+        input_tokens = _nonnegative_int(usage.get("input_tokens"), "input usage")
+        output_tokens = _nonnegative_int(usage.get("output_tokens"), "output usage")
+        cache_creation_tokens = _optional_nonnegative_int(
+            usage.get("cache_creation_input_tokens"), "cache creation usage"
+        )
+        cache_read_tokens = _optional_nonnegative_int(
+            usage.get("cache_read_input_tokens"), "cache read usage"
+        )
+        total_input_tokens = input_tokens + cache_creation_tokens + cache_read_tokens
+        _require(total_input_tokens <= MAX_USAGE_TOKENS, "total input usage")
+        normalized = {
+            "input_tokens": input_tokens,
+            "cache_creation_input_tokens": cache_creation_tokens,
+            "cache_read_input_tokens": cache_read_tokens,
+            "total_input_tokens": total_input_tokens,
+            "output_tokens": output_tokens,
+            "total_tokens": total_input_tokens + output_tokens,
+        }
+        _require(normalized["total_tokens"] <= MAX_USAGE_TOKENS, "total usage")
+        cache_creation = usage.get("cache_creation")
+        if cache_creation is not None:
+            _require(
+                isinstance(cache_creation, dict)
+                and set(cache_creation)
+                <= {"ephemeral_1h_input_tokens", "ephemeral_5m_input_tokens"},
+                "cache creation breakdown",
+            )
+            one_hour = _optional_nonnegative_int(
+                cache_creation.get("ephemeral_1h_input_tokens"),
+                "one-hour cache creation usage",
+            )
+            five_minute = _optional_nonnegative_int(
+                cache_creation.get("ephemeral_5m_input_tokens"),
+                "five-minute cache creation usage",
+            )
+            _require(
+                one_hour + five_minute == cache_creation_tokens,
+                "cache creation breakdown total",
+            )
+            normalized["cache_creation"] = {
+                "ephemeral_1h_input_tokens": one_hour,
+                "ephemeral_5m_input_tokens": five_minute,
+            }
+    else:
+        feedback = value.get("promptFeedback", {})
+        _require(isinstance(feedback, dict) and not feedback.get("blockReason"), "blocked prompt")
+        candidates = value.get("candidates")
+        _require(isinstance(candidates, list) and len(candidates) == 1, "one candidate")
+        candidate = candidates[0]
+        _require(
+            isinstance(candidate, dict) and candidate.get("finishReason") == "STOP",
+            "response not complete",
+        )
+        content = candidate.get("content")
+        _require(isinstance(content, dict) and content.get("role") == "model", "candidate content")
+        parts = content.get("parts")
+        _require(isinstance(parts, list) and len(parts) == 1, "one terminal payload")
+        part = parts[0]
+        _require(isinstance(part, dict) and set(part) == {"text"}, "text output")
+        payload = _payload(part.get("text"))
+        usage = value.get("usageMetadata")
+        _require(isinstance(usage, dict), "usage")
+        input_tokens = _nonnegative_int(usage.get("promptTokenCount"), "input usage")
+        output_tokens = _nonnegative_int(usage.get("candidatesTokenCount"), "output usage")
+        total_tokens = _nonnegative_int(usage.get("totalTokenCount"), "total usage")
+        _require(total_tokens >= input_tokens + output_tokens, "usage total")
+        normalized = {
+            "input_tokens": input_tokens,
+            "output_tokens": output_tokens,
+            "total_tokens": total_tokens,
+        }
+        if "thoughtsTokenCount" in usage:
+            normalized["reasoning_tokens"] = _nonnegative_int(
+                usage["thoughtsTokenCount"], "reasoning usage"
+            )
+
+    return {
+        "provider": route.provider,
+        "access": "api",
+        "actual_model": actual_model,
+        "payload": payload,
+        "usage": normalized,
+    }
+
+
+class StdlibHttpsConnector:
+    """One-shot HTTPS connector: direct host, system CA, no redirect/retry/cookies."""
+
+    def __init__(
+        self,
+        route: Route,
+        *,
+        connection_factory: Callable[..., Any] = http.client.HTTPSConnection,
+        context_factory: Callable[[], ssl.SSLContext] = ssl.create_default_context,
+    ) -> None:
+        self.route = route
+        self._connection_factory = connection_factory
+        self._context = context_factory()
+        _require(self._context.check_hostname, "TLS hostname checking")
+        _require(self._context.verify_mode == ssl.CERT_REQUIRED, "TLS CA validation")
+        self._connection: Any | None = None
+
+    def exchange(
+        self, request: HttpRequest, *, deadline: float, cancel: threading.Event
+    ) -> HttpResponse:
+        _require(
+            request.host == self.route.host
+            and request.port == 443
+            and request.server_hostname == self.route.host,
+            "TLS route binding",
+        )
+
+        def remaining() -> float:
+            _require(not cancel.is_set(), "cancelled")
+            value = deadline - time.monotonic()
+            _require(value > 0, "deadline")
+            return value
+
+        connection = self._connection_factory(
+            host=request.host, port=443, timeout=remaining(), context=self._context
+        )
+        self._connection = connection
+        connection.request(
+            request.method,
+            request.path,
+            body=request.body,
+            headers=dict(request.headers),
+            encode_chunked=False,
+        )
+        if connection.sock is not None:
+            connection.sock.settimeout(remaining())
+        response = connection.getresponse()
+        if connection.sock is not None:
+            connection.sock.settimeout(remaining())
+        raw = response.read(LIMIT + 1)
+        return HttpResponse(response.status, tuple(response.getheaders()), raw)
+
+    def close(self) -> None:
+        if self._connection is not None:
+            self._connection.close()
+
+
+class Flight:
+    def __init__(
+        self,
+        route: Route,
+        bindings: tuple[SourceBinding, ...],
+        request: HttpRequest,
+        max_output: int,
+        connector_factory: Callable[[Route], Any],
+    ) -> None:
+        self.route = route
+        self.bindings = bindings
+        self.request = request
+        self.max_output = max_output
+        self.connector_factory = connector_factory
+        self.started = time.monotonic()
+        self.deadline = self.started + route.timeout_seconds
+        self.cancelled = threading.Event()
+        self.lifecycle: dict[str, object] = {
+            "attempts": 0,
+            "child_processes": 0,
+            "connector_closed": False,
+        }
+        self._lock = threading.Lock()
+        self._connector: Any | None = None
+        self._waited = False
+
+    def cancel(self) -> None:
+        self.cancelled.set()
+        with self._lock:
+            connector = self._connector
+        if connector is not None:
+            try:
+                connector.close()
+            except Exception:  # noqa: BLE001 - wait owns the sanitized cleanup outcome
+                self.lifecycle["cancel_close_failed"] = True
+
+    def wait(self) -> ProviderReply:
+        _require(not self._waited, "one wait per handoff")
+        self._waited = True
+        _require(not self.cancelled.is_set(), "cancelled")
+        try:
+            connector = self.connector_factory(self.route)
+        except Exception:  # noqa: BLE001 - provider factory failures are sanitized here
+            raise Rejected("connector construction rejected") from None
+        with self._lock:
+            self._connector = connector
+        try:
+            _require(not self.cancelled.is_set(), "cancelled")
+            self.lifecycle["attempts"] = 1
+            response = connector.exchange(
+                self.request, deadline=self.deadline, cancel=self.cancelled
+            )
+            _require(
+                not self.cancelled.is_set() and time.monotonic() < self.deadline,
+                "cancelled or late",
+            )
+            result = parse_response(self.route, response)
+            bounded = bridge.bound_result(result, self.bindings)
+            bounded["usage"] = result["usage"]
+            bounded["transport"] = {
+                "attempts": 1,
+                "host": self.route.host,
+                "port": 443,
+                "response_bytes": len(response.body),
+                "tls_ca_validation": True,
+                "tls_server_name": self.route.host,
+            }
+            raw = encode(bounded)
+            _require(len(raw) <= self.max_output and len(raw) <= LIMIT, "bound output limit")
+            return ProviderReply(raw.decode(), time.monotonic() - self.started)
+        except Rejected:
+            raise
+        except Exception:  # noqa: BLE001 - connector failures are sanitized here
+            raise Rejected("direct transport rejected") from None
+        finally:
+            closed = False
+            try:
+                connector.close()
+                closed = True
+            except Exception:  # noqa: BLE001 - every close failure must reject publication
+                raise Rejected("connector cleanup rejected") from None
+            finally:
+                with self._lock:
+                    self._connector = None
+                self.lifecycle["connector_closed"] = closed
+
+
+@dataclass(frozen=True, slots=True)
+class PreparedAdapter:
+    route: Route
+    bindings: tuple[SourceBinding, ...]
+    credential: str
+    connector_factory: Callable[[Route], Any]
+    observer: object
+
+    def start(self, prompt: str, *, timeout_seconds: int, max_output_bytes: int) -> Flight:
+        _require(timeout_seconds <= self.route.timeout_seconds, "timeout binding")
+        expected = {
+            "operation": "semantic_graph",
+            "selected_sources": [
+                {"source": f"source-{index + 1}", "body": item.body}
+                for index, item in enumerate(self.bindings)
+            ],
+        }
+        _require(decode(prompt) == expected, "derived prompt binding")
+        request = build_request(self.route, prompt, self.credential)
+        self.observer.starts += 1
+        flight = Flight(
+            self.route, self.bindings, request, max_output_bytes, self.connector_factory
+        )
+        self.observer.flight = flight
+        return flight
+
+
+class DirectApiAccess:
+    def __init__(
+        self,
+        gate_provider: str,
+        model: str,
+        bindings: tuple[SourceBinding, ...],
+        *,
+        credential_resolver: Callable[[], str],
+        connector_factory: Callable[[Route], Any] = StdlibHttpsConnector,
+        timeout_seconds: float = 60,
+    ) -> None:
+        self._route = route_for(gate_provider, model, timeout_seconds=timeout_seconds)
+        self.bindings = tuple(SourceBinding(**item.as_dict()) for item in bindings)
+        self.credential_resolver = credential_resolver
+        self.connector_factory = connector_factory
+        self.resolves = self.constructions = self.starts = 0
+        self.flight: Flight | None = None
+
+    @property
+    def route(self) -> Route:
+        return self._route
+
+    @route.setter
+    def route(self, value: Route) -> None:
+        self._route = value
+
+    @property
+    def identity(self) -> str:
+        return self.route.identity
+
+    @property
+    def selections(self) -> tuple[SelectedSource, ...]:
+        return tuple(
+            SelectedSource(item.note_id, item.revision_id, item.privacy_digest)
+            for item in self.bindings
+        )
+
+    def reserve(self, gate: Any, capability: object, probe_id: str = "c15-offline") -> str:
+        return gate.reserve(
+            capability,
+            probe_id=probe_id,
+            provider=self.route.gate_provider,
+            adapter_identity=self.identity,
+            operation="semantic_graph",
+            selected_sources=self.selections,
+            max_output_bytes=LIMIT,
+            timeout_seconds=self.route.timeout_seconds,
+        )
+
+    def release(self, gate: Any, capability: object, reservation: str) -> str:
+        route = self.route
+        identity = route.identity
+        bindings = tuple(SourceBinding(**item.as_dict()) for item in self.bindings)
+        connector_factory = self.connector_factory
+
+        def resolve() -> str:
+            self.resolves += 1
+            try:
+                return self.credential_resolver()
+            except Exception:  # noqa: BLE001 - credential backend failures are sanitized here
+                raise Rejected("credential unavailable") from None
+
+        def construct(credential: str) -> PreparedAdapter:
+            require(self.identity == identity, "adapter changed after credential resolution")
+            self.constructions += 1
+            prepared = PreparedAdapter(route, bindings, credential, connector_factory, self)
+            require(self.identity == identity, "adapter changed during construction")
+            return prepared
+
+        return gate.release(
+            capability,
+            reservation_id=reservation,
+            provider=route.gate_provider,
+            adapter_identity=identity,
+            operation="semantic_graph",
+            selected_sources=self.selections,
+            resolve_credential=resolve,
+            construct_provider=construct,
+        )

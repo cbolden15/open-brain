@@ -1422,3 +1422,43 @@ hashes for standalone proof checks. Preserve the failed check; do not rewrite fr
 chase unrelated working directories or claim that test execution verified a later formatting edit.
 
 Discovered: 2026-09-11, [NW0 continuation](../../audits/2026-09-10-ob1-nw0-continuation.md).
+
+### INTEGRATION-023: A current dependency snapshot does not establish its expected contents
+
+Symptom: An isolated proof accepts edited dependency files because it compares later reads only
+with a baseline captured after extraction. Unlisted bytecode can also remain loadable.
+
+Cause: Archive hashes bind downloaded archives but do not independently bind the extracted runtime.
+
+Fix: Verify the extracted tree against a reviewed external digest before importing it. Reject
+loadable bytecode, links and extra files. Bind the candidate, first-party source and dependencies
+to the same expected manifest at preflight and suite execution.
+
+Discovered: 2026-09-11, independent [authority proof](../../../tools/nw0_authority_probe/README.md) review.
+
+### INTEGRATION-024: A zero exit status does not erase a supervisor failure
+
+Symptom: Both test counts pass and the child exits zero, but the supervisor recorded a timeout or
+truncated output. A summary checking only return code and cleanup still reports success.
+
+Cause: The final receipt projection drops the supervisor's failure classification.
+
+Fix: Require no supervisor failure, complete untruncated output, exact test counts and known
+cleanup for every mode. Keep negative controls where a failed supervisor receipt also has exit zero.
+
+Discovered: 2026-09-11, independent [authority proof](../../../tools/nw0_authority_probe/README.md) review.
+
+### INTEGRATION-025: Path ordering and full-name ordering produce different tree digests
+
+Symptom: Every extracted file matches its wheel member, but the expected dependency digest differs.
+
+Cause: Sorting Path objects compares components. Sorting slash-separated strings compares the whole
+name. A package directory and its sibling distribution metadata can therefore appear in a different
+order even when their files and bytes match.
+
+Fix: Define one ordering for the digest contract and use it when deriving external anchors. Retain
+a fixture containing both `package/module.py` and `package-1.dist-info/METADATA`; comparing only a
+flat directory misses the difference.
+
+Discovered: 2026-09-11, Linux metadata build for the
+[authority proof](../../../tools/nw0_authority_probe/README.md).

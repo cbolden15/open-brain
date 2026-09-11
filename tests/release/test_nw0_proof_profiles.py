@@ -19,7 +19,7 @@ def test_fixed_profiles_preserve_transport_and_select_authority() -> None:
     assert run.TRANSPORT_PROFILE.candidate_files == run.CANDIDATE_FILES
     assert run.TRANSPORT_PROFILE.expected_tests == 23
     assert run.TRANSPORT_PROFILE.base_sources == ()
-    assert run.AUTHORITY_PROFILE.expected_tests == 28
+    assert run.AUTHORITY_PROFILE.expected_tests == 40
     assert "semantic-dataset.json" in run.AUTHORITY_PROFILE.candidate_files
     assert {row[0] for row in run.AUTHORITY_PROFILE.base_sources} == {"engine", "app"}
 
@@ -28,16 +28,18 @@ def test_authority_inventory_materializes_data_without_changing_transport(tmp_pa
     source = tmp_path / "source"
     names = run.AUTHORITY_PROFILE.candidate_files
     manifest = {}
-    for name in run.input_files(names):
+    extras = run.AUTHORITY_PROFILE.extra_files
+    for name in run.input_files(names, extras):
         path = source / name
         path.parent.mkdir(parents=True, exist_ok=True)
         data = b'{}\n' if "json" in name else b"# synthetic\n"
         path.write_bytes(data)
         manifest[name] = hashlib.sha256(data).hexdigest()
     (source / "source-manifest.json").write_text(json.dumps(manifest))
-    bindings, _ = run.materialize(source, tmp_path / "output", names)
+    bindings, _ = run.materialize(source, tmp_path / "output", names, extras)
     assert bindings == manifest
     assert (tmp_path / "output/runtime/candidate/semantic-dataset.json").read_bytes() == b'{}\n'
+    assert (tmp_path / "output/runtime/expected-bundle-manifests.json").read_bytes() == b'{}\n'
     with pytest.raises(ValueError, match="inventory"):
         run.load_inputs(source)
 
@@ -59,11 +61,11 @@ def receipt(tests: int) -> dict[str, Any]:
 
 
 def test_receipt_counts_are_profile_specific() -> None:
-    assert run.public_result(receipt(28), {"example": "1"}, 28)["runs"][0]["tests"] == 28
+    assert run.public_result(receipt(40), {"example": "1"}, 40)["runs"][0]["tests"] == 40
     with pytest.raises(ValueError, match="test run"):
-        run.public_result(receipt(23), {"example": "1"}, 28)
+        run.public_result(receipt(23), {"example": "1"}, 40)
     with pytest.raises(ValueError, match="test run"):
-        run.public_result(receipt(28), {"example": "1"})
+        run.public_result(receipt(40), {"example": "1"})
 
 
 def test_authority_command_selects_only_fixed_base_sources() -> None:
@@ -85,12 +87,12 @@ def test_base_source_projection_requires_exact_profile_pins() -> None:
     assert run.base_source_result({}, run.TRANSPORT_PROFILE) == {}
 
 
-@pytest.mark.parametrize("profile", [run.TRANSPORT_PROFILE, run.AUTHORITY_PROFILE])
 @pytest.mark.parametrize("wrong_base", [False, True])
-def test_coordinator_uses_profile_and_rejects_wrong_base_receipt(
+def test_transport_coordinator_preserves_install_and_runner_commands(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
-    profile: run.ProofProfile, wrong_base: bool,
+    wrong_base: bool,
 ) -> None:
+    profile = run.TRANSPORT_PROFILE
     source = tmp_path / "source"
     manifest = {}
     for name in run.input_files(profile.candidate_files):
@@ -150,3 +152,45 @@ def test_coordinator_uses_profile_and_rejects_wrong_base_receipt(
     )
     for name, path, _ in profile.base_sources:
         assert commands[1][commands[1].index(f"--{name}-source") + 1] == str(path)
+
+
+@pytest.mark.parametrize("fail", [False, True])
+def test_authority_coordinator_routes_bound_inputs_and_records_outcome(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, fail: bool,
+) -> None:
+    from tools.nw0_api_probe import authority
+
+    output = tmp_path / "output"
+    wheelhouse = tmp_path / "wheels"
+    calls = []
+
+    def fake_execute(
+        profile: run.ProofProfile, root: Path, wheels: Path | None,
+        target: str, bindings: dict[str, str],
+    ) -> dict[str, Any]:
+        calls.append(target)
+        assert profile is run.AUTHORITY_PROFILE
+        assert root == output and wheels == wheelhouse and target == "macos-arm64"
+        assert bindings == run.load_inputs(
+            profile.source, profile.candidate_files, profile.extra_files,
+        )[0]
+        if fail:
+            raise ValueError("private-authority-failure")
+        return {"synthetic_authority_proof_passed": True}
+
+    monkeypatch.setattr(authority, "execute", fake_execute)
+    monkeypatch.setattr(platform, "system", lambda: "Darwin")
+    monkeypatch.setattr(platform, "machine", lambda: "arm64")
+    monkeypatch.setattr(sys, "argv", [
+        "proof", "--output", str(output), "--wheelhouse", str(wheelhouse),
+    ])
+    assert run.run_proof(run.AUTHORITY_PROFILE) == int(fail)
+    value = json.loads((output / "release/verification.json").read_text())
+    assert calls == ["macos-arm64"]
+    assert value["passed"] is (not fail)
+    assert value["phase"] == ("authority" if fail else "complete")
+    assert value["implementation_sha256"]["authority_coordinator"] == run.digest(
+        Path(authority.__file__)
+    )
+    assert "private-authority-failure" not in json.dumps(value)
+    assert value["model_calls"] == 0 and value["full_nw0_approved"] is False
