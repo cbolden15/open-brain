@@ -1374,3 +1374,23 @@ with a distinct removable read-only data CD before boot. Verify actual saved con
 than assuming a wizard click added the drive. Do not count the new environment as prior GUI evidence.
 
 Discovered: 2026-09-10, [NW0 continuation](../../audits/2026-09-10-ob1-nw0-continuation.md).
+
+### INTEGRATION-020: An asynchronous child API can still wait before returning its PID
+
+Symptom: A parent starts its timeout before process creation but cannot cancel an already-created
+child because the launch call has not returned the child's PID.
+
+Cause: Python's fork-based `Popen` path waits on an exec-error pipe. Replacing it with direct
+`posix_spawn` removes that Python read but does not establish early ownership on glibc Linux:
+`CLONE_VFORK` suspends the caller until child exec or exit. API naming and normal fast-start samples
+do not prove the controlled pre-exec-stall case.
+
+Fix: Trace PID acquisition before relying on cancellation or cleanup claims. Test a controlled
+child-side pre-exec stall, retain the original deadline, and confirm actual terminal wait rather
+than eventual process disappearance. A native async-signal-safe fork/exec routine in the existing
+owner is an unproved alternative, not an approved implementation. Verify each supported platform;
+do not hide a concrete child-side wait inside a general scheduling assumption.
+
+Discovered: 2026-09-10, independent NW0 launch review; see the
+[Linux spawn](https://man7.org/linux/man-pages/man3/posix_spawn.3.html) and
+[vfork semantics](https://man7.org/linux/man-pages/man2/vfork.2.html).

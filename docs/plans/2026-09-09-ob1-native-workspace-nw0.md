@@ -6,12 +6,22 @@
   passed scoped independent review. A13 selects the sibling projection and first-release
   no-automatic-overwrite policy in the
   [representation decision](../audits/2026-09-10-ob1-nw0-representation.md).
-  C16 review found child-ownership/reaping, exact-route and total-launch-deadline gaps.
-  D19's owned-publication review resolved the prior
-  publication findings but found sparse-array and pause/resume defects; correction is in progress.
+  C16's ownership/route corrections and D19's bounded-publication correction passed scoped review.
+  C18's second attribution/whole-release cleanup correction passed independent review.
+  The initial launch gate stays open. C20's second owner-wrapper correction fixes descriptor-reuse
+  and post-deadline recovery defects, but review found invalid timeout bounds. A third correction
+  is in progress.
+  D20's lifecycle correction passed scoped
+  headless review; discard/drain is not provider cancellation or automatic timeout recovery.
+  The [presentation decision](../audits/2026-09-10-ob1-nw0-presentation.md) selects Canvas overview
+  plus a supported plugin command/list and checked modal, with no built-in Canvas edge-click promise.
+  D22's first correction fixes three stale/revoked/accepted-restart findings, but review found
+  concurrent-edit overwrite and test readiness/cleanup defects. A second correction is in progress.
+  D23's private authoritative Portable reconciliation/retrieval seam passed independent review;
+  it does not approve D22 or substitute for an integrated desktop journey.
   See the [current evidence and remaining gates](../audits/2026-09-10-ob1-nw0-continuation.md).
-  Claude remains closed, the real-provider matrix is unrun, and Linux bridge/refresh/presentation
-  work remains incomplete. Full NW0 is not passed.
+  Claude remains closed, the real-provider matrix is unrun, and Linux bridge plus integrated
+  refresh/presentation work remain incomplete. Full NW0 is not passed.
   The owner has lifted effort ceilings and authorized necessary pushes; product privacy and model
   limits remain unchanged. Prior results below retain their original scope and failures.
 - Historical checkpoint status (superseded where newer receipts say so): NW0-B1 closure/import proof passed with required integration controls.

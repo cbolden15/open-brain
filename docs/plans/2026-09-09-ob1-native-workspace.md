@@ -7,9 +7,10 @@
   A12 and corrected C15 passed scoped independent review. A13 selects the sibling projection and
   first-release no-automatic-overwrite policy in the
   [representation decision](../audits/2026-09-10-ob1-nw0-representation.md).
-  Containment and refresh reviews continue.
-  Real providers, Linux bridge GUI and presentation
-  decisions remain open. Full NW0 is incomplete and Claude subscription dispatch stays closed.
+  The [presentation decision](../audits/2026-09-10-ob1-nw0-presentation.md) selects a Canvas overview
+  plus a supported plugin-owned command/list and checked modal. Integrated presentation, containment,
+  real providers and Linux bridge GUI remain open. Full NW0 is incomplete and Claude subscription
+  dispatch stays closed.
 - Historical checkpoints: NW0-B4 records the authorized upstream-first/maintained-patch policy and a working private
   frontmatter contract. The pure parser candidate passes Mac content inspection and native smoke,
   but its observed 213 ms repeat-startup penalty exceeds the 200 ms budget. Controlled cold/Linux
@@ -326,10 +327,14 @@ evaluate folder exclusions against the current managed-vault-relative path. Poli
 pending selections and affected semantic projections. Already transmitted data cannot be recalled;
 stop further dispatch of newly excluded records and reject results based on superseded policy.
 
-Start the offline feasibility proof with Canvas and an explicit source-filename mapping. The
-inspected HTML renderer references a CDN-hosted vis-network asset; package that asset locally before
-claiming an offline HTML view. Upstream export imports also bring in broader graph modules, so
-measure the complete import closure rather than only the function body. Include Graphify's
+The reviewed [presentation decision](../audits/2026-09-10-ob1-nw0-presentation.md) selects Canvas
+as a rebuildable overview with explicit source mapping. A plugin-owned command or suggestion list
+selects a current opaque suggestion identity and opens the checked modal; built-in Canvas edge-click
+integration is not promised. A plugin-owned graph `ItemView` remains the proper unified-interaction
+alternative pending feasibility, accessibility, performance and lifecycle proof. The locally bundled
+HTML comparator is reference evidence, not a first-release HTML export commitment. Mandatory Portable
+export/import/reconciliation/retrieval remains required. Upstream export imports bring broader graph
+modules, so any future HTML surface must audit the complete local closure. Include Graphify's
 `LICENSE`, `LICENSE-MIT`, and `NOTICE` plus required dependency notices in the candidate inventory.
 
 ### Cloud consent and effective request policy
@@ -935,7 +940,8 @@ two of four lenses; this revision does not claim a new independent review or suc
 | Bounded feasibility work | NW0-A–E effort/request limits, named desktop target and provisioning dependency, startup measurements, explicit stop conditions. |
 
 Next action: use the [current continuation record](../audits/2026-09-10-ob1-nw0-continuation.md)
-to finish independent A/C/refresh reviews, Linux bridge desktop evidence and the real-provider gates.
+to finish the remaining native-launch and presentation corrections/reviews, Linux bridge desktop
+evidence, both integrated refresh journeys and the real-provider gates.
 Native B packaging/startup is complete within its measured scope. Installed migrations and the
 production writer belong to NW1, not an extra NW0 implementation. The September 10 effort/publication
 amendment supersedes the earlier E stop/no-push status; all prior charges and product limits remain.

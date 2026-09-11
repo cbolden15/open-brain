@@ -65,11 +65,46 @@ uncancelled reconciliation on unload, and redundant inference on unchanged reloa
 passed 17 tests, but re-review found asynchronous callback effects could still escape rejection and
 an automatic run could publish after durable pause. A data-only owned publication correction passes
 17 focused and six boundary tests and resolves those two publication findings. Its independent
-review found an unbounded sparse-array traversal and a lost automatic retry on immediate pause/resume;
-both are being corrected in a new candidate. It is not connected to Obsidian. The 500 ms debounce
-and 2 s maximum delay are measurement candidates,
-not final product values. Real event binding, pause persistence, cancellation, visible edges and
-the Canvas-versus-offline-HTML choice still require desktop evidence.
+review found an unbounded sparse-array traversal and a lost automatic retry on immediate pause/resume.
+The final bounded-publication correction passed all 29 candidate tests and three additional
+independent tests. It bounds cumulative array traversal, owns immutable publication data and retries
+the interrupted revision. This is a cooperative one-process scheduler, not an arbitrary-code sandbox.
+The 500 ms debounce and 2 s maximum delay remain measurement candidates, not final product values.
+
+D20 composes that scheduler with the real local Python pipe on fresh synthetic fixtures. Its
+original review found that active cancellation permanently closed the channel and that ENOENT left
+terminal waiting unresolved. The corrected transport passed independent review: 15 aggregate checks,
+including D13's 15 package cases, all 29 D19 tests, a real-pipe acceptance/export baseline and four
+lifecycle cases, plus three new reviewer process tests. The baseline retained one accepted link,
+unchanged Markdown and byte-exact export; all consumed fixtures are preserved.
+
+Pause now discards and drains the bounded response before queued retry. It does not interrupt the
+Python operation and is not provider cancellation. A timed-out drain still hard-closes and requires
+explicit restart with inactive consent; automatic recovery is open. Spawn failure settles exactly
+once without falsely claiming a never-created process was reaped. Active unload and forced-kill
+tests observed actual child exit. Uncertain acceptance remains an unknown outcome requiring durable
+reconciliation, never automatic retry.
+
+The independently reviewed [presentation decision](2026-09-10-ob1-nw0-presentation.md) selects
+Canvas overview plus a supported plugin-owned command/list and checked modal. It does not promise a
+built-in Canvas edge-click callback or first-release HTML export. D22's disposable headless
+integration passed its initial package and real-pipe tests, but independent review found three
+presentation defects: stale paused edits leave the old Canvas visible, revocation still advertises
+a current suggestion, and restart redraws a durably accepted link as inferred. The first correction
+passes 16 focused checks and fixes those cases, but independent review found two further defects:
+its synthetic acceptance writer overwrites a concurrent editor change, and the integration test
+can read a stale startup Canvas and leave the helper running after an assertion fails. That
+candidate is not approved. A second correction is in progress. All original, corrected and
+reviewer acceptance fixtures remain preserved; none is reused as empty state.
+
+D23 independently passed the missing private Portable backend seam, normally and with optimization.
+A fresh owned-pipe session previewed and accepted exactly one link, exported a 44,522-byte bundle,
+and imported it byte-exact with consent inactive. Poisoned derived rows returned no matching notes.
+Authoritative reconciliation rebuilt them, after which retrieval returned the exact two active
+note IDs. A separate authoritative-digest tamper rejected before retrieval. The accepted link,
+Markdown and export bytes were preserved. This is the existing private workspace implementation,
+not an installed schema or general query API, and it does not approve D22's presentation. Real
+events, visible publication, activation and the combined journey still need both target desktops.
 
 ## Provider boundary
 
@@ -94,18 +129,52 @@ also have explicit injected seams. Independent review found exceptional setup/cl
 child ownership or falsely report reaping, the connector did not bind exact method/path, and a
 delayed synchronous spawn could exceed the declared total deadline. The first two include actual
 owned-process or loopback evidence; delayed spawn and false reaping also use explicit seams.
-These findings keep the containment gate open. C16 has contacted no actual provider and proves
-no authentication, billing, retention or live response compatibility. Existing
-API access blockers and the full matrix remain open; a credential's presence is not access evidence.
+The ownership/cleanup and exact-route correction passed independent review with 16 tests in each
+normal/optimized mode. Initial synchronous launch remained open. C17's outer-supervisor experiment
+then reproduced two more failures: a partial readable frame could block past its deadline, and setup,
+work and cleanup did not share one probe clock. Its failed candidate and negative topology evidence
+remain preserved.
+
+C18 moves the codec and loopback transport into one directly owned backend. Its original review
+found mutable source attribution and missing post-result cleanup. The first correction fixed those
+covered cases, but independent review found that parent validation still accepted forged
+provider/model/route/usage metadata and duplicate edges. It also missed cleanup when validation
+failed before entering the release call. The second correction returns a bounded raw response and
+reuses the canonical response parser and source-binding routine in the parent, freezes the access
+selection, and guards the complete release path. Independent review passed with no findings:
+15 inherited and three reviewer tests pass in each normal/optimized mode, with compile, lint and
+unchanged pins. Reviewer cases confirm parent-derived route metadata, response-derived model/usage,
+whole-release cleanup and post-validation cancellation/deadline rejection. Python freezing is not
+hostile-code isolation, and initial synchronous launch remains open.
+
+C19's proposed direct process-spawn API was independently rejected as a complete ownership fix.
+C20's native fork experiment does return a PID before its controlled pre-exec stall on macOS, but
+root review found post-fork cleanup could lose ownership and partial pipe setup leaked descriptors.
+A fresh owner-wrapper correction passed its tests, but independent review reproduced two further
+defects: cleanup can close a reused unrelated descriptor after a later close fails, and the
+retained owner cannot recover after the original deadline. Independent review of the second
+correction confirmed both fixes with seven tests in each normal/optimized mode, but found that the
+new recovery API accepts nonfinite and boolean timeout values. A third correction is in progress.
+The descriptor correction removes attempted numbers from cleanup ownership before close and
+retains uncertainty without retrying a reused number. The recovery path preserves the original
+operation deadline, but is not approved until it enforces a finite, typed maximum cleanup bound.
+Native atfork/signal assumptions, Linux execution, C18 composition and the complete initial-launch
+boundary remain open. No new process or service layer is selected.
+
+No C15–C20 candidate contacted an actual provider or established authentication, billing, retention
+or live response compatibility. Historical OpenAI authorization failure and context-specific
+Anthropic availability checks are not current access proof. Gemini metadata readiness remains a
+possible first path after every boundary gate passes, not a completed sample. The full matrix is
+unrun; credential presence alone is not access evidence.
 
 ## Next gates and owners
 
 | Gate | Remaining NW0 proof or decision | Later implementation owner |
 |---|---|---|
-| A | Integrate and review the selected sibling projection, typed compatibility and first-release write restriction | NW1 reader/migrations, materializer/writer, journal and owner enforcement |
+| A | Carry the independently reviewed lifecycle and representation decision into final coverage | NW1 reader/migrations, materializer/writer, journal and owner enforcement |
 | B | Cite the completed scoped evidence in final coverage; no new benchmark | NW2 runtime adapter; NW3 installation integration |
-| C | Supported Claude boundary/approval, C16 direct-API containment and all 32 real samples | NW2 adapters; NW3 credential custody/onboarding |
-| D | D19 corrections/review, Linux bridge approval/GUI, integrated refresh measurements and presentation choice | NW2 presentation; NW3 plugin |
+| C | Prove full launch/cleanup, supported Claude boundary/approval and all 32 real samples | NW2 adapters; NW3 credential custody/onboarding |
+| D | Correct and review presentation state, then prove Linux bridge approval/GUI and both integrated desktop refresh journeys with the reviewed Portable seam | NW2 presentation; NW3 plugin |
 | E | Reconcile every requirement and independently review the complete decision record | NW4 exact release-candidate journey |
 
 The separate-helper choice and no-automatic-writeback restriction preserve stronger boundaries
