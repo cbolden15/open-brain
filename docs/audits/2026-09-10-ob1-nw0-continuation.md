@@ -40,8 +40,12 @@ Its retained verifier reports 18 passing checks, three focused tests and passing
 rename/edit, consent revocation, explicit link acceptance, conflict resolution, delete/restart/restore,
 byte-exact portability and inactive restored consent. Independent review passed with no findings:
 two reviewer-owned lifecycle tests and seven targeted negative tests passed, with unchanged candidate
-hashes. The decision freeze remains open. The trusted in-process owner and generic shared-record mapping are not OS authentication or
-installed schema support. Automatic Markdown writeback remains disabled.
+hashes. A13's corrected draft passed its three-finding independent review and preserves all nine
+requirement rows. The [representation decision](2026-09-10-ob1-nw0-representation.md) selects a
+sibling projection and first-release no-automatic-overwrite policy. Setup, explicit owner
+materialization and recovery of an already-authorized pending operation remain supported; NW1
+owns their production writer, journal and enforcement. The trusted in-process owner and generic
+shared-record mapping are not OS authentication or installed schema support.
 
 D12 installed official Obsidian 1.12.7 in the isolated Ubuntu 24.04.5 x86_64 GNOME guest, displayed
 Canvas evidence and navigated to a synthetic note. D17 completed the Mac deterministic bridge flow:
@@ -59,8 +63,11 @@ D19's private scheduler passes eight tests and a nine-combination synthetic batc
 Independent review reproduced four defects: stale asynchronous publication, failed pause persistence,
 uncancelled reconciliation on unload, and redundant inference on unchanged reload. A separate correction
 passed 17 tests, but re-review found asynchronous callback effects could still escape rejection and
-an automatic run could publish after durable pause. A data-only owned publication correction is in
-progress. It is not connected to Obsidian. The 500 ms debounce and 2 s maximum delay are measurement candidates,
+an automatic run could publish after durable pause. A data-only owned publication correction passes
+17 focused and six boundary tests and resolves those two publication findings. Its independent
+review found an unbounded sparse-array traversal and a lost automatic retry on immediate pause/resume;
+both are being corrected in a new candidate. It is not connected to Obsidian. The 500 ms debounce
+and 2 s maximum delay are measurement candidates,
 not final product values. Real event binding, pause persistence, cancellation, visible edges and
 the Canvas-versus-offline-HTML choice still require desktop evidence.
 
@@ -79,16 +86,23 @@ cache-token undercount and a reported lint check that did not reproduce. The sep
 passed independent coordinator review: all 16 tests passed normally and with Python optimization,
 two additional reviewer tests passed in each mode, and both lint commands reproduced successfully.
 The original failed candidate and its review remain preserved.
-It has not performed DNS, a TLS handshake, real IPC, authentication or inference. Its in-process
-exchange still needs a killable child and local TLS/process-lifetime proof; that C16 work is in
-progress, not a passed gate. Existing API access
-blockers and the full matrix remain open; a credential's presence is not access evidence.
+C15 itself has not performed DNS, a TLS handshake, real IPC, authentication or inference. C16 now
+composes it with a killable child and actual loopback TLS/IPC. Eight test groups pass normally and
+with Python optimization, including provider-host SNI, wrong-host/untrusted-CA rejection, bounded
+response reads, cancellation and wait-based reaping. Resolver/connect stalls and malformed IPC
+also have explicit injected seams. Independent review found exceptional setup/cleanup could lose
+child ownership or falsely report reaping, the connector did not bind exact method/path, and a
+delayed synchronous spawn could exceed the declared total deadline. The first two include actual
+owned-process or loopback evidence; delayed spawn and false reaping also use explicit seams.
+These findings keep the containment gate open. C16 has contacted no actual provider and proves
+no authentication, billing, retention or live response compatibility. Existing
+API access blockers and the full matrix remain open; a credential's presence is not access evidence.
 
 ## Next gates and owners
 
 | Gate | Remaining NW0 proof or decision | Later implementation owner |
 |---|---|---|
-| A | Compatible identity/representation decision freeze using the passed composition review | NW1 Engine reader, migrations and authenticated writer |
+| A | Integrate and review the selected sibling projection, typed compatibility and first-release write restriction | NW1 reader/migrations, materializer/writer, journal and owner enforcement |
 | B | Cite the completed scoped evidence in final coverage; no new benchmark | NW2 runtime adapter; NW3 installation integration |
 | C | Supported Claude boundary/approval, C16 direct-API containment and all 32 real samples | NW2 adapters; NW3 credential custody/onboarding |
 | D | D19 corrections/review, Linux bridge approval/GUI, integrated refresh measurements and presentation choice | NW2 presentation; NW3 plugin |

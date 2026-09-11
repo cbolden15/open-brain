@@ -3,7 +3,12 @@
 - Current continuation: B12/B13 pass both native targets, artifact inspection and all four
   cold/warm startup comparisons at `fc493715`. The isolated Mac deterministic bridge journey
   passed and its one-link fixture is preserved. A12 composition and corrected C15 offline transport
-  passed scoped independent review. C16 containment is in progress; D19 scheduling still has findings.
+  passed scoped independent review. A13 selects the sibling projection and first-release
+  no-automatic-overwrite policy in the
+  [representation decision](../audits/2026-09-10-ob1-nw0-representation.md).
+  C16 review found child-ownership/reaping, exact-route and total-launch-deadline gaps.
+  D19's owned-publication review resolved the prior
+  publication findings but found sparse-array and pause/resume defects; correction is in progress.
   See the [current evidence and remaining gates](../audits/2026-09-10-ob1-nw0-continuation.md).
   Claude remains closed, the real-provider matrix is unrun, and Linux bridge/refresh/presentation
   work remains incomplete. Full NW0 is not passed.

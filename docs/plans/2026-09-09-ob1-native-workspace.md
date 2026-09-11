@@ -4,7 +4,10 @@
   cold/warm startup comparisons. The isolated Mac deterministic bridge journey passed; preserve
   its accepted-link fixture. See the
   [current evidence and remaining gates](../audits/2026-09-10-ob1-nw0-continuation.md).
-  A12 and corrected C15 passed scoped independent review; containment and refresh work continue.
+  A12 and corrected C15 passed scoped independent review. A13 selects the sibling projection and
+  first-release no-automatic-overwrite policy in the
+  [representation decision](../audits/2026-09-10-ob1-nw0-representation.md).
+  Containment and refresh reviews continue.
   Real providers, Linux bridge GUI and presentation
   decisions remain open. Full NW0 is incomplete and Claude subscription dispatch stays closed.
 - Historical checkpoints: NW0-B4 records the authorized upstream-first/maintained-patch policy and a working private
@@ -148,7 +151,7 @@ zero provider calls, without granting MCP owner mutation authority.
 
 ### Filesystem and authority
 
-Recommended physical layout: a dedicated managed vault beside the private Brain directory within
+Selected NW0 physical layout: a dedicated managed vault beside the private Brain directory within
 the product's platform-local application directory. The private Brain keeps accepted canonical
 records and history. The managed vault is the editable presentation. Neither side is an
 unconditional overwrite source. Persist a mapping from stable note ID to workspace-relative path,
@@ -158,7 +161,8 @@ The default location is automatic; the introductory user flow does not ask for a
 root. Setup creates or reopens the dedicated Open Brain vault; it does not register an arbitrary
 existing vault for two-way editing. One-way import preserves the existing import/provenance contract
 and does not modify the source vault or establish bidirectional synchronization. This product
-decision leaves the sibling-projection versus dedicated-canonical-subtree packaging question to NW0.
+decision uses the sibling projection selected in the
+[NW0 representation decision](../audits/2026-09-10-ob1-nw0-representation.md).
 A human-facing open/reveal operation can show the vault location without exposing operational
 paths to MCP or public search results. Validate root identity and containment on every operation.
 Do not use a symlink from the vault to the private canonical tree. Preserve private permissions and
@@ -167,8 +171,9 @@ locations; an Obsidian workspace does not itself imply Obsidian Sync compatibili
 
 The alternative is a dedicated canonical subtree used directly as the vault. It reduces duplicate
 files but couples Obsidian metadata, flexible frontmatter, rename/delete behavior, and generated
-artifacts to Portable Brain's strict namespace. NW0 must compare it against the sibling projection
-before freezing placement. Opening the entire Brain root is rejected.
+artifacts to Portable Brain's strict namespace. The NW0 comparison rejects it for this boundary;
+the sibling projection preserves the separate accepted-record contract. Opening the entire Brain
+root is rejected.
 
 ### Revision acceptance and recovery
 
@@ -188,10 +193,10 @@ not satisfy this contract. Review portable import reconstruction as well as expo
 | Observed state | Required result |
 |---|---|
 | Workspace changed; engine base unchanged | Validate source identity and metadata, accept one revision, update search, mark graph stale. |
-| Engine changed; workspace still matches its last materialization | Publish the new presentation only after verifying the target is still unchanged. |
+| Engine changed; workspace still matches its last materialization | Mark the presentation stale or update-available. Do not automatically overwrite it. A separate explicit owner refresh may publish after current owner, accepted-revision and target-digest checks. |
 | Both changed | Preserve both versions and return a conflict; no last-write-wins overwrite. |
 | Duplicate identity, malformed metadata, unsafe path, or uncertain traversal | Refuse the affected mutation, return a bounded diagnostic, retain accepted data. Do not infer deletion from an incomplete scan. |
-| Crash between accepted record and materialization | Resume from an explicit pending operation, bind it to the original request, and avoid duplicate revision creation. |
+| Crash between accepted record and materialization | Resume only an already-authorized pending materialization bound to its original request, recheck current owner, accepted revision and target digest, and avoid duplicate revision creation. |
 
 DECIDED by the user on 2026-09-09: when Obsidian and Open Brain both change a note, preserve both
 versions and ask the user to resolve the conflict. Do not automatically merge or choose a winner
@@ -210,8 +215,15 @@ claim a fully reconciled workspace; retain the existing fail-visible reconciliat
 Filesystem replacement and SQLite commit do not form one atomic transaction. NW1 needs a small
 recoverable operation journal and defined reconciliation states. External editors do not honor the
 engine's writer lease; a check followed by rename alone is not a proof against concurrent edits.
-NW0 must demonstrate the chosen conflict-preserving write-back protocol under an edit during
-promotion, or restrict automatic write-back until that protocol is proven.
+NW0 selects the restrictive first-release policy: automatic canonical-to-Markdown overwrite of an
+existing managed body is disabled. Setup may create the initial projection. Explicit owner
+materialization or refresh, and recovery of an already-authorized journaled operation, remain
+supported subject to current owner, revision and target-digest checks. An engine revision, inference,
+link acceptance, conflict state, deactivation or restore alone never rewrites an existing body.
+Conflict resolution updates accepted state; changing its Markdown presentation requires a separate
+explicit owner materialization. NW1 owns this writer, materializer, journal and enforcement.
+Automatic promotion is only a future option after a separate external-editor and crash-safety proof,
+not an unproved first-release dependency.
 
 Managed-vault rename preserves the stable note ID. A copied ID is a conflict, not a second alias for
 the same writable record.
@@ -688,6 +700,7 @@ the final integrated five-minute result with release candidates.
 | Contract | Implementation owner | Exit evidence |
 |---|---|---|
 | Workspace revisions, durable consent/revocation, exclusions, policy generation, and shared budgets | NW1 | Restart/export/import preserve identity and restrictions; restored consent is inactive; mixed-source and unauthorized requests fail closed. |
+| Versioned typed reader/migrations, materializer, production writer, durable operation journal and owner enforcement | NW1 | Preserve unchanged v1 bytes; reject unknown typed records; test initial setup, explicit owner refresh and bound pending recovery against current authority/revision/digest checks. State-only operations never overwrite an existing Markdown body. |
 | Caller capability matrix and MCP process limits | NW1, with NW2 provider-call assertions | Disabled tools absent; no owner mutation via MCP; limit/revocation failures make zero provider calls. |
 | OpenAI API, Anthropic API, Claude subscription, and Gemini API adapters | NW2 | All four share semantic/privacy tests; Claude subscription passes isolation; no silent fallback or credential cross-use. |
 | Model-client installation/discovery, API-key custody, login detection/reuse, provider and exclusion setup, credential replacement/removal | NW3 | Fresh/reused onboarding and error flows pass on both desktops for all four launch paths, including credential-store absence. |
@@ -703,6 +716,10 @@ the final integrated five-minute result with release candidates.
    rename/delete semantics, replay, and crash recovery from the NW0 decision. Add suggestion
    acceptance through the same revision flow with durable provenance and idempotency. Implement
    effective privacy decisions and restriction-preserving restore through the shared engine boundary.
+   Implement the selected materializer, writer, operation journal and owner enforcement here, not
+   in NW3. Test setup creation, explicit owner refresh and authorized recovery against real target
+   edits and crashes at each journal/filesystem boundary. Preserve both versions on conflict;
+   state-only operations and unbound recovery must not overwrite existing Markdown.
 3. Add shared CLI/MCP operations with separate caller authority and safe result projections.
    Apply the caller capability matrix and process budgets; preserve existing capture/search flags
    and the headless path. Define eligible workspace materialization without changing caller trust.
