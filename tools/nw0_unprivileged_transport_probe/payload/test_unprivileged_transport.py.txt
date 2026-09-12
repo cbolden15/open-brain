@@ -1,0 +1,338 @@
+from __future__ import annotations
+
+import asyncio
+import os
+import threading
+import unittest
+
+import pycares
+from fixtures import LOGICAL_HOST, DnsFixture, TlsFixture
+from owned_transport import (
+    OwnedResolver,
+    OwnedTlsTransport,
+    Receipt,
+    ResolverConfig,
+    TransportRejected,
+)
+
+
+def fd_count() -> int:
+    root = "/proc/self/fd" if os.path.isdir("/proc/self/fd") else "/dev/fd"
+    return len(os.listdir(root))
+
+
+def thread_ids() -> set[int | None]:
+    return {thread.ident for thread in threading.enumerate()}
+
+
+async def settle_resources() -> None:
+    for _ in range(20):
+        await asyncio.sleep(0.01)
+
+
+def config(port: int) -> ResolverConfig:
+    return ResolverConfig.capture(
+        {"nameserver": "127.0.0.1", "udp_port": port, "timeout_seconds": 0.05, "tries": 1}
+    )
+
+
+class ResolverTests(unittest.IsolatedAsyncioTestCase):
+    async def test_success_is_loopback_and_terminal(self) -> None:
+        fixture = await DnsFixture.start("success")
+        before_fds, before_threads = fd_count(), thread_ids()
+        receipt = Receipt()
+        resolver = OwnedResolver(config(fixture.port), receipt, "resolver-success")
+        try:
+            addresses = await resolver.resolve_a(
+                LOGICAL_HOST, asyncio.get_running_loop().time() + 1.0
+            )
+            self.assertEqual(addresses, ("127.0.0.1",))
+            self.assertEqual(fixture.protocol.queries, 1)
+        finally:
+            await resolver.close(asyncio.get_running_loop().time() + 1.0)
+            await settle_resources()
+            self.assertTrue(receipt.resolver_closed)
+            self.assertEqual(resolver.pending, 0)
+            self.assertEqual((fd_count(), thread_ids()), (before_fds, before_threads))
+            await fixture.close()
+
+    async def test_timeout_closes_under_original_deadline(self) -> None:
+        fixture = await DnsFixture.start("drop")
+        receipt = Receipt()
+        resolver = OwnedResolver(config(fixture.port), receipt, "resolver-timeout")
+        deadline = asyncio.get_running_loop().time() + 0.4
+        try:
+            with self.assertRaises(TimeoutError):
+                await resolver.resolve_a(LOGICAL_HOST, deadline - 0.2)
+        finally:
+            await resolver.close(deadline)
+            await fixture.close()
+        self.assertEqual(resolver.pending, 0)
+        self.assertTrue(receipt.resolver_closed)
+        self.assertIn("resolve_timeout", [event["event"] for event in receipt.events])
+
+    async def test_caller_cancellation_is_terminal_after_close(self) -> None:
+        fixture = await DnsFixture.start("drop")
+        receipt = Receipt()
+        resolver = OwnedResolver(config(fixture.port), receipt, "resolver-cancel")
+        task = asyncio.create_task(
+            resolver.resolve_a(LOGICAL_HOST, asyncio.get_running_loop().time() + 1.0)
+        )
+        await asyncio.sleep(0.03)
+        task.cancel()
+        with self.assertRaises(asyncio.CancelledError):
+            await task
+        await resolver.close(asyncio.get_running_loop().time() + 0.5)
+        await fixture.close()
+        self.assertTrue(task.done())
+        self.assertEqual(resolver.pending, 0)
+        self.assertIn("resolve_cancelled", [event["event"] for event in receipt.events])
+
+    async def test_concurrent_close_cancels_channel_query(self) -> None:
+        fixture = await DnsFixture.start("drop")
+        receipt = Receipt()
+        resolver = OwnedResolver(config(fixture.port), receipt, "resolver-close")
+        task = asyncio.create_task(
+            resolver.resolve_a(LOGICAL_HOST, asyncio.get_running_loop().time() + 1.0)
+        )
+        await asyncio.sleep(0.03)
+        await resolver.close(asyncio.get_running_loop().time() + 0.5)
+        with self.assertRaises(TransportRejected):
+            await task
+        await fixture.close()
+        self.assertTrue(receipt.resolver_closed)
+        self.assertEqual(resolver.pending, 0)
+
+    async def test_configuration_is_captured_before_source_mutation(self) -> None:
+        fixture = await DnsFixture.start("success")
+        source: dict[str, object] = {
+            "nameserver": "127.0.0.1",
+            "udp_port": fixture.port,
+            "timeout_seconds": 0.05,
+            "tries": 1,
+        }
+        captured = ResolverConfig.capture(source)
+        source.update(nameserver="192.0.2.1", udp_port=53, tries=99)
+        resolver = OwnedResolver(captured, Receipt(), "resolver-captured")
+        try:
+            self.assertEqual(
+                await resolver.resolve_a(LOGICAL_HOST, asyncio.get_running_loop().time() + 1.0),
+                ("127.0.0.1",),
+            )
+            self.assertEqual((captured.nameserver, captured.udp_port), ("127.0.0.1", fixture.port))
+        finally:
+            await resolver.close(asyncio.get_running_loop().time() + 0.5)
+            await fixture.close()
+
+    async def test_malformed_answer_fails_closed_and_closes(self) -> None:
+        fixture = await DnsFixture.start("malformed")
+        receipt = Receipt()
+        resolver = OwnedResolver(config(fixture.port), receipt, "resolver-malformed")
+        try:
+            with self.assertRaises(TransportRejected):
+                await resolver.resolve_a(LOGICAL_HOST, asyncio.get_running_loop().time() + 0.5)
+        finally:
+            await resolver.close(asyncio.get_running_loop().time() + 0.5)
+            await fixture.close()
+        self.assertTrue(receipt.resolver_closed)
+        self.assertEqual(resolver.pending, 0)
+
+    async def test_two_resolver_close_serializes_final_worker_stop(self) -> None:
+        fixture = await DnsFixture.start("success")
+        before_fds, before_threads = fd_count(), thread_ids()
+        first_receipt, second_receipt = Receipt(), Receipt()
+        first = OwnedResolver(config(fixture.port), first_receipt, "resolver-first")
+        second = OwnedResolver(config(fixture.port), second_receipt, "resolver-second")
+        try:
+            self.assertEqual(
+                pycares.shutdown_state(),
+                {
+                    "live_channels": 2,
+                    "pending_destructions": 0,
+                    "thread_alive": True,
+                    "stopping": False,
+                },
+            )
+            await first.close(asyncio.get_running_loop().time() + 1.0)
+            self.assertEqual(
+                pycares.shutdown_state(),
+                {
+                    "live_channels": 1,
+                    "pending_destructions": 0,
+                    "thread_alive": True,
+                    "stopping": False,
+                },
+            )
+            self.assertEqual(
+                await second.resolve_a(LOGICAL_HOST, asyncio.get_running_loop().time() + 1.0),
+                ("127.0.0.1",),
+            )
+            await second.close(asyncio.get_running_loop().time() + 1.0)
+            await settle_resources()
+            self.assertEqual(
+                pycares.shutdown_state(),
+                {
+                    "live_channels": 0,
+                    "pending_destructions": 0,
+                    "thread_alive": False,
+                    "stopping": False,
+                },
+            )
+            self.assertEqual((fd_count(), thread_ids()), (before_fds, before_threads))
+        finally:
+            await first.close(asyncio.get_running_loop().time() + 1.0)
+            await second.close(asyncio.get_running_loop().time() + 1.0)
+            await fixture.close()
+        first_close = first_receipt.events[-1]
+        second_close = second_receipt.events[-1]
+        self.assertIs(first_close["global_worker_stopped"], False)
+        self.assertIs(second_close["global_worker_stopped"], True)
+
+    def test_non_loopback_or_privileged_configuration_is_rejected(self) -> None:
+        for values in (
+            {"nameserver": "192.0.2.1", "udp_port": 5353, "timeout_seconds": 0.1, "tries": 1},
+            {"nameserver": "127.0.0.1", "udp_port": 53, "timeout_seconds": 0.1, "tries": 1},
+        ):
+            with self.assertRaises(TransportRejected):
+                ResolverConfig.capture(values)
+
+
+class TransportTests(unittest.IsolatedAsyncioTestCase):
+    async def _transport(
+        self, dns: DnsFixture, tls: TlsFixture, operation: str
+    ) -> OwnedTlsTransport:
+        return OwnedTlsTransport(
+            operation_id=operation,
+            logical_host=LOGICAL_HOST,
+            dial_port=tls.port,
+            resolver_config=config(dns.port),
+            ssl_context=tls.material.client_context(),
+        )
+
+    async def test_success_has_owned_send_and_one_release(self) -> None:
+        dns, tls = await DnsFixture.start("success"), await TlsFixture.start("success")
+        transport = await self._transport(dns, tls, "transport-success")
+        releases = 0
+
+        def release() -> None:
+            nonlocal releases
+            releases += 1
+
+        try:
+            result = await transport.request(
+                b'{"synthetic":true}',
+                path="/v1/proof",
+                deadline=asyncio.get_running_loop().time() + 2.0,
+                cancel=asyncio.Event(),
+                release=release,
+            )
+            self.assertEqual(result, b'{"ok":true}')
+        finally:
+            await tls.close()
+            await dns.close()
+        names = [event["event"] for event in transport.receipt.events]
+        self.assertLess(names.index("connect_entered"), names.index("connect_completed"))
+        self.assertLess(names.index("send_entered"), names.index("send_completed"))
+        self.assertLess(names.index("send_completed"), names.index("cleanup_completed"))
+        self.assertEqual((releases, transport.receipt.body_releases), (1, 1))
+        self.assertEqual(tls.bodies, [b'{"synthetic":true}'])
+        self.assertEqual(tls.sni, [LOGICAL_HOST])
+        self.assertTrue(transport.receipt.cleanup_complete)
+        self.assertEqual(transport.active_tasks, 0)
+
+    async def test_tls_stall_cancels_before_body_release(self) -> None:
+        dns, tls = await DnsFixture.start("success"), await TlsFixture.start("stall")
+        transport = await self._transport(dns, tls, "transport-stall")
+        cancel = asyncio.Event()
+        task = asyncio.create_task(
+            transport.request(
+                b"synthetic",
+                path="/v1/proof",
+                deadline=asyncio.get_running_loop().time() + 2.0,
+                cancel=cancel,
+                release=lambda: self.fail("body released during TLS stall"),
+            )
+        )
+        for _ in range(100):
+            if any(event["event"] == "connect_completed" for event in transport.receipt.events):
+                break
+            await asyncio.sleep(0.01)
+        cancel.set()
+        with self.assertRaises(asyncio.CancelledError):
+            await task
+        await tls.close()
+        await dns.close()
+        names = [event["event"] for event in transport.receipt.events]
+        self.assertIn("connect_completed", names)
+        self.assertIn("cancel_observed", names)
+        self.assertNotIn("send_entered", names)
+        self.assertEqual(transport.receipt.body_releases, 0)
+        self.assertTrue(transport.receipt.cleanup_complete)
+
+    async def test_outer_task_cancellation_still_closes_children(self) -> None:
+        dns, tls = await DnsFixture.start("success"), await TlsFixture.start("stall")
+        transport = await self._transport(dns, tls, "transport-outer-cancel")
+        task = asyncio.create_task(
+            transport.request(
+                b"synthetic",
+                path="/v1/proof",
+                deadline=asyncio.get_running_loop().time() + 2.0,
+                cancel=asyncio.Event(),
+                release=lambda: self.fail("body released during TLS stall"),
+            )
+        )
+        await asyncio.sleep(0.1)
+        task.cancel()
+        with self.assertRaises(asyncio.CancelledError):
+            await task
+        await tls.close()
+        await dns.close()
+        self.assertTrue(transport.receipt.cleanup_complete)
+        self.assertEqual(transport.active_tasks, 0)
+
+    async def test_oversize_response_fails_after_owned_send_and_closes(self) -> None:
+        dns, tls = await DnsFixture.start("success"), await TlsFixture.start("oversize")
+        transport = await self._transport(dns, tls, "transport-oversize")
+        releases = 0
+
+        def release() -> None:
+            nonlocal releases
+            releases += 1
+
+        with self.assertRaises(TransportRejected):
+            await transport.request(
+                b"synthetic",
+                path="/v1/proof",
+                deadline=asyncio.get_running_loop().time() + 2.0,
+                cancel=asyncio.Event(),
+                release=release,
+            )
+        await tls.close()
+        await dns.close()
+        self.assertEqual((releases, transport.receipt.body_releases), (1, 1))
+        self.assertTrue(transport.receipt.cleanup_complete)
+        self.assertEqual(transport.active_tasks, 0)
+
+    async def test_pre_cancel_constructs_no_socket_and_is_terminal(self) -> None:
+        dns, tls = await DnsFixture.start("success"), await TlsFixture.start("success")
+        transport = await self._transport(dns, tls, "transport-pre-cancel")
+        cancel = asyncio.Event()
+        cancel.set()
+        with self.assertRaises(asyncio.CancelledError):
+            await transport.request(
+                b"synthetic",
+                path="/v1/proof",
+                deadline=asyncio.get_running_loop().time() + 1.0,
+                cancel=cancel,
+                release=lambda: self.fail("body released after pre-cancel"),
+            )
+        await tls.close()
+        await dns.close()
+        names = [event["event"] for event in transport.receipt.events]
+        self.assertNotIn("connect_entered", names)
+        self.assertEqual(transport.receipt.body_releases, 0)
+        self.assertTrue(transport.receipt.cleanup_complete)
+
+
+if __name__ == "__main__":
+    unittest.main()

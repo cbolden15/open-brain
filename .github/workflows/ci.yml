@@ -150,3 +150,38 @@ jobs:
           path: build/nw0-authority/release/verification.json
           if-no-files-found: error
           retention-days: 7
+
+  nw0-unprivileged-transport-proof:
+    name: NW0 unprivileged transport proof (${{ matrix.target }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-latest
+            target: linux-x86_64
+            machine: x86_64
+          - runner: macos-latest
+            target: macos-arm64
+            machine: arm64
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Verify native runner architecture
+        env:
+          EXPECTED_MACHINE: ${{ matrix.machine }}
+        run: test "$(uname -m)" = "$EXPECTED_MACHINE"
+      - uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
+        with:
+          python-version: "3.14"
+          version: "0.12.8"
+          enable-cache: true
+      - name: Verify unprivileged synthetic resolver and TLS lifecycle
+        run: uv run --frozen --python 3.14 python -m tools.nw0_unprivileged_transport_probe.run
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always()
+        with:
+          name: nw0-unprivileged-transport-${{ matrix.target }}-${{ github.event.pull_request.head.sha || github.sha }}
+          path: build/nw0-unprivileged-transport/release/verification.json
+          if-no-files-found: error
+          retention-days: 7

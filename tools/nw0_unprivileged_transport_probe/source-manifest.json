@@ -1,0 +1,10 @@
+{
+  "dependency-wheels.json": "f7a8ccb62184cd2af99b25157e0acc2f8ae602e8db806bff5ab38f1faefa38ac",
+  "patches/pycares-5.0.1-terminal-shutdown.patch": "a8b27654b99c43d4ea542b901977eab8423ea87b1a7a4ca41561eb2c337c946c",
+  "payload/fixtures.py.txt": "d99c8de5008524aba2ad23285a3625da66e0dac1675ec38b06bcd6411bfbe99f",
+  "payload/owned_transport.py.txt": "4d77dd0c64df7e78398e21c172eed122713d3792642e8be96d895de7baac8546",
+  "payload/run_bundle.py.txt": "8cfa851e367c49f89f61f6d2aa8eee14b4b486807e38fd499dd5b8bdf2e18d45",
+  "payload/runtime_probe.py.txt": "95dece36c46515d5261a30e80ec2fe43f9a1eee8ff68894f9fc1cf36acda482b",
+  "payload/test_unprivileged_transport.py.txt": "439a09610c4341ddfbde845cf918061ac329738fb29ca00cd3f789f4e86fa212",
+  "requirements.txt": "9173d57815417b51f33d09bf0e9071dcffb0f4b1fd7ce1ad4030628a3e9b5a77"
+}

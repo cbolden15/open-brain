@@ -1,0 +1,206 @@
+--- a/pycares/__init__.py
++++ b/pycares/__init__.py
+@@ -15,6 +15,7 @@
+ import math
+ import socket
+ import threading
++import time
+ from collections.abc import Callable, Iterable
+ from dataclasses import dataclass
+ from typing import Any, Callable, Literal, Optional, Dict, Union
+@@ -416,59 +417,114 @@
+ 
+ 
+ class _ChannelShutdownManager:
+-    """Manages channel destruction in a single background thread using SimpleQueue."""
++    """Serialize channel destruction and terminal worker shutdown."""
+ 
+     def __init__(self) -> None:
+         self._queue: SimpleQueue = SimpleQueue()
+         self._thread: Optional[threading.Thread] = None
+-        self._start_lock = threading.Lock()
++        self._lifecycle = threading.Condition(threading.RLock())
++        self._live_channels = 0
++        self._pending_destructions = 0
++        self._stopping = False
+ 
+     def _run_safe_shutdown_loop(self) -> None:
+         """Process channel destruction requests from the queue."""
+         while True:
+-            # Block forever until we get a channel to destroy
+-            channel, _ = self._queue.get()
+-
+-            # Cancel all pending queries - this will trigger callbacks with ARES_ECANCELLED
+-            _lib.ares_cancel(channel[0])
+-
+-            # Wait for all queries to finish
+-            _lib.ares_queue_wait_empty(channel[0], -1)
+-
+-            # Destroy the channel
+-            if channel is not None:
++            channel, _, completed = self._queue.get()
++            if channel is None:
++                return
++            try:
++                _lib.ares_cancel(channel[0])
++                _lib.ares_queue_wait_empty(channel[0], -1)
+                 _lib.ares_destroy(channel[0])
++            finally:
++                completed.set()
++                with self._lifecycle:
++                    self._pending_destructions -= 1
++                    self._lifecycle.notify_all()
+ 
+-    def start(self) -> None:
+-        """Start the background thread if not already started."""
+-        if self._thread is not None:
+-            return
+-        with self._start_lock:
+-            if self._thread is not None:
+-                # Started by another thread while waiting for the lock
+-                return
++    def _start_locked(self) -> None:
++        if self._thread is None:
+             self._thread = threading.Thread(target=self._run_safe_shutdown_loop, daemon=True)
+             self._thread.start()
+ 
+-    def destroy_channel(self, channel, sock_state_cb_handle) -> None:
+-        """
+-        Schedule channel destruction on the background thread.
++    def register_channel(self) -> None:
++        """Register a live channel without racing final worker shutdown."""
++        deadline = time.monotonic() + 1.0
++        with self._lifecycle:
++            while self._stopping:
++                remaining = deadline - time.monotonic()
++                if remaining <= 0:
++                    raise RuntimeError("pycares channel registration timeout")
++                self._lifecycle.wait(remaining)
++            self._start_locked()
++            self._live_channels += 1
+ 
+-        The socket state callback handle is passed along to ensure it remains
+-        alive until the channel is destroyed.
++    def destroy_channel(self, channel, sock_state_cb_handle, completed) -> None:
++        """Queue one registered channel for destruction under the lifecycle lock."""
++        with self._lifecycle:
++            if self._live_channels <= 0 or self._thread is None:
++                raise RuntimeError("unregistered pycares channel destruction")
++            self._live_channels -= 1
++            self._pending_destructions += 1
++            self._queue.put((channel, sock_state_cb_handle, completed))
+ 
+-        Thread Safety and Synchronization:
+-        This method uses SimpleQueue which is thread-safe for putting items
+-        from multiple threads. The background thread processes channels
+-        sequentially waiting for queries to end before each destruction.
+-        """
+-        self._queue.put((channel, sock_state_cb_handle))
++    def stop(self, timeout: float) -> bool:
++        """Stop after all registered channels close; return false while any remain live."""
++        if not math.isfinite(timeout) or timeout <= 0:
++            raise ValueError("shutdown timeout must be finite and positive")
++        deadline = time.monotonic() + timeout
++        with self._lifecycle:
++            while self._stopping:
++                remaining = deadline - time.monotonic()
++                if remaining <= 0:
++                    raise RuntimeError("pycares shutdown serialization timeout")
++                self._lifecycle.wait(remaining)
++            if self._live_channels:
++                return False
++            while self._pending_destructions:
++                remaining = deadline - time.monotonic()
++                if remaining <= 0:
++                    raise RuntimeError("pycares channel destruction timeout")
++                self._lifecycle.wait(remaining)
++            thread = self._thread
++            if thread is None:
++                return True
++            self._stopping = True
++            self._queue.put((None, None, None))
++        thread.join(max(0.0, deadline - time.monotonic()))
++        with self._lifecycle:
++            if thread.is_alive():
++                raise RuntimeError("pycares shutdown worker did not stop")
++            self._thread = None
++            self._stopping = False
++            self._lifecycle.notify_all()
++        return True
+ 
++    def state(self) -> dict[str, int | bool]:
++        with self._lifecycle:
++            return {
++                "live_channels": self._live_channels,
++                "pending_destructions": self._pending_destructions,
++                "thread_alive": self._thread is not None and self._thread.is_alive(),
++                "stopping": self._stopping,
++            }
+ 
++
+ # Global shutdown manager instance
+ _shutdown_manager = _ChannelShutdownManager()
+ 
+ 
++def shutdown(timeout: float) -> bool:
++    """Finish queued destruction and stop the worker when no channels remain live."""
++    return _shutdown_manager.stop(timeout)
++
++
++def shutdown_state() -> dict[str, int | bool]:
++    """Return bounded lifecycle state for owner verification."""
++    return _shutdown_manager.state()
++
++
+ class Channel:
+     __qtypes__ = (_lib.ARES_REC_TYPE_A, _lib.ARES_REC_TYPE_AAAA, _lib.ARES_REC_TYPE_ANY, _lib.ARES_REC_TYPE_CAA, _lib.ARES_REC_TYPE_CNAME, _lib.ARES_REC_TYPE_HTTPS, _lib.ARES_REC_TYPE_MX, _lib.ARES_REC_TYPE_NAPTR, _lib.ARES_REC_TYPE_NS, _lib.ARES_REC_TYPE_PTR, _lib.ARES_REC_TYPE_SOA, _lib.ARES_REC_TYPE_SRV, _lib.ARES_REC_TYPE_TLSA, _lib.ARES_REC_TYPE_TXT, _lib.ARES_REC_TYPE_URI)
+     __qclasses__ = (_lib.ARES_CLASS_IN, _lib.ARES_CLASS_CHAOS, _lib.ARES_CLASS_HESOID, _lib.ARES_CLASS_NONE, _lib.ARES_CLASS_ANY)
+@@ -494,6 +550,7 @@
+ 
+         # Initialize _channel to None first to ensure __del__ doesn't fail
+         self._channel = None
++        self._closed_event = threading.Event()
+ 
+         # Store flags for later use (default is 0 if not specified)
+         self._flags = flags if flags is not None else 0
+@@ -577,6 +634,12 @@
+             raise AresError('Failed to initialize c-ares channel')
+ 
+         self._channel = channel
++        try:
++            _shutdown_manager.register_channel()
++        except Exception:
++            self._channel = None
++            _lib.ares_destroy(channel[0])
++            raise
+         if servers:
+             self.servers = servers
+ 
+@@ -585,9 +648,6 @@
+ 
+         if local_dev:
+             self.set_local_dev(local_dev)
+-
+-        # Ensure the shutdown thread is started
+-        _shutdown_manager.start()
+ 
+     def __del__(self) -> None:
+         """Ensure the channel is destroyed when the object is deleted."""
+@@ -894,8 +954,16 @@
+ 
+         # Schedule channel destruction
+         channel, self._channel = self._channel, None
+-        _shutdown_manager.destroy_channel(channel, self._sock_state_cb_handle)
++        _shutdown_manager.destroy_channel(
++            channel, self._sock_state_cb_handle, self._closed_event
++        )
+ 
++    def wait_closed(self, timeout: float) -> bool:
++        """Wait until this channel's queued destruction completes."""
++        if not math.isfinite(timeout) or timeout <= 0:
++            raise ValueError("close timeout must be finite and positive")
++        return self._closed_event.wait(timeout)
++
+     def wait(self, timeout: float=None) -> bool:
+         """
+         Wait until all pending queries are complete or timeout occurs.
