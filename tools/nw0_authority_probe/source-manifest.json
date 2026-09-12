@@ -1,0 +1,23 @@
+{
+  "dependency-wheels.json": "a4cca0ceef4702ec3389ef2585ff01da0bc8c54d6b5c997347b8420b0de6aa67",
+  "expected-bundle-manifests.json": "ab72a106e18b59c1cd65d35814a50b98cbbd41e5c0ca7183f3a36ecf6ed777c2",
+  "payload/async_bridge.py.txt": "673b40780f91a0ca239fe3c403d7f389a5afba2aee63748cf70146a356f1a2a2",
+  "payload/async_transport.py.txt": "d6d8a15b9191fc501eb113b57e29d63a5088fc099dcb7bdddcc09913daf82125",
+  "payload/authority_gate.py.txt": "dff4a33574253bdb6174fdacd68be503800236a17af3d370b227d39169c0f864",
+  "payload/bridge.py.txt": "abd244075128a5acdc586f2fd3011ed0680e13188316a59bc76896ee31f370c0",
+  "payload/direct_api.py.txt": "98a423e9d014e4d4078c863206a085674d15206f2f3819bb75959b2da43c955a",
+  "payload/run_bundle.py.txt": "d852a684bd6e525dd80c9c393af088091f8f48c32f55f38fbc9fd742169eb940",
+  "payload/semantic-dataset.json.txt": "b6797060a94824b030f22867f7576d5d40d66c89687c0f2edb1eb71d5c49da77",
+  "payload/source_binding.py.txt": "0ecb0c2689ebc4aeb1c2cc1f000d91480fd2ab3bf1fd3029a08528b7e5c9db21",
+  "payload/test_async_authority.py.txt": "7b583ecddc09f7a314a99b04de4ae3f3523fd0d5524ef98a6e75e8a6a569828e",
+  "payload/test_async_transport.py.txt": "77633e0a585157753e2a3671177fceab6c5dcbd2346515934a147ae628967f1c",
+  "payload/test_authority_gate.py.txt": "d4882e4d8bdaadf6ffae431bc6b31ee40a3dd8f390d5acba55180c4a3d22da89",
+  "payload/test_credential_preflight.py.txt": "d4f6f6b89a7783c4fa943a7c9373443c6c334c7317d1b789943c3ae83dcb8d6f",
+  "payload/test_host_lifetime.py.txt": "2d1dc2d20f81f61e3a73cd13d5f9ea64712f2458162ab04a47b26c3c8cc117e8",
+  "payload/test_preflight_close.py.txt": "2e29d74608163e0dc567b46249886bf6c15a5aabd6e8afc3d0e08cd124685723",
+  "payload/test_source_binding.py.txt": "6f26c77a9888ec0de1fed65e8b06d1ff2048ab9b299692a3bd29842b81664324",
+  "payload/test_terminal_ownership.py.txt": "b78d8cdca4e3a6651d2cdc7b432b670d0fb0cdde69431e20221c6d4b3cb52ae7",
+  "payload/tls_fixture.py.txt": "2ce9613c115f6e51378f7724f50a475a1ba6b326abe608695ae0ab71a082dd42",
+  "payload/wire.py.txt": "a3bf6b428b49fbb8411dea8f61620cdbaf2c723e26507662d9113a005b32656f",
+  "requirements.txt": "1a396e3662f218300449c48430bff2af266c0b1f7e9909314e7c8d7d2400dbba"
+}

@@ -1,0 +1,44 @@
+[
+  {
+    "path": "graphify/__init__.py",
+    "original_sha256": "5afcd670aa65337ae49735582a9bc482a721abdfbfc063fcad1d0ccc90b0838a",
+    "candidate_sha256": "5afcd670aa65337ae49735582a9bc482a721abdfbfc063fcad1d0ccc90b0838a",
+    "changed": false
+  },
+  {
+    "path": "graphify/discovery_rules.py",
+    "original_sha256": null,
+    "candidate_sha256": "91cadb3b026f50278e0888c13ec57ad140211f0ba6991bf95f1443407d47a369",
+    "changed": true
+  },
+  {
+    "path": "graphify/extractors/__init__.py",
+    "original_sha256": "bcfe037079f3ce2b110892a1dcab28579ad74dd14324c901583aa227b20e898f",
+    "candidate_sha256": "613aaacfcfd9a2953e45c113ddcf8ab3ab14641742c8b437d8446e6c62112166",
+    "changed": true
+  },
+  {
+    "path": "graphify/extractors/base.py",
+    "original_sha256": "cd11628d3d4c05dcf0df002823712595ba2fac848fa146517a3bf41ff68cc2e8",
+    "candidate_sha256": "cd11628d3d4c05dcf0df002823712595ba2fac848fa146517a3bf41ff68cc2e8",
+    "changed": false
+  },
+  {
+    "path": "graphify/extractors/markdown.py",
+    "original_sha256": "938d723948381431919b0754a1f1477a27b904b7402d60a943e9876756fc259f",
+    "candidate_sha256": "4b87145be017e79606e635551f3e45e89e498de7f422500fa7c28ea6b0453f80",
+    "changed": true
+  },
+  {
+    "path": "graphify/ids.py",
+    "original_sha256": "d9befd67479a2e484e0fdb884cdbfd77ee0c96487970196abda68751d4e69e4e",
+    "candidate_sha256": "d9befd67479a2e484e0fdb884cdbfd77ee0c96487970196abda68751d4e69e4e",
+    "changed": false
+  },
+  {
+    "path": "graphify/metadata.py",
+    "original_sha256": null,
+    "candidate_sha256": "61f73519c09341ff4f9db5c96da13514a7ef7366b79ec73a18b09abaf8c9ab7f",
+    "changed": true
+  }
+]

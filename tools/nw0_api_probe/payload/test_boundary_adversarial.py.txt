@@ -1,0 +1,288 @@
+from __future__ import annotations
+
+import asyncio
+import math
+import time
+import unittest
+from unittest.mock import patch
+
+import async_transport as candidate  # noqa: E402
+import test_async_transport as fixtures  # noqa: E402
+from direct_api import HttpResponse, build_request, parse_response, route_for  # noqa: E402
+
+
+class CorrectedBoundaryTests(unittest.IsolatedAsyncioTestCase):
+    async def assert_no_candidate_tasks(self):
+        await asyncio.sleep(0)
+        live = [
+            task for task in asyncio.all_tasks()
+            if task is not asyncio.current_task()
+            and not task.done()
+            and task.get_name().startswith("c25-owned")
+        ]
+        self.assertEqual(live, [])
+
+    async def test_named_task_filter_detects_live_candidate_task(self):
+        blocker = asyncio.Event()
+        task = asyncio.create_task(blocker.wait(), name="c25-owned-negative-control")
+        try:
+            with self.assertRaises(AssertionError):
+                await self.assert_no_candidate_tasks()
+        finally:
+            task.cancel()
+            await asyncio.gather(task, return_exceptions=True)
+
+    def request(self):
+        route = route_for("openai_api", fixtures.MODELS["openai_api"], timeout_seconds=1)
+        return route, build_request(route, "synthetic prompt", "synthetic-key")
+
+    async def test_invalid_deadlines_and_preset_cancel_construct_nothing(self):
+        _, request = self.request()
+        values = (True, False, 0, -0.1, 60.0001, math.nan, math.inf, -math.inf, "1")
+        for value in values:
+            evidence = candidate.Evidence()
+            with self.subTest(value=value), self.assertRaises(candidate.TransportRejected):
+                await candidate.exchange(
+                    request, dns_port=1, tls_port=1,
+                    ca_file=str(fixtures.FIXTURES / "ca.pem"), timeout=value,
+                    cancel=asyncio.Event(), release=lambda: None, evidence=evidence,
+                    parse=lambda *_: None,
+                )
+            self.assertEqual((evidence.clients, evidence.resolvers), (0, 0))
+        cancel = asyncio.Event()
+        cancel.set()
+        evidence = candidate.Evidence()
+        with self.assertRaises(asyncio.CancelledError):
+            await candidate.exchange(
+                request, dns_port=1, tls_port=1,
+                ca_file=str(fixtures.FIXTURES / "ca.pem"), timeout=1,
+                cancel=cancel, release=lambda: None, evidence=evidence,
+                parse=lambda *_: None,
+            )
+        self.assertEqual((evidence.clients, evidence.resolvers), (0, 0))
+
+    async def test_repeated_owner_cancellation_still_attempts_all_cleanup(self):
+        dns_transport, _, dns_port = await fixtures.dns_server()
+        seen = asyncio.Event()
+        runner, blocker, tls_port = await fixtures.https_server("headers_stall", b"", seen)
+        _, request = self.request()
+        evidence = candidate.Evidence()
+        close_started = asyncio.Event()
+        close_gate = asyncio.Event()
+        outputs = []
+        sessions = []
+        connectors = []
+        real_session = candidate.aiohttp.ClientSession
+
+        class HeldCloseSession:
+            def __init__(self, *args, **kwargs):
+                self.inner = real_session(*args, **kwargs)
+                sessions.append(self)
+                connectors.append(self.inner.connector)
+
+            def __getattr__(self, name):
+                return getattr(self.inner, name)
+
+            async def close(self):
+                close_started.set()
+                await close_gate.wait()
+                await self.inner.close()
+
+        owner = None
+        try:
+            with patch.object(candidate.aiohttp, "ClientSession", HeldCloseSession):
+                owner = asyncio.create_task(candidate.exchange(
+                    request, dns_port=dns_port, tls_port=tls_port,
+                    ca_file=str(fixtures.FIXTURES / "ca.pem"), timeout=1,
+                    cancel=asyncio.Event(), release=lambda: None, evidence=evidence,
+                    parse=lambda *_: outputs.append("published"),
+                ))
+                await asyncio.wait_for(seen.wait(), 0.5)
+                owner.cancel()
+                await asyncio.wait_for(close_started.wait(), 0.5)
+                owner.cancel()
+                close_gate.set()
+                with self.assertRaisesRegex(candidate.TransportRejected, "cleanup/deadline failure"):
+                    await owner
+            self.assertEqual(outputs, [])
+            self.assertFalse(evidence.session_closed)
+            self.assertTrue(evidence.connector_closed)
+            self.assertTrue(evidence.resolver_closed)
+            self.assertTrue(sessions[0].inner.closed)
+            self.assertTrue(connectors[0].closed)
+        finally:
+            close_gate.set()
+            if owner is not None and not owner.done():
+                owner.cancel()
+                await asyncio.gather(owner, return_exceptions=True)
+            for session in sessions:
+                if not session.inner.closed:
+                    await session.inner.close()
+            blocker.set()
+            await runner.cleanup()
+            dns_transport.close()
+            await asyncio.sleep(0)
+        await self.assert_no_candidate_tasks()
+
+    async def test_release_callback_cancel_and_clock_reject_before_body_output(self):
+        for mode in ("cancel", "clock"):
+            with self.subTest(mode=mode):
+                dns_transport, _, dns_port = await fixtures.dns_server()
+                seen = asyncio.Event()
+                runner, blocker, tls_port = await fixtures.https_server(
+                    "success", fixtures.success("openai_api"), seen
+                )
+                _, request = self.request()
+                cancel = asyncio.Event()
+                evidence = candidate.Evidence()
+                sessions = []
+                connectors = []
+                real_session = candidate.aiohttp.ClientSession
+
+                def session_factory(
+                    *args,
+                    actual_session=real_session,
+                    actual_sessions=sessions,
+                    actual_connectors=connectors,
+                    **kwargs,
+                ):
+                    value = actual_session(*args, **kwargs)
+                    actual_sessions.append(value)
+                    actual_connectors.append(value.connector)
+                    return value
+
+                def release(actual_mode=mode, actual_cancel=cancel):
+                    if actual_mode == "cancel":
+                        actual_cancel.set()
+                    else:
+                        time.sleep(0.15)
+
+                try:
+                    async def invoke(
+                        actual_request=request,
+                        actual_dns_port=dns_port,
+                        actual_tls_port=tls_port,
+                        actual_cancel=cancel,
+                        actual_release=release,
+                        actual_evidence=evidence,
+                    ):
+                        return await candidate.exchange(
+                            actual_request,
+                            dns_port=actual_dns_port,
+                            tls_port=actual_tls_port,
+                            ca_file=str(fixtures.FIXTURES / "ca.pem"), timeout=0.12,
+                            cancel=actual_cancel,
+                            release=actual_release,
+                            evidence=actual_evidence,
+                            parse=lambda *_: None,
+                        )
+                    with patch.object(candidate.aiohttp, "ClientSession", session_factory):
+                        if mode == "cancel":
+                            with self.assertRaises(asyncio.CancelledError):
+                                await invoke()
+                        else:
+                            with self.assertRaisesRegex(
+                                candidate.TransportRejected, "session close, connector close"
+                            ):
+                                await invoke()
+                    self.assertEqual(evidence.releases, 0)
+                    self.assertTrue(evidence.resolver_closed)
+                    self.assertTrue(sessions[0].closed)
+                    self.assertTrue(connectors[0].closed)
+                finally:
+                    for session in sessions:
+                        if not session.closed:
+                            await session.close()
+                    blocker.set()
+                    await runner.cleanup()
+                    dns_transport.close()
+        await self.assert_no_candidate_tasks()
+
+    async def test_connector_construction_failure_still_closes_resolver(self):
+        _, request = self.request()
+        evidence = candidate.Evidence()
+        with (
+            patch.object(candidate.aiohttp, "TCPConnector", side_effect=RuntimeError("connector")),
+            self.assertRaisesRegex(RuntimeError, "connector"),
+        ):
+            await candidate.exchange(
+                request, dns_port=1, tls_port=1,
+                ca_file=str(fixtures.FIXTURES / "ca.pem"), timeout=1,
+                cancel=asyncio.Event(), release=lambda: None, evidence=evidence,
+                parse=lambda *_: None,
+            )
+        self.assertEqual(evidence.clients, 0)
+        self.assertTrue(evidence.resolver_closed)
+
+    async def test_callback_and_resolver_close_errors_keep_other_cleanup_terminal(self):
+        for callback in ("validate", "parse"):
+            with self.subTest(callback=callback):
+                dns_transport, _, dns_port = await fixtures.dns_server()
+                seen = asyncio.Event()
+                runner, blocker, tls_port = await fixtures.https_server(
+                    "success", fixtures.success("openai_api"), seen
+                )
+                route, request = self.request()
+                evidence = candidate.Evidence()
+
+                def fail(name=callback):
+                    raise ValueError(f"{name} failed")
+
+                try:
+                    with self.assertRaisesRegex(ValueError, f"{callback} failed"):
+                        await candidate.exchange(
+                            request, dns_port=dns_port, tls_port=tls_port,
+                            ca_file=str(fixtures.FIXTURES / "ca.pem"), timeout=1,
+                            cancel=asyncio.Event(), release=lambda: None, evidence=evidence,
+                            validate_after=fail if callback == "validate" else (lambda: None),
+                            parse=(lambda *_, failing=fail: failing()) if callback == "parse" else (
+                                lambda status, headers, body, actual_route=route: parse_response(
+                                    actual_route, HttpResponse(status, headers, body)
+                                )
+                            ),
+                        )
+                    self.assertTrue(evidence.session_closed)
+                    self.assertTrue(evidence.resolver_closed)
+                finally:
+                    blocker.set()
+                    await runner.cleanup()
+                    dns_transport.close()
+
+        dns_transport, _, dns_port = await fixtures.dns_server()
+        seen = asyncio.Event()
+        runner, blocker, tls_port = await fixtures.https_server(
+            "success", fixtures.success("openai_api"), seen
+        )
+        route, request = self.request()
+        evidence = candidate.Evidence()
+        real_resolver = candidate.DnsPythonResolver
+
+        class FailingResolver(real_resolver):
+            async def close(self):
+                await super().close()
+                raise RuntimeError("resolver close failed")
+
+        try:
+            with (
+                patch.object(candidate, "DnsPythonResolver", FailingResolver),
+                self.assertRaisesRegex(candidate.TransportRejected, "resolver close"),
+            ):
+                await candidate.exchange(
+                    request, dns_port=dns_port, tls_port=tls_port,
+                    ca_file=str(fixtures.FIXTURES / "ca.pem"), timeout=1,
+                    cancel=asyncio.Event(), release=lambda: None, evidence=evidence,
+                    parse=lambda status, headers, body: parse_response(
+                        route, HttpResponse(status, headers, body)
+                    ),
+                )
+            self.assertTrue(evidence.session_closed)
+            self.assertTrue(evidence.resolver_closed)
+        finally:
+            blocker.set()
+            await runner.cleanup()
+            dns_transport.close()
+            await asyncio.sleep(0)
+
+
+if __name__ == "__main__":
+    unittest.main(verbosity=2)

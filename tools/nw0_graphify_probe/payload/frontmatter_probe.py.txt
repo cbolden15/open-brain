@@ -1,0 +1,40 @@
+import json,sys,time
+from pathlib import Path
+R=Path(sys.argv[1]).resolve()
+from frontmatter_contract import parse_frontmatter,MetadataRejected
+from graphify.extractors.markdown import extract_markdown
+import yaml
+checks={};results={};dispatches=0
+def guarded(path):
+ global dispatches
+ try:canonical=parse_frontmatter(path.read_text())
+ except MetadataRejected as error:return {'rejected':str(error),'dispatches':0}
+ dispatches+=1
+ raw=extract_markdown(path,scan_root=path.parent)
+ display=next(n for n in raw['nodes'] if n['node_kind']=='page').get('frontmatter',{})
+ return {'canonical':canonical,'display':display,'dispatches':1}
+for p in sorted((R/'frontmatter-fixtures').glob('*.md')):results[p.stem]=guarded(p)
+checks['nested_preserved']=results['nested']['canonical']['coherence_check']=={'verdict':'extends'}
+checks['literal_aliases_preserved']=results['nested']['canonical']['aliases']==['Sun & Heat','Solar energy']
+checks['display_is_not_alias_authority']=results['nested']['display']['aliases'][0]=='Sun &amp; Heat'
+checks['implicit_alias_types_preserved_as_text']=results['coerced_alias']['canonical']['aliases']==['on','off']
+checks['anchor_values_preserved']=results['anchored']['canonical']['copy']==['one','two']
+for name in ['cycle','duplicate','scalar_alias']:checks[name+'_rejected_before_graphify']=results[name].get('dispatches')==0
+for name,note in {
+'unsupported_tag':'---\nx: !!python/object:example.Bad {}\n---\n',
+'nonfinite':'---\nx: .nan\n---\n',
+'nonstring_key':'---\n1: value\n---\n',
+'list_root':'---\n- value\n---\n',
+'empty_alias':'---\naliases: [""]\n---\n',
+'input_limit':'a'*16385,
+'parse_depth':'---\nx: '+('['*40)+'0'+(']'*40)+'\n---\n',
+'unterminated':'---\naliases: [one]\n',
+'expansion':'---\na: &a [0,0,0,0,0,0,0,0,0,0]\nb: &b [*a,*a,*a,*a,*a,*a,*a,*a,*a,*a]\nc: &c [*b,*b,*b,*b,*b,*b,*b,*b,*b,*b]\nd: [*c,*c,*c,*c,*c,*c,*c,*c,*c,*c]\n---\n'
+}.items():
+ try:parse_frontmatter(note);checks[name+'_rejected']=False
+ except MetadataRejected:checks[name+'_rejected']=True
+checks['date_preserved']=parse_frontmatter('---\ndate: 2026-09-09\n---\n')['date']=='2026-09-09'
+checks['aliases_not_truncated']=len(parse_frontmatter('---\naliases: ['+','.join('note'+str(i) for i in range(51))+']\n---\n')['aliases'])==51
+checks['recursion_unchanged']=sys.getrecursionlimit()==1000
+result={'passed':all(checks.values()),'checks':checks,'fixture_results':results,'parser':yaml.__version__,'libyaml_available':yaml.__with_libyaml__,'model_calls':0}
+output=json.dumps(result,sort_keys=True).encode();assert len(output)<=16384;sys.stdout.buffer.write(output+b'\n');assert result['passed']

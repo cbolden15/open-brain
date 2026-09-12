@@ -1085,3 +1085,394 @@ dependencies and parsed imports, and pin the complete base app source inventory 
 protocol cannot drift back into the shipping application.
 
 Discovered: 2026-09-11, foreground-runtime package separation.
+### INTEGRATION-002: A narrow Graphify callable does not imply a narrow runtime
+
+Symptom: Planning treats `graphify.extractors.markdown.extract_markdown` as a standalone
+Markdown-only dependency and assumes it resolves links throughout an Obsidian vault.
+
+Cause: At upstream commit `3f82bf7f837a07fb0f7668fbdbd5662801906942`, the extractor package
+initializer eagerly imports other extractors. Vault-global wiki-link resolution also depends on
+root context supplied by the larger extraction facade, which checks tree-sitter before dispatch.
+
+Fix: Measure the complete import closure and use root-aware extraction as the correctness baseline.
+Test cross-folder links and duplicate basenames, keep the cache outside the source snapshot, and
+verify any proposed narrow API against that baseline. Process isolation alone does not reduce the
+packaged module inventory. Runtime and native compatibility remain unverified until the spike.
+
+Discovered: 2026-09-09, native workspace planning and independent upstream source verification.
+See [the integration plan](../../plans/2026-09-09-ob1-native-workspace.md) for pinned source anchors.
+
+### INTEGRATION-003: Graphify's scan root and raw link IDs need an adapter boundary
+
+Symptom: Root-aware Markdown extraction resolves a link to an unselected note, chooses one of two
+same-basename notes, or emits an unresolved target ID containing an encoded absolute source path.
+
+Cause: At the pinned `graphifyy==0.9.57` source, vault-wide lookup walks the scan root independently
+of the selected input list. Duplicate-name fallback uses a deterministic tie-break, while unresolved
+links retain path-derived IDs. The NW0-B1 synthetic probe reproduced all three behaviors and an
+unresolved frontmatter alias; relocation changed dangling IDs while selected-page mappings remained stable.
+
+Fix: Stage only eligible notes under the scan root. Keep alias/ambiguity resolution, stable Brain-ID
+mapping, and path-free unresolved diagnostics at the engine boundary before graph publication or
+permanent-link acceptance. Keep Graphify cache output private and outside the source snapshot.
+Do not treat a selected input list as the full exclusion boundary or export raw upstream IDs.
+
+Discovered: 2026-09-09, bounded macOS arm64 NW0-B1 closure/import probe. See the
+[decision record](../../plans/2026-09-09-ob1-native-workspace-nw0.md) for results and remaining gates.
+
+### INTEGRATION-004: Official-client flags do not establish a complete isolation boundary
+
+Symptom: A client accepts empty-tool, safe-mode, or ephemeral flags, but the adapter treats that as
+proof of tool-free inference with no ambient effects or retained prompts.
+
+Cause: Codex `0.153.4` can register tools from model metadata independently of shell suppression.
+Claude Code `2.1.265` offline diagnostics added 687 system-tool tokens when `--json-schema` was
+present despite empty/denied tools; the category disappeared without schema mode. Claude safe mode
+also retains managed hooks. Session-persistence controls do not mean no configuration/cache writes.
+
+Fix: Verify the effective tool catalog and policy before sending notes. Keep plain-text JSON with
+engine validation as the strict tool-free candidate; measure its quality. Reject incompatible
+managed policy, enforce runtime egress/time/output bounds, count internal attempts, and test prompt
+retention and active cancellation separately. An idle offline startup does not pass a subscription
+gate, and a staged-executor interface does not supply OS confinement.
+
+Discovered: 2026-09-09, NW0-C1 source/control inspection and synthetic macOS startup probes.
+See the [control audit](../../audits/2026-09-09-ob1-nw0-c1-client-isolation.md).
+
+### INTEGRATION-005: Project instruction limits do not suppress Codex home instructions
+
+Symptom: A Codex thread with no environments, no runtime roots, and zero project-document bytes
+still reports the client-state `AGENTS.md` as an instruction source.
+
+Cause: The `0.153.4` home-instruction provider loads global instructions independently of the
+project-document byte setting. C2 also observed a denied host-skills discovery attempt with the
+proposed skill-suppression flags. Empty hook/MCP inventories do not establish empty model context.
+
+Fix: Test user-level and project-level canaries separately. Keep discovery effects, loaded
+instructions, model tool catalogs, and runtime persistence as separate assertions. A future Codex
+adapter needs verified runtime/auth separation or a supported completion interface; copying tokens
+into an empty client-state directory is not an acceptable workaround. Codex subscription is deferred
+under the user-authorized C2 scope change.
+
+Discovered: 2026-09-09, synthetic NW0-C2 offline thread probe and pinned source inspection.
+See the [C2 audit](../../audits/2026-09-09-ob1-nw0-c2-codex-preflight.md).
+
+### INTEGRATION-006: Claude login preference and parent policy do not establish subscription isolation
+
+Symptom: Claude Code `2.1.265` initializes with an API-key source despite
+`forceLoginMethod: claudeai`. Valid parent policy retains permission denials but drops
+`disableAllHooks`; a separate SDK policy resolver can return admin hooks and routing unchanged.
+
+Cause: Login selection, active credential precedence, and managed policy are distinct controls.
+Host-supplied policy is filtered and can be displaced by admin policy. The inspected resolver uses
+an older bundled client version and does not execute policy helpers. A no-auth startup cannot
+establish the account's effective policy.
+
+Fix: Check active credential source and effective policy before note bytes. Reject missing,
+stale, incompatible, or unverified policy; preserve organizational restrictions. Pair version-matched
+observation with independent runtime containment and client-owned authentication. Include
+session-discovery metadata in crash cleanup checks: persistence-off left such a file in C3,
+although no synthetic context was retained in the tested startup/control paths.
+
+Discovered: 2026-09-09, synthetic NW0-C3 offline Claude and policy-resolver probes.
+See the [C3 audit](../../audits/2026-09-09-ob1-nw0-c3-claude-preflight.md).
+
+### INTEGRATION-007: A matching settings snapshot is not a dispatch authorization
+
+Symptom: A native settings read looks compatible, but does not establish complete policy,
+subscription identity, an empty tool catalog, or runtime confinement. Settings can change after
+the read. A replayed or fake permit can appear to fill those gaps unless its trust boundary is explicit.
+
+Cause: Metadata observation, independent enforcement, and engine consent are separate inputs.
+A timestamp records when metadata was observed; it does not establish remote-policy freshness.
+
+Fix: Keep content out of client startup, reject missing controls, and bind any future authorization
+to the request, client instance/version, accepted revisions, current policy generation, and lifetime.
+Recheck before release and reject observed changes. A second read alone does not close the external
+policy-change race. Keep fake-only witnesses out of native transports. C4's live rejection precedes
+termination; its first post-stop iteration remains labeled as development evidence.
+
+Discovered: 2026-09-09, NW0-C4 supervisor contract tests and native metadata rejection probes.
+See the [C4 design and probe](../../audits/2026-09-09-ob1-nw0-c4-claude-supervisor.md).
+
+### INTEGRATION-008: Local login metadata can succeed with a synthetic credential
+
+Symptom: Claude's offline status reports a logged-in subscription from a nonfunctional synthetic
+credential file. The initialization response carries a subscription label but lacks the source field
+required by the prototype. Neither observation verifies a real subscription or authorizes content.
+
+Cause: Local credential selection, server authentication, and same-process dispatch authority are
+different checks. A settings/status response also does not prove that denied bootstrap writes worked.
+
+Fix: Preserve those distinctions in adapter diagnostics and acceptance criteria. Keep native dispatch
+closed without source/policy/runtime evidence. Test the existing official namespace and Keychain
+behavior separately from file-backed fixtures; helper replacement writes do not prove native refresh.
+Treat loader/system-data failures as runtime failures, and retain their evidence when refining a
+file-data allowlist. A profile that prevents startup has not passed integration.
+
+Discovered: 2026-09-09, synthetic NW0-C5 native runtime-layout and status probes.
+See the [C5 runtime-layout proof](../../audits/2026-09-09-ob1-nw0-c5-native-runtime-layout.md).
+
+### INTEGRATION-009: SDK lifecycle support does not supply fresh policy authorization
+
+Symptom: The real SDK starts with held input and returns native metadata, but `accountInfo()` retains
+the initial account response. Runtime JavaScript has a settings getter absent from public Query types.
+
+Cause: A usable completion lifecycle, cached metadata, and a supported live policy contract are
+different interfaces. An internal wire request type does not prove completeness or freshness.
+
+Fix: Reuse the lifecycle with held asynchronous input and supervisor-owned rejection/cleanup. Treat
+cached account data as an initial observation. Record missing settings as unknown and reject before
+release; do not cast to an internal method to imply a supported contract. Keep native authorization
+separate from fake-only release tests. On the tested Mac, use the proven sibling-process prototype
+for further interface work: applying a nested sandbox from the confined SDK host failed.
+
+Discovered: 2026-09-09, NW0-C6 real-SDK/fake-process contracts and native supervisor bridge.
+See the [C6 interface check](../../audits/2026-09-09-ob1-nw0-c6-sdk-supervisor-interface.md).
+
+### INTEGRATION-010: Frozen extraction can work while bounded artifact inspection is incomplete
+
+Symptom: The pinned Graphify Markdown fixture executes in signed Mac binaries, but content auditing
+finds upstream home-path examples and a tree-sitter binary match, then stops at the object budget.
+The combined archive reports `artifact-invalid`; the separate helper reports `artifact-limit-exceeded`.
+
+Cause: Installed dependency closure, exercised imports, compressed size, and inspection work are
+different measurements. The combined candidate's container-length check fails with 499,997 objects
+already decoded; the helper reaches 500,001. Collecting every dependency root adds unrelated modules
+and resources. Even the narrow candidate's Markdown root lookup still imports broad Graphify code.
+
+Fix: Preserve failed/incomplete audit results and inspect bounded diagnostics before interpreting
+their labels. Keep the strongest separate-helper option visible, but audit that helper too. Pursue
+a supported root-aware component boundary or a concrete reviewed dependency/content-policy change;
+do not raise limits, waive findings, or remove validation just to obtain a green probe. Treat observed
+findings as a lower bound until the entire artifact is inspected.
+
+Discovered: 2026-09-09, NW0-B2 frozen Graphify builds and unchanged native content auditor.
+See the [B2 packaging record](../../audits/2026-09-09-ob1-nw0-b2-frozen-graphify.md).
+
+### INTEGRATION-011: A direct Markdown import can still load every language extractor
+
+Symptom: Removing Markdown's root lookup back-edge reduces the frozen closure, but still leaves
+36 Graphify modules and an incomplete content audit.
+
+Cause: The extractor package initializer eagerly loads its language registry. Markdown also reaches
+runtime discovery and path code through shared skip rules and sanitization. A per-file function name
+does not establish a small import boundary. Separately, undeclared optional PyYAML changes frontmatter
+behavior: the pinned closure drops nested metadata even though basic synthetic extraction passes.
+
+Fix: Verify both runtime and frozen module inventories. B3's private prototype passes root context
+explicitly, makes compatibility exports lazy, and moves unchanged shared logic into small modules.
+Preserve source provenance and upstream tests when evaluating adoption; keep pre-existing failures
+visible. A clean artifact audit cannot establish nested-frontmatter support or a supported dependency.
+
+Discovered: 2026-09-09, NW0-B3 component, artifact and original/patched upstream test comparisons.
+See the [B3 component record](../../audits/2026-09-09-ob1-nw0-b3-markdown-component.md).
+
+### INTEGRATION-012: A YAML parser does not make sanitized metadata an alias catalog
+
+Symptom: Adding PyYAML fixes nested metadata, but cyclic values raise recursion errors, duplicate
+keys keep the last value, unquoted alias names become booleans, and Graphify escapes alias text.
+
+Cause: Parser availability, bounded construction, property-specific types and display sanitization
+are separate concerns. Graphify's string/list caps and HTML escaping are unsuitable for canonical
+alias identity. The optional parser accelerator can also introduce a failing native-artifact path.
+
+Fix: Pin and audit the actual parser profile. Preflight eligible snapshots before extraction;
+reject duplicate/cyclic/oversized input and preserve literal alias names in the Engine-owned catalog.
+Keep original source bytes and display metadata separate. Verify native content and startup limits
+independently: B4's pure parser passes content inspection but still exceeds the warm budget.
+
+Discovered: 2026-09-09, NW0-B4 parser, frontmatter, native-artifact and startup comparisons.
+See the [B4 audit](../../audits/2026-09-09-ob1-nw0-b4-component-adoption.md).
+
+### INTEGRATION-013: Portable validation and import do not prove workspace revision semantics
+
+Symptom: A synthetic page with two known capture provenance references validates and imports,
+but authoritative reconciliation rejects its provenance. An archived page's original source capture
+remains searchable after import. Its canonical row is omitted, which also fails reconciliation.
+
+Cause: Portable syntax, import success and active Engine behavior enforce different contracts.
+The current reconciliation path requires one indexed capture reference. Existing archival status
+does not implement managed-workspace deletion from search and graph. A2's active single-provenance
+page and generic event carrier pass reconciliation, but embedded policy flags remain ordinary content.
+
+Fix: Test capture, export, import, authoritative reconciliation and retrieval together before
+selecting a same-page revision or inactive-state representation. Keep private lifecycle simulations
+distinct from Portable compatibility evidence; do not infer that every v1 encoding is impossible
+from one failed candidate. No shipping schema change was made by this probe.
+
+Discovered: 2026-09-09, NW0-A real Engine compatibility cases in the
+[parallel checkpoint](../../audits/2026-09-09-ob1-nw0-parallel-feasibility.md), isolated by the
+[A2 comparison](../../audits/2026-09-09-ob1-nw0-a2-portable-representations.md).
+
+### INTEGRATION-014: A native helper needs a distribution contract as well as a clean binary
+
+Symptom: Both executables pass individual content inspection, but a two-executable bundle fails.
+
+Cause: Generic archives have a smaller member cap; the native archive contract expects one
+executable named `open-brain`. A helper also needs distinct asset identity, installation and updates.
+
+Fix: Keep the auditor unchanged. Compare separately audited native resources with an explicitly
+versioned layout. Verify resource naming, manifest/formula and installation before shipping.
+Measure ordinary base status separately from helper execution; do not equate it with cold startup
+or the full five-minute journey. Same-input archive comparisons must use the same gzip filename.
+
+Discovered: 2026-09-09, [NW0-B5](../../audits/2026-09-09-ob1-nw0-a3-b5-feasibility.md).
+
+### INTEGRATION-015: Disabling Homebrew API installation can trigger a shared core clone
+
+Symptom: A local-only resource smoke begins cloning the core tap while indexing its private tap.
+
+Cause: `HOMEBREW_NO_INSTALL_FROM_API` requests a local core checkout; it is not an offline switch.
+Stopping the harness process group did not stop the observed orphan git clone automatically.
+
+Fix: Omit that flag for the local resource proof. Keep auto-update disabled and cache/log/home state
+isolated. On interruption, identify owned descendants and verify cleanup and product preservation.
+Do not infer that a local archive URL confines every Homebrew side effect or that killing the parent
+reaps all work. Preserve the failed receipt and charge its effort.
+
+Discovered: 2026-09-09, [NW0-B6](../../audits/2026-09-09-ob1-nw0-b6-resource-install.md).
+
+### INTEGRATION-016: Source authority can change inside adapter construction
+
+Symptom: A private constructor accepts an edit after the handoff policy check. Stale synthetic input
+reaches the loopback endpoint, even though later publication is rejected.
+
+Cause: A reentrant coordinator lock serializes other threads but permits same-thread callbacks.
+
+Fix: Revalidate authoritative body, revision, privacy and policy after construction and before the
+trusted held-input start. Keep the failing regression; require zero requests, not only zero results.
+
+Discovered: 2026-09-09, [NW0 private slice](../../audits/2026-09-09-ob1-nw0-private-vertical-slice.md).
+
+### INTEGRATION-017: A normalized graph identifier is not evidence that a target exists
+
+Symptom: A missing reference normalizes to the identifier of a different selected page.
+
+Cause: Upstream identifiers can collide across missing and existing targets.
+
+Fix: Join an existing-file target stamp to the eligible inventory. Reject unresolved references;
+do not promote them using the normalized identifier alone. Test the actual frozen helper.
+
+Discovered: 2026-09-09, [NW0 private slice](../../audits/2026-09-09-ob1-nw0-private-vertical-slice.md).
+
+
+### INTEGRATION-018: Test-only native routes can bypass the public input contract
+
+Symptom: A helper advertises selected-body extraction, but a bundled diagnostic accepts a directory
+and reads fixture files directly. Reusing the base archive writer also gives the helper the wrong
+executable name and leaves its distribution contract implicit.
+
+Cause: Private diagnostic entrypoints and base-product packaging assumptions survive a proof's
+move into reproducible CI support.
+
+Fix: Keep filesystem diagnostics source-only and test rejection by the actual frozen executable.
+Use an explicit helper envelope with a fixed executable name and bounded legal-file inventory.
+B12 adds that narrow envelope to the native auditor; it does not widen the base one-member contract,
+content exceptions, decompression limits, or generic archive member cap. Test both accepted envelopes
+and missing, extra, duplicate, oversized, symbolic-link, and incorrectly named members.
+
+Discovered: 2026-09-10, independent review of the
+[B12 portable native proof](../../../tools/nw0_graphify_probe/README.md).
+
+### INTEGRATION-019: A disposable desktop can depend on its live boot medium
+
+Symptom: A preserved live guest needs new test assets, but its data image is fixed and only the
+boot CD can be exchanged through the available controls.
+
+Cause: Disposable changes are not persistent across shutdown, and the live filesystem may still
+read its boot image. A paused VM is not a portable snapshot of the current desktop.
+
+Fix: Preserve the running guest and its boot medium. Prepare a separate isolated test environment
+with a distinct removable read-only data CD before boot. Verify actual saved configuration rather
+than assuming a wizard click added the drive. Do not count the new environment as prior GUI evidence.
+
+Discovered: 2026-09-10, [NW0 continuation](../../audits/2026-09-10-ob1-nw0-continuation.md).
+
+### INTEGRATION-020: An asynchronous child API can still wait before returning its PID
+
+Symptom: A parent starts its timeout before process creation but cannot cancel an already-created
+child because the launch call has not returned the child's PID.
+
+Cause: Python's fork-based `Popen` path waits on an exec-error pipe. Replacing it with direct
+`posix_spawn` removes that Python read but does not establish early ownership on glibc Linux:
+`CLONE_VFORK` suspends the caller until child exec or exit. API naming and normal fast-start samples
+do not prove the controlled pre-exec-stall case.
+
+Fix: Trace PID acquisition before relying on cancellation or cleanup claims. Test a controlled
+child-side pre-exec stall, retain the original deadline, and confirm actual terminal wait rather
+than eventual process disappearance. A native async-signal-safe fork/exec routine in the existing
+owner is an unproved alternative, not an approved implementation. Verify each supported platform;
+do not hide a concrete child-side wait inside a general scheduling assumption.
+
+Discovered: 2026-09-10, independent NW0 launch review; see the
+[Linux spawn](https://man7.org/linux/man-pages/man3/posix_spawn.3.html) and
+[vfork semantics](https://man7.org/linux/man-pages/man2/vfork.2.html).
+
+### INTEGRATION-021: Validated usage can disappear at a narrower result projection
+
+Symptom: A provider response passes strict token-usage validation, but the final source-bound
+operation result has no usage fields.
+
+Cause: A reused graph-result projection keeps source evidence and model attribution but intentionally
+omits transport metadata. Validation before that projection does not preserve the discarded value.
+
+Fix: Attach only the normalized, validated usage to the bound result before its final encoding and
+byte-limit check. Test all provider shapes through the actual authority return boundary, including
+cache and reasoning counters. A parser-only test cannot prove the returned result retains them.
+
+Discovered: 2026-09-11, [NW0 continuation](../../audits/2026-09-10-ob1-nw0-continuation.md).
+
+### INTEGRATION-022: An explicit lint configuration can still depend on the working directory
+
+Symptom: The same frozen sources and Ruff configuration pass in the candidate directory but report
+different import-order findings from a receipt directory.
+
+Cause: Selecting the configuration file does not also freeze default source roots used to classify
+first-party imports.
+
+Fix: Record or explicitly set the source roots as well as the binary, configuration and source
+hashes for standalone proof checks. Preserve the failed check; do not rewrite frozen imports to
+chase unrelated working directories or claim that test execution verified a later formatting edit.
+
+Discovered: 2026-09-11, [NW0 continuation](../../audits/2026-09-10-ob1-nw0-continuation.md).
+
+### INTEGRATION-023: A current dependency snapshot does not establish its expected contents
+
+Symptom: An isolated proof accepts edited dependency files because it compares later reads only
+with a baseline captured after extraction. Unlisted bytecode can also remain loadable.
+
+Cause: Archive hashes bind downloaded archives but do not independently bind the extracted runtime.
+
+Fix: Verify the extracted tree against a reviewed external digest before importing it. Reject
+loadable bytecode, links and extra files. Bind the candidate, first-party source and dependencies
+to the same expected manifest at preflight and suite execution.
+
+Discovered: 2026-09-11, independent [authority proof](../../../tools/nw0_authority_probe/README.md) review.
+
+### INTEGRATION-024: A zero exit status does not erase a supervisor failure
+
+Symptom: Both test counts pass and the child exits zero, but the supervisor recorded a timeout or
+truncated output. A summary checking only return code and cleanup still reports success.
+
+Cause: The final receipt projection drops the supervisor's failure classification.
+
+Fix: Require no supervisor failure, complete untruncated output, exact test counts and known
+cleanup for every mode. Keep negative controls where a failed supervisor receipt also has exit zero.
+
+Discovered: 2026-09-11, independent [authority proof](../../../tools/nw0_authority_probe/README.md) review.
+
+### INTEGRATION-025: Path ordering and full-name ordering produce different tree digests
+
+Symptom: Every extracted file matches its wheel member, but the expected dependency digest differs.
+
+Cause: Sorting Path objects compares components. Sorting slash-separated strings compares the whole
+name. A package directory and its sibling distribution metadata can therefore appear in a different
+order even when their files and bytes match.
+
+Fix: Define one ordering for the digest contract and use it when deriving external anchors. Retain
+a fixture containing both `package/module.py` and `package-1.dist-info/METADATA`; comparing only a
+flat directory misses the difference.
+
+Discovered: 2026-09-11, Linux metadata build for the
+[authority proof](../../../tools/nw0_authority_probe/README.md).

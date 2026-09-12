@@ -1,0 +1,222 @@
+from __future__ import annotations
+
+import asyncio
+import sqlite3
+import time
+import unittest
+
+import async_bridge
+import authority_gate as authority
+import test_async_authority as inherited
+from async_bridge import AsyncAccess
+
+
+def live_owned_tasks():
+    return tuple(
+        task
+        for task in asyncio.all_tasks()
+        if task is not asyncio.current_task()
+        and not task.done()
+        and task.get_name().startswith(("c25-owned", "c27-authority"))
+    )
+
+
+class HostLifetime(unittest.IsolatedAsyncioTestCase):
+    asyncSetUp = inherited.Tests.asyncSetUp
+    asyncTearDown = inherited.Tests.asyncTearDown
+    capability = inherited.Tests.capability
+    grant = inherited.Tests.grant
+    outcome = inherited.Tests.outcome
+    start_servers = inherited.Tests.start_servers
+    stop_servers = inherited.Tests.stop_servers
+    assert_terminal = inherited.Tests.assert_terminal
+
+    async def test_delayed_parser_failure_then_close_drains_actual_transport(self):
+        provider = "openai_api"
+        dns, _, runner, blocker, _, route = await self.start_servers(provider)
+        original_parse = async_bridge.parse_response
+        diagnostics = []
+        loop = asyncio.get_running_loop()
+        original_handler = loop.get_exception_handler()
+
+        def delayed_parse(*args, **kwargs):
+            result = original_parse(*args, **kwargs)
+            time.sleep(1.01)
+            return result
+
+        loop.set_exception_handler(lambda _, context: diagnostics.append(context))
+        try:
+            async_bridge.parse_response = delayed_parse
+            capability = self.grant(provider)
+            access = AsyncAccess(route, self.bindings)
+            reservation = access.reserve(self.gate, capability, timeout=1)
+            with self.assertRaises((TimeoutError, asyncio.CancelledError)):
+                await access.release(self.gate, capability, reservation)
+            self.assertNotEqual(self.outcome(reservation)["status"], "succeeded")
+
+            await self.gate.aclose()
+
+            self.assertTrue(self.gate._closed)
+            self.assertEqual(self.gate._owners, set())
+            self.assertEqual(self.gate._inflight, {})
+            self.assertEqual(self.gate._reapers, {})
+            self.assertEqual(live_owned_tasks(), ())
+            await self.assert_terminal(access)
+            await asyncio.sleep(0)
+            self.assertEqual(diagnostics, [])
+        finally:
+            async_bridge.parse_response = original_parse
+            loop.set_exception_handler(original_handler)
+            await self.stop_servers(dns, runner, blocker)
+
+    async def test_active_close_refuses_sync_and_survives_repeated_cancel(self):
+        provider = "anthropic_api"
+        dns, _, runner, blocker, seen, route = await self.start_servers(
+            provider, mode="headers_stall"
+        )
+        diagnostics = []
+        loop = asyncio.get_running_loop()
+        original_handler = loop.get_exception_handler()
+        loop.set_exception_handler(lambda _, context: diagnostics.append(context))
+        try:
+            capability = self.grant(provider)
+            access = AsyncAccess(route, self.bindings)
+            reservation = access.reserve(self.gate, capability)
+            release = asyncio.create_task(
+                access.release(self.gate, capability, reservation),
+                name="c33-host-release",
+            )
+            await asyncio.wait_for(seen.wait(), 0.5)
+            with self.assertRaises(authority.Rejected):
+                self.gate.close()
+
+            closing = asyncio.create_task(self.gate.aclose(), name="c33-host-close")
+            while not self.gate._stopping:
+                await asyncio.sleep(0)
+            closing.cancel()
+            loop.call_soon(closing.cancel)
+            with self.assertRaises(asyncio.CancelledError):
+                await closing
+            result = await asyncio.gather(release, return_exceptions=True)
+            self.assertIsInstance(result[0], asyncio.CancelledError)
+            check = sqlite3.connect(self.gate.path)
+            status = check.execute(
+                "SELECT status FROM attempts WHERE reservation_id=?", (reservation,)
+            ).fetchone()[0]
+            check.close()
+            self.assertTrue(self.gate._closed)
+            self.assertEqual(self.gate._owners, set())
+            self.assertEqual(self.gate._inflight, {})
+            self.assertEqual(self.gate._reapers, {})
+            self.assertEqual(status, "failed")
+            self.assertEqual(live_owned_tasks(), ())
+            await self.assert_terminal(access)
+            await asyncio.sleep(0)
+            self.assertEqual(diagnostics, [])
+        finally:
+            loop.set_exception_handler(original_handler)
+            await self.stop_servers(dns, runner, blocker)
+
+    async def test_restart_consumes_cleanup_incomplete_without_replay(self):
+        provider = "gemini_api"
+        capability = self.grant(provider)
+        access = AsyncAccess(
+            inherited.AsyncRoute(
+                provider, inherited.MODELS[provider], 1, 1, inherited.CA_FILE
+            ),
+            self.bindings,
+        )
+        reservation = access.reserve(self.gate, capability)
+        self.gate._record_intent(
+            capability=capability,
+            reservation_id=reservation,
+            provider=provider,
+            adapter_identity=access.identity,
+            operation="semantic_graph",
+            selected_sources=access.selections,
+            prompt=None,
+        )
+        self.gate._finalize_if_active(reservation, "cleanup_incomplete", None)
+        self.gate.close()
+        self.gate = authority.AuthorityGate.open(
+            self.root / "authority.sqlite", trusted_process=self.trusted
+        )
+        self.assertEqual(self.outcome(reservation)["status"], "uncertain")
+        self.assertFalse(any(self.gate.snapshot()["consents"].values()))
+        kinds = [item["kind"] for item in self.gate.snapshot()["events"]]
+        self.assertIn("uncertain", kinds)
+        self.assertEqual(access.constructions, 0)
+        self.assertEqual(access.starts, 0)
+
+    async def test_db_finalization_failure_retains_explicit_ownership(self):
+        provider = "openai_api"
+        capability = self.grant(provider)
+        access = AsyncAccess(
+            inherited.AsyncRoute(
+                provider, inherited.MODELS[provider], 1, 1, inherited.CA_FILE
+            ),
+            self.bindings,
+        )
+        reservation = access.reserve(self.gate, capability)
+        self.gate._record_intent(
+            capability=capability,
+            reservation_id=reservation,
+            provider=provider,
+            adapter_identity=access.identity,
+            operation="semantic_graph",
+            selected_sources=access.selections,
+            prompt=None,
+        )
+        self.gate._finalize_if_active(reservation, "cleanup_incomplete", None)
+
+        class Handle:
+            def cancel(self):
+                return None
+
+        self.gate._inflight[reservation] = (provider, Handle())
+        self.gate._connection.execute(
+            "CREATE TRIGGER fail_cleanup BEFORE UPDATE ON attempts "
+            "WHEN NEW.status='failed' BEGIN SELECT RAISE(FAIL,'injected'); END"
+        )
+
+        async def finalize():
+            await asyncio.sleep(0)
+            self.gate._complete_cleanup(reservation)
+
+        reaper = asyncio.create_task(finalize(), name="c27-authority-reaper")
+        self.gate._reapers[reservation] = reaper
+        self.gate._owners.add(reaper)
+        with self.assertRaisesRegex(
+            authority.Rejected, "cleanup finalization incomplete"
+        ):
+            await self.gate.aclose()
+        self.assertTrue(reaper.done())
+        self.assertIsInstance(reaper.exception(), sqlite3.DatabaseError)
+        self.assertFalse(self.gate._closed)
+        self.assertIn(reservation, self.gate._inflight)
+        self.assertIn(reservation, self.gate._reapers)
+        self.assertIn(reaper, self.gate._owners)
+        self.assertEqual(self.outcome(reservation)["status"], "cleanup_incomplete")
+
+        self.gate._connection.execute("DROP TRIGGER fail_cleanup")
+        await self.gate.aclose()
+        await self.gate.aclose()
+        check = sqlite3.connect(self.gate.path)
+        status = check.execute(
+            "SELECT status FROM attempts WHERE reservation_id=?", (reservation,)
+        ).fetchone()[0]
+        failed_events = check.execute(
+            "SELECT COUNT(*) FROM events WHERE reservation_id=? AND kind='failed'",
+            (reservation,),
+        ).fetchone()[0]
+        check.close()
+        self.assertEqual(status, "failed")
+        self.assertEqual(failed_events, 1)
+        self.assertTrue(self.gate._closed)
+        self.assertEqual(self.gate._inflight, {})
+        self.assertEqual(self.gate._reapers, {})
+        self.assertEqual(self.gate._owners, set())
+
+
+if __name__ == "__main__":
+    unittest.main()

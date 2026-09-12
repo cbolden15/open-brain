@@ -1,0 +1,320 @@
+from __future__ import annotations
+
+import asyncio
+import socket
+import ssl
+import threading
+import unittest
+
+import aiohttp.web
+import dns.message
+import dns.rrset
+from async_transport import (
+    LIMIT,
+    Evidence,
+    TransportRejected,
+    exchange,
+    guarded_exchange,
+)
+from direct_api import HttpResponse, build_request, encode, parse_response, route_for
+from tls_fixture import FIXTURES
+
+MODELS = {
+    "openai_api": "gpt-6-astra",
+    "anthropic_api": "claude-sonnet-4-6",
+    "gemini_api": "gemini-2.5-flash",
+}
+
+
+def success(provider: str) -> bytes:
+    model = MODELS[provider]
+    text = '{"edges":[{"source":"source-1","target":"source-2"}]}'
+    if provider == "openai_api":
+        value = {
+            "object": "response", "model": model, "status": "completed",
+            "error": None, "incomplete_details": None,
+            "output": [{"type": "message", "role": "assistant", "status": "completed",
+                        "content": [{"type": "output_text", "text": text}]}],
+            "usage": {"input_tokens": 12, "output_tokens": 7, "total_tokens": 19},
+        }
+    elif provider == "anthropic_api":
+        value = {
+            "type": "message", "model": model, "role": "assistant",
+            "stop_reason": "end_turn", "stop_details": None,
+            "content": [{"type": "text", "text": text}],
+            "usage": {"input_tokens": 12, "output_tokens": 7},
+        }
+    else:
+        value = {
+            "modelVersion": model, "promptFeedback": {},
+            "candidates": [{"finishReason": "STOP", "content": {
+                "role": "model", "parts": [{"text": text}]}}],
+            "usageMetadata": {"promptTokenCount": 12, "candidatesTokenCount": 7,
+                              "thoughtsTokenCount": 3, "totalTokenCount": 22},
+        }
+    return encode(value)
+
+
+class DnsProtocol(asyncio.DatagramProtocol):
+    def __init__(self, reply: bool = True):
+        self.reply = reply
+        self.queries = 0
+        self.transport = None
+
+    def connection_made(self, transport):
+        self.transport = transport
+
+    def datagram_received(self, data, addr):
+        self.queries += 1
+        if not self.reply:
+            return
+        query = dns.message.from_wire(data)
+        answer = dns.message.make_response(query)
+        answer.answer.append(dns.rrset.from_text(query.question[0].name, 1, "IN", "A", "127.0.0.1"))
+        self.transport.sendto(answer.to_wire(), addr)
+
+
+async def dns_server(reply=True):
+    loop = asyncio.get_running_loop()
+    protocol = DnsProtocol(reply)
+    transport, _ = await loop.create_datagram_endpoint(
+        lambda: protocol, local_addr=("127.0.0.1", 0), family=socket.AF_INET
+    )
+    return transport, protocol, transport.get_extra_info("sockname")[1]
+
+
+async def https_server(mode: str, payload: bytes, seen: asyncio.Event):
+    blocker = asyncio.Event()
+
+    async def handler(request):
+        await request.read()
+        seen.set()
+        if mode == "headers_stall":
+            await blocker.wait()
+        if mode == "body_stall":
+            response = aiohttp.web.StreamResponse(
+                status=200, headers={"Content-Type": "application/json", "Content-Length": "20"}
+            )
+            await response.prepare(request)
+            await response.write(b"{")
+            await blocker.wait()
+            return response
+        if mode == "redirect":
+            return aiohttp.web.Response(status=302, headers={"Location": "/elsewhere"})
+        body = b"x" * (LIMIT + 1) if mode == "oversize" else payload
+        return aiohttp.web.Response(body=body, content_type="application/json")
+
+    app = aiohttp.web.Application()
+    app.router.add_post("/{tail:.*}", handler)
+    runner = aiohttp.web.AppRunner(app)
+    await runner.setup()
+    context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+    context.load_cert_chain(FIXTURES / "valid.pem", FIXTURES / "valid.key")
+    site = aiohttp.web.TCPSite(runner, "127.0.0.1", 0, ssl_context=context)
+    await site.start()
+    port = site._server.sockets[0].getsockname()[1]
+    return runner, blocker, port
+
+
+class Tests(unittest.IsolatedAsyncioTestCase):
+    async def asyncSetUp(self):
+        self.threads = {thread.ident for thread in threading.enumerate()}
+
+    async def assert_terminal(self, evidence):
+        await asyncio.sleep(0)
+        self.assertTrue(evidence.session_closed)
+        self.assertTrue(evidence.resolver_closed)
+        self.assertTrue(evidence.connector_closed)
+        self.assertEqual(evidence.active_resolutions, set())
+        self.assertEqual({thread.ident for thread in threading.enumerate()}, self.threads)
+        live = [task.get_name() for task in asyncio.all_tasks()
+                if task is not asyncio.current_task() and task.get_name().startswith("c25-owned")]
+        self.assertEqual(live, [])
+
+    async def test_three_routes_actual_dns_tls_single_release_and_c15_parse(self):
+        for provider, model in MODELS.items():
+            with self.subTest(provider=provider):
+                dns_transport, dns_protocol, dns_port = await dns_server()
+                seen = asyncio.Event()
+                runner, blocker, tls_port = await https_server("success", success(provider), seen)
+                evidence = Evidence()
+                releases = []
+                try:
+                    route = route_for(provider, model, timeout_seconds=1)
+                    request = build_request(route, "synthetic prompt", "synthetic-key")
+                    parsed, elapsed = await guarded_exchange(
+                        True, lambda: "synthetic-key", request, dns_port=dns_port,
+                        tls_port=tls_port, ca_file=str(FIXTURES / "ca.pem"), timeout=1,
+                        cancel=asyncio.Event(),
+                        release=lambda releases=releases: releases.append("released"),
+                        evidence=evidence,
+                        parse=lambda status, headers, body, route=route: parse_response(
+                            route, HttpResponse(status, headers, body)
+                        ),
+                    )
+                    self.assertEqual(parsed["actual_model"], model)
+                    self.assertEqual(len(releases), 1)
+                    self.assertEqual(evidence.releases, 1)
+                    self.assertEqual(dns_protocol.queries, 1)
+                    self.assertLess(elapsed, 1)
+                    await self.assert_terminal(evidence)
+                finally:
+                    blocker.set(); await runner.cleanup(); dns_transport.close()
+
+    async def test_denial_constructs_nothing(self):
+        evidence = Evidence(); credential_calls = []
+        route = route_for("openai_api", MODELS["openai_api"], timeout_seconds=1)
+        request = build_request(route, "synthetic prompt", "synthetic-key")
+        with self.assertRaises(TransportRejected):
+            await guarded_exchange(
+                False, lambda: credential_calls.append(1) or "synthetic-key", request,
+                dns_port=1, tls_port=1, ca_file=str(FIXTURES / "ca.pem"), timeout=.2,
+                cancel=asyncio.Event(), release=lambda: None, evidence=evidence,
+                parse=lambda *_: None,
+            )
+        self.assertEqual((credential_calls, evidence.clients, evidence.resolvers), ([], 0, 0))
+
+    async def test_dns_timeout_is_terminal(self):
+        dns_transport, protocol, dns_port = await dns_server(reply=False)
+        evidence = Evidence()
+        route = route_for("openai_api", MODELS["openai_api"], timeout_seconds=1)
+        request = build_request(route, "synthetic prompt", "synthetic-key")
+        try:
+            with self.assertRaises(TimeoutError):
+                await exchange(request, dns_port=dns_port, tls_port=1,
+                    ca_file=str(FIXTURES / "ca.pem"), timeout=.25,
+                    cancel=asyncio.Event(), release=lambda: None, evidence=evidence,
+                    parse=lambda *_: None)
+            self.assertGreaterEqual(protocol.queries, 1)
+            self.assertEqual(evidence.releases, 0)
+            await self.assert_terminal(evidence)
+        finally:
+            dns_transport.close()
+
+    async def test_revoke_at_release_prevents_body_and_is_terminal(self):
+        dns_transport, _, dns_port = await dns_server()
+        seen = asyncio.Event(); runner, blocker, tls_port = await https_server("success", success("openai_api"), seen)
+        evidence = Evidence()
+        route = route_for("openai_api", MODELS["openai_api"], timeout_seconds=1)
+        request = build_request(route, "synthetic prompt", "synthetic-key")
+        def revoke():
+            raise TransportRejected("revoked at release")
+        try:
+            with self.assertRaises(TransportRejected):
+                await exchange(request, dns_port=dns_port, tls_port=tls_port,
+                    ca_file=str(FIXTURES / "ca.pem"), timeout=.5,
+                    cancel=asyncio.Event(), release=revoke, evidence=evidence,
+                    parse=lambda *_: None)
+            self.assertEqual(evidence.releases, 0)
+            await self.assert_terminal(evidence)
+        finally:
+            blocker.set(); await runner.cleanup(); dns_transport.close()
+
+    async def test_cancel_after_body_release_closes_header_stall(self):
+        dns_transport, _, dns_port = await dns_server()
+        seen = asyncio.Event(); runner, blocker, tls_port = await https_server("headers_stall", b"", seen)
+        evidence = Evidence(); cancel = asyncio.Event()
+        route = route_for("anthropic_api", MODELS["anthropic_api"], timeout_seconds=1)
+        request = build_request(route, "synthetic prompt", "synthetic-key")
+        task = asyncio.create_task(exchange(request, dns_port=dns_port, tls_port=tls_port,
+            ca_file=str(FIXTURES / "ca.pem"), timeout=1, cancel=cancel,
+            release=lambda: None, evidence=evidence, parse=lambda *_: None))
+        try:
+            await asyncio.wait_for(seen.wait(), .5)
+            cancel.set()
+            with self.assertRaises(asyncio.CancelledError):
+                await task
+            self.assertEqual(evidence.releases, 1)
+            await self.assert_terminal(evidence)
+        finally:
+            blocker.set(); await runner.cleanup(); dns_transport.close()
+
+    async def test_owner_task_cancellation_closes_header_stall(self):
+        dns_transport, _, dns_port = await dns_server()
+        seen = asyncio.Event(); runner, blocker, tls_port = await https_server("headers_stall", b"", seen)
+        evidence = Evidence()
+        route = route_for("openai_api", MODELS["openai_api"], timeout_seconds=1)
+        request = build_request(route, "synthetic prompt", "synthetic-key")
+        owner = asyncio.create_task(exchange(request, dns_port=dns_port, tls_port=tls_port,
+            ca_file=str(FIXTURES / "ca.pem"), timeout=1, cancel=asyncio.Event(),
+            release=lambda: None, evidence=evidence, parse=lambda *_: None))
+        try:
+            await asyncio.wait_for(seen.wait(), .5)
+            owner.cancel()
+            owner.cancel()
+            with self.assertRaises(asyncio.CancelledError):
+                await owner
+            await self.assert_terminal(evidence)
+        finally:
+            blocker.set(); await runner.cleanup(); dns_transport.close()
+
+    async def test_tls_stall_times_out_before_release(self):
+        dns_transport, _, dns_port = await dns_server()
+        accepted = asyncio.Event(); transports = []
+        class HoldProtocol(asyncio.Protocol):
+            def connection_made(self, transport):
+                transports.append(transport); accepted.set()
+        server = await asyncio.get_running_loop().create_server(
+            HoldProtocol, "127.0.0.1", 0
+        )
+        evidence = Evidence()
+        route = route_for("gemini_api", MODELS["gemini_api"], timeout_seconds=1)
+        request = build_request(route, "synthetic prompt", "synthetic-key")
+        try:
+            with self.assertRaises(TimeoutError):
+                await exchange(request, dns_port=dns_port, tls_port=server.sockets[0].getsockname()[1],
+                    ca_file=str(FIXTURES / "ca.pem"), timeout=.25,
+                    cancel=asyncio.Event(), release=lambda: None, evidence=evidence,
+                    parse=lambda *_: None)
+            await asyncio.wait_for(accepted.wait(), .1)
+            self.assertEqual(evidence.releases, 0)
+            await self.assert_terminal(evidence)
+        finally:
+            server.close(); await server.wait_closed()
+            for transport in transports:
+                transport.abort()
+            dns_transport.close()
+
+    async def test_body_stall_and_oversize_are_terminal(self):
+        for mode, error in (("body_stall", TimeoutError), ("oversize", TransportRejected)):
+            with self.subTest(mode=mode):
+                dns_transport, _, dns_port = await dns_server()
+                seen = asyncio.Event(); runner, blocker, tls_port = await https_server(mode, success("openai_api"), seen)
+                evidence = Evidence()
+                route = route_for("openai_api", MODELS["openai_api"], timeout_seconds=1)
+                request = build_request(route, "synthetic prompt", "synthetic-key")
+                try:
+                    with self.assertRaises(error):
+                        await exchange(request, dns_port=dns_port, tls_port=tls_port,
+                            ca_file=str(FIXTURES / "ca.pem"), timeout=.3,
+                            cancel=asyncio.Event(), release=lambda: None, evidence=evidence,
+                            parse=lambda *_: None)
+                    self.assertEqual(evidence.releases, 1)
+                    await self.assert_terminal(evidence)
+                finally:
+                    blocker.set(); await runner.cleanup(); dns_transport.close()
+
+    async def test_stale_response_rejected_before_parse_or_publication(self):
+        dns_transport, _, dns_port = await dns_server()
+        seen = asyncio.Event(); runner, blocker, tls_port = await https_server("success", success("openai_api"), seen)
+        evidence = Evidence(); revision = ["r1"]; publications = []
+        route = route_for("openai_api", MODELS["openai_api"], timeout_seconds=1)
+        request = build_request(route, "synthetic prompt", "synthetic-key")
+        original = revision[0]
+        try:
+            def validate_after():
+                if revision[0] != original:
+                    raise TransportRejected("stale authority")
+            with self.assertRaises(TransportRejected):
+                await exchange(request, dns_port=dns_port, tls_port=tls_port,
+                    ca_file=str(FIXTURES / "ca.pem"), timeout=1, cancel=asyncio.Event(),
+                    release=lambda: revision.__setitem__(0, "r2"), evidence=evidence,
+                    validate_after=validate_after, parse=lambda *_: None)
+            self.assertEqual(publications, [])
+            await self.assert_terminal(evidence)
+        finally:
+            blocker.set(); await runner.cleanup(); dns_transport.close()
+
+
+if __name__ == "__main__":
+    unittest.main(verbosity=2)

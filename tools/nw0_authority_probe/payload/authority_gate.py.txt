@@ -1,0 +1,1476 @@
+"""Private A4 authority and serialized release proof; no shipping authentication."""
+
+from __future__ import annotations
+
+import asyncio
+import inspect
+import json
+import secrets
+import sqlite3
+import threading
+import time
+import uuid
+from collections.abc import Callable, Iterable
+from dataclasses import dataclass
+from hashlib import sha256
+from pathlib import Path
+from typing import Any
+
+from open_brain_engine.capture.redaction import has_redaction_finding
+from open_brain_engine.core.ids import portable_canonical_json_bytes as canonical
+
+MAX_INPUT_BYTES = 16 * 1024
+MAX_OUTPUT_BYTES = 16 * 1024
+MAX_ATTEMPT_SECONDS = 60
+MAX_PROBE_ATTEMPTS = 2
+MAX_PROBE_SECONDS = 90
+MAX_OUTER_ATTEMPTS = 80
+MAX_ACTIVE_ATTEMPTS = 64
+MAX_PATH_ATTEMPTS = 16
+ACTIVE_PROVIDERS = (
+    "openai_api",
+    "anthropic_api",
+    "claude_subscription",
+    "gemini_api",
+)
+CHARGED_STATUSES = (
+    "reserved",
+    "intent",
+    "handed_off",
+    "uncertain",
+    "succeeded",
+    "failed",
+    "superseded",
+    "cleanup_incomplete",
+)
+
+
+class Rejected(ValueError):
+    pass
+
+
+class Superseded(Rejected):
+    pass
+
+
+class SimulatedCrash(RuntimeError):
+    pass
+
+
+def require(condition: bool, reason: str) -> None:
+    if not condition:
+        raise Rejected(reason)
+
+
+def digest(value: bytes | object) -> str:
+    return sha256(value if isinstance(value, bytes) else canonical(value)).hexdigest()
+
+
+@dataclass(frozen=True, slots=True)
+class SourceBinding:
+    note_id: str
+    revision_id: str
+    body: str
+    body_digest: str
+    privacy: dict[str, Any]
+    privacy_digest: str
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "note_id": self.note_id,
+            "revision_id": self.revision_id,
+            "body": self.body,
+            "body_digest": self.body_digest,
+            "privacy": json.loads(canonical(self.privacy)),
+            "privacy_digest": self.privacy_digest,
+        }
+
+
+@dataclass(frozen=True, slots=True)
+class SelectedSource:
+    note_id: str
+    revision_id: str
+    privacy_digest: str
+
+    def as_dict(self) -> dict[str, str]:
+        return {
+            "note_id": self.note_id,
+            "revision_id": self.revision_id,
+            "privacy_digest": self.privacy_digest,
+        }
+
+
+@dataclass(frozen=True, slots=True)
+class OwnerCapability:
+    owner_id: str
+    generation: int
+    service_instance: str
+    nonce: str
+
+
+@dataclass(frozen=True, slots=True)
+class ProviderReply:
+    text: str
+    elapsed_seconds: float
+
+
+def bindings_from_snapshot(snapshot: dict[str, Any]) -> tuple[SourceBinding, ...]:
+    require(
+        isinstance(snapshot, dict) and isinstance(snapshot.get("origins"), list),
+        "snapshot",
+    )
+    result = []
+    seen = set()
+    for origin in snapshot["origins"]:
+        require(isinstance(origin, dict), "snapshot origin")
+        note_id = origin.get("page_id")
+        revision_id = origin.get("initial_revision")
+        privacy = origin.get("privacy")
+        privacy_digest = origin.get("privacy_digest")
+        body = origin.get("body")
+        body_digest = origin.get("body_digest")
+        require(
+            isinstance(note_id, str)
+            and isinstance(revision_id, str)
+            and isinstance(privacy, dict)
+            and isinstance(privacy_digest, str)
+            and isinstance(body, str)
+            and isinstance(body_digest, str)
+            and digest(body.encode()) == body_digest
+            and digest(privacy) == privacy_digest,
+            "snapshot source binding",
+        )
+        require(note_id not in seen, "duplicate snapshot source")
+        seen.add(note_id)
+        result.append(
+            SourceBinding(
+                note_id,
+                revision_id,
+                body,
+                body_digest,
+                json.loads(canonical(privacy)),
+                privacy_digest,
+            )
+        )
+    require(bool(result), "snapshot sources")
+    return tuple(result)
+
+
+class AuthorityGate:
+    def __init__(
+        self,
+        path: Path,
+        *,
+        trusted_process: object,
+        owner_id: str,
+        connection: sqlite3.Connection,
+    ) -> None:
+        self.path = path
+        self.owner_id = owner_id
+        self._trusted_process = trusted_process
+        self._connection = connection
+        self._connection.row_factory = sqlite3.Row
+        self._lock = threading.RLock()
+        self._service_instance = str(uuid.uuid4())
+        self._issued: set[str] = set()
+        self._inflight: dict[str, tuple[str, object]] = {}
+        self._reapers: dict[str, asyncio.Task] = {}
+        self._owners: set[asyncio.Task] = set()
+        self._credential_preflights: set[str] = set()
+        self._stopping = False
+        self._closed = False
+
+    @classmethod
+    def create(
+        cls,
+        path: Path,
+        *,
+        owner_id: str,
+        sources: Iterable[SourceBinding],
+        trusted_process: object,
+        imported_consents: Iterable[str] = (),
+    ) -> AuthorityGate:
+        require(
+            isinstance(path, Path) and not path.exists(), "new owned ledger required"
+        )
+        require(isinstance(owner_id, str) and bool(owner_id), "owner identity")
+        source_items = tuple(sources)
+        require(
+            source_items
+            and all(isinstance(item, SourceBinding) for item in source_items),
+            "sources",
+        )
+        path.parent.mkdir(parents=True, exist_ok=True)
+        connection = sqlite3.connect(
+            path, isolation_level=None, check_same_thread=False, timeout=5
+        )
+        gate = cls(
+            path,
+            trusted_process=trusted_process,
+            owner_id=owner_id,
+            connection=connection,
+        )
+        gate._initialize(source_items, tuple(imported_consents))
+        return gate
+
+    @classmethod
+    def open(cls, path: Path, *, trusted_process: object) -> AuthorityGate:
+        require(
+            isinstance(path, Path) and path.is_file(), "existing owned ledger required"
+        )
+        connection = sqlite3.connect(
+            path, isolation_level=None, check_same_thread=False, timeout=5
+        )
+        connection.row_factory = sqlite3.Row
+        row = connection.execute(
+            "SELECT owner_id FROM authority_state WHERE singleton=1"
+        ).fetchone()
+        require(row is not None, "authority ledger")
+        gate = cls(
+            path,
+            trusted_process=trusted_process,
+            owner_id=row["owner_id"],
+            connection=connection,
+        )
+        gate._recover_restart()
+        return gate
+
+    def _initialize(
+        self, sources: tuple[SourceBinding, ...], imported_consents: tuple[str, ...]
+    ) -> None:
+        require(
+            all(provider in ACTIVE_PROVIDERS for provider in imported_consents),
+            "provider",
+        )
+        self._connection.executescript(
+            """
+            PRAGMA journal_mode=WAL;
+            PRAGMA synchronous=FULL;
+            CREATE TABLE authority_state(
+              singleton INTEGER PRIMARY KEY CHECK(singleton=1), owner_id TEXT NOT NULL,
+              policy_generation INTEGER NOT NULL
+            );
+            CREATE TABLE sources(
+              note_id TEXT PRIMARY KEY, revision_id TEXT NOT NULL, body TEXT NOT NULL,
+              body_digest TEXT NOT NULL, privacy_json TEXT NOT NULL,
+              privacy_digest TEXT NOT NULL, active INTEGER NOT NULL, excluded INTEGER NOT NULL
+            );
+            CREATE TABLE consents(
+              provider TEXT PRIMARY KEY, operation TEXT NOT NULL, active INTEGER NOT NULL,
+              imported_audit INTEGER NOT NULL, generation INTEGER NOT NULL
+            );
+            CREATE TABLE attempts(
+              reservation_id TEXT PRIMARY KEY, probe_id TEXT NOT NULL, provider TEXT NOT NULL,
+              adapter_identity TEXT NOT NULL, operation TEXT NOT NULL,
+              selections_json TEXT NOT NULL,
+              prompt_sha256 TEXT NOT NULL, input_bytes INTEGER NOT NULL,
+              max_output_bytes INTEGER NOT NULL, timeout_seconds INTEGER NOT NULL,
+              policy_generation INTEGER NOT NULL, status TEXT NOT NULL, output_bytes INTEGER
+            );
+            CREATE TABLE events(
+              sequence INTEGER PRIMARY KEY AUTOINCREMENT, kind TEXT NOT NULL,
+              reservation_id TEXT, provider TEXT, generation INTEGER NOT NULL
+            );
+            """
+        )
+        self._connection.execute(
+            "INSERT INTO authority_state VALUES(1,?,0)", (self.owner_id,)
+        )
+        seen = set()
+        for source in sources:
+            require(source.note_id not in seen, "duplicate source")
+            require(digest(source.privacy) == source.privacy_digest, "privacy binding")
+            require(digest(source.body.encode()) == source.body_digest, "body binding")
+            seen.add(source.note_id)
+            self._connection.execute(
+                "INSERT INTO sources VALUES(?,?,?,?,?,?,1,0)",
+                (
+                    source.note_id,
+                    source.revision_id,
+                    source.body,
+                    source.body_digest,
+                    canonical(source.privacy).decode(),
+                    source.privacy_digest,
+                ),
+            )
+        for provider in ACTIVE_PROVIDERS:
+            self._connection.execute(
+                "INSERT INTO consents VALUES(?,?,0,?,0)",
+                (provider, "semantic_graph", int(provider in imported_consents)),
+            )
+        self._connection.execute(
+            "INSERT INTO events(kind,provider,generation) VALUES('created',NULL,0)"
+        )
+
+    def _recover_restart(self) -> None:
+        with self._lock:
+            self._connection.execute("BEGIN IMMEDIATE")
+            try:
+                generation = self._generation_locked()
+                active = self._connection.execute(
+                    "SELECT COUNT(*) FROM consents WHERE active=1"
+                ).fetchone()[0]
+                if active:
+                    generation += 1
+                    self._connection.execute("UPDATE consents SET active=0")
+                    self._connection.execute(
+                        "UPDATE authority_state SET policy_generation=? WHERE singleton=1",
+                        (generation,),
+                    )
+                    self._connection.execute(
+                        "INSERT INTO events(kind,generation) VALUES('restart_consent_inactive',?)",
+                        (generation,),
+                    )
+                intent_ids = [
+                    row[0]
+                    for row in self._connection.execute(
+                        "SELECT reservation_id FROM attempts "
+                        "WHERE status IN ('intent','handed_off','cleanup_incomplete')"
+                    )
+                ]
+                self._connection.execute(
+                    "UPDATE attempts SET status='uncertain' "
+                    "WHERE status IN ('intent','handed_off','cleanup_incomplete')"
+                )
+                for reservation_id in intent_ids:
+                    self._connection.execute(
+                        "INSERT INTO events(kind,reservation_id,generation) "
+                        "VALUES('uncertain',?,?)",
+                        (reservation_id, generation),
+                    )
+                reserved_ids = [
+                    row[0]
+                    for row in self._connection.execute(
+                        "SELECT reservation_id FROM attempts WHERE status='reserved'"
+                    )
+                ]
+                self._connection.execute(
+                    "UPDATE attempts SET status='cancelled' WHERE status='reserved'"
+                )
+                for reservation_id in reserved_ids:
+                    self._connection.execute(
+                        "INSERT INTO events(kind,reservation_id,generation) "
+                        "VALUES('restart_cancelled_reservation',?,?)",
+                        (reservation_id, generation),
+                    )
+                self._connection.execute("COMMIT")
+            except Exception:
+                self._connection.execute("ROLLBACK")
+                raise
+
+    def close(self) -> None:
+        with self._lock:
+            require(
+                not self._owners
+                and not self._credential_preflights
+                and not self._inflight
+                and not self._reapers,
+                "active cleanup ownership",
+            )
+            self._stopping = True
+            if not self._closed:
+                self._connection.close()
+                self._closed = True
+
+    async def aclose(self) -> None:
+        """Stop admission, cancel active transports, and drain all owned work."""
+        interrupted = False
+        current = asyncio.current_task()
+        with self._lock:
+            if self._closed:
+                return
+            require(current not in self._owners, "reentrant authority close")
+            self._stopping = True
+            handles = tuple(handle for _, handle in self._inflight.values())
+        for handle in handles:
+            cancel = getattr(handle, "cancel", None)
+            if callable(cancel):
+                cancel()
+
+        while True:
+            with self._lock:
+                owners = tuple(self._owners)
+            failed_reapers = []
+            for reservation_id, task in tuple(self._reapers.items()):
+                if task.done() and not task.cancelled():
+                    error = task.exception()
+                    if error is not None:
+                        failed_reapers.append((reservation_id, error))
+            if failed_reapers:
+                for reservation_id, _prior_error in failed_reapers:
+                    try:
+                        self._complete_cleanup(reservation_id)
+                    except Exception as retry_error:
+                        raise Rejected(
+                            "cleanup finalization incomplete"
+                        ) from retry_error
+                continue
+            pending = tuple(task for task in owners if not task.done())
+            if pending:
+                try:
+                    await asyncio.wait(pending)
+                except asyncio.CancelledError:
+                    interrupted = True
+                    asyncio.current_task().uncancel()
+                    with self._lock:
+                        active_handles = tuple(
+                            handle for _, handle in self._inflight.values()
+                        )
+                    for handle in active_handles:
+                        cancel = getattr(handle, "cancel", None)
+                        if callable(cancel):
+                            cancel()
+                continue
+            with self._lock:
+                require(
+                    not self._credential_preflights,
+                    "active credential preflight",
+                )
+                require(
+                    not self._owners and not self._inflight and not self._reapers,
+                    "cleanup ownership incomplete",
+                )
+                if not self._closed:
+                    self._connection.close()
+                    self._closed = True
+            if interrupted:
+                raise asyncio.CancelledError("authority close cancelled after drain")
+            return
+
+    def _generation_locked(self) -> int:
+        return int(
+            self._connection.execute(
+                "SELECT policy_generation FROM authority_state WHERE singleton=1"
+            ).fetchone()[0]
+        )
+
+    def mint_owner_capability(self, trusted_process: object) -> OwnerCapability:
+        require(trusted_process is self._trusted_process, "trusted process required")
+        with self._lock:
+            generation = self._generation_locked()
+            nonce = secrets.token_urlsafe(24)
+            self._issued.add(nonce)
+            return OwnerCapability(
+                self.owner_id, generation, self._service_instance, nonce
+            )
+
+    def _check_capability_locked(self, capability: object) -> OwnerCapability:
+        require(
+            isinstance(capability, OwnerCapability)
+            and capability.service_instance == self._service_instance
+            and capability.owner_id == self.owner_id
+            and capability.nonce in self._issued,
+            "owner capability required",
+        )
+        require(
+            capability.generation == self._generation_locked(), "stale owner capability"
+        )
+        return capability
+
+    def _policy_change(self, capability: object, update: Callable[[int], None]) -> None:
+        with self._lock:
+            self._connection.execute("BEGIN IMMEDIATE")
+            try:
+                self._check_capability_locked(capability)
+                generation = self._generation_locked() + 1
+                update(generation)
+                self._connection.execute(
+                    "UPDATE authority_state SET policy_generation=? WHERE singleton=1",
+                    (generation,),
+                )
+                self._connection.execute("COMMIT")
+            except Exception:
+                self._connection.execute("ROLLBACK")
+                raise
+
+    def grant_consent(
+        self, capability: object, *, provider: str, operation: str
+    ) -> None:
+        require(
+            provider in ACTIVE_PROVIDERS and operation == "semantic_graph",
+            "provider consent",
+        )
+
+        def update(generation: int) -> None:
+            self._connection.execute(
+                "UPDATE consents SET active=1,operation=?,imported_audit=0,generation=? "
+                "WHERE provider=?",
+                (operation, generation, provider),
+            )
+            self._connection.execute(
+                "INSERT INTO events(kind,provider,generation) VALUES('consent',?,?)",
+                (provider, generation),
+            )
+
+        self._policy_change(capability, update)
+
+    def revoke_consent(self, capability: object, *, provider: str) -> None:
+        require(provider in ACTIVE_PROVIDERS, "provider")
+
+        def update(generation: int) -> None:
+            row = self._connection.execute(
+                "SELECT active FROM consents WHERE provider=?", (provider,)
+            ).fetchone()
+            require(row is not None and row["active"] == 1, "active consent required")
+            self._connection.execute(
+                "UPDATE consents SET active=0,generation=? WHERE provider=?",
+                (generation, provider),
+            )
+            self._connection.execute(
+                "INSERT INTO events(kind,provider,generation) VALUES('revoke',?,?)",
+                (provider, generation),
+            )
+
+        self._policy_change(capability, update)
+        with self._lock:
+            handles = [
+                handle
+                for active_provider, handle in self._inflight.values()
+                if active_provider == provider
+            ]
+        for handle in handles:
+            cancel = getattr(handle, "cancel", None)
+            if callable(cancel):
+                cancel()
+
+    def exclude_source(self, capability: object, *, note_id: str) -> None:
+        def update(generation: int) -> None:
+            changed = self._connection.execute(
+                "UPDATE sources SET excluded=1 WHERE note_id=?", (note_id,)
+            ).rowcount
+            require(changed == 1, "source")
+            self._connection.execute(
+                "INSERT INTO events(kind,generation) VALUES('exclude',?)", (generation,)
+            )
+
+        self._policy_change(capability, update)
+
+    def observe_revision(self, note_id: str, revision_id: str) -> None:
+        require(isinstance(revision_id, str) and bool(revision_id), "revision")
+        with self._lock:
+            changed = self._connection.execute(
+                "UPDATE sources SET revision_id=? WHERE note_id=?",
+                (revision_id, note_id),
+            ).rowcount
+            require(changed == 1, "source")
+
+    @staticmethod
+    def _validate_limits(
+        *, max_output_bytes: object, timeout_seconds: object
+    ) -> tuple[int, int]:
+        require(
+            type(max_output_bytes) is int and 0 < max_output_bytes <= MAX_OUTPUT_BYTES,
+            "output limit",
+        )
+        require(
+            type(timeout_seconds) is int and 0 < timeout_seconds <= MAX_ATTEMPT_SECONDS,
+            "attempt time limit",
+        )
+        return max_output_bytes, timeout_seconds
+
+    def _validate_selection_locked(
+        self,
+        provider: str,
+        operation: str,
+        selected_sources: tuple[SelectedSource, ...],
+    ) -> tuple[str, str]:
+        require(provider in ACTIVE_PROVIDERS, "active provider")
+        require(operation == "semantic_graph", "operation")
+        consent = self._connection.execute(
+            "SELECT active,operation FROM consents WHERE provider=?", (provider,)
+        ).fetchone()
+        require(
+            consent is not None
+            and consent["active"] == 1
+            and consent["operation"] == operation,
+            "active consent required",
+        )
+        require(
+            isinstance(selected_sources, tuple)
+            and 0 < len(selected_sources) <= 64
+            and all(isinstance(item, SelectedSource) for item in selected_sources),
+            "selected sources",
+        )
+        seen = set()
+        prompt_sources = []
+        for selected in selected_sources:
+            require(selected.note_id not in seen, "duplicate selected source")
+            seen.add(selected.note_id)
+            row = self._connection.execute(
+                "SELECT * FROM sources WHERE note_id=?", (selected.note_id,)
+            ).fetchone()
+            require(row is not None and row["active"] == 1, "active source required")
+            require(row["excluded"] == 0, "excluded source")
+            require(row["revision_id"] == selected.revision_id, "stale source revision")
+            require(row["privacy_digest"] == selected.privacy_digest, "privacy binding")
+            require(digest(row["body"].encode()) == row["body_digest"], "body binding")
+            privacy = json.loads(row["privacy_json"])
+            require(digest(privacy) == row["privacy_digest"], "privacy binding")
+            require(
+                privacy.get("tier") == "personal"
+                and privacy.get("reason") == "personal_local_only"
+                and privacy.get("authority")
+                == {"cloud": False, "external_egress": False},
+                "source privacy denied",
+            )
+            prompt_sources.append(
+                {
+                    "source": f"source-{len(prompt_sources) + 1}",
+                    "body": row["body"],
+                }
+            )
+        selections_json = canonical(
+            [item.as_dict() for item in selected_sources]
+        ).decode()
+        prompt = canonical(
+            {"operation": operation, "selected_sources": prompt_sources}
+        ).decode()
+        require(len(prompt.encode()) <= MAX_INPUT_BYTES, "input limit")
+        require(not has_redaction_finding(prompt), "redaction finding")
+        return selections_json, prompt
+
+    def reserve(
+        self,
+        capability: object,
+        *,
+        probe_id: str,
+        provider: str,
+        adapter_identity: str,
+        operation: str,
+        selected_sources: tuple[SelectedSource, ...],
+        max_output_bytes: int,
+        timeout_seconds: int,
+        prompt: object | None = None,
+    ) -> str:
+        require(prompt is None, "caller prompt forbidden")
+        max_output_bytes, timeout_seconds = self._validate_limits(
+            max_output_bytes=max_output_bytes,
+            timeout_seconds=timeout_seconds,
+        )
+        require(isinstance(probe_id, str) and bool(probe_id), "probe identity")
+        require(
+            isinstance(adapter_identity, str)
+            and adapter_identity.startswith(provider + ":")
+            and bool(adapter_identity.removeprefix(provider + ":")),
+            "adapter identity",
+        )
+        with self._lock:
+            require(not self._stopping and not self._closed, "authority stopping")
+            self._connection.execute("BEGIN IMMEDIATE")
+            try:
+                self._check_capability_locked(capability)
+                selections_json, assembled_prompt = self._validate_selection_locked(
+                    provider, operation, selected_sources
+                )
+                placeholders = ",".join("?" for _ in CHARGED_STATUSES)
+                probe = self._connection.execute(
+                    f"SELECT COUNT(*),COALESCE(SUM(timeout_seconds),0) FROM attempts "
+                    f"WHERE probe_id=? AND status IN ({placeholders})",
+                    (probe_id, *CHARGED_STATUSES),
+                ).fetchone()
+                require(probe[0] < MAX_PROBE_ATTEMPTS, "probe attempt cap")
+                require(
+                    probe[1] + timeout_seconds <= MAX_PROBE_SECONDS, "probe time cap"
+                )
+                path_count = self._connection.execute(
+                    f"SELECT COUNT(*) FROM attempts WHERE provider=? "
+                    f"AND status IN ({placeholders})",
+                    (provider, *CHARGED_STATUSES),
+                ).fetchone()[0]
+                total = self._connection.execute(
+                    f"SELECT COUNT(*) FROM attempts WHERE status IN ({placeholders})",
+                    CHARGED_STATUSES,
+                ).fetchone()[0]
+                require(
+                    path_count < MAX_PATH_ATTEMPTS
+                    and total < MAX_ACTIVE_ATTEMPTS
+                    and total < MAX_OUTER_ATTEMPTS,
+                    "attempt cap",
+                )
+                reservation_id = f"attempt_{uuid.uuid4()}"
+                generation = self._generation_locked()
+                self._connection.execute(
+                    "INSERT INTO attempts VALUES(?,?,?,?,?,?,?,?,?,?,?,?,NULL)",
+                    (
+                        reservation_id,
+                        probe_id,
+                        provider,
+                        adapter_identity,
+                        operation,
+                        selections_json,
+                        digest(assembled_prompt.encode()),
+                        len(assembled_prompt.encode()),
+                        max_output_bytes,
+                        timeout_seconds,
+                        generation,
+                        "reserved",
+                    ),
+                )
+                self._connection.execute(
+                    "INSERT INTO events(kind,reservation_id,provider,generation) "
+                    "VALUES('reserve',?,?,?)",
+                    (reservation_id, provider, generation),
+                )
+                self._connection.execute("COMMIT")
+                return reservation_id
+            except Exception:
+                self._connection.execute("ROLLBACK")
+                raise
+
+    def _credential_preflight(
+        self,
+        *,
+        capability: object,
+        reservation_id: str,
+        provider: str,
+        adapter_identity: str,
+        operation: str,
+        selected_sources: tuple[SelectedSource, ...],
+        prompt: object | None,
+    ) -> sqlite3.Row:
+        """Authorize one content-free credential lookup without recording intent."""
+        require(prompt is None, "caller prompt forbidden")
+        with self._lock:
+            require(
+                reservation_id not in self._credential_preflights,
+                "credential preflight active",
+            )
+            self._connection.execute("BEGIN IMMEDIATE")
+            row = None
+            try:
+                row = self._connection.execute(
+                    "SELECT * FROM attempts WHERE reservation_id=?", (reservation_id,)
+                ).fetchone()
+                require(row is not None and row["status"] == "reserved", "reservation")
+                require(not self._stopping and not self._closed, "authority stopping")
+                self._check_capability_locked(capability)
+                selections_json, assembled_prompt = self._validate_selection_locked(
+                    provider, operation, selected_sources
+                )
+                require(
+                    row["provider"] == provider
+                    and row["adapter_identity"] == adapter_identity
+                    and row["operation"] == operation
+                    and row["selections_json"] == selections_json
+                    and row["prompt_sha256"] == digest(assembled_prompt.encode())
+                    and row["policy_generation"] == self._generation_locked(),
+                    "reservation binding",
+                )
+                self._credential_preflights.add(reservation_id)
+                self._connection.execute("COMMIT")
+                return row
+            except Rejected:
+                self._credential_preflights.discard(reservation_id)
+                if row is not None and row["status"] == "reserved":
+                    self._connection.execute(
+                        "UPDATE attempts SET status='cancelled' WHERE reservation_id=?",
+                        (reservation_id,),
+                    )
+                    self._connection.execute(
+                        "INSERT INTO events(kind,reservation_id,generation) "
+                        "VALUES('preflight_denied',?,?)",
+                        (reservation_id, self._generation_locked()),
+                    )
+                    self._connection.execute("COMMIT")
+                else:
+                    self._connection.execute("ROLLBACK")
+                raise
+            except Exception:
+                self._credential_preflights.discard(reservation_id)
+                self._connection.execute("ROLLBACK")
+                raise
+
+    def _cancel_unused_credential(self, reservation_id: str) -> None:
+        with self._lock:
+            self._connection.execute("BEGIN IMMEDIATE")
+            try:
+                changed = self._connection.execute(
+                    "UPDATE attempts SET status='cancelled' "
+                    "WHERE reservation_id=? AND status='reserved'",
+                    (reservation_id,),
+                ).rowcount
+                if changed:
+                    self._connection.execute(
+                        "INSERT INTO events(kind,reservation_id,generation) "
+                        "VALUES('credential_unavailable',?,?)",
+                        (reservation_id, self._generation_locked()),
+                    )
+                self._connection.execute("COMMIT")
+            except Exception:
+                self._connection.execute("ROLLBACK")
+                raise
+
+    def release(
+        self,
+        capability: object,
+        *,
+        reservation_id: str,
+        provider: str,
+        adapter_identity: str,
+        operation: str,
+        selected_sources: tuple[SelectedSource, ...],
+        resolve_credential: Callable[[], str],
+        construct_provider: Callable[[str], object],
+        prompt: object | None = None,
+        after_intent: Callable[[], None] | None = None,
+        crash_after_intent: bool = False,
+    ) -> str:
+        started = time.monotonic()
+        row = self._credential_preflight(
+            capability=capability,
+            reservation_id=reservation_id,
+            provider=provider,
+            adapter_identity=adapter_identity,
+            operation=operation,
+            selected_sources=selected_sources,
+            prompt=prompt,
+        )
+        deadline = started + int(row["timeout_seconds"])
+        try:
+            require(time.monotonic() < deadline, "credential deadline")
+            credential = resolve_credential()
+            require(
+                isinstance(credential, str) and bool(credential),
+                "credential unavailable",
+            )
+            require(time.monotonic() < deadline, "credential deadline")
+            row = self._record_intent(
+                capability=capability,
+                reservation_id=reservation_id,
+                provider=provider,
+                adapter_identity=adapter_identity,
+                operation=operation,
+                selected_sources=selected_sources,
+                prompt=prompt,
+            )
+        except BaseException:
+            self._cancel_unused_credential(reservation_id)
+            raise
+        finally:
+            with self._lock:
+                self._credential_preflights.discard(reservation_id)
+        del row
+        if after_intent is not None:
+            after_intent()
+        if crash_after_intent:
+            raise SimulatedCrash("crash after durable dispatch intent")
+        handle, row = self._handoff(
+            capability=capability,
+            reservation_id=reservation_id,
+            provider=provider,
+            adapter_identity=adapter_identity,
+            operation=operation,
+            selected_sources=selected_sources,
+            credential=credential,
+            construct_provider=construct_provider,
+        )
+        try:
+            wait = getattr(handle, "wait", None)
+            require(
+                callable(wait) and not inspect.iscoroutinefunction(wait),
+                "provider handoff",
+            )
+            reply = wait()
+            output_bytes = self._validate_reply(reply, row)
+        except Exception:
+            self._finalize(reservation_id, "failed", None)
+            with self._lock:
+                self._inflight.pop(reservation_id, None)
+            raise
+        try:
+            self._publish(reservation_id, selected_sources, output_bytes)
+            return reply.text
+        finally:
+            with self._lock:
+                self._inflight.pop(reservation_id, None)
+
+    def _record_intent(
+        self,
+        *,
+        capability: object,
+        reservation_id: str,
+        provider: str,
+        adapter_identity: str,
+        operation: str,
+        selected_sources: tuple[SelectedSource, ...],
+        prompt: object | None,
+    ) -> sqlite3.Row:
+        require(prompt is None, "caller prompt forbidden")
+        with self._lock:
+            self._connection.execute("BEGIN IMMEDIATE")
+            row = None
+            try:
+                row = self._connection.execute(
+                    "SELECT * FROM attempts WHERE reservation_id=?", (reservation_id,)
+                ).fetchone()
+                require(row is not None and row["status"] == "reserved", "reservation")
+                require(not self._stopping and not self._closed, "authority stopping")
+                self._check_capability_locked(capability)
+                selections_json, assembled_prompt = self._validate_selection_locked(
+                    provider, operation, selected_sources
+                )
+                require(
+                    row["provider"] == provider
+                    and row["adapter_identity"] == adapter_identity
+                    and row["operation"] == operation
+                    and row["selections_json"] == selections_json
+                    and row["prompt_sha256"] == digest(assembled_prompt.encode()),
+                    "reservation binding",
+                )
+                require(
+                    row["policy_generation"] == self._generation_locked(),
+                    "stale reservation policy",
+                )
+                self._connection.execute(
+                    "UPDATE attempts SET status='intent' WHERE reservation_id=?",
+                    (reservation_id,),
+                )
+                self._connection.execute(
+                    "INSERT INTO events(kind,reservation_id,provider,generation) "
+                    "VALUES('dispatch_intent',?,?,?)",
+                    (reservation_id, provider, self._generation_locked()),
+                )
+                self._connection.execute("COMMIT")
+                return row
+            except Rejected:
+                if row is not None and row["status"] == "reserved":
+                    self._connection.execute(
+                        "UPDATE attempts SET status='cancelled' WHERE reservation_id=?",
+                        (reservation_id,),
+                    )
+                    self._connection.execute(
+                        "INSERT INTO events(kind,reservation_id,generation) VALUES('cancel',?,?)",
+                        (reservation_id, self._generation_locked()),
+                    )
+                    self._connection.execute("COMMIT")
+                else:
+                    self._connection.execute("ROLLBACK")
+                raise
+            except Exception:
+                self._connection.execute("ROLLBACK")
+                raise
+
+    @staticmethod
+    def _validate_reply(reply: object, row: sqlite3.Row) -> int:
+        require(
+            isinstance(reply, ProviderReply)
+            and isinstance(reply.text, str)
+            and type(reply.elapsed_seconds) in {int, float}
+            and 0 <= reply.elapsed_seconds <= row["timeout_seconds"]
+            and reply.elapsed_seconds <= MAX_ATTEMPT_SECONDS,
+            "attempt timeout",
+        )
+        output_bytes = len(reply.text.encode())
+        require(output_bytes <= row["max_output_bytes"], "output limit")
+        return output_bytes
+
+    async def release_async(
+        self,
+        capability: object,
+        *,
+        reservation_id: str,
+        provider: str,
+        adapter_identity: str,
+        operation: str,
+        selected_sources: tuple[SelectedSource, ...],
+        resolve_credential: Callable[[], object],
+        construct_provider: Callable[[str, float], object],
+        prompt: object | None = None,
+        after_intent: Callable[[], None] | None = None,
+        crash_after_intent: bool = False,
+    ) -> str:
+        owner = asyncio.current_task()
+        require(owner is not None, "release task")
+        with self._lock:
+            require(not self._stopping and not self._closed, "authority stopping")
+            self._owners.add(owner)
+        try:
+            return await self._release_async_owned(
+                capability,
+                reservation_id=reservation_id,
+                provider=provider,
+                adapter_identity=adapter_identity,
+                operation=operation,
+                selected_sources=selected_sources,
+                resolve_credential=resolve_credential,
+                construct_provider=construct_provider,
+                prompt=prompt,
+                after_intent=after_intent,
+                crash_after_intent=crash_after_intent,
+            )
+        finally:
+            with self._lock:
+                self._owners.discard(owner)
+
+    async def _release_async_owned(
+        self,
+        capability: object,
+        *,
+        reservation_id: str,
+        provider: str,
+        adapter_identity: str,
+        operation: str,
+        selected_sources: tuple[SelectedSource, ...],
+        resolve_credential: Callable[[], object],
+        construct_provider: Callable[[str, float], object],
+        prompt: object | None = None,
+        after_intent: Callable[[], None] | None = None,
+        crash_after_intent: bool = False,
+    ) -> str:
+        started = time.monotonic()
+        row = self._credential_preflight(
+            capability=capability,
+            reservation_id=reservation_id,
+            provider=provider,
+            adapter_identity=adapter_identity,
+            operation=operation,
+            selected_sources=selected_sources,
+            prompt=prompt,
+        )
+        deadline = started + int(row["timeout_seconds"])
+        try:
+            require(time.monotonic() < deadline, "credential deadline")
+            resolved = resolve_credential()
+            if inspect.isawaitable(resolved):
+                async with asyncio.timeout_at(deadline):
+                    credential = await resolved
+            else:
+                credential = resolved
+            require(
+                isinstance(credential, str) and bool(credential),
+                "credential unavailable",
+            )
+            require(time.monotonic() < deadline, "credential deadline")
+            row = self._record_intent(
+                capability=capability,
+                reservation_id=reservation_id,
+                provider=provider,
+                adapter_identity=adapter_identity,
+                operation=operation,
+                selected_sources=selected_sources,
+                prompt=prompt,
+            )
+        except BaseException:
+            self._cancel_unused_credential(reservation_id)
+            raise
+        finally:
+            with self._lock:
+                self._credential_preflights.discard(reservation_id)
+        if after_intent is not None:
+            after_intent()
+        if crash_after_intent:
+            raise SimulatedCrash("crash after durable dispatch intent")
+
+        handle = None
+        wait_task = None
+        try:
+
+            def construct(value: str) -> object:
+                return construct_provider(value, deadline)
+
+            handle, row = self._handoff(
+                capability=capability,
+                reservation_id=reservation_id,
+                provider=provider,
+                adapter_identity=adapter_identity,
+                operation=operation,
+                selected_sources=selected_sources,
+                credential=credential,
+                construct_provider=construct,
+            )
+            wait = getattr(handle, "wait", None)
+            require(
+                callable(wait) and inspect.iscoroutinefunction(wait),
+                "async provider handoff",
+            )
+            wait_task = asyncio.create_task(wait(), name="c27-authority-wait")
+            async with asyncio.timeout_at(deadline):
+                await asyncio.wait({wait_task})
+                reply = wait_task.result()
+            output_bytes = self._validate_reply(reply, row)
+            require(time.monotonic() <= deadline, "attempt timeout")
+        except Superseded:
+            if handle is not None:
+                handle.cancel()
+            self._finalize_if_active(reservation_id, "superseded", None)
+            with self._lock:
+                self._inflight.pop(reservation_id, None)
+            raise
+        except (Exception, asyncio.CancelledError) as error:
+            interrupted = isinstance(error, asyncio.CancelledError)
+            if handle is not None:
+                handle.cancel()
+            settled = wait_task is None or wait_task.done()
+            try:
+                if wait_task is not None:
+                    settled, cleanup_interrupted = await self._settle_async_wait(
+                        wait_task, deadline, cancel=handle is None
+                    )
+                    interrupted |= cleanup_interrupted
+            finally:
+                if settled:
+                    self._finalize_if_active(reservation_id, "failed", None)
+                    with self._lock:
+                        self._inflight.pop(reservation_id, None)
+                else:
+                    self._mark_cleanup_incomplete(reservation_id)
+                    self._schedule_reaper(reservation_id, handle, wait_task)
+            if interrupted:
+                raise asyncio.CancelledError("authority release cancelled") from error
+            raise
+        try:
+            self._publish(
+                reservation_id, selected_sources, output_bytes, deadline=deadline
+            )
+            return reply.text
+        finally:
+            with self._lock:
+                self._inflight.pop(reservation_id, None)
+
+    def recheck_release(
+        self,
+        capability: object,
+        *,
+        reservation_id: str,
+        provider: str,
+        adapter_identity: str,
+        operation: str,
+        selected_sources: tuple[SelectedSource, ...],
+    ) -> None:
+        """Serialized current-authority check immediately before content release."""
+        with self._lock:
+            row = self._connection.execute(
+                "SELECT * FROM attempts WHERE reservation_id=?", (reservation_id,)
+            ).fetchone()
+            try:
+                require(not self._stopping and not self._closed, "authority stopping")
+                require(
+                    row is not None and row["status"] == "handed_off", "release handoff"
+                )
+                self._check_capability_locked(capability)
+                selections_json, assembled_prompt = self._validate_selection_locked(
+                    provider, operation, selected_sources
+                )
+                require(
+                    row["provider"] == provider
+                    and row["adapter_identity"] == adapter_identity
+                    and row["operation"] == operation
+                    and row["selections_json"] == selections_json
+                    and row["prompt_sha256"] == digest(assembled_prompt.encode())
+                    and row["policy_generation"] == self._generation_locked(),
+                    "stale content release",
+                )
+            except Rejected:
+                raise Superseded("stale content release") from None
+
+    @staticmethod
+    async def _settle_async_wait(
+        wait_task: asyncio.Task, deadline: float, *, cancel: bool
+    ) -> tuple[bool, bool]:
+        """Attempt owned wait cleanup despite repeated owner cancellation."""
+        interrupted = False
+        if cancel and not wait_task.done():
+            wait_task.cancel()
+        while not wait_task.done():
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                break
+            try:
+                await asyncio.wait({wait_task}, timeout=remaining)
+            except asyncio.CancelledError:
+                interrupted = True
+                asyncio.current_task().uncancel()
+        if cancel and not wait_task.done():
+            wait_task.cancel()
+        for _ in range(4):
+            if wait_task.done():
+                break
+            try:
+                await asyncio.sleep(0)
+            except asyncio.CancelledError:
+                interrupted = True
+                asyncio.current_task().uncancel()
+        if wait_task.done() and not wait_task.cancelled():
+            wait_task.exception()
+        return wait_task.done(), interrupted
+
+    def _schedule_reaper(
+        self, reservation_id: str, handle: object, wait_task: asyncio.Task
+    ) -> None:
+        async def reap() -> None:
+            while not wait_task.done():
+                try:
+                    await asyncio.wait({wait_task})
+                except asyncio.CancelledError:
+                    asyncio.current_task().uncancel()
+                    handle.cancel()
+            if wait_task.done() and not wait_task.cancelled():
+                wait_task.exception()
+            self._complete_cleanup(reservation_id)
+
+        reaper = asyncio.create_task(reap(), name="c27-authority-reaper")
+        with self._lock:
+            self._reapers[reservation_id] = reaper
+            self._owners.add(reaper)
+
+    def _mark_cleanup_incomplete(self, reservation_id: str) -> None:
+        self._finalize_if_active(reservation_id, "cleanup_incomplete", None)
+
+    def _complete_cleanup(self, reservation_id: str) -> None:
+        with self._lock:
+            self._connection.execute("BEGIN IMMEDIATE")
+            try:
+                changed = self._connection.execute(
+                    "UPDATE attempts SET status='failed' "
+                    "WHERE reservation_id=? AND status='cleanup_incomplete'",
+                    (reservation_id,),
+                ).rowcount
+                if changed:
+                    self._connection.execute(
+                        "INSERT INTO events(kind,reservation_id,generation) "
+                        "VALUES('failed',?,?)",
+                        (reservation_id, self._generation_locked()),
+                    )
+                self._connection.execute("COMMIT")
+            except Exception:
+                self._connection.execute("ROLLBACK")
+                raise
+            else:
+                self._inflight.pop(reservation_id, None)
+                reaper = self._reapers.pop(reservation_id, None)
+                if reaper is not None:
+                    self._owners.discard(reaper)
+
+    def _handoff(
+        self,
+        *,
+        capability: object,
+        reservation_id: str,
+        provider: str,
+        adapter_identity: str,
+        operation: str,
+        selected_sources: tuple[SelectedSource, ...],
+        credential: str,
+        construct_provider: Callable[[str], object],
+    ) -> tuple[object, sqlite3.Row]:
+        with self._lock:
+            self._connection.execute("BEGIN IMMEDIATE")
+            row = None
+            handle = None
+            try:
+                row = self._connection.execute(
+                    "SELECT * FROM attempts WHERE reservation_id=?", (reservation_id,)
+                ).fetchone()
+                require(
+                    row is not None and row["status"] == "intent", "dispatch intent"
+                )
+                require(not self._stopping and not self._closed, "authority stopping")
+                self._check_capability_locked(capability)
+                selections_json, assembled_prompt = self._validate_selection_locked(
+                    provider, operation, selected_sources
+                )
+                require(
+                    row["provider"] == provider
+                    and row["adapter_identity"] == adapter_identity
+                    and row["operation"] == operation
+                    and row["selections_json"] == selections_json
+                    and row["prompt_sha256"] == digest(assembled_prompt.encode())
+                    and row["policy_generation"] == self._generation_locked(),
+                    "stale pre-handoff decision",
+                )
+                adapter = construct_provider(credential)
+                start = getattr(adapter, "start", None)
+                require(callable(start), "provider construction")
+                handle = start(
+                    assembled_prompt,
+                    timeout_seconds=int(row["timeout_seconds"]),
+                    max_output_bytes=int(row["max_output_bytes"]),
+                )
+                require(
+                    callable(getattr(handle, "wait", None))
+                    and callable(getattr(handle, "cancel", None)),
+                    "provider handoff",
+                )
+                self._inflight[reservation_id] = (provider, handle)
+                self._connection.execute(
+                    "UPDATE attempts SET status='handed_off' WHERE reservation_id=?",
+                    (reservation_id,),
+                )
+                self._connection.execute(
+                    "INSERT INTO events(kind,reservation_id,provider,generation) "
+                    "VALUES('provider_handoff',?,?,?)",
+                    (reservation_id, provider, self._generation_locked()),
+                )
+                self._connection.execute("COMMIT")
+                return handle, row
+            except Rejected:
+                if handle is None and row is not None and row["status"] == "intent":
+                    self._connection.execute(
+                        "UPDATE attempts SET status='cancelled' WHERE reservation_id=?",
+                        (reservation_id,),
+                    )
+                    self._connection.execute(
+                        "INSERT INTO events(kind,reservation_id,generation) "
+                        "VALUES('pre_handoff_denied',?,?)",
+                        (reservation_id, self._generation_locked()),
+                    )
+                    self._connection.execute("COMMIT")
+                else:
+                    self._connection.execute("ROLLBACK")
+                    if handle is not None:
+                        handle.cancel()
+                raise
+            except Exception:
+                self._connection.execute("ROLLBACK")
+                if handle is not None:
+                    handle.cancel()
+                self._finalize(reservation_id, "failed", None)
+                raise
+
+    def _publish(
+        self,
+        reservation_id: str,
+        selected_sources: tuple[SelectedSource, ...],
+        output_bytes: int,
+        *,
+        deadline: float | None = None,
+    ) -> None:
+        with self._lock:
+            self._connection.execute("BEGIN IMMEDIATE")
+            try:
+                row = self._connection.execute(
+                    "SELECT * FROM attempts WHERE reservation_id=?", (reservation_id,)
+                ).fetchone()
+                require(
+                    row is not None and row["status"] == "handed_off",
+                    "attempt publication",
+                )
+                try:
+                    require(
+                        (deadline is None or time.monotonic() <= deadline)
+                        and row["policy_generation"] == self._generation_locked(),
+                        "late publication denied",
+                    )
+                    self._validate_selection_locked(
+                        row["provider"], row["operation"], selected_sources
+                    )
+                    require(
+                        deadline is None or time.monotonic() <= deadline,
+                        "late publication denied",
+                    )
+                except Rejected:
+                    self._connection.execute(
+                        "UPDATE attempts SET status='superseded' WHERE reservation_id=?",
+                        (reservation_id,),
+                    )
+                    self._connection.execute(
+                        "INSERT INTO events(kind,reservation_id,generation) "
+                        "VALUES('superseded',?,?)",
+                        (reservation_id, self._generation_locked()),
+                    )
+                    self._connection.execute("COMMIT")
+                    raise Rejected("late publication denied") from None
+                self._connection.execute(
+                    "UPDATE attempts SET status='succeeded',output_bytes=? WHERE reservation_id=?",
+                    (output_bytes, reservation_id),
+                )
+                self._connection.execute(
+                    "INSERT INTO events(kind,reservation_id,generation) VALUES('succeeded',?,?)",
+                    (reservation_id, self._generation_locked()),
+                )
+                self._connection.execute("COMMIT")
+            except Rejected:
+                if self._connection.in_transaction:
+                    self._connection.execute("ROLLBACK")
+                raise
+            except Exception:
+                self._connection.execute("ROLLBACK")
+                raise
+
+    def _finalize(
+        self, reservation_id: str, status: str, output_bytes: int | None
+    ) -> None:
+        with self._lock:
+            self._connection.execute("BEGIN IMMEDIATE")
+            try:
+                changed = self._connection.execute(
+                    "UPDATE attempts SET status=?,output_bytes=? "
+                    "WHERE reservation_id=? AND status IN ('intent','handed_off')",
+                    (status, output_bytes, reservation_id),
+                ).rowcount
+                require(changed == 1, "attempt finalization")
+                self._connection.execute(
+                    "INSERT INTO events(kind,reservation_id,generation) VALUES(?,?,?)",
+                    (status, reservation_id, self._generation_locked()),
+                )
+                self._connection.execute("COMMIT")
+            except Exception:
+                self._connection.execute("ROLLBACK")
+                raise
+
+    def _finalize_if_active(
+        self, reservation_id: str, status: str, output_bytes: int | None
+    ) -> None:
+        with self._lock:
+            self._connection.execute("BEGIN IMMEDIATE")
+            try:
+                changed = self._connection.execute(
+                    "UPDATE attempts SET status=?,output_bytes=? "
+                    "WHERE reservation_id=? AND status IN ('intent','handed_off')",
+                    (status, output_bytes, reservation_id),
+                ).rowcount
+                if changed:
+                    self._connection.execute(
+                        "INSERT INTO events(kind,reservation_id,generation) VALUES(?,?,?)",
+                        (status, reservation_id, self._generation_locked()),
+                    )
+                self._connection.execute("COMMIT")
+            except Exception:
+                self._connection.execute("ROLLBACK")
+                raise
+
+    def snapshot(self) -> dict[str, Any]:
+        with self._lock:
+            sources = [
+                {
+                    "note_id": row["note_id"],
+                    "revision_id": row["revision_id"],
+                    "body": row["body"],
+                    "body_digest": row["body_digest"],
+                    "privacy": json.loads(row["privacy_json"]),
+                    "privacy_digest": row["privacy_digest"],
+                }
+                for row in self._connection.execute(
+                    "SELECT * FROM sources ORDER BY note_id"
+                )
+            ]
+            attempts = [
+                dict(row)
+                for row in self._connection.execute(
+                    "SELECT reservation_id,probe_id,provider,status,input_bytes,max_output_bytes,"
+                    "timeout_seconds,policy_generation,output_bytes FROM attempts ORDER BY rowid"
+                )
+            ]
+            consents = {
+                row["provider"]: bool(row["active"])
+                for row in self._connection.execute(
+                    "SELECT provider,active FROM consents"
+                )
+            }
+            return {
+                "owner_id": self.owner_id,
+                "policy_generation": self._generation_locked(),
+                "sources": sources,
+                "consents": consents,
+                "attempts": attempts,
+                "charged_attempts": sum(
+                    attempt["status"] in CHARGED_STATUSES for attempt in attempts
+                ),
+                "events": [
+                    dict(row)
+                    for row in self._connection.execute(
+                        "SELECT sequence,kind,reservation_id,provider,generation "
+                        "FROM events ORDER BY sequence"
+                    )
+                ],
+            }

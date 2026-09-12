@@ -1,0 +1,151 @@
+from __future__ import annotations
+
+import asyncio
+import sqlite3
+import threading
+import unittest
+
+import authority_gate as authority
+import test_authority_gate as support
+
+
+class PreflightCloseTests(unittest.IsolatedAsyncioTestCase):
+    def setUp(self) -> None:
+        self.case = support.AuthorityGateTests()
+        self.case.setUp()
+
+    def tearDown(self) -> None:
+        self.case.tearDown()
+
+    def test_reentrant_sync_close_refuses_and_release_finishes(self) -> None:
+        capability = self.case.authorize()
+        reservation = self.case.reserve(capability)
+        outcomes = []
+
+        def close_during_resolution() -> None:
+            with self.assertRaisesRegex(authority.Rejected, "active cleanup ownership"):
+                self.case.gate.close()
+            outcomes.append("refused")
+
+        access = support.FakeAccess(on_resolve=close_during_resolution)
+        result = self.case.release(capability, reservation, access)
+        self.assertEqual(result, '{"edges":[]}')
+        self.assertEqual(outcomes, ["refused"])
+        self.assertEqual(access.calls, (1, 1, 1))
+
+    async def test_async_close_refuses_while_sync_preflight_is_active(self) -> None:
+        capability = self.case.authorize()
+        reservation = self.case.reserve(capability)
+        started = threading.Event()
+        proceed = threading.Event()
+        errors = []
+
+        def hold_resolution() -> None:
+            started.set()
+            self.assertTrue(proceed.wait(2))
+
+        access = support.FakeAccess(on_resolve=hold_resolution)
+
+        def release() -> None:
+            try:
+                self.case.release(capability, reservation, access)
+            except authority.Rejected as error:
+                errors.append(error)
+
+        owner = threading.Thread(target=release)
+        owner.start()
+        self.assertTrue(started.wait(1))
+        try:
+            with self.assertRaisesRegex(authority.Rejected, "active credential preflight"):
+                await self.case.gate.aclose()
+            self.assertFalse(self.case.gate._closed)
+        finally:
+            proceed.set()
+            owner.join(2)
+        self.assertFalse(owner.is_alive())
+        self.assertEqual(len(errors), 1)
+        self.assertIsInstance(errors[0], authority.Rejected)
+        self.assertEqual(access.calls, (1, 0, 0))
+        self.assertEqual(self.case.gate.snapshot()["attempts"][0]["status"], "cancelled")
+        await self.case.gate.aclose()
+
+    async def test_aclose_bounded_drains_cooperative_async_preflight(self) -> None:
+        capability = self.case.authorize()
+        reservation = self.case.reserve(capability, timeout_seconds=1)
+        started = asyncio.Event()
+        proceed = asyncio.Event()
+        cleaned = asyncio.Event()
+        constructions = []
+
+        async def resolver() -> str:
+            started.set()
+            try:
+                await proceed.wait()
+                return "synthetic"
+            finally:
+                cleaned.set()
+
+        owner = asyncio.create_task(
+            self.case.gate.release_async(
+                capability,
+                reservation_id=reservation,
+                provider="openai_api",
+                adapter_identity="openai_api:synthetic-v1",
+                operation="semantic_graph",
+                selected_sources=self.case.selected(),
+                resolve_credential=resolver,
+                construct_provider=lambda *_: constructions.append(True),
+            )
+        )
+        await started.wait()
+        closer = asyncio.create_task(self.case.gate.aclose())
+        await asyncio.sleep(0)
+        self.assertEqual(owner.cancelling(), 0)
+        proceed.set()
+        outcome = await asyncio.gather(owner, return_exceptions=True)
+        await closer
+
+        self.assertIsInstance(outcome[0], authority.Rejected)
+        self.assertTrue(cleaned.is_set())
+        self.assertEqual(constructions, [])
+        self.assertTrue(self.case.gate._closed)
+        with sqlite3.connect(self.case.root / "authority.sqlite") as connection:
+            status = connection.execute(
+                "SELECT status FROM attempts WHERE reservation_id=?", (reservation,)
+            ).fetchone()[0]
+            intents = connection.execute(
+                "SELECT COUNT(*) FROM events WHERE kind='dispatch_intent'"
+            ).fetchone()[0]
+        self.assertEqual(status, "cancelled")
+        self.assertEqual(intents, 0)
+
+    async def test_reentrant_async_close_refuses_without_stopping_gate(self) -> None:
+        capability = self.case.authorize()
+        reservation = self.case.reserve(capability, timeout_seconds=1)
+        close_outcomes = []
+
+        async def resolver() -> str:
+            with self.assertRaisesRegex(authority.Rejected, "reentrant authority close"):
+                await self.case.gate.aclose()
+            close_outcomes.append("refused")
+            return ""
+
+        with self.assertRaisesRegex(authority.Rejected, "credential unavailable"):
+            await self.case.gate.release_async(
+                capability,
+                reservation_id=reservation,
+                provider="openai_api",
+                adapter_identity="openai_api:synthetic-v1",
+                operation="semantic_graph",
+                selected_sources=self.case.selected(),
+                resolve_credential=resolver,
+                construct_provider=lambda *_: self.fail("no provider is allowed"),
+            )
+        self.assertEqual(close_outcomes, ["refused"])
+        self.assertFalse(self.case.gate._stopping)
+        self.assertFalse(self.case.gate._closed)
+        self.assertEqual(self.case.gate.snapshot()["attempts"][0]["status"], "cancelled")
+
+
+if __name__ == "__main__":
+    unittest.main(verbosity=2)

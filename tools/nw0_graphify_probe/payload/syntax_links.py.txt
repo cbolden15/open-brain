@@ -1,0 +1,136 @@
+"""Experimental Markdown token contract. Unsupported syntax rejects extraction."""
+
+from markdown_it import MarkdownIt
+from markdown_it.parser_block import ParserBlock
+from markdown_it.parser_inline import ParserInline
+from mdit_py_plugins.dollarmath import dollarmath_plugin
+
+
+class UnsupportedSyntax(ValueError):
+    pass
+
+
+class BoundedBlock(ParserBlock):
+    def tokenize(self, state, startLine, endLine):
+        if state.level >= state.md.options.maxNesting and startLine < endLine:
+            raise UnsupportedSyntax("block nesting limit reached")
+        return super().tokenize(state, startLine, endLine)
+
+
+class BoundedInline(ParserInline):
+    def tokenize(self, state):
+        if state.level >= state.md.options.maxNesting and state.pos < state.posMax:
+            raise UnsupportedSyntax("inline nesting limit reached")
+        return super().tokenize(state)
+
+    def skipToken(self, state):
+        if state.level >= state.md.options.maxNesting:
+            raise UnsupportedSyntax("inline lookahead nesting limit reached")
+        return super().skipToken(state)
+
+
+def wiki(state, silent):
+    start = state.pos
+    embedded = state.src.startswith("![[", start)
+    opening = start + 1 if embedded else start
+    if not state.src.startswith("[[", opening):
+        return False
+    closing = state.src.find("]]", opening + 2, state.posMax)
+    if closing < 0:
+        return False
+    content = state.src[opening + 2 : closing]
+    # Complex nested or escaped target grammar remains explicitly unsupported.
+    if any(char in content for char in ("\n", "[", "]", "\\")):
+        raise UnsupportedSyntax("unsupported wiki target")
+    target = content.split("|", 1)[0].split("#", 1)[0].strip()
+    if not target:
+        return False
+    if not silent:
+        token = state.push("ob1_embed" if embedded else "ob1_wiki", "", 0)
+        token.content = target
+    state.pos = closing + 2
+    return True
+
+
+def body_references(source):
+    """Return structural target, containing-block start line, wiki flag.
+
+    This bounded subset follows observed Obsidian cache semantics. Returned
+    references include embeds; they are not inference or acceptance receipts.
+    """
+    md = MarkdownIt("commonmark", {"maxNesting": 20})
+    md.block = BoundedBlock()
+    md.inline = BoundedInline()
+    md.disable("reference")
+    md.inline.ruler.before("link", "ob1_wiki", wiki)
+    md.use(
+        dollarmath_plugin,
+        allow_labels=False,
+        allow_space=False,
+        allow_digits=False,
+        allow_blank_lines=True,
+        double_inline=True,
+    )
+    result = []
+    for block in md.parse(source):
+        if block.type != "inline":
+            continue
+        line = block.map[0] + 1
+        in_link = 0
+        for token in block.children or []:
+            if token.type == "link_open":
+                result.append((token.attrGet("href"), line, False))
+                in_link += 1
+            elif token.type == "link_close":
+                in_link -= 1
+            elif token.type == "image":
+                result.append((token.attrGet("src"), line, False))
+            elif token.type in ("ob1_wiki", "ob1_embed") and not in_link:
+                result.append((token.content, line, True))
+    return result
+
+
+def references(source):
+    """Separate typed YAML values from the Markdown body before extracting."""
+    from frontmatter_contract import parse_frontmatter
+    from graphify.extractors.markdown import _split_frontmatter
+
+    values = parse_frontmatter(source)
+    lines = source.splitlines()
+    _, body_start = _split_frontmatter(lines)
+    result = []
+
+    def visit(value):
+        if isinstance(value, dict):
+            for child in value.values():
+                visit(child)
+        elif isinstance(value, list):
+            for child in value:
+                visit(child)
+        elif isinstance(value, str):
+            # Observed property links occupy the entire decoded scalar. Do not
+            # trim it, scan YAML keys/comments, or treat prose/embeds as links.
+            wiki_value = value.startswith("[[") and value.endswith("]]")
+            markdown_value = (
+                value.startswith("[") and not value.startswith("[[") and value.endswith(")")
+            )
+            if not (wiki_value or markdown_value) or "\n" in value:
+                return
+            if wiki_value and (value.count("[[") != 1 or value.count("]]") != 1):
+                raise UnsupportedSyntax("complex property link")
+            if markdown_value and (
+                value.count("](") != 1 or value.count("(") != 1 or value.count(")") != 1
+            ):
+                raise UnsupportedSyntax("complex property link")
+            links = body_references(value)
+            if len(links) != 1:
+                raise UnsupportedSyntax("unclassified property link")
+            target, _, wiki_flag = links[0]
+            result.append((target, 1, wiki_flag))
+
+    visit(values)
+    result.extend(
+        (target, line + body_start, wiki_flag)
+        for target, line, wiki_flag in body_references("\n".join(lines[body_start:]))
+    )
+    return result
