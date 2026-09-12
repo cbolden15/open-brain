@@ -166,7 +166,7 @@ dirty-page spill before abrupt exit. See [SQLite hot-journal recovery](https://s
 
 An interruption before commit leaves the prior committed schema and data intact. A subsequent supported
 write open retries the same pair or pending suffix. A successful current reopen performs no DDL,
-FTS rebuild, ledger timestamp update, or version assignment. There is no automatic downgrade or
+FTS rebuild, migration-history update, or version assignment. There is no automatic downgrade or
 in-place destructive repair command. A failed first creation may leave an empty file; creation
 failure tests must verify cleanup of only the file owned by that attempt, or a bounded diagnostic
 that does not silently adopt an existing empty file on retry.
@@ -211,15 +211,12 @@ Internal FTS rowids may change; public result IDs and deterministic ranking tie-
 | Existing entry point | W5 responsibility |
 | --- | --- |
 | `_LocalStore.__init__`, `connect`, and `transaction` | Use guarded local write-open; remove constructor scripts, ALTER helpers, and `_adopt_live_search` startup behavior. Validate on each connection before ordinary work. |
-| `BrainEngine` and `_ensure_phase1_state_schema` | Keep writer authority checks; remove the independent version bump. SQLite owns migration serialization, including callers without a BrainEngine lease. |
+| `BrainEngine` and `_ensure_phase1_state_schema` | Keep writer-lease checks; remove the independent version bump. SQLite owns migration serialization, including callers without a BrainEngine lease. |
 | `materializer.py` and `portable_index.py` | Their `_LocalStore` creation uses the same migration path. The latter's separate disposable-index connection stays unchanged. |
-| `open_local_read_view`, `_ReadOnlyStore`, and maintenance phase1 reads | Use the same classifier on the connection consumed by the read. Inspect all states without upgrade; retrieval accepts current state only and preserves scoped deny-by-default behavior. |
-| `backup_ports.py` phase1 source/snapshot validation and restored phase1 opening | Reuse local recognition without migrating backup bytes. Historical recognized snapshots remain inspectable; restored writable state migrates through `_LocalStore`. Never copy or invent a ledger during Portable import. |
+| `open_local_read_view`, `_ReadOnlyStore`, and maintenance phase1 reads | Use the same classifier on the connection consumed by the read. Inspect all states without upgrade; retrieval accepts current state only. |
 
-Raw SQLite backup transport and validation are not normal application database openings. Temporary
-backup files are integrity-checked and classified as snapshots, never upgraded in place. Event
-backup inputs, disposable indexes, and the in-memory FTS capability probe do not enter the local
-catalog. Tests should audit phase1 callers, not ban every `sqlite3.connect` in the repository.
+Disposable indexes and the in-memory FTS capability probe do not enter the local catalog. Tests
+should audit phase1 callers, not ban every `sqlite3.connect` in the repository.
 
 Default CLI startup may upgrade through its existing writable engine opening. Explicit read-only
 maintenance and scoped read views remain read-only. Report `absent`, `legacy`, `pre_ledger`,

@@ -10,7 +10,7 @@ from hashlib import sha256
 from html import unescape
 from pathlib import Path
 from types import MappingProxyType
-from typing import Any, NoReturn, Protocol, cast
+from typing import Any, Protocol, cast
 from urllib.parse import unquote
 
 from open_brain_engine.core.ids import canonicalize_source_url, portable_canonical_json_bytes
@@ -95,61 +95,10 @@ class PortabilityFault(StrEnum):
     AFTER_PROMOTION = "after_promotion"
 
 
-class BackupFault(StrEnum):
-    AFTER_STAGE_CREATED = "after_stage_created"
-    AFTER_BACKUP_FILE = "after_backup_file"
-    AFTER_MANIFEST = "after_manifest"
-    BEFORE_PROMOTION = "before_promotion"
-    AFTER_PROMOTION = "after_promotion"
-    AFTER_RESTORE_FILE = "after_restore_file"
-    BEFORE_RESTORE_PROMOTION = "before_restore_promotion"
-    AFTER_RESTORE_PROMOTION = "after_restore_promotion"
-
-
-class MutationAuthorityOwner(StrEnum):
-    APPLIANCE_DAEMON = "appliance_daemon"
-
-
-class MutationTransport(StrEnum):
-    UNIX_DOMAIN_SOCKET = "unix_domain_socket"
-
-
-class DaemonMutationPathUnavailableError(RuntimeError):
-    """The reserved daemon-only mutation path is not active in the current wave."""
-
-
-@dataclass(frozen=True, slots=True)
-class DaemonMutationPath:
-    owner: MutationAuthorityOwner
-    transport: MutationTransport
-    socket_path: Path
-
-    def __post_init__(self) -> None:
-        object.__setattr__(self, "owner", MutationAuthorityOwner(self.owner))
-        object.__setattr__(self, "transport", MutationTransport(self.transport))
-        if not isinstance(self.socket_path, Path) or not self.socket_path.is_absolute():
-            raise ValueError("invalid daemon mutation path")
-
-    @classmethod
-    def reserved(cls, root: Path) -> DaemonMutationPath:
-        if not isinstance(root, Path):
-            raise ValueError("invalid daemon mutation path")
-        return cls(
-            owner=MutationAuthorityOwner.APPLIANCE_DAEMON,
-            transport=MutationTransport.UNIX_DOMAIN_SOCKET,
-            socket_path=root.expanduser().absolute() / ".open-brain" / "run" / "control.sock",
-        )
-
-    def open(self) -> NoReturn:
-        raise DaemonMutationPathUnavailableError(
-            "daemon-only mutation path is reserved until the appliance daemon owns canonical writes"
-        )
-
-
 class InjectedFault(RuntimeError):
     """Synthetic process interruption at one named durable boundary."""
 
-    def __init__(self, point: CaptureFault | PortabilityFault | BackupFault) -> None:
+    def __init__(self, point: CaptureFault | PortabilityFault) -> None:
         self.point = point
         super().__init__(point.value)
 
@@ -592,34 +541,6 @@ class PortabilityReceipt:
             type(self.index_generation) is not int or self.index_generation < 1
         ):
             raise ValueError("invalid portability index generation")
-
-
-@dataclass(frozen=True, slots=True)
-class BackupReceipt:
-    """Bounded public outcome for one engine-owned backup operation."""
-
-    backup_id: str
-    created_at: str
-    manifest_digest_sha256: str
-    status: str
-    portable_files: int
-    sqlite_snapshots: int
-    app_state_files: int
-    duplicate: bool = False
-
-    def __post_init__(self) -> None:
-        _portable_id(self.backup_id, "backup")
-        if not isinstance(self.created_at, str) or not self.created_at:
-            raise ValueError("invalid backup receipt timestamp")
-        if not isinstance(self.manifest_digest_sha256, str) or _HEX64.fullmatch(
-            self.manifest_digest_sha256
-        ) is None:
-            raise ValueError("invalid backup receipt digest")
-        if self.status not in {"created", "verified", "restored"}:
-            raise ValueError("invalid backup receipt status")
-        for value in (self.portable_files, self.sqlite_snapshots, self.app_state_files):
-            if type(value) is not int or value < 0:
-                raise ValueError("invalid backup receipt count")
 
 
 @dataclass(frozen=True, slots=True)
@@ -1291,14 +1212,6 @@ class PortabilityTask(Protocol):
     def rebuild_index(self) -> PortabilityReceipt: ...
 
 
-class BackupTask(Protocol):
-    def create(self, destination: Path, *, backup_id: str) -> BackupReceipt: ...
-
-    def verify(self, source: Path) -> BackupReceipt: ...
-
-    def restore(self, source: Path, destination: Path) -> BackupReceipt: ...
-
-
 class ReconciliationTask(Protocol):
     def reconcile(self) -> ReconciliationReceipt: ...
 
@@ -1316,16 +1229,6 @@ class MarkdownImportTask(Protocol):
 
 
 @dataclass(frozen=True, slots=True)
-class Phase1TaskSet:
-    """The minimum task capabilities shared by the Phase 1 representations."""
-
-    capture: CaptureTask
-    inbox: InboxSpaceTask
-    review: ReviewTask
-    retrieval: RetrievalTask
-
-
-@dataclass(frozen=True, slots=True)
 class EngineTaskSet:
     """The public task identities exposed by one opened local engine root."""
 
@@ -1335,11 +1238,8 @@ class EngineTaskSet:
     review: ReviewTask
     retrieval: RetrievalTask
     portability: PortabilityTask
-    backup: BackupTask
     reconciliation: ReconciliationTask
     markdown_import: MarkdownImportTask
-    daemon_mutation_path: DaemonMutationPath
-    phase1: Phase1TaskSet
 
     @property
     def spaces(self) -> InboxSpaceTask:

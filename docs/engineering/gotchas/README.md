@@ -1070,3 +1070,18 @@ now records that decision. Python patch changes can alter marshal hashes even fo
 never copy an older CI hash into the policy merely to make its artifact pass.
 
 Discovered: 2026-09-09, native metadata remediation after `46bf308`.
+
+### ARCH-001: Optional protocols cannot live in the base application namespace
+
+Symptom: Removing appliance code from `open-brain` breaks the separately packaged connector tests,
+even though `open-brain-connectors` does not declare an app dependency.
+
+Cause: The connector distribution imported worker protocol contracts from
+`open_brain.extensions`. The metadata graph looked separate, but the source graph still crossed the
+base application boundary.
+
+Fix: Keep the worker protocol and runtime in `open_brain_connectors.runtime`. Test both declared
+dependencies and parsed imports, and pin the complete base app source inventory so an optional
+protocol cannot drift back into the shipping application.
+
+Discovered: 2026-09-11, foreground-runtime package separation.

@@ -5,7 +5,6 @@ from __future__ import annotations
 from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
-from pathlib import Path
 
 from open_brain_engine.engine import (
     PHASE1_STATE_SCHEMA_VERSION,
@@ -13,14 +12,6 @@ from open_brain_engine.engine import (
     LocalEngineContext,
     inspect_phase1_state,
     open_local_engine,
-    read_maintenance_snapshot,
-)
-from open_brain_engine.storage.operational import (
-    LockBusyError,
-    RootIdentity,
-    StorageError,
-    inspect_file_leases,
-    read_confined_tree,
 )
 
 from open_brain.local_data import (
@@ -29,13 +20,9 @@ from open_brain.local_data import (
     PreparedLocalRoot,
     prepare_local_root,
 )
-from open_brain.profile import compile_single_user_local, open_existing_single_user_local
+from open_brain.profile import compile_single_user_local
 
 _STATE_DATABASE = ".open-brain/state/phase1.sqlite3"
-
-
-class LocalRuntimeConflictError(RuntimeError):
-    """Background runtime evidence makes direct local writes unavailable."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -67,7 +54,7 @@ class LocalBrainSession:
     initialized_before: bool
     prepared: PreparedLocalRoot
     profile: LocalEngineContext
-    tasks: EngineTaskSet | None
+    tasks: EngineTaskSet
 
 
 @contextmanager
@@ -82,50 +69,14 @@ def open_local_brain(
     ) as prepared:
         identity_exists = prepared.private_file_exists("brain.toml")
         initialized_before = identity_exists and prepared.private_file_exists(_STATE_DATABASE)
-        runtime_artifacts_present = _runtime_artifacts_are_present(
-            root=selection.brain_root,
-            root_identity=prepared.root_identity,
-        )
-        ownership_conflict = runtime_artifacts_present or _writer_ownership_is_present(
-            selection.brain_root
-        )
         prepared.revalidate()
-        existing_profile = (
-            open_existing_single_user_local(selection.brain_root)
-            if identity_exists
-            else None
-        )
-        if ownership_conflict:
-            if not initialized_before or existing_profile is None:
-                raise LocalRuntimeConflictError("background runtime is active")
-            _require_current_local_state(prepared, existing_profile)
-            yield LocalBrainSession(
-                initialized_before=True,
-                prepared=prepared,
-                profile=existing_profile,
-                tasks=None,
-            )
-            prepared.revalidate()
-            return
         profile = compile_single_user_local(
             selection.brain_root,
             validate_before_identity_write=prepared.revalidate,
         )
-        if _background_runtime_is_present(profile):
-            _require_current_local_state(prepared, profile)
-            yield LocalBrainSession(
-                initialized_before=initialized_before,
-                prepared=prepared,
-                profile=profile,
-                tasks=None,
-            )
-            prepared.revalidate()
-            return
 
         def validate_direct_write() -> None:
             prepared.revalidate()
-            if _background_runtime_is_present(profile):
-                raise LocalRuntimeConflictError("background runtime is active")
 
         tasks = open_local_engine(profile, validate_before_write=validate_direct_write)
         prepared.revalidate()
@@ -148,8 +99,6 @@ def initialize_local_brain(
     with open_local_brain(
         selection, filesystem_type_probe=filesystem_type_probe
     ) as session:
-        if session.tasks is None:
-            raise LocalRuntimeConflictError("background runtime is active")
         initialized_before = session.initialized_before
     return LocalInitReceipt(
         status="already_initialized" if initialized_before else "initialized",
@@ -160,54 +109,6 @@ def initialize_local_brain(
         application_encryption=False,
         state_schema_version=PHASE1_STATE_SCHEMA_VERSION,
     )
-
-
-def _background_runtime_is_present(profile: LocalEngineContext) -> bool:
-    return _daemon_authority_is_present(profile) or _runtime_artifacts_are_present(
-        root=profile.root,
-        root_identity=profile.root_identity,
-    )
-
-
-def _daemon_authority_is_present(profile: LocalEngineContext) -> bool:
-    maintenance = read_maintenance_snapshot(profile)
-    return bool(
-        maintenance.writer.malformed_count
-        or "daemon-authority" in maintenance.writer.held_leases
-    )
-
-
-def _writer_ownership_is_present(root: Path) -> bool:
-    try:
-        writer = inspect_file_leases(root / ".open-brain")
-    except StorageError:
-        return True
-    if (
-        writer.held_count and not writer.malformed_count
-        and all(lease.discriminator == "shared-writer" for lease in writer.held_leases)
-    ):
-        raise LockBusyError("local writer is busy")
-    return bool(writer.held_count or writer.malformed_count)
-
-
-def _runtime_artifacts_are_present(
-    *,
-    root: Path,
-    root_identity: RootIdentity,
-) -> bool:
-    try:
-        runtime_files = read_confined_tree(
-            root=root,
-            relative=".open-brain/run",
-            expected_root_identity=root_identity,
-            maximum_entries=32,
-            maximum_file_bytes=64 * 1024,
-            maximum_total_bytes=128 * 1024,
-        )
-    except StorageError:
-        return True
-    return bool(runtime_files)
-
 
 def _require_current_local_state(
     prepared: PreparedLocalRoot,
@@ -225,7 +126,6 @@ def _require_current_local_state(
 __all__ = [
     "LocalBrainSession",
     "LocalInitReceipt",
-    "LocalRuntimeConflictError",
     "initialize_local_brain",
     "open_local_brain",
 ]

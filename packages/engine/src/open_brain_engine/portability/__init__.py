@@ -1,5 +1,6 @@
 """Shared record and lossless upgrade boundary for Open Brain product profiles."""
 
+from .limits import PORTABLE_BLOB_STAGING_BYTES
 from .model import (
     PortabilityMappingError,
     SharedAttachment,
@@ -10,33 +11,16 @@ from .model import (
 )
 from .portable_v1 import shared_brain_from_snapshot
 from .resources import load_conformance_cases, load_shared_envelope_schema
-from .secure_node import (
-    ImportEnvelopeContext,
-    SecureNodeImportPlan,
-    batch_document,
-    derive_import_record_id,
-    plan_secure_node_import,
-    record_document,
-    reencode_portable_identifier,
-    validate_shared_envelope,
-)
 
 __all__ = [
-    "ImportEnvelopeContext",
+    "PORTABLE_BLOB_STAGING_BYTES",
     "PortabilityMappingError",
-    "SecureNodeImportPlan",
     "SharedAttachment",
     "SharedBlob",
     "SharedBrain",
     "SharedImportEvidence",
     "SharedRecord",
-    "batch_document",
-    "derive_import_record_id",
     "load_conformance_cases",
     "load_shared_envelope_schema",
-    "plan_secure_node_import",
-    "record_document",
-    "reencode_portable_identifier",
     "shared_brain_from_snapshot",
-    "validate_shared_envelope",
 ]

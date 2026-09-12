@@ -47,6 +47,12 @@ def test_native_spec_builds_one_default_product_executable() -> None:
     for forbidden in (
         "open_brain.services.appliance_entrypoints",
         "open_brain_engine.portability.secure_node",
+        "open_brain_engine.ledger",
+        "open_brain_engine.protocol",
+        "http.server",
+        "docker",
+        "prctl",
+        "systemd",
         "cryptography",
     ):
         assert f'"{forbidden}"' in spec
@@ -56,7 +62,8 @@ def test_native_spec_builds_one_default_product_executable() -> None:
     assert "open_brain_engine.engine.local_schema_catalog" in base_native._REQUIRED_MODULES
     assert "open_brain_engine.storage.migrations" in base_native._REQUIRED_MODULES
     for module in (
-        "open_brain.services.local_mcp", "open_brain.services.local_operations",
+        "open_brain.services.local_mcp",
+        "open_brain.services.local_operations",
         "open_brain.services.mcp_protocol",
     ):
         assert module in base_native._REQUIRED_MODULES
@@ -198,10 +205,14 @@ def test_native_build_group_installs_the_base_application() -> None:
     workspace = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
     makefile = (ROOT / "Makefile").read_text(encoding="utf-8")
 
-    assert "open-brain[secure-node]==0.1.0" in workspace["dependency-groups"]["dev"]
+    assert "open-brain==0.1.0" in workspace["dependency-groups"]["dev"]
+    assert all(
+        "secure-node" not in dependency
+        for dependency in workspace["dependency-groups"]["dev"]
+    )
     assert "open-brain==0.1.0" in workspace["dependency-groups"]["native-build"]
     assert workspace["tool"]["uv"]["sources"]["open-brain"] == {"workspace": True}
-    assert makefile.count("--no-dev --group native-build") == 3
+    assert makefile.count("--no-dev --group native-build") == 4
 
 
 def test_local_homebrew_smoke_uses_a_temporary_tap() -> None:

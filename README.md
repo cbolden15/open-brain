@@ -1,16 +1,13 @@
 # Open Brain
 
 Open Brain is a local-first second brain for capture, search, and full portable export. The default
-product is one local user, one local Brain, SQLite, and ordinary files. It starts no daemon and asks
-for no storage, certificate, grant, or database decisions.
+product is one local user, one local Brain, SQLite, and ordinary files. It runs only in the
+foreground. It requires no root access, operating-system capabilities, namespaces, daemon, service,
+container, storage choice, certificate, grant, or manual database setup.
 
-Secure Node is the opt-in advanced profile for encrypted custody, compartments, authorization,
-receipts, fencing, certified purge, recovery, services, and multiple clients. Both products share
-record identities and Portable Brain data, so export is the upgrade path rather than a database
-rewrite.
-
-This preserves the existing engineering work while preventing Secure Node complexity from becoming
-the default OSS experience.
+The first Secure Node implementation is preserved under `archive/open-brain-secure-node` as
+non-building history. It is not an Open Brain extra, entry point, dependency, or runtime profile.
+Portable Brain and shared record identities remain the boundary for any future separate product.
 
 ## Install target
 
@@ -128,9 +125,8 @@ code. Competing local writers either complete or return `database_busy`; retry a
 same idempotency key after contention. SQLite retains its five-second busy timeout.
 
 MCP capture uses a non-owner, capture-only identity. Search has separate read authority. The default
-adapter exposes no actions, connectors, listeners, user-managed grants, or Secure Node capabilities.
-Stopping the stdio process closes both capabilities. The retained Secure Node MCP interface remains
-separate and denies scoped retrieval when no spaces are granted.
+adapter exposes no actions, connectors, listeners, user-managed grants, or service capabilities.
+Stopping the stdio process closes both capabilities.
 
 ## Develop
 
@@ -177,19 +173,15 @@ Private release auditing is **not required for normal contributions** and is exc
 `make contributor-check` and CI. The owner runs `make audit` and `make audit-history` separately with
 an uncommitted `PRIVATE_DENYLIST`; contributors do not need that file.
 
-## Secure Node precursor
+## Historical implementations
 
-Secure Node remains explicit and separate:
-
-```sh
-export OPEN_BRAIN_ROOT="$HOME/open-brain-secure-node"
-uv run --package open-brain --extra secure-node open-brain-secure-node init --json
-uv run --package open-brain --extra secure-node open-brain-secure-node daemon
-```
+The prior Secure Node and predecessor implementations are quarantined in `archive/`. They are not
+members of the uv workspace and are excluded from imports, builds, tests, and installed artifacts.
+Any future Secure Node must use a separate package or repository, namespace, and release boundary.
 
 The current product contract is [docs/product-family.md](docs/product-family.md). The ordered roadmap
-is [docs/plans/product-roadmap.md](docs/plans/product-roadmap.md). The record-level encryption seam
-and byte-preserving upgrade model are in
+is [docs/plans/product-roadmap.md](docs/plans/product-roadmap.md). The shared-record and
+byte-preserving interoperability model is in
 [ADR 0014](docs/architecture/decisions/0014-shared-record-import-envelope.md).
 
 ## License

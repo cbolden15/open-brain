@@ -19,21 +19,6 @@ from open_brain_engine.engine import (
     canonical_json_bytes,
 )
 
-from open_brain.extensions.connector_worker_v1 import (
-    ConnectorNetworkMode,
-    ConnectorWorkerProtocolError,
-    ConnectorWorkerReceipt,
-    ConnectorWorkerRequest,
-    connector_manifest_sha256,
-)
-from open_brain.extensions.connectors import (
-    ConnectorBudget,
-    ConnectorCaptureIdentity,
-    ConnectorCaptureSink,
-    ConnectorMetadataLogger,
-    ConnectorRunContext,
-    ConnectorRunEvidence,
-)
 from open_brain_connectors.capture.extractors.youtube import YouTubeMediaResult
 from open_brain_connectors.capture.media import MediaCommand
 from open_brain_connectors.capture.poll import FilesystemYouTubePollState
@@ -42,6 +27,21 @@ from open_brain_connectors.production.youtube_poll import (
     YouTubeReferenceConnector,
     YouTubeReferenceTransport,
     YouTubeSubscription,
+)
+from open_brain_connectors.runtime.connector_worker_v1 import (
+    ConnectorNetworkMode,
+    ConnectorWorkerProtocolError,
+    ConnectorWorkerReceipt,
+    ConnectorWorkerRequest,
+    connector_manifest_sha256,
+)
+from open_brain_connectors.runtime.connectors import (
+    ConnectorBudget,
+    ConnectorCaptureIdentity,
+    ConnectorCaptureSink,
+    ConnectorMetadataLogger,
+    ConnectorRunContext,
+    ConnectorRunEvidence,
 )
 
 _FIXED_TIME = datetime(2026, 9, 2, 12, 0, tzinfo=UTC)

@@ -12,25 +12,19 @@ import open_brain.services.local_entrypoints as local_entrypoints
 ROOT = Path(__file__).resolve().parents[2]
 
 
-def test_package_metadata_freezes_base_extra_and_command_graph() -> None:
+def test_package_metadata_has_no_secure_node_extra_or_entry_point() -> None:
     app = tomllib.loads((ROOT / "packages/app/pyproject.toml").read_text(encoding="utf-8"))
     engine = tomllib.loads((ROOT / "packages/engine/pyproject.toml").read_text(encoding="utf-8"))
 
     assert app["project"]["dependencies"] == ["open-brain-engine==0.1.0"]
-    assert app["project"]["optional-dependencies"]["secure-node"] == [
-        "open-brain-engine[secure-node]==0.1.0",
-        "starlette>=0.48,<1",
-        "uvicorn>=0.40,<1",
-    ]
-    assert set(engine["project"]["optional-dependencies"]) == {"secure-node"}
+    assert "optional-dependencies" not in app["project"]
+    assert "optional-dependencies" not in engine["project"]
     assert app["project"]["scripts"] == {
         "open-brain": "open_brain.services.local_entrypoints:run_cli",
-        "open-brain-secure-node": "open_brain.services.secure_node_entrypoints:run_cli",
-        "open-brain-secure-node-mcp": "open_brain.services.secure_node_entrypoints:run_mcp",
     }
 
 
-def test_contributor_guide_routes_the_default_and_secure_node_commands() -> None:
+def test_contributor_guide_describes_the_foreground_only_boundary() -> None:
     guide = (ROOT / "CLAUDE.md").read_text(encoding="utf-8")
 
     assert "| Local CLI | `uv run open-brain status --json` |" in guide
@@ -39,10 +33,9 @@ def test_contributor_guide_routes_the_default_and_secure_node_commands() -> None
         "| `packages/app/src/open_brain/services/local_entrypoints.py` | "
         "Installed default `open-brain` callable |"
     ) in guide
-    assert (
-        "| `packages/app/src/open_brain/services/appliance_entrypoints.py` | "
-        "Retained Secure Node CLI and MCP implementation |"
-    ) in guide
+    assert "`archive/open-brain-secure-node`" in guide
+    assert "Open Brain never requires root" in guide
+    assert "open-brain[secure-node]" not in guide
 
 
 def test_local_entrypoint_source_has_no_secure_node_import() -> None:
@@ -55,6 +48,8 @@ def test_local_entrypoint_source_has_no_secure_node_import() -> None:
 
     assert not any(
         module.startswith("open_brain.services.appliance")
+        or module.startswith("open_brain_engine.protocol")
+        or module.startswith("open_brain_engine.ledger")
         or module.split(".", 1)[0]
         in {"argon2", "cryptography", "keyring", "sqlcipher3", "starlette", "uvicorn"}
         for module in imports
@@ -71,6 +66,9 @@ import open_brain.services.local_entrypoints
 forbidden = [
     name for name in sys.modules
     if name.startswith("open_brain.services.appliance")
+    or name.startswith("open_brain_engine.protocol")
+    or name.startswith("open_brain_engine.ledger")
+    or name.startswith("open_brain_engine.portability.secure_node")
     or name.split(".", 1)[0] in {{
         "argon2", "cryptography", "keyring", "sqlcipher3", "starlette", "uvicorn"
     }}

@@ -7,13 +7,11 @@ import pytest
 from open_brain_engine.engine import (
     CaptureAction,
     TextPayload,
-    acquire_daemon_authority,
-    open_authoritative_local_engine,
     open_local_engine,
 )
 from open_brain_engine.storage.markdown import parse_markdown, render_markdown
 
-from open_brain.profile import compile_single_user_local, open_existing_single_user_local
+from open_brain.profile import compile_single_user_local
 
 
 def test_reconciliation_updates_retrieval_and_space_name_without_rewriting_owner_markdown(
@@ -51,11 +49,7 @@ def test_reconciliation_updates_retrieval_and_space_name_without_rewriting_owner
     )
     expected_page = page.read_bytes()
     expected_space = space_file.read_bytes()
-    profile = open_existing_single_user_local(root)
-
-    with acquire_daemon_authority(profile) as authority:
-        authoritative = open_authoritative_local_engine(profile, authority)
-        receipt = authoritative.reconciliation.reconcile()
+    receipt = tasks.reconciliation.reconcile()
 
     refreshed = tasks.retrieval.search("Edited owner Markdown")[0]
     renamed = tasks.inbox.spaces()[0]

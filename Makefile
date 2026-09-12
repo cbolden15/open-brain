@@ -1,4 +1,4 @@
-.PHONY: dev build test lint typecheck audit audit-history native smoke homebrew-smoke verify contributor-check
+.PHONY: dev build test lint typecheck audit audit-history native native-audit smoke homebrew-smoke verify contributor-check
 
 NATIVE_OUTPUT ?= build/native
 NATIVE_ARTIFACT = $(NATIVE_OUTPUT)/dist/open-brain
@@ -32,6 +32,9 @@ audit-history:
 
 native:
 	uv run --frozen --python 3.14 --no-dev --group native-build python -m tools.open_brain_dev.base_native build --root . --output $(NATIVE_OUTPUT)
+
+native-audit: native
+	uv run --frozen --python 3.14 --no-dev --group native-build python -m tools.open_brain_dev.base_native audit --artifact $(NATIVE_ARTIFACT)
 
 smoke:
 	uv run --frozen --python 3.14 --no-dev --group native-build python -m tools.open_brain_dev.base_native smoke --root . --artifact $(NATIVE_ARTIFACT)

@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- The base distribution is now strictly foreground-only. Secure Node and legacy implementations
+  are preserved under `archive/` and are excluded from the workspace, builds, tests, and entry points.
 - Local capture, SQLite search, status, and doctor commands run without a daemon or API key.
 - Markdown import checks files before writing and supports repeat imports without duplicate records.
 - Portable export preserves record bytes and can be verified independently.

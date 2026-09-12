@@ -1,4 +1,4 @@
-"""Task-shaped local engine facade for the Phase 1 vertical slice."""
+"""Task-shaped local engine facade for the foreground Open Brain runtime."""
 
 from open_brain_engine.capture.models import (
     CapturePipeline,
@@ -29,18 +29,7 @@ from open_brain_engine.core.models import (
 from open_brain_engine.core.policy import classify_privacy
 from open_brain_engine.providers.base import ProviderMode
 
-from .authority import (
-    DaemonAuthorityCapability,
-    DaemonAuthorityError,
-    DaemonAuthorityRootMismatchError,
-    DaemonAuthorityStaleError,
-    acquire_daemon_authority,
-    require_daemon_authority,
-)
 from .contracts import (
-    BackupFault,
-    BackupReceipt,
-    BackupTask,
     CaptureReceipt,
     CaptureTask,
     InboxSpaceTask,
@@ -54,7 +43,6 @@ from .contracts import (
     MarkdownImportTask,
     PageResult,
     Payload,
-    Phase1TaskSet,
     PortabilityFault,
     PortabilityReceipt,
     PortabilityTask,
@@ -92,10 +80,8 @@ from .local import (
     ScopedRetrieval,
     StateSchemaUnavailableError,
     TextPayload,
-    open_authoritative_local_engine,
     open_local_engine,
     open_local_read_view,
-    recover_authoritative_local_engine,
 )
 from .maintenance import (
     PHASE1_STATE_SCHEMA_VERSION,
@@ -109,9 +95,6 @@ from .maintenance import (
 
 __all__ = [
     "BrainEngine",
-    "BackupFault",
-    "BackupReceipt",
-    "BackupTask",
     "CaptureAction",
     "CaptureEnvelope",
     "CapturePipeline",
@@ -123,10 +106,6 @@ __all__ = [
     "CaptureWhyOrigin",
     "ContentKind",
     "ContentOrigin",
-    "DaemonAuthorityCapability",
-    "DaemonAuthorityError",
-    "DaemonAuthorityRootMismatchError",
-    "DaemonAuthorityStaleError",
     "DecisionOutcome",
     "EnrichmentProvider",
     "EnrichmentRequest",
@@ -157,7 +136,6 @@ __all__ = [
     "PageResult",
     "Payload",
     "PHASE1_STATE_SCHEMA_VERSION",
-    "Phase1TaskSet",
     "PortabilityFault",
     "PortabilityReceipt",
     "PortabilityTask",
@@ -173,7 +151,6 @@ __all__ = [
     "ReconciliationReceipt",
     "ReconciliationTask",
     "ReferencePayload",
-    "recover_authoritative_local_engine",
     "RawAssetRef",
     "RetrievalResult",
     "RetrievalTask",
@@ -193,12 +170,9 @@ __all__ = [
     "inspect_phase1_state",
     "inspect_live_search",
     "live_search_is_healthy",
-    "acquire_daemon_authority",
-    "open_authoritative_local_engine",
     "open_local_engine",
     "open_local_read_view",
     "read_maintenance_snapshot",
-    "require_daemon_authority",
     "classify_privacy",
     "project_public_result_text",
     "project_public_space",

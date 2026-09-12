@@ -18,7 +18,6 @@ classifiers = [
   "Programming Language :: Python :: 3.14",
 ]
 dependencies = [
-  "open-brain==0.1.0",
   "open-brain-engine==0.1.0",
 ]
 
@@ -33,7 +32,6 @@ Changelog = "https://github.com/cbolden15/open-brain/blob/main/CHANGELOG.md"
 youtube = "open_brain_connectors.conformance:connector"
 
 [tool.uv.sources]
-open-brain = { workspace = true }
 open-brain-engine = { workspace = true }
 
 [tool.hatch.build]

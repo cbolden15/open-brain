@@ -14,7 +14,6 @@ from typing import Any, cast
 
 import pytest
 from open_brain_engine.engine import (
-    CaptureAction,
     CaptureReceipt,
     CaptureTask,
     PublicJobCaptureSink,
@@ -28,7 +27,6 @@ from open_brain.services.local_entrypoints import run_cli
 from open_brain.services.local_mcp import MAX_MESSAGE_BYTES, LocalMcpAdapter
 from open_brain.services.local_operations import mcp_capture_sink, search_brain
 from open_brain.services.mcp_protocol import McpCallError, serve_stdio_mcp
-from open_brain.services.phase1_application import SingleUserLocalApplication
 
 ROOT = Path(__file__).resolve().parents[5]
 INITIALIZE = {
@@ -46,9 +44,18 @@ def forbidden(*args, **kwargs):
 for name in ('connect', 'connect_ex', 'bind', 'listen'):
     setattr(socket.socket, name, forbidden)
 result = run_cli()
-assert not any(name.startswith(('open_brain.integrations', 'open_brain.services.appliance_',
-    'open_brain.services.phase1_', 'open_brain.services.secure_node', 'open_brain_connectors'))
-    for name in sys.modules)
+assert not any(
+    name.startswith(
+        (
+            'open_brain.integrations',
+            'open_brain.services.appliance_',
+            'open_brain.services.phase1_',
+            'open_brain.services.secure_node',
+            'open_brain_connectors',
+        )
+    )
+    for name in sys.modules
+)
 raise SystemExit(result)
 """
 
@@ -390,25 +397,6 @@ def test_cli_and_mcp_share_semantic_dataset_results_and_export(
     assert record["provenance"]["content_origin"] == "unknown"
     assert record["provenance"]["owner_context"] == "automation_absent"
     assert record["trust"]["label"] == "unverified"
-
-
-def test_retained_scoped_mcp_empty_and_nonmatching_grants_stay_denied(tmp_path: Path) -> None:
-    app = SingleUserLocalApplication.open(tmp_path / "brain")
-    allowed = app.tasks.inbox.create_space("allowed", delivery_id="allowed")
-    unrelated = app.tasks.inbox.create_space("unrelated", delivery_id="unrelated")
-    app.tasks.capture.accept(
-        TextPayload("w6 scoped source"),
-        delivery_id="scoped",
-        action=CaptureAction.CANONICAL_NOTE,
-        space_id=allowed.space_id,
-    )
-    for grant in (frozenset(), frozenset({unrelated.space_id})):
-        adapter = app.mcp_adapter(allowed_space_ids=grant)
-        assert adapter.call_tool("brain_query", {"question": "w6 scoped source"})["results"] == []
-    results = app.mcp_adapter(allowed_space_ids=frozenset({allowed.space_id})).call_tool(
-        "brain_query", {"question": "w6 scoped source"}
-    )["results"]
-    assert len(cast(list[object], results)) == 2
 
 
 def _start(root: Path, *flags: str) -> subprocess.Popen[str]:

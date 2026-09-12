@@ -11,26 +11,22 @@ _DISTRIBUTION_FOR_IMPORT = {
     "open_brain": "app",
     "open_brain_connectors": "connectors",
     "open_brain_engine": "engine",
-    "open_brain_legacy": "legacy",
     "tools": "workspace",
 }
 _SOURCE_ROOTS = {
     "app": ROOT / "packages/app/src",
     "connectors": ROOT / "packages/connectors/src",
     "engine": ROOT / "packages/engine/src",
-    "legacy": ROOT / "packages/legacy/src",
 }
 _ALLOWED_IMPORTS = {
     "app": {"engine"},
-    "connectors": {"app", "engine"},
+    "connectors": {"engine"},
     "engine": set(),
-    "legacy": {"engine"},
 }
 _PROJECT_FILES = {
     "app": ROOT / "packages/app/pyproject.toml",
     "connectors": ROOT / "packages/connectors/pyproject.toml",
     "engine": ROOT / "packages/engine/pyproject.toml",
-    "legacy": ROOT / "packages/legacy/pyproject.toml",
 }
 
 
@@ -62,7 +58,6 @@ def _declared_distribution_dependencies(project_file: Path) -> set[str]:
         "open-brain": "app",
         "open-brain-connectors": "connectors",
         "open-brain-engine": "engine",
-        "open-brain-legacy": "legacy",
     }
     return {mapping[name] for name in names if name in mapping}
 

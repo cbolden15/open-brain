@@ -1,19 +1,12 @@
-"""Read-only engine maintenance evidence for appliance status and MCP gating."""
+"""Read-only diagnostics for the foreground local runtime."""
 
 from __future__ import annotations
 
-import json
-import re
 import sqlite3
 from contextlib import suppress
 from dataclasses import dataclass
-from datetime import UTC, datetime
-from pathlib import Path
 from typing import cast
 
-from open_brain_engine.core.ids import canonical_json_bytes, validate_identifier
-from open_brain_engine.storage.filesystem import DurabilityError, read_confined
-from open_brain_engine.storage.locks import inspect_file_leases
 from open_brain_engine.storage.sqlite import SchemaError, connect_database_read_only
 
 from .contracts import LocalEngineContext
@@ -36,9 +29,6 @@ from .local_schema import (
 from .local_store import live_search_schema_is_available
 
 SEARCH_INDEX_DATABASE = ".open-brain/indexes/search.sqlite3"
-APPLIANCE_BACKUP_EVIDENCE = Path(".open-brain/state/appliance-backup-evidence.json")
-APPLIANCE_EXPORT_EVIDENCE = Path(".open-brain/state/appliance-export-evidence.json")
-_HEX64 = re.compile(r"^[0-9a-f]{64}$")
 
 
 @dataclass(frozen=True, slots=True)
@@ -79,90 +69,27 @@ class LiveSearchState:
 
 
 @dataclass(frozen=True, slots=True)
-class WriterState:
-    held_count: int
-    malformed_count: int
-    held_leases: tuple[str, ...]
-
-    def to_dict(self) -> dict[str, object]:
-        return {
-            "held_count": self.held_count,
-            "malformed_count": self.malformed_count,
-            "held_leases": list(self.held_leases),
-        }
-
-
-@dataclass(frozen=True, slots=True)
-class EvidenceState:
-    state: str
-    operation_id: str | None
-    recorded_at: str | None
-    manifest_digest_sha256: str | None
-
-    def to_dict(self) -> dict[str, object]:
-        return {
-            "state": self.state,
-            "operation_id": self.operation_id,
-            "recorded_at": self.recorded_at,
-            "manifest_digest_sha256": self.manifest_digest_sha256,
-        }
-
-
-@dataclass(frozen=True, slots=True)
-class QueueState:
-    state: str
-    pending_count: int
-    malformed_count: int
-    oldest_captured_at: str | None
-
-    def to_dict(self) -> dict[str, object]:
-        return {
-            "state": self.state,
-            "pending_count": self.pending_count,
-            "malformed_count": self.malformed_count,
-            "oldest_captured_at": self.oldest_captured_at,
-        }
-
-
-@dataclass(frozen=True, slots=True)
 class MaintenanceSnapshot:
     schema: SchemaState
     live_search: LiveSearchState
     index: IndexState
-    writer: WriterState
-    backup: EvidenceState
-    export: EvidenceState
-    queue: QueueState
 
     def to_dict(self) -> dict[str, object]:
         return {
             "schema": self.schema.to_dict(),
             "live_search": self.live_search.to_dict(),
             "index": self.index.to_dict(),
-            "writer": self.writer.to_dict(),
-            "backup": self.backup.to_dict(),
-            "export": self.export.to_dict(),
-            "queue": self.queue.to_dict(),
         }
 
 
 def read_maintenance_snapshot(profile: LocalEngineContext) -> MaintenanceSnapshot:
-    """Read bounded schema, index, writer, backup, export, and queue evidence."""
+    """Read bounded schema and search-index evidence."""
     if not isinstance(profile, LocalEngineContext):
         raise ValueError("invalid local profile")
     return MaintenanceSnapshot(
         schema=inspect_phase1_state(profile),
         live_search=inspect_live_search(profile),
         index=_inspect_index(profile),
-        writer=_inspect_writer(profile),
-        backup=_read_evidence(profile, APPLIANCE_BACKUP_EVIDENCE, prefix="backup_"),
-        export=_read_evidence(profile, APPLIANCE_EXPORT_EVIDENCE, prefix="export_"),
-        queue=QueueState(
-            state="unavailable",
-            pending_count=0,
-            malformed_count=0,
-            oldest_captured_at=None,
-        ),
     )
 
 
@@ -354,69 +281,3 @@ def _inspect_index(profile: LocalEngineContext) -> IndexState:
     if generation is None:
         return IndexState(state="invalid", generation=None, document_count=document_count)
     return IndexState(state="current", generation=generation, document_count=document_count)
-
-
-def _inspect_writer(profile: LocalEngineContext) -> WriterState:
-    try:
-        snapshot = inspect_file_leases(profile.root / ".open-brain")
-    except DurabilityError:
-        return WriterState(held_count=0, malformed_count=1, held_leases=())
-    return WriterState(
-        held_count=snapshot.held_count,
-        malformed_count=snapshot.malformed_count,
-        held_leases=tuple(lease.discriminator for lease in snapshot.held_leases),
-    )
-
-
-def _read_evidence(profile: LocalEngineContext, relative: Path, *, prefix: str) -> EvidenceState:
-    payload = read_confined(
-        root=profile.root,
-        relative=relative.as_posix(),
-        expected_root_identity=profile.root_identity,
-    )
-    if payload is None:
-        return EvidenceState(
-            state="absent",
-            operation_id=None,
-            recorded_at=None,
-            manifest_digest_sha256=None,
-        )
-    try:
-        decoded = json.loads(payload.decode("utf-8"))
-    except UnicodeDecodeError, json.JSONDecodeError:
-        return EvidenceState("invalid", None, None, None)
-    if (
-        not isinstance(decoded, dict)
-        or decoded.get("schema_version") != 1
-        or canonical_json_bytes(decoded) != payload
-    ):
-        return EvidenceState("invalid", None, None, None)
-    operation_key = "backup_id" if prefix == "backup_" else "export_id"
-    operation_id = decoded.get(operation_key)
-    recorded_at = decoded.get("created_at")
-    digest = decoded.get("manifest_digest_sha256")
-    if (
-        not isinstance(operation_id, str)
-        or not isinstance(recorded_at, str)
-        or not isinstance(digest, str)
-    ):
-        return EvidenceState("invalid", None, None, None)
-    try:
-        validate_identifier(operation_id, prefix=prefix)
-        _parse_timestamp(recorded_at)
-    except ValueError:
-        return EvidenceState("invalid", None, None, None)
-    if _HEX64.fullmatch(digest) is None:
-        return EvidenceState("invalid", None, None, None)
-    return EvidenceState(
-        state="present",
-        operation_id=operation_id,
-        recorded_at=recorded_at,
-        manifest_digest_sha256=digest,
-    )
-
-
-def _parse_timestamp(value: str) -> datetime:
-    if not isinstance(value, str) or not value.endswith("Z"):
-        raise ValueError("invalid timestamp")
-    return datetime.fromisoformat(value[:-1] + "+00:00").astimezone(UTC)

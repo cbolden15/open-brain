@@ -1,18 +1,21 @@
-# Open Brain and Secure Node roadmap
+# Open Brain roadmap and archived Secure Node direction
 
-- Status: accepted product split; `OB1-W0` through `OB1-W6` are merged.
-  `OB1-W7` is locally verified, with CI and merge pending.
+- Status: Open Brain workstreams are retained; the in-package Secure Node direction was superseded
+  by the strict archive boundary on 2026-09-11.
 - Date: 2026-09-08
 - Product authority: [`../product-family.md`](../product-family.md)
 - Acceptance authority: [`../acceptance/five-minute-install.md`](../acceptance/five-minute-install.md)
 
 ## Current state
 
-The product split preserves the existing engineering. Completed protocol, schema, crypto, and
-semantic-kernel work belongs to Secure Node. Completed `OB1-W0` through `OB1-W6` work gives Open Brain
+Completed `OB1-W0` through `OB1-W6` work gives Open Brain
 a small default dependency graph, automatic private bootstrap, direct capture, ranked SQLite FTS5
 search, idempotent Markdown import, guarded schema migrations, local MCP capture/search, verified
 Portable Brain export, status, doctor, and a native build.
+
+The first appliance, protocol, crypto, and semantic-kernel implementation is quarantined under
+`archive/open-brain-secure-node`. It is not an active workstream or package in this repository. A
+future Secure Node must start behind a separate distribution or repository boundary.
 
 `OB1-W2` no longer builds a distribution system. It removes the custom installer, transactional
 activation, receipts, clean-host matrix, notarization pipeline, attestations, and release-evidence
@@ -33,8 +36,8 @@ tap remains a final release prerequisite, not an Open Brain product workstream.
 | Milestone | Outcome | Gate |
 |---|---|---|
 | `OB1` Open Brain | A useful local second brain installed with Homebrew | Each ordered workstream below is usable before the next starts |
-| `SN1` Secure Node | Advanced encrypted custody and multi-client operation | Secure Node conformance passes without changing the Open Brain default |
-| `UP1` Upgrade proof | A default export imports into a fresh Secure Node | Shared identities and bytes survive; new custody claims start only after import |
+| `SN1` Secure Node | Future separate encrypted-custody product | Out of scope for this repository |
+| `UP1` Upgrade proof | A default export imports into a future separate product | Shared identities and bytes survive through Portable Brain |
 
 ## Ordered Open Brain workstreams
 
@@ -113,7 +116,7 @@ This decision is already specified in
 [`ADR 0014`](../architecture/decisions/0014-shared-record-import-envelope.md). Portable Brain export is
 the upgrade input. Secure Node must not reinterpret or copy the Open Brain SQLite database.
 
-## Secure Node workstream mapping
+## Archived Secure Node workstream mapping
 
 Stable `M1-W*` identifiers remain valid in historical evidence. Current planning uses these names:
 
@@ -125,5 +128,6 @@ Stable `M1-W*` identifiers remain valid in historical evidence. Current planning
 | `M1-W3` | `SN1-W3`: authorization, request binding, and fencing | Not started |
 | `M1-W4` to `M1-W8` | `SN1-W4` to `SN1-W8`: operations, search, purge, service, closure | Not started |
 
-Secure Node work does not enter the default Homebrew journey. `UP1` begins only after the required
-Secure Node persistence and authorization work exists.
+These identifiers remain historical evidence only. Continuing the work requires a separate package
+or repository, namespace, test suite, dependency graph, and release policy. It cannot re-enter the
+Open Brain Homebrew journey or workspace as an extra.

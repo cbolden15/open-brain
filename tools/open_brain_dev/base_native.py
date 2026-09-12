@@ -55,7 +55,10 @@ _REQUIRED_MODULES: Final = frozenset(
 )
 _FORBIDDEN_MODULE_PREFIXES: Final = (
     "argon2",
+    "capng",
     "cryptography",
+    "docker",
+    "http.server",
     "keyring",
     "open_brain.capture",
     "open_brain.cli",
@@ -73,10 +76,18 @@ _FORBIDDEN_MODULE_PREFIXES: Final = (
     "open_brain.services.secure_node_entrypoints",
     "open_brain_connectors",
     "open_brain_engine.portability.secure_node",
-    "open_brain_engine.protocol.custody",
+    "open_brain_engine.engine.authority",
+    "open_brain_engine.engine.backup",
+    "open_brain_engine.ledger",
+    "open_brain_engine.protocol",
     "open_brain_legacy",
+    "podman",
+    "prctl",
+    "pyroute2",
+    "socketserver",
     "sqlcipher3",
     "starlette",
+    "systemd",
     "uvicorn",
 )
 
@@ -602,7 +613,7 @@ def _smoke_local_journey(
         raise BaseNativeError("native status failed")
     for check in (
         "private-data-directory",
-        "no-background-runtime",
+        "foreground-runtime",
         "base-dependency-closure",
         "search-index",
     ):

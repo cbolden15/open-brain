@@ -23,8 +23,8 @@ transaction that changes the projection. A failed transaction changes none of th
 duplicated text are derived and may be cleared and rebuilt.
 
 The existing `.open-brain/indexes/search.sqlite3` database has different ownership. It is a
-disposable snapshot used by retained Portable Brain and Secure Node recovery paths. Default Open
-Brain never queries or incrementally synchronizes it. Until its owning portability operation
+disposable snapshot used by Portable Brain operations. Default Open Brain never queries or
+incrementally synchronizes it. Until its owning portability operation
 replaces it, it may be stale. Status reports it separately as non-authoritative and never prints its
 absolute path. This report exists to make a potentially stale plaintext residue visible, not because
 default retrieval depends on the snapshot.
@@ -160,10 +160,10 @@ Capture, publication, reconciliation, routing, and Portable materialization upda
 through the phase1 transaction boundary. SQLite triggers make title and body changes visible to FTS
 in that same commit. Deleting a projection row removes its FTS row in the same commit.
 
-The default owner CLI invokes the existing bounded reconciliation task immediately before each
+The local CLI invokes the existing bounded reconciliation task immediately before each
 search. Direct owner edits therefore become visible in that command or the command fails safely if
-the canonical inventory is invalid. The engine retrieval capability and scoped retrieval used by
-other callers remain read-only; they search the last committed projection and never scan or mutate
+the canonical inventory is invalid. The engine retrieval capability remains read-only; it searches
+the last committed projection and never scans or mutates
 the vault. Invalid or unrelated files are not silently overwritten.
 
 The live-index rebuild acquires the existing shared-writer lease, clears only derived FTS state,

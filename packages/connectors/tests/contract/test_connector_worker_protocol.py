@@ -6,8 +6,8 @@ import sys
 
 import pytest
 
-import open_brain.extensions.connector_worker_v1 as worker_module
-from open_brain.extensions.connector_worker_v1 import (
+import open_brain_connectors.runtime.connector_worker_v1 as worker_module
+from open_brain_connectors.runtime.connector_worker_v1 import (
     ConnectorNetworkMode,
     ConnectorWorkerError,
     ConnectorWorkerFailureCode,
@@ -19,7 +19,7 @@ from open_brain.extensions.connector_worker_v1 import (
     _bounded_exchange,
     connector_manifest_sha256,
 )
-from open_brain.extensions.connectors import (
+from open_brain_connectors.runtime.connectors import (
     ConnectorBudgetLimits,
     ConnectorEntryPointMetadata,
     ConnectorManifest,

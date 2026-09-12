@@ -19,8 +19,9 @@ from open_brain_engine.portable import (
     portable_canonical_json_bytes,
     validate_portable_file_set,
 )
-from open_brain_engine.protocol import RESOURCE_LIMITS
 from open_brain_engine.storage.markdown import MarkdownFormatError, parse_markdown
+
+from .limits import PORTABLE_BLOB_STAGING_BYTES
 
 type SharedFamily = Literal[
     "action",
@@ -319,7 +320,7 @@ def _iter_chunks(data: bytes, maximum_bytes: int) -> Iterator[bytes]:
         isinstance(maximum_bytes, bool)
         or not isinstance(maximum_bytes, int)
         or maximum_bytes < 1
-        or maximum_bytes > RESOURCE_LIMITS.blob_staging_bytes
+        or maximum_bytes > PORTABLE_BLOB_STAGING_BYTES
     ):
         raise ValueError("chunk size exceeds the frozen staging limit")
     for offset in range(0, len(data), maximum_bytes):
@@ -404,7 +405,7 @@ class SharedBlob:
             raise PortabilityMappingError("content-addressed blob binding is invalid")
 
     def iter_chunks(
-        self, maximum_bytes: int = RESOURCE_LIMITS.blob_staging_bytes
+        self, maximum_bytes: int = PORTABLE_BLOB_STAGING_BYTES
     ) -> Iterator[bytes]:
         return _iter_chunks(self.data, maximum_bytes)
 
@@ -428,7 +429,7 @@ class SharedAttachment:
             raise PortabilityMappingError("owner Markdown attachment binding is invalid")
 
     def iter_chunks(
-        self, maximum_bytes: int = RESOURCE_LIMITS.blob_staging_bytes
+        self, maximum_bytes: int = PORTABLE_BLOB_STAGING_BYTES
     ) -> Iterator[bytes]:
         return _iter_chunks(self.data, maximum_bytes)
 

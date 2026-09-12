@@ -10,59 +10,52 @@
 | Install target | `brew install cbolden15/tap/open-brain`; Homebrew is a prerequisite |
 | Local CLI | `uv run open-brain status --json` |
 | Full verification | `make verify` |
-| Native build | `make native` |
+| Native distribution audit | `make native-audit` |
 | Complete contributor check | `make contributor-check` |
-| Homebrew product smoke | `make homebrew-smoke` |
 | Product authority | `docs/product-family.md` |
-| Roadmap | `docs/plans/product-roadmap.md` |
 | Acceptance | `docs/acceptance/five-minute-install.md` |
 
 No release or tap is published yet.
 
-## Product split
+## Product boundary
 
-Plain `open-brain` is the default `local` product: one user, one automatically selected Brain,
-direct SQLite-backed capture and search, full Portable Brain export, and no required daemon, Docker,
-certificate, grant, storage choice, or manual database setup. It does not claim application-level
-encryption.
+Open Brain is one unprivileged, foreground-only local runtime. It gives one operating-system user
+one automatically selected Brain, direct SQLite-backed capture and search, Markdown import, and a
+full Portable Brain export. Open Brain never requires root, operating-system capabilities,
+namespaces, launchd, systemd, containers, a daemon, or another background service.
 
-`open-brain[secure-node]` is the opt-in advanced profile. Brain Protocol v1 and work historically
-named M1 belong to Secure Node. Preserve stable M1 evidence IDs, but use `SN1-W*` in current plans.
-Do not move Secure Node dependencies, setup, runtime effects, or security claims into plain Open
-Brain.
+Secure Node is not an extra, profile, entry point, or dependency of the Open Brain distribution.
+The first Secure Node implementation is quarantined under `archive/open-brain-secure-node` as
+non-building history. Any future Secure Node must be a separate distribution or repository with a
+separate import namespace and release boundary.
 
-Portable Brain v1 and shared record identities are the upgrade seam. Never upgrade by copying or
-reinterpreting the default product's live SQLite files. The protected envelope is record-level:
-Open Brain stores the shared body as plaintext; Secure Node later encrypts that same body and keeps
-attachments digest-addressed.
+Portable Brain v1 and shared record identities are the interoperability seam. They remain in the
+engine. Never migrate between products by copying or reinterpreting live SQLite files.
 
 ## Architecture
 
 | Module | Responsibility |
 |---|---|
-| `packages/engine/src/open_brain_engine` | Product-neutral records, tasks, SQLite storage, retrieval, Portable schemas, and conformance data |
-| `packages/app/src/open_brain` | Direct local CLI plus explicit Secure Node composition |
+| `packages/engine/src/open_brain_engine` | Shared records, local tasks, SQLite storage, retrieval, and Portable Brain schemas |
+| `packages/app/src/open_brain` | Direct local bootstrap, CLI, MCP over stdio, and local operations |
 | `packages/app/src/open_brain/services/local_entrypoints.py` | Installed default `open-brain` callable |
-| `packages/app/src/open_brain/services/appliance_entrypoints.py` | Retained Secure Node CLI and MCP implementation |
 | `packages/connectors` | Optional connector distribution; not a default dependency |
-| `packages/legacy` | Quarantined predecessor compatibility; not a shipping dependency |
-| `tools/open_brain_dev/base_native.py` | Native build, product-scope audit, digest manifest, and Homebrew formula renderer |
-| `release/open-brain/open-brain.spec` | One-file default-product PyInstaller specification |
+| `archive/open-brain-secure-node` | Historical Secure Node implementation; excluded from builds and tests |
+| `archive/legacy` | Historical predecessor; excluded from the workspace, builds, imports, and tests |
+| `tools/open_brain_dev/base_native.py` | Native build, module audit, manifest, and formula renderer |
+| `release/open-brain/open-brain.spec` | One-file PyInstaller specification |
 
-The engine cannot import app, connector, legacy, or workspace modules. The base app depends exactly
-on `open-brain-engine==0.1.0`; the `secure-node` extra selects advanced dependencies. The native module
-audit rejects Secure Node, server, connector, legacy, and advanced cryptography modules.
+The engine cannot import the app, connectors, archives, or workspace modules. The app depends
+exactly on `open-brain-engine==0.1.0`. The default dependency graph contains no server, service
+manager, cryptography, key-custody, or container dependency. The native audit rejects those module
+families if they enter the executable.
 
 ## Release surface
 
-The supported end-user lifecycle is Homebrew. There is no curl installer, custom preflight,
-transactional activation, installation receipt, custom uninstall, clean-host harness, VM matrix,
-notarization pipeline, or build attestation.
-
-Each platform produces `open-brain-<version>-<platform>.tar.gz`, containing one executable, plus a
-manifest with exact version, platform, filename, and SHA-256. The macOS executable must be arm64 and
-pass code-signature verification before hashing. Homebrew formula values are rendered from the final
-manifest and point at immutable GitHub Release URLs.
+The supported end-user lifecycle is Homebrew. Each platform produces
+`open-brain-<version>-<platform>.tar.gz`, containing one executable, plus a manifest with exact
+version, platform, filename, and SHA-256. The executable starts only when the user invokes it and
+exits when that foreground command or stdio MCP session ends.
 
 ## Common commands
 
@@ -73,40 +66,33 @@ make typecheck
 make test
 make build
 make verify
-make native
-make smoke
+make native-audit
 make homebrew-smoke
 make contributor-check
 ```
 
-`make contributor-check` runs `make verify` followed by `make homebrew-smoke`, matching both CI jobs.
-The smoke installs only the keg-only `open-brain-smoke` formula, invokes its unlinked binary by absolute
-prefix, and verifies any existing product's prefix, version, link, and digest remain unchanged.
-`tools/homebrew-smoke.sh` owns orchestration and signal teardown; the guard in
-`tools/open_brain_dev/homebrew_smoke.py` permits cleanup only of the marked reserved tap/formula.
-Private release audits remain separate owner checks.
+`make contributor-check` runs `make verify` followed by `make homebrew-smoke`. Private release
+audits remain separate owner checks.
 
 ## Data and configuration
 
-The default local profile needs no configuration. macOS data lives under
+The local runtime needs no configuration. macOS data lives under
 `$HOME/Library/Application Support/open-brain/brain`; Linux data lives under
 `${XDG_DATA_HOME:-$HOME/.local/share}/open-brain/brain`. An absolute `--data-dir` is available for
-expert and test use.
-
-`OPEN_BRAIN_ROOT` and the retained provider, service, UI, and MCP environment variables belong to
-Secure Node or compatibility code. The default CLI does not consume them.
+expert and test use. `OPEN_BRAIN_ROOT` is a historical compatibility setting and is not consumed by
+the active package.
 
 ## Safety and verification
 
 Use synthetic fixtures only. Never commit private notes, captures, transcripts, credentials,
 hostnames, infrastructure addresses, logs, databases, or generated private configuration.
 
-After code changes, run `make verify`. After native or packaging changes, also run `make native` and
-`make homebrew-smoke` on the current platform. CI provides the other architecture. Run
-`git diff --check` and `actionlint .github/workflows/ci.yml` before handoff.
+After code changes, run `make verify`. After native or packaging changes, also run
+`make native-audit` and `make homebrew-smoke` on the current platform. Run `git diff --check` and
+`actionlint .github/workflows/ci.yml` before handoff.
 
-Release auditing requires `PRIVATE_DENYLIST` to point at an absolute, uncommitted file with one private
-term per line. Public publishing, pushing, repository settings, and release creation remain separate
-owner-authorized actions.
+Release auditing requires `PRIVATE_DENYLIST` to point at an absolute, uncommitted file with one
+private term per line. Publishing, pushing, repository settings, and release creation remain
+separate owner-authorized actions.
 
 Project gotchas live in `docs/engineering/gotchas/README.md`.

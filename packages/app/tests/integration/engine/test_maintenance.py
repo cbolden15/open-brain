@@ -1,13 +1,9 @@
 from __future__ import annotations
 
 import sqlite3
-import subprocess
-import sys
-from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
-from open_brain_engine.core.ids import canonical_json_bytes
 from open_brain_engine.engine import TextPayload, open_local_engine
 from open_brain_engine.engine.local import (
     ReadViewUnavailableError,
@@ -15,15 +11,12 @@ from open_brain_engine.engine.local import (
     open_local_read_view,
 )
 from open_brain_engine.engine.maintenance import (
-    APPLIANCE_BACKUP_EVIDENCE,
-    APPLIANCE_EXPORT_EVIDENCE,
     inspect_live_search,
     live_search_is_healthy,
     read_maintenance_snapshot,
 )
 
 from open_brain.profile import compile_single_user_local, open_existing_single_user_local
-from open_brain.services.appliance_init import initialize_appliance
 
 from ._local_schema_fixtures import rematerialize_w2
 
@@ -41,7 +34,7 @@ def test_open_local_read_view_rejects_absent_and_newer_schema_without_mutation(
     assert not (absent_root / ".open-brain" / ".open-brain-locks").exists()
 
     newer_root = tmp_path / "newer"
-    initialize_appliance(newer_root)
+    open_local_engine(compile_single_user_local(newer_root))
     database = newer_root / ".open-brain" / "state" / "phase1.sqlite3"
     lock_directory = newer_root / ".open-brain" / ".open-brain-locks"
     lock_before = _lock_bytes(lock_directory)
@@ -63,7 +56,7 @@ def test_mutating_engine_rejects_newer_schema_before_writer_acquisition(
     tmp_path: Path,
 ) -> None:
     root = tmp_path / "brain"
-    initialize_appliance(root)
+    open_local_engine(compile_single_user_local(root))
     database = root / ".open-brain" / "state" / "phase1.sqlite3"
     with sqlite3.connect(database) as connection:
         connection.execute("PRAGMA user_version = 3")
@@ -115,7 +108,7 @@ def test_mutating_engine_migrates_legacy_schema_without_replacing_content(
     tmp_path: Path,
 ) -> None:
     root = tmp_path / "brain"
-    initialize_appliance(root)
+    open_local_engine(compile_single_user_local(root))
     tasks = open_local_engine(open_existing_single_user_local(root))
     captured = tasks.capture.accept(
         TextPayload("Synthetic legacy schema content"),
@@ -132,71 +125,17 @@ def test_mutating_engine_migrates_legacy_schema_without_replacing_content(
         assert connection.execute("PRAGMA user_version").fetchone() == (2,)
 
 
-def test_maintenance_snapshot_projects_schema_index_writer_backup_export_and_queue_evidence(
+def test_maintenance_snapshot_projects_local_schema_and_search_indexes(
     tmp_path: Path,
 ) -> None:
     root = tmp_path / "brain"
-    initialize_appliance(root, starter_spaces=("Personal",))
-    tasks = open_local_engine(compile_single_user_local(root))
+    tasks = open_local_engine(compile_single_user_local(root, starter_spaces=("Personal",)))
     tasks.capture.accept(
         TextPayload("Synthetic maintenance document"),
         delivery_id="maintenance.capture",
     )
     tasks.portability.rebuild_index()
-    (root / APPLIANCE_BACKUP_EVIDENCE).write_bytes(
-        canonical_json_bytes(
-                {
-                    "backup_id": "backup_" + "a" * 64,
-                    "created_at": datetime(2026, 9, 1, 12, 0, tzinfo=UTC).isoformat().replace(
-                        "+00:00", "Z"
-                    ),
-                "manifest_digest_sha256": "a" * 64,
-                "schema_version": 1,
-            }
-        )
-    )
-    (root / APPLIANCE_EXPORT_EVIDENCE).write_bytes(
-        canonical_json_bytes(
-                {
-                    "created_at": datetime(2026, 9, 1, 12, 5, tzinfo=UTC).isoformat().replace(
-                        "+00:00", "Z"
-                    ),
-                    "export_id": "export_" + "b" * 64,
-                    "manifest_digest_sha256": "b" * 64,
-                    "schema_version": 1,
-                }
-        )
-    )
-
-    script = """
-import json
-import sys
-from pathlib import Path
-
-from open_brain_engine.storage.locks import FileLease
-
-root = Path(sys.argv[1])
-with FileLease(root / ".open-brain", "synthetic-holder").acquire_shared_writer():
-    sys.stdout.write("held\\n")
-    sys.stdout.flush()
-    sys.stdin.readline()
-"""
-    holder = subprocess.Popen(
-        [sys.executable, "-c", script, str(root)],
-        cwd=Path(__file__).parents[3],
-        stdin=subprocess.PIPE,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        text=True,
-    )
-    assert holder.stdout is not None
-    assert holder.stdin is not None
-    assert holder.stdout.readline().strip() == "held"
     snapshot = read_maintenance_snapshot(open_existing_single_user_local(root))
-    holder.stdin.write("\n")
-    holder.stdin.flush()
-    completed = holder.wait(timeout=5)
-    stderr = holder.stderr.read() if holder.stderr is not None else ""
 
     assert snapshot.schema.state == "current"
     assert snapshot.schema.version == 2
@@ -209,15 +148,6 @@ with FileLease(root / ".open-brain", "synthetic-holder").acquire_shared_writer()
     assert snapshot.index.state == "current"
     assert snapshot.index.generation is not None
     assert snapshot.index.document_count >= 1
-    assert completed == 0, stderr
-    assert snapshot.writer.held_count == 1
-    assert snapshot.writer.held_leases == ("shared-writer",)
-    assert snapshot.backup.state == "present"
-    assert snapshot.backup.operation_id == "backup_" + "a" * 64
-    assert snapshot.export.state == "present"
-    assert snapshot.export.operation_id == "export_" + "b" * 64
-    assert snapshot.queue.state == "unavailable"
-    assert snapshot.queue.pending_count == 0
 
 
 def test_live_search_diagnostics_detect_stale_content_without_using_portable_snapshot(

@@ -1,4 +1,4 @@
-"""Local engine composition and legacy compatibility re-exports."""
+"""Direct local engine composition."""
 
 from __future__ import annotations
 
@@ -12,17 +12,13 @@ from open_brain_engine.storage.filesystem import assert_root_identity
 from open_brain_engine.storage.locks import FileLease
 from open_brain_engine.storage.sqlite import SchemaError
 
-from .authority import require_daemon_authority
-from .backup import BackupTasks
 from .capture import CaptureOperations, CaptureTasks
 from .contracts import (
-    BackupFault,
     CaptureAction,
     CaptureFault,
     CaptureReceipt,
     CaptureSubmission,
     CaptureSubmissionPath,
-    DaemonMutationPath,
     DecisionOutcome,
     DecisionRecord,
     EngineTaskSet,
@@ -37,7 +33,6 @@ from .contracts import (
     MeasurementPayload,
     PageResult,
     Payload,
-    Phase1TaskSet,
     PortabilityFault,
     ProposalDraft,
     ProposalRecord,
@@ -121,7 +116,7 @@ class BrainEngine(CaptureOperations, SpaceOperations, ReviewOperations, Retrieva
         self,
         profile: LocalEngineContext,
         *,
-        faults: Collection[CaptureFault | PortabilityFault | BackupFault],
+        faults: Collection[CaptureFault | PortabilityFault],
         clock: Callable[[], datetime],
         enrichment_provider: EnrichmentProvider | None,
         validate_mutation_authority: Callable[[], None] | None = None,
@@ -159,16 +154,8 @@ class BrainEngine(CaptureOperations, SpaceOperations, ReviewOperations, Retrieva
         self.review = ReviewTasks(self)
         self.retrieval = RetrievalTasks(self)
         self.portability = PortabilityTasks(self)
-        self.backup = BackupTasks(self)
         self.reconciliation = ReconciliationTasks(self)
         self.markdown_import = MarkdownImportTasks(self)
-        daemon_mutation_path = DaemonMutationPath.reserved(profile.root)
-        phase1 = Phase1TaskSet(
-            capture=self.capture,
-            inbox=self.inbox,
-            review=self.review,
-            retrieval=self.retrieval,
-        )
         self._task_set = EngineTaskSet(
             profile=profile,
             capture=self.capture,
@@ -176,11 +163,8 @@ class BrainEngine(CaptureOperations, SpaceOperations, ReviewOperations, Retrieva
             review=self.review,
             retrieval=self.retrieval,
             portability=self.portability,
-            backup=self.backup,
             reconciliation=self.reconciliation,
             markdown_import=self.markdown_import,
-            daemon_mutation_path=daemon_mutation_path,
-            phase1=phase1,
         )
 
     @classmethod
@@ -188,7 +172,7 @@ class BrainEngine(CaptureOperations, SpaceOperations, ReviewOperations, Retrieva
         cls,
         profile: LocalEngineContext,
         *,
-        faults: Collection[CaptureFault | PortabilityFault | BackupFault] | None = None,
+        faults: Collection[CaptureFault | PortabilityFault] | None = None,
         clock: Callable[[], datetime] | None = None,
         enrichment_provider: EnrichmentProvider | None = None,
         validate_mutation_authority: Callable[[], None] | None = None,
@@ -241,7 +225,7 @@ class BrainEngine(CaptureOperations, SpaceOperations, ReviewOperations, Retrieva
                 recovered += 1
         return recovered
 
-    def _fault(self, point: CaptureFault | PortabilityFault | BackupFault) -> None:
+    def _fault(self, point: CaptureFault | PortabilityFault) -> None:
         if point in self._faults:
             self._faults.remove(point)
             raise InjectedFault(point)
@@ -253,7 +237,7 @@ class BrainEngine(CaptureOperations, SpaceOperations, ReviewOperations, Retrieva
 def open_local_engine(
     profile: LocalEngineContext,
     *,
-    faults: Collection[CaptureFault | PortabilityFault | BackupFault] | None = None,
+    faults: Collection[CaptureFault | PortabilityFault] | None = None,
     clock: Callable[[], datetime] | None = None,
     enrichment_provider: EnrichmentProvider | None = None,
     validate_before_write: Callable[[], None] | None = None,
@@ -266,44 +250,6 @@ def open_local_engine(
         enrichment_provider=enrichment_provider,
         validate_mutation_authority=validate_before_write,
     ).tasks
-
-
-def open_authoritative_local_engine(
-    profile: LocalEngineContext,
-    authority: object | None,
-    *,
-    faults: Collection[CaptureFault | PortabilityFault | BackupFault] | None = None,
-    clock: Callable[[], datetime] | None = None,
-    enrichment_provider: EnrichmentProvider | None = None,
-) -> EngineTaskSet:
-    """Open one local root for mutation only while daemon lifetime authority remains active."""
-    require_daemon_authority(profile, authority)
-    return BrainEngine.open(
-        profile,
-        faults=faults,
-        clock=clock,
-        enrichment_provider=enrichment_provider,
-        validate_mutation_authority=lambda: require_daemon_authority(profile, authority),
-    ).tasks
-
-
-def recover_authoritative_local_engine(
-    profile: LocalEngineContext,
-    authority: object | None,
-    *,
-    clock: Callable[[], datetime] | None = None,
-    enrichment_provider: EnrichmentProvider | None = None,
-) -> int:
-    """Replay durable engine transitions only while daemon authority remains active."""
-    require_daemon_authority(profile, authority)
-    engine = BrainEngine(
-        profile,
-        faults=set(),
-        clock=clock or _utc_now,
-        enrichment_provider=enrichment_provider,
-        validate_mutation_authority=lambda: require_daemon_authority(profile, authority),
-    )
-    return engine.recover()
 
 
 def open_local_read_view(
@@ -358,7 +304,6 @@ __all__ = [
     "LocalEngineContext",
     "MeasurementPayload",
     "Payload",
-    "Phase1TaskSet",
     "ProposalDraft",
     "ProposalRecord",
     "PublicJobCaptureContext",
@@ -366,7 +311,6 @@ __all__ = [
     "PublicProvenance",
     "ReadViewUnavailableError",
     "ReferencePayload",
-    "recover_authoritative_local_engine",
     "RetrievalResult",
     "RetrievalTasks",
     "ReviewTasks",
@@ -376,6 +320,5 @@ __all__ = [
     "StateSchemaUnavailableError",
     "TextPayload",
     "open_local_engine",
-    "open_authoritative_local_engine",
     "open_local_read_view",
 ]

@@ -37,7 +37,7 @@ open-brain search "$TOKEN" | grep -F "$TOKEN"
 open-brain export "$EXPORT_PARENT/brain" --verify
 open-brain status --json
 open-brain doctor --check private-data-directory
-open-brain doctor --check no-background-runtime
+open-brain doctor --check foreground-runtime
 open-brain doctor --check base-dependency-closure
 ```
 
@@ -98,5 +98,5 @@ uninstall, VM matrices, notarization, artifact attestations, or metadata-only ev
 `brew uninstall open-brain` removes the Homebrew-managed executable. It does not remove the Brain
 data directory. Data removal is a separate, explicit user action.
 
-Open Brain relies on the operating-system account and disk protections. It does not claim Secure
-Node's application-level encryption, custody, compartment, purge, fencing, or recovery guarantees.
+Open Brain relies on the operating-system account and disk protections. It does not claim
+application-level encryption, custody, compartment, purge, fencing, or recovery guarantees.

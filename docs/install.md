@@ -53,9 +53,9 @@ limits refuse a directory. It never bypasses the one-file safety limit.
 ## Privacy
 
 Open Brain relies on the operating-system user account, disk encryption, backups, and physical
-security. It does not provide application-level encryption. Use the opt-in Secure Node profile when
-encrypted custody, compartments, authorization, receipts, fencing, certified purge, recovery, or
-multi-client service operation is required.
+security. It does not provide application-level encryption, compartments, certified purge, or
+multi-user service operation. Those requirements need a different product with a separate install
+and security boundary.
 
 ## Uninstall
 

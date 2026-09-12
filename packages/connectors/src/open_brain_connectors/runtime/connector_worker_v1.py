@@ -21,7 +21,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from typing import Protocol, cast
 
-from open_brain.extensions.connectors import (
+from open_brain_connectors.runtime.connectors import (
     CONNECTOR_ENTRY_POINT_GROUP,
     ConnectorBudgetLimits,
     ConnectorCapabilityPolicy,
@@ -513,7 +513,7 @@ def _worker_command() -> tuple[str, ...]:
         sys.executable,
         "-I",
         "-m",
-        "open_brain.extensions.connector_worker_child",
+        "open_brain_connectors.runtime.connector_worker_child",
     )
 
 

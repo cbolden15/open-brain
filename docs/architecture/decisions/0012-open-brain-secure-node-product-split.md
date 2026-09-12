@@ -1,6 +1,6 @@
 # ADR 0012: Open Brain and Secure Node product split
 
-Status: accepted
+Status: superseded by ADR 0016
 
 Date: 2026-09-07
 

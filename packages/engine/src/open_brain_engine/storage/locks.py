@@ -44,14 +44,9 @@ class LockBusyError(LeaseError):
 
 
 _IDENTITY = re.compile(r"[a-z][a-z0-9-]{0,63}")
-_BACKUP_PROFILES = frozenset({"capture", "full", "personal", "runtime-state"})
 _DISCRIMINATORS = {
-    LockScope.DAEMON_AUTHORITY: frozenset({"daemon-authority"}),
-    LockScope.APPLIANCE_LIFECYCLE: frozenset({"appliance-lifecycle"}),
     LockScope.SHARED_WRITER: frozenset({"shared-writer"}),
     LockScope.INDEX: frozenset({"index"}),
-    LockScope.BACKUP_PROFILE: _BACKUP_PROFILES,
-    LockScope.INGRESS: frozenset({"ingress"}),
     LockScope.PORTABILITY_PROMOTION: frozenset({"portability-promotion"}),
 }
 _DESCRIPTOR_FIELDS = frozenset(
@@ -65,9 +60,7 @@ _LOCK_FILE_NAMES = frozenset(
         "lease.appliance-lifecycle",
         "lease.shared-writer",
         "lease.index",
-        "lease.ingress",
         "lease.portability-promotion",
-        *(f"lease.{profile}" for profile in _BACKUP_PROFILES),
     }
 )
 _PROCESS_HELD_LOCKS: set[tuple[int, int, str]] = set()
@@ -221,7 +214,6 @@ class FileLease:
         state_root: Path,
         owner_identity_id: str,
         *,
-        backup_profile: str | None = None,
         clock: Clock | None = None,
         validate_acquire: Callable[[], None] | None = None,
         parent_root_identity: RootIdentity | None = None,
@@ -233,8 +225,6 @@ class FileLease:
         if (
             not isinstance(owner_identity_id, str)
             or _IDENTITY.fullmatch(owner_identity_id) is None
-            or backup_profile is not None
-            and backup_profile not in _BACKUP_PROFILES
             or clock is not None
             and not callable(clock)
             or validate_acquire is not None
@@ -247,7 +237,6 @@ class FileLease:
             raise LeaseFormatError("invalid lease configuration")
         self._state_root = state_root
         self._owner_identity_id = owner_identity_id
-        self._backup_profile = backup_profile
         self._clock = _system_clock if clock is None else clock
         self._validate_acquire = validate_acquire
         self._parent_root_identity = parent_root_identity
@@ -347,12 +336,6 @@ class FileLease:
     def _discriminator(self, scope: LockScope) -> str:
         if not isinstance(scope, LockScope) or scope is LockScope.NONE:
             raise LeaseFormatError("invalid lease scope")
-        if scope is LockScope.BACKUP_PROFILE:
-            if self._backup_profile is None:
-                raise LeaseFormatError("backup lease profile required")
-            return self._backup_profile
-        if self._backup_profile is not None:
-            raise LeaseFormatError("backup lease cannot acquire another scope")
         return scope.value
 
 
@@ -561,6 +544,4 @@ def _read_descriptor(file_fd: int, file_name: str) -> LeaseDescriptor | None:
 
 def _scope_for_file_name(file_name: str) -> tuple[LockScope, str]:
     discriminator = file_name.removeprefix("lease.")
-    if discriminator in _BACKUP_PROFILES:
-        return LockScope.BACKUP_PROFILE, discriminator
     return LockScope(discriminator), discriminator

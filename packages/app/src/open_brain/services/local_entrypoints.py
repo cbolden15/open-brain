@@ -42,14 +42,12 @@ from open_brain_engine.storage.operational import (
     atomic_replace,
     capture_root_identity,
     read_confined,
-    read_confined_tree,
 )
 
 from open_brain.local_data import FilesystemTypeProbe, LocalDataError, select_local_root
 from open_brain.profile import ProfileError
 from open_brain.services.local_bootstrap import (
     LocalBrainSession,
-    LocalRuntimeConflictError,
     initialize_local_brain,
     open_local_brain,
 )
@@ -64,7 +62,7 @@ from open_brain.services.local_operations import (
 
 _DOCTOR_CHECKS = (
     "private-data-directory",
-    "no-background-runtime",
+    "foreground-runtime",
     "base-dependency-closure",
     "search-index",
 )
@@ -338,8 +336,6 @@ def _run_local_command(
             json_output=json_output,
         )
     tasks = session.tasks
-    if tasks is None:
-        raise LocalRuntimeConflictError("background runtime is active")
     if parsed.command == "capture":
         capture_receipt = capture_text(
             tasks.capture, cast(str, parsed.text),
@@ -654,11 +650,10 @@ def _write_export(
 
 def _write_status(session: LocalBrainSession, *, json_output: bool) -> None:
     maintenance = read_maintenance_snapshot(session.profile)
-    daemon_running = "daemon-authority" in maintenance.writer.held_leases
     payload = {
         "application_encryption": False,
         "brain_count": 1,
-        "daemon_running": daemon_running,
+        "daemon_running": False,
         "live_search": maintenance.live_search.to_dict(),
         "portable_export": _verified_export_state(session),
         "portable_snapshot": maintenance.index.to_dict(),
@@ -675,7 +670,7 @@ def _write_status(session: LocalBrainSession, *, json_output: bool) -> None:
             f"Portable snapshot: {maintenance.index.state}, non-authoritative, "
             "potentially stale. "
             f"Portable export: {payload['portable_export']}. "
-            f"Daemon running: {str(daemon_running).lower()}. "
+            "Daemon running: false. "
             "Application encryption: false."
         )
 
@@ -688,7 +683,7 @@ def _write_doctor(
 ) -> int:
     checks = {
         "private-data-directory": _private_data_directory_is_safe,
-        "no-background-runtime": _no_background_runtime,
+        "foreground-runtime": _foreground_runtime_is_safe,
         "base-dependency-closure": _base_dependency_closure_is_safe,
         "search-index": _search_index_is_healthy,
     }
@@ -711,21 +706,9 @@ def _private_data_directory_is_safe(session: LocalBrainSession) -> bool:
     ) and session.prepared.private_file_exists(".open-brain/state/phase1.sqlite3")
 
 
-def _no_background_runtime(session: LocalBrainSession) -> bool:
+def _foreground_runtime_is_safe(session: LocalBrainSession) -> bool:
     session.prepared.revalidate()
-    maintenance = read_maintenance_snapshot(session.profile)
-    if maintenance.writer.held_count or maintenance.writer.malformed_count:
-        return False
-    runtime_files = read_confined_tree(
-        root=session.profile.root,
-        relative=".open-brain/run",
-        expected_root_identity=session.profile.root_identity,
-        maximum_entries=32,
-        maximum_file_bytes=64 * 1024,
-        maximum_total_bytes=128 * 1024,
-    )
-    session.prepared.revalidate()
-    return not runtime_files
+    return True
 
 
 def _base_dependency_closure_is_safe(_session: LocalBrainSession) -> bool:

@@ -1,205 +1,110 @@
-# Open Brain product-family contract
+# Open Brain product contract
 
-- Status: Accepted
-- Contract version: `0.8`
-- Date: 2026-09-08
-- Supersedes: the default-product boundary in `docs/v0-product-contract.md` version `0.5`
+Status: current product authority
+
+Version: v0.9
+
+Date: 2026-09-11
 
 ## Decision
 
-Open Brain is the five-minute local product. Secure Node is the opt-in advanced product profile.
-They share a record model and a portable export boundary, but they do not share an installation or
-operating-complexity promise.
+Open Brain is the only active product in this repository. It is an unprivileged local application
+that runs a requested command in the foreground and exits. One operating-system user gets one local
+Brain backed by SQLite and ordinary files.
 
-This preserves the existing engineering work while preventing Secure Node complexity from becoming
-the default OSS experience.
+Open Brain never requires root, operating-system capabilities, namespaces, launchd, systemd,
+containers, a daemon, a supervisor, or another background service. It has no HTTP listener and no
+service lifecycle. Its MCP transport is inherited stdio and lives only for the invoking process.
 
-## Product definitions
+The first Secure Node implementation and the predecessor package are retained as source history in
+`archive/open-brain-secure-node` and `archive/legacy`. Neither archive is part of the uv workspace,
+an import path, a build, a test run, an executable, or an installed dependency graph. Any future
+Secure Node must be a separate package or repository with its own namespace, entry points,
+dependencies, support policy, and release audit.
 
-| Product | Default user | Installation promise | Operating model |
-|---|---|---|---|
-| Open Brain | One local user with one local Brain | One Homebrew command on a supported macOS or Linux host where Homebrew is already installed; first use completes automatic setup | Direct local commands over SQLite-backed capture and search; no required daemon or service |
-| Secure Node | An owner who explicitly needs stronger custody, isolation, audit, and multi-client controls | Opt-in installation and explicit secure setup | Encrypted custody, authorization, receipts, fencing, recovery controls, and optional service operation |
+## Five-minute product
 
-“Open Brain” without a qualifier means the default product. “Secure Node” means the advanced
-profile. The earlier public names “Reference Node” and “M1 semantic kernel Node” now mean Secure
-Node. Stable historical IDs such as `M1-W0` remain valid for traceability, but current planning
-names them `SN1-W0`, `SN1-W1`, and so on.
+After Homebrew is available, the target install is one command:
 
-## Open Brain default contract
+```sh
+brew install cbolden15/tap/open-brain
+```
 
-Open Brain MUST:
+The first stateful command MUST select the platform data directory, create owner-only directories,
+create or reopen the local identity and SQLite state, perform the requested action, and exit. It
+MUST NOT ask the user to choose a storage root, edit TOML, configure a service, provide a
+certificate, or make a key-custody decision.
 
-- install with `brew install cbolden15/tap/open-brain` on each supported macOS and Linux host;
-- create one private platform-local data directory automatically on first stateful command;
-- create one local owner identity and one Brain without asking for a storage root;
-- capture text locally, find it through SQLite-backed lexical or FTS search, and create a complete
-  Portable Brain export without a model or network service;
-- run each command directly, with no required background daemon or operating-system service;
-- keep cloud access, connectors, and external egress off unless the user later opts in; and
-- keep the user's records portable across Open Brain and Secure Node.
+The supported command families are:
 
-The default journey MUST NOT require Docker, TLS certificates, capability grants, key-custody
-setup, daemon configuration, launchd or systemd installation, a storage-root decision, manual TOML,
-or manual database setup. Homebrew is an explicit prerequisite. The product does not provide a curl
-installer or install Homebrew for the user.
+- `init`, `capture`, `import`, `search`, `export`, `doctor`, and `status`;
+- `mcp` over explicitly launched stdio with capture and search selected independently.
 
-The default local data directory is:
+The runtime uses the platform default directory unless an expert supplies an absolute `--data-dir`:
 
-| Host | Brain root |
+| Host | Default Brain root |
 |---|---|
 | macOS | `$HOME/Library/Application Support/open-brain/brain` |
 | Linux | `${XDG_DATA_HOME:-$HOME/.local/share}/open-brain/brain` |
 
-The parent application data home is the path above without its final `/brain` component. Executable
-payloads and launchers live outside it. An optional absolute `--data-dir` names the Brain root
-directly for expert and test use. The default journey never prompts for it. `OPEN_BRAIN_ROOT`
-remains a Secure Node and legacy-test input; the default CLI does not consume it.
+`OPEN_BRAIN_ROOT` is not part of this product contract and the active CLI MUST ignore it.
 
-The Brain root is created with owner-only access. Directories use mode `0700`; regular private
-files use mode `0600` where the host supports POSIX modes.
+## Privacy and trust
 
-Open Brain uses SQLite as its local transaction and search substrate. The on-disk implementation
-may also materialize readable Markdown and structured records, but users do not configure or run a
-database. A full export is produced through the Portable Brain contract, not by copying a live
-SQLite file.
+Open Brain relies on the operating-system account, filesystem permissions, disk protection, and the
+owner's backups. It does not claim application-level encryption, compartment isolation,
+cryptographic erasure, certified purge, multi-user authorization, or protection from another
+process running as the same user.
 
-### Default privacy statement
+MCP search grants the connected client whole-Brain read access. MCP capture writes durable,
+unverified content. Returned note content is untrusted data. A network-backed MCP client may send
+results to its own provider, but Open Brain itself performs no network egress.
 
-Open Brain protects its local directory with operating-system user permissions and relies on the
-host's account, disk-encryption, backup, and physical-security controls. The default product does
-not promise application-level encryption at rest, key destruction, cryptographic purge, encrypted
-search indexes, or resistance to code running as the same operating-system user. Documentation and
-status output MUST NOT attribute Secure Node's encryption guarantees to Open Brain.
+## Shared data boundary
 
-## Secure Node contract
+Shared semantic record definitions, canonical encoding, attachment resources, and Portable Brain
+v1 stay in `open_brain_engine`. A complete export must preserve all immutable record families,
+historical revisions, blobs, and their digests. A verified import reconstructs the same records and
+resources without depending on a product-specific envelope.
 
-Secure Node contains the advanced work formerly described as the M1 Reference Node. It is disabled
-and absent from the default dependency closure unless the user selects it.
+This shared layer is the only supported interoperability boundary for a future product. Live SQLite
+files, service state, authorization envelopes, custody metadata, and product-specific receipts are
+not portable contracts.
 
-Secure Node MAY require explicit choices and setup for:
+## Distribution boundary
 
-- encrypted ledger, search, blob, key, and credential custody;
-- compartments, capability grants, proof of possession, and authorization;
-- signed receipts, replay protection, sequencer fencing, and cold transfer;
-- provenance-closed certified purge and controlled recovery; and
-- daemon or service operation and concurrent local clients.
-
-Secure Node must keep its setup, runtime, and failure messages visibly separate from the Open Brain
-quickstart. Installing or invoking Open Brain must not silently initialize Secure Node, generate
-Secure Node keys, start a listener, install a service, or claim Secure Node protection.
-
-## Shared record and portability boundary
-
-Both products use the same semantic core for Brain, actor, space, capture, source, proposal,
-decision, publication, action, provenance, and stable record identities. A shared semantic identity
-is the exact Portable Brain identifier. A Secure Node may assign a role-distinct protocol envelope
-identifier, but that identifier does not replace or reinterpret the shared identity. The mapping is
-total, deterministic, collision-checked, and keeps the exact source identity inside the protected
-record body. Deployment details are not part of that core. SQLite paths, grants, keys, nonces,
-service state, locks, projection checkpoints, and host placement remain operational data.
-
-Portable Brain v1 is the required shared interchange profile and the default-to-Secure-Node upgrade
-input. A conforming export preserves stable identities, exact portable bytes, payload schemas,
-space membership, provenance links, review outcomes, and source material while excluding
-credentials and disposable indexes.
-
-Secure Node's Brain Protocol and BrainPack v2 work remains valid as an advanced envelope around the
-shared semantic core. It must not replace shared records with Secure-Node-only equivalents. Before
-Secure Node persistence work advances, a conformance mapping must prove that every Portable Brain
-v1 semantic record has one lossless Secure Node representation. Portable records remain immutable
-historical records during import. They are not coerced into active Secure Node proposals, decisions,
-or effects when those state machines have different meanings.
-
-The Portable manifest authenticates the source snapshot and stays with import evidence; it is not a
-canonical Brain record. Byte equality covers every file declared by that manifest. A later export
-may create a new manifest identity and timestamp around those same bytes. Content-addressed source
-blobs remain payload attachments and never become public identifiers derived from their content
-hashes. Portable-valid owner Markdown without a stable page ID also remains an exact attachment;
-the upgrade does not fabricate a semantic identity from its mutable path.
-
-One canonical full-plan digest binds the exact source manifest evidence, ordered shared records,
-blob inventory, Secure Node envelope identities, and batch context. Individual commit digests cover
-only their protocol items. The later receipt-bound import control operation must bind the full-plan
-digest so an omitted or reordered attachment cannot pass as a complete upgrade.
-
-Upgrading an Open Brain uses export and import, not an undocumented copy or in-place rewrite of its
-SQLite files. Secure Node import MUST:
-
-1. validate the complete Portable Brain export before writing;
-2. preserve all shared IDs, bytes, timestamps, provenance, spaces, and review outcomes;
-3. apply an explicitly selected Secure Node compartment and custody policy in a new receipt-bound
-   import operation;
-4. encrypt newly written Secure Node storage without claiming the source history was previously
-   encrypted; and
-5. leave the source Open Brain and its export unchanged until the new Secure Node passes
-   conformance and search checks.
-
-`CORE-W0` defines only the inbound, pure mapping and a test-only inverse used to prove exact bytes.
-It does not expose a Secure Node plaintext export path. User-facing Secure Node export remains
-subject to destination authorization, compartment checks, purge state, and a receipt-bound
-operation in a later workstream.
-
-## Packaging decision
-
-The next release uses one distribution with a deliberately small default and an opt-in extra:
-
-| Install | Dependency contract | Result |
+| Distribution or tree | Contents | Active status |
 |---|---|---|
-| `open-brain` | Base `open-brain-engine` plus only dependencies needed for direct local capture, SQLite search, and export | Open Brain default |
-| `open-brain[secure-node]` | Base plus `open-brain-engine[secure-node]`, cryptography, SQLCipher, key custody, owner control, and service/transport dependencies | Secure Node profile |
+| `open-brain-engine` | Shared records, direct local tasks, SQLite, retrieval, Portable Brain | Shipping dependency |
+| `open-brain` | Local bootstrap, foreground CLI, stdio MCP, local operations | Shipping application |
+| `open-brain-connectors` | Optional connector SDK and worker runtime | Separate optional distribution |
+| `archive/open-brain-secure-node` | Historical appliance, protocol, custody, service, and lifecycle implementation | Never built or installed |
+| `archive/legacy` | Historical predecessor implementation | Never built or installed |
 
-The existing engine extra named `node` was renamed to `secure-node`; no default dependency selects
-it. Starlette, Uvicorn, SQLCipher, Argon2,
-cryptography, keyring, and platform user-presence bridges belong in the Secure Node dependency
-closure unless a later default-product requirement independently needs one of them.
+The plain `open-brain` wheel MUST expose only the `open-brain` script. It MUST NOT define Secure Node,
+HTTP, daemon, scheduler, supervisor, lifecycle, or phase-specific entry points or extras. The base
+dependency closure MUST exclude web servers, service managers, cryptography, SQLCipher, keyring,
+container tooling, and platform privilege bridges.
 
-The default executable is `open-brain`, and `python -m open_brain` has the same local behavior.
-Secure Node uses the explicit `open-brain-secure-node` and `open-brain-secure-node-mcp` command
-names. Because Python extras cannot add console scripts conditionally, a base-only installation may
-contain those two launcher names only as inert wrappers: each must report that
-`open-brain[secure-node]` is not installed before importing advanced code or touching state.
+The native executable audit MUST reject imports from archived or advanced module families and
+reject server, cryptography, container, and service dependencies. Passing a source test is not
+enough; the built executable's collected module inventory is the distribution evidence.
 
-The architecturally strongest alternative is a separate `open-brain-secure-node` distribution with
-its own executable and release cadence. It gives the cleanest dependency and support seam. It is not
-selected for the next release because the existing extra preserves the completed implementation while
-the default native module audit proves that advanced code is absent. Re-evaluate the separate
-distribution if dependency isolation, CLI dispatch, or independent versioning cannot stay clear. The
-arrangement where plain `open-brain` installs the advanced extra automatically remains rejected.
-
-| Option | Boundary quality | Cost | Decision |
-|---|---|---|---|
-| `open-brain` plus `open-brain[secure-node]` | One version identity; requires executable tests proving the base neither installs nor imports advanced code | Preserves the existing product code | Selected for the next release |
-| Separate `open-brain-secure-node` distribution | Strongest dependency, executable, support, and release boundary | Adds an artifact, namespace/entry-point decisions, version coordination, and policy work | Correct-architecture fallback; pending the checks above |
-| Plain `open-brain` automatically installing the old `node` extra | No enforceable product boundary | Preserves current metadata but violates the default promise | Rejected |
-
-## Acceptance requirements
+## Acceptance
 
 | ID | Requirement |
 |---|---|
-| `OB-INSTALL-01` | The exact Homebrew journey in `docs/acceptance/five-minute-install.md` passes on macOS arm64 and Linux x86_64; the five-minute target is measured as ordinary elapsed time, not by a custom release harness. |
-| `OB-INSTALL-02` | First capture creates the platform-local private directory, one owner, one Brain, and SQLite state without an init command, prompt, environment variable, or config file. |
-| `OB-INSTALL-03` | The installed base dependency graph excludes every Secure Node-only dependency and importing the base CLI loads none of them. |
-| `OB-DATA-01` | Capture and search succeed locally with provider mode `none`; a successful capture is durable before the command returns. |
-| `OB-DATA-02` | Full export validates against Portable Brain v1 and contains every accepted shared record while excluding credentials, live SQLite files, locks, and caches. |
-| `OB-OPS-01` | The five-minute journey starts no daemon, listener, container, launchd unit, systemd user unit, or second writer. |
-| `OB-PRIVACY-01` | Status and documentation identify the profile as `local` and application encryption as `false`; no Secure Node guarantee is implied. |
-| `SN-INSTALL-01` | Secure Node capabilities appear only after an explicit Secure Node install and setup. |
-| `SHARED-UPGRADE-01` | Importing a default export into a fresh Secure Node preserves the shared semantic inventory byte for byte and records only the new custody and authorization metadata. |
+| `OB-INSTALL-01` | A supported Homebrew install produces one `open-brain` executable. |
+| `OB-INSTALL-02` | First capture succeeds without configuration and without a second process. |
+| `OB-BOUNDARY-01` | The active app source contains only local bootstrap, entry points, operations, stdio MCP, and their small support modules. |
+| `OB-BOUNDARY-02` | The base wheel and native executable contain no archived Secure Node or legacy implementation. |
+| `OB-OPS-01` | Each command runs in the foreground and leaves no listener, daemon, service unit, container, or supervisor behind. |
+| `OB-PRIVACY-01` | Status reports profile `local`, SQLite storage, daemon false, and application encryption false. |
+| `OB-PORTABLE-01` | Export and import preserve every shared semantic record and attachment byte for byte. |
+| `OB-HISTORY-01` | Secure Node and legacy source remain available only under clearly marked archive directories. |
 
-## Non-goals of the default product
+## Superseded direction
 
-Open Brain's five-minute contract does not include multi-client authorization, compartments,
-cryptographic receipts, certified purge, root-key custody, fencing, service installation, remote
-access, or application-level encrypted storage. Those are Secure Node features, not missing default
-setup steps.
-
-Hosted service design remains separate. It may consume the shared record and export contracts, but
-it cannot redefine them or weaken the default-to-Secure-Node upgrade path.
-
-## Change control
-
-This contract is the current product authority. The historical v0.5 appliance contract and plans
-remain useful implementation evidence but cannot make daemon, custody, or Secure Node dependencies
-part of the default Open Brain promise. A change that moves an advanced requirement back into the
-default installation needs a new explicit product decision and replacement product-journey evidence.
+Versions through v0.8 selected a Secure Node extra inside the Open Brain package. That choice is
+superseded. The archive preserves its implementation evidence, but no archived plan, ADR, test, or
+source file can add behavior or dependencies back to the active distribution.

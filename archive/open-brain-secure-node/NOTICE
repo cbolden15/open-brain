@@ -1,0 +1,9 @@
+Open Brain Secure Node historical source
+Copyright 2026 Open Brain contributors
+
+This archived source was licensed under the Apache License, Version 2.0.
+
+The historical implementation depended on argon2-cffi, cryptography, keyring,
+pyobjc-framework-LocalAuthentication on macOS, rfc8785.py, sqlcipher3, SQLCipher Community
+Edition, Starlette, and Uvicorn. Their exact historical compatibility evidence is preserved below
+this archive. This tree is not an active distribution.

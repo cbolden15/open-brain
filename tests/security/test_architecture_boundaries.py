@@ -35,56 +35,34 @@ def test_core_ports_expose_no_task_capability_or_raw_redaction() -> None:
     assert "RedactionReceipt" not in raw_store
 
 
-def test_phase1_cli_and_ui_use_engine_public_surface_not_local_stores() -> None:
-    representations = (
-        APP_SOURCE_ROOT / "cli" / "phase1.py",
-        APP_SOURCE_ROOT / "integrations" / "phase1_ui.py",
-    )
-    prohibited = (
-        "open_brain_engine.engine.local",
-        "open_brain_engine.storage",
-        "sqlite3",
-        "atomic_write",
-        "connect_database",
-    )
-    for path in representations:
-        source = path.read_text(encoding="utf-8")
-        assert "from open_brain_engine.engine import" in source
-        assert all(token not in source for token in prohibited)
+def test_application_package_contains_only_foreground_local_surfaces() -> None:
+    actual = {
+        path.relative_to(APP_SOURCE_ROOT).as_posix()
+        for path in APP_SOURCE_ROOT.rglob("*")
+        if path.is_file() and "__pycache__" not in path.parts
+    }
+
+    assert actual == {
+        "__main__.py",
+        "local_data.py",
+        "profile.py",
+        "services/__init__.py",
+        "services/local_bootstrap.py",
+        "services/local_entrypoints.py",
+        "services/local_mcp.py",
+        "services/local_native_entrypoint.py",
+        "services/local_operations.py",
+        "services/mcp_protocol.py",
+    }
 
 
-def test_phase3_appliance_seams_are_reserved_without_shipping_legacy_control_paths() -> None:
-    architecture = (REPOSITORY_ROOT / "docs" / "architecture.md").read_text(encoding="utf-8")
-    services = (
-        APP_SOURCE_ROOT / "services" / "appliance_daemon.py",
-        APP_SOURCE_ROOT / "services" / "appliance_lifecycle.py",
-        APP_SOURCE_ROOT / "services" / "phase1_application.py",
-        APP_SOURCE_ROOT / "services" / "phase1_entrypoints.py",
-        APP_SOURCE_ROOT / "services" / "runtime.py",
-    )
+def test_secure_node_and_legacy_sources_are_quarantined_outside_packages() -> None:
+    secure_archive = REPOSITORY_ROOT / "archive/open-brain-secure-node"
+    legacy_archive = REPOSITORY_ROOT / "archive/legacy"
 
-    assert "services/appliance_application.py" in architecture
-    assert "services/appliance_daemon.py" in architecture
-    assert "services/appliance_entrypoints.py" in architecture
-    assert "services/appliance_lifecycle.py" in architecture
-    assert ".open-brain/run/control.sock" in architecture
-    for path in services:
-        source = path.read_text(encoding="utf-8")
-        assert "open_brain.operations" not in source
-        assert "open_brain_legacy.operations" not in source
-        assert "open_brain.release" not in source
-
-
-def test_appliance_application_uses_only_public_engine_surfaces_for_mutations() -> None:
-    source = (APP_SOURCE_ROOT / "services" / "appliance_application.py").read_text(
-        encoding="utf-8"
-    )
-
-    assert "from open_brain_engine.engine import" in source
-    prohibited = (
-        "open_brain_engine.engine.local",
-        "open_brain_engine.storage",
-        "FileLease",
-        "LockScope",
-    )
-    assert all(token not in source for token in prohibited)
+    assert (secure_archive / "README.md").is_file()
+    assert (legacy_archive / "README.md").is_file()
+    assert not (REPOSITORY_ROOT / "packages/legacy").exists()
+    assert (secure_archive / "app/src/open_brain/services/appliance_daemon.py").is_file()
+    assert (secure_archive / "engine/src/open_brain_engine/protocol").is_dir()
+    assert (secure_archive / "engine/src/open_brain_engine/ledger").is_dir()
