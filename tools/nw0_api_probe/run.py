@@ -28,15 +28,12 @@ CANDIDATE_FILES = (
 )
 
 
-def input_files(
-    candidate_files: tuple[str, ...], extra_files: tuple[str, ...] = (),
-) -> tuple[str, ...]:
+def input_files(candidate_files: tuple[str, ...]) -> tuple[str, ...]:
     return (
         "requirements.txt",
         "dependency-wheels.json",
         *(f"payload/{name}.txt" for name in candidate_files),
         "payload/run_bundle.py.txt",
-        *extra_files,
     )
 
 
@@ -49,30 +46,9 @@ class ProofProfile:
     source: Path
     candidate_files: tuple[str, ...]
     expected_tests: int
-    base_sources: tuple[tuple[str, Path, str], ...] = ()
-    extra_files: tuple[str, ...] = ()
 
 
 TRANSPORT_PROFILE = ProofProfile("api", SOURCE, CANDIDATE_FILES, 23)
-AUTHORITY_PROFILE = ProofProfile(
-    "authority", REPO / "tools/nw0_authority_probe",
-    (
-        "authority_gate.py", "async_bridge.py", "async_transport.py", "direct_api.py",
-        "bridge.py", "wire.py", "source_binding.py", "test_authority_gate.py",
-        "test_async_authority.py", "test_terminal_ownership.py", "test_host_lifetime.py",
-        "test_async_transport.py", "tls_fixture.py", "test_source_binding.py",
-        "semantic-dataset.json",
-        "test_credential_preflight.py", "test_preflight_close.py",
-    ),
-    40,
-    (
-        ("engine", REPO / "packages/engine/src",
-         "7f64ba6517dcf86a9ec87bf3d0c0be82257ef4ae601f6d3df4891a1f7b15fe05"),
-        ("app", REPO / "packages/app/src",
-         "acad205b1378c882aeb8b46d86a6ff4236add67d424037ba001e62b28e0238d2"),
-    ),
-    ("expected-bundle-manifests.json",),
-)
 
 
 def digest(path: Path) -> str:
@@ -85,11 +61,10 @@ def verify_inputs(source: Path) -> dict[str, str]:
 
 def load_inputs(
     source: Path, candidate_files: tuple[str, ...] = CANDIDATE_FILES,
-    extra_files: tuple[str, ...] = (),
 ) -> tuple[dict[str, str], dict[str, bytes], str]:
     manifest_bytes = (source / "source-manifest.json").read_bytes()
     manifest = json.loads(manifest_bytes)
-    expected_files = input_files(candidate_files, extra_files)
+    expected_files = input_files(candidate_files)
     if not isinstance(manifest, dict) or set(manifest) != set(expected_files):
         raise ValueError("unexpected proof input inventory")
     result = {}
@@ -116,9 +91,8 @@ def load_inputs(
 
 def materialize(
     source: Path, output: Path, candidate_files: tuple[str, ...] = CANDIDATE_FILES,
-    extra_files: tuple[str, ...] = (),
 ) -> tuple[dict[str, str], str]:
-    bindings, contents, manifest_sha256 = load_inputs(source, candidate_files, extra_files)
+    bindings, contents, manifest_sha256 = load_inputs(source, candidate_files)
     candidate = output / "runtime" / "candidate"
     runner = output / "runtime" / "runner"
     candidate.mkdir(parents=True)
@@ -128,8 +102,6 @@ def materialize(
     (candidate / "requirements.txt").write_bytes(contents["requirements.txt"])
     (runner / "run_bundle.py").write_bytes(contents["payload/run_bundle.py.txt"])
     (output / "runtime/dependency-wheels.json").write_bytes(contents["dependency-wheels.json"])
-    for name in extra_files:
-        (output / "runtime" / name).write_bytes(contents[name])
     return bindings, manifest_sha256
 
 
@@ -183,21 +155,6 @@ def public_result(
     return {"runs": selected, "dependency_versions": versions}
 
 
-def base_source_arguments(profile: ProofProfile) -> list[str]:
-    return [
-        arg for name, path, _ in profile.base_sources for arg in (f"--{name}-source", str(path))
-    ]
-
-
-def base_source_result(value: Any, profile: ProofProfile) -> dict[str, Any]:
-    if not profile.base_sources:
-        return {}
-    expected = {name: pin for name, _, pin in profile.base_sources}
-    if not isinstance(value, dict) or value.get("base_source_sha256") != expected:
-        raise ValueError("executed base source binding mismatch")
-    return {"base_source_sha256": expected}
-
-
 def run_proof(profile: ProofProfile) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output", type=Path, default=REPO / f"build/nw0-{profile.name}")
@@ -225,23 +182,10 @@ def run_proof(profile: ProofProfile) -> int:
         }:
             raise ValueError("unsupported proof target")
         phase = "materialize"
-        bindings, manifest_sha256 = materialize(
-            profile.source, output, profile.candidate_files, profile.extra_files,
-        )
+        bindings, manifest_sha256 = materialize(profile.source, output, profile.candidate_files)
         result["source_sha256"] = bindings
         result["implementation_sha256"] = implementation_sha256(manifest_sha256)
         target = "macos-arm64" if platform.system() == "Darwin" else "linux-x86_64"
-        if profile.name == "authority":
-            from tools.nw0_api_probe import authority
-
-            result["implementation_sha256"]["authority_coordinator"] = digest(
-                Path(authority.__file__)
-            )
-            phase = "authority"
-            result.update(authority.execute(profile, output, args.wheelhouse, target, bindings))
-            result["passed"] = True
-            phase = "complete"
-            return 0
         wheels = json.loads((output / "runtime/dependency-wheels.json").read_bytes())
         expected_versions = {row["name"]: row["version"] for row in wheels["platforms"][target]}
         executable = shutil.which("uv")
@@ -274,7 +218,6 @@ def run_proof(profile: ProofProfile) -> int:
                 sys.executable, "-B", str(output / "runtime/runner/run_bundle.py"),
                 str(output / "tests"), "--interpreter", sys.executable,
                 "--dependency-path", str(inputs),
-                *base_source_arguments(profile),
             ],
             output, environment, "runner", timeout=90, max_log_bytes=1024 * 1024,
         )
@@ -289,7 +232,6 @@ def run_proof(profile: ProofProfile) -> int:
         if receipt.get("candidate_files_sha256") != candidate_bindings:
             raise ValueError("executed payload binding mismatch")
         result.update(public_result(receipt, expected_versions, profile.expected_tests))
-        result.update(base_source_result(receipt, profile))
         result["passed"] = True
         phase = "complete"
         return 0

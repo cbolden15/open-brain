@@ -1448,7 +1448,9 @@ Fix: Verify the extracted tree against a reviewed external digest before importi
 loadable bytecode, links and extra files. Bind the candidate, first-party source and dependencies
 to the same expected manifest at preflight and suite execution.
 
-Discovered: 2026-09-11, independent [authority proof](../../../tools/nw0_authority_probe/README.md) review.
+Discovered: 2026-09-11, independent
+[archived authority proof](../../../archive/open-brain-secure-node/proofs/nw0_authority_probe/README.md)
+review.
 
 ### INTEGRATION-024: A zero exit status does not erase a supervisor failure
 
@@ -1460,7 +1462,9 @@ Cause: The final receipt projection drops the supervisor's failure classificatio
 Fix: Require no supervisor failure, complete untruncated output, exact test counts and known
 cleanup for every mode. Keep negative controls where a failed supervisor receipt also has exit zero.
 
-Discovered: 2026-09-11, independent [authority proof](../../../tools/nw0_authority_probe/README.md) review.
+Discovered: 2026-09-11, independent
+[archived authority proof](../../../archive/open-brain-secure-node/proofs/nw0_authority_probe/README.md)
+review.
 
 ### INTEGRATION-025: Path ordering and full-name ordering produce different tree digests
 
@@ -1475,4 +1479,21 @@ a fixture containing both `package/module.py` and `package-1.dist-info/METADATA`
 flat directory misses the difference.
 
 Discovered: 2026-09-11, Linux metadata build for the
-[authority proof](../../../tools/nw0_authority_probe/README.md).
+[archived authority proof](../../../archive/open-brain-secure-node/proofs/nw0_authority_probe/README.md).
+
+### INTEGRATION-026: Runtime proof jobs must cross the product boundary with their source
+
+Symptom: CI fails before or during proof execution because an active proof still imports a runtime
+API that a product-boundary change deliberately quarantined.
+
+Cause: A merge preserves the proof workflow and harness from one parent while selecting the smaller
+foreground source tree from the other parent. Updating source hashes makes the bundle build, but it
+cannot restore the removed semantics.
+
+Fix: Quarantine the obsolete proof with the removed runtime and delete its active CI, build, test,
+and coordinator paths. Add a boundary test for those paths. Do not rebind the proof to archived
+source or restore service APIs to make CI pass.
+
+Discovered: 2026-09-12, [foreground runtime boundary](../../architecture/decisions/0016-foreground-runtime-package-boundary.md)
+reconciliation with the
+[archived authority proof](../../../archive/open-brain-secure-node/proofs/nw0_authority_probe/README.md).
