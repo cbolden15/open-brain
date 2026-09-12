@@ -1,4 +1,4 @@
-.PHONY: dev build test lint typecheck audit audit-history native native-audit smoke homebrew-smoke verify contributor-check nw0-authority-proof
+.PHONY: dev build test lint typecheck audit audit-history native native-audit smoke homebrew-smoke verify contributor-check
 
 NATIVE_OUTPUT ?= build/native
 NATIVE_ARTIFACT = $(NATIVE_OUTPUT)/dist/open-brain
@@ -47,6 +47,3 @@ contributor-check:
 	$(MAKE) homebrew-smoke
 
 verify: lint typecheck test build
-
-nw0-authority-proof:
-	uv run --frozen --python 3.14 python -m tools.nw0_authority_probe.run

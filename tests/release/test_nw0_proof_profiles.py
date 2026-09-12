@@ -14,34 +14,10 @@ import pytest
 from tools.nw0_api_probe import run
 
 
-def test_fixed_profiles_preserve_transport_and_select_authority() -> None:
+def test_fixed_profile_preserves_transport() -> None:
     assert run.TRANSPORT_PROFILE.source == run.SOURCE
     assert run.TRANSPORT_PROFILE.candidate_files == run.CANDIDATE_FILES
     assert run.TRANSPORT_PROFILE.expected_tests == 23
-    assert run.TRANSPORT_PROFILE.base_sources == ()
-    assert run.AUTHORITY_PROFILE.expected_tests == 40
-    assert "semantic-dataset.json" in run.AUTHORITY_PROFILE.candidate_files
-    assert {row[0] for row in run.AUTHORITY_PROFILE.base_sources} == {"engine", "app"}
-
-
-def test_authority_inventory_materializes_data_without_changing_transport(tmp_path: Path) -> None:
-    source = tmp_path / "source"
-    names = run.AUTHORITY_PROFILE.candidate_files
-    manifest = {}
-    extras = run.AUTHORITY_PROFILE.extra_files
-    for name in run.input_files(names, extras):
-        path = source / name
-        path.parent.mkdir(parents=True, exist_ok=True)
-        data = b'{}\n' if "json" in name else b"# synthetic\n"
-        path.write_bytes(data)
-        manifest[name] = hashlib.sha256(data).hexdigest()
-    (source / "source-manifest.json").write_text(json.dumps(manifest))
-    bindings, _ = run.materialize(source, tmp_path / "output", names, extras)
-    assert bindings == manifest
-    assert (tmp_path / "output/runtime/candidate/semantic-dataset.json").read_bytes() == b'{}\n'
-    assert (tmp_path / "output/runtime/expected-bundle-manifests.json").read_bytes() == b'{}\n'
-    with pytest.raises(ValueError, match="inventory"):
-        run.load_inputs(source)
 
 
 def receipt(tests: int) -> dict[str, Any]:
@@ -60,37 +36,14 @@ def receipt(tests: int) -> dict[str, Any]:
     }
 
 
-def test_receipt_counts_are_profile_specific() -> None:
-    assert run.public_result(receipt(40), {"example": "1"}, 40)["runs"][0]["tests"] == 40
-    with pytest.raises(ValueError, match="test run"):
-        run.public_result(receipt(23), {"example": "1"}, 40)
+def test_receipt_counts_match_the_transport_profile() -> None:
+    assert run.public_result(receipt(23), {"example": "1"})["runs"][0]["tests"] == 23
     with pytest.raises(ValueError, match="test run"):
         run.public_result(receipt(40), {"example": "1"})
 
 
-def test_authority_command_selects_only_fixed_base_sources() -> None:
-    arguments = run.base_source_arguments(run.AUTHORITY_PROFILE)
-    assert arguments == [
-        "--engine-source", str(run.REPO / "packages/engine/src"),
-        "--app-source", str(run.REPO / "packages/app/src"),
-    ]
-    assert run.base_source_arguments(run.TRANSPORT_PROFILE) == []
-
-
-def test_base_source_projection_requires_exact_profile_pins() -> None:
-    expected = {name: pin for name, _, pin in run.AUTHORITY_PROFILE.base_sources}
-    raw = {"base_source_sha256": expected, "base_source_roots": {"engine": "private-path"}}
-    assert run.base_source_result(raw, run.AUTHORITY_PROFILE) == {"base_source_sha256": expected}
-    for invalid in ({}, {"engine": "a" * 64}, {**expected, "extra": "a" * 64}):
-        with pytest.raises(ValueError, match="base source"):
-            run.base_source_result({"base_source_sha256": invalid}, run.AUTHORITY_PROFILE)
-    assert run.base_source_result({}, run.TRANSPORT_PROFILE) == {}
-
-
-@pytest.mark.parametrize("wrong_base", [False, True])
 def test_transport_coordinator_preserves_install_and_runner_commands(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
-    wrong_base: bool,
 ) -> None:
     profile = run.TRANSPORT_PROFILE
     source = tmp_path / "source"
@@ -126,12 +79,6 @@ def test_transport_coordinator_preserves_install_and_runner_commands(
                 name: manifest[f"payload/{name}.txt"] for name in profile.candidate_files
             }
             value["candidate_files_sha256"]["requirements.txt"] = manifest["requirements.txt"]
-            value["base_source_sha256"] = {
-                name: pin for name, _, pin in profile.base_sources
-            }
-            if wrong_base:
-                value["base_source_sha256"] = {"engine": "0" * 64}
-            value["base_source_roots"] = {"engine": "never-publish-private-path"}
             (output / "tests").mkdir()
             (output / "tests/receipt.json").write_text(json.dumps(value))
 
@@ -140,57 +87,11 @@ def test_transport_coordinator_preserves_install_and_runner_commands(
     monkeypatch.setattr(platform, "system", lambda: "Darwin")
     monkeypatch.setattr(platform, "machine", lambda: "arm64")
     monkeypatch.setattr(sys, "argv", ["proof", "--output", str(output)])
-    failed = bool(wrong_base and profile.base_sources)
-    assert run.run_proof(selected) == int(failed)
+    assert run.run_proof(selected) == 0
     value = json.loads((output / "release/verification.json").read_text())
-    assert value["passed"] is (not failed)
+    assert value["passed"] is True
     assert value["schema"] == f"open-brain-nw0-{profile.name}-proof-v1"
-    assert "never-publish-private-path" not in json.dumps(value)
     assert len(commands) == 2
     assert commands[0][commands[0].index("-r") + 1] == str(
         output / "runtime/candidate/requirements.txt"
     )
-    for name, path, _ in profile.base_sources:
-        assert commands[1][commands[1].index(f"--{name}-source") + 1] == str(path)
-
-
-@pytest.mark.parametrize("fail", [False, True])
-def test_authority_coordinator_routes_bound_inputs_and_records_outcome(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, fail: bool,
-) -> None:
-    from tools.nw0_api_probe import authority
-
-    output = tmp_path / "output"
-    wheelhouse = tmp_path / "wheels"
-    calls = []
-
-    def fake_execute(
-        profile: run.ProofProfile, root: Path, wheels: Path | None,
-        target: str, bindings: dict[str, str],
-    ) -> dict[str, Any]:
-        calls.append(target)
-        assert profile is run.AUTHORITY_PROFILE
-        assert root == output and wheels == wheelhouse and target == "macos-arm64"
-        assert bindings == run.load_inputs(
-            profile.source, profile.candidate_files, profile.extra_files,
-        )[0]
-        if fail:
-            raise ValueError("private-authority-failure")
-        return {"synthetic_authority_proof_passed": True}
-
-    monkeypatch.setattr(authority, "execute", fake_execute)
-    monkeypatch.setattr(platform, "system", lambda: "Darwin")
-    monkeypatch.setattr(platform, "machine", lambda: "arm64")
-    monkeypatch.setattr(sys, "argv", [
-        "proof", "--output", str(output), "--wheelhouse", str(wheelhouse),
-    ])
-    assert run.run_proof(run.AUTHORITY_PROFILE) == int(fail)
-    value = json.loads((output / "release/verification.json").read_text())
-    assert calls == ["macos-arm64"]
-    assert value["passed"] is (not fail)
-    assert value["phase"] == ("authority" if fail else "complete")
-    assert value["implementation_sha256"]["authority_coordinator"] == run.digest(
-        Path(authority.__file__)
-    )
-    assert "private-authority-failure" not in json.dumps(value)
-    assert value["model_calls"] == 0 and value["full_nw0_approved"] is False

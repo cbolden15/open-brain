@@ -59,6 +59,7 @@ def test_application_package_contains_only_foreground_local_surfaces() -> None:
 def test_secure_node_and_legacy_sources_are_quarantined_outside_packages() -> None:
     secure_archive = REPOSITORY_ROOT / "archive/open-brain-secure-node"
     legacy_archive = REPOSITORY_ROOT / "archive/legacy"
+    authority_proof = secure_archive / "proofs/nw0_authority_probe"
 
     assert (secure_archive / "README.md").is_file()
     assert (legacy_archive / "README.md").is_file()
@@ -66,3 +67,11 @@ def test_secure_node_and_legacy_sources_are_quarantined_outside_packages() -> No
     assert (secure_archive / "app/src/open_brain/services/appliance_daemon.py").is_file()
     assert (secure_archive / "engine/src/open_brain_engine/protocol").is_dir()
     assert (secure_archive / "engine/src/open_brain_engine/ledger").is_dir()
+    assert (authority_proof / "README.md").is_file()
+    assert (authority_proof / "coordinator.py").is_file()
+    assert not (REPOSITORY_ROOT / "tools/nw0_authority_probe").exists()
+    assert not (REPOSITORY_ROOT / "tools/nw0_api_probe/authority.py").exists()
+    assert "nw0-authority-proof" not in (REPOSITORY_ROOT / "Makefile").read_text()
+    assert "nw0-authority-proof" not in (
+        REPOSITORY_ROOT / ".github/workflows/ci.yml"
+    ).read_text()

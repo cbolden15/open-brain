@@ -1,4 +1,9 @@
-# NW0 authority proof
+# Archived NW0 authority proof
+
+This proof belongs to the removed Secure Node runtime. It is preserved as review history and is
+excluded from the active workspace, tests, builds, and CI. Its daemon authority imports are
+intentionally unavailable in the foreground Open Brain product. The commands below describe the
+historical proof and do not run from the current workspace.
 
 This synthetic proof exercises Engine authority, credential preflight, cancellation, terminal
 ownership and host shutdown on CPython 3.14. The fixed targets are macOS arm64 and Linux x86_64.
