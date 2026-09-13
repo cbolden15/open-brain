@@ -18,6 +18,7 @@ import {
   OpenBrainBridge,
   discoverOpenBrainExecutable,
 } from "./bridge";
+import { openCanvasFile } from "./canvas";
 import {
   type ConflictReview,
   type ConflictSummary,
@@ -153,7 +154,7 @@ export default class OpenBrainPlugin extends Plugin {
     await this.#managedBridge();
     const file = this.app.vault.getAbstractFileByPath(normalizePath(relativePath));
     if (!(file instanceof TFile)) throw new BridgeError("source_unavailable");
-    await this.app.workspace.getLeaf("tab").openFile(file);
+    await openCanvasFile(this.app.workspace, file);
   }
 
   async reviewSuggestion(suggestionId: string): Promise<void> {
