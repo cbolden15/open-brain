@@ -95,10 +95,16 @@ class PortabilityFault(StrEnum):
     AFTER_PROMOTION = "after_promotion"
 
 
+class ManagedWorkspaceFault(StrEnum):
+    AFTER_OPERATION_PREPARED = "after_operation_prepared"
+    AFTER_TARGET_WRITE = "after_target_write"
+    AFTER_OPERATION_PROMOTED = "after_operation_promoted"
+
+
 class InjectedFault(RuntimeError):
     """Synthetic process interruption at one named durable boundary."""
 
-    def __init__(self, point: CaptureFault | PortabilityFault) -> None:
+    def __init__(self, point: CaptureFault | PortabilityFault | ManagedWorkspaceFault) -> None:
         self.point = point
         super().__init__(point.value)
 
@@ -558,6 +564,96 @@ class ReconciliationReceipt:
         for value in (self.scanned_files, self.page_updates, self.space_updates):
             if type(value) is not int or value < 0:
                 raise ValueError("invalid reconciliation receipt count")
+
+
+class ManagedWorkspaceFailure(RuntimeError):
+    """A bounded managed-workspace failure without note content or an absolute path."""
+
+    def __init__(self, code: str) -> None:
+        if code not in {
+            "conflict_open",
+            "inactive_note",
+            "invalid_observation",
+            "operation_conflict",
+            "operation_replay_mismatch",
+            "stale_observation",
+            "target_changed",
+            "unsafe_workspace",
+            "unknown_note",
+            "unknown_workspace",
+        }:
+            raise ValueError("invalid managed-workspace failure")
+        self.code = code
+        super().__init__(code)
+
+
+@dataclass(frozen=True, slots=True)
+class ManagedNoteObservation:
+    note_id: str
+    relative_path: str
+    accepted_revision_id: str
+    materialized_sha256: str | None
+    observed_sha256: str
+    changed: bool
+
+    def __post_init__(self) -> None:
+        _portable_id(self.note_id, "page")
+        _portable_id(self.accepted_revision_id, "revision")
+        if (
+            not isinstance(self.relative_path, str)
+            or not self.relative_path
+            or len(self.relative_path) > _MAX_TEXT
+        ):
+            raise ValueError("invalid managed note path")
+        for value in (self.materialized_sha256, self.observed_sha256):
+            if value is not None and _HEX64.fullmatch(value) is None:
+                raise ValueError("invalid managed note digest")
+        if type(self.changed) is not bool:
+            raise ValueError("invalid managed note observation")
+
+
+@dataclass(frozen=True, slots=True)
+class ManagedWorkspaceObservation:
+    workspace_id: str
+    generation: int
+    notes: tuple[ManagedNoteObservation, ...]
+
+    def __post_init__(self) -> None:
+        _portable_id(self.workspace_id, "workspace")
+        if type(self.generation) is not int or self.generation < 1:
+            raise ValueError("invalid managed workspace generation")
+        if not isinstance(self.notes, tuple) or len({note.note_id for note in self.notes}) != len(
+            self.notes
+        ):
+            raise ValueError("invalid managed workspace observation")
+
+
+@dataclass(frozen=True, slots=True)
+class ManagedWorkspaceReceipt:
+    status: str
+    workspace_id: str
+    note_id: str | None = None
+    generation: int | None = None
+    duplicate: bool = False
+
+    def __post_init__(self) -> None:
+        if self.status not in {
+            "accepted",
+            "deactivated",
+            "materialized",
+            "restored",
+            "setup",
+        }:
+            raise ValueError("invalid managed workspace receipt")
+        _portable_id(self.workspace_id, "workspace")
+        if self.note_id is not None:
+            _portable_id(self.note_id, "page")
+        if self.generation is not None and (
+            type(self.generation) is not int or self.generation < 0
+        ):
+            raise ValueError("invalid managed workspace generation")
+        if type(self.duplicate) is not bool:
+            raise ValueError("invalid managed workspace duplicate marker")
 
 
 class MarkdownImportFailure(RuntimeError):
@@ -1228,6 +1324,33 @@ class MarkdownImportTask(Protocol):
     ) -> MarkdownImportSummary: ...
 
 
+class ManagedWorkspaceTask(Protocol):
+    def setup(self, directory: str, *, operation_id: str) -> ManagedWorkspaceReceipt: ...
+
+    def observe(self, workspace_id: str) -> ManagedWorkspaceObservation: ...
+
+    def accept_observed(
+        self,
+        workspace_id: str,
+        note_id: str,
+        *,
+        generation: int,
+        operation_id: str,
+    ) -> ManagedWorkspaceReceipt: ...
+
+    def materialize(
+        self, workspace_id: str, note_id: str, *, operation_id: str
+    ) -> ManagedWorkspaceReceipt: ...
+
+    def deactivate(
+        self, workspace_id: str, note_id: str, *, operation_id: str
+    ) -> ManagedWorkspaceReceipt: ...
+
+    def restore(
+        self, workspace_id: str, note_id: str, *, operation_id: str
+    ) -> ManagedWorkspaceReceipt: ...
+
+
 @dataclass(frozen=True, slots=True)
 class EngineTaskSet:
     """The public task identities exposed by one opened local engine root."""
@@ -1240,6 +1363,7 @@ class EngineTaskSet:
     portability: PortabilityTask
     reconciliation: ReconciliationTask
     markdown_import: MarkdownImportTask
+    managed_workspace: ManagedWorkspaceTask
 
     @property
     def spaces(self) -> InboxSpaceTask:

@@ -416,6 +416,7 @@ CREATE TABLE IF NOT EXISTS managed_note_observations (
     generation INTEGER NOT NULL CHECK (generation > 0),
     note_id TEXT NOT NULL REFERENCES managed_notes(note_id),
     relative_path TEXT NOT NULL,
+    accepted_revision_id TEXT NOT NULL,
     observed_sha256 TEXT NOT NULL CHECK (length(observed_sha256) = 64),
     materialized_sha256 TEXT CHECK (
         materialized_sha256 IS NULL OR length(materialized_sha256) = 64
@@ -423,7 +424,9 @@ CREATE TABLE IF NOT EXISTS managed_note_observations (
     fingerprint_json TEXT NOT NULL,
     observed_at TEXT NOT NULL,
     PRIMARY KEY (workspace_id, generation, note_id),
-    UNIQUE (workspace_id, generation, relative_path)
+    UNIQUE (workspace_id, generation, relative_path),
+    FOREIGN KEY (note_id, accepted_revision_id)
+        REFERENCES managed_note_revisions(note_id, revision_id)
 )
     """.strip(),
     """

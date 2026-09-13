@@ -30,6 +30,7 @@ from .contracts import (
     InboxItem,
     InjectedFault,
     LocalEngineContext,
+    ManagedWorkspaceFault,
     MeasurementPayload,
     PageResult,
     Payload,
@@ -48,6 +49,7 @@ from .contracts import (
 from .local_schema import open_local_database_read_only
 from .local_store import _LocalStore, live_search_schema_is_available
 from .maintenance import inspect_phase1_state
+from .managed_workspace import ManagedWorkspaceTasks
 from .markdown_import import MarkdownImportTasks
 from .normalization import _done, _utc_now
 from .portability import PortabilityTasks
@@ -116,7 +118,7 @@ class BrainEngine(CaptureOperations, SpaceOperations, ReviewOperations, Retrieva
         self,
         profile: LocalEngineContext,
         *,
-        faults: Collection[CaptureFault | PortabilityFault],
+        faults: Collection[CaptureFault | PortabilityFault | ManagedWorkspaceFault],
         clock: Callable[[], datetime],
         enrichment_provider: EnrichmentProvider | None,
         validate_mutation_authority: Callable[[], None] | None = None,
@@ -156,6 +158,7 @@ class BrainEngine(CaptureOperations, SpaceOperations, ReviewOperations, Retrieva
         self.portability = PortabilityTasks(self)
         self.reconciliation = ReconciliationTasks(self)
         self.markdown_import = MarkdownImportTasks(self)
+        self.managed_workspace = ManagedWorkspaceTasks(self)
         self._task_set = EngineTaskSet(
             profile=profile,
             capture=self.capture,
@@ -165,6 +168,7 @@ class BrainEngine(CaptureOperations, SpaceOperations, ReviewOperations, Retrieva
             portability=self.portability,
             reconciliation=self.reconciliation,
             markdown_import=self.markdown_import,
+            managed_workspace=self.managed_workspace,
         )
 
     @classmethod
@@ -172,7 +176,7 @@ class BrainEngine(CaptureOperations, SpaceOperations, ReviewOperations, Retrieva
         cls,
         profile: LocalEngineContext,
         *,
-        faults: Collection[CaptureFault | PortabilityFault] | None = None,
+        faults: Collection[CaptureFault | PortabilityFault | ManagedWorkspaceFault] | None = None,
         clock: Callable[[], datetime] | None = None,
         enrichment_provider: EnrichmentProvider | None = None,
         validate_mutation_authority: Callable[[], None] | None = None,
@@ -223,9 +227,12 @@ class BrainEngine(CaptureOperations, SpaceOperations, ReviewOperations, Retrieva
             for row in rows:
                 processor(row)
                 recovered += 1
+        recovered += self.managed_workspace._recover_locked()
         return recovered
 
-    def _fault(self, point: CaptureFault | PortabilityFault) -> None:
+    def _fault(
+        self, point: CaptureFault | PortabilityFault | ManagedWorkspaceFault
+    ) -> None:
         if point in self._faults:
             self._faults.remove(point)
             raise InjectedFault(point)
@@ -237,7 +244,7 @@ class BrainEngine(CaptureOperations, SpaceOperations, ReviewOperations, Retrieva
 def open_local_engine(
     profile: LocalEngineContext,
     *,
-    faults: Collection[CaptureFault | PortabilityFault] | None = None,
+    faults: Collection[CaptureFault | PortabilityFault | ManagedWorkspaceFault] | None = None,
     clock: Callable[[], datetime] | None = None,
     enrichment_provider: EnrichmentProvider | None = None,
     validate_before_write: Callable[[], None] | None = None,
