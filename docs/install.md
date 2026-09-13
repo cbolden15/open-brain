@@ -50,6 +50,39 @@ form. Imported records are unverified, and immutable prior revisions remain in f
 source file changes or disappears. Use `--allow-large-vault` only after the default aggregate scan
 limits refuse a directory. It never bypasses the one-file safety limit.
 
+## Use the managed vault in Obsidian
+
+Set up the managed vault and stage the packaged desktop plugin:
+
+```sh
+open-brain workspace setup
+open-brain obsidian-plugin install
+open-brain obsidian-plugin status --json
+```
+
+Open the `Open Brain Vault` directory as a vault in Obsidian. It is next to the `brain` directory
+listed above. In Obsidian, open **Settings → Community plugins**, enable community plugins if
+needed, and enable **Open Brain**. The installer stages only Open Brain's owned plugin files. It
+does not enable the plugin, edit Obsidian's enabled-plugin list, or replace other plugins and
+settings.
+
+Use the Obsidian command palette for capture, search, graph refresh, source navigation, suggestion
+review, conflict resolution, and semantic exclusions. **Open Brain: Configure semantic provider**
+supports OpenAI, Anthropic, and Gemini API keys. Each setup requires explicit consent for eligible
+managed notes. Store the key for the current Obsidian session, or use macOS Keychain or Linux Secret
+Service when available. Raw keys are never saved in plugin settings. Claude subscription access is
+currently unavailable because an unprivileged client-isolation path has not been proven.
+
+Automatic graph refresh batches Markdown edits. **Open Brain: Pause or resume automatic inference**
+persists the pause preference; **Open Brain: Refresh graph now** remains available while paused.
+Closing or disabling the plugin stops its foreground Open Brain child process.
+
+To remove the staged plugin files without deleting the managed vault or its settings:
+
+```sh
+open-brain obsidian-plugin remove
+```
+
 ## Privacy
 
 Open Brain relies on the operating-system user account, disk encryption, backups, and physical

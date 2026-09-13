@@ -6,7 +6,7 @@ search, storage, and Portable export remain coherent.
 ## Development checks
 
 Supported contributor hosts are macOS arm64 and Linux x86_64. Install Git, GNU Make,
-[uv](https://docs.astral.sh/uv/getting-started/installation/), and
+[uv](https://docs.astral.sh/uv/getting-started/installation/), Node.js 22 or newer, npm, and
 [Homebrew](https://brew.sh/). On macOS, install the Xcode Command Line Tools (`xcode-select --install`).
 On Linux, install Homebrew's build prerequisites (a C/C++ toolchain, curl, file, Git, and Make)
 using your distribution's package manager. Put Homebrew on `PATH` using the `brew shellenv`
@@ -21,7 +21,8 @@ make contributor-check
 
 `make contributor-check` runs `make verify` followed by `make homebrew-smoke`. Expect Ruff's
 `All checks passed!`, MyPy's `Success: no issues found`, a passing pytest summary (some filesystem
-checks can skip on unsupported hosts), successful wheel/source builds, native smoke JSON, and
+checks can skip on unsupported hosts), passing Obsidian plugin type/build/test checks, successful
+wheel/source builds, native smoke JSON, and
 `existing_product: preserved` or `existing_product: absent`. A nonzero exit means the check failed.
 Both CI jobs run this same target. No credentials or private access are required.
 

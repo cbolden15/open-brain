@@ -1,0 +1,30 @@
+.open-brain-review {
+  display: grid;
+  gap: 1rem;
+}
+
+.open-brain-review__evidence {
+  border-left: 3px solid var(--interactive-accent);
+  margin: 0;
+  padding: 0.5rem 0.75rem;
+}
+
+.open-brain-review__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.open-brain-review__stale {
+  color: var(--text-error);
+  font-weight: var(--font-semibold);
+}
+
+.open-brain-conflict__version pre {
+  background: var(--background-secondary);
+  border: 1px solid var(--background-modifier-border);
+  max-height: 16rem;
+  overflow: auto;
+  padding: 0.75rem;
+  white-space: pre-wrap;
+}

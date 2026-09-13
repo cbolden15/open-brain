@@ -48,6 +48,17 @@ def _resource(role: str, platform: str, marker: str = "a") -> ReleaseArtifact:
     )
 
 
+def _obsidian_plugin(directory: Path) -> Path:
+    directory.mkdir(parents=True)
+    (directory / "main.js").write_text("module.exports = {};\n", encoding="utf-8")
+    (directory / "manifest.json").write_text(
+        '{"id":"open-brain","isDesktopOnly":true,"version":"0.1.0"}\n',
+        encoding="utf-8",
+    )
+    (directory / "styles.css").write_text(".open-brain {}\n", encoding="utf-8")
+    return directory
+
+
 def test_native_specs_keep_base_and_graphify_in_separate_executables() -> None:
     command = base_native.pyinstaller_command(ROOT, ROOT / "build/native-test")
     spec = (ROOT / "release/open-brain/open-brain.spec").read_text(encoding="utf-8")
@@ -104,9 +115,7 @@ def test_native_specs_keep_base_and_graphify_in_separate_executables() -> None:
         ("Linux", "amd64", "linux-x86_64"),
     ),
 )
-def test_native_platform_contract(
-    system_name: str, machine_name: str, expected: str
-) -> None:
+def test_native_platform_contract(system_name: str, machine_name: str, expected: str) -> None:
     assert native_platform_tag(system_name=system_name, machine_name=machine_name) == expected
 
 
@@ -136,6 +145,7 @@ def test_release_archives_are_reproducible_and_manifest_the_exact_pair(
 ) -> None:
     artifact = _executable(tmp_path / "artifact/open-brain")
     helper = _executable(tmp_path / "artifact/open-brain-graphify")
+    plugin = _obsidian_plugin(tmp_path / "artifact/obsidian-plugin")
     licenses = tmp_path / "licenses"
     licenses.mkdir()
     for name in ("LICENSE", "LICENSE-MIT", "NOTICE", "OPEN-BRAIN-NOTICE"):
@@ -146,8 +156,18 @@ def test_release_archives_are_reproducible_and_manifest_the_exact_pair(
         lambda _path: BaseNativeAudit("macos-arm64", 1, "a" * 64, "b" * 64, "adhoc"),
     )
 
-    first = write_base_archive(artifact, tmp_path / "first", version="0.1.0")
-    second = write_base_archive(artifact, tmp_path / "second", version="0.1.0")
+    first = write_base_archive(
+        artifact,
+        tmp_path / "first",
+        version="0.1.0",
+        obsidian_plugin_directory=plugin,
+    )
+    second = write_base_archive(
+        artifact,
+        tmp_path / "second",
+        version="0.1.0",
+        obsidian_plugin_directory=plugin,
+    )
     first_helper = write_graphify_archive(
         helper,
         licenses,
@@ -178,8 +198,14 @@ def test_release_archives_are_reproducible_and_manifest_the_exact_pair(
     assert first_manifest.read_bytes() == second_manifest.read_bytes()
     with tarfile.open(first, "r:gz") as archive:
         members = archive.getmembers()
-        assert [member.name for member in members] == ["open-brain"]
+        assert [member.name for member in members] == [
+            "open-brain",
+            "obsidian-plugin/main.js",
+            "obsidian-plugin/manifest.json",
+            "obsidian-plugin/styles.css",
+        ]
         assert members[0].mode & 0o100
+        assert all(member.mode == 0o644 for member in members[1:])
     with tarfile.open(first_helper, "r:gz") as archive:
         members = archive.getmembers()
         assert [member.name for member in members] == [
@@ -234,6 +260,8 @@ def test_two_platform_manifest_is_canonical_and_drives_the_homebrew_formula(
     assert "class OpenBrain < Formula" in formula
     assert "keg_only" not in formula
     assert 'bin.install "open-brain"' in formula
+    assert '(share/"open-brain/obsidian-plugin").install' in formula
+    assert 'assert_path_exists share/"open-brain/obsidian-plugin/main.js"' in formula
     assert 'libexec.install "open-brain" => "open-brain-graphify"' in formula
     assert "open-brain-graphify --capabilities" in formula
 
@@ -276,8 +304,7 @@ def test_native_build_group_installs_the_base_application() -> None:
 
     assert "open-brain==0.1.0" in workspace["dependency-groups"]["dev"]
     assert all(
-        "secure-node" not in dependency
-        for dependency in workspace["dependency-groups"]["dev"]
+        "secure-node" not in dependency for dependency in workspace["dependency-groups"]["dev"]
     )
     assert "open-brain==0.1.0" in workspace["dependency-groups"]["native-build"]
     assert workspace["tool"]["uv"]["sources"]["open-brain"] == {"workspace": True}
@@ -287,7 +314,7 @@ def test_native_build_group_installs_the_base_application() -> None:
 def test_local_homebrew_smoke_uses_a_temporary_tap() -> None:
     makefile = (ROOT / "Makefile").read_text(encoding="utf-8")
 
-    assert 'bash tools/homebrew-smoke.sh' in makefile
+    assert "bash tools/homebrew-smoke.sh" in makefile
     target = makefile.split("contributor-check:\n", 1)[1].split("\n\n", 1)[0]
     assert target.splitlines() == ["\t$(MAKE) verify", "\t$(MAKE) homebrew-smoke"]
     assert "contributor-check" in makefile.splitlines()[0]

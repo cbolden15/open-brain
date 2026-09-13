@@ -1539,3 +1539,51 @@ snapshot inventory. Keep the existing-file stamp for ordinary path links, and re
 unresolved references as diagnostics.
 
 Discovered: 2026-09-13, NW2 installed Graphify and Canvas acceptance.
+
+### INTEGRATION-029: Provider consent and suggestion review need one plugin-owned engine lifetime
+
+Symptom: Provider setup succeeds, but the following semantic refresh or suggestion review reports
+inactive consent or loses the pending suggestion when every plugin operation starts a new CLI
+process.
+
+Cause: Engine startup recovery deliberately revokes active provider consent and invalidates pending
+inference work. A stateless one-process-per-operation bridge therefore crosses a recovery boundary
+between setup, refresh, review, and acceptance.
+
+Fix: Keep one bounded stdio child and one engine session for the Obsidian plugin lifetime. Store
+session-only credentials, provider selection, and request budgets only in that process. Stop the
+child on plugin unload; after a bridge restart, require provider setup again while preserving local
+structural results. Test multiple framed requests through one child and terminal cleanup. This
+remains a foreground, lifecycle-owned process rather than a daemon.
+
+Discovered: 2026-09-13, NW3 Obsidian plugin integration.
+
+### INTEGRATION-030: Client parsers must accept every bounded backend status
+
+Symptom: The Obsidian plugin activates and the backend returns a valid failure Canvas, but the UI
+reports an invalid response instead of showing the bounded failure card.
+
+Cause: The backend's graph projection contract includes `failed`, while the TypeScript client union
+and parser listed only `fresh`, `missing`, and `stale`. Happy-path mocks never crossed the initial
+empty-vault failure boundary.
+
+Fix: Keep client status unions synchronized with the backend response contract and add a parser
+fixture for every terminal status, including safe failure projections. Exercise initial activation
+against an empty synthetic vault so a renderer-facing contract mismatch cannot hide behind a fresh
+projection.
+
+Discovered: 2026-09-13, [NW3 Obsidian plugin audit](../../audits/2026-09-13-ob1-nw3-obsidian-plugin-audit.md).
+
+### INTEGRATION-031: Generated views need stable leaf reuse
+
+Symptom: Each graph refresh opens another `Open Brain Graph` tab, and the user can remain on an
+older Canvas even though the generated file on disk is current.
+
+Cause: Calling `workspace.getLeaf("tab")` for every publication always allocates a new tab. The
+write and the visible leaf then have separate lifecycles.
+
+Fix: Find the existing Canvas leaf by its exact generated file path, reopen the file in that leaf,
+and reveal it. Allocate a new tab only when no matching leaf exists. Test both branches and verify
+the before/after tab count in Obsidian.
+
+Discovered: 2026-09-13, [NW3 Obsidian plugin audit](../../audits/2026-09-13-ob1-nw3-obsidian-plugin-audit.md).

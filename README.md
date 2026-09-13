@@ -22,6 +22,10 @@ The release is not published yet. The exact product journey is in
 [the five-minute acceptance test](docs/acceptance/five-minute-install.md), and the install details are
 in [the installation guide](docs/install.md).
 
+The native package also includes a desktop-only Obsidian plugin for the managed Markdown vault.
+Installation, explicit Obsidian activation, provider setup, pause controls, and safe plugin removal
+are documented in [the installation guide](docs/install.md#use-the-managed-vault-in-obsidian).
+
 ## Use Open Brain
 
 ```sh

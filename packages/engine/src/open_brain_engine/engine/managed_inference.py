@@ -90,6 +90,15 @@ class ManagedInferenceTasks:
             for row in rows
         )
 
+    def suggestion(self, workspace_id: str, suggestion_id: str) -> ManagedSuggestion:
+        """Resolve one durable suggestion for checked review or idempotent acceptance."""
+        _portable_id(workspace_id, "workspace")
+        _portable_id(suggestion_id, "suggestion")
+        row = self._suggestion_row(suggestion_id)
+        if row["workspace_id"] != workspace_id:
+            raise ManagedWorkspaceFailure("unknown_suggestion")
+        return self._suggestion_value(row)
+
     def prepare(
         self,
         workspace_id: str,

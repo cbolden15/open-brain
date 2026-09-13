@@ -28,6 +28,8 @@ from .contracts import (
     ManagedGraphSnapshot,
     ManagedGraphSource,
     ManagedNoteObservation,
+    ManagedWorkspaceConflictReview,
+    ManagedWorkspaceConflictSummary,
     ManagedWorkspaceFailure,
     ManagedWorkspaceFault,
     ManagedWorkspaceObservation,
@@ -254,6 +256,100 @@ class ManagedWorkspaceTasks:
             open_conflicts=int(conflicts[0]),
             pending_suggestions=int(suggestions[0]),
         )
+
+    def open_conflicts(
+        self, workspace_id: str, *, limit: int = 64
+    ) -> tuple[ManagedWorkspaceConflictSummary, ...]:
+        _portable_id(workspace_id, "workspace")
+        if type(limit) is not int or not 1 <= limit <= 64:
+            raise ManagedWorkspaceFailure("invalid_request")
+        connection = self._engine._store.connect()
+        try:
+            self._workspace_row(connection, workspace_id)
+            rows = tuple(
+                connection.execute(
+                    """SELECT c.conflict_id, c.note_id, n.relative_path
+                    FROM managed_conflicts AS c
+                    JOIN managed_notes AS n ON n.note_id = c.note_id
+                    WHERE n.workspace_id = ? AND c.status = 'open'
+                    ORDER BY c.detected_at, c.conflict_id LIMIT ?""",
+                    (workspace_id, limit),
+                )
+            )
+            return tuple(
+                ManagedWorkspaceConflictSummary(
+                    conflict_id=cast(str, row["conflict_id"]),
+                    note_id=cast(str, row["note_id"]),
+                    relative_path=cast(str, row["relative_path"]),
+                )
+                for row in rows
+            )
+        except ManagedWorkspaceFailure:
+            raise
+        except (sqlite3.DatabaseError, TypeError, ValueError):
+            raise ManagedWorkspaceFailure("operation_conflict") from None
+        finally:
+            connection.close()
+
+    def review_conflict(
+        self, workspace_id: str, note_id: str
+    ) -> ManagedWorkspaceConflictReview:
+        _portable_id(workspace_id, "workspace")
+        _portable_id(note_id, "page")
+        connection = self._engine._store.connect()
+        try:
+            row = connection.execute(
+                """SELECT c.conflict_id, c.note_id, c.accepted_revision_id,
+                          c.candidate_body_bytes, n.relative_path, r.body_bytes
+                FROM managed_conflicts AS c
+                JOIN managed_notes AS n ON n.note_id = c.note_id
+                JOIN managed_note_revisions AS r
+                  ON r.note_id = c.note_id AND r.revision_id = c.accepted_revision_id
+                WHERE n.workspace_id = ? AND c.note_id = ? AND c.status = 'open'""",
+                (workspace_id, note_id),
+            ).fetchone()
+            if row is None:
+                raise ManagedWorkspaceFailure("operation_conflict")
+            return ManagedWorkspaceConflictReview(
+                conflict_id=cast(str, row["conflict_id"]),
+                note_id=cast(str, row["note_id"]),
+                relative_path=cast(str, row["relative_path"]),
+                accepted_revision_id=cast(str, row["accepted_revision_id"]),
+                accepted_body=cast(bytes, row["body_bytes"]).decode("utf-8"),
+                workspace_body=cast(bytes, row["candidate_body_bytes"]).decode("utf-8"),
+            )
+        except ManagedWorkspaceFailure:
+            raise
+        except (sqlite3.DatabaseError, UnicodeDecodeError, TypeError, ValueError):
+            raise ManagedWorkspaceFailure("operation_conflict") from None
+        finally:
+            connection.close()
+
+    def note_id_for_path(self, workspace_id: str, relative_path: str) -> str:
+        _portable_id(workspace_id, "workspace")
+        if not isinstance(relative_path, str) or "\\" in relative_path:
+            raise ManagedWorkspaceFailure("unknown_note")
+        path = PurePosixPath(relative_path)
+        if (
+            not relative_path
+            or path.is_absolute()
+            or path.as_posix() != relative_path
+            or any(part in {"", ".", ".."} for part in path.parts)
+            or path.suffix.casefold() != ".md"
+        ):
+            raise ManagedWorkspaceFailure("unknown_note")
+        connection = self._engine._store.connect()
+        try:
+            row = connection.execute(
+                """SELECT note_id FROM managed_notes
+                WHERE workspace_id = ? AND relative_path = ?""",
+                (workspace_id, relative_path),
+            ).fetchone()
+        finally:
+            connection.close()
+        if row is None:
+            raise ManagedWorkspaceFailure("unknown_note")
+        return cast(str, row["note_id"])
 
     def setup(self, directory: str, *, operation_id: str) -> ManagedWorkspaceReceipt:
         _delivery_id(operation_id)
@@ -808,18 +904,22 @@ class ManagedWorkspaceTasks:
         note_id: str,
         choice: str,
         *,
+        conflict_id: str | None = None,
         operation_id: str,
     ) -> ManagedWorkspaceReceipt:
         from .managed_policy import _advance_policy
 
         _portable_id(workspace_id, "workspace")
         _portable_id(note_id, "page")
+        if conflict_id is not None:
+            _portable_id(conflict_id, "conflict")
         _delivery_id(operation_id)
         if choice not in {"accepted", "workspace"}:
             raise ManagedWorkspaceFailure("operation_conflict")
         request_sha256 = _request_sha256(
             {
                 "choice": choice,
+                "conflict_id": conflict_id,
                 "kind": "resolve",
                 "note_id": note_id,
                 "operation_id": operation_id,
@@ -842,6 +942,8 @@ class ManagedWorkspaceTasks:
                     (note_id,),
                 ).fetchone()
                 if conflict is None:
+                    raise ManagedWorkspaceFailure("operation_conflict")
+                if conflict_id is not None and conflict["conflict_id"] != conflict_id:
                     raise ManagedWorkspaceFailure("operation_conflict")
                 if note["accepted_revision_id"] != conflict["accepted_revision_id"]:
                     raise ManagedWorkspaceFailure("operation_conflict")

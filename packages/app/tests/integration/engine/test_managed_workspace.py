@@ -9,6 +9,7 @@ from open_brain_engine.engine import (
     CaptureAction,
     InjectedFault,
     ManagedAccessMode,
+    ManagedExclusion,
     ManagedProvider,
     ManagedWorkspaceFailure,
     ManagedWorkspaceFault,
@@ -153,6 +154,20 @@ def test_graph_snapshot_uses_accepted_revisions_and_shared_exclusions(tmp_path: 
     assert [source.note_id for source in excluded.sources] == [second_id]
     assert excluded.policy_generation == original.policy_generation + 1
     assert excluded.snapshot_sha256 != original.snapshot_sha256
+    relative_path = first_path.relative_to(workspace).as_posix()
+    assert engine.managed_workspace.note_id_for_path(setup.workspace_id, relative_path) == first_id
+    assert engine.managed_policy.active_exclusions(setup.workspace_id) == (
+        ManagedExclusion(kind="note", subject=first_id, relative_path=relative_path),
+    )
+
+    engine.managed_policy.set_exclusion(
+        setup.workspace_id,
+        "note",
+        first_id,
+        excluded=False,
+        operation_id="managed.graph.include",
+    )
+    assert engine.managed_policy.active_exclusions(setup.workspace_id) == ()
 
 
 def test_graph_snapshot_rejects_invalid_stored_privacy_before_extraction(tmp_path: Path) -> None:
