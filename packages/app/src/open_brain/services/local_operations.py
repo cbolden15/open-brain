@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable, Mapping
+from collections.abc import Callable
 from hashlib import sha256
 
 from open_brain_engine.core.models import (
@@ -30,8 +30,13 @@ from open_brain_engine.engine import (
 from open_brain_engine.storage.locks import LockBusyError
 from open_brain_engine.storage.sqlite import is_database_busy
 
+from open_brain.services.managed_providers import (
+    ManagedGraphProviderResult,
+    ManagedProviderFailure,
+)
+
 _MCP_IDENTITY = "cf350566-c33d-49ab-bef7-e0d760171ae1"
-GraphProvider = Callable[[str, int, int], Mapping[str, object]]
+GraphProvider = Callable[[str, int, int], ManagedGraphProviderResult]
 
 
 def mcp_capture_sink(tasks: EngineTaskSet) -> PublicJobCaptureSink:
@@ -160,7 +165,6 @@ def refresh_graph(
     provider: ManagedProvider,
     access_mode: ManagedAccessMode,
     adapter_identity: str,
-    model: str,
     request_id: str,
     invoke: GraphProvider,
     remaining_attempts: int,
@@ -192,13 +196,12 @@ def refresh_graph(
         raise ValueError("graph refresh process budget is exhausted")
     released = tasks.managed_inference.release(request_id)
     try:
-        draft = invoke(
+        provider_result = invoke(
             released.prompt,
             released.max_output_bytes,
             released.timeout_seconds,
         )
-        if set(draft) != {"source", "source_quote", "target", "target_quote"}:
-            raise ValueError("invalid graph provider result")
+        draft = provider_result.suggestion()
         source_index = draft["source"]
         target_index = draft["target"]
         if (
@@ -217,14 +220,18 @@ def refresh_graph(
             target_note_id=released.sources[target_index - 1].note_id,
             source_quote=draft["source_quote"],
             target_quote=draft["target_quote"],
-            model=model,
+            model=provider_result.actual_model,
         )
+    except ManagedProviderFailure as error:
+        tasks.managed_inference.fail(request_id)
+        return {"reason": error.code, "status": "failed"}, 1, input_bytes
     except Exception:
         tasks.managed_inference.fail(request_id)
-        return {"status": "failed"}, 1, input_bytes
+        return {"reason": "provider_failure", "status": "failed"}, 1, input_bytes
     return (
         {
             "status": "refreshed",
+            "actual_model": provider_result.actual_model,
             "suggestion": {
                 "model": suggestion.model,
                 "provider": suggestion.provider.value,
@@ -234,6 +241,7 @@ def refresh_graph(
                 "target_note_id": suggestion.target_note_id,
                 "target_quote": suggestion.target_quote,
             },
+            "usage": dict(provider_result.usage),
             "workspace_id": suggestion.workspace_id,
         },
         1,

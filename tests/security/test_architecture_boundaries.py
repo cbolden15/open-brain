@@ -52,6 +52,7 @@ def test_application_package_contains_only_foreground_local_surfaces() -> None:
         "services/local_mcp.py",
         "services/local_native_entrypoint.py",
         "services/local_operations.py",
+        "services/managed_providers.py",
         "services/mcp_protocol.py",
     }
 

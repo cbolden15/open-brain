@@ -28,6 +28,7 @@ from open_brain.services.local_operations import (
     refresh_graph,
     workspace_status,
 )
+from open_brain.services.managed_providers import ManagedGraphProviderResult
 from open_brain.services.mcp_protocol import McpCallError
 
 
@@ -196,7 +197,7 @@ def test_deterministic_fake_provider_runs_through_shared_refresh_contract(
 
     def fake_provider(
         prompt: str, max_output_bytes: int, timeout_seconds: int
-    ) -> dict[str, object]:
+    ) -> ManagedGraphProviderResult:
         assert "Solar generation" in prompt
         assert "Battery storage" in prompt
         assert max_output_bytes == 16 * 1024
@@ -212,12 +213,14 @@ def test_deterministic_fake_provider_runs_through_shared_refresh_contract(
             for index, selected in enumerate(sources, start=1)
             if "Battery storage" in cast(str, selected["body"])
         )
-        return {
-            "source": source,
-            "source_quote": "peaks at midday",
-            "target": target,
-            "target_quote": "after sunset",
-        }
+        return ManagedGraphProviderResult(
+            source=source,
+            source_quote="peaks at midday",
+            target=target,
+            target_quote="after sunset",
+            actual_model="deterministic-fake-v1",
+            usage={"input_tokens": 10, "output_tokens": 4, "total_tokens": 14},
+        )
 
     adapter = LocalMcpAdapter(
         graph_refresh=lambda attempts, input_bytes: refresh_graph(
@@ -225,7 +228,6 @@ def test_deterministic_fake_provider_runs_through_shared_refresh_contract(
             provider=ManagedProvider.OPENAI_API,
             access_mode=ManagedAccessMode.API_KEY,
             adapter_identity="openai_api:deterministic-fake-v1",
-            model="deterministic-fake-v1",
             request_id="request_00000000-0000-4000-8000-000000000301",
             invoke=fake_provider,
             remaining_attempts=attempts,
@@ -236,6 +238,12 @@ def test_deterministic_fake_provider_runs_through_shared_refresh_contract(
     result = adapter.call_tool("brain_graph_refresh", {})
 
     assert result["status"] == "refreshed"
+    assert result["actual_model"] == "deterministic-fake-v1"
+    assert result["usage"] == {
+        "input_tokens": 10,
+        "output_tokens": 4,
+        "total_tokens": 14,
+    }
     assert len(cast(list[object], graph_suggestions(tasks)["suggestions"])) == 1
     assert adapter._graph_refresh_calls == 1
     assert adapter._graph_model_attempts == 1
