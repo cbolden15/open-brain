@@ -2,9 +2,9 @@
 
 Status: current product authority
 
-Version: v0.9
+Version: v1.0
 
-Date: 2026-09-11
+Date: 2026-09-13
 
 ## Decision
 
@@ -15,6 +15,11 @@ Brain backed by SQLite and ordinary files.
 Open Brain never requires root, operating-system capabilities, namespaces, launchd, systemd,
 containers, a daemon, a supervisor, or another background service. It has no HTTP listener and no
 service lifecycle. Its MCP transport is inherited stdio and lives only for the invoking process.
+
+The optional desktop interface is a plugin installed into Open Brain's dedicated Obsidian vault.
+While enabled, the plugin owns one `open-brain plugin` child over inherited stdio and stops that
+process on unload. The child is part of the foreground desktop session. It is not a service. The
+Obsidian application may remain open after an Open Brain operation finishes.
 
 The first Secure Node implementation and the predecessor package are retained as source history in
 `archive/open-brain-secure-node` and `archive/legacy`. Neither archive is part of the uv workspace,
@@ -38,7 +43,10 @@ certificate, or make a key-custody decision.
 The supported command families are:
 
 - `init`, `capture`, `import`, `search`, `export`, `doctor`, and `status`;
-- `mcp` over explicitly launched stdio with capture and search selected independently.
+- `workspace` for the dedicated managed Markdown vault;
+- `graph` for structural projection, suggestion review, consent, and exclusions;
+- `obsidian-plugin` for owned plugin installation, status, and removal; and
+- `mcp` over explicitly launched stdio with capabilities selected independently.
 
 The runtime uses the platform default directory unless an expert supplies an absolute `--data-dir`:
 
@@ -57,8 +65,34 @@ cryptographic erasure, certified purge, multi-user authorization, or protection 
 process running as the same user.
 
 MCP search grants the connected client whole-Brain read access. MCP capture writes durable,
-unverified content. Returned note content is untrusted data. A network-backed MCP client may send
-results to its own provider, but Open Brain itself performs no network egress.
+unverified content. Workspace reads and graph refresh are absent unless their separate flags are
+present. MCP cannot accept graph suggestions, resolve workspace conflicts, change provider consent,
+or edit exclusions. The current MCP graph-refresh tool returns `provider_not_configured` because MCP
+has no provider-credential setup operation. Returned note content is untrusted data. A network-backed
+MCP client may send results to its own provider.
+
+Ordinary capture, import, search, workspace, structural graph, export, status, and doctor operations
+perform no network egress. Semantic graph refresh may send selected note content to one configured
+cloud provider only after the owner acknowledges the managed-vault scope and grants current consent.
+The supported direct adapters are OpenAI API, Anthropic API, and Google Gemini API. They use an
+explicit API key from the current plugin session or the operating-system credential store, apply
+content selection and redaction before resolving that key, and do not fall back to another provider.
+Claude subscription is visible as unavailable with `subscription_isolation_unproven`; no note bytes
+may enter that path.
+
+The plugin client is confined to a versioned, bounded newline-framed stdio protocol named
+`open-brain-client`, with `protocol_version: 1`. It has no database handle and cannot construct
+engine authority. The bridge accepts only named operations with exact argument shapes, limits
+request and response sizes, filters the child environment, and terminates the child process group
+on unload, timeout, or protocol failure.
+
+The managed vault is a sibling projection of accepted records. Open Brain stores stable identity,
+revision, consent, exclusion, conflict, and accepted-suggestion state in the private Brain. The
+Graphify helper receives one bounded accepted snapshot and produces structural links only. Generated
+projection state and `Open Brain Graph.canvas` are rebuildable views, are never semantic sources,
+and are excluded from Portable Brain. Inferred suggestions appear separately from explicit links and
+cannot modify Markdown until the owner reviews and accepts a current suggestion. Acceptance records
+its provenance, adds the permanent link through the revision flow, and rejects stale revisions.
 
 ## Shared data boundary
 
@@ -75,8 +109,10 @@ not portable contracts.
 
 | Distribution or tree | Contents | Active status |
 |---|---|---|
-| `open-brain-engine` | Shared records, direct local tasks, SQLite, retrieval, Portable Brain | Shipping dependency |
-| `open-brain` | Local bootstrap, foreground CLI, stdio MCP, local operations | Shipping application |
+| `open-brain-engine` | Shared records, direct local tasks, workspace and inference contracts, SQLite, retrieval, Portable Brain | Shipping dependency |
+| `open-brain` | Local bootstrap, foreground CLI, MCP/plugin stdio, provider adapters, plugin assets, local operations | Shipping application |
+| `open-brain-graphify` | Pinned, patched structural Markdown helper with its own dependency closure and licenses | Shipping private helper resource |
+| `packages/obsidian-plugin` | Desktop-only Obsidian client compiled into the base release archive | Shipping desktop interface |
 | `open-brain-connectors` | Optional connector SDK and worker runtime | Separate optional distribution |
 | `archive/open-brain-secure-node` | Historical appliance, protocol, custody, service, and lifecycle implementation | Never built or installed |
 | `archive/legacy` | Historical predecessor implementation | Never built or installed |
@@ -94,7 +130,7 @@ enough; the built executable's collected module inventory is the distribution ev
 
 | ID | Requirement |
 |---|---|
-| `OB-INSTALL-01` | A supported Homebrew install produces one `open-brain` executable. |
+| `OB-INSTALL-01` | A supported Homebrew install produces one user-invoked `open-brain` executable, one private Graphify helper, and the version-matched plugin assets. |
 | `OB-INSTALL-02` | First capture succeeds without configuration and without a second process. |
 | `OB-BOUNDARY-01` | The active app source contains only local bootstrap, entry points, operations, stdio MCP, and their small support modules. |
 | `OB-BOUNDARY-02` | The base wheel and native executable contain no archived Secure Node or legacy implementation. |
@@ -102,6 +138,10 @@ enough; the built executable's collected module inventory is the distribution ev
 | `OB-PRIVACY-01` | Status reports profile `local`, SQLite storage, daemon false, and application encryption false. |
 | `OB-PORTABLE-01` | Export and import preserve every shared semantic record and attachment byte for byte. |
 | `OB-HISTORY-01` | Secure Node and legacy source remain available only under clearly marked archive directories. |
+| `OB-WORKSPACE-01` | The dedicated sibling vault preserves stable note identity, explicit conflict review, and accepted revisions without treating generated output as source input. |
+| `OB-GRAPH-01` | Structural and inferred edges remain distinguishable; inference alone cannot edit a note; a stale suggestion cannot be accepted. |
+| `OB-CLOUD-01` | Semantic egress requires current owner consent, one explicit provider and access mode, eligible current revisions, and successful redaction. |
+| `OB-CLIENT-01` | The Obsidian plugin uses `open-brain-client` protocol version 1 over bounded inherited stdio and owns the child lifecycle. |
 
 ## Superseded direction
 

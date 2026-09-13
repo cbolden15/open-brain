@@ -14,8 +14,9 @@ the owner's files and process memory. Open Brain does not claim application-leve
 hostile same-user isolation, cryptographic erasure, or resistance to a compromised operating system.
 
 The runtime needs no root access, OS capabilities, namespace setup, container, listener, daemon,
-supervisor, launchd job, systemd unit, or background service. Each explicit command opens local
-resources, performs bounded work, closes them, and exits.
+supervisor, launchd job, systemd unit, or background service. Each CLI command opens local resources,
+performs bounded work, closes them, and exits. While the Obsidian plugin is enabled, it owns one
+normal-user child for that desktop session and stops it on unload.
 
 ## Filesystem and SQLite
 
@@ -55,6 +56,48 @@ The capture sink cannot publish owner-authored content or invoke actions. Messag
 limits bound accidental loops. Idempotency keys bind exact input. EOF prevents further operations
 but does not erase completed captures.
 
+Optional workspace reads omit local paths and private policy or credential metadata. Graph refresh
+requires a separate launch flag. In version 0.1.0 it returns `provider_not_configured` because MCP
+cannot configure providers or receive credentials. It also cannot change consent or exclusions,
+accept suggestions, resolve conflicts, or obtain owner mutation authority.
+
+## Obsidian plugin IPC
+
+The plugin resolves an absolute Open Brain executable, spawns it without a shell, and passes a small
+allowlist of environment variables. Requests and responses use `open-brain-client` protocol version
+1 over inherited stdio. Exact operation names, exact argument sets, identifiers, byte limits,
+timeouts, and response validation prevent the desktop client from becoming a general command or
+filesystem bridge. Protocol errors and timeouts terminate the child process group. The plugin still
+runs with the trusted owner's account and can edit files in the open vault; this protocol does not
+claim hostile same-user or malicious-plugin isolation.
+
+## Cloud inference
+
+Direct OpenAI, Anthropic, and Gemini adapters are network egress points. Dispatch requires current
+owner consent for one provider, eligible accepted note revisions, exclusion checks, input and attempt
+budgets, and a successful redaction/canary check before the API key is resolved. Hosts, paths, models,
+headers, response shapes, input/output bytes, and deadlines are fixed or bounded. Provider failures
+are redacted and cannot trigger cross-provider fallback.
+
+The owner accepts the provider's privacy, retention, account, quota, and billing terms. Revocation
+prevents later dispatch but cannot retract bytes already sent. API keys are session-only or stored by
+macOS Keychain or Linux Secret Service when available. Ambient provider credentials are not used.
+Claude subscription dispatch fails closed with `subscription_isolation_unproven`; no privileged
+staging, namespaces, capabilities, fixture-owner topology, or broader host access is an acceptable
+substitute.
+
+## Managed graph
+
+The managed vault is a sibling projection of accepted records. Generated Canvas and app-private
+graph cache files are views, never source notes or Portable Brain content. The separate Graphify
+helper receives only a bounded accepted snapshot over stdio, has a narrow structural-extraction
+protocol, and receives no provider credential or network configuration. A complete generation is
+published atomically; failure retains a visibly stale prior generation.
+
+Semantic suggestions remain proposed edges with revision-bound source evidence. Inference alone
+cannot write a link. Acceptance rechecks both endpoint revisions and uses the conflict-preserving
+workspace flow. User-owned files at the generated Canvas path are never overwritten.
+
 ## Portable Brain
 
 Import and export validate canonical records, digests, path names, file types, and attachment bytes.
@@ -64,6 +107,8 @@ Brain is a data-transfer contract, not a backup service or a product-specific se
 ## Distribution boundary
 
 The base dependency graph excludes web servers, service managers, cryptography stacks, container
-tooling, and privilege bridges. The native distribution audit rejects those modules and removed
-Secure Node engine families in the built executable. Historical appliance and legacy code remains
+tooling, and privilege bridges. Its standard-library HTTPS client is present only for the bounded
+direct provider adapters. The native distribution audit rejects removed Secure Node engine families
+and forbidden dependencies in the built executable. Graphify has a separately audited executable,
+dependency closure, protocol, and license inventory. Historical appliance and legacy code remains
 under `archive/` and is excluded from imports, builds, tests, and installed artifacts.

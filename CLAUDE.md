@@ -11,6 +11,7 @@
 | Local CLI | `uv run open-brain status --json` |
 | Full verification | `make verify` |
 | Native distribution audit | `make native-audit` |
+| Native integration smoke | `make native-integration-smoke` |
 | Complete contributor check | `make contributor-check` |
 | Product authority | `docs/product-family.md` |
 | Acceptance | `docs/acceptance/five-minute-install.md` |
@@ -20,9 +21,11 @@ No release or tap is published yet.
 ## Product boundary
 
 Open Brain is one unprivileged, foreground-only local runtime. It gives one operating-system user
-one automatically selected Brain, direct SQLite-backed capture and search, Markdown import, and a
-full Portable Brain export. Open Brain never requires root, operating-system capabilities,
-namespaces, launchd, systemd, containers, a daemon, or another background service.
+one automatically selected Brain, direct SQLite-backed capture and search, Markdown import, a
+managed sibling vault, a desktop Obsidian plugin, graph projections, and a full Portable Brain
+export. Open Brain never requires root, operating-system capabilities, namespaces, launchd, systemd,
+containers, a daemon, or another background service. The enabled plugin owns one foreground
+`open-brain plugin` child over inherited stdio and stops it on unload.
 
 Secure Node is not an extra, profile, entry point, or dependency of the Open Brain distribution.
 The first Secure Node implementation is quarantined under `archive/open-brain-secure-node` as
@@ -39,12 +42,15 @@ engine. Never migrate between products by copying or reinterpreting live SQLite 
 | `packages/engine/src/open_brain_engine` | Shared records, local tasks, SQLite storage, retrieval, and Portable Brain schemas |
 | `packages/app/src/open_brain` | Direct local bootstrap, CLI, MCP over stdio, and local operations |
 | `packages/app/src/open_brain/services/local_entrypoints.py` | Installed default `open-brain` callable |
+| `packages/app/src/open_brain/services/plugin_bridge.py` | Bounded `open-brain-client` protocol version 1 server and plugin-session lifecycle |
+| `packages/app/src/open_brain/services/managed_providers.py` | Consent-gated, bounded OpenAI, Anthropic, and Gemini direct adapters |
 | `packages/obsidian-plugin` | Desktop-only Obsidian source, bounded stdio client, and compiled plugin checks |
 | `packages/connectors` | Optional connector distribution; not a default dependency |
 | `archive/open-brain-secure-node` | Historical Secure Node implementation; excluded from builds and tests |
 | `archive/legacy` | Historical predecessor; excluded from the workspace, builds, imports, and tests |
-| `tools/open_brain_dev/base_native.py` | Native build, module audit, manifest, and formula renderer |
+| `tools/open_brain_dev/base_native.py` | Paired native build, module audit, component manifest, and formula renderer |
 | `release/open-brain/open-brain.spec` | One-file PyInstaller specification |
+| `release/open-brain-graphify` | Pinned, patched, separately frozen Graphify structural helper |
 
 The engine cannot import the app, connectors, archives, or workspace modules. The app depends
 exactly on `open-brain-engine==0.1.0`. The default dependency graph contains no server, service
@@ -53,10 +59,21 @@ families if they enter the executable.
 
 ## Release surface
 
-The supported end-user lifecycle is Homebrew. Each platform produces
-`open-brain-<version>-<platform>.tar.gz`, containing one executable, plus a manifest with exact
-version, platform, filename, and SHA-256. The executable starts only when the user invokes it and
-exits when that foreground command or stdio MCP session ends.
+The supported end-user lifecycle is Homebrew. Each platform produces a base archive containing the
+app and plugin assets plus a separate Graphify helper archive. The component manifest binds one
+version to both platforms, both resource roles, archive and executable SHA-256 values, filenames,
+and install destinations. The executable starts only when the user invokes it and exits when that
+foreground command, stdio MCP session, or desktop plugin session ends.
+
+Semantic refresh is the only active product network-egress path. It requires current owner consent,
+eligible note revisions, exclusions, redaction, and one explicit direct API-key provider. Never use
+ambient provider credentials or cross-provider fallback. Claude subscription remains closed with
+`subscription_isolation_unproven`; do not introduce root staging, namespaces, capabilities, fixture
+owners, or broader host access to enable it.
+
+Generated graph state and `Open Brain Graph.canvas` are rebuildable views, not sources or Portable
+Brain content. Inferred suggestions cannot edit notes until explicit acceptance revalidates the
+source revisions and enters the normal conflict-preserving revision flow.
 
 ## Common commands
 
@@ -70,11 +87,14 @@ make plugin-test
 make verify
 make native-audit
 make homebrew-smoke
+make native-integration-smoke
 make contributor-check
 ```
 
-`make contributor-check` runs `make verify` followed by `make homebrew-smoke`. Private release
-audits remain separate owner checks.
+`make contributor-check` runs `make verify` followed by `make native-integration-smoke`. It covers
+the real plugin build/test suite and platform-native Homebrew command-line integration. GUI timing
+and real-provider evidence remain separate exact-candidate checks. Private release audits remain
+separate owner checks.
 
 ## Data and configuration
 
