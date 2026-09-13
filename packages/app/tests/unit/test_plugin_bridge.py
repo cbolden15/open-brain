@@ -21,7 +21,8 @@ from open_brain.services.local_bootstrap import open_local_brain
 from open_brain.services.local_operations import refresh_graph
 from open_brain.services.managed_providers import ManagedGraphProviderResult
 from open_brain.services.plugin_bridge import (
-    PLUGIN_PROTOCOL,
+    OPEN_BRAIN_CLIENT_PROTOCOL,
+    OPEN_BRAIN_CLIENT_PROTOCOL_VERSION,
     PluginBridgeFailure,
     PluginRuntimeState,
     dispatch_plugin_request,
@@ -51,7 +52,8 @@ def _call(
     request = {
         "arguments": arguments or {},
         "operation": operation,
-        "protocol": PLUGIN_PROTOCOL,
+        "protocol": OPEN_BRAIN_CLIENT_PROTOCOL,
+        "protocol_version": OPEN_BRAIN_CLIENT_PROTOCOL_VERSION,
         "request_id": request_id or f"plugin_{uuid.uuid4()}",
     }
     output = BytesIO()
@@ -74,7 +76,10 @@ def test_handshake_is_bounded_and_does_not_initialize_the_brain(tmp_path: Path) 
 
     assert response["ok"] is True
     result = cast(dict[str, object], response["result"])
-    assert result["protocol"] == PLUGIN_PROTOCOL
+    assert response["protocol"] == OPEN_BRAIN_CLIENT_PROTOCOL
+    assert response["protocol_version"] == OPEN_BRAIN_CLIENT_PROTOCOL_VERSION
+    assert result["protocol"] == OPEN_BRAIN_CLIENT_PROTOCOL
+    assert result["protocol_version"] == OPEN_BRAIN_CLIENT_PROTOCOL_VERSION
     assert result["desktop_only"] is True
     assert "graph.review" in cast(list[str], result["operations"])
     assert not selection.brain_root.exists()
@@ -86,7 +91,8 @@ def test_bridge_rejects_unknown_operations_without_echoing_input(tmp_path: Path)
     request = {
         "arguments": {"text": "private body"},
         "operation": "unknown.operation",
-        "protocol": PLUGIN_PROTOCOL,
+        "protocol": OPEN_BRAIN_CLIENT_PROTOCOL,
+        "protocol_version": OPEN_BRAIN_CLIENT_PROTOCOL_VERSION,
         "request_id": request_id,
     }
     output = BytesIO()
@@ -115,13 +121,15 @@ def test_stdio_session_serves_multiple_framed_requests_in_one_engine_lifecycle(
         {
             "arguments": {},
             "operation": "brain.initialize",
-            "protocol": PLUGIN_PROTOCOL,
+            "protocol": OPEN_BRAIN_CLIENT_PROTOCOL,
+            "protocol_version": OPEN_BRAIN_CLIENT_PROTOCOL_VERSION,
             "request_id": f"plugin_{uuid.uuid4()}",
         },
         {
             "arguments": {},
             "operation": "workspace.status",
-            "protocol": PLUGIN_PROTOCOL,
+            "protocol": OPEN_BRAIN_CLIENT_PROTOCOL,
+            "protocol_version": OPEN_BRAIN_CLIENT_PROTOCOL_VERSION,
             "request_id": f"plugin_{uuid.uuid4()}",
         },
     ]
@@ -146,6 +154,40 @@ def test_stdio_session_serves_multiple_framed_requests_in_one_engine_lifecycle(
     ]
     assert all(response["ok"] is True for response in responses)
     assert cast(dict[str, object], responses[1]["result"])["status"] == "unconfigured"
+
+
+def test_bridge_rejects_wrong_or_missing_protocol_versions(tmp_path: Path) -> None:
+    selection = _selection(tmp_path)
+    request_id = f"plugin_{uuid.uuid4()}"
+    for protocol_version, error_code in ((2, "incompatible_protocol"), (None, "invalid_request")):
+        request: dict[str, object] = {
+            "arguments": {},
+            "operation": "system.handshake",
+            "protocol": OPEN_BRAIN_CLIENT_PROTOCOL,
+            "request_id": request_id,
+        }
+        if protocol_version is not None:
+            request["protocol_version"] = protocol_version
+        output = BytesIO()
+
+        assert (
+            serve_plugin_stdio(
+                selection,
+                input_stream=BytesIO(json.dumps(request).encode("utf-8")),
+                output_stream=output,
+                filesystem_type_probe=_filesystem,
+            )
+            == 0
+        )
+
+        response = cast(dict[str, object], json.loads(output.getvalue()))
+        assert response == {
+            "error": {"code": error_code},
+            "ok": False,
+            "protocol": OPEN_BRAIN_CLIENT_PROTOCOL,
+            "protocol_version": OPEN_BRAIN_CLIENT_PROTOCOL_VERSION,
+            "request_id": None,
+        }
 
 
 def test_plugin_capture_search_workspace_and_reconciliation_flow(tmp_path: Path) -> None:

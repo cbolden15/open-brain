@@ -5,7 +5,8 @@ import path from "node:path";
 import process from "node:process";
 
 import {
-  PLUGIN_PROTOCOL,
+  OPEN_BRAIN_CLIENT_PROTOCOL,
+  OPEN_BRAIN_CLIENT_PROTOCOL_VERSION,
   type BridgeRequest,
   type PluginOperation,
   record,
@@ -69,7 +70,8 @@ export class OpenBrainBridge {
     const request: BridgeRequest = {
       arguments: args,
       operation,
-      protocol: PLUGIN_PROTOCOL,
+      protocol: OPEN_BRAIN_CLIENT_PROTOCOL,
+      protocol_version: OPEN_BRAIN_CLIENT_PROTOCOL_VERSION,
       request_id: requestId,
     };
     const payload = Buffer.from(`${JSON.stringify(request)}\n`, "utf8");
@@ -157,7 +159,11 @@ export class OpenBrainBridge {
       return;
     }
     const requestId = response.request_id;
-    if (response.protocol !== PLUGIN_PROTOCOL || typeof requestId !== "string") {
+    if (
+      response.protocol !== OPEN_BRAIN_CLIENT_PROTOCOL ||
+      response.protocol_version !== OPEN_BRAIN_CLIENT_PROTOCOL_VERSION ||
+      typeof requestId !== "string"
+    ) {
       this.#failAll("protocol_error");
       this.#terminate();
       return;

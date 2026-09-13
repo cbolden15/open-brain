@@ -1,4 +1,5 @@
-export const PLUGIN_PROTOCOL = "open-brain-plugin-v1";
+export const OPEN_BRAIN_CLIENT_PROTOCOL = "open-brain-client";
+export const OPEN_BRAIN_CLIENT_PROTOCOL_VERSION = 1;
 
 export type PluginOperation =
   | "brain.initialize"
@@ -27,7 +28,8 @@ export type PluginOperation =
 export interface BridgeRequest {
   arguments: Record<string, unknown>;
   operation: PluginOperation;
-  protocol: typeof PLUGIN_PROTOCOL;
+  protocol: typeof OPEN_BRAIN_CLIENT_PROTOCOL;
+  protocol_version: typeof OPEN_BRAIN_CLIENT_PROTOCOL_VERSION;
   request_id: string;
 }
 
@@ -35,7 +37,8 @@ export interface Handshake {
   desktop_only: true;
   operations: string[];
   product_version: string;
-  protocol: typeof PLUGIN_PROTOCOL;
+  protocol: typeof OPEN_BRAIN_CLIENT_PROTOCOL;
+  protocol_version: typeof OPEN_BRAIN_CLIENT_PROTOCOL_VERSION;
   status: "ok";
 }
 
@@ -190,7 +193,8 @@ export interface SemanticRefresh {
 export function parseHandshake(value: unknown): Handshake {
   const item = record(value);
   if (
-    item.protocol !== PLUGIN_PROTOCOL ||
+    item.protocol !== OPEN_BRAIN_CLIENT_PROTOCOL ||
+    item.protocol_version !== OPEN_BRAIN_CLIENT_PROTOCOL_VERSION ||
     item.status !== "ok" ||
     item.desktop_only !== true ||
     !strings(item.operations) ||

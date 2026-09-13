@@ -33,7 +33,8 @@ process.stdin.on("data", (chunk) => {
     buffer = buffer.slice(newline + 1);
     process.stdout.write(JSON.stringify({
       ok: true,
-      protocol: "open-brain-plugin-v1",
+      protocol: "open-brain-client",
+      protocol_version: 1,
       request_id: request.request_id,
       result: { operation: request.operation },
     }) + "\\n");
@@ -59,6 +60,29 @@ process.stdin.on("data", (chunk) => {
 
     await expect(bridge.invoke("system.handshake", {}, 25)).rejects.toEqual(
       expect.objectContaining<Partial<BridgeError>>({ code: "timeout" }),
+    );
+  });
+
+  it.each([2, undefined])("rejects a response with protocol version %s", async (version) => {
+    const executable = await fakeExecutable(`
+process.stdin.setEncoding("utf8");
+process.stdin.once("data", (chunk) => {
+  const request = JSON.parse(chunk);
+  const response = {
+    ok: true,
+    protocol: "open-brain-client",
+    request_id: request.request_id,
+    result: {},
+  };
+  if (${version === undefined ? "false" : "true"}) response.protocol_version = ${version ?? 0};
+  process.stdout.write(JSON.stringify(response) + "\\n");
+});
+`);
+    const bridge = new OpenBrainBridge(executable);
+    bridges.push(bridge);
+
+    await expect(bridge.invoke("system.handshake", {})).rejects.toEqual(
+      expect.objectContaining<Partial<BridgeError>>({ code: "protocol_error" }),
     );
   });
 });

@@ -56,7 +56,8 @@ from open_brain.services.provider_credentials import (
     validate_credential,
 )
 
-PLUGIN_PROTOCOL = "open-brain-plugin-v1"
+OPEN_BRAIN_CLIENT_PROTOCOL = "open-brain-client"
+OPEN_BRAIN_CLIENT_PROTOCOL_VERSION = 1
 MAX_PLUGIN_REQUEST_BYTES = 64 * 1024
 MAX_PLUGIN_RESPONSE_BYTES = 5 * 1024 * 1024
 MAX_PLUGIN_SESSION_REQUESTS = 2_000
@@ -187,7 +188,8 @@ def serve_plugin_stdio(
                         "desktop_only": True,
                         "operations": list(_OPERATIONS),
                         "product_version": __version__,
-                        "protocol": PLUGIN_PROTOCOL,
+                        "protocol": OPEN_BRAIN_CLIENT_PROTOCOL,
+                        "protocol_version": OPEN_BRAIN_CLIENT_PROTOCOL_VERSION,
                         "status": "ok",
                     }
                 elif operation == "brain.initialize":
@@ -214,7 +216,8 @@ def serve_plugin_stdio(
                     output_stream,
                     {
                         "ok": True,
-                        "protocol": PLUGIN_PROTOCOL,
+                        "protocol": OPEN_BRAIN_CLIENT_PROTOCOL,
+                        "protocol_version": OPEN_BRAIN_CLIENT_PROTOCOL_VERSION,
                         "request_id": request_id,
                         "result": result,
                     },
@@ -654,10 +657,15 @@ def _read_request(payload: bytes) -> dict[str, object]:
         "arguments",
         "operation",
         "protocol",
+        "protocol_version",
         "request_id",
     }:
         raise PluginBridgeFailure("invalid_request")
-    if decoded["protocol"] != PLUGIN_PROTOCOL:
+    if (
+        decoded["protocol"] != OPEN_BRAIN_CLIENT_PROTOCOL
+        or type(decoded["protocol_version"]) is not int
+        or decoded["protocol_version"] != OPEN_BRAIN_CLIENT_PROTOCOL_VERSION
+    ):
         raise PluginBridgeFailure("incompatible_protocol")
     request_id = decoded["request_id"]
     operation = decoded["operation"]
@@ -682,7 +690,8 @@ def _write_error(output_stream: BinaryIO, request_id: str | None, code: str) -> 
         {
             "error": {"code": code},
             "ok": False,
-            "protocol": PLUGIN_PROTOCOL,
+            "protocol": OPEN_BRAIN_CLIENT_PROTOCOL,
+            "protocol_version": OPEN_BRAIN_CLIENT_PROTOCOL_VERSION,
             "request_id": request_id,
         },
     )
@@ -696,7 +705,8 @@ def _write_response(output_stream: BinaryIO, response: Mapping[str, object]) -> 
                 {
                     "error": {"code": "response_too_large"},
                     "ok": False,
-                    "protocol": PLUGIN_PROTOCOL,
+                    "protocol": OPEN_BRAIN_CLIENT_PROTOCOL,
+                    "protocol_version": OPEN_BRAIN_CLIENT_PROTOCOL_VERSION,
                     "request_id": response.get("request_id"),
                 }
             )
@@ -850,7 +860,8 @@ __all__ = [
     "MAX_PLUGIN_REQUEST_BYTES",
     "MAX_PLUGIN_RESPONSE_BYTES",
     "MAX_PLUGIN_SESSION_REQUESTS",
-    "PLUGIN_PROTOCOL",
+    "OPEN_BRAIN_CLIENT_PROTOCOL",
+    "OPEN_BRAIN_CLIENT_PROTOCOL_VERSION",
     "PluginBridgeFailure",
     "PluginRuntimeState",
     "dispatch_plugin_request",

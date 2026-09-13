@@ -1,9 +1,12 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  OPEN_BRAIN_CLIENT_PROTOCOL,
+  OPEN_BRAIN_CLIENT_PROTOCOL_VERSION,
   parseConflictReview,
   parseConflicts,
   parseExclusions,
+  parseHandshake,
   parseProviderStatus,
   parseReview,
   parseSemanticRefresh,
@@ -11,6 +14,24 @@ import {
 } from "../src/contracts";
 
 describe("plugin result validation", () => {
+  it("requires the supported Open Brain client protocol version", () => {
+    const handshake = {
+      desktop_only: true,
+      operations: ["system.handshake"],
+      product_version: "0.1.0",
+      protocol: OPEN_BRAIN_CLIENT_PROTOCOL,
+      protocol_version: OPEN_BRAIN_CLIENT_PROTOCOL_VERSION,
+      status: "ok",
+    } as const;
+
+    expect(parseHandshake(handshake)).toEqual(handshake);
+    expect(() => parseHandshake({ ...handshake, protocol_version: 2 })).toThrow(
+      "invalid handshake",
+    );
+    const { protocol_version: _protocolVersion, ...missingVersion } = handshake;
+    expect(() => parseHandshake(missingVersion)).toThrow("invalid handshake");
+  });
+
   it("accepts only contained vault-relative source paths", () => {
     expect(safeRelativePath("Notes/First.md")).toBe(true);
     expect(safeRelativePath("../First.md")).toBe(false);
