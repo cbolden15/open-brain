@@ -1,4 +1,4 @@
-.PHONY: dev build test lint typecheck plugin-build plugin-test audit audit-history native native-audit smoke homebrew-smoke verify contributor-check
+.PHONY: dev build test lint typecheck plugin-build plugin-test audit audit-history native native-audit smoke homebrew-smoke native-integration-smoke verify contributor-check
 
 NATIVE_OUTPUT ?= build/native
 NATIVE_ARTIFACT = $(NATIVE_OUTPUT)/dist/open-brain
@@ -51,8 +51,10 @@ smoke:
 homebrew-smoke: native
 	uv run --frozen --python 3.14 --no-dev --group native-build bash tools/homebrew-smoke.sh "$(CURDIR)" "$(abspath $(NATIVE_MANIFEST))" "$(abspath $(NATIVE_OUTPUT)/release)"
 
+native-integration-smoke: homebrew-smoke
+
 contributor-check:
 	$(MAKE) verify
-	$(MAKE) homebrew-smoke
+	$(MAKE) native-integration-smoke
 
 verify: lint typecheck test build plugin-test

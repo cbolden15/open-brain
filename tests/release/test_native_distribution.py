@@ -316,7 +316,14 @@ def test_local_homebrew_smoke_uses_a_temporary_tap() -> None:
 
     assert "bash tools/homebrew-smoke.sh" in makefile
     target = makefile.split("contributor-check:\n", 1)[1].split("\n\n", 1)[0]
-    assert target.splitlines() == ["\t$(MAKE) verify", "\t$(MAKE) homebrew-smoke"]
+    assert target.splitlines() == [
+        "\t$(MAKE) verify",
+        "\t$(MAKE) native-integration-smoke",
+    ]
+    native_smoke = makefile.split("native-integration-smoke:", 1)[1].split("\n\n", 1)[0]
+    assert native_smoke == " homebrew-smoke"
+    verify = makefile.split("verify:", 1)[1].split("\n\n", 1)[0]
+    assert "plugin-test" in verify
     assert "contributor-check" in makefile.splitlines()[0]
 
 
