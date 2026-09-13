@@ -208,6 +208,7 @@ def _run_parsed_command(
                 input_stream=sys.stdin.buffer,
                 output_stream=sys.stdout.buffer,
                 filesystem_type_probe=filesystem_type_probe,
+                environment=environment,
             )
         with open_local_brain(
             selection,
@@ -643,7 +644,7 @@ def _run_workspace(
         receipt = tasks.managed_workspace.resolve_conflict(
             status.workspace_id,
             note_id,
-            cast(str, choice),
+            "workspace" if choice == "candidate" else "accepted",
             operation_id=operation_id,
         )
     else:

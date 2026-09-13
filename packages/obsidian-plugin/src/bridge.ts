@@ -12,7 +12,7 @@ import {
 } from "./contracts";
 
 const MAX_REQUEST_BYTES = 64 * 1024;
-const MAX_RESPONSE_BYTES = 1024 * 1024;
+const MAX_RESPONSE_BYTES = 5 * 1024 * 1024;
 const MAX_STDERR_BYTES = 16 * 1024;
 
 type Pending = {
@@ -258,8 +258,19 @@ export function executableCandidates(
   return [];
 }
 
-function filteredEnvironment(source: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
-  const allowed = ["HOME", "LANG", "LC_ALL", "LC_CTYPE", "TMPDIR", "XDG_DATA_HOME"];
+export function filteredEnvironment(source: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+  const allowed = [
+    "DBUS_SESSION_BUS_ADDRESS",
+    "DISPLAY",
+    "HOME",
+    "LANG",
+    "LC_ALL",
+    "LC_CTYPE",
+    "TMPDIR",
+    "WAYLAND_DISPLAY",
+    "XDG_DATA_HOME",
+    "XDG_RUNTIME_DIR",
+  ];
   const result: NodeJS.ProcessEnv = {};
   for (const key of allowed) {
     const value = source[key];

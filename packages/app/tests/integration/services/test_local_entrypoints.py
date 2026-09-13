@@ -173,28 +173,24 @@ def test_obsidian_plugin_cli_installs_reports_and_removes_owned_assets(
         "discover_obsidian_plugin_assets",
         lambda: assets,
     )
-    options = {
-        "environment": {"HOME": str(home)},
-        "platform_name": "linux",
-        "filesystem_type_probe": _filesystem,
-    }
+    def call(arguments: tuple[str, ...]) -> int:
+        return run_cli(
+            arguments,
+            environment={"HOME": str(home)},
+            platform_name="linux",
+            filesystem_type_probe=_filesystem,
+        )
 
-    assert run_cli(("workspace", "setup", "--data-dir", str(root), "--json"), **options) == 0
+    assert call(("workspace", "setup", "--data-dir", str(root), "--json")) == 0
     capsys.readouterr()
     assert (
-        run_cli(
-            ("obsidian-plugin", "install", "--data-dir", str(root), "--json"),
-            **options,
-        )
+        call(("obsidian-plugin", "install", "--data-dir", str(root), "--json"))
         == 0
     )
     assert json.loads(capsys.readouterr().out)["status"] == "installed"
 
     assert (
-        run_cli(
-            ("obsidian-plugin", "status", "--data-dir", str(root), "--json"),
-            **options,
-        )
+        call(("obsidian-plugin", "status", "--data-dir", str(root), "--json"))
         == 0
     )
     assert json.loads(capsys.readouterr().out)["status"] == "current"
@@ -202,10 +198,7 @@ def test_obsidian_plugin_cli_installs_reports_and_removes_owned_assets(
     workspace = home / "Open Brain Vault"
     assert not (workspace / ".obsidian/community-plugins.json").exists()
     assert (
-        run_cli(
-            ("obsidian-plugin", "remove", "--data-dir", str(root), "--json"),
-            **options,
-        )
+        call(("obsidian-plugin", "remove", "--data-dir", str(root), "--json"))
         == 0
     )
     assert json.loads(capsys.readouterr().out)["status"] == "removed"

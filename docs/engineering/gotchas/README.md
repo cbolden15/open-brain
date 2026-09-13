@@ -1539,3 +1539,21 @@ snapshot inventory. Keep the existing-file stamp for ordinary path links, and re
 unresolved references as diagnostics.
 
 Discovered: 2026-09-13, NW2 installed Graphify and Canvas acceptance.
+
+### INTEGRATION-029: Provider consent and suggestion review need one plugin-owned engine lifetime
+
+Symptom: Provider setup succeeds, but the following semantic refresh or suggestion review reports
+inactive consent or loses the pending suggestion when every plugin operation starts a new CLI
+process.
+
+Cause: Engine startup recovery deliberately revokes active provider consent and invalidates pending
+inference work. A stateless one-process-per-operation bridge therefore crosses a recovery boundary
+between setup, refresh, review, and acceptance.
+
+Fix: Keep one bounded stdio child and one engine session for the Obsidian plugin lifetime. Store
+session-only credentials, provider selection, and request budgets only in that process. Stop the
+child on plugin unload; after a bridge restart, require provider setup again while preserving local
+structural results. Test multiple framed requests through one child and terminal cleanup. This
+remains a foreground, lifecycle-owned process rather than a daemon.
+
+Discovered: 2026-09-13, NW3 Obsidian plugin integration.

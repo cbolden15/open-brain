@@ -19,14 +19,24 @@ import {
   discoverOpenBrainExecutable,
 } from "./bridge";
 import {
+  type ConflictReview,
+  type ConflictSummary,
+  type Exclusion,
   type SearchItem,
+  type ProviderSelection,
+  type ProviderStatus,
   type SuggestionReview,
   type SuggestionSummary,
   parseCanvas,
+  parseConflictReview,
+  parseConflicts,
+  parseExclusions,
   parseHandshake,
+  parseProviderStatus,
   parseReconcile,
   parseReview,
   parseSearch,
+  parseSemanticRefresh,
   parseSuggestions,
   parseWorkspaceStatus,
   record,
@@ -36,6 +46,12 @@ import { RefreshScheduler, type RefreshReason } from "./refresh-scheduler";
 
 const CANVAS_PATH = normalizePath("Open Brain Graph.canvas");
 const OWNED_CANVAS_HEADING = "# Open Brain graph";
+const PROVIDER_LABELS: Record<string, string> = {
+  anthropic_api: "Anthropic API key",
+  claude_subscription: "Claude subscription",
+  gemini_api: "Google Gemini API key",
+  openai_api: "OpenAI API key",
+};
 
 interface OpenBrainSettings {
   executablePath: string;
@@ -51,6 +67,7 @@ export default class OpenBrainPlugin extends Plugin {
   public override settings: OpenBrainSettings = DEFAULT_SETTINGS;
   #bridge: OpenBrainBridge | null = null;
   #scheduler: RefreshScheduler | null = null;
+  #providerSelection: ProviderSelection | null = null;
 
   public override async onload(): Promise<void> {
     this.settings = parseSettings(await this.loadData());
@@ -68,6 +85,7 @@ export default class OpenBrainPlugin extends Plugin {
     this.#scheduler = null;
     this.#bridge?.dispose();
     this.#bridge = null;
+    this.#providerSelection = null;
   }
 
   async updateSettings(update: Partial<OpenBrainSettings>): Promise<void> {
@@ -78,6 +96,7 @@ export default class OpenBrainPlugin extends Plugin {
   resetBridge(): void {
     this.#bridge?.dispose();
     this.#bridge = null;
+    this.#providerSelection = null;
   }
 
   async refreshPresentation(reason: RefreshReason): Promise<void> {
@@ -87,6 +106,31 @@ export default class OpenBrainPlugin extends Plugin {
         await bridge.invoke("workspace.reconcile", {}, 30_000),
       );
       await bridge.invoke("graph.refresh_structural", {}, 90_000);
+      if (
+        this.#providerSelection !== null &&
+        (reason === "manual" || !this.settings.inferencePaused)
+      ) {
+        try {
+          const semantic = parseSemanticRefresh(
+            await bridge.invoke("graph.refresh_semantic", {}, 90_000),
+          );
+          if (semantic.status === "failed") {
+            new Notice(
+              `Open Brain semantic refresh failed (${semantic.reason ?? "provider_failure"}). Structural results remain available.`,
+              10_000,
+            );
+          }
+        } catch (error) {
+          if (!(error instanceof BridgeError) || error.code !== "setup_required") {
+            throw error;
+          }
+          this.#providerSelection = null;
+          new Notice(
+            "Open Brain provider access must be configured again after the bridge restarted. Structural results remain available.",
+            10_000,
+          );
+        }
+      }
       const canvas = parseCanvas(await bridge.invoke("graph.canvas", {}, 15_000));
       await this.#writeCanvas(canvas.canvas);
       if (reason === "manual") {
@@ -142,6 +186,38 @@ export default class OpenBrainPlugin extends Plugin {
     }
   }
 
+  async resolveConflict(
+    review: ConflictReview,
+    choice: "accepted" | "workspace",
+  ): Promise<void> {
+    try {
+      const bridge = await this.#managedBridge();
+      const result = record(
+        await bridge.invoke(
+          "workspace.resolve",
+          {
+            choice,
+            conflict_id: review.conflict_id,
+            note_id: review.note_id,
+          },
+          30_000,
+        ),
+      );
+      if (result.status !== "resolved" || result.choice !== choice) {
+        throw new BridgeError("protocol_error");
+      }
+      new Notice(
+        choice === "accepted"
+          ? "Restored the accepted Open Brain version."
+          : "Accepted the current vault edit.",
+      );
+      await this.refreshPresentation("manual");
+    } catch (error) {
+      this.#noticeError(error);
+      throw error;
+    }
+  }
+
   #registerCommands(): void {
     this.addCommand({
       callback: () => void this.#initialize(),
@@ -167,6 +243,26 @@ export default class OpenBrainPlugin extends Plugin {
       callback: () => void this.#showSuggestions(),
       id: "review-suggestions",
       name: "Review graph suggestions",
+    });
+    this.addCommand({
+      callback: () => void this.#showConflicts(),
+      id: "review-conflicts",
+      name: "Review workspace conflicts",
+    });
+    this.addCommand({
+      callback: () => void this.#manageExclusions(),
+      id: "manage-exclusions",
+      name: "Manage semantic exclusions",
+    });
+    this.addCommand({
+      callback: () => void this.#configureProvider(),
+      id: "configure-provider",
+      name: "Configure semantic provider",
+    });
+    this.addCommand({
+      callback: () => void this.#removeProvider(),
+      id: "remove-provider",
+      name: "Remove semantic provider access",
     });
     this.addCommand({
       callback: () => void this.#togglePause(),
@@ -280,6 +376,260 @@ export default class OpenBrainPlugin extends Plugin {
     }
   }
 
+  async #showConflicts(): Promise<void> {
+    try {
+      const bridge = await this.#managedBridge();
+      const response = parseConflicts(await bridge.invoke("workspace.conflicts", {}));
+      if (response.conflicts.length === 0) {
+        new Notice("No workspace conflicts are waiting for review.");
+        return;
+      }
+      new ConflictPickerModal(this.app, response.conflicts, (summary) => {
+        void bridge
+          .invoke("workspace.conflict_review", { note_id: summary.note_id })
+          .then((value) => {
+            const review = parseConflictReview(value);
+            if (review.conflict_id !== summary.conflict_id) {
+              throw new BridgeError("operation_conflict");
+            }
+            new ConflictReviewModal(this.app, this, review).open();
+          })
+          .catch((error: unknown) => this.#noticeError(error));
+      }).open();
+    } catch (error) {
+      this.#noticeError(error);
+    }
+  }
+
+  async #manageExclusions(): Promise<void> {
+    try {
+      const bridge = await this.#managedBridge();
+      const response = parseExclusions(await bridge.invoke("policy.exclusions", {}));
+      const choices: Choice<ExclusionAction>[] = response.exclusions.map((exclusion) => ({
+        label: `Include ${exclusion.kind}: ${exclusion.relative_path}`,
+        value: { ...exclusion, excluded: false },
+      }));
+      const current = this.app.workspace.getActiveFile();
+      if (current instanceof TFile && current.extension.toLocaleLowerCase() === "md") {
+        this.#addExclusionChoice(choices, response.exclusions, {
+          excluded: true,
+          kind: "note",
+          relative_path: current.path,
+        });
+        const folder = current.parent?.path;
+        if (safeRelativePath(folder)) {
+          this.#addExclusionChoice(choices, response.exclusions, {
+            excluded: true,
+            kind: "folder",
+            relative_path: folder,
+          });
+        }
+      }
+      if (choices.length === 0) {
+        new Notice("Open a managed note to exclude it, or add an exclusion first.");
+        return;
+      }
+      const selected = await new ChoiceModal(
+        this.app,
+        choices,
+        "Choose semantic exclusion change",
+      ).result();
+      if (selected === null) return;
+      const confirmed = await new ConfirmModal(
+        this.app,
+        selected.excluded ? "Exclude from cloud inference" : "Restore cloud eligibility",
+        selected.excluded
+          ? `${selected.relative_path} will be removed from structural and semantic graph sources before any provider request.`
+          : `${selected.relative_path} will be eligible for structural and semantic graph sources, subject to the other privacy rules.`,
+        selected.excluded ? "Exclude" : "Include",
+      ).result();
+      if (!confirmed) return;
+      const result = record(
+        await bridge.invoke(
+          "policy.set_exclusion",
+          {
+            excluded: selected.excluded,
+            kind: selected.kind,
+            relative_path: selected.relative_path,
+          },
+          30_000,
+        ),
+      );
+      if (result.status !== "updated" || result.excluded !== selected.excluded) {
+        throw new BridgeError("protocol_error");
+      }
+      new Notice(
+        `${selected.kind === "note" ? "Note" : "Folder"} ${selected.excluded ? "excluded" : "included"}.`,
+      );
+      await this.refreshPresentation("manual");
+    } catch (error) {
+      this.#noticeError(error);
+    }
+  }
+
+  #addExclusionChoice(
+    choices: Choice<ExclusionAction>[],
+    existing: Exclusion[],
+    action: ExclusionAction,
+  ): void {
+    if (
+      existing.some(
+        (item) =>
+          item.kind === action.kind && item.relative_path === action.relative_path,
+      )
+    ) {
+      return;
+    }
+    choices.unshift({
+      label: `Exclude ${action.kind}: ${action.relative_path}`,
+      value: action,
+    });
+  }
+
+  async #configureProvider(): Promise<void> {
+    try {
+      const bridge = await this.#managedBridge();
+      const status = parseProviderStatus(await bridge.invoke("provider.status", {}));
+      const option = await new ChoiceModal(
+        this.app,
+        status.providers.map((provider) => ({
+          label: `${PROVIDER_LABELS[provider.provider]}${provider.status === "blocked" ? " (unavailable)" : ""}`,
+          value: provider,
+        })),
+        "Choose semantic provider access",
+      ).result();
+      if (option === null) return;
+      if (option.provider === "claude_subscription" || option.status === "blocked") {
+        new Notice(
+          "Claude subscription access remains unavailable because its unprivileged client isolation is not proven.",
+          12_000,
+        );
+        return;
+      }
+      const custodyChoices: Choice<"os" | "session">[] = [
+        { label: "Use for this Obsidian session only", value: "session" },
+      ];
+      if (status.os_store !== "unavailable") {
+        custodyChoices.unshift({
+          label:
+            status.os_store === "macos_keychain"
+              ? "Save in macOS Keychain"
+              : "Save in Linux Secret Service",
+          value: "os",
+        });
+      }
+      const custody = await new ChoiceModal(
+        this.app,
+        custodyChoices,
+        "Choose API-key storage",
+      ).result();
+      if (custody === null) return;
+      const confirmed = await new ConfirmModal(
+        this.app,
+        "Allow cloud inference",
+        "The selected provider may receive all eligible accepted notes in this managed vault, including future notes. Excluded, inactive, conflicting, secret, and generated content stays out.",
+        "Allow eligible notes",
+      ).result();
+      if (!confirmed) return;
+
+      let credential: string | null = null;
+      const saved = custody === "os" && option.credential_saved === true;
+      if (saved) {
+        const action = await new ChoiceModal(
+          this.app,
+          [
+            { label: "Reuse saved API key", value: "reuse" },
+            { label: "Replace saved API key", value: "replace" },
+          ] as Choice<"reuse" | "replace">[],
+          "Saved API key found",
+        ).result();
+        if (action === null) return;
+        if (action === "replace") {
+          const replacement = await new TextPromptModal(
+            this.app,
+            "Enter replacement API key",
+            false,
+            true,
+          ).result();
+          if (replacement === null) return;
+          credential = replacement;
+        }
+      } else {
+        credential = await new TextPromptModal(
+          this.app,
+          "Enter API key",
+          false,
+          true,
+        ).result();
+      }
+      if (!saved && credential === null) return;
+      const configured = record(
+        await bridge.invoke(
+          "provider.configure",
+          {
+            credential,
+            custody,
+            provider: option.provider,
+            scope_ack: true,
+          },
+          30_000,
+        ),
+      );
+      if (configured.status !== "configured") throw new BridgeError("protocol_error");
+      this.#providerSelection = {
+        access_mode: "api_key",
+        custody,
+        provider: option.provider,
+      };
+      new Notice(`${PROVIDER_LABELS[option.provider]} configured.`);
+      await this.#scheduler?.manual();
+    } catch (error) {
+      this.#noticeError(error);
+    }
+  }
+
+  async #removeProvider(): Promise<void> {
+    try {
+      const bridge = await this.#managedBridge();
+      const status = parseProviderStatus(await bridge.invoke("provider.status", {}));
+      const choices = removalChoices(status);
+      if (choices.length === 0) {
+        new Notice("No Open Brain provider access is configured in this session or OS store.");
+        return;
+      }
+      const selected = await new ChoiceModal(
+        this.app,
+        choices,
+        "Choose provider access to remove",
+      ).result();
+      if (selected === null) return;
+      const confirmed = await new ConfirmModal(
+        this.app,
+        "Remove provider access",
+        `Revoke Open Brain cloud consent for ${PROVIDER_LABELS[selected.provider]} and remove its ${selected.custody === "os" ? "saved" : "session"} key?`,
+        "Remove access",
+      ).result();
+      if (!confirmed) return;
+      const removed = record(
+        await bridge.invoke(
+          "provider.remove",
+          { custody: selected.custody, provider: selected.provider },
+          30_000,
+        ),
+      );
+      if (removed.status !== "removed") throw new BridgeError("protocol_error");
+      if (
+        this.#providerSelection?.provider === selected.provider &&
+        this.#providerSelection.custody === selected.custody
+      ) {
+        this.#providerSelection = null;
+      }
+      new Notice(`${PROVIDER_LABELS[selected.provider]} access removed.`);
+    } catch (error) {
+      this.#noticeError(error);
+    }
+  }
+
   async #togglePause(): Promise<void> {
     await this.updateSettings({ inferencePaused: !this.settings.inferencePaused });
     new Notice(
@@ -368,8 +718,13 @@ export default class OpenBrainPlugin extends Plugin {
       database_busy: "Open Brain is busy. Retry after the current operation finishes.",
       incompatible_binary: "The installed Open Brain binary does not support this plugin version.",
       invalid_source_path: "Open Brain returned an invalid source path.",
+      invalid_policy: "The exclusion is no longer valid. Refresh the managed vault.",
+      operation_conflict: "This conflict is no longer current. Reopen conflict review.",
       source_unavailable: "The selected source note is no longer available.",
       stale_suggestion: "This suggestion is stale. Refresh the graph before accepting it.",
+      target_changed:
+        "The note changed while this conflict was open. Reopen conflict review before resolving it.",
+      unknown_note: "The selected note is not managed by Open Brain.",
       timeout: "The Open Brain operation timed out and was cancelled.",
       wrong_vault: "This command works only inside the managed Open Brain vault.",
       workspace_unconfigured: "Initialize the managed Open Brain vault first.",
@@ -378,16 +733,110 @@ export default class OpenBrainPlugin extends Plugin {
   }
 }
 
+interface Choice<T> {
+  label: string;
+  value: T;
+}
+
+interface ExclusionAction extends Exclusion {
+  excluded: boolean;
+}
+
+class ChoiceModal<T> extends FuzzySuggestModal<Choice<T>> {
+  readonly #items: Choice<T>[];
+  #resolve: ((value: T | null) => void) | null = null;
+  #settled = false;
+
+  public constructor(app: App, items: Choice<T>[], placeholder: string) {
+    super(app);
+    this.#items = items;
+    this.setPlaceholder(placeholder);
+  }
+
+  public result(): Promise<T | null> {
+    return new Promise((resolve) => {
+      this.#resolve = resolve;
+      this.open();
+    });
+  }
+
+  public override getItems(): Choice<T>[] {
+    return this.#items;
+  }
+
+  public override getItemText(item: Choice<T>): string {
+    return item.label;
+  }
+
+  public override onChooseItem(item: Choice<T>): void {
+    this.#settled = true;
+    this.#resolve?.(item.value);
+  }
+
+  public override onClose(): void {
+    if (!this.#settled) this.#resolve?.(null);
+  }
+}
+
+class ConfirmModal extends Modal {
+  readonly #heading: string;
+  readonly #message: string;
+  readonly #confirmLabel: string;
+  #resolve: ((value: boolean) => void) | null = null;
+  #settled = false;
+
+  public constructor(
+    app: App,
+    heading: string,
+    message: string,
+    confirmLabel: string,
+  ) {
+    super(app);
+    this.#heading = heading;
+    this.#message = message;
+    this.#confirmLabel = confirmLabel;
+  }
+
+  public result(): Promise<boolean> {
+    return new Promise((resolve) => {
+      this.#resolve = resolve;
+      this.open();
+    });
+  }
+
+  public override onOpen(): void {
+    this.titleEl.setText(this.#heading);
+    this.contentEl.createEl("p", { text: this.#message });
+    const actions = this.contentEl.createDiv({ cls: "open-brain-review__actions" });
+    const cancel = actions.createEl("button", { text: "Cancel" });
+    cancel.addEventListener("click", () => this.close());
+    const confirm = actions.createEl("button", { text: this.#confirmLabel });
+    confirm.addClass("mod-cta");
+    confirm.addEventListener("click", () => {
+      this.#settled = true;
+      this.#resolve?.(true);
+      this.close();
+    });
+  }
+
+  public override onClose(): void {
+    this.contentEl.empty();
+    if (!this.#settled) this.#resolve?.(false);
+  }
+}
+
 class TextPromptModal extends Modal {
   readonly #title: string;
   readonly #multiline: boolean;
+  readonly #secret: boolean;
   #resolve: ((value: string | null) => void) | null = null;
   #settled = false;
 
-  public constructor(app: App, title: string, multiline: boolean) {
+  public constructor(app: App, title: string, multiline: boolean, secret = false) {
     super(app);
     this.#title = title;
     this.#multiline = multiline;
+    this.#secret = secret;
   }
 
   public result(): Promise<string | null> {
@@ -401,7 +850,12 @@ class TextPromptModal extends Modal {
     this.titleEl.setText(this.#title);
     const field = this.#multiline
       ? this.contentEl.createEl("textarea", { attr: { rows: "8" } })
-      : this.contentEl.createEl("input", { attr: { type: "text" } });
+      : this.contentEl.createEl("input", {
+          attr: {
+            autocomplete: this.#secret ? "new-password" : "off",
+            type: this.#secret ? "password" : "text",
+          },
+        });
     field.addClass("open-brain-input");
     const submit = this.contentEl.createEl("button", { text: "Continue" });
     submit.addClass("mod-cta");
@@ -473,6 +927,89 @@ class SuggestionPickerModal extends FuzzySuggestModal<SuggestionSummary> {
   }
 }
 
+class ConflictPickerModal extends FuzzySuggestModal<ConflictSummary> {
+  readonly #items: ConflictSummary[];
+  readonly #chosen: (item: ConflictSummary) => void;
+
+  public constructor(
+    app: App,
+    items: ConflictSummary[],
+    chosen: (item: ConflictSummary) => void,
+  ) {
+    super(app);
+    this.#items = items;
+    this.#chosen = chosen;
+    this.setPlaceholder("Choose a workspace conflict to review");
+  }
+
+  public override getItems(): ConflictSummary[] {
+    return this.#items;
+  }
+
+  public override getItemText(item: ConflictSummary): string {
+    return item.relative_path;
+  }
+
+  public override onChooseItem(item: ConflictSummary): void {
+    this.#chosen(item);
+  }
+}
+
+class ConflictReviewModal extends Modal {
+  readonly #plugin: OpenBrainPlugin;
+  readonly #review: ConflictReview;
+
+  public constructor(app: App, plugin: OpenBrainPlugin, review: ConflictReview) {
+    super(app);
+    this.#plugin = plugin;
+    this.#review = review;
+  }
+
+  public override onOpen(): void {
+    this.titleEl.setText("Resolve Open Brain conflict");
+    this.contentEl.addClass("open-brain-review");
+    this.contentEl.createEl("p", {
+      text: `${this.#review.relative_path} has an accepted Open Brain version and a different vault edit. Choose which complete version to keep.`,
+    });
+    this.#version("Accepted Open Brain version", this.#review.accepted_body);
+    this.#version("Current vault edit", this.#review.workspace_body);
+    const actions = this.contentEl.createDiv({ cls: "open-brain-review__actions" });
+    this.#resolutionButton(actions, "Keep Open Brain version", "accepted");
+    this.#resolutionButton(actions, "Keep vault edit", "workspace");
+  }
+
+  public override onClose(): void {
+    this.contentEl.empty();
+  }
+
+  #version(label: string, body: string): void {
+    const section = this.contentEl.createDiv({ cls: "open-brain-conflict__version" });
+    section.createEl("h3", { text: label });
+    section.createEl("pre", { text: body });
+  }
+
+  #resolutionButton(
+    parent: HTMLElement,
+    label: string,
+    choice: "accepted" | "workspace",
+  ): void {
+    const button = parent.createEl("button", { text: label });
+    button.addEventListener("click", () => {
+      for (const action of Array.from(parent.querySelectorAll("button"))) {
+        action.disabled = true;
+      }
+      void this.#plugin
+        .resolveConflict(this.#review, choice)
+        .then(() => this.close())
+        .catch(() => {
+          for (const action of Array.from(parent.querySelectorAll("button"))) {
+            action.disabled = false;
+          }
+        });
+    });
+  }
+}
+
 class SuggestionReviewModal extends Modal {
   readonly #plugin: OpenBrainPlugin;
   readonly #review: SuggestionReview;
@@ -531,6 +1068,33 @@ class SuggestionReviewModal extends Modal {
       });
     });
   }
+}
+
+function removalChoices(status: ProviderStatus): Choice<ProviderSelection>[] {
+  const selections = new Map<string, ProviderSelection>();
+  if (status.selected !== null) {
+    selections.set(
+      `${status.selected.provider}:${status.selected.custody}`,
+      status.selected,
+    );
+  }
+  if (status.os_store !== "unavailable") {
+    for (const option of status.providers) {
+      if (option.provider === "claude_subscription" || option.credential_saved !== true) {
+        continue;
+      }
+      const selection: ProviderSelection = {
+        access_mode: "api_key",
+        custody: "os",
+        provider: option.provider,
+      };
+      selections.set(`${selection.provider}:${selection.custody}`, selection);
+    }
+  }
+  return [...selections.values()].map((selection) => ({
+    label: `${PROVIDER_LABELS[selection.provider]} (${selection.custody === "os" ? "saved key" : "this session"})`,
+    value: selection,
+  }));
 }
 
 function parseSettings(value: unknown): OpenBrainSettings {

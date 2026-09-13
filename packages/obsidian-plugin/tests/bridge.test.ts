@@ -10,6 +10,7 @@ import {
   OpenBrainBridge,
   discoverOpenBrainExecutable,
   executableCandidates,
+  filteredEnvironment,
 } from "../src/bridge";
 
 const bridges: OpenBrainBridge[] = [];
@@ -72,6 +73,21 @@ describe("executableCandidates", () => {
     expect(executableCandidates("", "linux", "/home/test")[0]).toBe(
       "/home/test/.linuxbrew/bin/open-brain",
     );
+  });
+
+  it("passes desktop session routing without ambient provider credentials", () => {
+    const environment = filteredEnvironment({
+      DBUS_SESSION_BUS_ADDRESS: "unix:path=/run/user/1000/bus",
+      HOME: "/home/test",
+      OPENAI_API_KEY: "must-not-pass",
+      XDG_RUNTIME_DIR: "/run/user/1000",
+    });
+
+    expect(environment).toEqual({
+      DBUS_SESSION_BUS_ADDRESS: "unix:path=/run/user/1000/bus",
+      HOME: "/home/test",
+      XDG_RUNTIME_DIR: "/run/user/1000",
+    });
   });
 });
 

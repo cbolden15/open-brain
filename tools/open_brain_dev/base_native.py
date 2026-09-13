@@ -48,6 +48,7 @@ _REQUIRED_MODULES: Final = frozenset(
         "open_brain.services.local_operations",
         "open_brain.services.obsidian_plugin",
         "open_brain.services.plugin_bridge",
+        "open_brain.services.provider_credentials",
         "open_brain.services.local_mcp",
         "open_brain.services.mcp_protocol",
         "open_brain_engine.engine.capture",
@@ -270,6 +271,8 @@ def smoke_base_artifact(
         if graphify_artifact is not None:
             _smoke_graphify_projection(executable, graphify_artifact, home, environment)
             journey["graph_projection"] = "passed"
+            _smoke_obsidian_plugin(executable, home, environment)
+            journey["obsidian_plugin"] = "passed"
         return {"journey": journey, "self_check": "passed"}
 
 
@@ -1020,6 +1023,39 @@ def _smoke_graphify_projection(
     run_root = _brain_root(home) / ".open-brain/run"
     if run_root.is_dir() and any(run_root.iterdir()):
         raise BaseNativeError("native Graphify projection left a runtime artifact")
+
+
+def _smoke_obsidian_plugin(
+    executable: Path,
+    home: Path,
+    environment: Mapping[str, str],
+) -> None:
+    installed = json.loads(
+        _run((os.fspath(executable), "obsidian-plugin", "install", "--json"), environment).stdout
+    )
+    status = json.loads(
+        _run((os.fspath(executable), "obsidian-plugin", "status", "--json"), environment).stdout
+    )
+    workspace = _brain_root(home).parent / "Open Brain Vault"
+    plugin = workspace / ".obsidian/plugins/open-brain"
+    if (
+        installed.get("status") != "installed"
+        or status.get("status") != "current"
+        or not all((plugin / name).is_file() for name in ("main.js", "manifest.json", "styles.css"))
+        or (workspace / ".obsidian/community-plugins.json").exists()
+    ):
+        raise BaseNativeError("native Obsidian plugin install failed")
+    removed = json.loads(
+        _run((os.fspath(executable), "obsidian-plugin", "remove", "--json"), environment).stdout
+    )
+    if removed.get("status") != "removed" or any(
+        (plugin / name).exists()
+        for name in ("main.js", "manifest.json", "styles.css", ".open-brain-owned.json")
+    ):
+        raise BaseNativeError("native Obsidian plugin removal failed")
+    run_root = _brain_root(home) / ".open-brain/run"
+    if run_root.is_dir() and any(run_root.iterdir()):
+        raise BaseNativeError("native Obsidian plugin journey left a runtime artifact")
 
 
 def _seed_managed_graph_fixture(brain_root: Path) -> None:

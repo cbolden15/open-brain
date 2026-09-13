@@ -229,12 +229,41 @@ def test_materialization_conflict_preserves_both_versions_until_owner_resolution
     assert conflict["candidate_body_bytes"] == external
     assert accepted != external
 
-    engine.managed_workspace.resolve_conflict(
+    summaries = engine.managed_workspace.open_conflicts(workspace_id)
+    assert len(summaries) == 1
+    assert summaries[0].note_id == note_ids[0]
+    review = engine.managed_workspace.review_conflict(workspace_id, note_ids[0])
+    assert review.conflict_id == summaries[0].conflict_id
+    assert review.accepted_body.encode("utf-8") == accepted
+    assert review.workspace_body.encode("utf-8") == external
+
+    source_path.write_bytes(external + b"Changed while review was open.\n")
+    with pytest.raises(ManagedWorkspaceFailure, match="target_changed"):
+        engine.managed_workspace.resolve_conflict(
+            workspace_id,
+            note_ids[0],
+            "accepted",
+            conflict_id=review.conflict_id,
+            operation_id="managed.conflict.stale-resolution",
+        )
+    source_path.write_bytes(external)
+
+    resolved = engine.managed_workspace.resolve_conflict(
         workspace_id,
         note_ids[0],
         "accepted",
+        conflict_id=review.conflict_id,
         operation_id="managed.conflict.resolve",
     )
+    replayed = engine.managed_workspace.resolve_conflict(
+        workspace_id,
+        note_ids[0],
+        "accepted",
+        conflict_id=review.conflict_id,
+        operation_id="managed.conflict.resolve",
+    )
+    assert resolved.duplicate is False
+    assert replayed.duplicate is True
     assert source_path.read_bytes() == external
     engine.managed_workspace.materialize(
         workspace_id,

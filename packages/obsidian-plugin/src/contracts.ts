@@ -5,13 +5,22 @@ export type PluginOperation =
   | "capture.create"
   | "graph.accept"
   | "graph.canvas"
+  | "graph.refresh_semantic"
   | "graph.refresh_structural"
   | "graph.review"
   | "graph.suggestions"
+  | "policy.exclusions"
+  | "policy.set_exclusion"
   | "search.query"
+  | "provider.configure"
+  | "provider.remove"
+  | "provider.status"
   | "system.handshake"
+  | "workspace.conflict_review"
+  | "workspace.conflicts"
   | "workspace.reconcile"
   | "workspace.refresh"
+  | "workspace.resolve"
   | "workspace.setup"
   | "workspace.status";
 
@@ -107,6 +116,75 @@ export interface ReconcileResponse {
   missing_note_ids: string[];
   status: "reconciled";
   workspace_id: string;
+}
+
+export interface ConflictSummary {
+  conflict_id: string;
+  note_id: string;
+  relative_path: string;
+}
+
+export interface ConflictsResponse {
+  conflicts: ConflictSummary[];
+  open_conflicts: number;
+  status: "ok";
+  workspace_id: string;
+}
+
+export interface ConflictReview {
+  accepted_body: string;
+  accepted_revision_id: string;
+  conflict_id: string;
+  note_id: string;
+  relative_path: string;
+  status: "review";
+  workspace_body: string;
+}
+
+export interface Exclusion {
+  kind: "folder" | "note";
+  relative_path: string;
+}
+
+export interface ExclusionsResponse {
+  exclusions: Exclusion[];
+  status: "ok";
+  workspace_id: string;
+}
+
+export type ProviderName =
+  | "openai_api"
+  | "anthropic_api"
+  | "gemini_api"
+  | "claude_subscription";
+
+export interface ProviderOption {
+  access_mode: "api_key" | "subscription";
+  credential_saved: boolean | null;
+  provider: ProviderName;
+  reason?: string;
+  status: "available" | "blocked";
+}
+
+export interface ProviderSelection {
+  access_mode: "api_key";
+  custody: "os" | "session";
+  provider: Exclude<ProviderName, "claude_subscription">;
+}
+
+export interface ProviderStatus {
+  os_store: "unavailable" | "macos_keychain" | "linux_secret_service";
+  providers: ProviderOption[];
+  selected: ProviderSelection | null;
+  status: "ok";
+}
+
+export interface SemanticRefresh {
+  actual_model?: string;
+  reason?: string;
+  remaining_attempts: number;
+  remaining_input_bytes: number;
+  status: "failed" | "refreshed";
 }
 
 export function parseHandshake(value: unknown): Handshake {
@@ -257,6 +335,140 @@ export function parseReconcile(value: unknown): ReconcileResponse {
   return item as unknown as ReconcileResponse;
 }
 
+export function parseConflicts(value: unknown): ConflictsResponse {
+  const item = record(value);
+  if (
+    item.status !== "ok" ||
+    !text(item.workspace_id) ||
+    !nonnegative(item.open_conflicts) ||
+    !Array.isArray(item.conflicts) ||
+    item.conflicts.length > 64 ||
+    item.open_conflicts < item.conflicts.length
+  ) {
+    throw new Error("invalid conflicts response");
+  }
+  const conflicts = item.conflicts.map((entry) => {
+    const conflict = record(entry);
+    if (
+      !text(conflict.conflict_id) ||
+      !text(conflict.note_id) ||
+      !safeRelativePath(conflict.relative_path)
+    ) {
+      throw new Error("invalid conflict summary");
+    }
+    return conflict as unknown as ConflictSummary;
+  });
+  return {
+    conflicts,
+    open_conflicts: item.open_conflicts as number,
+    status: "ok",
+    workspace_id: item.workspace_id,
+  };
+}
+
+export function parseConflictReview(value: unknown): ConflictReview {
+  const item = record(value);
+  if (
+    item.status !== "review" ||
+    !text(item.accepted_revision_id) ||
+    !text(item.conflict_id) ||
+    !text(item.note_id) ||
+    !safeRelativePath(item.relative_path) ||
+    !conflictBody(item.accepted_body) ||
+    !conflictBody(item.workspace_body)
+  ) {
+    throw new Error("invalid conflict review");
+  }
+  return item as unknown as ConflictReview;
+}
+
+export function parseExclusions(value: unknown): ExclusionsResponse {
+  const item = record(value);
+  if (
+    item.status !== "ok" ||
+    !text(item.workspace_id) ||
+    !Array.isArray(item.exclusions) ||
+    item.exclusions.length > 64
+  ) {
+    throw new Error("invalid exclusions response");
+  }
+  const exclusions = item.exclusions.map((entry) => {
+    const exclusion = record(entry);
+    if (
+      (exclusion.kind !== "folder" && exclusion.kind !== "note") ||
+      !safeRelativePath(exclusion.relative_path)
+    ) {
+      throw new Error("invalid exclusion");
+    }
+    return exclusion as unknown as Exclusion;
+  });
+  return { exclusions, status: "ok", workspace_id: item.workspace_id };
+}
+
+export function parseProviderStatus(value: unknown): ProviderStatus {
+  const item = record(value);
+  if (
+    item.status !== "ok" ||
+    ![
+      "unavailable",
+      "macos_keychain",
+      "linux_secret_service",
+    ].includes(String(item.os_store)) ||
+    !Array.isArray(item.providers) ||
+    item.providers.length !== 4
+  ) {
+    throw new Error("invalid provider status");
+  }
+  const providers = item.providers.map((entry) => {
+    const provider = record(entry);
+    if (
+      !providerName(provider.provider) ||
+      (provider.access_mode !== "api_key" && provider.access_mode !== "subscription") ||
+      (provider.credential_saved !== null &&
+        typeof provider.credential_saved !== "boolean") ||
+      (provider.status !== "available" && provider.status !== "blocked") ||
+      (provider.reason !== undefined && !text(provider.reason))
+    ) {
+      throw new Error("invalid provider option");
+    }
+    return provider as unknown as ProviderOption;
+  });
+  let selected: ProviderSelection | null = null;
+  if (item.selected !== null) {
+    const selection = record(item.selected);
+    if (
+      selection.access_mode !== "api_key" ||
+      (selection.custody !== "os" && selection.custody !== "session") ||
+      !directProviderName(selection.provider)
+    ) {
+      throw new Error("invalid provider selection");
+    }
+    selected = selection as unknown as ProviderSelection;
+  }
+  return {
+    os_store: item.os_store as ProviderStatus["os_store"],
+    providers,
+    selected,
+    status: "ok",
+  };
+}
+
+export function parseSemanticRefresh(value: unknown): SemanticRefresh {
+  const item = record(value);
+  if (
+    (item.status !== "failed" && item.status !== "refreshed") ||
+    !nonnegative(item.remaining_attempts) ||
+    !nonnegative(item.remaining_input_bytes) ||
+    (item.actual_model !== undefined && !text(item.actual_model)) ||
+    (item.reason !== undefined && !text(item.reason)) ||
+    (item.status === "refreshed" && !text(item.actual_model)) ||
+    (item.status === "failed" && !text(item.reason))
+  ) {
+    throw new Error("invalid semantic refresh");
+  }
+  return item as unknown as SemanticRefresh;
+}
+
 export function record(value: unknown): Record<string, unknown> {
   if (!isRecord(value)) throw new Error("invalid bridge result");
   return value;
@@ -293,6 +505,29 @@ function text(value: unknown): value is string {
 
 function strings(value: unknown): value is string[] {
   return Array.isArray(value) && value.length <= 2_000 && value.every(text);
+}
+
+function providerName(value: unknown): value is ProviderName {
+  return [
+    "openai_api",
+    "anthropic_api",
+    "gemini_api",
+    "claude_subscription",
+  ].includes(String(value));
+}
+
+function directProviderName(
+  value: unknown,
+): value is Exclude<ProviderName, "claude_subscription"> {
+  return ["openai_api", "anthropic_api", "gemini_api"].includes(String(value));
+}
+
+function conflictBody(value: unknown): value is string {
+  return (
+    typeof value === "string" &&
+    new TextEncoder().encode(value).length <= 1024 * 1024 &&
+    !/[\u0000-\u0008\u000b\u000c\u000e-\u001f]/u.test(value)
+  );
 }
 
 function nonnegative(value: unknown): value is number {

@@ -6,19 +6,24 @@ from io import BytesIO
 from pathlib import Path
 from typing import cast
 
+import pytest
 from open_brain_engine.engine import (
     CaptureAction,
     ManagedAccessMode,
     ManagedProvider,
+    ManagedWorkspaceFailure,
     TextPayload,
 )
 
+import open_brain.services.plugin_bridge as plugin_bridge_module
 from open_brain.local_data import LocalRootSelection, select_local_root
 from open_brain.services.local_bootstrap import open_local_brain
 from open_brain.services.local_operations import refresh_graph
 from open_brain.services.managed_providers import ManagedGraphProviderResult
 from open_brain.services.plugin_bridge import (
     PLUGIN_PROTOCOL,
+    PluginBridgeFailure,
+    PluginRuntimeState,
     dispatch_plugin_request,
     serve_plugin_stdio,
 )
@@ -176,6 +181,46 @@ def test_plugin_capture_search_workspace_and_reconciliation_flow(tmp_path: Path)
         assert status is not None
         source = session.tasks.managed_workspace.graph_snapshot(status.workspace_id).sources[0]
         assert "Owner edit." in source.body
+        exclusion_arguments = {
+            "excluded": True,
+            "kind": "note",
+            "relative_path": source.relative_path,
+        }
+        exclusion_id = f"plugin_{uuid.uuid4()}"
+        excluded = dispatch_plugin_request(
+            session,
+            "policy.set_exclusion",
+            exclusion_arguments,
+            request_id=exclusion_id,
+            base_executable=None,
+        )
+        replayed = dispatch_plugin_request(
+            session,
+            "policy.set_exclusion",
+            exclusion_arguments,
+            request_id=exclusion_id,
+            base_executable=None,
+        )
+        listed = dispatch_plugin_request(
+            session,
+            "policy.exclusions",
+            {},
+            request_id=f"plugin_{uuid.uuid4()}",
+            base_executable=None,
+        )
+        assert excluded["duplicate"] is False
+        assert replayed["duplicate"] is True
+        assert listed["exclusions"] == [
+            {"kind": "note", "relative_path": source.relative_path}
+        ]
+        included = dispatch_plugin_request(
+            session,
+            "policy.set_exclusion",
+            {**exclusion_arguments, "excluded": False},
+            request_id=f"plugin_{uuid.uuid4()}",
+            base_executable=None,
+        )
+        assert included["excluded"] is False
 
 
 def test_checked_suggestion_acceptance_materializes_only_the_previewed_link(
@@ -275,5 +320,217 @@ def test_checked_suggestion_acceptance_materializes_only_the_previewed_link(
         assert replay_result["accepted_duplicate"] is True
         assert replay_result["materialized_duplicate"] is True
         source_path = Path(tmp_path / "Open Brain Vault" / cast(str, first_result["relative_path"]))
+        note_id = cast(str, cast(dict[str, object], review["source"])["note_id"])
         rendered = source_path.read_text(encoding="utf-8")
         assert rendered.count(review["append_text"]) == 1
+
+        owner_edit = rendered + "\nOwner changed this while Open Brain also changed it.\n"
+        source_path.write_text(owner_edit, encoding="utf-8")
+        with pytest.raises(ManagedWorkspaceFailure, match="target_changed"):
+            session.tasks.managed_workspace.materialize(
+                status.workspace_id,
+                note_id,
+                operation_id="plugin.conflict.materialize",
+            )
+        conflicts = dispatch_plugin_request(
+            session,
+            "workspace.conflicts",
+            {},
+            request_id=f"plugin_{uuid.uuid4()}",
+            base_executable=None,
+        )
+        summary = cast(list[dict[str, object]], conflicts["conflicts"])[0]
+        conflict_review = dispatch_plugin_request(
+            session,
+            "workspace.conflict_review",
+            {"note_id": note_id},
+            request_id=f"plugin_{uuid.uuid4()}",
+            base_executable=None,
+        )
+        assert conflict_review["accepted_body"] == rendered
+        assert conflict_review["workspace_body"] == owner_edit
+        assert conflict_review["conflict_id"] == summary["conflict_id"]
+
+        resolution_id = f"plugin_{uuid.uuid4()}"
+        resolution_arguments = {
+            "choice": "accepted",
+            "conflict_id": summary["conflict_id"],
+            "note_id": note_id,
+        }
+        resolved = dispatch_plugin_request(
+            session,
+            "workspace.resolve",
+            resolution_arguments,
+            request_id=resolution_id,
+            base_executable=None,
+        )
+        replayed = dispatch_plugin_request(
+            session,
+            "workspace.resolve",
+            resolution_arguments,
+            request_id=resolution_id,
+            base_executable=None,
+        )
+        assert resolved["duplicate"] is False
+        assert replayed["duplicate"] is True
+        assert replayed["materialized_duplicate"] is True
+        assert source_path.read_text(encoding="utf-8") == rendered
+
+
+def test_direct_provider_setup_refresh_and_removal_keep_session_key_out_of_results(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    selection = _selection(tmp_path)
+    _call(selection, "brain.initialize")
+    secret = "synthetic-provider-secret"
+
+    class FakeAdapter:
+        identity = "openai_api:synthetic-plugin-v1"
+
+        def bind(self, resolve: object) -> object:
+            assert callable(resolve)
+
+            def invoke(
+                prompt: str, max_output_bytes: int, timeout_seconds: int
+            ) -> ManagedGraphProviderResult:
+                assert resolve() == secret
+                assert "Solar generation" in prompt
+                assert max_output_bytes == 16 * 1024
+                assert timeout_seconds == 60
+                sources = cast(list[dict[str, object]], json.loads(prompt)["selected_sources"])
+                source = next(
+                    index
+                    for index, item in enumerate(sources, start=1)
+                    if "Solar generation" in cast(str, item["body"])
+                )
+                target = next(
+                    index
+                    for index, item in enumerate(sources, start=1)
+                    if "Battery storage" in cast(str, item["body"])
+                )
+                return ManagedGraphProviderResult(
+                    source=source,
+                    source_quote="Solar generation",
+                    target=target,
+                    target_quote="Battery storage",
+                    actual_model="gpt-6-astra",
+                    usage={"total_tokens": 9},
+                )
+
+            return invoke
+
+    monkeypatch.setattr(
+        plugin_bridge_module,
+        "DirectApiAdapter",
+        lambda _provider, model: FakeAdapter(),
+    )
+    with open_local_brain(selection, filesystem_type_probe=_filesystem) as session:
+        space_id = session.tasks.inbox.create_space(
+            "Providers", delivery_id="plugin.provider.space"
+        ).space_id
+        for index, body in enumerate(
+            (
+                "Solar generation supports daytime demand.",
+                "Battery storage supports nighttime demand.",
+            )
+        ):
+            session.tasks.capture.accept(
+                TextPayload(body),
+                delivery_id=f"plugin.provider.capture.{index}",
+                action=CaptureAction.CANONICAL_NOTE,
+                space_id=space_id,
+            )
+        runtime = PluginRuntimeState(None)
+        dispatch_plugin_request(
+            session,
+            "workspace.setup",
+            {},
+            request_id=f"plugin_{uuid.uuid4()}",
+            base_executable=None,
+            runtime=runtime,
+        )
+        status = dispatch_plugin_request(
+            session,
+            "provider.status",
+            {},
+            request_id=f"plugin_{uuid.uuid4()}",
+            base_executable=None,
+            runtime=runtime,
+        )
+        providers = cast(list[dict[str, object]], status["providers"])
+        assert status["os_store"] == "unavailable"
+        assert providers[-1] == {
+            "access_mode": "subscription",
+            "credential_saved": None,
+            "provider": "claude_subscription",
+            "reason": "subscription_isolation_unproven",
+            "status": "blocked",
+        }
+
+        configured = dispatch_plugin_request(
+            session,
+            "provider.configure",
+            {
+                "credential": secret,
+                "custody": "session",
+                "provider": "openai_api",
+                "scope_ack": True,
+            },
+            request_id=f"plugin_{uuid.uuid4()}",
+            base_executable=None,
+            runtime=runtime,
+        )
+        refreshed = dispatch_plugin_request(
+            session,
+            "graph.refresh_semantic",
+            {},
+            request_id=f"plugin_{uuid.uuid4()}",
+            base_executable=None,
+            runtime=runtime,
+        )
+
+        assert configured["status"] == "configured"
+        assert refreshed["status"] == "refreshed"
+        assert refreshed["actual_model"] == "gpt-6-astra"
+        assert secret not in json.dumps((configured, refreshed, status))
+
+        removed = dispatch_plugin_request(
+            session,
+            "provider.remove",
+            {"custody": "session", "provider": "openai_api"},
+            request_id=f"plugin_{uuid.uuid4()}",
+            base_executable=None,
+            runtime=runtime,
+        )
+        assert removed["status"] == "removed"
+        with pytest.raises(PluginBridgeFailure, match="setup_required"):
+            dispatch_plugin_request(
+                session,
+                "graph.refresh_semantic",
+                {},
+                request_id=f"plugin_{uuid.uuid4()}",
+                base_executable=None,
+                runtime=runtime,
+            )
+
+
+def test_subscription_provider_remains_closed_at_the_plugin_boundary(tmp_path: Path) -> None:
+    selection = _selection(tmp_path)
+    _call(selection, "brain.initialize")
+    with open_local_brain(selection, filesystem_type_probe=_filesystem) as session:
+        runtime = PluginRuntimeState(None)
+        with pytest.raises(PluginBridgeFailure, match="subscription_unavailable"):
+            dispatch_plugin_request(
+                session,
+                "provider.configure",
+                {
+                    "credential": None,
+                    "custody": "session",
+                    "provider": "claude_subscription",
+                    "scope_ack": True,
+                },
+                request_id=f"plugin_{uuid.uuid4()}",
+                base_executable=None,
+                runtime=runtime,
+            )

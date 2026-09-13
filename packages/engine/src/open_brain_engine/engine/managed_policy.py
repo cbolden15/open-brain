@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING, cast
 
 from .contracts import (
     ManagedAccessMode,
+    ManagedExclusion,
     ManagedPolicyReceipt,
     ManagedProvider,
     ManagedWorkspaceFailure,
@@ -128,6 +129,46 @@ class ManagedPolicyTasks:
     def __init__(self, engine: BrainEngine, workspace: ManagedWorkspaceTasks) -> None:
         self._engine = engine
         self._workspace_tasks = workspace
+
+    def active_exclusions(
+        self, workspace_id: str, *, limit: int = 64
+    ) -> tuple[ManagedExclusion, ...]:
+        _portable_id(workspace_id, "workspace")
+        if type(limit) is not int or not 1 <= limit <= 64:
+            raise ManagedWorkspaceFailure("invalid_policy")
+        connection = self._engine._store.connect()
+        try:
+            self._workspace_tasks._workspace_row(connection, workspace_id)
+            rows = tuple(
+                connection.execute(
+                    """SELECT e.kind, e.subject, n.relative_path
+                    FROM managed_exclusions AS e
+                    LEFT JOIN managed_notes AS n
+                      ON e.kind = 'note' AND n.workspace_id = e.workspace_id
+                      AND n.note_id = e.subject
+                    WHERE e.workspace_id = ? AND e.active = 1
+                    ORDER BY e.kind, e.subject LIMIT ?""",
+                    (workspace_id, limit),
+                )
+            )
+            return tuple(
+                ManagedExclusion(
+                    kind=cast(str, row["kind"]),
+                    subject=cast(str, row["subject"]),
+                    relative_path=(
+                        cast(str, row["subject"])
+                        if row["kind"] == "folder"
+                        else cast(str, row["relative_path"])
+                    ),
+                )
+                for row in rows
+            )
+        except ManagedWorkspaceFailure:
+            raise
+        except (sqlite3.DatabaseError, TypeError, ValueError):
+            raise ManagedWorkspaceFailure("invalid_policy") from None
+        finally:
+            connection.close()
 
     def grant_consent(
         self,

@@ -645,6 +645,48 @@ class ManagedWorkspaceObservation:
 
 
 @dataclass(frozen=True, slots=True)
+class ManagedWorkspaceConflictSummary:
+    conflict_id: str
+    note_id: str
+    relative_path: str
+
+    def __post_init__(self) -> None:
+        _portable_id(self.conflict_id, "conflict")
+        _portable_id(self.note_id, "page")
+        if (
+            not isinstance(self.relative_path, str)
+            or not self.relative_path
+            or len(self.relative_path) > _MAX_TEXT
+        ):
+            raise ValueError("invalid managed conflict path")
+
+
+@dataclass(frozen=True, slots=True)
+class ManagedWorkspaceConflictReview:
+    conflict_id: str
+    note_id: str
+    relative_path: str
+    accepted_revision_id: str
+    accepted_body: str
+    workspace_body: str
+
+    def __post_init__(self) -> None:
+        ManagedWorkspaceConflictSummary(
+            conflict_id=self.conflict_id,
+            note_id=self.note_id,
+            relative_path=self.relative_path,
+        )
+        _portable_id(self.accepted_revision_id, "revision")
+        for body in (self.accepted_body, self.workspace_body):
+            if (
+                not isinstance(body, str)
+                or len(body.encode("utf-8")) > _MAX_FILE_BYTES
+                or any(ord(character) < 32 and character not in "\n\r\t" for character in body)
+            ):
+                raise ValueError("invalid managed conflict body")
+
+
+@dataclass(frozen=True, slots=True)
 class ManagedGraphSource:
     note_id: str
     revision_id: str
@@ -769,6 +811,34 @@ class ManagedProvider(StrEnum):
 class ManagedAccessMode(StrEnum):
     API_KEY = "api_key"
     SUBSCRIPTION = "subscription"
+
+
+@dataclass(frozen=True, slots=True)
+class ManagedExclusion:
+    kind: str
+    subject: str
+    relative_path: str
+
+    def __post_init__(self) -> None:
+        if self.kind not in {"folder", "note"}:
+            raise ValueError("invalid managed exclusion kind")
+        if self.kind == "note":
+            _portable_id(self.subject, "page")
+        elif self.subject != self.relative_path:
+            raise ValueError("invalid managed folder exclusion")
+        if not isinstance(self.relative_path, str):
+            raise ValueError("invalid managed exclusion path")
+        path = PurePosixPath(self.relative_path)
+        if (
+            not self.relative_path
+            or len(self.relative_path) > _MAX_TEXT
+            or "\\" in self.relative_path
+            or "\x00" in self.relative_path
+            or path.is_absolute()
+            or path.as_posix() != self.relative_path
+            or any(part in {"", ".", ".."} for part in path.parts)
+        ):
+            raise ValueError("invalid managed exclusion path")
 
 
 @dataclass(frozen=True, slots=True)
@@ -1570,6 +1640,16 @@ class ManagedWorkspaceTask(Protocol):
 
     def observe(self, workspace_id: str) -> ManagedWorkspaceObservation: ...
 
+    def open_conflicts(
+        self, workspace_id: str, *, limit: int = 64
+    ) -> tuple[ManagedWorkspaceConflictSummary, ...]: ...
+
+    def review_conflict(
+        self, workspace_id: str, note_id: str
+    ) -> ManagedWorkspaceConflictReview: ...
+
+    def note_id_for_path(self, workspace_id: str, relative_path: str) -> str: ...
+
     def graph_snapshot(self, workspace_id: str) -> ManagedGraphSnapshot: ...
 
     def accept_observed(
@@ -1599,11 +1679,16 @@ class ManagedWorkspaceTask(Protocol):
         note_id: str,
         choice: str,
         *,
+        conflict_id: str | None = None,
         operation_id: str,
     ) -> ManagedWorkspaceReceipt: ...
 
 
 class ManagedPolicyTask(Protocol):
+    def active_exclusions(
+        self, workspace_id: str, *, limit: int = 64
+    ) -> tuple[ManagedExclusion, ...]: ...
+
     def grant_consent(
         self,
         workspace_id: str,
