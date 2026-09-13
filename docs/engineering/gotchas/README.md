@@ -1497,3 +1497,17 @@ source or restore service APIs to make CI pass.
 Discovered: 2026-09-12, [foreground runtime boundary](../../architecture/decisions/0016-foreground-runtime-package-boundary.md)
 reconciliation with the
 [archived authority proof](../../../archive/open-brain-secure-node/proofs/nw0_authority_probe/README.md).
+
+### SCHEMA-001: Historical fixtures must remove every later migration surface
+
+Symptom: A migration test lowers `user_version` and restores an older table, but the engine rejects
+the database as an invalid schema instead of adopting it.
+
+Cause: Tables from a newer migration remain in the database, so its declared version and physical
+shape describe different eras.
+
+Fix: When rematerializing a historical fixture, remove every table, index, trigger, and migration
+row introduced after that era. Assert the final current version through the exported schema-version
+constant rather than repeating its number in tests.
+
+Discovered: 2026-09-12, NW1 managed-workspace migration verification.

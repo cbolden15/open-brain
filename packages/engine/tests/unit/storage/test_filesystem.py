@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import stat
+from hashlib import sha256
 from pathlib import Path, PurePosixPath
 
 import pytest
@@ -172,6 +173,33 @@ def test_atomic_replace_require_existing_false_rejects_an_existing_target(
         )
 
     assert (tmp_path / relative).read_bytes() == b'{"generation":1}'
+
+
+def test_atomic_replace_compares_the_existing_digest_under_its_write_lock(
+    tmp_path: Path,
+) -> None:
+    relative = PurePosixPath("host/record.json")
+    original = b'{"generation":1}'
+    atomic_replace(root=tmp_path, relative=relative, data=original)
+
+    with pytest.raises(DuplicateConflictError, match="replace target changed"):
+        atomic_replace(
+            root=tmp_path,
+            relative=relative,
+            data=b'{"generation":2}',
+            require_existing=True,
+            expected_existing_sha256="0" * 64,
+        )
+
+    assert (tmp_path / relative).read_bytes() == original
+    atomic_replace(
+        root=tmp_path,
+        relative=relative,
+        data=b'{"generation":2}',
+        require_existing=True,
+        expected_existing_sha256=sha256(original).hexdigest(),
+    )
+    assert (tmp_path / relative).read_bytes() == b'{"generation":2}'
 
 
 def test_atomic_replace_rejects_a_symlinked_target(tmp_path: Path) -> None:

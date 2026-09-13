@@ -23,6 +23,18 @@ def rematerialize_w2(connection: sqlite3.Connection, *, version: int = 1) -> Non
     ).fetchall():
         connection.execute(f'DROP TRIGGER "{name}"')
     for table in (
+        "managed_suggestions",
+        "managed_inference_requests",
+        "managed_inference_budgets",
+        "managed_exclusions",
+        "managed_consents",
+        "managed_conflicts",
+        "managed_links",
+        "managed_note_observations",
+        "managed_operations",
+        "managed_notes",
+        "managed_note_revisions",
+        "managed_workspaces",
         "search_documents_fts",
         "search_fts_identity",
         "markdown_import_files",

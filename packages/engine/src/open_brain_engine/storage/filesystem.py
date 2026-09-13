@@ -5,6 +5,7 @@ import errno
 import fcntl
 import json
 import os
+import re
 import secrets
 import stat
 from dataclasses import dataclass
@@ -286,10 +287,17 @@ def atomic_replace(
     relative: str | PurePosixPath,
     data: bytes,
     require_existing: bool | None = None,
+    expected_existing_sha256: str | None = None,
     expected_root_identity: RootIdentity | None = None,
 ) -> None:
     if not isinstance(data, bytes):
         raise TypeError("data must be bytes")
+    if expected_existing_sha256 is not None and (
+        not isinstance(expected_existing_sha256, str)
+        or re.fullmatch(r"[0-9a-f]{64}", expected_existing_sha256) is None
+        or require_existing is not True
+    ):
+        raise ValueError("invalid expected replace digest")
     parts = _validated_parts(relative)
     root_fd = _open_root(root, expected_root_identity)
     lock_fd = -1
@@ -310,6 +318,10 @@ def atomic_replace(
             raise StorageError("replace target missing")
         if require_existing is False and existing is not None:
             raise DuplicateConflictError("replace target already exists")
+        if expected_existing_sha256 is not None and (
+            existing is None or sha256(existing).hexdigest() != expected_existing_sha256
+        ):
+            raise DuplicateConflictError("replace target changed")
 
         temp_name = "." + secrets.token_hex(16) + ".tmp"
         file_fd = os.open(temp_name, _FILE_CREATE_FLAGS, 0o600, dir_fd=parent_fd)
