@@ -1603,3 +1603,17 @@ already reviewed digest. Treat end-to-end reproducible frozen builds as a separa
 its own toolchain proof.
 
 Discovered: 2026-09-13, NW4 exact-commit macOS candidate preparation.
+
+### INTEGRATION-033: `uv run --frozen` can hide a stale dependency lock
+
+Symptom: CI stays green after raising dependency minimums in `pyproject.toml`, but `uv lock --check`
+reports that `uv.lock` needs to be updated and the locked tools remain below those minimums.
+
+Cause: `uv run --frozen` uses the existing lock without checking whether project metadata would
+change its resolution. It proves the old lock still runs, not that the lock matches the edited
+requirements.
+
+Fix: Regenerate `uv.lock` whenever dependency requirements change, then run `uv lock --check` before
+the normal frozen test commands. Review the resolved direct and transitive dependency changes.
+
+Discovered: 2026-09-13, Dependabot Python development dependency review.
