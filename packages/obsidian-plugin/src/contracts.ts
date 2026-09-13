@@ -109,7 +109,7 @@ export interface CanvasResponse {
   };
   generation_id: string | null;
   snapshot_sha256: string | null;
-  status: "fresh" | "missing" | "stale";
+  status: "failed" | "fresh" | "missing" | "stale";
   workspace_id: string;
 }
 
@@ -309,7 +309,10 @@ export function parseCanvas(value: unknown): CanvasResponse {
   const item = record(value);
   const canvas = record(item.canvas);
   if (
-    (item.status !== "fresh" && item.status !== "missing" && item.status !== "stale") ||
+    (item.status !== "failed" &&
+      item.status !== "fresh" &&
+      item.status !== "missing" &&
+      item.status !== "stale") ||
     !text(item.workspace_id) ||
     (item.generation_id !== null && !text(item.generation_id)) ||
     (item.snapshot_sha256 !== null && !text(item.snapshot_sha256)) ||

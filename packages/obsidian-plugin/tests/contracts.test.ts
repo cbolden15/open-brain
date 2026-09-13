@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   OPEN_BRAIN_CLIENT_PROTOCOL,
   OPEN_BRAIN_CLIENT_PROTOCOL_VERSION,
+  parseCanvas,
   parseConflictReview,
   parseConflicts,
   parseExclusions,
@@ -37,6 +38,31 @@ describe("plugin result validation", () => {
     expect(safeRelativePath("../First.md")).toBe(false);
     expect(safeRelativePath("/private/First.md")).toBe(false);
     expect(safeRelativePath("Notes\\First.md")).toBe(false);
+  });
+
+  it("accepts a bounded Canvas for an initial structural refresh failure", () => {
+    expect(
+      parseCanvas({
+        canvas: {
+          edges: [],
+          nodes: [
+            {
+              height: 160,
+              id: "failure-summary",
+              text: "# Open Brain graph\n\nStatus: failed",
+              type: "text",
+              width: 400,
+              x: 0,
+              y: -240,
+            },
+          ],
+        },
+        generation_id: null,
+        snapshot_sha256: null,
+        status: "failed",
+        workspace_id: "workspace_00000000-0000-4000-8000-000000000001",
+      }).status,
+    ).toBe("failed");
   });
 
   it("rejects unchecked review endpoints", () => {
