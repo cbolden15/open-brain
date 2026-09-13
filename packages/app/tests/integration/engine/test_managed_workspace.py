@@ -111,6 +111,70 @@ def test_managed_workspace_recovery_finishes_one_previously_authorized_setup_wri
     assert reopened.managed_workspace.recover() == 0
 
 
+def test_graph_snapshot_uses_accepted_revisions_and_shared_exclusions(tmp_path: Path) -> None:
+    root = tmp_path / "brain"
+    engine = _engine(root)
+    first_id = _capture_page(
+        engine, "Solar generation peaks at midday.", "managed.graph.first"
+    )
+    second_id = _capture_page(
+        engine, "Battery storage supplies power after sunset.", "managed.graph.second"
+    )
+    workspace = tmp_path / "workspace"
+    workspace.mkdir(mode=0o700)
+    setup = engine.managed_workspace.setup(
+        str(workspace), operation_id="managed.graph.setup"
+    )
+
+    original = engine.managed_workspace.graph_snapshot(setup.workspace_id)
+    first_path = _managed_page(workspace, first_id)
+    first_path.write_text("Unaccepted workspace edit\n", encoding="utf-8")
+    unchanged = engine.managed_workspace.graph_snapshot(setup.workspace_id)
+
+    assert original == unchanged
+    assert {source.note_id for source in original.sources} == {first_id, second_id}
+    bodies = {source.note_id: source.body for source in original.sources}
+    assert bodies[first_id].endswith("\n\nSolar generation peaks at midday.\n")
+    assert bodies[second_id].endswith(
+        "\n\nBattery storage supplies power after sunset.\n"
+    )
+    assert "Unaccepted workspace edit" not in bodies[first_id]
+    assert all(source.privacy_sha256 for source in original.sources)
+
+    engine.managed_policy.set_exclusion(
+        setup.workspace_id,
+        "note",
+        first_id,
+        excluded=True,
+        operation_id="managed.graph.exclude",
+    )
+    excluded = engine.managed_workspace.graph_snapshot(setup.workspace_id)
+
+    assert [source.note_id for source in excluded.sources] == [second_id]
+    assert excluded.policy_generation == original.policy_generation + 1
+    assert excluded.snapshot_sha256 != original.snapshot_sha256
+
+
+def test_graph_snapshot_rejects_invalid_stored_privacy_before_extraction(tmp_path: Path) -> None:
+    root = tmp_path / "brain"
+    engine = _engine(root)
+    note_id = _capture_page(engine, "Private graph source.", "managed.graph.privacy")
+    workspace = tmp_path / "workspace"
+    workspace.mkdir(mode=0o700)
+    setup = engine.managed_workspace.setup(
+        str(workspace), operation_id="managed.graph.privacy.setup"
+    )
+    database = root / ".open-brain/state/phase1.sqlite3"
+    with sqlite3.connect(database) as connection:
+        connection.execute(
+            "UPDATE managed_note_revisions SET privacy_json = '{}' WHERE note_id = ?",
+            (note_id,),
+        )
+
+    with pytest.raises(ManagedWorkspaceFailure, match="ineligible_source"):
+        engine.managed_workspace.graph_snapshot(setup.workspace_id)
+
+
 def test_deactivate_and_restore_change_state_without_touching_markdown_or_consent(
     tmp_path: Path,
 ) -> None:

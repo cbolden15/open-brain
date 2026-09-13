@@ -59,6 +59,7 @@ from open_brain.services.local_operations import (
     capture_result,
     capture_text,
     database_is_busy,
+    graph_projection,
     graph_suggestions,
     mcp_capture_sink,
     search_brain,
@@ -343,6 +344,7 @@ def _parser() -> argparse.ArgumentParser:
     graph_parser.add_argument(
         "action",
         choices=(
+            "projection",
             "suggestions",
             "accept",
             "grant-consent",
@@ -446,6 +448,11 @@ def _run_local_command(
             ),
             graph_suggestions=(
                 (lambda: graph_suggestions(tasks))
+                if parsed.allow_workspace_read
+                else None
+            ),
+            graph_projection=(
+                (lambda: graph_projection(tasks))
                 if parsed.allow_workspace_read
                 else None
             ),
@@ -582,6 +589,9 @@ def _run_graph(
     parsed: argparse.Namespace, tasks: EngineTaskSet, *, json_output: bool
 ) -> int:
     action = cast(str, parsed.action)
+    if action == "projection":
+        _write_managed(graph_projection(tasks), json_output=json_output)
+        return 0
     if action == "suggestions":
         _write_managed(graph_suggestions(tasks), json_output=json_output)
         return 0

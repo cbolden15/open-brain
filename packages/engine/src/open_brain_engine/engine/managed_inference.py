@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import json
 import sqlite3
-from pathlib import PurePosixPath
 from typing import TYPE_CHECKING, cast
 
 from open_brain_engine.capture.redaction import has_redaction_finding
@@ -34,6 +33,7 @@ from .contracts import (
     ManagedWorkspaceFailure,
 )
 from .managed_policy import _advance_policy, _provider_access
+from .managed_selection import managed_note_is_excluded
 from .managed_workspace import _digest, _request_sha256, _timestamp
 from .markdown_import_fs import MAX_FILE_BYTES
 from .normalization import _delivery_id, _new_id, _portable_id
@@ -535,7 +535,12 @@ class ManagedInferenceTasks:
         for index, note_id in enumerate(note_ids, start=1):
             note = self._workspace_tasks._note_row(connection, workspace.workspace_id, note_id)
             self._workspace_tasks._require_active_note(connection, note)
-            if self._is_excluded(connection, workspace.workspace_id, note):
+            if managed_note_is_excluded(
+                connection,
+                workspace.workspace_id,
+                note_id=cast(str, note["note_id"]),
+                relative_path=cast(str, note["relative_path"]),
+            ):
                 raise ManagedWorkspaceFailure("ineligible_source")
             if (
                 note["accepted_revision_id"] != note["materialized_revision_id"]
@@ -668,32 +673,6 @@ class ManagedInferenceTasks:
         if row is None or row["owner_actor_id"] != self._engine.profile.owner_actor_id:
             raise ManagedWorkspaceFailure("active_consent_required")
         return cast(str, row["consent_id"])
-
-    @staticmethod
-    def _is_excluded(
-        connection: sqlite3.Connection, workspace_id: str, note: sqlite3.Row
-    ) -> bool:
-        rows = connection.execute(
-            """SELECT kind, subject FROM managed_exclusions
-            WHERE workspace_id = ? AND active = 1""",
-            (workspace_id,),
-        )
-        relative = PurePosixPath(cast(str, note["relative_path"]))
-        for kind, subject in rows:
-            if kind == "note" and subject == note["note_id"]:
-                return True
-            if kind == "folder":
-                folder = PurePosixPath(cast(str, subject))
-                if relative == folder or folder in relative.parents:
-                    return True
-            if kind == "portable_set":
-                try:
-                    values = json.loads(cast(str, subject))
-                except (TypeError, json.JSONDecodeError):
-                    raise ManagedWorkspaceFailure("invalid_policy") from None
-                if isinstance(values, list) and note["note_id"] in values:
-                    return True
-        return False
 
     def _reserve_budget(
         self,

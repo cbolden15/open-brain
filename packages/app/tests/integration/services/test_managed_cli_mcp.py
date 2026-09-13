@@ -24,6 +24,7 @@ from open_brain.services.local_mcp import (
     LocalMcpAdapter,
 )
 from open_brain.services.local_operations import (
+    graph_projection,
     graph_suggestions,
     refresh_graph,
     workspace_status,
@@ -110,6 +111,18 @@ def test_owner_cli_workspace_flow_uses_path_free_shared_read_projection(
     )
     assert json.loads(capsys.readouterr().out)["suggestions"] == []
 
+    assert (
+        run_cli(
+            ("graph", "projection", "--data-dir", str(root), "--json"),
+            filesystem_type_probe=_filesystem,
+        )
+        == 0
+    )
+    projection = json.loads(capsys.readouterr().out)
+    assert projection["status"] == "missing"
+    assert projection["structural_links"] == []
+    assert projection["inferred_suggestions"] == []
+
 
 def test_mcp_workspace_capabilities_are_opt_in_bounded_and_non_owner() -> None:
     refresh_caps: list[tuple[int, int]] = []
@@ -121,18 +134,21 @@ def test_mcp_workspace_capabilities_are_opt_in_bounded_and_non_owner() -> None:
     adapter = LocalMcpAdapter(
         workspace_status=lambda: {"status": "ok"},
         graph_suggestions=lambda: {"status": "ok", "suggestions": []},
+        graph_projection=lambda: {"status": "missing", "structural_links": []},
         graph_refresh=refresh,
     )
     assert {tool["name"] for tool in adapter.list_tools()} == {
         "brain_workspace_status",
         "brain_graph_suggestions",
+        "brain_graph_projection",
         "brain_graph_refresh",
     }
     assert adapter.call_tool("brain_workspace_status", {}) == {"status": "ok"}
     assert adapter.call_tool("brain_graph_suggestions", {})["suggestions"] == []
+    assert adapter.call_tool("brain_graph_projection", {})["status"] == "missing"
     assert adapter.call_tool("brain_graph_refresh", {}) == {"status": "refreshed"}
     assert refresh_caps == [(MAX_GRAPH_MODEL_ATTEMPTS, MAX_GRAPH_INPUT_BYTES)]
-    assert adapter._workspace_read_calls == 2
+    assert adapter._workspace_read_calls == 3
     assert adapter._graph_refresh_calls == 1
     assert adapter._graph_model_attempts == 2
     assert adapter._graph_input_bytes == 1024
@@ -142,7 +158,7 @@ def test_mcp_workspace_capabilities_are_opt_in_bounded_and_non_owner() -> None:
 
     with pytest.raises(McpCallError, match="invalid tool arguments"):
         adapter.call_tool("brain_workspace_status", {"path": "/private"})
-    assert adapter._workspace_read_calls == 2
+    assert adapter._workspace_read_calls == 3
 
     adapter._workspace_read_calls = MAX_WORKSPACE_READ_CALLS
     with pytest.raises(McpCallError, match="session_workspace_read_limit"):
@@ -163,10 +179,12 @@ def test_shared_workspace_reads_match_mcp_projection(tmp_path: Path) -> None:
     adapter = LocalMcpAdapter(
         workspace_status=lambda: workspace_status(tasks),
         graph_suggestions=lambda: graph_suggestions(tasks),
+        graph_projection=lambda: graph_projection(tasks),
     )
 
     assert adapter.call_tool("brain_workspace_status", {}) == workspace_status(tasks)
     assert adapter.call_tool("brain_graph_suggestions", {}) == graph_suggestions(tasks)
+    assert adapter.call_tool("brain_graph_projection", {}) == graph_projection(tasks)
 
 
 def test_deterministic_fake_provider_runs_through_shared_refresh_contract(

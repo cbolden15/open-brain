@@ -42,6 +42,7 @@ class LocalMcpAdapter:
     search: Callable[[str, int], tuple[RetrievalResult, ...]] | None = None
     workspace_status: Callable[[], dict[str, object]] | None = None
     graph_suggestions: Callable[[], dict[str, object]] | None = None
+    graph_projection: Callable[[], dict[str, object]] | None = None
     graph_refresh: GraphRefresh | None = None
     _capture_calls: int = field(default=0, init=False)
     _capture_bytes: int = field(default=0, init=False)
@@ -60,6 +61,7 @@ class LocalMcpAdapter:
                 self.search,
                 self.workspace_status,
                 self.graph_suggestions,
+                self.graph_projection,
                 self.graph_refresh,
             )
         ):
@@ -71,6 +73,7 @@ class LocalMcpAdapter:
         for capability in (
             self.workspace_status,
             self.graph_suggestions,
+            self.graph_projection,
             self.graph_refresh,
         ):
             if capability is not None and not callable(capability):
@@ -143,6 +146,13 @@ class LocalMcpAdapter:
                     "Read pending graph suggestions with stable note IDs and source evidence.",
                 )
             )
+        if self.graph_projection is not None:
+            tools.append(
+                self._empty_tool(
+                    "brain_graph_projection",
+                    "Read explicit structural links and inferred suggestions with evidence.",
+                )
+            )
         if self.graph_refresh is not None:
             tools.append(
                 self._empty_tool(
@@ -175,6 +185,8 @@ class LocalMcpAdapter:
                 return self._workspace_read(arguments, self.workspace_status)
             if name == "brain_graph_suggestions" and self.graph_suggestions is not None:
                 return self._workspace_read(arguments, self.graph_suggestions)
+            if name == "brain_graph_projection" and self.graph_projection is not None:
+                return self._workspace_read(arguments, self.graph_projection)
             if name == "brain_graph_refresh" and self.graph_refresh is not None:
                 return self._refresh(arguments)
             raise McpCallError("unknown tool")

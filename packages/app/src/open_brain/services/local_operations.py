@@ -30,6 +30,11 @@ from open_brain_engine.engine import (
 from open_brain_engine.storage.locks import LockBusyError
 from open_brain_engine.storage.sqlite import is_database_busy
 
+from open_brain.services.graph_projection_store import (
+    GraphProjectionStore,
+    projection_result,
+)
+from open_brain.services.graphify_projection import GraphifyFailure
 from open_brain.services.managed_providers import (
     ManagedGraphProviderResult,
     ManagedProviderFailure,
@@ -157,6 +162,34 @@ def graph_suggestions(tasks: EngineTaskSet) -> dict[str, object]:
         ],
         "workspace_id": status.workspace_id,
     }
+
+
+def graph_projection(tasks: EngineTaskSet) -> dict[str, object]:
+    status = tasks.managed_workspace.status()
+    if status is None:
+        return {
+            "inferred_suggestions": [],
+            "status": "unconfigured",
+            "structural_links": [],
+        }
+    try:
+        snapshot = tasks.managed_workspace.graph_snapshot(status.workspace_id)
+        structural = GraphProjectionStore(
+            tasks.profile.root, tasks.profile.root_identity
+        ).load(snapshot)
+    except GraphifyFailure as error:
+        return {
+            "inferred_suggestions": [],
+            "reason": error.code,
+            "status": "unavailable",
+            "structural_links": [],
+            "workspace_id": status.workspace_id,
+        }
+    return projection_result(
+        snapshot,
+        structural,
+        tasks.managed_inference.suggestions(status.workspace_id),
+    )
 
 
 def refresh_graph(
