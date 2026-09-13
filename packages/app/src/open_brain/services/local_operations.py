@@ -33,6 +33,7 @@ from open_brain_engine.storage.sqlite import is_database_busy
 
 from open_brain.services.graph_projection_store import (
     GraphProjectionStore,
+    canvas_result,
     projection_result,
 )
 from open_brain.services.graphify_projection import (
@@ -151,6 +152,8 @@ def graph_suggestions(tasks: EngineTaskSet) -> dict[str, object]:
     if status is None:
         return {"status": "unconfigured", "suggestions": []}
     suggestions = tasks.managed_inference.suggestions(status.workspace_id)
+    snapshot = tasks.managed_workspace.graph_snapshot(status.workspace_id)
+    revisions = {source.note_id: source.revision_id for source in snapshot.sources}
     return {
         "status": "ok",
         "suggestions": [
@@ -159,9 +162,19 @@ def graph_suggestions(tasks: EngineTaskSet) -> dict[str, object]:
                 "provider": suggestion.provider.value,
                 "source_note_id": suggestion.source_note_id,
                 "source_quote": suggestion.source_quote,
+                "source_revision_id": suggestion.source_revision_id,
                 "suggestion_id": suggestion.suggestion_id,
                 "target_note_id": suggestion.target_note_id,
                 "target_quote": suggestion.target_quote,
+                "target_revision_id": suggestion.target_revision_id,
+                "revision_status": (
+                    "current"
+                    if revisions.get(suggestion.source_note_id)
+                    == suggestion.source_revision_id
+                    and revisions.get(suggestion.target_note_id)
+                    == suggestion.target_revision_id
+                    else "stale"
+                ),
             }
             for suggestion in suggestions
         ],
@@ -195,6 +208,35 @@ def graph_projection(tasks: EngineTaskSet) -> dict[str, object]:
         structural,
         tasks.managed_inference.suggestions(status.workspace_id),
     )
+
+
+def graph_canvas(tasks: EngineTaskSet) -> dict[str, object]:
+    """Return a generated Canvas without writing into the managed workspace."""
+    status = tasks.managed_workspace.status()
+    if status is None:
+        return {"status": "unconfigured"}
+    snapshot = tasks.managed_workspace.graph_snapshot(status.workspace_id)
+    try:
+        structural = GraphProjectionStore(
+            tasks.profile.root, tasks.profile.root_identity
+        ).load(snapshot)
+    except GraphifyFailure as error:
+        return {
+            "reason": error.code,
+            "status": "unavailable",
+            "workspace_id": status.workspace_id,
+        }
+    return {
+        "canvas": canvas_result(
+            snapshot,
+            structural,
+            tasks.managed_inference.suggestions(status.workspace_id),
+        ),
+        "generation_id": structural.generation_id,
+        "snapshot_sha256": structural.snapshot_sha256,
+        "status": structural.status,
+        "workspace_id": status.workspace_id,
+    }
 
 
 def refresh_structural_graph(

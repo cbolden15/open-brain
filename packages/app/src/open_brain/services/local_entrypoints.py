@@ -59,6 +59,7 @@ from open_brain.services.local_operations import (
     capture_result,
     capture_text,
     database_is_busy,
+    graph_canvas,
     graph_projection,
     graph_suggestions,
     mcp_capture_sink,
@@ -346,6 +347,7 @@ def _parser() -> argparse.ArgumentParser:
         "action",
         choices=(
             "projection",
+            "canvas",
             "refresh-structural",
             "suggestions",
             "accept",
@@ -591,6 +593,9 @@ def _run_graph(
     parsed: argparse.Namespace, tasks: EngineTaskSet, *, json_output: bool
 ) -> int:
     action = cast(str, parsed.action)
+    if action == "canvas":
+        _write_managed(graph_canvas(tasks), json_output=json_output)
+        return 0
     if action == "projection":
         _write_managed(graph_projection(tasks), json_output=json_output)
         return 0

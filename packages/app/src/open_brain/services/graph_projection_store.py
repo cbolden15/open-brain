@@ -29,6 +29,7 @@ from open_brain.services.graphify_projection import (
 
 PROJECTION_PROTOCOL = "open-brain-graph-projection-v1"
 PROJECTION_PATH = ".open-brain/state/managed-graph-projection.json"
+MAX_CANVAS_BYTES = 64 * 1024
 
 _PAGE_ID = re.compile(r"^page_[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$")
 _REVISION_ID = re.compile(
@@ -405,7 +406,9 @@ def projection_result(
     suggestions: tuple[ManagedSuggestion, ...],
 ) -> dict[str, object]:
     """Render explicit and inferred relations as one path-free local presentation."""
-    if structural.workspace_id != snapshot.workspace_id:
+    if structural.workspace_id != snapshot.workspace_id or any(
+        suggestion.workspace_id != snapshot.workspace_id for suggestion in suggestions
+    ):
         raise ValueError("graph projection workspace mismatch")
     revisions = {source.note_id: source.revision_id for source in snapshot.sources}
     return {
@@ -421,6 +424,7 @@ def projection_result(
                 "kind": "inferred_suggestion",
                 "model": suggestion.model,
                 "provider": suggestion.provider.value,
+                "revision_status": _suggestion_revision_status(suggestion, revisions),
                 "source_evidence": {
                     "note_id": suggestion.source_note_id,
                     "quote": suggestion.source_quote,
@@ -455,11 +459,123 @@ def projection_result(
     }
 
 
+def canvas_result(
+    snapshot: ManagedGraphSnapshot,
+    structural: StructuralGraphReceipt,
+    suggestions: tuple[ManagedSuggestion, ...],
+) -> dict[str, object]:
+    """Render a deterministic Obsidian Canvas with local file-node mappings."""
+    if structural.workspace_id != snapshot.workspace_id or any(
+        suggestion.workspace_id != snapshot.workspace_id for suggestion in suggestions
+    ):
+        raise ValueError("graph Canvas workspace mismatch")
+    ordered_sources = sorted(
+        snapshot.sources,
+        key=lambda source: (source.relative_path.casefold(), source.relative_path, source.note_id),
+    )
+    revisions = {source.note_id: source.revision_id for source in ordered_sources}
+    node_ids = {
+        source.note_id: _canvas_id("note", source.note_id) for source in ordered_sources
+    }
+    stale_suggestions = sum(
+        _suggestion_revision_status(suggestion, revisions) == "stale"
+        for suggestion in suggestions
+    )
+    nodes: list[dict[str, object]] = [
+        {
+            "height": 160,
+            "id": _canvas_id("status", snapshot.workspace_id),
+            "text": (
+                "# Open Brain graph\n\n"
+                f"Status: {structural.status}\n\n"
+                f"Explicit links: {len(structural.links)}  |  "
+                f"Suggestions: {len(suggestions)}  |  "
+                f"Stale suggestions: {stale_suggestions}"
+            ),
+            "type": "text",
+            "width": 400,
+            "x": 0,
+            "y": -240,
+        }
+    ]
+    for index, source in enumerate(ordered_sources):
+        nodes.append(
+            {
+                "file": source.relative_path,
+                "height": 240,
+                "id": node_ids[source.note_id],
+                "type": "file",
+                "width": 360,
+                "x": index % 4 * 440,
+                "y": index // 4 * 320,
+            }
+        )
+    edges: list[dict[str, object]] = []
+    for link in structural.links:
+        if link.source_note_id not in node_ids or link.target_note_id not in node_ids:
+            continue
+        current = (
+            structural.status == "fresh"
+            and revisions[link.source_note_id] == link.source_revision_id
+            and revisions[link.target_note_id] == link.target_revision_id
+        )
+        edges.append(
+            {
+                "color": "4" if current else "1",
+                "fromNode": node_ids[link.source_note_id],
+                "id": _canvas_id(
+                    "explicit", link.source_note_id, link.target_note_id
+                ),
+                "label": "Explicit link" if current else "Explicit link (stale)",
+                "toEnd": "arrow",
+                "toNode": node_ids[link.target_note_id],
+            }
+        )
+    for suggestion in suggestions:
+        if (
+            suggestion.source_note_id not in node_ids
+            or suggestion.target_note_id not in node_ids
+        ):
+            continue
+        current = _suggestion_revision_status(suggestion, revisions) == "current"
+        edges.append(
+            {
+                "color": "3" if current else "1",
+                "fromNode": node_ids[suggestion.source_note_id],
+                "id": _canvas_id("suggestion", suggestion.suggestion_id),
+                "label": "Suggested" if current else "Suggested (stale)",
+                "toEnd": "arrow",
+                "toNode": node_ids[suggestion.target_note_id],
+            }
+        )
+    result: dict[str, object] = {"edges": edges, "nodes": nodes}
+    if len(portable_canonical_json_bytes(result)) > MAX_CANVAS_BYTES:
+        raise ValueError("graph Canvas exceeds output limit")
+    return result
+
+
+def _suggestion_revision_status(
+    suggestion: ManagedSuggestion, revisions: dict[str, str]
+) -> str:
+    return (
+        "current"
+        if revisions.get(suggestion.source_note_id) == suggestion.source_revision_id
+        and revisions.get(suggestion.target_note_id) == suggestion.target_revision_id
+        else "stale"
+    )
+
+
+def _canvas_id(kind: str, *parts: str) -> str:
+    return sha256("\x00".join((kind, *parts)).encode("utf-8")).hexdigest()[:16]
+
+
 __all__ = [
+    "MAX_CANVAS_BYTES",
     "PROJECTION_PATH",
     "PROJECTION_PROTOCOL",
     "GraphProjectionStore",
     "StructuralGraphLink",
     "StructuralGraphReceipt",
+    "canvas_result",
     "projection_result",
 ]

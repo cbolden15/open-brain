@@ -123,6 +123,19 @@ def test_owner_cli_workspace_flow_uses_path_free_shared_read_projection(
     assert projection["structural_links"] == []
     assert projection["inferred_suggestions"] == []
 
+    assert (
+        run_cli(
+            ("graph", "canvas", "--data-dir", str(root), "--json"),
+            filesystem_type_probe=_filesystem,
+        )
+        == 0
+    )
+    canvas = json.loads(capsys.readouterr().out)
+    assert canvas["status"] == "missing"
+    assert [node["type"] for node in canvas["canvas"]["nodes"]].count("file") == 2
+    assert canvas["canvas"]["edges"] == []
+    assert not tuple(workspace.rglob("*.canvas"))
+
 
 def test_mcp_workspace_capabilities_are_opt_in_bounded_and_non_owner() -> None:
     refresh_caps: list[tuple[int, int]] = []

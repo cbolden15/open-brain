@@ -94,7 +94,9 @@ def request(raw):
 
 def extract(notes):
     from frontmatter_contract import parse_frontmatter
+    from graphify.extractors.base import _make_id
     from graphify.extractors.markdown import _MD_LINK_INDEX_CACHE, extract_markdown
+    from syntax_links import references
 
     for note in notes:
         parse_frontmatter(note["body"])
@@ -120,6 +122,13 @@ def extract(notes):
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text(note["body"], encoding="utf-8")
             hashes[str(path)] = hashlib.sha256(path.read_bytes()).hexdigest()
+        canonical_targets = {}
+        for note in notes:
+            source_path = root / note["path"]
+            for target, _line, wikilink in references(note["body"]):
+                if wikilink and target in selected.values():
+                    unresolved_path = source_path.parent / f"{target}.md"
+                    canonical_targets[(note["id"], _make_id(str(unresolved_path)))] = target
         _MD_LINK_INDEX_CACHE.clear()
         parts = [extract_markdown(root / note["path"], scan_root=root) for note in notes]
         require(all(not part.get("error") for part in parts))
@@ -135,9 +144,11 @@ def extract(notes):
                 if edge.get("relation") != "references":
                     continue
                 source = aliases.get(edge["source"])
-                # A missing target can normalize to an existing page's upstream ID.
-                # Only the existing-file stamp, joined to the selected inventory, is authority.
-                target = selected.get(edge.get("target_file"))
+                # Bind only an exact permanent ID or an existing-file stamp to the
+                # selected inventory; Graphify's path-derived ID is not authority.
+                target = canonical_targets.get((source, edge.get("target")))
+                if target is None:
+                    target = selected.get(edge.get("target_file"))
                 require(source is not None and selected.get(edge.get("source_file")) == source)
                 if target is None:
                     diagnostics.add((source, "unresolved_reference"))

@@ -965,12 +965,28 @@ def _smoke_graphify_projection(
     projected = json.loads(
         _run((os.fspath(executable), "graph", "projection", "--json"), environment).stdout
     )
+    canvas = json.loads(
+        _run((os.fspath(executable), "graph", "canvas", "--json"), environment).stdout
+    )
+    canvas_body = canvas.get("canvas")
+    structural_links = refreshed.get("structural_links")
+    inferred_suggestions = refreshed.get("inferred_suggestions")
     if (
         refreshed != projected
         or refreshed.get("status") != "fresh"
         or not str(refreshed.get("adapter_identity", "")).startswith("graphify:")
-        or not isinstance(refreshed.get("structural_links"), list)
-        or not isinstance(refreshed.get("inferred_suggestions"), list)
+        or not isinstance(structural_links, list)
+        or len(structural_links) != 1
+        or not isinstance(inferred_suggestions, list)
+        or canvas.get("status") != "fresh"
+        or canvas.get("generation_id") != refreshed.get("generation_id")
+        or not isinstance(canvas_body, dict)
+        or set(canvas_body) != {"edges", "nodes"}
+        or not isinstance(canvas_body["edges"], list)
+        or len(canvas_body["edges"]) != 1
+        or not isinstance(canvas_body["nodes"], list)
+        or len(canvas_body["nodes"]) != 3
+        or any(home.rglob("*.canvas"))
     ):
         raise BaseNativeError("native Graphify projection failed")
     run_root = _brain_root(home) / ".open-brain/run"
@@ -988,16 +1004,27 @@ def _seed_managed_graph_fixture(brain_root: Path) -> None:
         "Graph smoke",
         delivery_id="native.graph.space",
     ).space_id
-    for delivery_id, body in (
-        ("native.graph.first", "# Structural source\n[[Structural target]]\n"),
-        ("native.graph.second", "# Structural target\n"),
-    ):
-        tasks.capture.accept(
-            TextPayload(body),
-            delivery_id=delivery_id,
-            action=CaptureAction.CANONICAL_NOTE,
-            space_id=space_id,
-        )
+    target = tasks.capture.accept(
+        TextPayload("# Structural target\n"),
+        delivery_id="native.graph.second",
+        action=CaptureAction.CANONICAL_NOTE,
+        space_id=space_id,
+    )
+    tasks.reconciliation.reconcile()
+    target_pages = [
+        result.result_id
+        for result in tasks.retrieval.search("Structural target", limit=4)
+        if result.record_type == "canonical" and result.capture_id == target.capture_id
+    ]
+    if len(target_pages) != 1:
+        raise BaseNativeError("native graph fixture target is invalid")
+    target_id = target_pages[0]
+    tasks.capture.accept(
+        TextPayload(f"# Structural source\n[[{target_id}]]\n"),
+        delivery_id="native.graph.first",
+        action=CaptureAction.CANONICAL_NOTE,
+        space_id=space_id,
+    )
 
 
 def _write_reproducible_archive(executable: Path, archive: Path) -> None:

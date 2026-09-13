@@ -5,6 +5,7 @@ import time
 from collections.abc import Callable
 from dataclasses import dataclass, replace
 from pathlib import Path
+from typing import cast
 
 import pytest
 from open_brain_engine.core.ids import portable_canonical_json_bytes
@@ -21,6 +22,7 @@ from open_brain.services.graph_projection_store import (
     GraphProjectionStore,
     StructuralGraphLink,
     StructuralGraphReceipt,
+    canvas_result,
     projection_result,
 )
 from open_brain.services.graphify_projection import (
@@ -175,6 +177,11 @@ def test_adapter_reports_ambiguous_snapshot_without_guessing_links() -> None:
     assert extraction.status == "blocked"
     assert extraction.links == ()
     assert extraction.diagnostics == (GraphifyDiagnostic("ambiguous_snapshot"),)
+
+
+def test_graphify_link_requires_exact_permanent_page_ids() -> None:
+    with pytest.raises(ValueError, match="invalid Graphify link"):
+        GraphifyLink("page_first", SECOND)
 
 
 def test_adapter_rejects_component_drift_before_sending_note_content() -> None:
@@ -378,7 +385,9 @@ def test_projection_presentation_distinguishes_explicit_and_inferred_evidence() 
         suggestion_id="suggestion_00000000-0000-4000-8000-000000000103",
         workspace_id=_snapshot().workspace_id,
         source_note_id=FIRST,
+        source_revision_id="revision_00000000-0000-4000-8000-000000000101",
         target_note_id=SECOND,
+        target_revision_id="revision_00000000-0000-4000-8000-000000000102",
         source_quote="first evidence",
         target_quote="second evidence",
         provider=ManagedProvider.OPENAI_API,
@@ -402,8 +411,103 @@ def test_projection_presentation_distinguishes_explicit_and_inferred_evidence() 
             "kind": "inferred_suggestion",
             "model": "gpt-6-astra",
             "provider": "openai_api",
+            "revision_status": "current",
             "source_evidence": {"note_id": FIRST, "quote": "first evidence"},
             "suggestion_id": inferred.suggestion_id,
             "target_evidence": {"note_id": SECOND, "quote": "second evidence"},
         }
     ]
+
+
+def test_canvas_projection_is_deterministic_and_distinguishes_edge_authority() -> None:
+    snapshot = _snapshot()
+    structural = StructuralGraphReceipt(
+        workspace_id=snapshot.workspace_id,
+        status="fresh",
+        generation_id="graph_" + "1" * 64,
+        snapshot_sha256=snapshot.snapshot_sha256,
+        adapter_identity="graphify:" + "2" * 64,
+        links=(
+            StructuralGraphLink(
+                source_note_id=FIRST,
+                source_revision_id=snapshot.sources[0].revision_id,
+                target_note_id=SECOND,
+                target_revision_id=snapshot.sources[1].revision_id,
+            ),
+        ),
+        diagnostics=(),
+        failure=None,
+    )
+    suggestion = ManagedSuggestion(
+        suggestion_id="suggestion_00000000-0000-4000-8000-000000000103",
+        workspace_id=snapshot.workspace_id,
+        source_note_id=SECOND,
+        source_revision_id=snapshot.sources[1].revision_id,
+        target_note_id=FIRST,
+        target_revision_id=snapshot.sources[0].revision_id,
+        source_quote="second evidence",
+        target_quote="first evidence",
+        provider=ManagedProvider.OPENAI_API,
+        model="gpt-6-astra",
+    )
+
+    canvas = canvas_result(snapshot, structural, (suggestion,))
+
+    assert canvas == canvas_result(snapshot, structural, (suggestion,))
+    nodes = cast(list[dict[str, object]], canvas["nodes"])
+    edges = cast(list[dict[str, object]], canvas["edges"])
+    file_nodes = [node for node in nodes if node["type"] == "file"]
+    assert [node["file"] for node in file_nodes] == ["notes/first.md", "notes/second.md"]
+    assert [(edge["label"], edge["color"]) for edge in edges] == [
+        ("Explicit link", "4"),
+        ("Suggested", "3"),
+    ]
+    assert all(edge["toEnd"] == "arrow" for edge in edges)
+    rendered = portable_canonical_json_bytes(canvas)
+    assert b"first evidence" not in rendered
+    assert b"gpt-6-astra" not in rendered
+
+
+def test_canvas_projection_marks_old_revisions_and_omits_unmapped_edges() -> None:
+    snapshot = _snapshot()
+    structural = StructuralGraphReceipt(
+        workspace_id=snapshot.workspace_id,
+        status="stale",
+        generation_id="graph_" + "1" * 64,
+        snapshot_sha256="f" * 64,
+        adapter_identity="graphify:" + "2" * 64,
+        links=(
+            StructuralGraphLink(
+                source_note_id=FIRST,
+                source_revision_id="revision_00000000-0000-4000-8000-000000000109",
+                target_note_id=SECOND,
+                target_revision_id=snapshot.sources[1].revision_id,
+            ),
+        ),
+        diagnostics=(),
+        failure="snapshot_changed",
+    )
+    suggestion = ManagedSuggestion(
+        suggestion_id="suggestion_00000000-0000-4000-8000-000000000103",
+        workspace_id=snapshot.workspace_id,
+        source_note_id=FIRST,
+        source_revision_id="revision_00000000-0000-4000-8000-000000000109",
+        target_note_id=SECOND,
+        target_revision_id=snapshot.sources[1].revision_id,
+        source_quote="first evidence",
+        target_quote="second evidence",
+        provider=ManagedProvider.OPENAI_API,
+        model="gpt-6-astra",
+    )
+
+    canvas = canvas_result(snapshot, structural, (suggestion,))
+
+    nodes = cast(list[dict[str, object]], canvas["nodes"])
+    edges = cast(list[dict[str, object]], canvas["edges"])
+    assert [(edge["label"], edge["color"]) for edge in edges] == [
+        ("Explicit link (stale)", "1"),
+        ("Suggested (stale)", "1"),
+    ]
+    status_text = cast(str, nodes[0]["text"])
+    assert "Status: stale" in status_text
+    assert "Stale suggestions: 1" in status_text

@@ -260,8 +260,12 @@ def _verify_helper_protocol(artifact: Path) -> None:
     request = _encode(
         {
             "notes": [
-                {"body": "# First\n[Second](second.md)\n", "id": first, "path": "first.md"},
-                {"body": "# Second\n", "id": second, "path": "second.md"},
+                {
+                    "body": f"# First\n[[{second}]]\n",
+                    "id": first,
+                    "path": "notes/first.md",
+                },
+                {"body": "# Second\n", "id": second, "path": "other/second.md"},
             ],
             "operation": "extract_markdown",
             "protocol": _PROTOCOL,

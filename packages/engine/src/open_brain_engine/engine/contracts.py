@@ -847,7 +847,9 @@ class ManagedSuggestion:
     suggestion_id: str
     workspace_id: str
     source_note_id: str
+    source_revision_id: str
     target_note_id: str
+    target_revision_id: str
     source_quote: str
     target_quote: str
     provider: ManagedProvider
@@ -857,7 +859,9 @@ class ManagedSuggestion:
         _portable_id(self.suggestion_id, "suggestion")
         _portable_id(self.workspace_id, "workspace")
         _portable_id(self.source_note_id, "page")
+        _portable_id(self.source_revision_id, "revision")
         _portable_id(self.target_note_id, "page")
+        _portable_id(self.target_revision_id, "revision")
         if self.source_note_id == self.target_note_id:
             raise ValueError("invalid managed suggestion identity")
         for value in (self.source_quote, self.target_quote, self.model):
