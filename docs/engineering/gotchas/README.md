@@ -1573,3 +1573,17 @@ against an empty synthetic vault so a renderer-facing contract mismatch cannot h
 projection.
 
 Discovered: 2026-09-13, [NW3 Obsidian plugin audit](../../audits/2026-09-13-ob1-nw3-obsidian-plugin-audit.md).
+
+### INTEGRATION-031: Generated views need stable leaf reuse
+
+Symptom: Each graph refresh opens another `Open Brain Graph` tab, and the user can remain on an
+older Canvas even though the generated file on disk is current.
+
+Cause: Calling `workspace.getLeaf("tab")` for every publication always allocates a new tab. The
+write and the visible leaf then have separate lifecycles.
+
+Fix: Find the existing Canvas leaf by its exact generated file path, reopen the file in that leaf,
+and reveal it. Allocate a new tab only when no matching leaf exists. Test both branches and verify
+the before/after tab count in Obsidian.
+
+Discovered: 2026-09-13, [NW3 Obsidian plugin audit](../../audits/2026-09-13-ob1-nw3-obsidian-plugin-audit.md).
