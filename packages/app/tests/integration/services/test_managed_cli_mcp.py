@@ -24,10 +24,12 @@ from open_brain.services.local_mcp import (
     LocalMcpAdapter,
 )
 from open_brain.services.local_operations import (
+    graph_projection,
     graph_suggestions,
     refresh_graph,
     workspace_status,
 )
+from open_brain.services.managed_providers import ManagedGraphProviderResult
 from open_brain.services.mcp_protocol import McpCallError
 
 
@@ -109,6 +111,31 @@ def test_owner_cli_workspace_flow_uses_path_free_shared_read_projection(
     )
     assert json.loads(capsys.readouterr().out)["suggestions"] == []
 
+    assert (
+        run_cli(
+            ("graph", "projection", "--data-dir", str(root), "--json"),
+            filesystem_type_probe=_filesystem,
+        )
+        == 0
+    )
+    projection = json.loads(capsys.readouterr().out)
+    assert projection["status"] == "missing"
+    assert projection["structural_links"] == []
+    assert projection["inferred_suggestions"] == []
+
+    assert (
+        run_cli(
+            ("graph", "canvas", "--data-dir", str(root), "--json"),
+            filesystem_type_probe=_filesystem,
+        )
+        == 0
+    )
+    canvas = json.loads(capsys.readouterr().out)
+    assert canvas["status"] == "missing"
+    assert [node["type"] for node in canvas["canvas"]["nodes"]].count("file") == 2
+    assert canvas["canvas"]["edges"] == []
+    assert not tuple(workspace.rglob("*.canvas"))
+
 
 def test_mcp_workspace_capabilities_are_opt_in_bounded_and_non_owner() -> None:
     refresh_caps: list[tuple[int, int]] = []
@@ -120,18 +147,21 @@ def test_mcp_workspace_capabilities_are_opt_in_bounded_and_non_owner() -> None:
     adapter = LocalMcpAdapter(
         workspace_status=lambda: {"status": "ok"},
         graph_suggestions=lambda: {"status": "ok", "suggestions": []},
+        graph_projection=lambda: {"status": "missing", "structural_links": []},
         graph_refresh=refresh,
     )
     assert {tool["name"] for tool in adapter.list_tools()} == {
         "brain_workspace_status",
         "brain_graph_suggestions",
+        "brain_graph_projection",
         "brain_graph_refresh",
     }
     assert adapter.call_tool("brain_workspace_status", {}) == {"status": "ok"}
     assert adapter.call_tool("brain_graph_suggestions", {})["suggestions"] == []
+    assert adapter.call_tool("brain_graph_projection", {})["status"] == "missing"
     assert adapter.call_tool("brain_graph_refresh", {}) == {"status": "refreshed"}
     assert refresh_caps == [(MAX_GRAPH_MODEL_ATTEMPTS, MAX_GRAPH_INPUT_BYTES)]
-    assert adapter._workspace_read_calls == 2
+    assert adapter._workspace_read_calls == 3
     assert adapter._graph_refresh_calls == 1
     assert adapter._graph_model_attempts == 2
     assert adapter._graph_input_bytes == 1024
@@ -141,7 +171,7 @@ def test_mcp_workspace_capabilities_are_opt_in_bounded_and_non_owner() -> None:
 
     with pytest.raises(McpCallError, match="invalid tool arguments"):
         adapter.call_tool("brain_workspace_status", {"path": "/private"})
-    assert adapter._workspace_read_calls == 2
+    assert adapter._workspace_read_calls == 3
 
     adapter._workspace_read_calls = MAX_WORKSPACE_READ_CALLS
     with pytest.raises(McpCallError, match="session_workspace_read_limit"):
@@ -162,10 +192,12 @@ def test_shared_workspace_reads_match_mcp_projection(tmp_path: Path) -> None:
     adapter = LocalMcpAdapter(
         workspace_status=lambda: workspace_status(tasks),
         graph_suggestions=lambda: graph_suggestions(tasks),
+        graph_projection=lambda: graph_projection(tasks),
     )
 
     assert adapter.call_tool("brain_workspace_status", {}) == workspace_status(tasks)
     assert adapter.call_tool("brain_graph_suggestions", {}) == graph_suggestions(tasks)
+    assert adapter.call_tool("brain_graph_projection", {}) == graph_projection(tasks)
 
 
 def test_deterministic_fake_provider_runs_through_shared_refresh_contract(
@@ -196,7 +228,7 @@ def test_deterministic_fake_provider_runs_through_shared_refresh_contract(
 
     def fake_provider(
         prompt: str, max_output_bytes: int, timeout_seconds: int
-    ) -> dict[str, object]:
+    ) -> ManagedGraphProviderResult:
         assert "Solar generation" in prompt
         assert "Battery storage" in prompt
         assert max_output_bytes == 16 * 1024
@@ -212,12 +244,14 @@ def test_deterministic_fake_provider_runs_through_shared_refresh_contract(
             for index, selected in enumerate(sources, start=1)
             if "Battery storage" in cast(str, selected["body"])
         )
-        return {
-            "source": source,
-            "source_quote": "peaks at midday",
-            "target": target,
-            "target_quote": "after sunset",
-        }
+        return ManagedGraphProviderResult(
+            source=source,
+            source_quote="peaks at midday",
+            target=target,
+            target_quote="after sunset",
+            actual_model="deterministic-fake-v1",
+            usage={"input_tokens": 10, "output_tokens": 4, "total_tokens": 14},
+        )
 
     adapter = LocalMcpAdapter(
         graph_refresh=lambda attempts, input_bytes: refresh_graph(
@@ -225,7 +259,6 @@ def test_deterministic_fake_provider_runs_through_shared_refresh_contract(
             provider=ManagedProvider.OPENAI_API,
             access_mode=ManagedAccessMode.API_KEY,
             adapter_identity="openai_api:deterministic-fake-v1",
-            model="deterministic-fake-v1",
             request_id="request_00000000-0000-4000-8000-000000000301",
             invoke=fake_provider,
             remaining_attempts=attempts,
@@ -236,6 +269,12 @@ def test_deterministic_fake_provider_runs_through_shared_refresh_contract(
     result = adapter.call_tool("brain_graph_refresh", {})
 
     assert result["status"] == "refreshed"
+    assert result["actual_model"] == "deterministic-fake-v1"
+    assert result["usage"] == {
+        "input_tokens": 10,
+        "output_tokens": 4,
+        "total_tokens": 14,
+    }
     assert len(cast(list[object], graph_suggestions(tasks)["suggestions"])) == 1
     assert adapter._graph_refresh_calls == 1
     assert adapter._graph_model_attempts == 1

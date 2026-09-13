@@ -108,6 +108,8 @@ def test_inference_is_revision_bound_and_link_acceptance_requires_explicit_mater
     assert prepared == released
     assert prepared.effective_privacy.reason.value == "personal_confirmed"
     assert prepared.effective_privacy.authority.cloud
+    assert suggestion.source_revision_id == prepared.sources[0].revision_id
+    assert suggestion.target_revision_id == prepared.sources[1].revision_id
     assert all(note_id not in prepared.prompt for note_id in note_ids)
     assert source_path.read_bytes() == before_accept
     assert accepted.status == "suggestion_accepted"

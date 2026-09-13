@@ -25,18 +25,25 @@ from typing import Final, cast
 
 _SPEC = Path("release/open-brain/open-brain.spec")
 _EXECUTABLE = "open-brain"
-_MANIFEST = "open-brain-release-manifest-v1.txt"
+_MANIFEST = "open-brain-component-manifest-v1.txt"
 _PLATFORMS: Final = ("linux-x86_64", "macos-arm64")
 _ARCHIVE_PATTERN: Final = re.compile(
-    r"^open-brain-(?P<version>[0-9A-Za-z][0-9A-Za-z._-]*)-"
+    r"^open-brain-(?:(?P<component>graphify)-)?"
+    r"(?P<version>[0-9A-Za-z][0-9A-Za-z._-]*)-"
     r"(?P<platform>linux-x86_64|macos-arm64)\.tar\.gz$"
 )
+_RESOURCE_DESTINATIONS: Final = {
+    "base": "bin/open-brain",
+    "graphify": "libexec/open-brain-graphify",
+}
 _REQUIRED_MODULES: Final = frozenset(
     {
         "open_brain.local_data",
         "open_brain.profile",
         "open_brain.services.local_bootstrap",
         "open_brain.services.local_entrypoints",
+        "open_brain.services.graph_projection_store",
+        "open_brain.services.graphify_projection",
         "open_brain.services.local_operations",
         "open_brain.services.local_mcp",
         "open_brain.services.mcp_protocol",
@@ -120,6 +127,9 @@ class ReleaseArtifact:
     platform_tag: str
     sha256: str
     filename: str
+    role: str
+    executable_sha256: str
+    destination: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -227,6 +237,7 @@ def smoke_base_artifact(
     *,
     version: str,
     repository_root: Path,
+    graphify_artifact: Path | None = None,
 ) -> dict[str, object]:
     executable = artifact.resolve(strict=True)
     with TemporaryDirectory(prefix="open-brain-smoke-") as raw:
@@ -255,37 +266,60 @@ def smoke_base_artifact(
         journey["markdown_import"] = "passed"
         _smoke_local_mcp(executable, home, environment)
         journey["local_mcp"] = "passed"
+        if graphify_artifact is not None:
+            _smoke_graphify_projection(executable, graphify_artifact, home, environment)
+            journey["graph_projection"] = "passed"
         return {"journey": journey, "self_check": "passed"}
 
 
-def write_release_assets(
+def write_base_archive(
     artifact: Path,
     destination: Path,
     *,
     version: str,
-) -> tuple[Path, Path]:
+) -> Path:
     audit = audit_base_artifact(artifact)
     selected_destination = destination.resolve()
     selected_destination.mkdir(parents=True, exist_ok=True)
     archive = selected_destination / f"open-brain-{version}-{audit.platform_tag}.tar.gz"
     _write_reproducible_archive(artifact.resolve(strict=True), archive)
-    manifest = selected_destination / _MANIFEST
-    write_release_manifest((_release_artifact(archive),), manifest)
-    return archive, manifest
+    return archive
 
 
 def write_release_manifest(artifacts: Sequence[ReleaseArtifact], destination: Path) -> Path:
-    ordered = tuple(sorted(artifacts, key=lambda item: item.platform_tag))
-    if not ordered or len({item.platform_tag for item in ordered}) != len(ordered):
-        raise BaseNativeError("release manifest platforms are invalid")
+    role_order = {"base": 0, "graphify": 1}
+    ordered = tuple(
+        sorted(artifacts, key=lambda item: (item.platform_tag, role_order.get(item.role, 99)))
+    )
+    keys = {(item.platform_tag, item.role) for item in ordered}
+    platforms = {item.platform_tag for item in ordered}
+    if (
+        not ordered
+        or len(keys) != len(ordered)
+        or any({(platform, "base"), (platform, "graphify")} - keys for platform in platforms)
+        or len(ordered) != len(platforms) * 2
+    ):
+        raise BaseNativeError("release manifest resource pairs are invalid")
     versions = {item.version for item in ordered}
     if len(versions) != 1:
         raise BaseNativeError("release manifest versions do not match")
     version = next(iter(versions))
-    lines = ["open-brain-release-manifest-v1", f"version {version}"]
+    lines = ["open-brain-component-manifest-v1", f"version {version}"]
     for item in ordered:
         _validate_release_artifact(item)
-        lines.append(f"artifact {item.platform_tag} {item.sha256} {item.filename}")
+        lines.append(
+            " ".join(
+                (
+                    "resource",
+                    item.role,
+                    item.platform_tag,
+                    item.sha256,
+                    item.executable_sha256,
+                    item.filename,
+                    item.destination,
+                )
+            )
+        )
     selected = destination.resolve()
     selected.parent.mkdir(parents=True, exist_ok=True)
     selected.write_text("\n".join(lines) + "\n", encoding="ascii")
@@ -301,7 +335,7 @@ def read_release_manifest(path: Path) -> ReleaseManifest:
         lines = path.resolve(strict=True).read_text(encoding="ascii").splitlines()
     except (OSError, UnicodeError) as error:
         raise BaseNativeError("release manifest is unavailable") from error
-    if len(lines) < 3 or lines[0] != "open-brain-release-manifest-v1":
+    if len(lines) < 4 or lines[0] != "open-brain-component-manifest-v1":
         raise BaseNativeError("release manifest header is invalid")
     version_record = lines[1].split(" ", 1)
     if len(version_record) != 2 or version_record[0] != "version":
@@ -309,17 +343,37 @@ def read_release_manifest(path: Path) -> ReleaseManifest:
     artifacts: list[ReleaseArtifact] = []
     for line in lines[2:]:
         fields = line.split(" ")
-        if len(fields) != 4 or fields[0] != "artifact":
-            raise BaseNativeError("release manifest artifact is invalid")
-        artifacts.append(ReleaseArtifact(version_record[1], fields[1], fields[2], fields[3]))
+        if len(fields) != 7 or fields[0] != "resource":
+            raise BaseNativeError("release manifest resource is invalid")
+        artifacts.append(
+            ReleaseArtifact(
+                version=version_record[1],
+                role=fields[1],
+                platform_tag=fields[2],
+                sha256=fields[3],
+                executable_sha256=fields[4],
+                filename=fields[5],
+                destination=fields[6],
+            )
+        )
     manifest = ReleaseManifest(version_record[1], tuple(artifacts))
-    if len({item.platform_tag for item in manifest.artifacts}) != len(manifest.artifacts):
-        raise BaseNativeError("release manifest has duplicate platforms")
     for item in manifest.artifacts:
         _validate_release_artifact(item)
-    if tuple(item.platform_tag for item in manifest.artifacts) != tuple(
-        sorted(item.platform_tag for item in manifest.artifacts)
+    canonical = tuple(
+        sorted(
+            manifest.artifacts,
+            key=lambda item: (item.platform_tag, {"base": 0, "graphify": 1}.get(item.role, 99)),
+        )
+    )
+    keys = {(item.platform_tag, item.role) for item in manifest.artifacts}
+    platforms = {item.platform_tag for item in manifest.artifacts}
+    if (
+        len(keys) != len(manifest.artifacts)
+        or len(manifest.artifacts) != len(platforms) * 2
+        or any({(platform, "base"), (platform, "graphify")} - keys for platform in platforms)
     ):
+        raise BaseNativeError("release manifest resource pairs are invalid")
+    if manifest.artifacts != canonical:
         raise BaseNativeError("release manifest is not canonical")
     return manifest
 
@@ -358,14 +412,23 @@ def render_homebrew_formula(
     ]
     if smoke:
         lines.extend(('  keg_only "Temporary contributor smoke fixture"', ""))
-    for artifact in manifest.artifacts:
-        block, architecture = platform_blocks[artifact.platform_tag]
+    for platform_tag in sorted({item.platform_tag for item in manifest.artifacts}):
+        resources = {
+            item.role: item for item in manifest.artifacts if item.platform_tag == platform_tag
+        }
+        base = resources["base"]
+        helper = resources["graphify"]
+        block, architecture = platform_blocks[platform_tag]
         lines.extend(
             (
                 f"  {block} do",
                 f"    depends_on arch: :{architecture}",
-                f'    url "{origin}/{artifact.filename}"',
-                f'    sha256 "{artifact.sha256}"',
+                f'    url "{origin}/{base.filename}"',
+                f'    sha256 "{base.sha256}"',
+                '    resource "graphify" do',
+                f'      url "{origin}/{helper.filename}"',
+                f'      sha256 "{helper.sha256}"',
+                "    end",
                 "  end",
                 "",
             )
@@ -374,12 +437,20 @@ def render_homebrew_formula(
         (
             "  def install",
             f'    bin.install "{_EXECUTABLE}"',
+            '    resource("graphify").stage do',
+            '      libexec.install "open-brain" => "open-brain-graphify"',
+            '      (share/"open-brain/licenses/graphify").install Dir["licenses/graphify/*"]',
+            "    end",
             "  end",
             "",
             "  test do",
             (
                 f'    assert_match "open-brain #{{version}}", '
                 f'shell_output("#{{bin}}/{_EXECUTABLE} --version")'
+            ),
+            (
+                '    assert_match "open-brain-graphify-helper-v1", '
+                'shell_output("#{libexec}/open-brain-graphify --capabilities")'
             ),
             "  end",
             "end",
@@ -392,7 +463,7 @@ def render_homebrew_formula(
     return selected
 
 
-def build_base_artifact(root: Path, output: Path) -> tuple[Path, Path, Path]:
+def build_base_artifact(root: Path, output: Path) -> tuple[Path, Path, Path, Path, Path]:
     if sys.version_info[:2] != (3, 14):
         raise BaseNativeError("native build requires Python 3.14")
     if (
@@ -410,24 +481,44 @@ def build_base_artifact(root: Path, output: Path) -> tuple[Path, Path, Path]:
     artifact = output.resolve() / "dist/open-brain"
     audit_base_artifact(artifact)
     smoke_base_artifact(artifact, version=version, repository_root=root)
-    archive, manifest = write_release_assets(
+    archive = write_base_archive(
         artifact,
         output.resolve() / "release",
         version=version,
     )
-    return artifact, archive, manifest
+    from tools.open_brain_dev.graphify_native import build_graphify_artifact
+
+    graphify_artifact, graphify_archive = build_graphify_artifact(
+        root, output, version=version
+    )
+    manifest = write_release_manifest(
+        (
+            _release_artifact(archive, executable=artifact),
+            _release_artifact(graphify_archive, executable=graphify_artifact),
+        ),
+        output.resolve() / "release" / _MANIFEST,
+    )
+    return artifact, graphify_artifact, archive, graphify_archive, manifest
 
 
-def _release_artifact(archive: Path) -> ReleaseArtifact:
+def _release_artifact(archive: Path, *, executable: Path | None = None) -> ReleaseArtifact:
     selected = archive.resolve(strict=True)
     match = _ARCHIVE_PATTERN.fullmatch(selected.name)
     if match is None or not selected.is_file():
         raise BaseNativeError("release artifact filename is invalid")
+    role = "graphify" if match.group("component") == "graphify" else "base"
     return ReleaseArtifact(
         version=match.group("version"),
         platform_tag=match.group("platform"),
         sha256=_sha256(selected),
         filename=selected.name,
+        role=role,
+        executable_sha256=(
+            _sha256(executable.resolve(strict=True))
+            if executable is not None
+            else _archive_executable_sha256(selected)
+        ),
+        destination=_RESOURCE_DESTINATIONS[role],
     )
 
 
@@ -435,12 +526,40 @@ def _validate_release_artifact(artifact: ReleaseArtifact) -> None:
     match = _ARCHIVE_PATTERN.fullmatch(artifact.filename)
     if (
         artifact.platform_tag not in _PLATFORMS
+        or artifact.role not in _RESOURCE_DESTINATIONS
+        or artifact.destination != _RESOURCE_DESTINATIONS.get(artifact.role)
         or re.fullmatch(r"[0-9a-f]{64}", artifact.sha256) is None
+        or re.fullmatch(r"[0-9a-f]{64}", artifact.executable_sha256) is None
         or match is None
         or match.group("version") != artifact.version
         or match.group("platform") != artifact.platform_tag
+        or ("graphify" if match.group("component") == "graphify" else "base")
+        != artifact.role
     ):
         raise BaseNativeError("release artifact record is invalid")
+
+
+def _archive_executable_sha256(archive: Path) -> str:
+    try:
+        with tarfile.open(archive, "r:gz") as bundle:
+            matches = [
+                member
+                for member in bundle.getmembers()
+                if member.name == _EXECUTABLE and member.isfile() and not member.issym()
+            ]
+            if len(matches) != 1 or not 0 < matches[0].size <= 64 * 1024 * 1024:
+                raise BaseNativeError("release archive executable is invalid")
+            stream = bundle.extractfile(matches[0])
+            if stream is None:
+                raise BaseNativeError("release archive executable is invalid")
+            payload = stream.read(matches[0].size + 1)
+            if len(payload) != matches[0].size:
+                raise BaseNativeError("release archive executable is invalid")
+            return hashlib.sha256(payload).hexdigest()
+    except BaseNativeError:
+        raise
+    except (OSError, tarfile.TarError) as error:
+        raise BaseNativeError("release archive is invalid") from error
 
 
 def _validate_native_executable(executable: Path, platform_tag: str) -> str:
@@ -819,6 +938,95 @@ def _smoke_local_mcp(
         raise BaseNativeError("native MCP left a runtime artifact")
 
 
+def _smoke_graphify_projection(
+    executable: Path,
+    graphify_artifact: Path,
+    home: Path,
+    environment: Mapping[str, str],
+) -> None:
+    expected = executable.parent.parent / "libexec/open-brain-graphify"
+    try:
+        if graphify_artifact.resolve(strict=True) != expected.resolve(strict=True):
+            raise BaseNativeError("installed Graphify helper is not in the base keg")
+    except OSError as error:
+        raise BaseNativeError("installed Graphify helper is unavailable") from error
+    _seed_managed_graph_fixture(_brain_root(home))
+    setup = json.loads(
+        _run((os.fspath(executable), "workspace", "setup", "--json"), environment).stdout
+    )
+    if setup.get("status") != "setup" or not isinstance(setup.get("workspace_id"), str):
+        raise BaseNativeError("native managed workspace setup failed")
+    refreshed = json.loads(
+        _run(
+            (os.fspath(executable), "graph", "refresh-structural", "--json"),
+            environment,
+        ).stdout
+    )
+    projected = json.loads(
+        _run((os.fspath(executable), "graph", "projection", "--json"), environment).stdout
+    )
+    canvas = json.loads(
+        _run((os.fspath(executable), "graph", "canvas", "--json"), environment).stdout
+    )
+    canvas_body = canvas.get("canvas")
+    structural_links = refreshed.get("structural_links")
+    inferred_suggestions = refreshed.get("inferred_suggestions")
+    if (
+        refreshed != projected
+        or refreshed.get("status") != "fresh"
+        or not str(refreshed.get("adapter_identity", "")).startswith("graphify:")
+        or not isinstance(structural_links, list)
+        or len(structural_links) != 1
+        or not isinstance(inferred_suggestions, list)
+        or canvas.get("status") != "fresh"
+        or canvas.get("generation_id") != refreshed.get("generation_id")
+        or not isinstance(canvas_body, dict)
+        or set(canvas_body) != {"edges", "nodes"}
+        or not isinstance(canvas_body["edges"], list)
+        or len(canvas_body["edges"]) != 1
+        or not isinstance(canvas_body["nodes"], list)
+        or len(canvas_body["nodes"]) != 3
+        or any(home.rglob("*.canvas"))
+    ):
+        raise BaseNativeError("native Graphify projection failed")
+    run_root = _brain_root(home) / ".open-brain/run"
+    if run_root.is_dir() and any(run_root.iterdir()):
+        raise BaseNativeError("native Graphify projection left a runtime artifact")
+
+
+def _seed_managed_graph_fixture(brain_root: Path) -> None:
+    from open_brain_engine.engine import CaptureAction, TextPayload, open_local_engine
+
+    from open_brain.profile import open_existing_single_user_local
+
+    tasks = open_local_engine(open_existing_single_user_local(brain_root))
+    space_id = tasks.inbox.create_space(
+        "Graph smoke",
+        delivery_id="native.graph.space",
+    ).space_id
+    target = tasks.capture.accept(
+        TextPayload("# Structural target\n"),
+        delivery_id="native.graph.second",
+        action=CaptureAction.CANONICAL_NOTE,
+        space_id=space_id,
+    )
+    tasks.reconciliation.reconcile()
+    target_pages = [
+        result.result_id
+        for result in tasks.retrieval.search("Structural target", limit=4)
+        if result.record_type == "canonical" and result.capture_id == target.capture_id
+    ]
+    if len(target_pages) != 1:
+        raise BaseNativeError("native graph fixture target is invalid")
+    target_id = target_pages[0]
+    tasks.capture.accept(
+        TextPayload(f"# Structural source\n[[{target_id}]]\n"),
+        delivery_id="native.graph.first",
+        action=CaptureAction.CANONICAL_NOTE,
+        space_id=space_id,
+    )
+
+
 def _write_reproducible_archive(executable: Path, archive: Path) -> None:
     with (
         archive.open("wb") as raw,
@@ -886,9 +1094,11 @@ def _main(argv: Sequence[str] | None = None) -> int:
     build.add_argument("--output", type=Path, required=True)
     audit = subparsers.add_parser("audit")
     audit.add_argument("--artifact", type=Path, required=True)
+    audit.add_argument("--graphify-artifact", type=Path, required=True)
     smoke = subparsers.add_parser("smoke")
     smoke.add_argument("--root", type=Path, required=True)
     smoke.add_argument("--artifact", type=Path, required=True)
+    smoke.add_argument("--graphify-artifact", type=Path, required=True)
     manifest = subparsers.add_parser("manifest")
     manifest.add_argument("--artifact", type=Path, action="append", required=True)
     manifest.add_argument("--output", type=Path, required=True)
@@ -900,20 +1110,30 @@ def _main(argv: Sequence[str] | None = None) -> int:
     formula.add_argument("--smoke", action="store_true")
     namespace = parser.parse_args(argv)
     if namespace.command == "build":
-        artifact, archive, manifest_path = build_base_artifact(namespace.root, namespace.output)
+        artifact, graphify_artifact, archive, graphify_archive, manifest_path = (
+            build_base_artifact(namespace.root, namespace.output)
+        )
         payload: object = {
             "archive": os.fspath(archive),
             "artifact": os.fspath(artifact),
+            "graphify_archive": os.fspath(graphify_archive),
+            "graphify_artifact": os.fspath(graphify_artifact),
             "manifest": os.fspath(manifest_path),
             "status": "built",
         }
     elif namespace.command == "audit":
-        payload = audit_base_artifact(namespace.artifact).to_dict()
+        from tools.open_brain_dev.graphify_native import audit_graphify_artifact
+
+        payload = {
+            "base": audit_base_artifact(namespace.artifact).to_dict(),
+            "graphify": audit_graphify_artifact(namespace.graphify_artifact).to_dict(),
+        }
     elif namespace.command == "smoke":
         payload = smoke_base_artifact(
             namespace.artifact,
             version=product_version(namespace.root),
             repository_root=namespace.root,
+            graphify_artifact=namespace.graphify_artifact,
         )
     elif namespace.command == "manifest":
         output = combine_release_manifest(namespace.artifact, namespace.output)

@@ -1,0 +1,13 @@
+Open Brain Graphify Markdown helper
+
+Modified by Open Brain contributors in September 2026 from Graphify 0.9.57.
+The maintained patch makes extractor exports lazy, separates metadata and discovery
+rules, and runs the bounded Markdown parser against a caller-selected snapshot root.
+
+Upstream source commit: 3f82bf7f837a07fb0f7668fbdbd5662801906942
+Open Brain patch: ob1-graphify-markdown-1
+Patch SHA-256: f7417ee080e1f5050f41b525f4bb0f97910c14abf6531dcf38cbd2ff28da796b
+
+The accompanying LICENSE, LICENSE-MIT, and NOTICE files preserve Graphify's
+licensing and attribution. PyYAML and Markdown parser license metadata is retained
+inside the frozen helper.

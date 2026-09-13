@@ -8,10 +8,11 @@ import sqlite3
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from hashlib import sha256
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import TYPE_CHECKING, cast
 
 from open_brain_engine.core.ids import portable_canonical_json_bytes
+from open_brain_engine.core.models import PrivacyDecision, ValidationError
 from open_brain_engine.storage.filesystem import (
     DuplicateConflictError,
     RootConfinementError,
@@ -24,6 +25,8 @@ from open_brain_engine.storage.filesystem import (
 from open_brain_engine.storage.markdown import MarkdownFormatError, parse_markdown
 
 from .contracts import (
+    ManagedGraphSnapshot,
+    ManagedGraphSource,
     ManagedNoteObservation,
     ManagedWorkspaceFailure,
     ManagedWorkspaceFault,
@@ -31,6 +34,7 @@ from .contracts import (
     ManagedWorkspaceReceipt,
     ManagedWorkspaceStatus,
 )
+from .managed_selection import managed_note_is_excluded
 from .markdown_import_fs import (
     MAX_FILE_BYTES,
     ImportDirectoryUnavailable,
@@ -102,6 +106,103 @@ class ManagedWorkspaceTasks:
     def __init__(self, engine: BrainEngine, *, scan_limits: ScanLimits | None = None) -> None:
         self._engine = engine
         self._scan_limits = scan_limits or ScanLimits()
+
+    def graph_snapshot(self, workspace_id: str) -> ManagedGraphSnapshot:
+        """Return one bounded accepted-revision snapshot for local structural extraction."""
+        _portable_id(workspace_id, "workspace")
+        workspace = self._workspace(workspace_id)
+        connection = self._engine._store.connect()
+        try:
+            current = self._workspace_row(connection, workspace_id)
+            self._assert_workspace_row(current, workspace)
+            rows = tuple(
+                connection.execute(
+                    """SELECT n.*, r.body_bytes, r.body_sha256, r.privacy_json
+                    FROM managed_notes AS n
+                    JOIN managed_note_revisions AS r
+                      ON r.note_id = n.note_id AND r.revision_id = n.accepted_revision_id
+                    WHERE n.workspace_id = ? AND n.active = 1
+                    ORDER BY n.note_id""",
+                    (workspace_id,),
+                )
+            )
+            sources: list[ManagedGraphSource] = []
+            paths: set[str] = set()
+            for row in rows:
+                note_id = cast(str, row["note_id"])
+                relative_path = cast(str, row["relative_path"])
+                if managed_note_is_excluded(
+                    connection,
+                    workspace_id,
+                    note_id=note_id,
+                    relative_path=relative_path,
+                ) or any(
+                    part.casefold()
+                    in {".graphify", ".obsidian", ".open-brain", "graphify-out"}
+                    for part in PurePosixPath(relative_path).parts
+                ):
+                    continue
+                normalized_path = relative_path.casefold()
+                if normalized_path in paths:
+                    raise ManagedWorkspaceFailure("ineligible_source")
+                paths.add(normalized_path)
+                privacy_json = cast(str, row["privacy_json"])
+                try:
+                    privacy_value = json.loads(privacy_json)
+                    if not isinstance(privacy_value, dict):
+                        raise ValueError
+                    PrivacyDecision.from_dict(privacy_value)
+                    body = cast(bytes, row["body_bytes"]).decode("utf-8")
+                except (
+                    UnicodeDecodeError,
+                    json.JSONDecodeError,
+                    TypeError,
+                    ValueError,
+                    ValidationError,
+                ):
+                    raise ManagedWorkspaceFailure("ineligible_source") from None
+                sources.append(
+                    ManagedGraphSource(
+                        note_id=note_id,
+                        revision_id=cast(str, row["accepted_revision_id"]),
+                        relative_path=relative_path,
+                        body=body,
+                        body_sha256=cast(str, row["body_sha256"]),
+                        privacy_sha256=_digest(privacy_json.encode("utf-8")),
+                    )
+                )
+            if len(sources) > 64 or sum(
+                len(source.body.encode("utf-8")) for source in sources
+            ) > 16 * 1024:
+                raise ManagedWorkspaceFailure("ineligible_source")
+            identity = {
+                "observation_generation": int(current["observation_generation"]),
+                "policy_generation": int(current["policy_generation"]),
+                "sources": [
+                    {
+                        "body_sha256": source.body_sha256,
+                        "note_id": source.note_id,
+                        "privacy_sha256": source.privacy_sha256,
+                        "relative_path": source.relative_path,
+                        "revision_id": source.revision_id,
+                    }
+                    for source in sources
+                ],
+                "workspace_id": workspace_id,
+            }
+            return ManagedGraphSnapshot(
+                workspace_id=workspace_id,
+                observation_generation=int(current["observation_generation"]),
+                policy_generation=int(current["policy_generation"]),
+                snapshot_sha256=_digest(portable_canonical_json_bytes(identity)),
+                sources=tuple(sources),
+            )
+        except ManagedWorkspaceFailure:
+            raise
+        except (KeyError, sqlite3.DatabaseError, ValueError):
+            raise ManagedWorkspaceFailure("ineligible_source") from None
+        finally:
+            connection.close()
 
     def status(self) -> ManagedWorkspaceStatus | None:
         connection = self._engine._store.connect()

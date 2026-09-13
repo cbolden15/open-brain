@@ -33,11 +33,16 @@ product = "example/tap/open-brain"
 repo = root / "tap"
 state_path = root / "installed.json"
 state = json.loads(state_path.read_text())
+trust_path = root / "trusted.json"
+trusted = json.loads(trust_path.read_text())
 mode = os.environ.get("FAKE_MODE", "success")
 if pathlib.Path(sys.argv[0]).name == "python":
     if a[:3] != ["-m", "tools.open_brain_dev.base_native", "smoke"]:
         os.execv(os.environ["REAL_PYTHON"], [os.environ["REAL_PYTHON"], *a])
-    assert a[-2:] == ["--artifact", str(root / "smoke/bin/open-brain")], a
+    assert a[-4:] == [
+        "--artifact", str(root / "smoke/bin/open-brain"),
+        "--graphify-artifact", str(root / "smoke/libexec/open-brain-graphify"),
+    ], a
     (root / "journey").write_text(json.dumps(a))
     if mode == "mutate":
         (root / "product/bin/open-brain").write_text("changed")
@@ -64,7 +69,12 @@ if a[0] == "uninstall":
 elif a[0] == "untap":
     assert a == ["untap", tap], a
     assert not any(n.startswith(tap + "/") for n in state)
+    if formula in trusted:
+        trusted.remove(formula)
+        trust_path.write_text(json.dumps(trusted))
     shutil.rmtree(repo)
+elif a == ["trust", "--json", "v1"]:
+    print(json.dumps({"casks": [], "commands": [], "formulae": trusted, "taps": []}))
 elif a == ["list", "--formula", "--full-name"]:
     print("\n".join(state))
 elif a == ["list", "--formula", "--versions", product]:
@@ -86,12 +96,20 @@ elif a == ["install", formula]:
     text = (repo / "Formula/open-brain-smoke.rb").read_text()
     assert "class OpenBrainSmoke < Formula" in text and "keg_only" in text
     assert 'bin.install "open-brain"' in text
+    assert 'resource "graphify" do' in text
+    assert 'libexec.install "open-brain" => "open-brain-graphify"' in text
     assert formula not in state
     state.append(formula)
     state_path.write_text(json.dumps(state))
+    if formula not in trusted:
+        trusted.append(formula)
+        trust_path.write_text(json.dumps(trusted))
     binary = root / "smoke/bin/open-brain"
     binary.parent.mkdir(parents=True)
     binary.write_text("synthetic smoke")
+    helper = root / "smoke/libexec/open-brain-graphify"
+    helper.parent.mkdir(parents=True)
+    helper.write_text("synthetic graphify")
     if mode == "fail-install":
         sys.exit(8)
 else:
@@ -109,6 +127,7 @@ class Harness:
             script.write_text(f"#!{sys.executable}\n" + FAKE, encoding="utf-8")
             script.chmod(0o755)
         (root / "installed.json").write_text(json.dumps([PRODUCT] if product else []))
+        (root / "trusted.json").write_text("[]")
         (root / "global/bin").mkdir(parents=True)
         if product:
             binary = root / "product/bin/open-brain"
@@ -118,7 +137,22 @@ class Harness:
         self.manifest = write_release_manifest(
             (
                 ReleaseArtifact(
-                    "0.1.0", "macos-arm64", "a" * 64, "open-brain-0.1.0-macos-arm64.tar.gz"
+                    version="0.1.0",
+                    platform_tag="macos-arm64",
+                    sha256="a" * 64,
+                    filename="open-brain-0.1.0-macos-arm64.tar.gz",
+                    role="base",
+                    executable_sha256="c" * 64,
+                    destination="bin/open-brain",
+                ),
+                ReleaseArtifact(
+                    version="0.1.0",
+                    platform_tag="macos-arm64",
+                    sha256="b" * 64,
+                    filename="open-brain-graphify-0.1.0-macos-arm64.tar.gz",
+                    role="graphify",
+                    executable_sha256="d" * 64,
+                    destination="libexec/open-brain-graphify",
                 ),
             ),
             root / "manifest.txt",
@@ -164,6 +198,7 @@ class Harness:
             [PRODUCT] if product else []
         )
         assert not (self.root / "tap").exists()
+        assert json.loads((self.root / "trusted.json").read_text()) == []
         if product:
             binary = self.root / "product/bin/open-brain"
             assert binary.read_bytes() == b"original synthetic product"
@@ -193,6 +228,16 @@ def test_shell_preserves_product_and_cleans_owned_state(
     harness.assert_preserved(product=product)
     assert not list((tmp_path / "temp").iterdir())
     assert f"existing_product: {'preserved' if product else 'absent'}" in result.stdout
+
+
+def test_shell_installs_only_after_verifying_the_exact_local_clone(tmp_path: Path) -> None:
+    harness = Harness(tmp_path)
+
+    result = harness.run()
+
+    assert result.returncode == 0, result.stderr
+    harness.assert_preserved()
+    assert ["install", FORMULA] in harness.commands()
 
 
 @pytest.mark.parametrize("foreign", ["unmarked", "symlink-marker", "another-formula"])
@@ -244,7 +289,7 @@ def test_shell_recovers_owned_startup_residue(tmp_path: Path, formula: bool) -> 
     assert result.returncode == 0, result.stderr
     harness.assert_preserved()
     commands = harness.commands()
-    assert commands.index(["untap", TAP]) < next(i for i, c in enumerate(commands) if c[0] == "tap")
+    assert commands.index(["untap", TAP]) < commands.index(["install", FORMULA])
 
 
 @pytest.mark.parametrize("mode", ["mutate", "mutate-link", "mutate-version"])

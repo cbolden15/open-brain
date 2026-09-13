@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from enum import StrEnum
 from hashlib import sha256
 from html import unescape
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from types import MappingProxyType
 from typing import Any, Protocol, cast
 from urllib.parse import unquote
@@ -645,6 +645,64 @@ class ManagedWorkspaceObservation:
 
 
 @dataclass(frozen=True, slots=True)
+class ManagedGraphSource:
+    note_id: str
+    revision_id: str
+    relative_path: str
+    body: str
+    body_sha256: str
+    privacy_sha256: str
+
+    def __post_init__(self) -> None:
+        _portable_id(self.note_id, "page")
+        _portable_id(self.revision_id, "revision")
+        if not isinstance(self.relative_path, str):
+            raise ValueError("invalid managed graph source")
+        path = PurePosixPath(self.relative_path)
+        if (
+            not self.relative_path
+            or len(self.relative_path) > _MAX_TEXT
+            or "\\" in self.relative_path
+            or "\x00" in self.relative_path
+            or path.is_absolute()
+            or path.as_posix() != self.relative_path
+            or any(part in {"", ".", ".."} for part in path.parts)
+            or path.suffix.casefold() != ".md"
+            or not isinstance(self.body, str)
+            or len(self.body.encode("utf-8")) > 16 * 1024
+            or _HEX64.fullmatch(self.body_sha256) is None
+            or _HEX64.fullmatch(self.privacy_sha256) is None
+        ):
+            raise ValueError("invalid managed graph source")
+
+
+@dataclass(frozen=True, slots=True)
+class ManagedGraphSnapshot:
+    workspace_id: str
+    observation_generation: int
+    policy_generation: int
+    snapshot_sha256: str
+    sources: tuple[ManagedGraphSource, ...]
+
+    def __post_init__(self) -> None:
+        _portable_id(self.workspace_id, "workspace")
+        if (
+            type(self.observation_generation) is not int
+            or self.observation_generation < 0
+            or type(self.policy_generation) is not int
+            or self.policy_generation < 0
+            or not isinstance(self.snapshot_sha256, str)
+            or _HEX64.fullmatch(self.snapshot_sha256) is None
+            or not isinstance(self.sources, tuple)
+            or not all(isinstance(source, ManagedGraphSource) for source in self.sources)
+            or len(self.sources) > 64
+            or len({source.note_id for source in self.sources}) != len(self.sources)
+            or sum(len(source.body.encode("utf-8")) for source in self.sources) > 16 * 1024
+        ):
+            raise ValueError("invalid managed graph snapshot")
+
+
+@dataclass(frozen=True, slots=True)
 class ManagedWorkspaceStatus:
     workspace_id: str
     connected: bool
@@ -789,7 +847,9 @@ class ManagedSuggestion:
     suggestion_id: str
     workspace_id: str
     source_note_id: str
+    source_revision_id: str
     target_note_id: str
+    target_revision_id: str
     source_quote: str
     target_quote: str
     provider: ManagedProvider
@@ -799,7 +859,9 @@ class ManagedSuggestion:
         _portable_id(self.suggestion_id, "suggestion")
         _portable_id(self.workspace_id, "workspace")
         _portable_id(self.source_note_id, "page")
+        _portable_id(self.source_revision_id, "revision")
         _portable_id(self.target_note_id, "page")
+        _portable_id(self.target_revision_id, "revision")
         if self.source_note_id == self.target_note_id:
             raise ValueError("invalid managed suggestion identity")
         for value in (self.source_quote, self.target_quote, self.model):
@@ -1507,6 +1569,8 @@ class ManagedWorkspaceTask(Protocol):
     def refresh(self, workspace_id: str, *, operation_id: str) -> ManagedWorkspaceReceipt: ...
 
     def observe(self, workspace_id: str) -> ManagedWorkspaceObservation: ...
+
+    def graph_snapshot(self, workspace_id: str) -> ManagedGraphSnapshot: ...
 
     def accept_observed(
         self,

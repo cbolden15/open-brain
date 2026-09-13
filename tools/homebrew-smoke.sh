@@ -25,8 +25,8 @@ cleanup() {
 trap cleanup EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM
-guard snapshot "$smoke_root/product.json"
 guard cleanup
+guard snapshot "$smoke_root/product.json"
 mkdir -p "$smoke_root/tap/Formula"
 guard mark "$smoke_root/tap"
 python -m tools.open_brain_dev.base_native formula --smoke \
@@ -38,7 +38,14 @@ printf '%s\n' 'Local Open Brain Homebrew smoke' > "$smoke_root/commit-message"
 git -C "$smoke_root/tap" -c user.name='Open Brain CI' \
     -c user.email='ci@open-brain.invalid' -c commit.gpgsign=false \
     commit --quiet -F "$smoke_root/commit-message"
-brew tap "$smoke_tap" "file://$smoke_root/tap"
+tap_repository=$(brew --repository "$smoke_tap")
+case "$tap_repository" in
+    /*) ;;
+    *) echo 'Homebrew returned a non-absolute tap repository' >&2; exit 2 ;;
+esac
+test ! -e "$tap_repository"
+git clone --quiet "file://$smoke_root/tap" "$tap_repository"
+guard verify-tap "$smoke_root/tap"
 brew install "$smoke_formula"
 smoke_prefix=$(brew --prefix "$smoke_formula")
 case "$smoke_prefix" in
@@ -46,4 +53,5 @@ case "$smoke_prefix" in
     *) echo 'Homebrew returned a non-absolute smoke prefix' >&2; exit 2 ;;
 esac
 python -m tools.open_brain_dev.base_native smoke \
-    --root "$repo_root" --artifact "$smoke_prefix/bin/open-brain"
+    --root "$repo_root" --artifact "$smoke_prefix/bin/open-brain" \
+    --graphify-artifact "$smoke_prefix/libexec/open-brain-graphify"
