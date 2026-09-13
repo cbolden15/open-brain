@@ -1,0 +1,47 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:open-brain:protocol:v1:effect-receipt",
+  "type": "object",
+  "properties": {
+    "schema_version": { "$ref": "urn:open-brain:protocol:v1:common#/$defs/schema_version" },
+    "kind": { "const": "effect_receipt" },
+    "brain_id": { "$ref": "urn:open-brain:protocol:v1:common#/$defs/brain_id" },
+    "receipt_id": { "$ref": "urn:open-brain:protocol:v1:common#/$defs/receipt_id" },
+    "effect_id": { "$ref": "urn:open-brain:protocol:v1:common#/$defs/effect_id" },
+    "reconciles_receipt_id": {
+      "oneOf": [
+        { "$ref": "urn:open-brain:protocol:v1:common#/$defs/receipt_id" },
+        { "type": "null" }
+      ]
+    },
+    "external_identity": { "type": "string", "minLength": 1, "maxLength": 256 },
+    "outcome": { "enum": ["succeeded", "failed", "unknown"] },
+    "compartments": { "$ref": "urn:open-brain:protocol:v1:common#/$defs/compartments" },
+    "provenance": { "$ref": "urn:open-brain:protocol:v1:provenance" },
+    "observed_at": { "$ref": "urn:open-brain:protocol:v1:common#/$defs/timestamp" }
+  },
+  "required": [
+    "schema_version",
+    "kind",
+    "brain_id",
+    "receipt_id",
+    "effect_id",
+    "reconciles_receipt_id",
+    "external_identity",
+    "outcome",
+    "compartments",
+    "provenance",
+    "observed_at"
+  ],
+  "allOf": [
+    {
+      "if": { "properties": { "outcome": { "const": "unknown" } } },
+      "then": { "properties": { "reconciles_receipt_id": { "type": "null" } } }
+    },
+    {
+      "if": { "properties": { "reconciles_receipt_id": { "type": "string" } } },
+      "then": { "properties": { "outcome": { "enum": ["succeeded", "failed"] } } }
+    }
+  ],
+  "additionalProperties": false
+}

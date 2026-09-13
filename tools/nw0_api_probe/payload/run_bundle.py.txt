@@ -1,0 +1,288 @@
+from __future__ import annotations
+
+import argparse
+import hashlib
+import json
+import os
+import re
+import selectors
+import signal
+import subprocess
+import sys
+import time
+from pathlib import Path
+
+HERE = Path(__file__).resolve().parent
+CANDIDATE = HERE.parent / "candidate"
+MODULES = ("test_async_transport", "test_correction", "test_boundary_adversarial")
+OUTPUT_CAP = 256 * 1024
+PINNED = {
+    "aiohappyeyeballs": "2.7.1", "aiohttp": "3.14.3", "aiosignal": "1.4.0",
+    "attrs": "26.1.0", "cffi": "2.0.0", "cryptography": "46.0.5",
+    "dnspython": "2.8.0", "frozenlist": "1.8.0", "idna": "3.19",
+    "multidict": "6.8.0", "propcache": "0.5.2", "pycparser": "3.0",
+    "yarl": "1.24.5",
+}
+
+
+def sha(path: Path) -> str:
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def child_environment(dependency_paths: list[Path]) -> dict[str, str]:
+    roots = [str(CANDIDATE), *(str(path.resolve()) for path in dependency_paths)]
+    return {
+        "LANG": "C.UTF-8", "PATH": "/usr/bin:/bin", "PYTHONDONTWRITEBYTECODE": "1",
+        "PYTHONHASHSEED": "0", "PYTHONPATH": os.pathsep.join(roots),
+    }
+
+
+def group_exists(pgid: int) -> bool:
+    try:
+        os.killpg(pgid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    return True
+
+
+def wait_group_gone(pgid: int, timeout: float) -> bool:
+    deadline = time.monotonic() + timeout
+    while group_exists(pgid) and time.monotonic() < deadline:
+        time.sleep(0.01)
+    return not group_exists(pgid)
+
+
+def stop_owned(process: subprocess.Popen[bytes], pgid: int) -> dict[str, bool]:
+    signal_unknown = False
+    if group_exists(pgid):
+        try:
+            os.killpg(pgid, signal.SIGTERM)
+        except ProcessLookupError:
+            pass
+        except PermissionError:
+            signal_unknown = True
+    if process.poll() is None:
+        try:
+            process.wait(timeout=0.2)
+        except subprocess.TimeoutExpired:
+            pass
+    group_terminated = not signal_unknown and wait_group_gone(pgid, 0.2)
+    if not group_terminated:
+        try:
+            os.killpg(pgid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+        except PermissionError:
+            signal_unknown = True
+        if process.poll() is None:
+            try:
+                process.wait(timeout=0.2)
+            except subprocess.TimeoutExpired:
+                pass
+        group_terminated = not signal_unknown and wait_group_gone(pgid, 0.5)
+    if process.poll() is None:
+        try:
+            process.wait(timeout=0.2)
+        except subprocess.TimeoutExpired:
+            try:
+                process.kill()
+            except ProcessLookupError:
+                pass
+            try:
+                process.wait(timeout=0.2)
+            except subprocess.TimeoutExpired:
+                pass
+    direct_reaped = process.poll() is not None
+    if direct_reaped and not signal_unknown:
+        group_terminated = wait_group_gone(pgid, 0.05)
+    return {
+        "direct_reaped": direct_reaped,
+        "group_terminated": group_terminated,
+        "cleanup_known": direct_reaped and group_terminated and not signal_unknown,
+    }
+
+
+def run_owned(
+    command: list[str], *, cwd: Path, env: dict[str, str], timeout: float, cap: int
+) -> dict[str, object]:
+    started = time.monotonic()
+    output = bytearray()
+    failure = None
+    process = subprocess.Popen(
+        command, cwd=cwd, env=env, stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL, start_new_session=True,
+    )
+    pgid = process.pid
+    cleanup = {"direct_reaped": False, "group_terminated": False, "cleanup_known": False}
+    selector = None
+    try:
+        if process.stdout is None:
+            raise OSError("missing owned stdout pipe")
+        selector = selectors.DefaultSelector()
+        selector.register(process.stdout, selectors.EVENT_READ)
+        deadline = started + timeout
+        while True:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                failure = "timeout"
+                break
+            events = selector.select(min(remaining, 0.05))
+            for key, _ in events:
+                chunk = os.read(key.fileobj.fileno(), min(65536, cap + 1 - len(output)))
+                if not chunk:
+                    selector.unregister(key.fileobj)
+                else:
+                    output.extend(chunk)
+                    if len(output) > cap:
+                        failure = "output_limit"
+                        break
+            if failure is not None:
+                break
+            if process.poll() is not None and not selector.get_map():
+                break
+        if failure is None:
+            process.wait(timeout=max(0.01, deadline - time.monotonic()))
+    except subprocess.TimeoutExpired:
+        failure = "timeout"
+    except Exception:  # noqa: BLE001 - fixed classification; cleanup remains mandatory
+        failure = "observer_error"
+    finally:
+        cleanup = stop_owned(process, pgid)
+        if selector is not None:
+            selector.close()
+        if process.stdout is not None:
+            process.stdout.close()
+    if not cleanup["cleanup_known"] and failure is None:
+        failure = "cleanup_unknown"
+    truncated = len(output) > cap
+    if truncated:
+        marker = b"\n[C30 output truncated at configured cap]\n"
+        output = output[: max(0, cap - len(marker))] + marker
+    return {
+        "command": command,
+        "elapsed_seconds": round(time.monotonic() - started, 6),
+        "failure": failure,
+        "output": bytes(output).decode("utf-8", errors="replace"),
+        "output_bytes": len(output),
+        "output_cap_bytes": cap,
+        "pid": process.pid,
+        "pgid": pgid,
+        "returncode": process.returncode,
+        "reaped": cleanup["direct_reaped"],
+        **cleanup,
+        "truncated": truncated,
+    }
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("output", type=Path)
+    parser.add_argument("--dependency-path", action="append", type=Path, default=[])
+    parser.add_argument("--interpreter", type=Path, default=Path(sys.executable))
+    parser.add_argument("--child-timeout", type=float, default=30.0)
+    parser.add_argument("--output-cap", type=int, default=OUTPUT_CAP)
+    parser.add_argument("--module", action="append", default=[])
+    args = parser.parse_args()
+    if args.output.exists():
+        raise SystemExit(f"refusing existing output: {args.output}")
+    if not (0 < args.child_timeout <= 30) or not (1024 <= args.output_cap <= OUTPUT_CAP):
+        raise SystemExit("invalid runner bounds")
+    args.output.mkdir(parents=True)
+
+    started = time.monotonic()
+    env = child_environment(args.dependency_path)
+    runs = []
+    receipt: dict[str, object] = {
+        "schema": "open-brain-c30-portable-async-receipt-v3",
+        "ok": False,
+        "runner_sha256": sha(Path(__file__)),
+        "runtime_source_root": str(CANDIDATE),
+        "dependency_roots": [str(path.resolve()) for path in args.dependency_path],
+        "child_environment_keys": sorted(env),
+        "output_cap_bytes": args.output_cap,
+        "child_timeout_seconds": args.child_timeout,
+        "runs": runs,
+        "modules": args.module or list(MODULES),
+    }
+    exit_code = 1
+    try:
+        query = (
+            "import importlib.metadata as m,json,platform,sys;"
+            f"names={list(PINNED)!r};"
+            "print(json.dumps({'versions':{n:m.version(n) for n in names},"
+            "'python':sys.version,'executable':sys.executable,'platform':platform.platform(),"
+            "'machine':platform.machine()},sort_keys=True))"
+        )
+        preflight = run_owned(
+            [str(args.interpreter), "-B", "-c", query], cwd=CANDIDATE, env=env,
+            timeout=min(args.child_timeout, 5), cap=args.output_cap,
+        )
+        (args.output / "preflight.log").write_text(str(preflight["output"]))
+        receipt["preflight"] = {key: value for key, value in preflight.items() if key != "output"}
+        if preflight["failure"] is not None or preflight["returncode"] != 0:
+            receipt["failure"] = (
+                f"preflight_{preflight['failure']}"
+                if preflight["failure"] is not None
+                else "preflight_process_failure"
+            )
+            return 1
+        context = None
+        if preflight["failure"] is None and preflight["returncode"] == 0:
+            try:
+                context = json.loads(str(preflight["output"]))
+            except json.JSONDecodeError:
+                receipt["preflight_error"] = "invalid context JSON"
+        receipt["child_context"] = context
+        versions = context.get("versions") if isinstance(context, dict) else None
+        receipt["dependency_versions"] = versions
+        receipt["dependency_pins_match"] = versions == PINNED
+        if versions != PINNED:
+            receipt["failure"] = "dependency_mismatch_before_tests"
+            return 1
+
+        modules = tuple(args.module) or MODULES
+        for label, optimize in (("normal", False), ("optimized", True)):
+            command = [str(args.interpreter), "-B"]
+            if optimize:
+                command.append("-O")
+            command.extend(["-m", "unittest", *modules])
+            run = run_owned(
+                command, cwd=CANDIDATE, env=env,
+                timeout=args.child_timeout, cap=args.output_cap,
+            )
+            (args.output / f"{label}.log").write_text(str(run["output"]))
+            match = re.search(r"Ran (\d+) tests", str(run["output"]))
+            public_run = {key: value for key, value in run.items() if key != "output"}
+            public_run.update(label=label, tests=int(match.group(1)) if match else None,
+                              log=f"{label}.log")
+            runs.append(public_run)
+            if run["failure"] is not None or run["returncode"] != 0:
+                receipt["failure"] = f"{label}_{run['failure'] or 'test_failure'}"
+                return 1
+
+        files = sorted(path for path in CANDIDATE.iterdir()
+                       if path.is_file() and path.name != "run_bundle.py")
+        receipt.update({
+            "expected_tests_per_run": 23,
+            "candidate_files_sha256": {path.name: sha(path) for path in files},
+            "ephemeral_tls": True, "persisted_key_material": False,
+            "kernel_fd_assertion": False,
+        })
+        receipt["ok"] = all(run["tests"] == 23 and run["cleanup_known"] for run in runs)
+        exit_code = 0 if receipt["ok"] else 1
+        return exit_code
+    except Exception as error:  # noqa: BLE001 - receipt records every runner failure
+        receipt["failure"] = f"runner_exception:{type(error).__name__}:{error}"
+        return 1
+    finally:
+        receipt["elapsed_seconds"] = round(time.monotonic() - started, 6)
+        receipt["exit_code"] = exit_code if receipt.get("ok") else 1
+        (args.output / "receipt.json").write_text(
+            json.dumps(receipt, indent=2, sort_keys=True) + "\n"
+        )
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

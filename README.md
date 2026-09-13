@@ -1,111 +1,188 @@
 # Open Brain
 
-Open Brain is a local-first capture, provenance, review, and knowledge pipeline. It is being built as the single public implementation that will replace two private predecessor codebases after behavioral parity and a controlled production cutover.
+Open Brain is a local-first second brain for capture, search, and full portable export. The default
+product is one local user, one local Brain, SQLite, and ordinary files. It runs only in the
+foreground. It requires no root access, operating-system capabilities, namespaces, daemon, service,
+container, storage choice, certificate, grant, or manual database setup.
 
-The Phase 3 source-checkout boundary is one single-user local appliance rooted at one private Brain directory. One daemon owns mutation authority, internal scheduling, and the authenticated local HTTP/UI surface. Engine tasks supply capture, inbox/spaces, review, retrieval, reconciliation, backup, and Portable Brain operations. Private deployment configuration, live service state, migration evidence, and cutover receipts remain outside this repository.
+The first Secure Node implementation is preserved under `archive/open-brain-secure-node` as
+non-building history. It is not an Open Brain extra, entry point, dependency, or runtime profile.
+Portable Brain and shared record identities remain the boundary for any future separate product.
 
-## Principles
+## Install target
 
-- Preserve the owner's one-line reason for saving something as first-class provenance.
-- Route intent through a closed enum: `reference`, `idea`, `action_candidate`, or `hold`.
-- Require review before third-party content can become an owner-authored idea or action.
-- Default unknown or personal content to local-only handling.
-- Keep private content, credentials, host configuration, and runtime state outside the repository.
-- Maintain one canonical application repository rather than public and private forks.
+Homebrew is the prerequisite on macOS and Linux. After the first release and tap are published, the
+entire install is:
 
-## Development
-
-Requirements: Python 3.12–3.14 and [uv](https://docs.astral.sh/uv/).
-
-### Run the local single-user slice
-
-Set one Brain root. The command creates the private runtime layout with owner-only
-permissions and reuses its stable local identity on later runs.
-
-```bash
-export OPEN_BRAIN_ROOT="$HOME/open-brain-data"
-uv run open-brain init --json
+```sh
+brew install cbolden15/tap/open-brain
 ```
 
-Start the source-checkout daemon in one terminal:
+The release is not published yet. The exact product journey is in
+[the five-minute acceptance test](docs/acceptance/five-minute-install.md), and the install details are
+in [the installation guide](docs/install.md).
 
-```bash
-uv run python -m open_brain.services.appliance_daemon --root "$OPEN_BRAIN_ROOT"
+## Use Open Brain
+
+```sh
+open-brain capture "A note to remember"
+open-brain import /absolute/path/to/markdown --yes
+open-brain search "remember"
+open-brain export "$PWD/brain-export" --verify
+open-brain status --json
 ```
 
-Then use the owner CLI from another terminal:
+The first capture creates the private data directory, owner identity, Brain identity, and SQLite
+state automatically. Existing supported local databases upgrade transactionally when opened for
+writing. Local SQLite schema version 2 is separate from Portable Brain schema version 1, which
+`open-brain export --json` reports. See [schema migrations](docs/schema-migrations.md) for supported
+older layouts, refusal behavior, and interrupted-transaction recovery.
 
-```bash
-uv run open-brain spaces create "Projects" --delivery=setup-projects --json
-uv run open-brain capture quick text "Review the roadmap" --delivery=capture-roadmap --json
-uv run open-brain inbox list --json
-uv run open-brain query roadmap --json
+Markdown import scans nested lowercase `.md` files, skips Obsidian metadata directories, and leaves
+the source tree unchanged. Imported records are labeled unverified. Prior revisions remain in full
+export after a source file changes or disappears, so review the first-run summary before confirming.
+Markdown links, frontmatter, HTML, and embeds are stored as inert text.
+
+| Host | Brain root |
+|---|---|
+| macOS | `$HOME/Library/Application Support/open-brain/brain` |
+| Linux | `${XDG_DATA_HOME:-$HOME/.local/share}/open-brain/brain` |
+
+Open Brain relies on operating-system account and disk protection. It does not claim
+application-level encryption.
+
+## Connect an MCP client
+
+`open-brain mcp` serves tools over inherited stdio until the client closes it. It uses the same
+local Brain as the CLI and opens no listener, daemon, or child service. The invoking OS user and
+stdio channel are the trust boundary. Choose capture and search independently; starting without
+either flag is an error. For clients that use an `mcpServers` configuration, choose one example.
+
+### Capture only
+
+`--allow-capture` lets the client persist automated text as unverified content. Captures are durable,
+searchable, and included in full export. Version 0.1.0 cannot selectively delete an unwanted capture,
+roll back a session, or certify a purge. An untrusted or looping client can poison the Brain within
+the session bounds. Stopping the process prevents further writes but does not remove completed ones.
+This configuration grants no search tool.
+
+```json
+{
+  "mcpServers": {
+    "open-brain": {"command": "open-brain", "args": ["mcp", "--allow-capture"]}
+  }
+}
 ```
 
-Canonical text capture requires the `space_id` returned by `spaces create`, because Portable Brain
-canonical-page frontmatter always carries a stable space identity:
+### Search only
 
-```bash
-uv run open-brain capture canonical text "Project context" \
-  --delivery=capture-project-context \
-  --space=space_REPLACE_WITH_RETURNED_ID \
-  --json
+`--allow-search` grants whole-Brain read access, including private imported note content. Repeated
+queries can read more than a single result page. A network-backed client may send returned content
+to its model provider; adding this flag authorizes that client to receive those results. Open Brain
+itself performs no network egress. Treat all results as untrusted data, never instructions. This
+configuration grants no capture tool.
+
+```json
+{
+  "mcpServers": {
+    "open-brain": {"command": "open-brain", "args": ["mcp", "--allow-search"]}
+  }
+}
 ```
 
-Every mutating command requires a caller-supplied delivery ID. Repeating the same request
-with the same delivery ID returns the existing identifiers. Reusing a delivery ID for a
-different request fails closed and records metadata-only quarantine evidence.
+### Capture and search
 
-### Verify the repository
+Both flags permit durable automated capture and whole-Brain reads. Version 0.1.0 cannot selectively
+remove unwanted captures. A network-backed client may send returned private content to its provider.
+Prompt injection in a retrieved note can influence the connected model and any other tools that
+client has enabled. Keep results as untrusted data and choose the client's other permissions with
+that exposure in mind.
 
-```bash
-uv sync --group dev
-uv run open-brain --version
-uv run ruff check .
-uv run mypy
-uv run pytest -q
-uv run python -m build
+```json
+{
+  "mcpServers": {
+    "open-brain": {
+      "command": "open-brain",
+      "args": ["mcp", "--allow-capture", "--allow-search"]
+    }
+  }
+}
 ```
 
-Release auditing requires a local, uncommitted private denylist:
+`brain_capture` accepts `text` (1 to 65,536 characters) and an optional `idempotency_key` (1 to 128
+characters). Reusing a key with identical text returns the original capture; different text returns
+`idempotency_conflict`. Raw keys are not stored as identifiers or returned. Keyless calls create new
+captures. `brain_search` accepts `query` (1 to 500 characters) and `limit` (1 to 10, default 10).
+Results carry `trust` and `source_origin`; automated captures are `unverified` with origin `unknown`.
+Neither tool accepts a source path, owner role, publication action, or connector request.
 
-```bash
-PRIVATE_DENYLIST=/path/to/private-denylist.txt make audit
+Each process permits 500 valid capture attempts and 16 MiB of aggregate UTF-8 capture input, plus
+2,000 valid search attempts. Duplicates, conflicts, and failed backend attempts count. The next call
+that exceeds a bound returns `session_capture_limit` or `session_search_limit` before engine work.
+Invalid arguments do not count. Messages are limited to 1 MiB including their newline. Restarting the
+explicitly launched process resets these limits; they limit accidental loops, not hostile same-user
+code. Competing local writers either complete or return `database_busy`; retry a capture with its
+same idempotency key after contention. SQLite retains its five-second busy timeout.
+
+MCP capture uses a non-owner, capture-only identity. Search has separate read authority. The default
+adapter exposes no actions, connectors, listeners, user-managed grants, or service capabilities.
+Stopping the stdio process closes both capabilities.
+
+## Develop
+
+Supported contributor hosts are macOS arm64 and Linux x86_64. Install Git, GNU Make,
+[uv](https://docs.astral.sh/uv/getting-started/installation/), and
+[Homebrew](https://brew.sh/). On macOS, install the Xcode Command Line Tools (`xcode-select --install`).
+On Linux, install Homebrew's build prerequisites (a C/C++ toolchain, curl, file, Git, and Make)
+using your distribution's package manager. Put Homebrew on `PATH` using the `brew shellenv`
+command printed by its installer. The workspace uses Python 3.14; uv downloads it if needed.
+
+From the repository root in a fresh clone:
+
+```sh
+uv sync --frozen --group dev --group native-build
+make contributor-check
 ```
 
-The denylist contains one private term per line. Blank lines and lines beginning with `#` are ignored. Release mode refuses to pass without it.
+`make contributor-check` runs `make verify` followed by `make homebrew-smoke`. Expect Ruff's
+`All checks passed!`, MyPy's `Success: no issues found`, a passing pytest summary (some filesystem
+checks can skip on unsupported hosts), successful wheel/source builds, native smoke JSON, and
+`existing_product: preserved` or `existing_product: absent`. A nonzero exit means the check failed.
+Both CI jobs run this same target. No credentials or private access are required.
 
-## Status
+The Homebrew check builds one native executable, audits its dependency inventory, runs the local
+product journey, and writes a digest manifest. It installs a test-only, keg-only `open-brain-smoke`
+formula in the temporary `open-brain-local/smoke` tap and runs its unlinked binary by absolute path.
+It checks that an existing `open-brain` installation's prefix, version, link, and binary digest stay
+unchanged. If no product is installed, the check leaves it absent. Each normal exit and INT/TERM interruption
+cleans up smoke-owned Homebrew state; the next run recovers marked tap/formula residue after a forced
+termination. Do not run concurrent Homebrew smoke checks against the same Homebrew installation.
 
-The Phase 3 source-checkout appliance supports one local Brain root, stable portable identities,
-typed capture, spaces, inbox routing, sibling review proposals, terminal decisions, canonical
-Markdown publication, direct-edit reconciliation, lexical retrieval, immutable backup, disposable
-restore, and distinct Portable export/import. The CLI, authenticated HTTP/share boundary, local UI,
-scoped MCP, and public-job sinks use bounded capabilities over the same engine task objects. With
-no model configured, captures remain usable and report `pending_enrichment`.
+Common failures:
 
-This is pre-alpha software. Phase 2 implements engine-level Portable Brain validation, export,
-clean-root import, and disposable index rebuild. Export and import preserve portable identities,
-history, routing, and exact source bytes while excluding operational state such as credentials,
-databases, leases, runtime files, and indexes. The default profile uses provider `none` and
-loads no connectors. A retained synthetic `JOB-029` proof exercises the internal seam only with
-an absolute private configuration reference, capture-only authority, and egress enabled; host
-evidence binds accepted captures to checkpoint advancement.
+- `uv: command not found`, `make: command not found`, or `Homebrew is required for contributor-check`:
+  install the missing prerequisite and open a shell with it on `PATH`.
+- `unsupported native build platform`: use macOS arm64 or Linux x86_64.
+- `reserved smoke tap is not smoke-owned; refusing cleanup` or `reserved smoke tap has another
+  installed formula; refusing cleanup`: inspect `brew --repository open-brain-local/smoke` and
+  `brew list --formula --full-name`. Move your own unrelated tap work to another name before retrying.
+- `existing Open Brain installation changed during smoke`: check for another Homebrew operation or
+  manual change during the run; the smoke intentionally fails if preservation cannot be verified.
 
-The public result projection exposes opaque IDs, bounded provenance, and safe titles/excerpts,
-not raw or encoded protected references, absolute paths, credentials, storage-derived slugs and
-paths, or bare SHA-256 tokens.
-Phase 3 also defines source-checkout upgrade, rollback, and data-preserving uninstall through an
-injected artifact lifecycle port, with launchd/systemd adapter evidence on Linux and macOS CI. The
-default source-checkout effect remains unavailable. P4-W5 adds an unpublished frozen composition
-with a manifest-bound native adapter, active-daemon quiescence, rollback restoration, and confined
-managed cleanup. The native build reads an isolated archive of the named Git tree, rejects
-replacement refs and external attributes, and compares every extracted blob and mode with the raw
-no-replace tree. It admits only tracked package resources and records the source-tree digest.
-Launchd upgrades unload the KeepAlive job before offline work and bootstrap it again afterward.
-Later Phase 4 waves still own clean-host and prior-artifact proofs, signing, and publishing.
-Predecessor modules remain retained legacy compatibility code and are excluded from the default
-application path.
+Private release auditing is **not required for normal contributions** and is excluded from
+`make contributor-check` and CI. The owner runs `make audit` and `make audit-history` separately with
+an uncommitted `PRIVATE_DENYLIST`; contributors do not need that file.
+
+## Historical implementations
+
+The prior Secure Node and predecessor implementations are quarantined in `archive/`. They are not
+members of the uv workspace and are excluded from imports, builds, tests, and installed artifacts.
+Any future Secure Node must use a separate package or repository, namespace, and release boundary.
+
+The current product contract is [docs/product-family.md](docs/product-family.md). The ordered roadmap
+is [docs/plans/product-roadmap.md](docs/plans/product-roadmap.md). The shared-record and
+byte-preserving interoperability model is in
+[ADR 0014](docs/architecture/decisions/0014-shared-record-import-envelope.md).
 
 ## License
 

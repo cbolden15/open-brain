@@ -6,6 +6,30 @@ layout. Portable operations preserve identities, exact source/canonical/history 
 chains, and append-only routing. They exclude operational state and do not provide daemon,
 backup/restore, upgrade, uninstall, provider, or hosted-runtime orchestration.
 
+## Product-family role
+
+Portable Brain v1 is the shared minimum record and export format for Open Brain and Secure Node.
+The default product can create a complete export without Secure Node installed. Secure Node must
+accept that export as its upgrade input and preserve stable Brain, actor, space, capture, source,
+proposal, decision, publication, action, and provenance identities plus every exact portable byte.
+
+Secure Node grants, compartments, key envelopes, nonces, sequencer state, service state, and
+projection checkpoints are not silently invented as historical facts. A Secure Node import applies
+new custody and authorization policy in a separate receipt-bound operation and records that the
+protection starts at import. It never claims that the source Open Brain data had application-level
+encryption.
+
+BrainPack v2 is a Secure Node envelope and advanced semantic profile. Before Secure Node persistence
+advances, a conformance mapping must prove that its shared semantic records round-trip through this
+Portable Brain v1 profile without identity, provenance, or byte drift. Default-to-Secure-Node
+upgrade uses this export/import boundary, not a copy or reinterpretation of live SQLite files.
+
+The shared mapping distinguishes semantic IDs from Secure Node envelope IDs. Portable IDs remain
+the stable semantic identities and are preserved exactly inside protected imported records. Secure
+Node's role-specific IDs identify its protocol envelopes. Re-encoding or deriving an envelope ID
+does not rename the Portable record. The complete mapping is specified by ADR 0014 and the
+`CORE-W0` plan.
+
 ## Layout
 
 ```text
@@ -48,6 +72,10 @@ canonical `payload` object. Reusing a receipt ID with different bytes is invalid
 existing capture appends a route record. Later routes link to the route they supersede, so export
 and import preserve current space membership without rewriting the immutable source record.
 
+Canonical page `trust` records whether a page is owner-authored or owner-reviewed. Source confidence
+remains on the linked capture. A reviewed page may therefore point to an unverified capture without
+changing either fact; retrieval derives its public trust label from both records.
+
 ## Schemas and fixture evidence
 
 The 15 Draft 2020-12 schemas are under `schemas/portable-brain/v1/`. They have immutable v1
@@ -79,6 +107,13 @@ proposal ID, outcome, expected state digest, and optional edited-content digest.
 bytes must equal the decision's effective page content and the exact file at `published_path`. An
 action request must equal the effective approved action proposal; its approval receipt binds the
 action ID, decision ID, and request digest, while the result has its own canonical digest.
+
+For upgrade comparison, “exact bytes” means every file listed by the validated source manifest.
+The source manifest itself is export evidence, not a canonical Brain record; a later export creates
+a new export ID and timestamp. JSONL rows retain their original order and terminating line feeds.
+Blob bytes remain digest-verified payload attachments rather than content-derived public IDs.
+Owner Markdown that lacks canonical page frontmatter has no Portable semantic ID; an upgrade keeps
+its exact path, digest, and bytes as an attachment instead of inventing a path-based record ID.
 
 ## Engine operations
 

@@ -1,0 +1,231 @@
+"""Execute the materialized E43 candidate in isolated normal and optimized children."""
+
+from __future__ import annotations
+
+import contextlib
+import hashlib
+import json
+import os
+import re
+import signal
+import subprocess
+import sys
+import time
+from pathlib import Path
+from typing import Any
+
+EXPECTED_VERSIONS = {
+    "aiodns": "4.0.4",
+    "cffi": "2.0.0",
+    "cryptography": "46.0.5",
+    "pycares": "5.0.1",
+    "pycparser": "3.0",
+}
+EXPECTED_TESTS = 13
+TEST_BOOTSTRAP = (
+    "import runpy,sys; dep,candidate=sys.argv[1:3]; "
+    "sys.path[:0]=[dep,candidate]; "
+    "sys.argv=['unittest','-v','test_unprivileged_transport']; "
+    "runpy.run_module('unittest',run_name='__main__')"
+)
+RUNTIME_BOOTSTRAP = (
+    "import runpy,sys; dep,candidate,output=sys.argv[1:4]; "
+    "sys.path[:0]=[dep,candidate]; sys.argv=['runtime_probe',output]; "
+    "runpy.run_module('runtime_probe',run_name='__main__')"
+)
+
+
+def digest(path: Path) -> str:
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def terminate_group(process: subprocess.Popen[bytes]) -> None:
+    if process.poll() is None:
+        with contextlib.suppress(ProcessLookupError):
+            os.killpg(process.pid, signal.SIGTERM)
+        try:
+            process.wait(timeout=1)
+        except subprocess.TimeoutExpired:
+            with contextlib.suppress(ProcessLookupError):
+                os.killpg(process.pid, signal.SIGKILL)
+            process.wait(timeout=1)
+
+
+def group_is_gone(pid: int) -> bool:
+    try:
+        os.killpg(pid, 0)
+    except ProcessLookupError:
+        return True
+    except PermissionError:
+        return False
+    return False
+
+
+def run_child(command: list[str], *, cwd: Path, timeout: float) -> tuple[int, bytes, bool, float]:
+    started = time.monotonic()
+    environment = {
+        "PATH": "/usr/bin:/bin",
+        "LANG": "C.UTF-8",
+        "PYTHONNOUSERSITE": "1",
+        "PYTHONDONTWRITEBYTECODE": "1",
+    }
+    process = subprocess.Popen(
+        command,
+        cwd=cwd,
+        env=environment,
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        start_new_session=True,
+    )
+    try:
+        output, _ = process.communicate(timeout=timeout)
+    except subprocess.TimeoutExpired:
+        terminate_group(process)
+        raise RuntimeError("bounded child timeout") from None
+    finally:
+        terminate_group(process)
+    if len(output) > 512 * 1024:
+        raise RuntimeError("child log limit")
+    return process.returncode, output, group_is_gone(process.pid), time.monotonic() - started
+
+
+def test_mode(
+    label: str, optimized: bool, interpreter: Path, candidate: Path, dependencies: Path
+) -> dict[str, object]:
+    command = [str(interpreter), "-I", "-S"]
+    if optimized:
+        command.append("-O")
+    command.extend(["-c", TEST_BOOTSTRAP, str(dependencies), str(candidate)])
+    returncode, output, group_gone, elapsed = run_child(command, cwd=candidate, timeout=30)
+    match = re.search(rb"Ran (\d+) tests", output)
+    tests = int(match.group(1)) if match else 0
+    if returncode != 0 or tests != EXPECTED_TESTS or not group_gone:
+        raise RuntimeError("candidate tests failed")
+    return {
+        "label": label,
+        "returncode": returncode,
+        "tests": tests,
+        "group_terminated": group_gone,
+        "reaped": True,
+        "elapsed_seconds": elapsed,
+        "log_sha256": hashlib.sha256(output).hexdigest(),
+    }
+
+
+def validate_runtime(value: Any) -> dict[str, object]:
+    if (
+        not isinstance(value, dict)
+        or value.get("schema") != "open-brain-e43-unprivileged-runtime-v1"
+        or value.get("passed") is not True
+        or value.get("unprivileged") is not True
+        or value.get("uid") != value.get("euid")
+        or value.get("gid") != value.get("egid")
+        or value.get("namespaces") is not False
+        or value.get("capabilities") is not False
+        or value.get("fixture_owner_processes") != 0
+        or value.get("provider_calls") != 0
+        or value.get("dependency_versions") != EXPECTED_VERSIONS
+        or value.get("c_ares_version") != "1.34.6"
+        or value.get("resource_inventory_before") != value.get("resource_inventory_after")
+    ):
+        raise RuntimeError("runtime receipt boundary")
+    resolvers = value.get("resolver_cases")
+    transports = value.get("transport_cases")
+    if not isinstance(resolvers, list) or [row.get("case") for row in resolvers] != [
+        "success", "timeout", "caller-cancel", "concurrent-close", "captured-config", "malformed",
+        "two-resolver-interleaving",
+    ]:
+        raise RuntimeError("resolver receipt inventory")
+    if not isinstance(transports, list) or [row.get("case") for row in transports] != [
+        "success", "tls-stall"
+    ]:
+        raise RuntimeError("transport receipt inventory")
+    for row in (*resolvers, *transports):
+        if row.get("provider_calls") != 0:
+            raise RuntimeError("provider call detected")
+        receipt = row.get("receipt")
+        if not isinstance(receipt, dict) or receipt.get("resolver_closed") is not True:
+            raise RuntimeError("resolver close receipt")
+    success, stall = transports
+    interleaving = resolvers[-1]
+    if (
+        interleaving.get("initial_dependency_state", {}).get("live_channels") != 2
+        or interleaving.get("between_dependency_state")
+        != {
+            "live_channels": 1,
+            "pending_destructions": 0,
+            "thread_alive": True,
+            "stopping": False,
+        }
+        or interleaving.get("final_dependency_state")
+        != {
+            "live_channels": 0,
+            "pending_destructions": 0,
+            "thread_alive": False,
+            "stopping": False,
+        }
+        or interleaving.get("first_receipt", {}).get("resolver_closed") is not True
+        or success["receipt"].get("body_releases") != 1
+        or success["receipt"].get("cleanup_complete") is not True
+        or stall["receipt"].get("body_releases") != 0
+        or stall["receipt"].get("cleanup_complete") is not True
+    ):
+        raise RuntimeError("transport ownership receipt")
+    return {
+        key: value[key]
+        for key in (
+            "schema", "passed", "system", "machine", "python", "uid", "euid", "gid", "egid",
+            "unprivileged", "namespaces", "capabilities", "fixture_owner_processes",
+            "provider_calls", "dependency_versions", "c_ares_version",
+            "resource_inventory_before", "resource_inventory_after", "resolver_cases",
+            "transport_cases",
+        )
+    }
+
+
+def main() -> int:
+    if len(sys.argv) != 5:
+        return 2
+    candidate, dependencies, output, interpreter = map(Path, sys.argv[1:])
+    files = (
+        "fixtures.py", "owned_transport.py", "runtime_probe.py", "test_unprivileged_transport.py",
+        "requirements.txt",
+    )
+    bindings = {name: digest(candidate / name) for name in files}
+    runs = [
+        test_mode("normal", False, interpreter, candidate, dependencies),
+        test_mode("optimized", True, interpreter, candidate, dependencies),
+    ]
+    runtime_path = output / "runtime.json"
+    command = [
+        str(interpreter), "-I", "-S", "-c", RUNTIME_BOOTSTRAP,
+        str(dependencies), str(candidate), str(runtime_path),
+    ]
+    returncode, runtime_log, group_gone, elapsed = run_child(command, cwd=candidate, timeout=30)
+    if returncode != 0 or not group_gone or not runtime_path.is_file():
+        raise RuntimeError("runtime proof failed")
+    runtime = validate_runtime(json.loads(runtime_path.read_text()))
+    receipt = {
+        "schema": "open-brain-e43-unprivileged-runner-v1",
+        "passed": True,
+        "candidate_files_sha256": bindings,
+        "runner_sha256": digest(Path(__file__)),
+        "dependency_versions": EXPECTED_VERSIONS,
+        "test_runs": runs,
+        "runtime_run": {
+            "returncode": returncode,
+            "reaped": True,
+            "group_terminated": group_gone,
+            "elapsed_seconds": elapsed,
+            "log_sha256": hashlib.sha256(runtime_log).hexdigest(),
+        },
+        "runtime": runtime,
+        "provider_calls": 0,
+    }
+    (output / "receipt.json").write_text(json.dumps(receipt, indent=2, sort_keys=True) + "\n")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

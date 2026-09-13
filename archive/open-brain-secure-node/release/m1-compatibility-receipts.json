@@ -1,0 +1,640 @@
+{
+  "cells": [
+    {
+      "architecture": "arm64",
+      "commands": [
+        "uv venv --python 3.12 ${TMP}/env",
+        "UV_CACHE_DIR=${UV_CACHE_DIR} CONAN_HOME=${TMP}/conan uv pip install --python ${TMP}/env/bin/python --only-binary=:all: rfc8785==0.1.4 sqlcipher3==0.6.2",
+        "${TMP}/env/bin/python tools/m1/compatibility_probe.py"
+      ],
+      "install": "wheel",
+      "platform": "macos",
+      "probe": {
+        "canonical_sha256": "aa58fba8483623bed37c1b02edfccbdd9a53123837c20bfa4cb4049993a2872e",
+        "dependencies": {
+          "rfc8785": "0.1.4",
+          "sqlcipher3": "0.6.2"
+        },
+        "machine": "arm64",
+        "platform": "darwin",
+        "python": "3.12.13",
+        "status": "pass",
+        "storage": {
+          "benchmark": {
+            "commit_rows": 256,
+            "commit_seconds": 0.018665,
+            "paged_read_seconds": 0.004321,
+            "query_page_size": 32,
+            "query_pages": 64,
+            "query_rows": 2048
+          },
+          "cipher_version": "4.12.0 community",
+          "compile_options": [
+            "ENABLE_FTS5",
+            "THREADSAFE=1"
+          ],
+          "crash_recovery": "pass",
+          "fts5": "pass",
+          "keyed_reopen": "pass",
+          "purge_logical_deletion": "pass",
+          "purge_plaintext_residue": "pass",
+          "wrong_key_rejection": "pass"
+        }
+      },
+      "probe_returncode": 0,
+      "probe_stderr": "",
+      "probe_stdout": "{\"canonical_sha256\": \"aa58fba8483623bed37c1b02edfccbdd9a53123837c20bfa4cb4049993a2872e\", \"dependencies\": {\"rfc8785\": \"0.1.4\", \"sqlcipher3\": \"0.6.2\"}, \"machine\": \"arm64\", \"platform\": \"darwin\", \"python\": \"3.12.13\", \"status\": \"pass\", \"storage\": {\"benchmark\": {\"commit_rows\": 256, \"commit_seconds\": 0.018665, \"paged_read_seconds\": 0.004321, \"query_page_size\": 32, \"query_pages\": 64, \"query_rows\": 2048}, \"cipher_version\": \"4.12.0 community\", \"compile_options\": [\"ENABLE_FTS5\", \"THREADSAFE=1\"], \"crash_recovery\": \"pass\", \"fts5\": \"pass\", \"keyed_reopen\": \"pass\", \"purge_logical_deletion\": \"pass\", \"purge_plaintext_residue\": \"pass\", \"wrong_key_rejection\": \"pass\"}}",
+      "python": "3.12",
+      "setup": [
+        {
+          "returncode": 0,
+          "stderr_sha256": "43a57dcc7decd696141e5352497af14c541c803ccc841b38078d10a6cacd6434",
+          "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "returncode": 0,
+          "stderr_sha256": "8c85403c684bdcfd6cb7f3184ffcc0b5a56da34c57f4213305f091d3ca355cb7",
+          "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        }
+      ],
+      "status": "passed"
+    },
+    {
+      "architecture": "arm64",
+      "commands": [
+        "uv venv --python 3.12 ${TMP}/env",
+        "UV_CACHE_DIR=${UV_CACHE_DIR} CONAN_HOME=${TMP}/conan uv pip install --python ${TMP}/env/bin/python --no-binary=:all: rfc8785==0.1.4 sqlcipher3==0.6.2",
+        "${TMP}/env/bin/python tools/m1/compatibility_probe.py"
+      ],
+      "install": "source",
+      "platform": "macos",
+      "probe": {
+        "canonical_sha256": "aa58fba8483623bed37c1b02edfccbdd9a53123837c20bfa4cb4049993a2872e",
+        "dependencies": {
+          "rfc8785": "0.1.4",
+          "sqlcipher3": "0.6.2"
+        },
+        "machine": "arm64",
+        "platform": "darwin",
+        "python": "3.12.13",
+        "status": "pass",
+        "storage": {
+          "benchmark": {
+            "commit_rows": 256,
+            "commit_seconds": 0.016688,
+            "paged_read_seconds": 0.004016,
+            "query_page_size": 32,
+            "query_pages": 64,
+            "query_rows": 2048
+          },
+          "cipher_version": "4.12.0 community",
+          "compile_options": [
+            "ENABLE_FTS5",
+            "THREADSAFE=1"
+          ],
+          "crash_recovery": "pass",
+          "fts5": "pass",
+          "keyed_reopen": "pass",
+          "purge_logical_deletion": "pass",
+          "purge_plaintext_residue": "pass",
+          "wrong_key_rejection": "pass"
+        }
+      },
+      "probe_returncode": 0,
+      "probe_stderr": "",
+      "probe_stdout": "{\"canonical_sha256\": \"aa58fba8483623bed37c1b02edfccbdd9a53123837c20bfa4cb4049993a2872e\", \"dependencies\": {\"rfc8785\": \"0.1.4\", \"sqlcipher3\": \"0.6.2\"}, \"machine\": \"arm64\", \"platform\": \"darwin\", \"python\": \"3.12.13\", \"status\": \"pass\", \"storage\": {\"benchmark\": {\"commit_rows\": 256, \"commit_seconds\": 0.016688, \"paged_read_seconds\": 0.004016, \"query_page_size\": 32, \"query_pages\": 64, \"query_rows\": 2048}, \"cipher_version\": \"4.12.0 community\", \"compile_options\": [\"ENABLE_FTS5\", \"THREADSAFE=1\"], \"crash_recovery\": \"pass\", \"fts5\": \"pass\", \"keyed_reopen\": \"pass\", \"purge_logical_deletion\": \"pass\", \"purge_plaintext_residue\": \"pass\", \"wrong_key_rejection\": \"pass\"}}",
+      "python": "3.12",
+      "setup": [
+        {
+          "returncode": 0,
+          "stderr_sha256": "a82e2d6be4ec5976b0b34de7031cc36894f6c075050cf214fa412a9ca7ea06e0",
+          "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "returncode": 0,
+          "stderr_sha256": "f403dac74e0e0bf60c71db55e25e5fb237932bec14ed320d98e1447b081fefae",
+          "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        }
+      ],
+      "status": "passed"
+    },
+    {
+      "architecture": "arm64",
+      "commands": [
+        "uv venv --python 3.13 ${TMP}/env",
+        "UV_CACHE_DIR=${UV_CACHE_DIR} CONAN_HOME=${TMP}/conan uv pip install --python ${TMP}/env/bin/python --only-binary=:all: rfc8785==0.1.4 sqlcipher3==0.6.2",
+        "${TMP}/env/bin/python tools/m1/compatibility_probe.py"
+      ],
+      "install": "wheel",
+      "platform": "macos",
+      "probe": {
+        "canonical_sha256": "aa58fba8483623bed37c1b02edfccbdd9a53123837c20bfa4cb4049993a2872e",
+        "dependencies": {
+          "rfc8785": "0.1.4",
+          "sqlcipher3": "0.6.2"
+        },
+        "machine": "arm64",
+        "platform": "darwin",
+        "python": "3.13.13",
+        "status": "pass",
+        "storage": {
+          "benchmark": {
+            "commit_rows": 256,
+            "commit_seconds": 0.018161,
+            "paged_read_seconds": 0.003958,
+            "query_page_size": 32,
+            "query_pages": 64,
+            "query_rows": 2048
+          },
+          "cipher_version": "4.12.0 community",
+          "compile_options": [
+            "ENABLE_FTS5",
+            "THREADSAFE=1"
+          ],
+          "crash_recovery": "pass",
+          "fts5": "pass",
+          "keyed_reopen": "pass",
+          "purge_logical_deletion": "pass",
+          "purge_plaintext_residue": "pass",
+          "wrong_key_rejection": "pass"
+        }
+      },
+      "probe_returncode": 0,
+      "probe_stderr": "",
+      "probe_stdout": "{\"canonical_sha256\": \"aa58fba8483623bed37c1b02edfccbdd9a53123837c20bfa4cb4049993a2872e\", \"dependencies\": {\"rfc8785\": \"0.1.4\", \"sqlcipher3\": \"0.6.2\"}, \"machine\": \"arm64\", \"platform\": \"darwin\", \"python\": \"3.13.13\", \"status\": \"pass\", \"storage\": {\"benchmark\": {\"commit_rows\": 256, \"commit_seconds\": 0.018161, \"paged_read_seconds\": 0.003958, \"query_page_size\": 32, \"query_pages\": 64, \"query_rows\": 2048}, \"cipher_version\": \"4.12.0 community\", \"compile_options\": [\"ENABLE_FTS5\", \"THREADSAFE=1\"], \"crash_recovery\": \"pass\", \"fts5\": \"pass\", \"keyed_reopen\": \"pass\", \"purge_logical_deletion\": \"pass\", \"purge_plaintext_residue\": \"pass\", \"wrong_key_rejection\": \"pass\"}}",
+      "python": "3.13",
+      "setup": [
+        {
+          "returncode": 0,
+          "stderr_sha256": "19a89497613fd34eeefa04f756e8cde72406e918bc2a319437db37e6adb7e91b",
+          "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "returncode": 0,
+          "stderr_sha256": "d038f2bcb4bdfd62e716918e0e29b773e223abc518f78dbc61325531c20e1e21",
+          "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        }
+      ],
+      "status": "passed"
+    },
+    {
+      "architecture": "arm64",
+      "commands": [
+        "uv venv --python 3.13 ${TMP}/env",
+        "UV_CACHE_DIR=${UV_CACHE_DIR} CONAN_HOME=${TMP}/conan uv pip install --python ${TMP}/env/bin/python --no-binary=:all: rfc8785==0.1.4 sqlcipher3==0.6.2",
+        "${TMP}/env/bin/python tools/m1/compatibility_probe.py"
+      ],
+      "install": "source",
+      "platform": "macos",
+      "probe": {
+        "canonical_sha256": "aa58fba8483623bed37c1b02edfccbdd9a53123837c20bfa4cb4049993a2872e",
+        "dependencies": {
+          "rfc8785": "0.1.4",
+          "sqlcipher3": "0.6.2"
+        },
+        "machine": "arm64",
+        "platform": "darwin",
+        "python": "3.13.13",
+        "status": "pass",
+        "storage": {
+          "benchmark": {
+            "commit_rows": 256,
+            "commit_seconds": 0.017077,
+            "paged_read_seconds": 0.004201,
+            "query_page_size": 32,
+            "query_pages": 64,
+            "query_rows": 2048
+          },
+          "cipher_version": "4.12.0 community",
+          "compile_options": [
+            "ENABLE_FTS5",
+            "THREADSAFE=1"
+          ],
+          "crash_recovery": "pass",
+          "fts5": "pass",
+          "keyed_reopen": "pass",
+          "purge_logical_deletion": "pass",
+          "purge_plaintext_residue": "pass",
+          "wrong_key_rejection": "pass"
+        }
+      },
+      "probe_returncode": 0,
+      "probe_stderr": "",
+      "probe_stdout": "{\"canonical_sha256\": \"aa58fba8483623bed37c1b02edfccbdd9a53123837c20bfa4cb4049993a2872e\", \"dependencies\": {\"rfc8785\": \"0.1.4\", \"sqlcipher3\": \"0.6.2\"}, \"machine\": \"arm64\", \"platform\": \"darwin\", \"python\": \"3.13.13\", \"status\": \"pass\", \"storage\": {\"benchmark\": {\"commit_rows\": 256, \"commit_seconds\": 0.017077, \"paged_read_seconds\": 0.004201, \"query_page_size\": 32, \"query_pages\": 64, \"query_rows\": 2048}, \"cipher_version\": \"4.12.0 community\", \"compile_options\": [\"ENABLE_FTS5\", \"THREADSAFE=1\"], \"crash_recovery\": \"pass\", \"fts5\": \"pass\", \"keyed_reopen\": \"pass\", \"purge_logical_deletion\": \"pass\", \"purge_plaintext_residue\": \"pass\", \"wrong_key_rejection\": \"pass\"}}",
+      "python": "3.13",
+      "setup": [
+        {
+          "returncode": 0,
+          "stderr_sha256": "7e4afc7582f63ed25a25128c2528bcb35bc6b9c1e46285b6c4a7243318e3035b",
+          "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "returncode": 0,
+          "stderr_sha256": "6e3d182056255b73da17f69427fb145ab0eec43ce0ea2d1f0ee1dc574d32b0ed",
+          "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        }
+      ],
+      "status": "passed"
+    },
+    {
+      "architecture": "arm64",
+      "commands": [
+        "uv venv --python 3.14 ${TMP}/env",
+        "UV_CACHE_DIR=${UV_CACHE_DIR} CONAN_HOME=${TMP}/conan uv pip install --python ${TMP}/env/bin/python --only-binary=:all: rfc8785==0.1.4 sqlcipher3==0.6.2",
+        "${TMP}/env/bin/python tools/m1/compatibility_probe.py"
+      ],
+      "install": "wheel",
+      "platform": "macos",
+      "probe": {
+        "canonical_sha256": "aa58fba8483623bed37c1b02edfccbdd9a53123837c20bfa4cb4049993a2872e",
+        "dependencies": {
+          "rfc8785": "0.1.4",
+          "sqlcipher3": "0.6.2"
+        },
+        "machine": "arm64",
+        "platform": "darwin",
+        "python": "3.14.4",
+        "status": "pass",
+        "storage": {
+          "benchmark": {
+            "commit_rows": 256,
+            "commit_seconds": 0.017932,
+            "paged_read_seconds": 0.004131,
+            "query_page_size": 32,
+            "query_pages": 64,
+            "query_rows": 2048
+          },
+          "cipher_version": "4.12.0 community",
+          "compile_options": [
+            "ENABLE_FTS5",
+            "THREADSAFE=1"
+          ],
+          "crash_recovery": "pass",
+          "fts5": "pass",
+          "keyed_reopen": "pass",
+          "purge_logical_deletion": "pass",
+          "purge_plaintext_residue": "pass",
+          "wrong_key_rejection": "pass"
+        }
+      },
+      "probe_returncode": 0,
+      "probe_stderr": "",
+      "probe_stdout": "{\"canonical_sha256\": \"aa58fba8483623bed37c1b02edfccbdd9a53123837c20bfa4cb4049993a2872e\", \"dependencies\": {\"rfc8785\": \"0.1.4\", \"sqlcipher3\": \"0.6.2\"}, \"machine\": \"arm64\", \"platform\": \"darwin\", \"python\": \"3.14.4\", \"status\": \"pass\", \"storage\": {\"benchmark\": {\"commit_rows\": 256, \"commit_seconds\": 0.017932, \"paged_read_seconds\": 0.004131, \"query_page_size\": 32, \"query_pages\": 64, \"query_rows\": 2048}, \"cipher_version\": \"4.12.0 community\", \"compile_options\": [\"ENABLE_FTS5\", \"THREADSAFE=1\"], \"crash_recovery\": \"pass\", \"fts5\": \"pass\", \"keyed_reopen\": \"pass\", \"purge_logical_deletion\": \"pass\", \"purge_plaintext_residue\": \"pass\", \"wrong_key_rejection\": \"pass\"}}",
+      "python": "3.14",
+      "setup": [
+        {
+          "returncode": 0,
+          "stderr_sha256": "827da04fd82460688f1d80a6339c6964d284e790aa1439878164c7ad0fbbbe9c",
+          "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "returncode": 0,
+          "stderr_sha256": "7caf8fe7b07674680615b2c61ae8e58c8bd6abc1d0d44a68bd46c3f265e30aa0",
+          "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        }
+      ],
+      "status": "passed"
+    },
+    {
+      "architecture": "arm64",
+      "commands": [
+        "uv venv --python 3.14 ${TMP}/env",
+        "UV_CACHE_DIR=${UV_CACHE_DIR} CONAN_HOME=${TMP}/conan uv pip install --python ${TMP}/env/bin/python --no-binary=:all: rfc8785==0.1.4 sqlcipher3==0.6.2",
+        "${TMP}/env/bin/python tools/m1/compatibility_probe.py"
+      ],
+      "install": "source",
+      "platform": "macos",
+      "probe": {
+        "canonical_sha256": "aa58fba8483623bed37c1b02edfccbdd9a53123837c20bfa4cb4049993a2872e",
+        "dependencies": {
+          "rfc8785": "0.1.4",
+          "sqlcipher3": "0.6.2"
+        },
+        "machine": "arm64",
+        "platform": "darwin",
+        "python": "3.14.4",
+        "status": "pass",
+        "storage": {
+          "benchmark": {
+            "commit_rows": 256,
+            "commit_seconds": 0.018335,
+            "paged_read_seconds": 0.004171,
+            "query_page_size": 32,
+            "query_pages": 64,
+            "query_rows": 2048
+          },
+          "cipher_version": "4.12.0 community",
+          "compile_options": [
+            "ENABLE_FTS5",
+            "THREADSAFE=1"
+          ],
+          "crash_recovery": "pass",
+          "fts5": "pass",
+          "keyed_reopen": "pass",
+          "purge_logical_deletion": "pass",
+          "purge_plaintext_residue": "pass",
+          "wrong_key_rejection": "pass"
+        }
+      },
+      "probe_returncode": 0,
+      "probe_stderr": "",
+      "probe_stdout": "{\"canonical_sha256\": \"aa58fba8483623bed37c1b02edfccbdd9a53123837c20bfa4cb4049993a2872e\", \"dependencies\": {\"rfc8785\": \"0.1.4\", \"sqlcipher3\": \"0.6.2\"}, \"machine\": \"arm64\", \"platform\": \"darwin\", \"python\": \"3.14.4\", \"status\": \"pass\", \"storage\": {\"benchmark\": {\"commit_rows\": 256, \"commit_seconds\": 0.018335, \"paged_read_seconds\": 0.004171, \"query_page_size\": 32, \"query_pages\": 64, \"query_rows\": 2048}, \"cipher_version\": \"4.12.0 community\", \"compile_options\": [\"ENABLE_FTS5\", \"THREADSAFE=1\"], \"crash_recovery\": \"pass\", \"fts5\": \"pass\", \"keyed_reopen\": \"pass\", \"purge_logical_deletion\": \"pass\", \"purge_plaintext_residue\": \"pass\", \"wrong_key_rejection\": \"pass\"}}",
+      "python": "3.14",
+      "setup": [
+        {
+          "returncode": 0,
+          "stderr_sha256": "de0871f4726eba86971bf91c25c267be1c53d68556a50ee06a51c87ee5315d50",
+          "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "returncode": 0,
+          "stderr_sha256": "a16484c5d5a8b458c86d8d6f8e41f5f81f70d680dafae075c73dca5ec428c410",
+          "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        }
+      ],
+      "status": "passed"
+    },
+    {
+      "architecture": "x86_64",
+      "commands": [
+        "docker run --rm --platform linux/amd64 --mount type=bind,src=${REPO},dst=/work,readonly -w /work python:3.12-slim sh -lc 'python -m pip install --disable-pip-version-check --only-binary=:all: rfc8785==0.1.4 sqlcipher3==0.6.2 && python tools/m1/compatibility_probe.py'"
+      ],
+      "install": "wheel",
+      "platform": "linux",
+      "probe": {
+        "canonical_sha256": "aa58fba8483623bed37c1b02edfccbdd9a53123837c20bfa4cb4049993a2872e",
+        "dependencies": {
+          "rfc8785": "0.1.4",
+          "sqlcipher3": "0.6.2"
+        },
+        "machine": "x86_64",
+        "platform": "linux",
+        "python": "3.12.13",
+        "status": "pass",
+        "storage": {
+          "benchmark": {
+            "commit_rows": 256,
+            "commit_seconds": 0.126623,
+            "paged_read_seconds": 0.008654,
+            "query_page_size": 32,
+            "query_pages": 64,
+            "query_rows": 2048
+          },
+          "cipher_version": "4.12.0 community",
+          "compile_options": [
+            "ENABLE_FTS5",
+            "THREADSAFE=1"
+          ],
+          "crash_recovery": "pass",
+          "fts5": "pass",
+          "keyed_reopen": "pass",
+          "purge_logical_deletion": "pass",
+          "purge_plaintext_residue": "pass",
+          "wrong_key_rejection": "pass"
+        }
+      },
+      "probe_returncode": 0,
+      "probe_stderr": "WARNING: Running pip as the 'root' user can result in broken permissions and conflicting behaviour with the system package manager, possibly rendering your system unusable. It is recommended to use a virtual environment instead: https://pip.pypa.io/warnings/venv. Use the --root-user-action option if you know what you are doing and want to suppress this warning.\n2026-09-07 05:21:47.203: ERROR CORE sqlcipher_page_cipher: hmac check failed for pgno=1\n2026-09-07 05:21:47.204: ERROR CORE sqlite3Codec: error decrypting page 1 data: 1\n2026-09-07 05:21:47.204: ERROR CORE sqlcipher_codec_ctx_set_error 1",
+      "probe_stdout": "Collecting rfc8785==0.1.4\n  Downloading rfc8785-0.1.4-py3-none-any.whl.metadata (3.4 kB)\nCollecting sqlcipher3==0.6.2\n  Downloading sqlcipher3-0.6.2-cp312-cp312-manylinux_2_28_x86_64.whl.metadata (2.6 kB)\nDownloading rfc8785-0.1.4-py3-none-any.whl (9.2 kB)\nDownloading sqlcipher3-0.6.2-cp312-cp312-manylinux_2_28_x86_64.whl (7.0 MB)\n   \u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501 7.0/7.0 MB 9.1 MB/s eta 0:00:00\nInstalling collected packages: sqlcipher3, rfc8785\nSuccessfully installed rfc8785-0.1.4 sqlcipher3-0.6.2\n{\"canonical_sha256\": \"aa58fba8483623bed37c1b02edfccbdd9a53123837c20bfa4cb4049993a2872e\", \"dependencies\": {\"rfc8785\": \"0.1.4\", \"sqlcipher3\": \"0.6.2\"}, \"machine\": \"x86_64\", \"platform\": \"linux\", \"python\": \"3.12.13\", \"status\": \"pass\", \"storage\": {\"benchmark\": {\"commit_rows\": 256, \"commit_seconds\": 0.126623, \"paged_read_seconds\": 0.008654, \"query_page_size\": 32, \"query_pages\": 64, \"query_rows\": 2048}, \"cipher_version\": \"4.12.0 community\", \"compile_options\": [\"ENABLE_FTS5\", \"THREADSAFE=1\"], \"crash_recovery\": \"pass\", \"fts5\": \"pass\", \"keyed_reopen\": \"pass\", \"purge_logical_deletion\": \"pass\", \"purge_plaintext_residue\": \"pass\", \"wrong_key_rejection\": \"pass\"}}",
+      "python": "3.12",
+      "setup": [],
+      "status": "passed"
+    },
+    {
+      "architecture": "x86_64",
+      "commands": [
+        "docker run --rm --platform linux/amd64 --mount type=bind,src=${REPO},dst=/work,readonly -w /work python:3.12-slim sh -lc 'apt-get update -qq && apt-get install -y -qq build-essential >/dev/null && python -m pip install --disable-pip-version-check --no-binary=:all: rfc8785==0.1.4 sqlcipher3==0.6.2 && python tools/m1/compatibility_probe.py'"
+      ],
+      "install": "source",
+      "platform": "linux",
+      "probe": {
+        "canonical_sha256": "aa58fba8483623bed37c1b02edfccbdd9a53123837c20bfa4cb4049993a2872e",
+        "dependencies": {
+          "rfc8785": "0.1.4",
+          "sqlcipher3": "0.6.2"
+        },
+        "machine": "x86_64",
+        "platform": "linux",
+        "python": "3.12.13",
+        "status": "pass",
+        "storage": {
+          "benchmark": {
+            "commit_rows": 256,
+            "commit_seconds": 0.131661,
+            "paged_read_seconds": 0.009818,
+            "query_page_size": 32,
+            "query_pages": 64,
+            "query_rows": 2048
+          },
+          "cipher_version": "4.12.0 community",
+          "compile_options": [
+            "ENABLE_FTS5",
+            "THREADSAFE=1"
+          ],
+          "crash_recovery": "pass",
+          "fts5": "pass",
+          "keyed_reopen": "pass",
+          "purge_logical_deletion": "pass",
+          "purge_plaintext_residue": "pass",
+          "wrong_key_rejection": "pass"
+        }
+      },
+      "probe_returncode": 0,
+      "probe_stderr": "debconf: unable to initialize frontend: Dialog\ndebconf: (TERM is not set, so the dialog frontend is not usable.)\ndebconf: falling back to frontend: Readline\ndebconf: unable to initialize frontend: Readline\ndebconf: (Can't locate Term/ReadLine.pm in @INC (you may need to install the Term::ReadLine module) (@INC entries checked: /etc/perl /usr/local/lib/x86_64-linux-gnu/perl/5.40.1 /usr/local/share/perl/5.40.1 /usr/lib/x86_64-linux-gnu/perl5/5.40 /usr/share/perl5 /usr/lib/x86_64-linux-gnu/perl-base /usr/lib/x86_64-linux-gnu/perl/5.40 /usr/share/perl/5.40 /usr/local/lib/site_perl) at /usr/share/perl5/Debconf/FrontEnd/Readline.pm line 8, <STDIN> line 63.)\ndebconf: falling back to frontend: Teletype\ndebconf: unable to initialize frontend: Teletype\ndebconf: (This frontend requires a controlling tty.)\ndebconf: falling back to frontend: Noninteractive\nWARNING: Running pip as the 'root' user can result in broken permissions and conflicting behaviour with the system package manager, possibly rendering your system unusable. It is recommended to use a virtual environment instead: https://pip.pypa.io/warnings/venv. Use the --root-user-action option if you know what you are doing and want to suppress this warning.\n2026-09-07 05:32:58.431: ERROR CORE sqlcipher_page_cipher: hmac check failed for pgno=1\n2026-09-07 05:32:58.432: ERROR CORE sqlite3Codec: error decrypting page 1 data: 1\n2026-09-07 05:32:58.432: ERROR CORE sqlcipher_codec_ctx_set_error 1",
+      "probe_stdout": "Collecting rfc8785==0.1.4\n  Downloading rfc8785-0.1.4.tar.gz (14 kB)\n  Installing build dependencies: started\n  Installing build dependencies: finished with status 'done'\n  Getting requirements to build wheel: started\n  Getting requirements to build wheel: finished with status 'done'\n  Preparing metadata (pyproject.toml): started\n  Preparing metadata (pyproject.toml): finished with status 'done'\nCollecting sqlcipher3==0.6.2\n  Downloading sqlcipher3-0.6.2.tar.gz (2.7 MB)\n     \u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501 2.7/2.7 MB 21.4 MB/s eta 0:00:00\n  Installing build dependencies: started\n  Installing build dependencies: still running...\n  Installing build dependencies: still running...\n  Installing build dependencies: still running...\n  Installing build dependencies: finished with status 'done'\n  Getting requirements to build wheel: started\n  Getting requirements to build wheel: still running...\n  Getting requirements to build wheel: still running...\n  Getting requirements to build wheel: still running...\n  Getting requirements to build wheel: finished with status 'done'\n  Preparing metadata (pyproject.toml): started\n  Preparing metadata (pyproject.toml): finished with status 'done'\nBuilding wheels for collected packages: rfc8785, sqlcipher3\n  Building wheel for rfc8785 (pyproject.toml): started\n  Building wheel for rfc8785 (pyproject.toml): finished with status 'done'\n  Created wheel for rfc8785: filename=rfc8785-0.1.4-py3-none-any.whl size=9283 sha256=a450d1af9174e9b92664290bae83764ceb37262cba1f55259c8d02262f97fed3\n  Stored in directory: /root/.cache/pip/wheels/ac/91/83/91c090d4237125ee43ec60233618a3a3af34ccf2e23ffe5ed4\n  Building wheel for sqlcipher3 (pyproject.toml): started\n  Building wheel for sqlcipher3 (pyproject.toml): still running...\n  Building wheel for sqlcipher3 (pyproject.toml): still running...\n  Building wheel for sqlcipher3 (pyproject.toml): finished with status 'done'\n  Created wheel for sqlcipher3: filename=sqlcipher3-0.6.2-cp312-cp312-linux_x86_64.whl size=7021135 sha256=22406f22c0323db0520d6f22cc075eb2fb88d184c36f7ea6d191f1fb76adf4cb\n  Stored in directory: /root/.cache/pip/wheels/11/fa/62/5e5e8276269e16cc638801c63c74d52d46dc4ea6d968045a1b\nSuccessfully built rfc8785 sqlcipher3\nInstalling collected packages: sqlcipher3, rfc8785\nSuccessfully installed rfc8785-0.1.4 sqlcipher3-0.6.2\n{\"canonical_sha256\": \"aa58fba8483623bed37c1b02edfccbdd9a53123837c20bfa4cb4049993a2872e\", \"dependencies\": {\"rfc8785\": \"0.1.4\", \"sqlcipher3\": \"0.6.2\"}, \"machine\": \"x86_64\", \"platform\": \"linux\", \"python\": \"3.12.13\", \"status\": \"pass\", \"storage\": {\"benchmark\": {\"commit_rows\": 256, \"commit_seconds\": 0.131661, \"paged_read_seconds\": 0.009818, \"query_page_size\": 32, \"query_pages\": 64, \"query_rows\": 2048}, \"cipher_version\": \"4.12.0 community\", \"compile_options\": [\"ENABLE_FTS5\", \"THREADSAFE=1\"], \"crash_recovery\": \"pass\", \"fts5\": \"pass\", \"keyed_reopen\": \"pass\", \"purge_logical_deletion\": \"pass\", \"purge_plaintext_residue\": \"pass\", \"wrong_key_rejection\": \"pass\"}}",
+      "python": "3.12",
+      "setup": [],
+      "status": "passed"
+    },
+    {
+      "architecture": "x86_64",
+      "commands": [
+        "docker run --rm --platform linux/amd64 --mount type=bind,src=${REPO},dst=/work,readonly -w /work python:3.13-slim sh -lc 'python -m pip install --disable-pip-version-check --only-binary=:all: rfc8785==0.1.4 sqlcipher3==0.6.2 && python tools/m1/compatibility_probe.py'"
+      ],
+      "install": "wheel",
+      "platform": "linux",
+      "probe": {
+        "canonical_sha256": "aa58fba8483623bed37c1b02edfccbdd9a53123837c20bfa4cb4049993a2872e",
+        "dependencies": {
+          "rfc8785": "0.1.4",
+          "sqlcipher3": "0.6.2"
+        },
+        "machine": "x86_64",
+        "platform": "linux",
+        "python": "3.13.15",
+        "status": "pass",
+        "storage": {
+          "benchmark": {
+            "commit_rows": 256,
+            "commit_seconds": 0.126784,
+            "paged_read_seconds": 0.009234,
+            "query_page_size": 32,
+            "query_pages": 64,
+            "query_rows": 2048
+          },
+          "cipher_version": "4.12.0 community",
+          "compile_options": [
+            "ENABLE_FTS5",
+            "THREADSAFE=1"
+          ],
+          "crash_recovery": "pass",
+          "fts5": "pass",
+          "keyed_reopen": "pass",
+          "purge_logical_deletion": "pass",
+          "purge_plaintext_residue": "pass",
+          "wrong_key_rejection": "pass"
+        }
+      },
+      "probe_returncode": 0,
+      "probe_stderr": "WARNING: Running pip as the 'root' user can result in broken permissions and conflicting behaviour with the system package manager, possibly rendering your system unusable. It is recommended to use a virtual environment instead: https://pip.pypa.io/warnings/venv. Use the --root-user-action option if you know what you are doing and want to suppress this warning.\n2026-09-07 05:33:05.590: ERROR CORE sqlcipher_page_cipher: hmac check failed for pgno=1\n2026-09-07 05:33:05.591: ERROR CORE sqlite3Codec: error decrypting page 1 data: 1\n2026-09-07 05:33:05.591: ERROR CORE sqlcipher_codec_ctx_set_error 1",
+      "probe_stdout": "Collecting rfc8785==0.1.4\n  Downloading rfc8785-0.1.4-py3-none-any.whl.metadata (3.4 kB)\nCollecting sqlcipher3==0.6.2\n  Downloading sqlcipher3-0.6.2-cp313-cp313-manylinux_2_28_x86_64.whl.metadata (2.6 kB)\nDownloading rfc8785-0.1.4-py3-none-any.whl (9.2 kB)\nDownloading sqlcipher3-0.6.2-cp313-cp313-manylinux_2_28_x86_64.whl (7.0 MB)\n   \u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501 7.0/7.0 MB 9.7 MB/s  0:00:00\nInstalling collected packages: sqlcipher3, rfc8785\n\nSuccessfully installed rfc8785-0.1.4 sqlcipher3-0.6.2\n{\"canonical_sha256\": \"aa58fba8483623bed37c1b02edfccbdd9a53123837c20bfa4cb4049993a2872e\", \"dependencies\": {\"rfc8785\": \"0.1.4\", \"sqlcipher3\": \"0.6.2\"}, \"machine\": \"x86_64\", \"platform\": \"linux\", \"python\": \"3.13.15\", \"status\": \"pass\", \"storage\": {\"benchmark\": {\"commit_rows\": 256, \"commit_seconds\": 0.126784, \"paged_read_seconds\": 0.009234, \"query_page_size\": 32, \"query_pages\": 64, \"query_rows\": 2048}, \"cipher_version\": \"4.12.0 community\", \"compile_options\": [\"ENABLE_FTS5\", \"THREADSAFE=1\"], \"crash_recovery\": \"pass\", \"fts5\": \"pass\", \"keyed_reopen\": \"pass\", \"purge_logical_deletion\": \"pass\", \"purge_plaintext_residue\": \"pass\", \"wrong_key_rejection\": \"pass\"}}",
+      "python": "3.13",
+      "setup": [],
+      "status": "passed"
+    },
+    {
+      "architecture": "x86_64",
+      "commands": [
+        "docker run --rm --platform linux/amd64 --mount type=bind,src=${REPO},dst=/work,readonly -w /work python:3.13-slim sh -lc 'apt-get update -qq && apt-get install -y -qq build-essential >/dev/null && python -m pip install --disable-pip-version-check --no-binary=:all: rfc8785==0.1.4 sqlcipher3==0.6.2 && python tools/m1/compatibility_probe.py'"
+      ],
+      "install": "source",
+      "platform": "linux",
+      "probe": {
+        "canonical_sha256": "aa58fba8483623bed37c1b02edfccbdd9a53123837c20bfa4cb4049993a2872e",
+        "dependencies": {
+          "rfc8785": "0.1.4",
+          "sqlcipher3": "0.6.2"
+        },
+        "machine": "x86_64",
+        "platform": "linux",
+        "python": "3.13.15",
+        "status": "pass",
+        "storage": {
+          "benchmark": {
+            "commit_rows": 256,
+            "commit_seconds": 0.168749,
+            "paged_read_seconds": 0.007977,
+            "query_page_size": 32,
+            "query_pages": 64,
+            "query_rows": 2048
+          },
+          "cipher_version": "4.12.0 community",
+          "compile_options": [
+            "ENABLE_FTS5",
+            "THREADSAFE=1"
+          ],
+          "crash_recovery": "pass",
+          "fts5": "pass",
+          "keyed_reopen": "pass",
+          "purge_logical_deletion": "pass",
+          "purge_plaintext_residue": "pass",
+          "wrong_key_rejection": "pass"
+        }
+      },
+      "probe_returncode": 0,
+      "probe_stderr": "debconf: unable to initialize frontend: Dialog\ndebconf: (TERM is not set, so the dialog frontend is not usable.)\ndebconf: falling back to frontend: Readline\ndebconf: unable to initialize frontend: Readline\ndebconf: (Can't locate Term/ReadLine.pm in @INC (you may need to install the Term::ReadLine module) (@INC entries checked: /etc/perl /usr/local/lib/x86_64-linux-gnu/perl/5.40.1 /usr/local/share/perl/5.40.1 /usr/lib/x86_64-linux-gnu/perl5/5.40 /usr/share/perl5 /usr/lib/x86_64-linux-gnu/perl-base /usr/lib/x86_64-linux-gnu/perl/5.40 /usr/share/perl/5.40 /usr/local/lib/site_perl) at /usr/share/perl5/Debconf/FrontEnd/Readline.pm line 8, <STDIN> line 62.)\ndebconf: falling back to frontend: Teletype\ndebconf: unable to initialize frontend: Teletype\ndebconf: (This frontend requires a controlling tty.)\ndebconf: falling back to frontend: Noninteractive\nWARNING: Running pip as the 'root' user can result in broken permissions and conflicting behaviour with the system package manager, possibly rendering your system unusable. It is recommended to use a virtual environment instead: https://pip.pypa.io/warnings/venv. Use the --root-user-action option if you know what you are doing and want to suppress this warning.\n2026-09-07 05:42:54.516: ERROR CORE sqlcipher_page_cipher: hmac check failed for pgno=1\n2026-09-07 05:42:54.517: ERROR CORE sqlite3Codec: error decrypting page 1 data: 1\n2026-09-07 05:42:54.517: ERROR CORE sqlcipher_codec_ctx_set_error 1",
+      "probe_stdout": "Collecting rfc8785==0.1.4\n  Downloading rfc8785-0.1.4.tar.gz (14 kB)\n  Installing build dependencies: started\n  Installing build dependencies: finished with status 'done'\n  Getting requirements to build wheel: started\n  Getting requirements to build wheel: finished with status 'done'\n  Preparing metadata (pyproject.toml): started\n  Preparing metadata (pyproject.toml): finished with status 'done'\nCollecting sqlcipher3==0.6.2\n  Downloading sqlcipher3-0.6.2.tar.gz (2.7 MB)\n     \u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501 2.7/2.7 MB 5.4 MB/s  0:00:00\n  Installing build dependencies: started\n  Installing build dependencies: still running...\n  Installing build dependencies: still running...\n  Installing build dependencies: still running...\n  Installing build dependencies: finished with status 'done'\n  Getting requirements to build wheel: started\n  Getting requirements to build wheel: still running...\n  Getting requirements to build wheel: still running...\n  Getting requirements to build wheel: still running...\n  Getting requirements to build wheel: finished with status 'done'\n  Preparing metadata (pyproject.toml): started\n  Preparing metadata (pyproject.toml): finished with status 'done'\nBuilding wheels for collected packages: rfc8785, sqlcipher3\n  Building wheel for rfc8785 (pyproject.toml): started\n  Building wheel for rfc8785 (pyproject.toml): finished with status 'done'\n  Created wheel for rfc8785: filename=rfc8785-0.1.4-py3-none-any.whl size=9283 sha256=a450d1af9174e9b92664290bae83764ceb37262cba1f55259c8d02262f97fed3\n  Stored in directory: /root/.cache/pip/wheels/c5/41/d9/df95a356287a6210bf70f864ce1e786c04dcbf9f2e321f9334\n  Building wheel for sqlcipher3 (pyproject.toml): started\n  Building wheel for sqlcipher3 (pyproject.toml): still running...\n  Building wheel for sqlcipher3 (pyproject.toml): finished with status 'done'\n  Created wheel for sqlcipher3: filename=sqlcipher3-0.6.2-cp313-cp313-linux_x86_64.whl size=7018168 sha256=a5ed7e3a720ac9278ff5b6fda51830510dcd07dafc5fddcc6e3383ff6aaf92a9\n  Stored in directory: /root/.cache/pip/wheels/2d/c2/4a/c12cfe744f83697e0f37f23d7a7720156e16aabc5ecc9d3ee4\nSuccessfully built rfc8785 sqlcipher3\nInstalling collected packages: sqlcipher3, rfc8785\n\nSuccessfully installed rfc8785-0.1.4 sqlcipher3-0.6.2\n{\"canonical_sha256\": \"aa58fba8483623bed37c1b02edfccbdd9a53123837c20bfa4cb4049993a2872e\", \"dependencies\": {\"rfc8785\": \"0.1.4\", \"sqlcipher3\": \"0.6.2\"}, \"machine\": \"x86_64\", \"platform\": \"linux\", \"python\": \"3.13.15\", \"status\": \"pass\", \"storage\": {\"benchmark\": {\"commit_rows\": 256, \"commit_seconds\": 0.168749, \"paged_read_seconds\": 0.007977, \"query_page_size\": 32, \"query_pages\": 64, \"query_rows\": 2048}, \"cipher_version\": \"4.12.0 community\", \"compile_options\": [\"ENABLE_FTS5\", \"THREADSAFE=1\"], \"crash_recovery\": \"pass\", \"fts5\": \"pass\", \"keyed_reopen\": \"pass\", \"purge_logical_deletion\": \"pass\", \"purge_plaintext_residue\": \"pass\", \"wrong_key_rejection\": \"pass\"}}",
+      "python": "3.13",
+      "setup": [],
+      "status": "passed"
+    },
+    {
+      "architecture": "x86_64",
+      "commands": [
+        "docker run --rm --platform linux/amd64 --mount type=bind,src=${REPO},dst=/work,readonly -w /work python:3.14-slim sh -lc 'python -m pip install --disable-pip-version-check --only-binary=:all: rfc8785==0.1.4 sqlcipher3==0.6.2 && python tools/m1/compatibility_probe.py'"
+      ],
+      "install": "wheel",
+      "platform": "linux",
+      "probe": {
+        "canonical_sha256": "aa58fba8483623bed37c1b02edfccbdd9a53123837c20bfa4cb4049993a2872e",
+        "dependencies": {
+          "rfc8785": "0.1.4",
+          "sqlcipher3": "0.6.2"
+        },
+        "machine": "x86_64",
+        "platform": "linux",
+        "python": "3.14.7",
+        "status": "pass",
+        "storage": {
+          "benchmark": {
+            "commit_rows": 256,
+            "commit_seconds": 0.12852,
+            "paged_read_seconds": 0.00816,
+            "query_page_size": 32,
+            "query_pages": 64,
+            "query_rows": 2048
+          },
+          "cipher_version": "4.12.0 community",
+          "compile_options": [
+            "ENABLE_FTS5",
+            "THREADSAFE=1"
+          ],
+          "crash_recovery": "pass",
+          "fts5": "pass",
+          "keyed_reopen": "pass",
+          "purge_logical_deletion": "pass",
+          "purge_plaintext_residue": "pass",
+          "wrong_key_rejection": "pass"
+        }
+      },
+      "probe_returncode": 0,
+      "probe_stderr": "WARNING: Running pip as the 'root' user can result in broken permissions and conflicting behaviour with the system package manager, possibly rendering your system unusable. It is recommended to use a virtual environment instead: https://pip.pypa.io/warnings/venv. Use the --root-user-action option if you know what you are doing and want to suppress this warning.\n2026-09-07 05:42:59.738: ERROR CORE sqlcipher_page_cipher: hmac check failed for pgno=1\n2026-09-07 05:42:59.738: ERROR CORE sqlite3Codec: error decrypting page 1 data: 1\n2026-09-07 05:42:59.738: ERROR CORE sqlcipher_codec_ctx_set_error 1",
+      "probe_stdout": "Collecting rfc8785==0.1.4\n  Downloading rfc8785-0.1.4-py3-none-any.whl.metadata (3.4 kB)\nCollecting sqlcipher3==0.6.2\n  Downloading sqlcipher3-0.6.2-cp314-cp314-manylinux_2_28_x86_64.whl.metadata (2.6 kB)\nDownloading rfc8785-0.1.4-py3-none-any.whl (9.2 kB)\nDownloading sqlcipher3-0.6.2-cp314-cp314-manylinux_2_28_x86_64.whl (7.0 MB)\n   \u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501 7.0/7.0 MB 10.4 MB/s  0:00:00\nInstalling collected packages: sqlcipher3, rfc8785\n\nSuccessfully installed rfc8785-0.1.4 sqlcipher3-0.6.2\n{\"canonical_sha256\": \"aa58fba8483623bed37c1b02edfccbdd9a53123837c20bfa4cb4049993a2872e\", \"dependencies\": {\"rfc8785\": \"0.1.4\", \"sqlcipher3\": \"0.6.2\"}, \"machine\": \"x86_64\", \"platform\": \"linux\", \"python\": \"3.14.7\", \"status\": \"pass\", \"storage\": {\"benchmark\": {\"commit_rows\": 256, \"commit_seconds\": 0.12852, \"paged_read_seconds\": 0.00816, \"query_page_size\": 32, \"query_pages\": 64, \"query_rows\": 2048}, \"cipher_version\": \"4.12.0 community\", \"compile_options\": [\"ENABLE_FTS5\", \"THREADSAFE=1\"], \"crash_recovery\": \"pass\", \"fts5\": \"pass\", \"keyed_reopen\": \"pass\", \"purge_logical_deletion\": \"pass\", \"purge_plaintext_residue\": \"pass\", \"wrong_key_rejection\": \"pass\"}}",
+      "python": "3.14",
+      "setup": [],
+      "status": "passed"
+    },
+    {
+      "architecture": "x86_64",
+      "commands": [
+        "docker run --rm --platform linux/amd64 --mount type=bind,src=${REPO},dst=/work,readonly -w /work python:3.14-slim sh -lc 'apt-get update -qq && apt-get install -y -qq build-essential >/dev/null && python -m pip install --disable-pip-version-check --no-binary=:all: rfc8785==0.1.4 sqlcipher3==0.6.2 && python tools/m1/compatibility_probe.py'"
+      ],
+      "install": "source",
+      "platform": "linux",
+      "probe": {
+        "canonical_sha256": "aa58fba8483623bed37c1b02edfccbdd9a53123837c20bfa4cb4049993a2872e",
+        "dependencies": {
+          "rfc8785": "0.1.4",
+          "sqlcipher3": "0.6.2"
+        },
+        "machine": "x86_64",
+        "platform": "linux",
+        "python": "3.14.7",
+        "status": "pass",
+        "storage": {
+          "benchmark": {
+            "commit_rows": 256,
+            "commit_seconds": 0.137049,
+            "paged_read_seconds": 0.009,
+            "query_page_size": 32,
+            "query_pages": 64,
+            "query_rows": 2048
+          },
+          "cipher_version": "4.12.0 community",
+          "compile_options": [
+            "ENABLE_FTS5",
+            "THREADSAFE=1"
+          ],
+          "crash_recovery": "pass",
+          "fts5": "pass",
+          "keyed_reopen": "pass",
+          "purge_logical_deletion": "pass",
+          "purge_plaintext_residue": "pass",
+          "wrong_key_rejection": "pass"
+        }
+      },
+      "probe_returncode": 0,
+      "probe_stderr": "debconf: unable to initialize frontend: Dialog\ndebconf: (TERM is not set, so the dialog frontend is not usable.)\ndebconf: falling back to frontend: Readline\ndebconf: unable to initialize frontend: Readline\ndebconf: (Can't locate Term/ReadLine.pm in @INC (you may need to install the Term::ReadLine module) (@INC entries checked: /etc/perl /usr/local/lib/x86_64-linux-gnu/perl/5.40.1 /usr/local/share/perl/5.40.1 /usr/lib/x86_64-linux-gnu/perl5/5.40 /usr/share/perl5 /usr/lib/x86_64-linux-gnu/perl-base /usr/lib/x86_64-linux-gnu/perl/5.40 /usr/share/perl/5.40 /usr/local/lib/site_perl) at /usr/share/perl5/Debconf/FrontEnd/Readline.pm line 8, <STDIN> line 62.)\ndebconf: falling back to frontend: Teletype\ndebconf: unable to initialize frontend: Teletype\ndebconf: (This frontend requires a controlling tty.)\ndebconf: falling back to frontend: Noninteractive\nWARNING: Running pip as the 'root' user can result in broken permissions and conflicting behaviour with the system package manager, possibly rendering your system unusable. It is recommended to use a virtual environment instead: https://pip.pypa.io/warnings/venv. Use the --root-user-action option if you know what you are doing and want to suppress this warning.\n2026-09-07 05:53:00.250: ERROR CORE sqlcipher_page_cipher: hmac check failed for pgno=1\n2026-09-07 05:53:00.251: ERROR CORE sqlite3Codec: error decrypting page 1 data: 1\n2026-09-07 05:53:00.251: ERROR CORE sqlcipher_codec_ctx_set_error 1",
+      "probe_stdout": "Collecting rfc8785==0.1.4\n  Downloading rfc8785-0.1.4.tar.gz (14 kB)\n  Installing build dependencies: started\n  Installing build dependencies: finished with status 'done'\n  Getting requirements to build wheel: started\n  Getting requirements to build wheel: finished with status 'done'\n  Preparing metadata (pyproject.toml): started\n  Preparing metadata (pyproject.toml): finished with status 'done'\nCollecting sqlcipher3==0.6.2\n  Downloading sqlcipher3-0.6.2.tar.gz (2.7 MB)\n     \u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501 2.7/2.7 MB 18.5 MB/s  0:00:00\n  Installing build dependencies: started\n  Installing build dependencies: still running...\n  Installing build dependencies: still running...\n  Installing build dependencies: still running...\n  Installing build dependencies: finished with status 'done'\n  Getting requirements to build wheel: started\n  Getting requirements to build wheel: still running...\n  Getting requirements to build wheel: still running...\n  Getting requirements to build wheel: still running...\n  Getting requirements to build wheel: finished with status 'done'\n  Preparing metadata (pyproject.toml): started\n  Preparing metadata (pyproject.toml): finished with status 'done'\nBuilding wheels for collected packages: rfc8785, sqlcipher3\n  Building wheel for rfc8785 (pyproject.toml): started\n  Building wheel for rfc8785 (pyproject.toml): finished with status 'done'\n  Created wheel for rfc8785: filename=rfc8785-0.1.4-py3-none-any.whl size=9283 sha256=a450d1af9174e9b92664290bae83764ceb37262cba1f55259c8d02262f97fed3\n  Stored in directory: /root/.cache/pip/wheels/44/d8/02/011236e4fe991ef35e7bb7468adfa96b0c5fae832a0240de26\n  Building wheel for sqlcipher3 (pyproject.toml): started\n  Building wheel for sqlcipher3 (pyproject.toml): still running...\n  Building wheel for sqlcipher3 (pyproject.toml): finished with status 'done'\n  Created wheel for sqlcipher3: filename=sqlcipher3-0.6.2-cp314-cp314-linux_x86_64.whl size=7018374 sha256=9e17040459d9d061383ccb59c8440cf3c827d785a45bac0c01de6d44de5e21dc\n  Stored in directory: /root/.cache/pip/wheels/b7/2f/88/46299555626e0e35002bd93424cc4b2b04157ca2636858afa3\nSuccessfully built rfc8785 sqlcipher3\nInstalling collected packages: sqlcipher3, rfc8785\n\nSuccessfully installed rfc8785-0.1.4 sqlcipher3-0.6.2\n{\"canonical_sha256\": \"aa58fba8483623bed37c1b02edfccbdd9a53123837c20bfa4cb4049993a2872e\", \"dependencies\": {\"rfc8785\": \"0.1.4\", \"sqlcipher3\": \"0.6.2\"}, \"machine\": \"x86_64\", \"platform\": \"linux\", \"python\": \"3.14.7\", \"status\": \"pass\", \"storage\": {\"benchmark\": {\"commit_rows\": 256, \"commit_seconds\": 0.137049, \"paged_read_seconds\": 0.009, \"query_page_size\": 32, \"query_pages\": 64, \"query_rows\": 2048}, \"cipher_version\": \"4.12.0 community\", \"compile_options\": [\"ENABLE_FTS5\", \"THREADSAFE=1\"], \"crash_recovery\": \"pass\", \"fts5\": \"pass\", \"keyed_reopen\": \"pass\", \"purge_logical_deletion\": \"pass\", \"purge_plaintext_residue\": \"pass\", \"wrong_key_rejection\": \"pass\"}}",
+      "python": "3.14",
+      "setup": [],
+      "status": "passed"
+    }
+  ],
+  "generated_at": "2026-09-07",
+  "probe_path": "tools/m1/compatibility_probe.py",
+  "probe_sha256": "90be6701ff5d18557a69d1d6ccbe7915d2ef23abac888ea8d07fbead9917e8e0",
+  "runner_path": "tools/m1/compatibility_matrix.py",
+  "schema_version": 1,
+  "status": "passed"
+}

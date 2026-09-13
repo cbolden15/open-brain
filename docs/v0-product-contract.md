@@ -1,12 +1,19 @@
-# Open Brain v0 product contract
+# Historical Open Brain v0 appliance contract
 
-- Status: Approved
-- Contract version: `0.3`
-- Revised: 2026-08-30
+- Status: Superseded for product scope on 2026-09-07
+- Contract version: `0.5`
+- Revised: 2026-09-04
 - Approved: 2026-08-30
 - Selected direction: Option C
 - Release sequence: self-hosted OSS public alpha first; managed hosting follows
 - v0 target: one owner running one always-on Mac or Linux home server
+
+> This file preserves the accepted v0.5 appliance contract as historical evidence. The current
+> product authority is [`docs/product-family.md`](product-family.md), version `0.7`. In particular,
+> one daemon, a user-selected Brain root, service installation, and the 15-minute target no longer
+> define the default Open Brain product. They belong to the opt-in Secure Node profile where the
+> current contract retains them. The requirements below are intentionally not rewritten because
+> completed Phase 0 through Phase 4 evidence cites their exact IDs and wording.
 
 ## Product promise
 
@@ -20,7 +27,9 @@ The same engine and portable data contract will support a later managed Open Bra
 
 ## Contract authority
 
-This document defines the self-hosted v0 product and the foundation that self-hosted and hosted deployments share. Architecture and implementation plans must trace their work to its requirement IDs.
+For the historical v0.5 program, this document defined the self-hosted product and the foundation
+that self-hosted and hosted deployments shared. New architecture and implementation plans trace to
+the current product-family contract. Historical evidence may continue to cite these requirement IDs.
 
 Requirements beginning with `V0-` are release requirements for the self-hosted public alpha. Requirements beginning with `FOUNDATION-` are also required in v0 because they prevent a later hosted fork or data migration. Requirements beginning with `HOSTED-` constrain the future managed service but do not block the self-hosted v0 release unless a `FOUNDATION-` requirement says otherwise.
 
@@ -45,7 +54,8 @@ The v0 user is a single owner who:
 - wants local, inspectable storage rather than a required hosted account;
 - wants to capture across several parts of life without learning a rigid taxonomy;
 - may use Obsidian or another Markdown editor, but does not need either;
-- can install a signed or checksummed release artifact and run a setup command;
+- can use Python 3.14 and `uv` for the supported macOS source/wheel path, or install a
+  checksummed native archive on Linux, then run a setup command;
 - expects the product to explain missing prerequisites and safe recovery steps.
 
 The v0 deployment has one canonical writer. Other local processes may submit captures or read bounded results, but they cannot publish canonical knowledge without the writer and review rules.
@@ -90,7 +100,8 @@ The v0 deployment has one canonical writer. Other local processes may submit cap
 
 The exact command flags are not frozen by this draft, but these outcomes are:
 
-1. Install Open Brain from a release artifact without cloning the source repository.
+1. Install Open Brain from a versioned source checkout or published app and engine wheels on
+   macOS, or from a checksummed native archive on Linux.
 2. Initialize `single-user-local` beneath one chosen Brain root without hand-editing configuration. The owner may start empty or apply optional space templates.
 3. Install and start one supervised daemon process with an explicit owner action.
 4. Capture text, a reference or bounded file, an event, or a measurement without first choosing a space, intent, or reason, then see its durable status in the inbox.
@@ -103,7 +114,7 @@ The quickstart must use no cloud account. Model download time is excluded from t
 
 | ID | Requirement |
 |---|---|
-| `V0-INSTALL-01` | The project MUST publish a versioned native artifact for each supported host family. Source checkout is a development path, not the user installation path. |
+| `V0-INSTALL-01` | The project MUST publish versioned source and the `open-brain` and `open-brain-engine` wheels for Python 3.14 on macOS 14 or newer on Apple Silicon, and a checksummed native archive bundling Python 3.14 for supported Linux x86_64 hosts. A native macOS DMG and Apple notarization are deferred to a later release and MUST NOT block v0. |
 | `V0-INSTALL-02` | Initialization MUST accept one Brain root and create the default layout, configuration, stable local tenant and owner identities, generated local credential, permissions, schema, and empty indexes. |
 | `V0-INSTALL-03` | Initialization MUST be idempotent. Re-running it against the same compatible root MUST not replace user content, stable identities, space definitions, or credentials. |
 | `V0-INSTALL-04` | The default profile MUST require no manual TOML editing. The owner MAY start with no named spaces or select optional starter templates such as Personal, Work, Projects, Health, and Learning. Advanced root and capability overrides MAY use explicit configuration after initialization. |
@@ -268,14 +279,19 @@ JSON files and JSONL lines use UTF-8, a versioned JSON Schema, deterministic can
 
 The public alpha supports these release targets:
 
-| Artifact | Supported hosts | Release baseline |
+| Installation | Supported hosts | Release baseline |
 |---|---|---|
-| macOS `arm64` | macOS 14 or newer on Apple Silicon | Build with a macOS 14 deployment target; sign and notarize the release artifact |
-| Linux `x86_64` | Ubuntu 24.04 LTS, Ubuntu 26.04 LTS, and Debian 13 | Build on Ubuntu 24.04 and run clean-host tests on every listed distribution |
+| Versioned source checkout or app and engine wheels | macOS 14 or newer on Apple Silicon | Test source and isolated wheel installation on macOS 14 with Python 3.14 |
+| Linux `x86_64` | Ubuntu 24.04 LTS, Ubuntu 26.04 LTS, and Debian 13 | Bundle Python 3.14, build on Ubuntu 24.04, and run clean-host tests on every listed distribution |
 
 Intel macOS, Linux `arm64`, and Windows are outside the v0 support promise. Community reports may inform later expansion, but an untested artifact is not labeled supported.
 
-PyInstaller 6 in one-folder mode is the first self-contained bundler candidate. A one-working-day spike must prove clean installation, daemon startup, package and resource discovery, upgrade, backup and restore, and uninstall on the supported matrix. A failing spike moves to Nuitka standalone; it does not silently fall back to requiring system Python. The macOS bundle is shipped inside a signed and notarized artifact, and the Linux bundle is shipped as a checksummed archive.
+PyInstaller 6 in one-folder mode is the Linux self-contained bundler and uses Python 3.14 for the
+current release. Its clean-host evidence must
+cover installation, daemon startup, package and resource discovery, upgrade, recovery, and
+uninstall on the supported Linux matrix. A failing Linux build moves to Nuitka standalone. macOS
+uses the versioned source/wheel path and may require supported Python and `uv`. A native macOS DMG,
+including Developer ID signing and notarization, is deferred to a later release.
 
 ## Default profile
 
@@ -306,7 +322,7 @@ Provider mode `none` is a complete operating mode. It preserves captures, expose
 
 | Gate | Pass condition |
 |---|---|
-| `V0-GATE-01` Clean install | With a prebuilt artifact and no model download, clean macOS and Linux hosts meet a provisional 15-minute setup target without source checkout or hand-edited TOML. |
+| `V0-GATE-01` Clean install | On macOS, a clean versioned source checkout and an isolated app/engine wheel installation initialize and start the foreground daemon without hand-edited TOML. On Linux, the checksummed native archive bundles Python 3.14 and installs on each supported host without a source checkout or system Python. Each path meets the provisional 15-minute target, excluding model download time. |
 | `V0-GATE-02` Generic first value | Text, reference or bounded file, event, and measurement fixtures can each be captured, found in the inbox, and retrieved without a model. Explicit canonical-note owner text publishes immediately, while the same text submitted through quick capture remains in the inbox. |
 | `V0-GATE-03` Third-party safety | A third-party reference remains a labeled, retrievable source record or proposal until approval; rejection never promotes it. |
 | `V0-GATE-04` Provider degradation | A provider outage leaves a durable pending item; later retry enriches it without a duplicate capture, output, or page. |
@@ -317,7 +333,7 @@ Provider mode `none` is a complete operating mode. It preserves captures, expose
 | `V0-GATE-09` Upgrade | One prior supported v0 schema upgrades with verified recovery evidence and no private-data residue in output. |
 | `V0-GATE-10` Removal | Removing the application stops its processes and leaves canonical Markdown and portable source records readable; explicit data purge is separately gated. |
 | `V0-GATE-11` Privacy | Default-profile tests prove no cloud construction, credential resolution, external egress, or private-value output. |
-| `V0-GATE-12` Packaging | Wheel/sdist, native supervisor artifacts, checksums, clean-host instructions, and supported-version metadata refer to the same release. |
+| `V0-GATE-12` Packaging | Versioned source, app/engine wheels and sdists, the Linux native archive, checksums, supervisor resources, installation instructions, and supported-version metadata refer to the same release. A macOS DMG is not a v0 coordinate. |
 | `V0-GATE-13` Spaces | The owner can create and rename a space, accept an unassigned capture, route it later without changing capture identity, and retrieve by space or across spaces. Starter space names receive no privileged behavior. |
 | `V0-GATE-14` Portability | Export from a populated release root and import into a clean compatible root preserve identities, spaces, exact canonical and source bytes, provenance links, and review outcomes while excluding credentials. |
 
@@ -331,6 +347,7 @@ The self-hosted v0 release does not include:
 - mandatory cloud models, hosted retrieval, graph storage, or vector infrastructure;
 - a broad catalog of source-specific connectors;
 - a public third-party Connector SDK before the three internal reference connectors prove its contract;
+- a native macOS DMG or one-click macOS installer;
 - full parity with private predecessor integrations, schedules, migration, or cutover evidence;
 - a plugin marketplace, autonomous multi-agent memory, or automatic owner-knowledge rewriting.
 
@@ -355,15 +372,17 @@ The following decisions were approved on 2026-08-30 and are no longer open:
 13. Open Brain uses a hybrid open format: Markdown for canonical human knowledge, versioned structured records for typed and historical data, content-addressed blobs for preserved files, and SQLite only for operational state and disposable indexes.
 14. Brain-root layout version `1` uses readable, date-partitioned directories for captures, batches, portable history, and content-addressed blobs, with operational state isolated beneath `.open-brain/`.
 15. Individual captures and history records use canonical JSON; high-volume event and measurement batches use referenced JSONL sidecars. Versioned JSON Schemas, deterministic serialization, checksummed manifests, and conformance fixtures are required.
-16. The v0 host matrix is macOS 14 or newer on Apple Silicon and Linux `x86_64` on Ubuntu 24.04 LTS, Ubuntu 26.04 LTS, and Debian 13. Intel macOS, Linux `arm64`, and Windows are deferred.
-17. PyInstaller 6 one-folder mode is the first bundler candidate under a one-working-day clean-host spike. Nuitka standalone is the accepted fallback if the spike fails.
+16. The v0 host matrix is macOS 14 or newer on Apple Silicon through versioned source/wheel installation, and Linux `x86_64` on Ubuntu 24.04 LTS, Ubuntu 26.04 LTS, and Debian 13 through a native archive. Intel macOS, Linux `arm64`, and Windows are deferred.
+17. PyInstaller 6 one-folder mode is the Linux bundler candidate, with Nuitka standalone as its accepted fallback. A signed and notarized macOS DMG is deferred to a later release.
 
 ## Accepted boundaries awaiting evidence
 
 The four bounded architecture choices above are no longer open. Two implementation artifacts remain before their contract clauses can be treated as proven:
 
 1. Check in and review the exact versioned JSON Schemas, canonical serialization fixtures, JSONL batch fixtures, and Portable Brain conformance cases.
-2. Run the time-boxed PyInstaller spike on the accepted host matrix. Keep PyInstaller only if it passes; otherwise run and document the accepted Nuitka fallback.
+2. Prove source and isolated wheel installation on macOS 14 ARM64, and run the time-boxed
+   PyInstaller spike on the accepted Linux matrix. Keep PyInstaller for Linux only if it passes;
+   otherwise run and document the accepted Nuitka fallback.
 
 ## Change control
 
@@ -374,5 +393,9 @@ The owner approved the complete contract on 2026-08-30, including:
 3. one daemon with internal schedules rather than many installed jobs;
 4. the four built-in payload families and optional source-specific connector boundary;
 5. the Portable Brain foundation, release gates, non-goals, and accepted evidence conditions above.
+
+On 2026-09-04, the owner amended the release packaging and runtime decisions: v0 supports Python
+3.14 source/wheel installation on macOS, retains the checksummed native archive on Linux, and
+defers the signed and notarized macOS DMG to a later release.
 
 Architecture work may refine implementation details but cannot weaken these outcomes without a new product decision.

@@ -1,0 +1,35 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:open-brain:protocol:v1:security-audit-event",
+  "type": "object",
+  "properties": {
+    "schema_version": { "$ref": "urn:open-brain:protocol:v1:common#/$defs/schema_version" },
+    "event": {
+      "enum": [
+        "authorization_denied",
+        "grant_revoked",
+        "replay_rejected",
+        "sequencer_fenced",
+        "key_destroyed"
+      ]
+    },
+    "brain_id": { "$ref": "urn:open-brain:protocol:v1:common#/$defs/brain_id" },
+    "principal_id": {
+      "oneOf": [
+        { "$ref": "urn:open-brain:protocol:v1:common#/$defs/principal_id" },
+        { "type": "null" }
+      ]
+    },
+    "occurred_at": { "$ref": "urn:open-brain:protocol:v1:common#/$defs/timestamp" },
+    "reason_code": { "type": "string", "pattern": "^[a-z][a-z0-9_]{1,63}$" }
+  },
+  "required": [
+    "schema_version",
+    "event",
+    "brain_id",
+    "principal_id",
+    "occurred_at",
+    "reason_code"
+  ],
+  "additionalProperties": false
+}

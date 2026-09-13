@@ -1,0 +1,169 @@
+{
+  "id": "2026-09-08-ob1-product-completion-notes",
+  "title": "Implementation notes: OB1 product completion",
+  "subtitle": "OB1-W6 locally verified; committed-candidate audits and PR CI next · 2026-09-09",
+  "introTitle": "How to use",
+  "intro": "<p>Each item is a decision, deviation, or tradeoff made during implementation. <strong>Acknowledge</strong> if fine. <strong>Discuss</strong> to write what should change. <strong>Revert</strong> to flag for undo.</p>",
+  "actions": [
+    "acknowledge",
+    "discuss",
+    "revert"
+  ],
+  "groups": [
+    {
+      "id": "ob1-w3",
+      "label": "OB1-W3: Search",
+      "badge": "W3"
+    },
+    {
+      "id": "ob1-w4",
+      "label": "OB1-W4: Markdown import",
+      "badge": "W4"
+    },
+    {
+      "id": "ob1-w5",
+      "label": "OB1-W5: Schema migrations",
+      "badge": "W5"
+    },
+    {
+      "id": "ob1-w6",
+      "label": "OB1-W6: Local MCP",
+      "badge": "W6"
+    },
+    {
+      "id": "ob1-w7",
+      "label": "OB1-W7: Contributor path",
+      "badge": "W7"
+    }
+  ],
+  "items": [
+    {
+      "id": "N1",
+      "group": "ob1-w3",
+      "title": "Ran W3 with the interactive orchestrator",
+      "where": "OB1-W3 execution",
+      "default": "acknowledge",
+      "body": {
+        "Spec said": "Run the ordered product-completion plan with documentation and verification gates.",
+        "What I did": "Used this terminal as the coordinator and dispatched read-only specialists because the plan runner required model directives that the plan does not contain and rejected the approved dirty documentation state.",
+        "Why": "The user explicitly requested this terminal as the orchestrator. The same documentation-first, review, test, and verification gates were retained.",
+        "Risk": "Phase commits normally produced by the plan runner are absent. The coordinator owns one W3 diff and one final verification record instead."
+      }
+    },
+    {
+      "id": "N2",
+      "group": "ob1-w3",
+      "title": "Used a stable FTS identity map",
+      "where": "packages/engine/src/open_brain_engine/engine/local_store.py",
+      "default": "acknowledge",
+      "body": {
+        "Spec said": "Add a result-ID-linked FTS5 table with same-transaction synchronization.",
+        "What I did": "Used a contentful FTS5 table plus search_fts_identity, which assigns each public result ID a stable integer FTS row ID.",
+        "Why": "SQLite can renumber an ordinary table's implicit rowid during VACUUM. An external-content design linked to that rowid could silently associate FTS text with the wrong result.",
+        "Risk": "Title and body exist in both the public projection and the derived FTS table. Doctor verifies exact byte agreement and rebuild can replace the FTS copy."
+      }
+    },
+    {
+      "id": "N3",
+      "group": "ob1-w3",
+      "title": "Kept one shared FTS scoring corpus",
+      "where": "docs/retrieval.md § Ranking and snippets",
+      "default": "acknowledge",
+      "body": {
+        "Spec said": "Apply allowed_space_ids inside SQL before ranking and LIMIT.",
+        "What I did": "Denied rows cannot enter the rankable or renderable relation or consume a result slot. SQLite BM25 statistics still use the shared public-projection corpus.",
+        "Why": "Per-space indexes or custom authorized-corpus scoring would isolate statistics but add storage, query, and multi-space semantics that W3 does not need.",
+        "Risk": "Document frequency from denied public-projection rows can influence an allowed row's score. No denied title, body, identifier, or result is returned."
+      }
+    },
+    {
+      "id": "N4",
+      "group": "ob1-w3",
+      "title": "Derived a useful title for quick captures",
+      "where": "packages/engine/src/open_brain_engine/engine/search_projection.py",
+      "default": "acknowledge",
+      "body": {
+        "Spec said": "Weight title matches above body matches and prove that behavior in native smoke tests.",
+        "What I did": "Quick captures use their first nonblank line, capped at 200 characters, as the source-search title. Other payloads fall back to the payload-family label when no line exists.",
+        "Why": "The five-minute CLI has no title option. First-line titles make title ranking useful and testable without expanding the command surface.",
+        "Risk": "Changing a quick capture's first line through a future import or edit path will change its derived display title after that path updates the projection."
+      }
+    },
+    {
+      "id": "N5",
+      "group": "ob1-w3",
+      "title": "Failed closed on stale projections and invalid provenance",
+      "where": "packages/engine/src/open_brain_engine/engine/search_projection.py and retrieval.py",
+      "default": "acknowledge",
+      "body": {
+        "Spec said": "Project protected values before indexing and apply the same public boundary again to returned search fields.",
+        "What I did": "Projection writes require a valid durable provenance shape whose source reference and durable origin agree. Fetch reprojects complete fields before clamping, and search omits a stale row when its complete stored fields differ from the current public projection.",
+        "Why": "Projecting an FTS snippet or a 500-character fetch fragment can miss a protected literal cut at the fragment boundary. Trust also cannot safely come from malformed or unlinked provenance.",
+        "Risk": "A stale row can temporarily reduce the number of returned search results until reconciliation or full re-derivation repairs it. It cannot reveal that the protected query matched."
+      }
+    },
+    {
+      "id": "N6",
+      "group": "ob1-w3",
+      "title": "Kept full projection re-derivation inside maintenance",
+      "where": "packages/engine/src/open_brain_engine/engine/reconciliation.py",
+      "default": "acknowledge",
+      "body": {
+        "Spec said": "Make the live projection rebuildable from durable captures and canonical Markdown without exposing mutation through retrieval.",
+        "What I did": "Added a private writer-lease-protected operation that validates all durable inputs first, then atomically replaces search documents, stable identities, and FTS rows. Read-only retrieval exposes no rebuild method.",
+        "Why": "An FTS-only rebuild cannot repair text created under an older redaction rule. The maintenance boundary preserves the retrieval contract and gives a projection leak a complete recovery path.",
+        "Risk": "The operation is intentionally not a default CLI command in W3. A future supported maintenance surface must preserve the same validation, lease, and all-or-nothing behavior."
+      }
+    },
+    {
+      "id": "W6-1",
+      "group": "ob1-w6",
+      "title": "Extracted the shared stdio transport",
+      "where": "packages/app/src/open_brain/services/mcp_protocol.py",
+      "default": "acknowledge",
+      "body": {
+        "Spec said": "Reuse the existing bounded transport without loading Secure Node composition.",
+        "What I did": "Moved protocol/error/schema types and transport into a dependency-free module; retained work-scoped mcp_stdio delegates with its original admission check.",
+        "Why": "The native artifact forbids integrations and the old MCP module. Neutral extraction preserves all forbidden prefixes.",
+        "Risk": "Both interfaces share transport changes; the retained protocol and empty/nonmatching-grant tests remain required."
+      }
+    },
+    {
+      "id": "W6-2",
+      "group": "ob1-w6",
+      "title": "Separated capture identity from whole-Brain reads",
+      "where": "packages/app/src/open_brain/services/local_operations.py",
+      "default": "acknowledge",
+      "body": {
+        "Spec said": "CLI and MCP share application operations; MCP writes use a non-owner capture-only sink.",
+        "What I did": "Injected a PublicJobCaptureSink separately from the whole-Brain search operation, and shared result formatting with the CLI. Raw UTF-8 input hashes bind exact replay alongside normalized payloads.",
+        "Why": "This preserves non-owner trust and rejects distinct text under a reused key, including canonically equivalent Unicode.",
+        "Risk": "Captures remain immutable. Idempotency conflicts retain existing quarantine evidence but add no capture."
+      }
+    },
+    {
+      "id": "W6-3",
+      "group": "ob1-w6",
+      "title": "Made contention distinguishable from schema failure",
+      "where": "packages/engine/src/open_brain_engine/storage/sqlite.py",
+      "default": "acknowledge",
+      "body": {
+        "Spec said": "Concurrent local access must complete or return a bounded database_busy error.",
+        "What I did": "Preserved typed SQLite busy/locked errors through schema wrappers and distinguished transient shared-writer contention at bootstrap. Kept WAL and the five-second timeout.",
+        "Why": "A transient writer was previously classified as a background runtime or generic schema failure.",
+        "Risk": "Existing migration contention tests now expect the narrower SchemaError subtype and still verify rollback and safe retry."
+      }
+    },
+    {
+      "id": "W6-4",
+      "group": "ob1-w6",
+      "title": "W6 implementation locally verified",
+      "where": "docs/audits/2026-09-09-ob1-w6-local-mcp-audit.md",
+      "default": "acknowledge",
+      "body": {
+        "Result": "3,583 tests passed, 5 filesystem-dependent skips; lint, types, builds, native audit, and Homebrew MCP smoke passed. Final independent read-only review found no blocker.",
+        "Next": "Audit the committed candidate in an isolated single-branch clone, then publish the owner-authorized focused PR and require both exact-head CI jobs before merge. W7 has not started."
+      }
+    }
+  ]
+}

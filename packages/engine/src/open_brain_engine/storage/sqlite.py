@@ -4,47 +4,54 @@ import os
 import sqlite3
 import stat
 import threading
+from collections.abc import Callable
 from dataclasses import dataclass
-from datetime import UTC, datetime
-from hashlib import sha256
 from pathlib import Path, PurePosixPath
 from urllib.parse import quote
 
-from open_brain_engine.core.ids import canonical_json_bytes
 from open_brain_engine.core.ports import Clock
 
 from .filesystem import (
     RootConfinementError,
     RootIdentity,
-    StorageError,
     StorageUnsupportedPlatformError,
     _open_parent,
     _open_root,
     _validated_parts,
+)
+from .migrations import (
+    Migration as Migration,
+)
+from .migrations import (
+    MigrationChecksumError as MigrationChecksumError,
+)
+from .migrations import (
+    NewerSchemaError as NewerSchemaError,
+)
+from .migrations import (
+    SchemaError as SchemaError,
+)
+from .migrations import (
+    _migration,
+    _validate_migration_set,
+    apply_migrations,
 )
 
 SCHEMA_VERSION = 1
 _SQLITE_OPEN_LOCK = threading.Lock()
 
 
-class SchemaError(StorageError):
-    """The SQLite schema is unavailable or inconsistent."""
+class DatabaseBusyError(SchemaError):
+    """SQLite could not acquire a lock within the configured busy timeout."""
 
 
-class NewerSchemaError(SchemaError):
-    """The database schema is newer than this application."""
-
-
-class MigrationChecksumError(SchemaError):
-    """An applied migration differs from the in-code migration."""
-
-
-@dataclass(frozen=True, slots=True)
-class Migration:
-    version: int
-    name: str
-    checksum: str
-    statements: tuple[str, ...]
+def is_database_busy(error: BaseException) -> bool:
+    return isinstance(error, DatabaseBusyError) or (
+        isinstance(error, sqlite3.Error)
+        and getattr(error, "sqlite_errorcode", 0) & 255 in (
+            sqlite3.SQLITE_BUSY, sqlite3.SQLITE_LOCKED,
+        )
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -53,22 +60,9 @@ class SchemaInspection:
     valid: bool
 
     def __post_init__(self) -> None:
-        if (
-            type(self.version) is not int
-            or self.version < 0
-            or type(self.valid) is not bool
-        ):
+        if type(self.version) is not int or self.version < 0 or type(self.valid) is not bool:
             raise SchemaError("invalid schema inspection")
 
-
-_SCHEMA_MIGRATIONS_SQL = """
-CREATE TABLE IF NOT EXISTS schema_migrations (
-    version INTEGER PRIMARY KEY CHECK (version > 0),
-    name TEXT NOT NULL,
-    checksum TEXT NOT NULL,
-    applied_at TEXT NOT NULL
-)
-""".strip()
 
 _EVENT_STATEMENTS = (
     """
@@ -100,40 +94,40 @@ CREATE TABLE events (
 )
 
 
-def _migration_checksum(version: int, name: str, statements: tuple[str, ...]) -> str:
-    return sha256(
-        canonical_json_bytes({"version": version, "name": name, "statements": list(statements)})
-    ).hexdigest()
-
-
-def _migration(version: int, name: str, statements: tuple[str, ...]) -> Migration:
-    return Migration(
-        version=version,
-        name=name,
-        checksum=_migration_checksum(version, name, statements),
-        statements=statements,
-    )
-
-
 MIGRATIONS = (_migration(1, "events", _EVENT_STATEMENTS),)
 
 
-def _open_database_file(parent_fd: int, name: str) -> None:
+def _open_database_file(parent_fd: int, name: str, *, defer_setup: bool = False) -> bool:
+    created = False
     try:
-        database_fd = os.open(
-            name,
-            os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW,
-            0o600,
-            dir_fd=parent_fd,
-        )
+        if defer_setup:
+            try:
+                database_fd = os.open(
+                    name,
+                    os.O_RDWR | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,
+                    0o600,
+                    dir_fd=parent_fd,
+                )
+                created = True
+            except FileExistsError:
+                database_fd = os.open(name, os.O_RDWR | os.O_NOFOLLOW, dir_fd=parent_fd)
+        else:
+            database_fd = os.open(
+                name,
+                os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW,
+                0o600,
+                dir_fd=parent_fd,
+            )
     except OSError:
         raise RootConfinementError("unsafe database path") from None
     try:
         if not stat.S_ISREG(os.fstat(database_fd).st_mode):
             raise RootConfinementError("unsafe database path")
-        os.fchmod(database_fd, 0o600)
+        if not defer_setup:
+            os.fchmod(database_fd, 0o600)
     finally:
         os.close(database_fd)
+    return created
 
 
 def _restrict_existing_file(parent_fd: int, name: str) -> None:
@@ -146,7 +140,8 @@ def _restrict_existing_file(parent_fd: int, name: str) -> None:
     try:
         if not stat.S_ISREG(os.fstat(file_fd).st_mode):
             raise RootConfinementError("unsafe database path")
-        os.fchmod(file_fd, 0o600)
+        if stat.S_IMODE(os.fstat(file_fd).st_mode) != 0o600:
+            os.fchmod(file_fd, 0o600)
     finally:
         os.close(file_fd)
 
@@ -176,6 +171,7 @@ def connect_database(
     root: Path,
     database_name: str | PurePosixPath,
     expected_root_identity: RootIdentity | None = None,
+    prepare: Callable[[sqlite3.Connection, bool, bool], None] | None = None,
 ) -> sqlite3.Connection:
     raw_database_name = str(database_name)
     if "%" in raw_database_name:
@@ -183,6 +179,7 @@ def connect_database(
     parts = _validated_parts(raw_database_name)
     root_fd = _open_root(root, expected_root_identity)
     parent_fd = -1
+    connection = None
     try:
         _require_private_directory(root_fd)
         for depth in range(1, len(parts)):
@@ -192,7 +189,7 @@ def connect_database(
             finally:
                 os.close(component_fd)
         parent_fd = _open_parent(root_fd, parts[:-1], create=True)
-        _open_database_file(parent_fd, parts[-1])
+        created = _open_database_file(parent_fd, parts[-1], defer_setup=prepare is not None)
         old_umask = os.umask(0o077)
         try:
             connection = _connect_from_parent(parent_fd, parts[-1])
@@ -201,8 +198,22 @@ def connect_database(
         connection.row_factory = sqlite3.Row
         connection.execute("PRAGMA foreign_keys = ON")
         connection.execute("PRAGMA busy_timeout = 5000")
-        journal_mode = connection.execute("PRAGMA journal_mode = WAL").fetchone()[0]
         connection.execute("PRAGMA synchronous = FULL")
+        journal_mode = connection.execute("PRAGMA journal_mode").fetchone()[0]
+        setup_required = str(journal_mode).lower() != "wal"
+        for suffix in ("", "-wal", "-shm"):
+            try:
+                mode = os.stat(parts[-1] + suffix, dir_fd=parent_fd, follow_symlinks=False).st_mode
+                setup_required |= not stat.S_ISREG(mode) or stat.S_IMODE(mode) != 0o600
+            except FileNotFoundError:
+                pass
+        if prepare is not None:
+            prepare(connection, created, setup_required)
+        if prepare is None or setup_required:
+            if str(journal_mode).lower() != "wal":
+                journal_mode = connection.execute("PRAGMA journal_mode = WAL").fetchone()[0]
+            for suffix in ("", "-wal", "-shm"):
+                _restrict_existing_file(parent_fd, parts[-1] + suffix)
         settings = (
             connection.execute("PRAGMA foreign_keys").fetchone()[0],
             connection.execute("PRAGMA busy_timeout").fetchone()[0],
@@ -211,13 +222,21 @@ def connect_database(
         if str(journal_mode).lower() != "wal" or settings != (1, 5000, 2):
             connection.close()
             raise SchemaError("required database settings unavailable")
-        for suffix in ("-wal", "-shm"):
-            _restrict_existing_file(parent_fd, parts[-1] + suffix)
         return connection
-    except (RootConfinementError, SchemaError):
+    except RootConfinementError, SchemaError:
+        if connection is not None:
+            connection.close()
         raise
-    except (OSError, sqlite3.Error):
+    except (OSError, sqlite3.Error) as error:
+        if connection is not None:
+            connection.close()
+        if is_database_busy(error):
+            raise DatabaseBusyError("database busy") from None
         raise SchemaError("database connection failed") from None
+    except BaseException:
+        if connection is not None:
+            connection.close()
+        raise
     finally:
         if parent_fd >= 0:
             os.close(parent_fd)
@@ -270,9 +289,11 @@ def connect_database_read_only(
         connection.execute("PRAGMA query_only = ON")
         connection.execute("PRAGMA busy_timeout = 5000")
         return connection
-    except (RootConfinementError, SchemaError):
+    except RootConfinementError, SchemaError:
         raise
-    except (OSError, sqlite3.Error):
+    except (OSError, sqlite3.Error) as error:
+        if is_database_busy(error):
+            raise DatabaseBusyError("database busy") from None
         raise SchemaError("database read-only connection failed") from None
     finally:
         if database_fd >= 0:
@@ -280,6 +301,38 @@ def connect_database_read_only(
         if parent_fd >= 0:
             os.close(parent_fd)
         os.close(root_fd)
+
+
+def has_private_rollback_journal(
+    *, root: Path, database_name: str, expected_root_identity: RootIdentity
+) -> bool:
+    """Inspect a confined recovery candidate; SQLite still validates and rolls it back."""
+    parts = _validated_parts(database_name)
+    root_fd = _open_root(root, expected_root_identity)
+    parent_fd = journal_fd = database_fd = -1
+    try:
+        parent_fd = _open_parent(root_fd, parts[:-1], create=False)
+        _require_private_directory(parent_fd)
+        flags = os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK
+        database_fd = os.open(parts[-1], flags, dir_fd=parent_fd)
+        journal_fd = os.open(parts[-1] + "-journal", flags, dir_fd=parent_fd)
+        database = os.fstat(database_fd)
+        journal = os.fstat(journal_fd)
+        return (
+            stat.S_ISREG(database.st_mode)
+            and stat.S_ISREG(journal.st_mode)
+            and journal.st_uid == os.geteuid()
+            and journal.st_nlink == 1
+            and stat.S_IMODE(journal.st_mode) & 0o077 == 0
+            and 512 < journal.st_size <= 2 * database.st_size + 1_048_576
+            and any(os.read(journal_fd, 8))
+        )
+    except OSError:
+        return False
+    finally:
+        for descriptor in (journal_fd, database_fd, parent_fd, root_fd):
+            if descriptor >= 0:
+                os.close(descriptor)
 
 
 def inspect_event_schema(
@@ -308,43 +361,10 @@ def inspect_event_schema(
             )
         )
         return SchemaInspection(version=version, valid=valid)
-    except (TypeError, ValueError, sqlite3.Error):
+    except TypeError, ValueError, sqlite3.Error:
         raise SchemaError("event schema inspection failed") from None
     finally:
         connection.close()
-
-
-def _format_timestamp(value: datetime) -> str:
-    if not isinstance(value, datetime) or value.tzinfo is None or value.utcoffset() is None:
-        raise SchemaError("migration clock returned invalid timestamp")
-    return value.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%S.%fZ")
-
-
-def _validate_migration_set(
-    migrations: tuple[Migration, ...], schema_version: int
-) -> None:
-    if (
-        type(schema_version) is not int
-        or schema_version < 1
-        or not isinstance(migrations, tuple)
-        or len(migrations) != schema_version
-    ):
-        raise SchemaError("invalid migration set")
-    for expected_version, migration in enumerate(migrations, start=1):
-        if (
-            not isinstance(migration, Migration)
-            or migration.version != expected_version
-            or not migration.name
-            or not isinstance(migration.statements, tuple)
-            or not migration.statements
-            or any(
-                not isinstance(statement, str) or not statement
-                for statement in migration.statements
-            )
-            or migration.checksum
-            != _migration_checksum(migration.version, migration.name, migration.statements)
-        ):
-            raise SchemaError("invalid migration set")
 
 
 def migrate(
@@ -357,41 +377,16 @@ def migrate(
     _validate_migration_set(migrations, schema_version)
     try:
         connection.execute("BEGIN IMMEDIATE")
-        connection.execute(_SCHEMA_MIGRATIONS_SQL)
-        rows = connection.execute(
-            "SELECT version, name, checksum FROM schema_migrations ORDER BY version"
-        ).fetchall()
-        versions = [int(row["version"]) for row in rows]
-        if versions != list(range(1, len(versions) + 1)):
-            raise SchemaError("database migration versions are not contiguous")
-        user_version = int(connection.execute("PRAGMA user_version").fetchone()[0])
-        if user_version > schema_version or versions and versions[-1] > schema_version:
-            raise NewerSchemaError("database schema is newer than supported")
-        for row in rows:
-            migration = migrations[int(row["version"]) - 1]
-            if row["name"] != migration.name or row["checksum"] != migration.checksum:
-                raise MigrationChecksumError("database migration checksum mismatch")
-        for migration in migrations[len(rows) :]:
-            for statement in migration.statements:
-                connection.execute(statement)
-            connection.execute(
-                "INSERT INTO schema_migrations(version, name, checksum, applied_at) "
-                "VALUES (?, ?, ?, ?)",
-                (
-                    migration.version,
-                    migration.name,
-                    migration.checksum,
-                    _format_timestamp(clock.now()),
-                ),
-            )
-        connection.execute(f"PRAGMA user_version = {schema_version}")
+        version = apply_migrations(
+            connection, clock=clock, migrations=migrations, schema_version=schema_version
+        )
         connection.commit()
-        return schema_version
-    except SchemaError:
+        return version
+    except BaseException as error:
         if connection.in_transaction:
             connection.rollback()
+        if isinstance(error, SchemaError):
+            raise
+        if isinstance(error, (IndexError, KeyError, TypeError, ValueError, sqlite3.Error)):
+            raise SchemaError("database migration failed") from None
         raise
-    except (IndexError, KeyError, TypeError, ValueError, sqlite3.Error):
-        if connection.in_transaction:
-            connection.rollback()
-        raise SchemaError("database migration failed") from None

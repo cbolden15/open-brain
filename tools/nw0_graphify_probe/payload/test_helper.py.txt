@@ -1,0 +1,137 @@
+import copy
+import json
+import tempfile
+import unittest
+from pathlib import Path
+
+import helper_protocol as helper
+
+
+def fixture():
+    dataset = json.loads((Path(__file__).parent / "semantic-dataset.json").read_bytes())
+    return {
+        "protocol": helper.PROTOCOL,
+        "operation": "extract_markdown",
+        "notes": [
+            {key: dataset[index][key] for key in ("id", "path", "body")} for index in (0, 1, 2, 5)
+        ],
+    }
+
+
+class HelperTests(unittest.TestCase):
+    def test_selected_extraction_maps_only_selected_ids_with_no_temporary_paths(self):
+        selected = fixture()
+        notes = helper.request(helper.encode(selected))
+        before = helper.encode(selected)
+        result = helper.extract(notes)
+        self.assertEqual(helper.encode(selected), before)
+        self.assertEqual(result["status"], "ok")
+        self.assertEqual(len(result["pages"]), 4)
+        self.assertEqual(
+            {(edge["source"], edge["target"]) for edge in result["links"]},
+            {("synthetic-index", "synthetic-solar"), ("synthetic-index", "synthetic-battery")},
+        )
+        self.assertEqual(
+            result["diagnostics"], [{"source": "synthetic-index", "code": "unresolved_reference"}]
+        )
+        self.assertNotIn("SYNTHETIC_EXCLUDED_BODY_CANARY", helper.encode(result).decode())
+        self.assertNotIn("/", helper.encode(result).decode())
+        self.assertEqual(helper.extract(notes), result)
+
+    def test_incremental_structural_link_is_preserved_without_creating_inference(self):
+        value = fixture()
+        value["notes"][2]["body"] += "\n[[solar]]\n"
+        result = helper.extract(helper.request(helper.encode(value)))
+        self.assertEqual(len(result["links"]), 3)
+        self.assertIn(
+            {
+                "source": "synthetic-battery",
+                "target": "synthetic-solar",
+                "kind": "explicit_reference",
+            },
+            result["links"],
+        )
+        self.assertTrue(all(edge["kind"] == "explicit_reference" for edge in result["links"]))
+
+    def test_missing_reference_cannot_collide_with_a_selected_normalized_upstream_id(self):
+        value = fixture()
+        value["notes"] = value["notes"][:2]
+        value["notes"][0]["body"] = "# Index\n[[other name]]\n"
+        value["notes"][1]["path"] = "other-name.md"
+        result = helper.extract(helper.request(helper.encode(value)))
+        self.assertEqual(result["links"], [])
+        self.assertEqual(
+            result["diagnostics"], [{"source": "synthetic-index", "code": "unresolved_reference"}]
+        )
+
+    def test_ambiguous_basename_has_explicit_blocked_diagnostic_and_no_links(self):
+        value = fixture()
+        value["notes"].extend(
+            [
+                {"id": "alpha", "path": "alpha/shared.md", "body": "# Alpha\n"},
+                {"id": "beta", "path": "beta/shared.md", "body": "# Beta\n"},
+            ]
+        )
+        result = helper.extract(helper.request(helper.encode(value)))
+        self.assertEqual(result["status"], "blocked")
+        self.assertEqual(result["links"], [])
+        self.assertEqual(result["diagnostics"], [{"code": "ambiguous_snapshot"}])
+
+    def test_closed_bounded_request_paths_and_duplicate_ids(self):
+        original = fixture()
+        cases = []
+        for key, value in (
+            ("protocol", "unknown"),
+            ("operation", "other"),
+            ("notes", []),
+            ("extra", "unrecognized"),
+        ):
+            case = copy.deepcopy(original)
+            case[key] = value
+            cases.append(case)
+        for path in ("../outside.md", "/outside.md", "a/../outside.md", "a//outside.md"):
+            case = copy.deepcopy(original)
+            case["notes"][0]["path"] = path
+            cases.append(case)
+        case = copy.deepcopy(original)
+        case["notes"][1]["id"] = case["notes"][0]["id"]
+        cases.append(case)
+        case = copy.deepcopy(original)
+        case["notes"][1]["path"] = "index.md/child.md"
+        cases.append(case)
+        for index, case in enumerate(cases):
+            with self.subTest(index=index), self.assertRaises(ValueError):
+                helper.request(helper.encode(case))
+        for raw in (
+            b"broken",
+            b"[]",
+            b"{" + b'"protocol":"duplicate",' + helper.encode(original)[1:],
+            helper.encode(original) + b" ",
+            b"a" * (helper.LIMIT + 1),
+        ):
+            with self.assertRaises(ValueError):
+                helper.request(raw)
+
+    def test_frontmatter_preflight_rejects_cycles_duplicates_before_snapshot_creation(self):
+        for body in (
+            "---\nx: &a [*a]\n---\n",
+            "---\nx: 1\nx: 2\n---\n",
+            "---\naliases: scalar\n---\n",
+        ):
+            value = fixture()
+            value["notes"][0]["body"] = body
+            original = tempfile.TemporaryDirectory
+
+            def forbidden(*args, **kwargs):
+                raise AssertionError("snapshot created before metadata rejection")
+
+            tempfile.TemporaryDirectory = forbidden
+            try:
+                with self.assertRaises(ValueError):
+                    helper.extract(helper.request(helper.encode(value)))
+            finally:
+                tempfile.TemporaryDirectory = original
+
+
+if __name__ == "__main__":
+    unittest.main()

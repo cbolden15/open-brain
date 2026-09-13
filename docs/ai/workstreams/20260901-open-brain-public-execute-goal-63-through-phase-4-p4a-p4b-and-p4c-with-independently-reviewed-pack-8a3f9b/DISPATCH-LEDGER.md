@@ -447,7 +447,7 @@ coordinator-owned.
 
 - Status: complete
 - Active children: 0 of 6
-- Total children: 4 of 12
+- Total children: 5 of 12
 - Identical failures: 0 of 2 for Codex CLI 0.153.0; children 19 and 20 closed
   the unchanged 0.152.1 CLI path at 2 of 2
 - Consecutive timeouts: 0 of 2
@@ -544,3 +544,238 @@ coordinator-owned.
 - Final result: `READY`; P0/P1/P2 `0/0/0`. All three D-054 adjudications and
   all P4A/P4B completion criteria are accepted. No file changed and no concern
   remains.
+
+## P4-W8 milestone budget
+
+- Status: stopped at fresh-machine inventory gate
+- Active children: 0 of 6
+- Total children: 6 of 12
+- Identical failures: 0 of 2
+- Consecutive timeouts: 2 of 2 for the closed CLI path; 0 of 2 on the in-app
+  path
+- Implementation writer: coordinator only; no child write scope is reserved
+- Review lineage: Children 23, 24, and 27 closed without verdict after bounded
+  timeouts or stalls. Child 25 returned final architecture `READY`,
+  P0/P1/P2 `0/0/0`. Child 26 returned the initial implementation findings but
+  stalled on rereview. Child 28 closed IR-004 on its second pass and returned
+  one P0 mapping-contract finding before the remaining questions were reached.
+  Its third pass closed that mapping finding and found one P1 in the
+  descriptor-missing orphan transport before the remaining questions were
+  reached. Its fourth pass closed the orphan protocol and found one P0 in
+  unsupported launch-manifest handling before the remaining questions were
+  reached. Its fifth pass closed the manifest inventory and every deferred
+  question, returning final pre-execution `READY`, P0/P1/P2 `0/0/0`. Its slot
+  is released. A final receipt review remains mandatory.
+- Reset authority: P4-W7 Child 22 is closed. The validated P4-W7 handoff,
+  protected P4A/P4B merge, rendered P4-W8 contract, and D-057 start a fresh
+  milestone budget.
+
+## Child 23: P4-W8 pre-implementation architecture review
+
+- Status: closed without verdict after timeout breaker; slot released
+- Dispatch ID: `p4w8-architecture-review-01`
+- Model: `gpt-5.6-sol`
+- Reasoning effort: `high`
+- Role: read-only adversarial architecture reviewer
+- Write scope: none
+- Source scope: static merged public P4-W8/P4B inputs plus the private
+  companion's current Goal #63 state and historical Goal #24 helper,
+  controller, tests, and bounded receipts
+- Required result: `READY` with P0/P1/P2 `0/0/0`, or bounded
+  `P4W8-AR-*` findings plus exact module, command, receipt, red-test, live
+  sequencing, and rollback guidance
+- Result: no closed report after about 190 seconds. The process was still
+  recursively inspecting static source at interruption and had consumed a
+  disproportionate context budget. No finding or approval is inferred. The
+  replacement must prohibit broad search/codegraph and limit inspection to
+  named source regions.
+
+## Child 24: P4-W8 bounded architecture review
+
+- Status: closed without verdict after timeout breaker; slot released
+- Dispatch ID: `p4w8-architecture-review-02`
+- Model: `gpt-5.6-sol`
+- Reasoning effort: `high`
+- Role: read-only adversarial architecture reviewer
+- Write scope: none
+- Source scope: only named public/private files and line ranges; broad search,
+  codegraph, Git history, web, and live commands are forbidden
+- Retry strategy: narrow Child 23's recursive static exploration to the exact
+  controller/helper/stager/verifier interfaces required by P4-W8
+- Required result: bounded architecture `READY` with P0/P1/P2 `0/0/0`,
+  or exact `P4W8-AR-*` findings and implementation guidance
+- Result: no closed report after the bounded wait. The fixed source set was
+  still being inspected at interruption; no finding or approval is inferred.
+  This is the second consecutive timeout, so D-058 closes equivalent review
+  dispatches before implementation or live P4-W8 work.
+
+## Child 25: P4-W8 in-app bounded architecture review
+
+- Status: final architecture review complete; slot released, lineage closed
+- Dispatch ID: `p4w8-architecture-review-03`
+- Agent ID: `01a06884-a664-7722-9705-01351d9e4e94`
+- Nickname: Leibniz
+- Model: `gpt-5.6-sol`
+- Reasoning effort: `high`
+- Role: read-only adversarial architecture reviewer
+- Write scope: none
+- Source scope: identical named files and line ranges from Child 24
+- Retry strategy: use the distinct in-app subagent runtime discovered after
+  D-058 closed the two timed-out Codex CLI attempts
+- Required result: bounded architecture `READY` with P0/P1/P2 `0/0/0`,
+  or exact `P4W8-AR-*` findings and implementation guidance
+- Initial result: `NOT_READY`; P0/P1/P2 `0/7/2`. Direct adaptation of the
+  historical production controller is rejected. The clean architecture must
+  close capability isolation, complete owner-map/journal rollback, online
+  backup consistency, namespace/TOCTOU safety, exact stage bindings, an
+  independent data-only verifier, the surface matrix, and postflight cleanup.
+  `P4W8-AR-001` is a bounded path-resolution gap: the public prompt exists
+  but its exact path was not supplied to the fixed-region reviewer.
+- Rereview input: the exact public phase-prompt path and SHA-256, a private
+  nine-finding adjudication with SHA-256
+  `78f6242fda1f948c3d50f186c600caed32c5265930425f01fe7363f95a9a456e`,
+  and a bounded isolation-feasibility receipt with SHA-256
+  `0386cf4b7b0f8eff240f9041b18eab5e72b51c502c295fdd63caa80f7e5ab966`.
+- Required rereview result: explicitly close or retain each
+  `P4W8-AR-001` through `P4W8-AR-009`, then return `READY` with P0/P1/P2
+  `0/0/0` or a bounded remaining finding set. No file write or live command is
+  authorized.
+- Second result: `NOT_READY`; P0/P1/P2 `0/2/0`. AR-001 and AR-004 through
+  AR-009 are closed. AR-002 requires proof that the sandbox denies external
+  same-user signals, pre-existing loopback listeners, non-transaction Unix
+  sockets, all bounded production roots, and every non-allowlisted service
+  control. AR-003 requires durable write-ahead `planned` and `applied` records
+  plus crash-point reconciliation tests.
+- Third-review inputs: amended adjudication SHA-256
+  `f5dfa1a12580a9230a55b2f3e08ffdcaabc9faf0afda05bc3453036d60a2edd6`
+  and expanded isolation receipt SHA-256
+  `760a55ccd0c1b4f639a5df7ef83f77b55aaf5f8b045b83d12f09af39b33f2841`.
+  The probe source matches the receipt at SHA-256
+  `4c8bb414ae8ff270d3b05e3184bfed7fb823dd012f8a1e86bd278cbb5bfa8b9c`.
+- Required third result: accept or retain AR-002 and AR-003 only, confirm the
+  other seven closures remain valid, and return architecture `READY` with
+  P0/P1/P2 `0/0/0` before implementation.
+- Final result: `READY`; P0/P1/P2 `0/0/0`. AR-002 and AR-003 are closed and
+  AR-001 plus AR-004 through AR-009 remain closed. The verdict authorizes
+  red-first implementation only. Live inventory, helper, backup, restore,
+  service, and rehearsal work remain gated on populated hashes, tests, and
+  independent pre-execution review.
+
+## Child 26: P4-W8 populated pre-execution implementation review
+
+- Status: closed after stalled rereview; slot released
+- Dispatch ID: `p4w8-preexecution-review-01`
+- Agent ID: `01a06929-aae0-7c50-9d04-eb8f4711ce22`
+- Nickname: Tesla
+- Model: `gpt-5.6-sol`
+- Reasoning effort: `high`
+- Role: read-only adversarial implementation and safety reviewer
+- Write scope: none
+- Source scope: exact named public/private implementation, generated stage,
+  candidate, tests, schemas, profiles, and accepted-source regions in the
+  private review prompt; broad search and live commands are forbidden
+- Required result: explicitly adjudicate implementation deltas ID-001 through
+  ID-007 and return `READY`, P0/P1/P2 `0/0/0`, before any live metadata,
+  helper, backup, restore, candidate-daemon, or rehearsal action; otherwise
+  return a closed `P4W8-IR-*` finding set
+- Result: `NOT_READY`; P0/P1/P2 `3/4/1`. ID-002 and the corrected portions
+  of ID-001, ID-003, and ID-004 were accepted. Findings require preserving
+  record locks across recapture, candidate execution on migrated state, closed
+  writer-to-root-to-lease inventory, operational reattachment, measured
+  surface/writer evidence, a presealed independent verifier contract,
+  descriptor-relative copy/migration, and the full exact-profile V2 probe.
+  Metadata-only preflight is the sole authorized live action; no repair,
+  backup, restore, candidate launch, or rehearsal is authorized yet.
+- Rereview result: no terminal verdict after the original bound, an extended
+  wait, and a forced-verdict interrupt. The agent was closed while still
+  running. No approval or additional finding is inferred.
+
+## Child 27: P4-W8 bounded pre-execution rereview
+
+- Status: closed without verdict after bounded stall; slot released
+- Dispatch ID: `p4w8-preexecution-review-02`
+- Agent ID: `01a06986-7add-7fd3-9892-3d7a7a0dfed8`
+- Nickname: Fermat
+- Role: read-only adversarial implementation and safety reviewer
+- Write scope: none
+- Source scope: the same closed named-file set as Child 26, updated to the
+  repaired transaction and all eight implementation deltas
+- Retry strategy: fresh bounded in-app context after the retained Child 26
+  lineage failed to emit a terminal rereview verdict
+- Required result: explicitly close or retain IR-001 through IR-008 and return
+  `READY`, P0/P1/P2 `0/0/0`, before any remote stage, helper, backup, restore,
+  candidate, or rehearsal action; otherwise return one closed finding set
+- Result: no terminal verdict after the bounded review interval. The lineage
+  was closed without approval or a new finding.
+
+## Child 28: P4-W8 compact delta rereview
+
+- Status: final pre-execution review complete; slot released, lineage closed
+- Dispatch ID: `p4w8-preexecution-review-03`
+- Agent ID: `01a06992-e518-7e52-a22a-85445605e731`
+- Nickname: Parfit
+- Role: read-only adversarial implementation and safety reviewer
+- Write scope: none
+- Source scope: closed named implementation, test, schema, transaction, and
+  bounded receipt set in `P4-W8-DELTA-REREVIEW-PROMPT.md`
+- Retry strategy: compact eight-question review after Child 27 did not emit a
+  terminal verdict
+- Initial result: `NOT_READY`; P0/P1/P2 `0/1/0`. IR-001 is closed. IR-004
+  remains open because rollback accepted an empty journal and the SIGKILL test
+  did not exercise the real operational reattachment path. IR-002, IR-003, and
+  IR-005 through IR-008 were not reached, so no approval is inferred.
+- Required rereview result: verify the real `OperationalRehearsal` SIGKILL and
+  nonempty-journal repair, complete the six deferred questions, and return
+  `READY`, P0/P1/P2 `0/0/0`, before any remote write, recovery, or rehearsal
+  action; otherwise return one closed finding set
+- Second result: `NOT_READY`; P0/P1/P2 `1/0/0`. IR-001 and IR-004 are closed.
+  IR-002 is open because the sealed mapping declared `legacy/slot-*` while
+  runtime independently used `.open-brain/retained/<role>`. IR-003 and IR-005
+  through IR-008 were not reached, so no approval is inferred.
+- Third result: `NOT_READY`; P0/P1/P2 `0/1/0`. IR-001 and IR-002 are closed.
+  IR-004 remains open because descriptor-missing orphan shutdown used a
+  one-shot response read without retry or lost-response handling. IR-003 and
+  IR-005 through IR-008 were not reached, so no approval is inferred.
+- Fourth result: `NOT_READY`; P0/P1/P2 `1/0/0`. IR-001, IR-002, and IR-004 are
+  closed. IR-003 remains open because unsupported `.plist` identities were
+  silently skipped before classification. IR-005 through IR-008 were not
+  reached, so no approval is inferred.
+- Final result: `READY`; P0/P1/P2 `0/0/0`. IR-001 through IR-008 are closed.
+  The exact reviewed implementation may proceed through owner-only remote
+  staging, bounded metadata/preflight, dual recovery, and the disposable
+  full-stop/forced-rollback rehearsal. Production ownership and content remain
+  immutable; final receipt review is still mandatory.
+
+## P4-W8 fresh-machine inventory gate
+
+- Status: blocked before exact-profile and preflight; active children remain
+  `0`, total child lineages remain `6`, and final receipt review has not begun.
+- Completed gate: the private 20-test suite, Ruff, strict MyPy, seven schema
+  checks, Child 28 final pre-execution `READY`, owner-only transfer, and all 16
+  remote stage-coordinate validations passed.
+- Fresh result: read-only inventory found one unexpected inactive but loaded
+  Open Brain registration with a known job-class identity. Its five discovered
+  roots overlap three governed production roots, so the writer map is not
+  closed. The bounded blocker receipt SHA-256 is
+  `3af46ad50b9e61207e080ce203f887c744dc82fdc7043e955852cac5d036b9f8`.
+- Stop action: no exact-profile, backup-access repair, backup, restore,
+  candidate launch, rehearsal, postflight, production mutation, or Child 29
+  receipt review ran. Resume requires separate owner-authorized reconciliation
+  of the unexpected registration followed by a fresh P4-W8 transaction.
+
+## P4-W8 separate reconciliation review
+
+- Separate workstream status: blocked pending bounded seven-root helper
+  authority. Its child budget is independent from P4-W8: `0` active and `1`
+  total lineage.
+- Child 1 role: independent read-only adversarial architecture reviewer; no
+  write or live-command scope.
+- Result: `NOT_READY`, P0/P1/P2 `3/0/0`. REC-AR-001 requires a complete
+  two-generation writer/root/lease model and two-lease fence. REC-AR-002
+  requires encrypted recovery of all seven roots rather than helper v18's five.
+  REC-AR-003 requires seven-root staging, isolation, receipts, and exact
+  two-generation rollback.
+- Next gate: explicit owner authority for a versioned helper successor whose
+  full profile reads exactly seven roots, followed by implementation and fresh
+  pre-execution review. No service/content change, backup, restore, rehearsal,
+  final receipt review, publication, deployment, or P4-W9 action occurred.

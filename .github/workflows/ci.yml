@@ -3,7 +3,7 @@ name: CI
 on:
   pull_request:
   push:
-    branches: [main]
+    branches: [main, goal/open-brain-five-minute-install]
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -13,242 +13,140 @@ permissions:
   contents: read
 
 jobs:
-  verify:
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
-    strategy:
-      fail-fast: false
-      matrix:
-        python-version: ["3.12", "3.13", "3.14"]
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
-        with:
-          python-version: ${{ matrix.python-version }}
-          version: "0.12.8"
-          enable-cache: true
-      - run: uv sync --frozen --group dev
-      - run: uv run ruff check .
-      - run: uv run mypy
-      - run: uv run pytest -q
-      - run: make verify-artifacts
-
-  appliance-source-checkout-macos:
-    runs-on: macos-14
-    timeout-minutes: 30
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
-        with:
-          python-version: "3.12"
-          version: "0.12.8"
-          enable-cache: true
-      - run: uv sync --frozen --group dev
-      - run: >
-          uv run pytest -q
-          packages/app/tests/integration/services/test_appliance_upgrade.py
-          packages/app/tests/integration/services/test_appliance_uninstall.py
-          packages/app/tests/integration/services/test_appliance_supervisors.py
-          packages/app/tests/integration/services/test_appliance_entrypoints.py
-          tests/security/test_appliance_logs.py
-          tests/security/test_public_result_residue.py
-
-  phase4-contracts:
+  linux-x86-64:
+    name: Linux x86_64
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Select preinstalled Homebrew
+        env:
+          LINUXBREW_USER: linuxbrew
+        run: echo "/home/${LINUXBREW_USER}/.linuxbrew/bin" >> "$GITHUB_PATH"
+      - name: Verify runner
+        run: test "$(uname -m)" = x86_64 && brew --version
       - uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
         with:
-          python-version: "3.12"
+          python-version: "3.14"
           version: "0.12.8"
           enable-cache: true
-      - run: uv sync --frozen --group dev
-      - run: make phase4-contracts
-
-  p4w6-python-artifacts:
-    runs-on: ubuntu-24.04
-    timeout-minutes: 20
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - run: make contributor-check
+      - name: Verify experimental Graphify native helper
+        run: uv run --frozen --python 3.14 --no-dev --group native-build python -m tools.nw0_graphify_probe.run
+      - name: Measure native base startup with separate helper
+        run: uv run --frozen --python 3.14 --no-dev --group native-build python -m tools.nw0_graphify_probe.startup
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always()
         with:
-          ref: ${{ github.event.pull_request.head.sha || github.sha }}
-      - uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
-        with:
-          python-version: "3.12"
-          version: "0.12.8"
-          enable-cache: true
-      - run: uv sync --frozen --group dev --group native-build
-      - run: >
-          make p4w6-python
-          P4W6_SOURCE_SHA=${{ github.event.pull_request.head.sha || github.sha }}
+          name: nw0-graphify-linux-x86_64-${{ github.event.pull_request.head.sha || github.sha }}
+          path: build/nw0-graphify/release
+          if-no-files-found: error
+          retention-days: 7
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: p4w6-python-${{ github.event.pull_request.head.sha || github.sha }}
-          path: build/p4w6-python
+          name: open-brain-linux-x86_64-${{ github.event.pull_request.head.sha || github.sha }}
+          path: build/native/release
           if-no-files-found: error
           retention-days: 7
 
-  p4w6-linux-build:
-    runs-on: ubuntu-24.04
-    timeout-minutes: 45
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          ref: ${{ github.event.pull_request.head.sha || github.sha }}
-      - uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
-        with:
-          python-version: "3.12"
-          version: "0.12.8"
-          enable-cache: true
-      - run: uv sync --frozen --group dev --group native-build
-      - run: make p4w6-focused
-      - run: >
-          make p4w6-linux
-          P4W6_SOURCE_SHA=${{ github.event.pull_request.head.sha || github.sha }}
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: p4w6-linux-${{ github.event.pull_request.head.sha || github.sha }}
-          path: |
-            build/p4w6-linux/artifacts
-            build/p4w6-linux/native-build/artifact-members.json
-            build/p4w6-linux/native-build/build-evidence.json
-          if-no-files-found: error
-          retention-days: 7
-
-  p4w6-linux-clean-host:
-    needs: p4w6-linux-build
-    runs-on: ubuntu-24.04
+  macos-arm64:
+    name: macOS arm64
+    runs-on: macos-latest
     timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Verify runner
+        run: test "$(uname -m)" = arm64 && brew --version
+      - uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
+        with:
+          python-version: "3.14"
+          version: "0.12.8"
+          enable-cache: true
+      - run: make contributor-check
+      - name: Verify experimental Graphify native helper
+        run: uv run --frozen --python 3.14 --no-dev --group native-build python -m tools.nw0_graphify_probe.run
+      - name: Measure native base startup with separate helper
+        run: uv run --frozen --python 3.14 --no-dev --group native-build python -m tools.nw0_graphify_probe.startup
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always()
+        with:
+          name: nw0-graphify-macos-arm64-${{ github.event.pull_request.head.sha || github.sha }}
+          path: build/nw0-graphify/release
+          if-no-files-found: error
+          retention-days: 7
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: open-brain-macos-arm64-${{ github.event.pull_request.head.sha || github.sha }}
+          path: build/native/release
+          if-no-files-found: error
+          retention-days: 7
+
+  nw0-api-proof:
+    name: NW0 async API proof (${{ matrix.target }})
     strategy:
       fail-fast: false
       matrix:
-        container-image: [ubuntu:24.04, ubuntu:26.04, debian:13]
-    env:
-      P4W6_SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        include:
+          - runner: ubuntu-latest
+            target: linux-x86_64
+            machine: x86_64
+          - runner: macos-latest
+            target: macos-arm64
+            machine: arm64
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - name: Verify native runner architecture
+        env:
+          EXPECTED_MACHINE: ${{ matrix.machine }}
+        run: test "$(uname -m)" = "$EXPECTED_MACHINE"
       - uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
         with:
-          python-version: "3.12"
+          python-version: "3.14"
           version: "0.12.8"
           enable-cache: true
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
-        with:
-          name: p4w6-linux-${{ github.event.pull_request.head.sha || github.sha }}
-          path: build/p4w6-linux-download
-      - run: uv sync --frozen --group dev
-      - run: uv run python -m tools.phase4.clean_host_fixture --output build/p4w6-fixture
-      - name: Run exact archive without repository or system Python
-        run: |
-          case "${{ matrix.container-image }}" in
-            ubuntu:24.04) host=ubuntu-24.04 ;;
-            ubuntu:26.04) host=ubuntu-26.04 ;;
-            debian:13) host=debian-13 ;;
-            *) exit 1 ;;
-          esac
-          mkdir -p build/p4w6-controller build/p4w6-host-evidence
-          cp tools/phase4/clean_host_lifecycle.sh build/p4w6-controller/
-          cp tools/phase4/supervisor_shim.sh build/p4w6-controller/
-          cp tools/phase4/unix_request.pl build/p4w6-controller/
-          docker run --rm --platform linux/amd64 \
-            --env P4W6_HOST="$host" \
-            --env P4W6_SOURCE_SHA="$P4W6_SOURCE_SHA" \
-            --volume "$PWD/build/p4w6-controller:/controller:ro" \
-            --volume "$PWD/build/p4w6-linux-download/artifacts:/artifact:ro" \
-            --volume "$PWD/build/p4w6-fixture:/fixture:ro" \
-            --volume "$PWD/build/p4w6-host-evidence:/evidence" \
-            "${{ matrix.container-image }}" \
-            sh -eu -c '
-              apt-get update >/dev/null
-              DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends curl jq perl sqlite3 >/dev/null
-              /controller/clean_host_lifecycle.sh \
-                /artifact/open-brain-0.1.0-linux-x86_64.tar.gz \
-                /artifact/open-brain-0.1.0-linux-x86_64.tar.gz.sha256 \
-                /fixture \
-                "/evidence/$P4W6_HOST.json" \
-                "$P4W6_SOURCE_SHA" \
-                "$P4W6_HOST" \
-                x86_64 \
-                false
-            '
+      - name: Verify isolated synthetic async transport
+        run: uv run --frozen --python 3.14 python -m tools.nw0_api_probe.run
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always()
         with:
-          name: p4w6-clean-host-${{ strategy.job-index }}-${{ github.event.pull_request.head.sha || github.sha }}
-          path: build/p4w6-host-evidence
+          name: nw0-api-${{ matrix.target }}-${{ github.event.pull_request.head.sha || github.sha }}
+          path: build/nw0-api/release/verification.json
           if-no-files-found: error
           retention-days: 7
 
-  p4w6-macos-14-compatibility:
-    runs-on: macos-14
-    timeout-minutes: 45
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          ref: ${{ github.event.pull_request.head.sha || github.sha }}
-      - uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
-        with:
-          python-version: "3.12"
-          version: "0.12.8"
-          enable-cache: true
-      - run: uv sync --frozen --group dev --group native-build
-      - run: make p4w6-focused
-      - run: >
-          make p4w6-macos-compatibility
-          P4W6_SOURCE_SHA=${{ github.event.pull_request.head.sha || github.sha }}
-      - run: uv run python -m tools.phase4.clean_host_fixture --output build/p4w6-fixture
-      - run: >
-          make p4w6-clean-host
-          P4W6_PACKAGE=build/p4w6-macos-compatibility/artifacts/open-brain-0.1.0-macos-arm64-compatibility.tar.gz
-          P4W6_CHECKSUM=build/p4w6-macos-compatibility/artifacts/open-brain-0.1.0-macos-arm64-compatibility.tar.gz.sha256
-          P4W6_FIXTURE=build/p4w6-fixture
-          P4W6_EVIDENCE=build/p4w6-macos-14-source-equivalent.json
-          P4W6_SOURCE_SHA=${{ github.event.pull_request.head.sha || github.sha }}
-          P4W6_HOST=macos-14
-          P4W6_ARCHITECTURE=arm64
-          P4W6_EXACT_SIGNED=false
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: p4w6-macos-14-${{ github.event.pull_request.head.sha || github.sha }}
-          path: |
-            build/p4w6-macos-14-source-equivalent.json
-            build/p4w6-macos-compatibility/artifacts
-            build/p4w6-macos-compatibility/native-build/artifact-members.json
-            build/p4w6-macos-compatibility/native-build/build-evidence.json
-          if-no-files-found: error
-          retention-days: 7
-
-  native-build-linux:
-    needs: [p4w6-linux-build, p4w6-linux-clean-host]
-    if: always()
-    runs-on: ubuntu-24.04
-    steps:
-      - run: >
-          test "${{ needs.p4w6-linux-build.result }}" = success &&
-          test "${{ needs.p4w6-linux-clean-host.result }}" = success
-
-  native-build-macos:
-    needs: p4w6-macos-14-compatibility
-    if: always()
-    runs-on: ubuntu-24.04
-    steps:
-      - run: test "${{ needs.p4w6-macos-14-compatibility.result }}" = success
-
-  connector-isolation:
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
+  nw0-unprivileged-transport-proof:
+    name: NW0 unprivileged transport proof (${{ matrix.target }})
     strategy:
       fail-fast: false
       matrix:
-        python-version: ["3.12", "3.13", "3.14"]
+        include:
+          - runner: ubuntu-latest
+            target: linux-x86_64
+            machine: x86_64
+          - runner: macos-latest
+            target: macos-arm64
+            machine: arm64
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Verify native runner architecture
+        env:
+          EXPECTED_MACHINE: ${{ matrix.machine }}
+        run: test "$(uname -m)" = "$EXPECTED_MACHINE"
       - uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
         with:
-          python-version: ${{ matrix.python-version }}
+          python-version: "3.14"
           version: "0.12.8"
           enable-cache: true
-      - run: uv sync --frozen --group dev
-      - run: uv run pytest -q tests/phase4/test_connector_distribution.py
+      - name: Verify unprivileged synthetic resolver and TLS lifecycle
+        run: uv run --frozen --python 3.14 python -m tools.nw0_unprivileged_transport_probe.run
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always()
+        with:
+          name: nw0-unprivileged-transport-${{ matrix.target }}-${{ github.event.pull_request.head.sha || github.sha }}
+          path: build/nw0-unprivileged-transport/release/verification.json
+          if-no-files-found: error
+          retention-days: 7

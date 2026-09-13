@@ -723,3 +723,175 @@ has become corrupt.
   `P4W7-001` as a sandbox-induced false positive, accepted every D-054
   adjudication and P4A/P4B criterion, and returned final `READY`, P0/P1/P2
   `0/0/0` without changing a file.
+
+## D-057: merge the exact P4A/P4B tree before a new disposable transaction
+
+- Chosen: merge PR #6 through protected `main` after all 20 checks passed,
+  verify the squash commit's tree equals the exact reviewed branch-head tree,
+  and start P4-W8 on a new branch from that merge. Build a new Goal #63
+  transaction in private governed state, gated first by a read-only
+  architecture review. Reuse the approved helper and recovery semantics only
+  through explicit new hashes, manifests, tests, and disposable namespaces.
+- Rejected: rehearse from the unmerged feature branch, treat squash ancestry
+  as the identity proof, modify or rebuild the frozen P4B candidate, invoke
+  the historical Goal #24 controller directly, reuse its completed production
+  apply, or let P4-W8 touch production writer/service ownership.
+- Why: Goal #63 requires the exact reviewed P4A/P4B content to pass protected
+  merge before P4C consumes it. Tree equality proves the squash preserved that
+  content. A separate reviewed transaction prevents historical production
+  authority or stale topology from leaking into the disposable rehearsal.
+
+## D-058: stop before implementation after two architecture-review timeouts
+
+- Chosen: close Child 23 after its broad static review returned no report, then
+  make one materially narrower attempt limited to named files and regions.
+  Close Child 24 without verdict when it also exceeded the bounded wait, set
+  consecutive timeouts to two, and stop before controller implementation or
+  live P4-W8 work.
+- Rejected: infer approval from partial reviewer exploration, dispatch a third
+  equivalent child, self-certify the architecture, weaken the requirement for
+  reviewed control code, or begin inventory/backup/rehearsal while the review
+  gate is unresolved.
+- Why: neither child returned a closed report, finding, or verdict. The shared
+  governance breaker requires a changed execution path after two consecutive
+  timeouts and preserves the no-production/no-live boundary while review
+  availability is restored.
+
+## D-059: use the distinct in-app runtime after closing the CLI path
+
+- Chosen: preserve both timeout records and keep the Codex CLI review path
+  closed, then reserve one bounded read-only reviewer on the separately
+  exposed in-app subagent runtime using Child 24's fixed named-region prompt.
+- Rejected: a third Codex CLI dispatch, a broader prompt, implementation before
+  review, or any live inventory, backup, restore, service, or rehearsal action.
+- Why: runtime capability discovery exposed an independent execution mechanism
+  after D-058. This materially changes the failed path while preserving the
+  same no-write/no-live contract and shared P4-W8 child budget.
+
+## D-060: isolate the disposable engine and fence one online backup generation
+
+- Chosen: keep all production discovery, scoped-helper calls, and before/after
+  comparison in a non-mutating host-side coordinator; run the rehearsal engine
+  and every candidate descendant under a deny-by-default macOS sandbox that
+  receives only transaction-owned descriptors and cannot execute real service
+  controls. Keep production services loaded while the recovery process holds
+  the complete closed set of writer leases across both fresh backups and proves
+  the source generation unchanged before, between, and after them.
+- Rejected: direct reuse of the Goal #24 production controller, an unrestricted
+  same-user process, stopping any production service, two independently sampled
+  live backups, or provisioning a macOS VM by consuming the host's remaining
+  disk margin or deleting unrelated data.
+- Why: the signed candidate and a same-sandbox child ran inside the restricted
+  boundary while public-repository reads, sibling reads, and real `launchctl`
+  execution were denied. A macOS VM remains the ideal isolation option, but no
+  manager or image is installed and current free space cannot safely absorb
+  one. The existing writer protocol provides a non-mutating generation fence:
+  exclusive acquisition of every inventoried lease completes prior writes and
+  prevents conforming writers from entering while both helper snapshots run.
+
+## D-061: exact-endpoint Seatbelt and write-ahead rollback
+
+- Chosen: restrict the sandbox to one transaction TCP port, transaction-path
+  Unix sockets, and same-sandbox descendants; deny every other endpoint,
+  outside-process signal, production root, and non-allowlisted service tool.
+  Journal a durable `planned` record before every forward or rollback mutation
+  and a matching `applied` record after identity/state revalidation.
+- Rejected: broad loopback access, post-mutation-only journaling, treating tests
+  as a substitute for runtime denial, or adding a broker/VM after the narrower
+  Seatbelt policy proved enforceable.
+- Why: the expanded probe denied reads and write-opens across all five bound
+  production roots, an outside same-user signal, a pre-existing loopback
+  listener, a non-transaction Unix socket, and all 11 present host service
+  tools while preserving exact transaction TCP/Unix, child lifecycle, write,
+  and signed-candidate behavior. Write-ahead intent closes the crash window
+  between a mutating syscall and its prior post-transition record.
+
+## D-062: accept the reviewed P4-W8 architecture before implementation
+
+- Chosen: accept Child 25's same-lineage `READY`, P0/P1/P2 `0/0/0`, only as
+  authority to begin red-first private implementation. Preserve the separate
+  no-live gate until generated configuration, migration, rebuild, controller,
+  verifier, and sandbox bytes are hash-closed, tested, and independently
+  reviewed.
+- Rejected: treating architecture READY as rehearsal authority, skipping the
+  20 red-first tests, weakening the expanded isolation probe or crash matrix,
+  or beginning inventory, helper, backup, restore, or service work early.
+- Why: the reviewer explicitly closed AR-002 and AR-003, reconfirmed all seven
+  prior closures, and retained no finding. Its stated permission ends at
+  implementation and preserves the final pre-execution review boundary.
+
+## D-063: stop P4-W8 on overlapping unexpected writer authority
+
+- Chosen: preserve the fresh-machine inventory failure as a precise blocker
+  and stop before exact-profile, preflight, backup, restore, candidate launch,
+  or rehearsal. Require the unexpected loaded registration to be reconciled
+  outside P4-W8 under separate owner authority, then begin a fresh transaction
+  and rerun the complete inventory.
+- Rejected: add the unexpected manifest digest to a static allowlist, classify
+  the registration as unrelated because its process is currently absent,
+  unload or disable it within P4-W8, or continue using a partial writer map.
+- Why: bounded configuration discovery proves that three of its five roots
+  overlap governed production roots. A loaded registration can regain writer
+  authority even while inactive. Continuing would violate the exact closed
+  writer-map requirement, while unloading it would violate P4-W8's immutable
+  production-service boundary.
+
+## D-064: retain the canonical writer and require seven-root recovery
+
+- Chosen: classify the loaded registration as the intentional transitional
+  canonical writer, preserve it unchanged, and keep P4-W8 stopped until a
+  versioned helper successor can recover the deduplicated seven-root union
+  under both writer leases. Require generation-qualified staging, seven-root
+  isolation and postflight evidence, exact two-generation rollback, and fresh
+  independent review.
+- Rejected: quarantine the registration, infer staleness from an idle scheduled
+  process, add only its manifest to the static inventory, treat five-root
+  helper snapshots as complete, or copy divergent roots into covered roots.
+- Why: retained provenance proves deliberate production ownership. Fresh
+  comparison proves two divergent role pairs and two independent leases.
+  Removing the writer changes production service state; ignoring its roots or
+  lease invalidates recoverability and zero-overlap; copying them mutates
+  production content. A narrowly expanded immutable backup helper is the
+  smallest architecture that preserves all existing service and content state.
+
+## D-065: remove backup and private cutover from project scope
+
+- Chosen: accept the owner's 2026-09-04 scope correction. Stop all backup,
+  restore, recovery-repair, P4-W8, P4-W9, rehearsal, and private cutover work.
+  Retain the historical plans and evidence, and finish only the target-compatible
+  P4-W6/P4-W7 release-candidate path.
+- Rejected: continue the seven-root workflow because the earlier plan required
+  it, delete existing backup-related product code or evidence, or uninstall a
+  verified helper as incidental cleanup.
+- Why: current owner authority outranks the earlier Phase 4 plan. The public
+  release-candidate work and the owner's private backup/cutover operation are
+  separate concerns; the latter is not part of this project's scope.
+
+## D-066: stop local Apple-ID authentication retries
+
+- Chosen: treat the repeated HTTP 401 response as an external Apple account
+  authentication blocker. Preserve the signed candidate, collect at most one
+  bounded verbose request identifier for support, and require successful
+  Keychain profile validation before any Apple submission.
+- Rejected: another unchanged credential retry, bypassing validation, changing
+  the signed DMG, weakening the notarization gate, or resuming unrelated
+  backup/cutover work.
+- Why: the owner confirmed a fresh app-specific password, exact Apple Account,
+  active membership, and accepted agreements. Validation failed both with and
+  without Team ID, while the signed candidate independently proves the same
+  TeamIdentifier. The failure occurs before upload and requires Apple account
+  support for the owner's requested Apple-ID authentication method.
+
+## D-067: close P4 as source/CI complete and defer macOS distribution
+
+- Chosen: accept the owner's explicit `skip notarization` instruction. Close
+  the current project scope with P4A/P4B source and CI complete, preserve the
+  signed DMG as unpublished and unnotarized, and move any future public macOS
+  binary distribution into a separate owner-authorized workstream.
+- Rejected: continue Apple credential troubleshooting, claim the DMG is
+  notarized or public-release-ready, publish it, resume P4-W8/P4-W9, delete
+  historical evidence, or remove installed helper versions as cleanup.
+- Why: notarization is required for the deferred public binary distribution,
+  not for continued open-source source development. An exact cancellation
+  record supersedes the earlier submission authority while preserving every
+  reviewed byte and the failed authentication history.

@@ -1,0 +1,720 @@
+from __future__ import annotations
+
+import argparse
+import hashlib
+import json
+import os
+import platform
+import re
+import selectors
+import shutil
+import signal
+import stat
+import subprocess
+import sys
+import time
+import zipfile
+from pathlib import Path, PurePosixPath
+
+CANDIDATE_SHA256 = {
+    "async_bridge.py": "673b40780f91a0ca239fe3c403d7f389a5afba2aee63748cf70146a356f1a2a2",
+    "async_transport.py": "d6d8a15b9191fc501eb113b57e29d63a5088fc099dcb7bdddcc09913daf82125",
+    "authority_gate.py": "dff4a33574253bdb6174fdacd68be503800236a17af3d370b227d39169c0f864",
+    "bridge.py": "abd244075128a5acdc586f2fd3011ed0680e13188316a59bc76896ee31f370c0",
+    "direct_api.py": "98a423e9d014e4d4078c863206a085674d15206f2f3819bb75959b2da43c955a",
+    "requirements.txt": "1a396e3662f218300449c48430bff2af266c0b1f7e9909314e7c8d7d2400dbba",
+    "semantic-dataset.json": "b6797060a94824b030f22867f7576d5d40d66c89687c0f2edb1eb71d5c49da77",
+    "source_binding.py": "0ecb0c2689ebc4aeb1c2cc1f000d91480fd2ab3bf1fd3029a08528b7e5c9db21",
+    "test_async_authority.py": "7b583ecddc09f7a314a99b04de4ae3f3523fd0d5524ef98a6e75e8a6a569828e",
+    "test_async_transport.py": "77633e0a585157753e2a3671177fceab6c5dcbd2346515934a147ae628967f1c",
+    "test_authority_gate.py": "d4882e4d8bdaadf6ffae431bc6b31ee40a3dd8f390d5acba55180c4a3d22da89",
+    "test_credential_preflight.py": (
+        "d4f6f6b89a7783c4fa943a7c9373443c6c334c7317d1b789943c3ae83dcb8d6f"
+    ),
+    "test_host_lifetime.py": "2d1dc2d20f81f61e3a73cd13d5f9ea64712f2458162ab04a47b26c3c8cc117e8",
+    "test_preflight_close.py": "2e29d74608163e0dc567b46249886bf6c15a5aabd6e8afc3d0e08cd124685723",
+    "test_source_binding.py": "6f26c77a9888ec0de1fed65e8b06d1ff2048ab9b299692a3bd29842b81664324",
+    "test_terminal_ownership.py": (
+        "b78d8cdca4e3a6651d2cdc7b432b670d0fb0cdde69431e20221c6d4b3cb52ae7"
+    ),
+    "tls_fixture.py": "2ce9613c115f6e51378f7724f50a475a1ba6b326abe608695ae0ab71a082dd42",
+    "wire.py": "a3bf6b428b49fbb8411dea8f61620cdbaf2c723e26507662d9113a005b32656f",
+}
+BASE_SOURCE_SHA256 = {
+    "engine": "7f64ba6517dcf86a9ec87bf3d0c0be82257ef4ae601f6d3df4891a1f7b15fe05",
+    "app": "acad205b1378c882aeb8b46d86a6ff4236add67d424037ba001e62b28e0238d2",
+}
+COMMON_WHEEL_SHA256 = {
+    "aiohappyeyeballs-2.7.1-py3-none-any.whl": (
+        "9243213661e29250eb41368e5daa826fc017156c3b8a11440826b2e3ed376472"
+    ),
+    "aiosignal-1.4.0-py3-none-any.whl": (
+        "053243f8b92b990551949e63930a839ff0cf0b0ebbe0597b0f3fb19e1a0fe82e"
+    ),
+    "attrs-26.1.0-py3-none-any.whl": (
+        "c647aa4a12dfbad9333ca4e71fe62ddc36f4e63b2d260a37a8b83d2f043ac309"
+    ),
+    "dnspython-2.8.0-py3-none-any.whl": (
+        "01d9bbc4a2d76bf0db7c1f729812ded6d912bd318d3b1cf81d30c0f845dbf3af"
+    ),
+    "idna-3.19-py3-none-any.whl": (
+        "815e7be7a7806d54abb586dc943addc79e8b2ee16915059658cbeff4b1b43bf4"
+    ),
+    "pycparser-3.0-py3-none-any.whl": (
+        "b727414169a36b7d524c1c3e31839a521725078d7b2ff038656844266160a992"
+    ),
+    "rfc8785-0.1.4-py3-none-any.whl": (
+        "520d690b448ecf0703691c76e1a34a24ddcd4fc5bc41d589cb7c58ec651bcd48"
+    ),
+}
+TARGETS = {
+    "macos-arm64": {
+        "system": "Darwin",
+        "machine": "arm64",
+        "dependency_source_sha256": (
+            "dc368a6138e854702f65454068824bceeafc2b6e1e4fdeee67279d5c9c1cdf7b"
+        ),
+        "wheels": {
+            **COMMON_WHEEL_SHA256,
+            "aiohttp-3.14.3-cp314-cp314-macosx_11_0_arm64.whl": (
+                "db332af25642007330fca8be5c4d194caf2bea7a7fc84415aff3497af5dfee6b"
+            ),
+            "cffi-2.0.0-cp314-cp314-macosx_11_0_arm64.whl": (
+                "c654de545946e0db659b3400168c9ad31b5d29593291482c43e3564effbcee13"
+            ),
+            "cryptography-46.0.5-cp311-abi3-macosx_10_9_universal2.whl": (
+                "351695ada9ea9618b3500b490ad54c739860883df6c1f555e088eaf25b1bbaad"
+            ),
+            "frozenlist-1.8.0-cp314-cp314-macosx_11_0_arm64.whl": (
+                "4970ece02dbc8c3a92fcc5228e36a3e933a01a999f7094ff7c23fbd2beeaa67c"
+            ),
+            "multidict-6.8.0-cp314-cp314-macosx_11_0_arm64.whl": (
+                "bea7df027015856ba5d0a88e3b4777ff8cb5c66b58fc108050fe79d4dd9d4d2d"
+            ),
+            "propcache-0.5.2-cp314-cp314-macosx_11_0_arm64.whl": (
+                "97797ebb098e670a2f92dd66f32897e30d7615b14e7f59711de23e30a9072539"
+            ),
+            "yarl-1.24.5-cp314-cp314-macosx_11_0_arm64.whl": (
+                "e42d75862735da90e7fc5a7b23db0c976f737113a54b3c9777a9b665e9cbff75"
+            ),
+        },
+    },
+    "linux-x86_64": {
+        "system": "Linux",
+        "machine": "x86_64",
+        "dependency_source_sha256": (
+            "f02e1649b6ffdb44ab488ce03a9d177c544ce4290b7f3f2a650d043e48c00d29"
+        ),
+        "wheels": {
+            **COMMON_WHEEL_SHA256,
+            (
+                "aiohttp-3.14.3-cp314-cp314-manylinux2014_x86_64."
+                "manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl"
+            ): "18cb43369747b2ae007bd2655fb8e63a099c2ff1d207962943636dac989b3147",
+            (
+                "cffi-2.0.0-cp314-cp314-manylinux2014_x86_64."
+                "manylinux_2_17_x86_64.whl"
+            ): "afb8db5439b81cf9c9d0c80404b60c3cc9c3add93e114dcae767f1477cb53775",
+            (
+                "cryptography-46.0.5-cp311-abi3-manylinux2014_x86_64."
+                "manylinux_2_17_x86_64.whl"
+            ): "4d7e3d356b8cd4ea5aff04f129d5f66ebdc7b6f8eae802b93739ed520c47c79b",
+            "frozenlist-1.8.0-py3-none-any.whl": (
+                "0c18a16eab41e82c295618a77502e17b195883241c563b00f0aa5106fc4eaa0d"
+            ),
+            (
+                "multidict-6.8.0-cp314-cp314-manylinux2014_x86_64."
+                "manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl"
+            ): "9606f583e7acaf61e7b3f56074e14037b9af7cb194590edfc0114b3ae5931ff7",
+            (
+                "propcache-0.5.2-cp314-cp314-manylinux2014_x86_64."
+                "manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl"
+            ): "e00820e192c8dbebcafb383ebbf99030895f09905e7a0eb2e0340a0bcc2bc825",
+            (
+                "yarl-1.24.5-cp314-cp314-manylinux2014_x86_64."
+                "manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl"
+            ): "66410eb6345d467151934b49bfa70fb32f5b35a6140baa40ad97d6436abea2e9",
+        },
+    },
+}
+PINNED = {
+    "aiohappyeyeballs": "2.7.1",
+    "aiohttp": "3.14.3",
+    "aiosignal": "1.4.0",
+    "attrs": "26.1.0",
+    "cffi": "2.0.0",
+    "cryptography": "46.0.5",
+    "dnspython": "2.8.0",
+    "frozenlist": "1.8.0",
+    "idna": "3.19",
+    "multidict": "6.8.0",
+    "propcache": "0.5.2",
+    "pycparser": "3.0",
+    "rfc8785": "0.1.4",
+    "yarl": "1.24.5",
+}
+MODULES = (
+    "test_authority_gate",
+    "test_async_authority",
+    "test_host_lifetime",
+    "test_terminal_ownership",
+    "test_credential_preflight",
+    "test_preflight_close",
+)
+OUTPUT_CAP = 256 * 1024
+
+
+def target_runtime(target: str) -> dict[str, str]:
+    profile = TARGETS[target]
+    return {
+        "system": str(profile["system"]),
+        "machine": str(profile["machine"]),
+        "python_implementation": "CPython",
+        "python_version": "3.14",
+    }
+
+
+def target_wheels(target: str) -> dict[str, str]:
+    wheels = TARGETS[target]["wheels"]
+    if not isinstance(wheels, dict):
+        raise ValueError("invalid fixed target wheel map")
+    return {str(name): str(digest) for name, digest in wheels.items()}
+
+
+def target_dependency_sha256(target: str) -> str:
+    return str(TARGETS[target]["dependency_source_sha256"])
+
+
+def assert_runtime_target(target: str) -> None:
+    expected = target_runtime(target)
+    if (
+        platform.system() != expected["system"]
+        or platform.machine() != expected["machine"]
+        or platform.python_implementation() != expected["python_implementation"]
+        or sys.version_info[:2] != (3, 14)
+    ):
+        raise ValueError("selected target does not match runtime")
+
+
+def sha256(path: Path) -> str:
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def _raw_components(path: Path) -> list[Path]:
+    absolute = path.absolute()
+    return [Path(*absolute.parts[:index]) for index in range(1, len(absolute.parts) + 1)]
+
+
+def assert_owned_tree(root: Path) -> None:
+    for component in _raw_components(root):
+        if component.is_symlink():
+            raise ValueError(f"symlink path component: {component}")
+    if not root.is_dir():
+        raise ValueError(f"not a directory: {root}")
+    for path in root.rglob("*"):
+        info = path.lstat()
+        if stat.S_ISLNK(info.st_mode):
+            raise ValueError(f"symlink in tree: {path}")
+        if "__pycache__" in path.parts or path.suffix in {".pyc", ".pyo"}:
+            raise ValueError(f"bytecode in tree: {path}")
+        if stat.S_ISREG(info.st_mode):
+            if info.st_nlink != 1:
+                raise ValueError(f"hardlink in tree: {path}")
+        elif not stat.S_ISDIR(info.st_mode):
+            raise ValueError(f"nonregular object in tree: {path}")
+
+
+def inventory(root: Path) -> dict[str, str]:
+    assert_owned_tree(root)
+    return {
+        path.relative_to(root).as_posix(): sha256(path)
+        for path in sorted(root.rglob("*"))
+        if path.is_file()
+    }
+
+
+def tree_sha256(root: Path) -> str:
+    value = hashlib.sha256()
+    for relative, digest in inventory(root).items():
+        value.update(relative.encode() + b"\0" + digest.encode() + b"\n")
+    return value.hexdigest()
+
+
+def assert_unchanged(root: Path, expected: str, label: str) -> None:
+    if tree_sha256(root) != expected:
+        raise ValueError(f"{label} mutated")
+
+
+def assert_dependency_names(root: Path) -> None:
+    for name in ("open_brain", "open_brain_engine"):
+        if (root / name).exists() or (root / f"{name}.py").exists():
+            raise ValueError(f"first-party shadow in dependency root: {name}")
+
+
+def isolated_command(interpreter: Path, roots: list[Path], query: str) -> list[str]:
+    bootstrap = f"import sys;sys.path[:0]={[str(path) for path in roots]!r};{query}"
+    return [str(interpreter), "-I", "-S", "-B", "-c", bootstrap]
+
+
+def child_environment() -> dict[str, str]:
+    return {
+        "LANG": "C.UTF-8",
+        "PATH": "/usr/bin:/bin",
+        "PYTHONDONTWRITEBYTECODE": "1",
+        "PYTHONHASHSEED": "0",
+    }
+
+
+def group_exists(pgid: int) -> bool:
+    try:
+        os.killpg(pgid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    return True
+
+
+def wait_group_gone(pgid: int, timeout: float) -> bool:
+    deadline = time.monotonic() + timeout
+    while group_exists(pgid) and time.monotonic() < deadline:
+        time.sleep(0.01)
+    return not group_exists(pgid)
+
+
+def stop_owned(process: subprocess.Popen[bytes], pgid: int) -> dict[str, bool]:
+    signal_unknown = False
+    if group_exists(pgid):
+        try:
+            os.killpg(pgid, signal.SIGTERM)
+        except ProcessLookupError:
+            pass
+        except PermissionError:
+            signal_unknown = True
+    if process.poll() is None:
+        try:  # noqa: SIM105 - Preserve reviewed C35 cleanup AST.
+            process.wait(timeout=0.2)
+        except subprocess.TimeoutExpired:
+            pass
+    group_terminated = not signal_unknown and wait_group_gone(pgid, 0.2)
+    if not group_terminated:
+        try:
+            os.killpg(pgid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+        except PermissionError:
+            signal_unknown = True
+        if process.poll() is None:
+            try:  # noqa: SIM105 - Preserve reviewed C35 cleanup AST.
+                process.wait(timeout=0.2)
+            except subprocess.TimeoutExpired:
+                pass
+        group_terminated = not signal_unknown and wait_group_gone(pgid, 0.5)
+    if process.poll() is None:
+        try:
+            process.wait(timeout=0.2)
+        except subprocess.TimeoutExpired:
+            try:  # noqa: SIM105 - Preserve reviewed C35 cleanup AST.
+                process.kill()
+            except ProcessLookupError:
+                pass
+            try:  # noqa: SIM105 - Preserve reviewed C35 cleanup AST.
+                process.wait(timeout=0.2)
+            except subprocess.TimeoutExpired:
+                pass
+    direct_reaped = process.poll() is not None
+    if direct_reaped and not signal_unknown:
+        group_terminated = wait_group_gone(pgid, 0.05)
+    return {
+        "direct_reaped": direct_reaped,
+        "group_terminated": group_terminated,
+        "cleanup_known": direct_reaped and group_terminated and not signal_unknown,
+    }
+
+
+def run_owned(
+    command: list[str], *, cwd: Path, env: dict[str, str], timeout: float, cap: int
+) -> dict[str, object]:
+    started = time.monotonic()
+    output = bytearray()
+    failure = None
+    process = subprocess.Popen(
+        command,
+        cwd=cwd,
+        env=env,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        stdin=subprocess.DEVNULL,
+        start_new_session=True,
+    )
+    pgid = process.pid
+    cleanup = {
+        "direct_reaped": False,
+        "group_terminated": False,
+        "cleanup_known": False,
+    }
+    selector = None
+    try:
+        if process.stdout is None:
+            raise OSError("missing owned stdout pipe")
+        selector = selectors.DefaultSelector()
+        selector.register(process.stdout, selectors.EVENT_READ)
+        deadline = started + timeout
+        while True:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                failure = "timeout"
+                break
+            events = selector.select(min(remaining, 0.05))
+            for key, _ in events:
+                chunk = os.read(key.fileobj.fileno(), min(65536, cap + 1 - len(output)))
+                if not chunk:
+                    selector.unregister(key.fileobj)
+                else:
+                    output.extend(chunk)
+                    if len(output) > cap:
+                        failure = "output_limit"
+                        break
+            if failure is not None:
+                break
+            if process.poll() is not None and not selector.get_map():
+                break
+        if failure is None:
+            process.wait(timeout=max(0.01, deadline - time.monotonic()))
+    except subprocess.TimeoutExpired:
+        failure = "timeout"
+    except Exception:  # noqa: BLE001 - fixed classification; cleanup remains mandatory
+        failure = "observer_error"
+    finally:
+        cleanup = stop_owned(process, pgid)
+        if selector is not None:
+            selector.close()
+        if process.stdout is not None:
+            process.stdout.close()
+    if not cleanup["cleanup_known"] and failure is None:
+        failure = "cleanup_unknown"
+    truncated = len(output) > cap
+    if truncated:
+        marker = b"\n[C30 output truncated at configured cap]\n"
+        output = output[: max(0, cap - len(marker))] + marker
+    return {
+        "command": command,
+        "elapsed_seconds": round(time.monotonic() - started, 6),
+        "failure": failure,
+        "output": bytes(output).decode("utf-8", errors="replace"),
+        "output_bytes": len(output),
+        "output_cap_bytes": cap,
+        "pid": process.pid,
+        "pgid": pgid,
+        "returncode": process.returncode,
+        "reaped": cleanup["direct_reaped"],
+        **cleanup,
+        "truncated": truncated,
+    }
+
+
+def _copy_tree(source: Path, target: Path) -> None:
+    assert_owned_tree(source)
+    shutil.copytree(source, target, ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
+    assert_owned_tree(target)
+
+
+def _extract_wheel(wheel: Path, target: Path) -> None:
+    with zipfile.ZipFile(wheel) as archive:
+        for member in archive.infolist():
+            relative = PurePosixPath(member.filename)
+            mode = member.external_attr >> 16
+            if relative.is_absolute() or ".." in relative.parts or stat.S_ISLNK(mode):
+                raise ValueError(f"unsafe wheel member: {member.filename}")
+            destination = target.joinpath(*relative.parts)
+            if member.is_dir():
+                destination.mkdir(parents=True, exist_ok=True)
+            else:
+                destination.parent.mkdir(parents=True, exist_ok=True)
+                destination.write_bytes(archive.read(member))
+
+
+def build(args: argparse.Namespace) -> None:
+    output: Path = args.output
+    wheel_sha256 = target_wheels(args.target)
+    dependency_sha256 = target_dependency_sha256(args.target)
+    if output.exists():
+        raise ValueError(f"refusing existing output: {output}")
+    for root in (args.candidate, args.engine, args.app, args.wheels):
+        assert_owned_tree(root)
+    if inventory(args.candidate) != CANDIDATE_SHA256:
+        raise ValueError("C44 candidate inventory mismatch")
+    if {"engine": tree_sha256(args.engine), "app": tree_sha256(args.app)} != BASE_SOURCE_SHA256:
+        raise ValueError("base source inventory mismatch")
+    output.mkdir(parents=True)
+    _copy_tree(args.candidate, output / "candidate")
+    _copy_tree(args.engine, output / "source" / "engine")
+    _copy_tree(args.app, output / "source" / "app")
+    wheel_target = output / "wheels"
+    dependency_target = output / "dependencies"
+    wheel_target.mkdir()
+    dependency_target.mkdir()
+    supplied = {path.name: path for path in args.wheels.glob("*.whl")}
+    supplied[args.rfc8785.name] = args.rfc8785
+    if set(supplied) != set(wheel_sha256):
+        raise ValueError("incomplete or extra wheel set")
+    for name, expected in wheel_sha256.items():
+        source = supplied[name]
+        if source.is_symlink() or source.stat().st_nlink != 1 or sha256(source) != expected:
+            raise ValueError(f"wheel provenance mismatch: {name}")
+        shutil.copy2(source, wheel_target / name)
+        _extract_wheel(wheel_target / name, dependency_target)
+    assert_owned_tree(wheel_target)
+    assert_owned_tree(dependency_target)
+    assert_dependency_names(dependency_target)
+    if tree_sha256(dependency_target) != dependency_sha256:
+        raise ValueError("immutable dependency anchor mismatch")
+    shutil.copy2(Path(__file__), output / "run_bundle.py")
+    lock_lines = []
+    for name, version in PINNED.items():
+        wheel_digest = next(
+            digest
+            for filename, digest in wheel_sha256.items()
+            if filename.lower().replace("-", "_").startswith(name.replace("-", "_"))
+        )
+        lock_lines.append(f"{name}=={version} --hash=sha256:{wheel_digest}")
+    (output / "requirements-hashed.txt").write_text("\n".join(lock_lines) + "\n")
+    manifest = {
+        "schema": "open-brain-native-authority-bundle-v1",
+        "target": args.target,
+        "runtime": target_runtime(args.target),
+        "candidate": inventory(output / "candidate"),
+        "sources": {
+            name: {
+                "tree_sha256": tree_sha256(output / "source" / name),
+                "files": len(inventory(output / "source" / name)),
+            }
+            for name in ("engine", "app")
+        },
+        "dependencies": {
+            "versions": PINNED,
+            "tree_sha256": tree_sha256(dependency_target),
+            "wheels": wheel_sha256,
+        },
+        "licenses": {
+            path.relative_to(dependency_target).as_posix(): sha256(path)
+            for path in dependency_target.rglob("*")
+            if path.is_file() and ("license" in path.name.lower() or "notice" in path.name.lower())
+        },
+        "runner_sha256": sha256(output / "run_bundle.py"),
+        "requirements_sha256": sha256(output / "requirements-hashed.txt"),
+        "modules": list(MODULES),
+        "expected_tests_per_mode": 40,
+        "provenance": {
+            "candidate": "C44 exact 18-file reviewed candidate",
+            "sources": "04a8b11 Engine/app snapshots",
+            "dependencies": f"C31 {args.target} wheels plus uv.lock rfc8785 0.1.4 wheel",
+        },
+    }
+    (output / "manifest.json").write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n")
+
+
+def validate_runtime_inputs(
+    bundle: Path, expected_manifest_sha256: str, target: str
+) -> tuple[dict[str, object], list[Path], dict[str, str]]:
+    assert_runtime_target(target)
+    assert_owned_tree(bundle)
+    manifest_path = bundle / "manifest.json"
+    if sha256(manifest_path) != expected_manifest_sha256:
+        raise ValueError("immutable manifest anchor mismatch")
+    manifest = json.loads(manifest_path.read_text())
+    if manifest.get("target") != target or manifest.get("runtime") != target_runtime(target):
+        raise ValueError("bundle target mismatch")
+    runner_sha256 = manifest["runner_sha256"]
+    if sha256(bundle / "run_bundle.py") != runner_sha256 or sha256(Path(__file__)) != runner_sha256:
+        raise ValueError("executed runner anchor mismatch")
+    if sha256(bundle / "requirements-hashed.txt") != manifest["requirements_sha256"]:
+        raise ValueError("requirements anchor mismatch")
+    roots = [
+        bundle / "candidate",
+        bundle / "source" / "engine",
+        bundle / "source" / "app",
+        bundle / "dependencies",
+    ]
+    before = {str(path.relative_to(bundle)): tree_sha256(path) for path in roots}
+    if inventory(roots[0]) != CANDIDATE_SHA256:
+        raise ValueError("immutable candidate anchor mismatch")
+    if {
+        name: tree_sha256(bundle / "source" / name) for name in ("engine", "app")
+    } != BASE_SOURCE_SHA256:
+        raise ValueError("immutable source anchor mismatch")
+    if before["dependencies"] != target_dependency_sha256(target):
+        raise ValueError("immutable dependency anchor mismatch")
+    wheel_sha256 = {
+        path.name: sha256(path) for path in (bundle / "wheels").glob("*.whl")
+    }
+    if wheel_sha256 != target_wheels(target):
+        raise ValueError("immutable wheel anchor mismatch")
+    assert_dependency_names(roots[-1])
+    return manifest, roots, before
+
+
+def preflight(args: argparse.Namespace) -> None:
+    bundle: Path = args.bundle
+    manifest, roots, before = validate_runtime_inputs(
+        bundle, args.expected_manifest_sha256, args.target
+    )
+    query = (
+        "import importlib.metadata as m,json;"
+        "mods=['open_brain.profile','open_brain_engine.core.ids','rfc8785'];"
+        "import importlib;loaded={n:str(Path(importlib.import_module(n).__file__).resolve())"
+        " for n in mods};print(json.dumps({'versions':{n:m.version(n) for n in "
+        + repr(list(PINNED))
+        + "},'origins':loaded},sort_keys=True))"
+    )
+    query = "from pathlib import Path;" + query
+    command = isolated_command(args.interpreter, roots, query)
+    run = run_owned(
+        command,
+        cwd=bundle / "candidate",
+        env=child_environment(),
+        timeout=10,
+        cap=OUTPUT_CAP,
+    )
+    validate_runtime_inputs(bundle, args.expected_manifest_sha256, args.target)
+    if run["failure"] is not None or run["returncode"] != 0 or not run["cleanup_known"]:
+        raise RuntimeError(str(run["output"]))
+    context = json.loads(str(run["output"]))
+    if context["versions"] != PINNED:
+        raise ValueError("dependency version mismatch")
+    expected_roots = {str(path.resolve()) for path in roots}
+    if any(
+        not any(origin == root or origin.startswith(root + os.sep) for root in expected_roots)
+        for origin in context["origins"].values()
+    ):
+        raise ValueError("import escaped owned roots")
+    for path in roots:
+        assert_unchanged(path, before[str(path.relative_to(bundle))], str(path.relative_to(bundle)))
+    receipt = {
+        "schema": "open-brain-native-authority-preflight-v1",
+        "ok": True,
+        "target": args.target,
+        "runtime": target_runtime(args.target),
+        "dependency_tree_sha256": target_dependency_sha256(args.target),
+        "manifest_sha256": sha256(bundle / "manifest.json"),
+        "runner_sha256": manifest["runner_sha256"],
+        "isolated_flags": ["-I", "-S", "-B"],
+        "import_origins": {
+            name: next(key for key in before if origin.startswith(str((bundle / key).resolve())))
+            for name, origin in context["origins"].items()
+        },
+        "versions": context["versions"],
+        "snapshot_sha256": before,
+    }
+    args.receipt.write_text(json.dumps(receipt, indent=2, sort_keys=True) + "\n")
+
+
+def suite(args: argparse.Namespace) -> None:
+    if args.output.exists():
+        raise ValueError(f"refusing existing output: {args.output}")
+    bundle: Path = args.bundle
+    manifest, roots, before = validate_runtime_inputs(
+        bundle, args.expected_manifest_sha256, args.target
+    )
+    args.output.mkdir(parents=True)
+    modules = list(MODULES)
+    query = (
+        f"import runpy,sys;sys.argv={['unittest', *modules]!r};"
+        "runpy.run_module('unittest',run_name='__main__')"
+    )
+    runs: list[dict[str, object]] = []
+    for label, optimized in (("normal", False), ("optimized", True)):
+        validate_runtime_inputs(bundle, args.expected_manifest_sha256, args.target)
+        command = isolated_command(args.interpreter, roots, query)
+        if optimized:
+            command.insert(3, "-O")
+        run = run_owned(
+            command,
+            cwd=roots[0],
+            env=child_environment(),
+            timeout=args.child_timeout,
+            cap=OUTPUT_CAP,
+        )
+        (args.output / f"{label}.log").write_text(str(run["output"]))
+        match = re.search(r"Ran (\d+) tests", str(run["output"]))
+        public = {
+            key: value
+            for key, value in run.items()
+            if key not in {"output", "command", "pid", "pgid"}
+        }
+        public.update(label=label, tests=int(match.group(1)) if match else None, log=f"{label}.log")
+        runs.append(public)
+        for path in roots:
+            assert_unchanged(
+                path, before[str(path.relative_to(bundle))], str(path.relative_to(bundle))
+            )
+        validate_runtime_inputs(bundle, args.expected_manifest_sha256, args.target)
+        if run["failure"] is not None or run["returncode"] != 0 or not run["cleanup_known"]:
+            break
+    receipt = {
+        "schema": "open-brain-native-authority-receipt-v1",
+        "ok": len(runs) == 2
+        and all(
+            run["tests"] == 40
+            and run["cleanup_known"]
+            and run["returncode"] == 0
+            and run["failure"] is None
+            and not run["truncated"]
+            for run in runs
+        ),
+        "target": args.target,
+        "runtime": target_runtime(args.target),
+        "dependency_tree_sha256": target_dependency_sha256(args.target),
+        "manifest_sha256": args.expected_manifest_sha256,
+        "runner_sha256": manifest["runner_sha256"],
+        "runtime_source_root": "candidate",
+        "base_source_roots": {"engine": "source/engine", "app": "source/app"},
+        "dependency_roots": ["dependencies"],
+        "child_environment_keys": sorted(child_environment()),
+        "isolated_flags": ["-I", "-S", "-B"],
+        "modules": modules,
+        "expected_tests_per_run": 40,
+        "candidate_files_sha256": CANDIDATE_SHA256,
+        "base_source_sha256": BASE_SOURCE_SHA256,
+        "dependency_versions": PINNED,
+        "dependency_wheels_sha256": target_wheels(args.target),
+        "snapshot_sha256": before,
+        "runs": runs,
+        "ephemeral_tls": True,
+        "persisted_key_material": False,
+        "model_calls": 0,
+        "live_provider_approved": False,
+        "full_nw0_approved": False,
+    }
+    (args.output / "receipt.json").write_text(json.dumps(receipt, indent=2, sort_keys=True) + "\n")
+    if not receipt["ok"]:
+        raise SystemExit(1)
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser()
+    sub = parser.add_subparsers(dest="command", required=True)
+    create = sub.add_parser("build")
+    create.add_argument("--target", required=True, choices=tuple(TARGETS))
+    for name in ("output", "candidate", "engine", "app", "wheels", "rfc8785"):
+        create.add_argument(f"--{name}", required=True, type=Path)
+    check = sub.add_parser("preflight")
+    check.add_argument("--target", required=True, choices=tuple(TARGETS))
+    check.add_argument("--bundle", required=True, type=Path)
+    check.add_argument("--receipt", required=True, type=Path)
+    check.add_argument("--interpreter", required=True, type=Path)
+    check.add_argument("--expected-manifest-sha256", required=True)
+    execute = sub.add_parser("suite")
+    execute.add_argument("--target", required=True, choices=tuple(TARGETS))
+    execute.add_argument("--bundle", required=True, type=Path)
+    execute.add_argument("--output", required=True, type=Path)
+    execute.add_argument("--interpreter", required=True, type=Path)
+    execute.add_argument("--expected-manifest-sha256", required=True)
+    execute.add_argument("--child-timeout", default=30.0, type=float)
+    args = parser.parse_args()
+    {"build": build, "preflight": preflight, "suite": suite}[args.command](args)
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

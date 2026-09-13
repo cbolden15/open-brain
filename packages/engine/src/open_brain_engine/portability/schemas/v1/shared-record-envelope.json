@@ -1,0 +1,258 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:open-brain:shared-portability:v1:record-envelope",
+  "type": "object",
+  "properties": {
+    "schema_version": { "const": 1 },
+    "source_contract": { "const": "portable-brain-v1" },
+    "source_brain_id": {
+      "type": "string",
+      "pattern": "^tenant_[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+    },
+    "semantic_family": {
+      "enum": [
+        "action",
+        "brain",
+        "capture",
+        "decision",
+        "event",
+        "measurement",
+        "page",
+        "proposal",
+        "publication",
+        "route",
+        "space"
+      ]
+    },
+    "semantic_id": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_]*_[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+    },
+    "source_schema_uri": {
+      "type": "string",
+      "pattern": "^urn:open-brain:portable-brain:v1:[a-z][a-z0-9-]*$"
+    },
+    "source_path": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$))(?!.*(?:^|/)\\.open-brain(?:/|$))[^\\\\]+$"
+    },
+    "source_ordinal": {
+      "oneOf": [
+        { "type": "integer", "minimum": 0 },
+        { "type": "null" }
+      ]
+    },
+    "source_sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "source_bytes_base64": {
+      "type": "string",
+      "pattern": "^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$"
+    },
+    "actor_id": {
+      "type": "string",
+      "pattern": "^actor_[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+    },
+    "source_timestamp": {
+      "oneOf": [
+        {
+          "type": "string",
+          "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(?:\\.[0-9]+)?Z$"
+        },
+        { "type": "null" }
+      ]
+    },
+    "space_id": {
+      "oneOf": [
+        {
+          "type": "string",
+          "pattern": "^space_[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+        },
+        { "type": "null" }
+      ]
+    },
+    "provenance_ids": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "pattern": "^[a-z][a-z0-9_]*_[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+      }
+    }
+  },
+  "required": [
+    "schema_version",
+    "source_contract",
+    "source_brain_id",
+    "semantic_family",
+    "semantic_id",
+    "source_schema_uri",
+    "source_path",
+    "source_ordinal",
+    "source_sha256",
+    "source_bytes_base64",
+    "actor_id",
+    "source_timestamp",
+    "space_id",
+    "provenance_ids"
+  ],
+  "allOf": [
+    {
+      "if": {
+        "properties": { "semantic_family": { "const": "action" } },
+        "required": ["semantic_family"]
+      },
+      "then": {
+        "properties": {
+          "semantic_id": { "pattern": "^action_[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$" },
+          "source_schema_uri": { "const": "urn:open-brain:portable-brain:v1:action" },
+          "source_path": { "pattern": "^history/actions/[0-9]{4}/(?:0[1-9]|1[0-2])/action_[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\\.json$" },
+          "source_ordinal": { "type": "null" }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": { "semantic_family": { "const": "brain" } },
+        "required": ["semantic_family"]
+      },
+      "then": {
+        "properties": {
+          "semantic_id": { "pattern": "^tenant_[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$" },
+          "source_schema_uri": { "const": "urn:open-brain:portable-brain:v1:brain-profile" },
+          "source_path": { "const": "brain.toml" },
+          "source_ordinal": { "type": "null" }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": { "semantic_family": { "const": "capture" } },
+        "required": ["semantic_family"]
+      },
+      "then": {
+        "properties": {
+          "semantic_id": { "pattern": "^capture_[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$" },
+          "source_schema_uri": { "const": "urn:open-brain:portable-brain:v1:capture" },
+          "source_path": { "pattern": "^sources/captures/[0-9]{4}/(?:0[1-9]|1[0-2])/capture_[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\\.json$" },
+          "source_ordinal": { "type": "null" }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": { "semantic_family": { "const": "decision" } },
+        "required": ["semantic_family"]
+      },
+      "then": {
+        "properties": {
+          "semantic_id": { "pattern": "^decision_[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$" },
+          "source_schema_uri": { "const": "urn:open-brain:portable-brain:v1:decision" },
+          "source_path": { "pattern": "^history/decisions/[0-9]{4}/(?:0[1-9]|1[0-2])/decision_[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\\.json$" },
+          "source_ordinal": { "type": "null" }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": { "semantic_family": { "const": "event" } },
+        "required": ["semantic_family"]
+      },
+      "then": {
+        "properties": {
+          "semantic_id": { "pattern": "^event_[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$" },
+          "source_schema_uri": { "const": "urn:open-brain:portable-brain:v1:batch-row" },
+          "source_path": { "pattern": "^sources/batches/[0-9]{4}/(?:0[1-9]|1[0-2])/batch_[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\\.jsonl$" },
+          "source_ordinal": { "type": "integer", "minimum": 0 }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": { "semantic_family": { "const": "measurement" } },
+        "required": ["semantic_family"]
+      },
+      "then": {
+        "properties": {
+          "semantic_id": { "pattern": "^measurement_[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$" },
+          "source_schema_uri": { "const": "urn:open-brain:portable-brain:v1:batch-row" },
+          "source_path": { "pattern": "^sources/batches/[0-9]{4}/(?:0[1-9]|1[0-2])/batch_[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\\.jsonl$" },
+          "source_ordinal": { "type": "integer", "minimum": 0 }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": { "semantic_family": { "const": "page" } },
+        "required": ["semantic_family"]
+      },
+      "then": {
+        "properties": {
+          "semantic_id": { "pattern": "^page_[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$" },
+          "source_schema_uri": { "const": "urn:open-brain:portable-brain:v1:canonical-page-frontmatter" },
+          "source_path": { "pattern": "^content/spaces/[a-z0-9]+(?:-[a-z0-9]+)*/notes/page_[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\\.md$" },
+          "source_ordinal": { "type": "null" }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": { "semantic_family": { "const": "proposal" } },
+        "required": ["semantic_family"]
+      },
+      "then": {
+        "properties": {
+          "semantic_id": { "pattern": "^proposal_[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$" },
+          "source_schema_uri": { "const": "urn:open-brain:portable-brain:v1:proposal" },
+          "source_path": { "pattern": "^history/proposals/[0-9]{4}/(?:0[1-9]|1[0-2])/proposal_[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\\.json$" },
+          "source_ordinal": { "type": "null" }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": { "semantic_family": { "const": "publication" } },
+        "required": ["semantic_family"]
+      },
+      "then": {
+        "properties": {
+          "semantic_id": { "pattern": "^publication_[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$" },
+          "source_schema_uri": { "const": "urn:open-brain:portable-brain:v1:publication" },
+          "source_path": { "pattern": "^history/publications/[0-9]{4}/(?:0[1-9]|1[0-2])/publication_[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\\.json$" },
+          "source_ordinal": { "type": "null" }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": { "semantic_family": { "const": "route" } },
+        "required": ["semantic_family"]
+      },
+      "then": {
+        "properties": {
+          "semantic_id": { "pattern": "^route_[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$" },
+          "source_schema_uri": { "const": "urn:open-brain:portable-brain:v1:routing" },
+          "source_path": { "pattern": "^history/routes/[0-9]{4}/(?:0[1-9]|1[0-2])/route_[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\\.json$" },
+          "source_ordinal": { "type": "null" }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": { "semantic_family": { "const": "space" } },
+        "required": ["semantic_family"]
+      },
+      "then": {
+        "properties": {
+          "semantic_id": { "pattern": "^space_[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$" },
+          "source_schema_uri": { "const": "urn:open-brain:portable-brain:v1:space-frontmatter" },
+          "source_path": { "pattern": "^content/spaces/[a-z0-9]+(?:-[a-z0-9]+)*/_space\\.md$" },
+          "source_ordinal": { "type": "null" }
+        }
+      }
+    }
+  ],
+  "additionalProperties": false
+}

@@ -1,4 +1,4 @@
-"""Local engine composition and legacy compatibility re-exports."""
+"""Direct local engine composition."""
 
 from __future__ import annotations
 
@@ -10,19 +10,15 @@ from hashlib import sha256
 from open_brain_engine.providers.base import ProviderMode
 from open_brain_engine.storage.filesystem import assert_root_identity
 from open_brain_engine.storage.locks import FileLease
-from open_brain_engine.storage.sqlite import SchemaError, connect_database_read_only
+from open_brain_engine.storage.sqlite import SchemaError
 
-from .authority import require_daemon_authority
-from .backup import BackupTasks
 from .capture import CaptureOperations, CaptureTasks
 from .contracts import (
-    BackupFault,
     CaptureAction,
     CaptureFault,
     CaptureReceipt,
     CaptureSubmission,
     CaptureSubmissionPath,
-    DaemonMutationPath,
     DecisionOutcome,
     DecisionRecord,
     EngineTaskSet,
@@ -37,7 +33,6 @@ from .contracts import (
     MeasurementPayload,
     PageResult,
     Payload,
-    Phase1TaskSet,
     PortabilityFault,
     ProposalDraft,
     ProposalRecord,
@@ -50,11 +45,13 @@ from .contracts import (
     SpaceRecord,
     TextPayload,
 )
-from .local_store import _LocalStore
-from .maintenance import PHASE1_STATE_DATABASE, PHASE1_STATE_SCHEMA_VERSION, inspect_phase1_state
+from .local_schema import open_local_database_read_only
+from .local_store import _LocalStore, live_search_schema_is_available
+from .maintenance import inspect_phase1_state
+from .markdown_import import MarkdownImportTasks
 from .normalization import _done, _utc_now
 from .portability import PortabilityTasks
-from .reconciliation import ReconciliationTasks
+from .reconciliation import ReconciliationTasks, rederive_live_search_projection
 from .retrieval import RetrievalOperations, RetrievalTasks, ScopedRetrieval
 from .review import ReviewOperations, ReviewTasks
 from .spaces import InboxSpaceTasks, SpaceOperations
@@ -73,11 +70,7 @@ class _ReadOnlyStore:
         self._profile = profile
 
     def connect(self) -> sqlite3.Connection:
-        return connect_database_read_only(
-            root=self._profile.root,
-            database_name=PHASE1_STATE_DATABASE,
-            expected_root_identity=self._profile.root_identity,
-        )
+        return open_local_database_read_only(self._profile)
 
 
 class _ReadOnlyRetrieval(RetrievalOperations):
@@ -123,7 +116,7 @@ class BrainEngine(CaptureOperations, SpaceOperations, ReviewOperations, Retrieva
         self,
         profile: LocalEngineContext,
         *,
-        faults: Collection[CaptureFault | PortabilityFault | BackupFault],
+        faults: Collection[CaptureFault | PortabilityFault],
         clock: Callable[[], datetime],
         enrichment_provider: EnrichmentProvider | None,
         validate_mutation_authority: Callable[[], None] | None = None,
@@ -155,22 +148,14 @@ class BrainEngine(CaptureOperations, SpaceOperations, ReviewOperations, Retrieva
             parent_root_identity=profile.root_identity,
         )
         with self._writer_lease.acquire_shared_writer():
-            self._store = _LocalStore(profile)
-            _ensure_phase1_state_schema(self._store)
+            self._store = _LocalStore(profile, clock=self._clock)
         self.capture = CaptureTasks(self)
         self.inbox = InboxSpaceTasks(self)
         self.review = ReviewTasks(self)
         self.retrieval = RetrievalTasks(self)
         self.portability = PortabilityTasks(self)
-        self.backup = BackupTasks(self)
         self.reconciliation = ReconciliationTasks(self)
-        daemon_mutation_path = DaemonMutationPath.reserved(profile.root)
-        phase1 = Phase1TaskSet(
-            capture=self.capture,
-            inbox=self.inbox,
-            review=self.review,
-            retrieval=self.retrieval,
-        )
+        self.markdown_import = MarkdownImportTasks(self)
         self._task_set = EngineTaskSet(
             profile=profile,
             capture=self.capture,
@@ -178,10 +163,8 @@ class BrainEngine(CaptureOperations, SpaceOperations, ReviewOperations, Retrieva
             review=self.review,
             retrieval=self.retrieval,
             portability=self.portability,
-            backup=self.backup,
             reconciliation=self.reconciliation,
-            daemon_mutation_path=daemon_mutation_path,
-            phase1=phase1,
+            markdown_import=self.markdown_import,
         )
 
     @classmethod
@@ -189,7 +172,7 @@ class BrainEngine(CaptureOperations, SpaceOperations, ReviewOperations, Retrieva
         cls,
         profile: LocalEngineContext,
         *,
-        faults: Collection[CaptureFault | PortabilityFault | BackupFault] | None = None,
+        faults: Collection[CaptureFault | PortabilityFault] | None = None,
         clock: Callable[[], datetime] | None = None,
         enrichment_provider: EnrichmentProvider | None = None,
         validate_mutation_authority: Callable[[], None] | None = None,
@@ -218,6 +201,9 @@ class BrainEngine(CaptureOperations, SpaceOperations, ReviewOperations, Retrieva
         with self._writer_lease.acquire_shared_writer():
             return self._recover()
 
+    def _rederive_live_search_projection(self) -> None:
+        rederive_live_search_projection(self)
+
     def _recover(self) -> int:
         recovered = 0
         for table, processor in (
@@ -239,7 +225,7 @@ class BrainEngine(CaptureOperations, SpaceOperations, ReviewOperations, Retrieva
                 recovered += 1
         return recovered
 
-    def _fault(self, point: CaptureFault | PortabilityFault | BackupFault) -> None:
+    def _fault(self, point: CaptureFault | PortabilityFault) -> None:
         if point in self._faults:
             self._faults.remove(point)
             raise InjectedFault(point)
@@ -251,9 +237,10 @@ class BrainEngine(CaptureOperations, SpaceOperations, ReviewOperations, Retrieva
 def open_local_engine(
     profile: LocalEngineContext,
     *,
-    faults: Collection[CaptureFault | PortabilityFault | BackupFault] | None = None,
+    faults: Collection[CaptureFault | PortabilityFault] | None = None,
     clock: Callable[[], datetime] | None = None,
     enrichment_provider: EnrichmentProvider | None = None,
+    validate_before_write: Callable[[], None] | None = None,
 ) -> EngineTaskSet:
     """Open one local root and expose only its named task capabilities."""
     return BrainEngine.open(
@@ -261,45 +248,8 @@ def open_local_engine(
         faults=faults,
         clock=clock,
         enrichment_provider=enrichment_provider,
+        validate_mutation_authority=validate_before_write,
     ).tasks
-
-
-def open_authoritative_local_engine(
-    profile: LocalEngineContext,
-    authority: object | None,
-    *,
-    faults: Collection[CaptureFault | PortabilityFault | BackupFault] | None = None,
-    clock: Callable[[], datetime] | None = None,
-    enrichment_provider: EnrichmentProvider | None = None,
-) -> EngineTaskSet:
-    """Open one local root for mutation only while daemon lifetime authority remains active."""
-    require_daemon_authority(profile, authority)
-    return BrainEngine.open(
-        profile,
-        faults=faults,
-        clock=clock,
-        enrichment_provider=enrichment_provider,
-        validate_mutation_authority=lambda: require_daemon_authority(profile, authority),
-    ).tasks
-
-
-def recover_authoritative_local_engine(
-    profile: LocalEngineContext,
-    authority: object | None,
-    *,
-    clock: Callable[[], datetime] | None = None,
-    enrichment_provider: EnrichmentProvider | None = None,
-) -> int:
-    """Replay durable engine transitions only while daemon authority remains active."""
-    require_daemon_authority(profile, authority)
-    engine = BrainEngine(
-        profile,
-        faults=set(),
-        clock=clock or _utc_now,
-        enrichment_provider=enrichment_provider,
-        validate_mutation_authority=lambda: require_daemon_authority(profile, authority),
-    )
-    return engine.recover()
 
 
 def open_local_read_view(
@@ -315,21 +265,21 @@ def open_local_read_view(
         raise ReadViewUnavailableError("read-only state schema is absent")
     if schema.state == "newer":
         raise ReadViewUnavailableError("read-only state schema is newer than this application")
+    if schema.state == "recovery_required":
+        raise ReadViewUnavailableError("read-only state requires writable SQLite recovery")
     if schema.state != "current":
         raise ReadViewUnavailableError("read-only state schema is invalid")
-    return _ReadOnlyRetrieval(profile, allowed_space_ids=allowed_space_ids)
-
-
-def _ensure_phase1_state_schema(store: _LocalStore) -> None:
-    connection = store.connect()
     try:
-        version = int(connection.execute("PRAGMA user_version").fetchone()[0])
-        if version < PHASE1_STATE_SCHEMA_VERSION:
-            connection.execute(f"PRAGMA user_version = {PHASE1_STATE_SCHEMA_VERSION}")
-    except (TypeError, ValueError, sqlite3.Error, SchemaError) as error:
-        raise ValueError("invalid local state schema") from error
-    finally:
-        connection.close()
+        connection = open_local_database_read_only(profile)
+        try:
+            search_available = live_search_schema_is_available(connection)
+        finally:
+            connection.close()
+    except SchemaError, sqlite3.Error:
+        search_available = False
+    if not search_available:
+        raise ReadViewUnavailableError("read-only live search schema is unavailable")
+    return _ReadOnlyRetrieval(profile, allowed_space_ids=allowed_space_ids)
 
 
 __all__ = [
@@ -354,7 +304,6 @@ __all__ = [
     "LocalEngineContext",
     "MeasurementPayload",
     "Payload",
-    "Phase1TaskSet",
     "ProposalDraft",
     "ProposalRecord",
     "PublicJobCaptureContext",
@@ -362,7 +311,6 @@ __all__ = [
     "PublicProvenance",
     "ReadViewUnavailableError",
     "ReferencePayload",
-    "recover_authoritative_local_engine",
     "RetrievalResult",
     "RetrievalTasks",
     "ReviewTasks",
@@ -372,6 +320,5 @@ __all__ = [
     "StateSchemaUnavailableError",
     "TextPayload",
     "open_local_engine",
-    "open_authoritative_local_engine",
     "open_local_read_view",
 ]

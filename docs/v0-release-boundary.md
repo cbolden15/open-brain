@@ -1,19 +1,20 @@
-# v0 release-boundary evidence
+# Historical v0 appliance release-boundary evidence
 
-Status: accepted Phase 0 evidence
+Status: accepted historical Phase 0 evidence; default-product boundary superseded 2026-09-07
 
-Authority: [v0 product contract](v0-product-contract.md), version 0.3, approved
-2026-08-30. The [Option C architecture plan](plans/option-c-architecture.md) and
-[proposed v0 system architecture](architecture/proposed-v0-system-architecture.md)
-interpret that contract; they do not replace it.
+Current authority: [Open Brain product-family contract](product-family.md), version 0.7, revised
+2026-09-08. The [v0.5 product contract](v0-product-contract.md),
+[Option C architecture plan](plans/option-c-architecture.md), and
+[proposed v0 system architecture](architecture/proposed-v0-system-architecture.md) remain
+historical evidence for the completed appliance work. They do not make that appliance the default
+product after the split.
 
 ## Change control
 
-The approved v0 outcomes are fixed: `single-user-local`, provider mode `none`, one
-daemon with internal schedules, the four payload families with optional connectors,
-and the Portable Brain foundation and release gates. Implementation work may refine
-details, but it cannot weaken those outcomes without a new product decision recorded
-in the product contract.
+The v0.5 outcomes below remain fixed as historical acceptance evidence. Current implementation
+must preserve that engineering for Secure Node while making plain Open Brain a direct local,
+five-minute product with no required daemon. Portable Brain and shared record requirements remain
+current across both products.
 
 An unlisted feature, platform, payload, connector promise, hosted behavior, or
 release-artifact change goes on the expansion backlog. It is not implemented,
@@ -31,19 +32,10 @@ exception.
 
 ## Current namespace import evidence
 
-`docs/v0-package-classification.json` classifies every immediate
-`src/open_brain/` package directory and records its target owner, current mixed scope,
-and extraction action. `tests/security/test_architecture_imports.py` AST-scans real
-Python imports in those directories, verifies all current namespace endpoints have a
-classification, and enforces the current safe engine scope: `core` cannot import an
-app, connector, hosted, or legacy package.
+The old file-by-file movement manifest was useful while the monolith was being split. The split is
+complete, so the manifest and its generator were removed with the Phase 4 release stack.
 
-This narrow scope is intentional evidence, not a claim that the whole current graph
-already matches the target architecture. `capture`, `integrations`, `operations`,
-`production`, `providers`, `release`, and `storage` remain explicitly mixed; `migrate`
-and `parity` remain explicitly legacy. Their recorded Phase 1 extraction work is the
-path to broader import enforcement.
-
-The checker is static AST evidence for direct Python imports. Dynamic import targets
-remain outside this Phase 0 proof and require review when the relevant package is
-extracted.
+`tests/security/test_architecture_imports.py` now checks the actual package directories directly. It
+keeps the engine independent, permits the app to depend only on the engine, permits connectors to
+depend on the app and engine, and confines legacy code to the engine. Package metadata must declare
+the same graph.

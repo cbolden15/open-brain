@@ -1,0 +1,1009 @@
+{
+  "valid": {
+    "owner-key-certificate": [
+      {
+        "schema_version": 1,
+        "brain_id": "brn_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "owner_key_id": "key_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "owner_public_key": "ebVWLo_mVPlAeLES6KmLp5AfhTrmlb7X4OORC60ElmQ",
+        "owner_epoch": 1,
+        "previous_owner_key_id": null,
+        "valid_from": "2026-09-06T12:00:00Z",
+        "retired_at": null,
+        "certifying_owner_key_id": "key_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "owner_signature": "edEbtXNcyvOW0IoU-9BfcRPoNVVY5WKfLQ05i2mxbyU6vxBnOF7ATCw-IN1P48FLeXe7DD5Tu-l6--D1NB1ZBg"
+      }
+    ],
+    "node-epoch-certificate": [
+      {
+        "schema_version": 1,
+        "brain_id": "brn_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "node_id": "nod_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "node_key_id": "key_bbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "node_public_key": "5_FioQvsVZr-oZXk3OhLaVaNXSywlj60RsBoXisX8vA",
+        "sequencer_epoch": 1,
+        "prior_ledger_head": null,
+        "owner_key_id": "key_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "issued_at": "2026-09-06T12:00:00Z",
+        "owner_signature": "36ogpGPe6vCLXEKCnpGK1sZHIVv6nsUeMHI78t-6h4QzIn3ki8VnWGKQMioXyl1jqPvk4oyYf22pJExFRxg3BQ"
+      }
+    ],
+    "grant": [
+      {
+        "schema_version": 1,
+        "grant_id": "grt_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "brain_id": "brn_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "issuer_key_id": "key_cccccccccccccccccccccccccc",
+        "issuer_epoch": 1,
+        "policy_epoch": 1,
+        "policy_digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "principal_id": "pri_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "principal_public_key": "ebVWLo_mVPlAeLES6KmLp5AfhTrmlb7X4OORC60ElmQ",
+        "principal_epoch": 1,
+        "scopes": ["query", "inspect.metadata"],
+        "compartments": ["personal.notes"],
+        "record_schemas": [
+          {
+            "schema_id": "note",
+            "version": 1,
+            "uri": "urn:open-brain:schema:note:v1",
+            "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          }
+        ],
+        "body_visibility": "metadata",
+        "limits": {
+          "commit_batch_items": 128,
+          "blob_staging_bytes": 67108864,
+          "concurrent_requests": 8,
+          "retained_nonces": 10000,
+          "query_top_k": 100,
+          "query_pages": 256
+        },
+        "issued_at": "2026-09-06T12:00:00Z",
+        "expires_at": "2026-09-06T12:10:00Z",
+        "ttl_seconds": 600,
+        "issuer_signature": "ZoP_PwEuv20Fx5v_O9hxqobihKlCbZUald4VUFI-bJk9VgAY_jkpkIw7Bh8Oke9io_tUXo2i3uLv36IsfeFVCQ"
+      }
+    ],
+    "request-binding": [
+      {
+        "method": "query",
+        "brain_id": "brn_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "delivery_id": "dlv_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "nonce": "non_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "body_digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      }
+    ],
+    "request-envelope": [
+      {
+        "schema_version": 1,
+        "grant_id": "grt_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "binding": {
+          "method": "query",
+          "brain_id": "brn_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "delivery_id": "dlv_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "nonce": "non_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "body_digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        },
+        "principal_signature": "9BnfQQo6rZ-QYILYr1R67pt8aamrSQc2HalVvI2eEAuVBMEn-LDJYsr2jX8GJNMlakW2WW5Ncxh1YoleucnTCQ"
+      }
+    ],
+    "provenance": [
+      {
+        "schema_version": 1,
+        "brain_id": "brn_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "source_record_ids": [],
+        "source_revision_ids": [],
+        "processor": null,
+        "derivation": "owner"
+      },
+      {
+        "schema_version": 1,
+        "brain_id": "brn_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "source_record_ids": ["rec_aaaaaaaaaaaaaaaaaaaaaaaaaa"],
+        "source_revision_ids": [],
+        "processor": {"processor_id": "synthetic", "version": "1.0.0"},
+        "derivation": "processor"
+      }
+    ],
+    "record": [
+      {
+        "schema_version": 1,
+        "kind": "record",
+        "brain_id": "brn_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "record_id": "rec_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "record_type": "note",
+        "content_schema": {
+          "schema_id": "note",
+          "version": 1,
+          "uri": "urn:open-brain:schema:note:v1",
+          "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        },
+        "producer_principal_id": "pri_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "origin_id": "synthetic-origin-1",
+        "captured_at": "2026-09-06T11:59:00Z",
+        "observed_at": "2026-09-06T12:00:00Z",
+        "compartments": ["personal.notes"],
+        "provenance": {
+          "schema_version": 1,
+          "brain_id": "brn_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "source_record_ids": [],
+          "source_revision_ids": [],
+          "processor": null,
+          "derivation": "owner"
+        },
+        "body": {"text": "synthetic note"},
+        "ciphertext_state": "pending",
+        "ciphertext_digest": null
+      }
+    ],
+    "proposal": [
+      {
+        "schema_version": 1,
+        "kind": "proposal",
+        "brain_id": "brn_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "proposal_id": "prp_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "proposal_revision_id": "rev_bbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "artifact_id": "art_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "base_revision_id": null,
+        "content_schema": {
+          "schema_id": "markdown",
+          "version": 1,
+          "uri": "urn:open-brain:schema:markdown:v1",
+          "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+        },
+        "compartments": ["personal.notes"],
+        "provenance": {
+          "schema_version": 1,
+          "brain_id": "brn_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "source_record_ids": ["rec_aaaaaaaaaaaaaaaaaaaaaaaaaa"],
+          "source_revision_ids": [],
+          "processor": {"processor_id": "markdown-projector", "version": "1.0.0"},
+          "derivation": "processor"
+        },
+        "body": {"text": "synthetic proposal"},
+        "proposed_at": "2026-09-06T12:00:00Z"
+      }
+    ],
+    "revision": [
+      {
+        "schema_version": 1,
+        "kind": "revision",
+        "brain_id": "brn_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "artifact_id": "art_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "revision_id": "rev_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "base_revision_id": null,
+        "accepted_from_proposal_id": null,
+        "decision_id": null,
+        "content_schema": {
+          "schema_id": "markdown",
+          "version": 1,
+          "uri": "urn:open-brain:schema:markdown:v1",
+          "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+        },
+        "compartments": ["personal.notes"],
+        "provenance": {
+          "schema_version": 1,
+          "brain_id": "brn_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "source_record_ids": ["rec_aaaaaaaaaaaaaaaaaaaaaaaaaa"],
+          "source_revision_ids": [],
+          "processor": {"processor_id": "synthetic", "version": "1.0.0"},
+          "derivation": "processor"
+        },
+        "body": {"text": "synthetic revision"},
+        "created_at": "2026-09-06T12:00:00Z"
+      }
+    ],
+    "decision": [
+      {
+        "schema_version": 1,
+        "kind": "decision",
+        "brain_id": "brn_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "decision_id": "dec_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "proposal_id": "prp_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "expected_proposal_revision_id": "rev_bbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "outcome": "accepted",
+        "decided_by": "pri_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "compartments": ["personal.notes"],
+        "decided_at": "2026-09-06T12:00:00Z"
+      }
+    ],
+    "effect-receipt": [
+      {
+        "schema_version": 1,
+        "kind": "effect_receipt",
+        "brain_id": "brn_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "receipt_id": "rcp_bbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "effect_id": "eff_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "reconciles_receipt_id": null,
+        "external_identity": "synthetic-effect-1",
+        "outcome": "unknown",
+        "compartments": ["personal.notes"],
+        "provenance": {
+          "schema_version": 1,
+          "brain_id": "brn_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "source_record_ids": ["rec_aaaaaaaaaaaaaaaaaaaaaaaaaa"],
+          "source_revision_ids": [],
+          "processor": null,
+          "derivation": "owner"
+        },
+        "observed_at": "2026-09-06T12:00:00Z"
+      }
+    ],
+    "purge-transition": [
+      {
+        "schema_version": 1,
+        "kind": "purge_transition",
+        "brain_id": "brn_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "purge_id": "prg_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "target_record_id": "rec_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "subject_kind": "record",
+        "subject_id": "rec_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "resolution": "purge",
+        "replacement_record_id": null,
+        "review_decision_id": null,
+        "reason": "synthetic owner request"
+      }
+    ],
+    "ledger-item-ref": [
+      {
+        "item_kind": "record",
+        "record_id": "rec_aaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      {
+        "item_kind": "proposal",
+        "proposal_id": "prp_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "proposal_revision_id": "rev_bbbbbbbbbbbbbbbbbbbbbbbbbb"
+      },
+      {
+        "item_kind": "revision",
+        "revision_id": "rev_aaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      {
+        "item_kind": "decision",
+        "decision_id": "dec_aaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      {
+        "item_kind": "purge_transition",
+        "purge_id": "prg_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "subject_kind": "effect_receipt",
+        "subject_id": "rcp_bbbbbbbbbbbbbbbbbbbbbbbbbb"
+      },
+      {
+        "item_kind": "effect_receipt",
+        "receipt_id": "rcp_bbbbbbbbbbbbbbbbbbbbbbbbbb"
+      }
+    ],
+    "commit-batch": [
+      {
+        "schema_version": 1,
+        "brain_id": "brn_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "delivery_id": "dlv_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "sequencer_epoch": 1,
+        "issuer_epoch": 1,
+        "policy_digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "items": [
+          {
+            "schema_version": 1,
+            "kind": "record",
+            "brain_id": "brn_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "record_id": "rec_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "record_type": "note",
+            "content_schema": {
+              "schema_id": "note",
+              "version": 1,
+              "uri": "urn:open-brain:schema:note:v1",
+              "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+            },
+            "producer_principal_id": "pri_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "origin_id": "synthetic-origin-1",
+            "captured_at": "2026-09-06T11:59:00Z",
+            "observed_at": "2026-09-06T12:00:00Z",
+            "compartments": ["personal.notes"],
+            "provenance": {
+              "schema_version": 1,
+              "brain_id": "brn_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "source_record_ids": [],
+              "source_revision_ids": [],
+              "processor": null,
+              "derivation": "owner"
+            },
+            "body": {"text": "synthetic note"},
+            "ciphertext_state": "pending",
+            "ciphertext_digest": null
+          }
+        ]
+      }
+    ],
+    "receipt": [
+      {
+        "schema_version": 1,
+        "receipt_id": "rcp_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "brain_id": "brn_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "commit_id": "cmt_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "delivery_id": "dlv_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "cursor": "cur_v1_aaaaaaaaaaaaaaaa",
+        "commit_digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "issuer_epoch": 1,
+        "policy_digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "sequencer_epoch": 1,
+        "node_key_id": "key_bbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "node_epoch_certificate": {
+          "schema_version": 1,
+          "brain_id": "brn_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "node_id": "nod_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "node_key_id": "key_bbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "node_public_key": "5_FioQvsVZr-oZXk3OhLaVaNXSywlj60RsBoXisX8vA",
+          "sequencer_epoch": 1,
+          "prior_ledger_head": null,
+          "owner_key_id": "key_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "issued_at": "2026-09-06T12:00:00Z",
+          "owner_signature": "36ogpGPe6vCLXEKCnpGK1sZHIVv6nsUeMHI78t-6h4QzIn3ki8VnWGKQMioXyl1jqPvk4oyYf22pJExFRxg3BQ"
+        },
+        "owner_key_history": [
+          {
+            "schema_version": 1,
+            "brain_id": "brn_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "owner_key_id": "key_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "owner_public_key": "ebVWLo_mVPlAeLES6KmLp5AfhTrmlb7X4OORC60ElmQ",
+            "owner_epoch": 1,
+            "previous_owner_key_id": null,
+            "valid_from": "2026-09-06T12:00:00Z",
+            "retired_at": null,
+            "certifying_owner_key_id": "key_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "owner_signature": "edEbtXNcyvOW0IoU-9BfcRPoNVVY5WKfLQ05i2mxbyU6vxBnOF7ATCw-IN1P48FLeXe7DD5Tu-l6--D1NB1ZBg"
+          }
+        ],
+        "issued_at": "2026-09-06T12:00:00Z",
+        "node_signature": "CCQvsMsrwTBH7uPSOaGWlnVJowdHo3oj6b9u3hngppU8tSAgmfjkoPd6xtGxp9roGfUkN-MlCOC-oIizkszSAw"
+      }
+    ],
+    "commit-result": [
+      {
+        "schema_version": 1,
+        "kind": "delivery_purged",
+        "code": "delivery_purged",
+        "brain_id": "brn_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "delivery_id": "dlv_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "message": "Delivery evidence was erased by an authorized purge.",
+        "retry_safe": false
+      },
+      {
+        "schema_version": 1,
+        "kind": "conflict",
+        "code": "digest_conflict",
+        "brain_id": "brn_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "delivery_id": "dlv_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "message": "Delivery identity was reused with different content.",
+        "retry_safe": false,
+        "corrective_action": "use_new_delivery_id"
+      },
+      {
+        "schema_version": 1,
+        "kind": "conflict",
+        "code": "revision_conflict",
+        "brain_id": "brn_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "proposal_id": "prp_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "expected_revision_id": "rev_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "actual_revision_id": "rev_bbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "message": "The proposal revision changed.",
+        "retry_safe": false,
+        "corrective_action": "refresh_and_resubmit"
+      }
+    ],
+    "query-evidence": [
+      {
+        "schema_version": 1,
+        "brain_id": "brn_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "record_id": "rec_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "accepted_revision_id": null,
+        "provenance": {
+          "schema_version": 1,
+          "brain_id": "brn_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "source_record_ids": [],
+          "source_revision_ids": [],
+          "processor": null,
+          "derivation": "owner"
+        },
+        "compartments": ["personal.notes"],
+        "body_visibility": "metadata"
+      }
+    ],
+    "query-continuation": [
+      {
+        "schema_version": 1,
+        "token": "qct_v1_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+      }
+    ],
+    "query": [
+      {
+        "schema_version": 1,
+        "kind": "request",
+        "brain_id": "brn_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "literal_text": "synthetic query",
+        "top_k": 10,
+        "minimum_cursor": null,
+        "continuation": null
+      },
+      {
+        "schema_version": 1,
+        "kind": "page",
+        "brain_id": "brn_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "ranking": "final",
+        "fusion": "reciprocal_rank_k60",
+        "results": [
+          {
+            "rank": 1,
+            "evidence": [
+              {
+                "schema_version": 1,
+                "brain_id": "brn_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+                "record_id": "rec_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+                "accepted_revision_id": null,
+                "provenance": {
+                  "schema_version": 1,
+                  "brain_id": "brn_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+                  "source_record_ids": [],
+                  "source_revision_ids": [],
+                  "processor": null,
+                  "derivation": "owner"
+                },
+                "compartments": ["personal.notes"],
+                "body_visibility": "metadata"
+              }
+            ]
+          }
+        ],
+        "continuation": null,
+        "visible_watermark": "qwm_v1_AAAAAAAAAAAAAAAA"
+      },
+      {
+        "schema_version": 1,
+        "kind": "projection_lag",
+        "code": "projection_lag",
+        "message": "Projection has not reached the requested cursor.",
+        "retry_safe": true,
+        "retry_after_ms": 50,
+        "visible_watermark": "qwm_v1_AAAAAAAAAAAAAAAA"
+      },
+      {
+        "schema_version": 1,
+        "kind": "continuation_invalidated",
+        "code": "continuation_invalidated",
+        "message": "The bound query snapshot was purged.",
+        "retry_safe": true,
+        "retry_after_ms": null,
+        "corrective_action": "restart_query"
+      }
+    ],
+    "changes": [
+      {
+        "schema_version": 1,
+        "kind": "request",
+        "brain_id": "brn_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "after": null,
+        "filter": null,
+        "page_size": 64
+      },
+      {
+        "schema_version": 1,
+        "kind": "page",
+        "brain_id": "brn_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "changes": [
+          {
+            "cursor": "cur_v1_aaaaaaaaaaaaaaaa",
+            "commit_id": "cmt_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "item_ref": {
+              "item_kind": "record",
+              "record_id": "rec_aaaaaaaaaaaaaaaaaaaaaaaaaa"
+            },
+            "change": "committed"
+          },
+          {
+            "cursor": "cur_v1_bbbbbbbbbbbbbbbb",
+            "commit_id": "cmt_bbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "item_ref": {
+              "item_kind": "revision",
+              "revision_id": "rev_aaaaaaaaaaaaaaaaaaaaaaaaaa"
+            },
+            "change": "committed"
+          },
+          {
+            "cursor": "cur_v1_cccccccccccccccc",
+            "commit_id": "cmt_cccccccccccccccccccccccccc",
+            "item_ref": {
+              "item_kind": "decision",
+              "decision_id": "dec_aaaaaaaaaaaaaaaaaaaaaaaaaa"
+            },
+            "change": "committed"
+          },
+          {
+            "cursor": "cur_v1_dddddddddddddddd",
+            "commit_id": "cmt_dddddddddddddddddddddddddd",
+            "item_ref": {
+              "item_kind": "purge_transition",
+              "purge_id": "prg_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "subject_kind": "record",
+              "subject_id": "rec_aaaaaaaaaaaaaaaaaaaaaaaaaa"
+            },
+            "change": "tombstoned"
+          }
+        ],
+        "next": null
+      }
+    ],
+    "inspect": [
+      {
+        "schema_version": 1,
+        "kind": "request",
+        "brain_id": "brn_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "entity_kind": "record",
+        "entity_id": "rec_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "include_body": false
+      },
+      {
+        "schema_version": 1,
+        "kind": "entity",
+        "entity_kind": "record",
+        "entity_id": "rec_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "body_visibility": "metadata",
+        "metadata": {
+          "brain_id": "brn_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "compartments": ["personal.notes"],
+          "record_type": "note",
+          "created_at": "2026-09-06T12:00:00Z"
+        }
+      },
+      {
+        "schema_version": 1,
+        "kind": "not_found",
+        "code": "not_found",
+        "message": "Entity was not found.",
+        "retry_safe": true
+      }
+    ],
+    "durable-job": [
+      {
+        "schema_version": 1,
+        "brain_id": "brn_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "job_id": "job_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "job_type": "purge",
+        "state": "pending",
+        "compartments": ["personal.notes"],
+        "attempt": 0,
+        "result_ref": null,
+        "error_code": null,
+        "updated_at": "2026-09-06T12:00:00Z"
+      }
+    ],
+    "cold-transfer-certificate": [
+      {
+        "schema_version": 1,
+        "transfer_id": "xfr_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "brain_id": "brn_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "from_node_id": "nod_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "from_machine_instance": "machine_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "to_node_id": "nod_bbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "to_machine_instance": "machine_bbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "next_node_key_id": "key_dddddddddddddddddddddddddd",
+        "next_node_public_key": "iC0Oo7KGTnpYfz5pjOpEWZmDEuZV4F-l6LURnYuqyM0",
+        "previous_epoch": 1,
+        "next_epoch": 2,
+        "prior_ledger_head": {
+          "history_commitment": "lhc_v1_PgQze80r54tk4H2UsGhmi4iGkLg-ovE42Duq8r80jAQ"
+        },
+        "stop_proof_id": "stp_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "owner_key_id": "key_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "issued_at": "2026-09-06T12:01:00Z",
+        "owner_signature": "9JhmNPvL7Dm8lg9m0_db6kbhn4xCDTYodjw5eupymabRfsTc8ZxkDmCwpSE9mxw2MSi0vmLM3_1BuBGDWt9hDA"
+      }
+    ],
+    "sequencer-stop-proof": [
+      {
+        "schema_version": 1,
+        "stop_proof_id": "stp_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "brain_id": "brn_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "node_id": "nod_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "node_key_id": "key_bbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "machine_instance": "machine_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "epoch": 1,
+        "last_ledger_head": {
+          "history_commitment": "lhc_v1_PgQze80r54tk4H2UsGhmi4iGkLg-ovE42Duq8r80jAQ"
+        },
+        "stopped_at": "2026-09-06T12:00:00Z",
+        "node_signature": "816ZfdSTx5bMpjF1u5JMg31R1chnWoAdfMgRWWHYoZyn3q-eTIPoPdpIldN-wOsumKNKqfqFDKv--ZCI_xIlAw"
+      }
+    ],
+    "resource-limit-failure": [
+      {
+        "schema_version": 1,
+        "code": "commit_batch_limit",
+        "message": "Commit batch exceeds 128 items.",
+        "retry_safe": true,
+        "retry_after_ms": null,
+        "corrective_action": "Split the batch and retry with a new delivery identity.",
+        "accounting_scope": "principal",
+        "principal_id": "pri_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "limit": 128,
+        "observed": 129
+      }
+    ],
+    "security-audit-event": [
+      {
+        "schema_version": 1,
+        "event": "authorization_denied",
+        "brain_id": "brn_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "principal_id": "pri_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "occurred_at": "2026-09-06T12:00:00Z",
+        "reason_code": "scope_missing"
+      }
+    ]
+  },
+  "invalid": {
+    "owner-key-certificate": [
+      {
+        "schema_version": 1,
+        "brain_id": "brn_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "owner_key_id": "key_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "owner_public_key": "A",
+        "owner_epoch": 1,
+        "previous_owner_key_id": null,
+        "valid_from": "2026-09-06T12:00:00Z",
+        "retired_at": null,
+        "certifying_owner_key_id": "key_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "owner_signature": "A"
+      }
+    ],
+    "node-epoch-certificate": [
+      {
+        "schema_version": 1,
+        "brain_id": "brn_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "node_id": "nod_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "node_key_id": "key_bbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "node_public_key": "ebVWLo_mVPlAeLES6KmLp5AfhTrmlb7X4OORC60ElmQ",
+        "sequencer_epoch": 2,
+        "prior_ledger_head": null,
+        "owner_key_id": "key_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "issued_at": "2026-09-06T12:00:00Z",
+        "owner_signature": "9BnfQQo6rZ-QYILYr1R67pt8aamrSQc2HalVvI2eEAuVBMEn-LDJYsr2jX8GJNMlakW2WW5Ncxh1YoleucnTCQ"
+      }
+    ],
+    "grant": [
+      {
+        "schema_version": 1,
+        "grant_id": "grt_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "brain_id": "brn_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "issuer_key_id": "key_bbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "issuer_epoch": 1,
+        "policy_epoch": 1,
+        "principal_id": "pri_aaaaaaaaaaaaaaaaaaaaaaaaaa"
+      }
+    ],
+    "request-binding": [
+      {
+        "method": "query",
+        "brain_id": "brn_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "delivery_id": "dlv_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "nonce": "non_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "body_digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "grant_id": "grt_aaaaaaaaaaaaaaaaaaaaaaaaaa"
+      }
+    ],
+    "request-envelope": [
+      {
+        "schema_version": 1,
+        "grant_id": "grt_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "binding": {},
+        "principal_signature": "A"
+      }
+    ],
+    "provenance": [
+      {
+        "schema_version": 1,
+        "brain_id": "brn_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "source_record_ids": [],
+        "source_revision_ids": [],
+        "processor": null,
+        "derivation": "processor"
+      }
+    ],
+    "record": [
+      {
+        "schema_version": 1,
+        "kind": "record",
+        "brain_id": "brn_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "record_id": "rec_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "record_type": "note",
+        "body": {"text": "missing envelope authority"}
+      }
+    ],
+    "proposal": [
+      {
+        "schema_version": 1,
+        "kind": "proposal",
+        "brain_id": "brn_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "proposal_id": "prp_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "base_revision_id": null
+      }
+    ],
+    "revision": [
+      {
+        "schema_version": 1,
+        "kind": "revision",
+        "brain_id": "brn_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "revision_id": "rev_aaaaaaaaaaaaaaaaaaaaaaaaaa"
+      }
+    ],
+    "decision": [
+      {
+        "schema_version": 1,
+        "kind": "decision",
+        "brain_id": "brn_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "decision_id": "dec_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "proposal_id": "prp_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "expected_revision_id": null
+      }
+    ],
+    "effect-receipt": [
+      {
+        "schema_version": 1,
+        "kind": "effect_receipt",
+        "brain_id": "brn_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "outcome": "success"
+      }
+    ],
+    "purge-transition": [
+      {
+        "schema_version": 1,
+        "kind": "purge_transition",
+        "brain_id": "brn_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "purge_id": "prg_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "target_record_id": "rec_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "subject_kind": "revision",
+        "subject_id": "rec_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "resolution": "retain",
+        "replacement_record_id": null,
+        "review_decision_id": null,
+        "reason": "unreviewed retention"
+      },
+      {
+        "schema_version": 1,
+        "kind": "purge_transition",
+        "brain_id": "brn_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "purge_id": "prg_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "target_record_id": "rec_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "subject_kind": "effect_receipt",
+        "subject_id": "rcp_bbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "resolution": "replace",
+        "replacement_record_id": "rec_bbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "review_decision_id": "dec_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "reason": "effect receipts cannot be replaced"
+      }
+    ],
+    "ledger-item-ref": [
+      {
+        "item_kind": "proposal",
+        "proposal_id": "prp_aaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      {
+        "item_kind": "purge_transition",
+        "purge_id": "prg_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "subject_kind": "effect_receipt",
+        "subject_id": "rec_aaaaaaaaaaaaaaaaaaaaaaaaaa"
+      }
+    ],
+    "commit-batch": [
+      {
+        "schema_version": 1,
+        "brain_id": "brn_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "delivery_id": "dlv_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "sequencer_epoch": 1,
+        "issuer_epoch": 1,
+        "policy_digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "items": [
+          {
+            "schema_version": 1,
+            "kind": "record",
+            "brain_id": "brn_bbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "record_id": "rec_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "record_type": "note",
+            "content_schema": {
+              "schema_id": "note",
+              "version": 1,
+              "uri": "urn:open-brain:schema:note:v1",
+              "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+            },
+            "producer_principal_id": "pri_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "origin_id": null,
+            "captured_at": null,
+            "observed_at": "2026-09-06T12:00:00Z",
+            "compartments": ["personal.notes"],
+            "provenance": {
+              "schema_version": 1,
+              "brain_id": "brn_bbbbbbbbbbbbbbbbbbbbbbbbbb",
+              "source_record_ids": [],
+              "source_revision_ids": [],
+              "processor": null,
+              "derivation": "owner"
+            },
+            "body": {"text": "foreign Brain"},
+            "ciphertext_state": "pending",
+            "ciphertext_digest": null
+          }
+        ]
+      }
+    ],
+    "receipt": [
+      {
+        "schema_version": 1,
+        "receipt_id": "rcp_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "brain_id": "brn_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "commit_id": "cmt_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "delivery_id": "dlv_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "cursor": "cur_v1_aaaaaaaaaaaaaaaa",
+        "commit_digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "issuer_epoch": 1,
+        "policy_digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "sequencer_epoch": 1,
+        "node_key_id": "key_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "node_epoch_certificate": {},
+        "owner_key_history": [],
+        "issued_at": "2026-09-06T12:00:00Z",
+        "node_signature": "A"
+      }
+    ],
+    "commit-result": [
+      {
+        "schema_version": 1,
+        "kind": "conflict",
+        "code": "delivery_purged",
+        "brain_id": "brn_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "delivery_id": "dlv_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "message": "mismatched outcome",
+        "retry_safe": true
+      }
+    ],
+    "query-evidence": [
+      {
+        "schema_version": 1,
+        "brain_id": "brn_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "record_id": null,
+        "accepted_revision_id": null,
+        "provenance": {
+          "schema_version": 1,
+          "brain_id": "brn_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "source_record_ids": [],
+          "source_revision_ids": [],
+          "processor": null,
+          "derivation": "owner"
+        },
+        "compartments": ["personal.notes"],
+        "body_visibility": "metadata"
+      }
+    ],
+    "query-continuation": [
+      {
+        "schema_version": 1,
+        "token": "qct_v1_record_shard_score"
+      }
+    ],
+    "query": [
+      {
+        "schema_version": 1,
+        "kind": "projection_lag",
+        "code": "continuation_invalidated",
+        "message": "mismatched result",
+        "retry_safe": true,
+        "retry_after_ms": 0,
+        "visible_watermark": "qwm_v1_AAAAAAAAAAAAAAAA"
+      }
+    ],
+    "changes": [
+      {
+        "schema_version": 1,
+        "kind": "page",
+        "brain_id": "brn_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "changes": [
+          {
+            "cursor": "cur_v1_aaaaaaaaaaaaaaaa",
+            "commit_id": "cmt_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "item_ref": {
+              "item_kind": "revision",
+              "revision_id": "rec_aaaaaaaaaaaaaaaaaaaaaaaaaa"
+            },
+            "change": "committed"
+          }
+        ],
+        "next": null
+      }
+    ],
+    "inspect": [
+      {
+        "schema_version": 1,
+        "kind": "entity",
+        "entity_kind": "record",
+        "entity_id": "rec_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "body_visibility": "metadata",
+        "metadata": {
+          "brain_id": "brn_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "commit_digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "payload": "secret"
+        }
+      }
+    ],
+    "durable-job": [
+      {
+        "schema_version": 1,
+        "brain_id": "brn_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "job_id": "job_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "job_type": "purge",
+        "state": "failed",
+        "compartments": ["personal.notes"],
+        "attempt": 100000000000000000000,
+        "result_ref": null,
+        "error_code": null,
+        "updated_at": "2026-09-06T12:00:00Z"
+      }
+    ],
+    "cold-transfer-certificate": [
+      {
+        "schema_version": 1,
+        "transfer_id": "xfr_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "brain_id": "brn_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "from_node_id": "nod_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "from_machine_instance": "machine_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "to_node_id": "nod_bbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "to_machine_instance": "machine_bbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "next_node_key_id": "key_bbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "next_node_public_key": "ebVWLo_mVPlAeLES6KmLp5AfhTrmlb7X4OORC60ElmQ",
+        "previous_epoch": 99,
+        "next_epoch": 2,
+        "prior_ledger_head": {
+          "history_commitment": "lhc_v1_PgQze80r54tk4H2UsGhmi4iGkLg-ovE42Duq8r80jAQ"
+        },
+        "stop_proof_id": "stp_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "owner_key_id": "key_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "issued_at": "2026-09-06T12:00:00Z",
+        "owner_signature": "9BnfQQo6rZ-QYILYr1R67pt8aamrSQc2HalVvI2eEAuVBMEn-LDJYsr2jX8GJNMlakW2WW5Ncxh1YoleucnTCQ"
+      }
+    ],
+    "sequencer-stop-proof": [
+      {
+        "schema_version": 1,
+        "stop_proof_id": "stp_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "brain_id": "brn_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "node_id": "nod_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "node_key_id": "key_bbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "machine_instance": "machine_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "epoch": 1,
+        "stopped_at": "2026-09-06T12:00:00Z",
+        "node_signature": "A"
+      }
+    ],
+    "resource-limit-failure": [
+      {
+        "schema_version": 1,
+        "code": "nonce_capacity",
+        "message": "Capacity is exhausted.",
+        "retry_safe": true,
+        "retry_after_ms": null,
+        "corrective_action": null,
+        "accounting_scope": "principal",
+        "principal_id": null,
+        "limit": 10000,
+        "observed": 10001
+      }
+    ],
+    "security-audit-event": [
+      {
+        "schema_version": 1,
+        "event": "authorization_denied",
+        "brain_id": "brn_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "principal_id": "pri_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "occurred_at": "2026-09-06T12:00:00Z",
+        "reason_code": "scope_missing",
+        "payload": "secret"
+      }
+    ]
+  }
+}

@@ -2,4 +2,10 @@ Open Brain
 Copyright 2026 Open Brain contributors
 
 This product is licensed under the Apache License, Version 2.0.
-Third-party attribution notices will be added here when dependencies or vendored assets require them.
+
+The active distribution depends on rfc8785.py, licensed under the Apache License, Version 2.0.
+Exact resolved versions are recorded in `uv.lock`. License text is distributed by the dependency
+package.
+
+Historical source under `archive/` is not part of the Open Brain distribution. Its original notices
+remain with the archived source.

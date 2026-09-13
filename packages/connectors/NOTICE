@@ -1,5 +1,8 @@
-Open Brain
+Open Brain Connectors
 Copyright 2026 Open Brain contributors
 
-This product is licensed under the Apache License, Version 2.0.
-Third-party attribution notices will be added here when dependencies or vendored assets require them.
+This optional distribution is licensed under the Apache License, Version 2.0. Its active dependency
+closure is recorded in `uv.lock`.
+
+Historical source under `archive/` is not part of the connector distribution. Its original notices
+remain with the archived source.

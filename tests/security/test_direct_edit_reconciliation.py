@@ -7,8 +7,6 @@ import pytest
 from open_brain_engine.engine import (
     CaptureAction,
     TextPayload,
-    acquire_daemon_authority,
-    open_authoritative_local_engine,
     open_local_engine,
 )
 
@@ -34,8 +32,8 @@ def test_reconciliation_rejects_symlinked_canonical_page_without_overwriting_sea
     page.symlink_to(target)
     profile = open_existing_single_user_local(root)
 
-    with acquire_daemon_authority(profile) as authority, pytest.raises(ValueError, match="symlink"):
-        open_authoritative_local_engine(profile, authority).reconciliation.reconcile()
+    with pytest.raises(ValueError, match="symlink"):
+        open_local_engine(profile).reconciliation.reconcile()
 
     with sqlite3.connect(root / ".open-brain" / "state" / "phase1.sqlite3") as connection:
         assert connection.execute(
@@ -59,11 +57,8 @@ def test_reconciliation_rejects_over_budget_markdown_without_mutating_retrieval(
     page.write_text("x" * 70_000, encoding="utf-8")
     profile = open_existing_single_user_local(root)
 
-    with acquire_daemon_authority(profile) as authority, pytest.raises(
-        ValueError,
-        match="bounded size",
-    ):
-        open_authoritative_local_engine(profile, authority).reconciliation.reconcile()
+    with pytest.raises(ValueError, match="bounded size"):
+        open_local_engine(profile).reconciliation.reconcile()
 
     with sqlite3.connect(root / ".open-brain" / "state" / "phase1.sqlite3") as connection:
         assert connection.execute(
@@ -87,11 +82,8 @@ def test_reconciliation_rejects_deleted_canonical_page_without_deleting_retrieva
     page.unlink()
     profile = open_existing_single_user_local(root)
 
-    with acquire_daemon_authority(profile) as authority, pytest.raises(
-        ValueError,
-        match="missing",
-    ):
-        open_authoritative_local_engine(profile, authority).reconciliation.reconcile()
+    with pytest.raises(ValueError, match="missing"):
+        open_local_engine(profile).reconciliation.reconcile()
 
     with sqlite3.connect(root / ".open-brain" / "state" / "phase1.sqlite3") as connection:
         assert connection.execute(
@@ -122,10 +114,7 @@ def test_reconciliation_rejects_changed_owner_identity_without_mutating_retrieva
     )
     profile = open_existing_single_user_local(root)
 
-    with acquire_daemon_authority(profile) as authority, pytest.raises(
-        ValueError,
-        match="owner identity",
-    ):
-        open_authoritative_local_engine(profile, authority).reconciliation.reconcile()
+    with pytest.raises(ValueError, match="owner identity"):
+        open_local_engine(profile).reconciliation.reconcile()
 
     assert tasks.retrieval.search("Original owner body")[0].title == "Original owner body"

@@ -1,0 +1,647 @@
+from __future__ import annotations
+
+import json
+from copy import deepcopy
+from typing import cast
+
+import pytest
+from jsonschema import Draft202012Validator, FormatChecker  # type: ignore[import-untyped]
+from open_brain_engine.protocol import (
+    WIRE_TIMESTAMP_FIELDS,
+    ProtocolContractError,
+    load_conformance_cases,
+    load_schema,
+    load_signature_vectors,
+    request_binding_from_envelope,
+    schema_catalog,
+    validate_protocol_semantics,
+)
+from referencing import Registry, Resource
+
+EXPECTED_SCHEMAS = {
+    "changes",
+    "cold-transfer-certificate",
+    "commit-batch",
+    "commit-result",
+    "decision",
+    "durable-job",
+    "effect-receipt",
+    "grant",
+    "inspect",
+    "ledger-item-ref",
+    "node-epoch-certificate",
+    "owner-key-certificate",
+    "proposal",
+    "provenance",
+    "purge-transition",
+    "query",
+    "query-continuation",
+    "query-evidence",
+    "receipt",
+    "record",
+    "request-binding",
+    "request-envelope",
+    "resource-limit-failure",
+    "revision",
+    "security-audit-event",
+    "sequencer-stop-proof",
+}
+FORMAT_CHECKER = FormatChecker()
+TIMESTAMP_REF = "urn:open-brain:protocol:v1:common#/$defs/timestamp"
+
+
+def _validator(name: str) -> Draft202012Validator:
+    schemas = {schema_name: load_schema(schema_name) for schema_name in schema_catalog()}
+    registry = Registry().with_resources(
+        (str(schema["$id"]), Resource.from_contents(schema)) for schema in schemas.values()
+    )
+    return Draft202012Validator(schemas[name], registry=registry, format_checker=FORMAT_CHECKER)
+
+
+def _is_timestamp_schema(value: object) -> bool:
+    if not isinstance(value, dict):
+        return False
+    if value.get("$ref") == TIMESTAMP_REF:
+        return True
+    return any(
+        isinstance(options, list) and any(_is_timestamp_schema(option) for option in options)
+        for keyword in ("oneOf", "anyOf", "allOf")
+        if (options := value.get(keyword)) is not None
+    )
+
+
+def _timestamp_fields_in_schema(value: object) -> set[str]:
+    fields: set[str] = set()
+    if isinstance(value, dict):
+        properties = value.get("properties")
+        if isinstance(properties, dict):
+            fields.update(
+                field
+                for field, definition in properties.items()
+                if _is_timestamp_schema(definition)
+            )
+        for child in value.values():
+            fields.update(_timestamp_fields_in_schema(child))
+    elif isinstance(value, list):
+        for child in value:
+            fields.update(_timestamp_fields_in_schema(child))
+    return fields
+
+
+def test_schema_catalog_is_versioned_complete_and_self_consistent() -> None:
+    assert set(schema_catalog()) == EXPECTED_SCHEMAS | {"common"}
+    for name in schema_catalog():
+        schema = load_schema(name)
+        assert schema["$schema"] == "https://json-schema.org/draft/2020-12/schema"
+        assert schema["$id"] == f"urn:open-brain:protocol:v1:{name}"
+        Draft202012Validator.check_schema(schema)
+
+
+def test_semantic_timestamp_catalog_covers_every_schema_timestamp_field() -> None:
+    schema_fields: set[str] = set()
+    for name in schema_catalog():
+        schema_fields.update(_timestamp_fields_in_schema(load_schema(name)))
+
+    assert schema_fields == WIRE_TIMESTAMP_FIELDS
+
+
+def test_every_frozen_schema_has_valid_and_negative_conformance_cases() -> None:
+    cases = load_conformance_cases()
+    assert set(cases) == {"valid", "invalid"}
+    for disposition in ("valid", "invalid"):
+        assert set(cases[disposition]) == EXPECTED_SCHEMAS
+        assert all(cases[disposition][name] for name in EXPECTED_SCHEMAS)
+
+    for name in sorted(EXPECTED_SCHEMAS):
+        validator = _validator(name)
+        for value in cases["valid"][name]:
+            errors = sorted(validator.iter_errors(value), key=str)
+            assert not errors, f"{name}: {[error.message for error in errors]}"
+            validate_protocol_semantics(name, cast(dict[str, object], value))
+        for value in cases["invalid"][name]:
+            if validator.is_valid(value):
+                with pytest.raises(ProtocolContractError):
+                    validate_protocol_semantics(name, cast(dict[str, object], value))
+
+
+def test_principal_signature_vector_uses_the_exact_request_binding_schema() -> None:
+    vector = load_signature_vectors()[0]
+    binding = cast(dict[str, object], vector["request_binding"])
+    envelope = cast(
+        dict[str, object],
+        load_conformance_cases()["valid"]["request-envelope"][0],
+    )
+
+    assert _validator("request-binding").is_valid(binding)
+    assert request_binding_from_envelope(envelope) == binding
+
+
+def test_query_continuation_exposes_only_an_opaque_protected_token() -> None:
+    valid = cast(dict[str, object], load_conformance_cases()["valid"]["query-continuation"][0])
+    assert set(valid) == {"schema_version", "token"}
+    assert json.dumps(valid).casefold().find("shard") == -1
+    assert json.dumps(valid).casefold().find("score") == -1
+    assert json.dumps(valid).casefold().find("record") == -1
+
+
+@pytest.mark.parametrize("forbidden", ("grant", "payload", "digest", "body", "path"))
+def test_redacted_security_event_rejects_sensitive_fields(forbidden: str) -> None:
+    event = dict(
+        cast(
+            dict[str, object],
+            load_conformance_cases()["valid"]["security-audit-event"][0],
+        )
+    )
+    event[forbidden] = "sensitive"
+    assert not _validator("security-audit-event").is_valid(event)
+
+
+def test_grant_requires_proof_of_possession_binding_and_bounded_ttl() -> None:
+    grant = dict(cast(dict[str, object], load_conformance_cases()["valid"]["grant"][0]))
+    grant.pop("principal_public_key")
+    assert not _validator("grant").is_valid(grant)
+
+    grant = dict(cast(dict[str, object], load_conformance_cases()["valid"]["grant"][0]))
+    grant["ttl_seconds"] = 901
+    assert not _validator("grant").is_valid(grant)
+
+    grant = dict(cast(dict[str, object], load_conformance_cases()["valid"]["grant"][0]))
+    grant["expires_at"] = "2026-09-06T12:10:01Z"
+    assert _validator("grant").is_valid(grant)
+    with pytest.raises(ProtocolContractError, match="timestamps"):
+        validate_protocol_semantics("grant", grant)
+
+
+@pytest.mark.parametrize(
+    "timestamp",
+    (
+        "2026-09-06T12:00:00.1Z",
+        "2026-09-06T12:00:00.0001Z",
+        "2026-09-06T12:00:00.0000001Z",
+        "2026-09-06T12:00:00+00:00",
+    ),
+)
+def test_protocol_timestamps_reject_noncanonical_or_submillisecond_precision(
+    timestamp: str,
+) -> None:
+    owner = deepcopy(
+        cast(
+            dict[str, object],
+            load_conformance_cases()["valid"]["owner-key-certificate"][0],
+        )
+    )
+    owner["valid_from"] = timestamp
+
+    assert not _validator("owner-key-certificate").is_valid(owner)
+    with pytest.raises(ProtocolContractError, match="canonical UTC"):
+        validate_protocol_semantics("owner-key-certificate", owner)
+
+
+def test_protocol_timestamps_accept_exact_millisecond_precision() -> None:
+    owner = deepcopy(
+        cast(
+            dict[str, object],
+            load_conformance_cases()["valid"]["owner-key-certificate"][0],
+        )
+    )
+    owner["valid_from"] = "2026-09-06T12:00:00.001Z"
+
+    assert _validator("owner-key-certificate").is_valid(owner)
+    validate_protocol_semantics("owner-key-certificate", owner)
+
+
+@pytest.mark.parametrize(
+    "timestamp",
+    (
+        "2026-09-06T24:00:00Z",
+        "2026-09-06T24:00:00.000Z",
+        "2026-09-06T12:60:00Z",
+        "2026-09-06T12:00:60Z",
+    ),
+)
+def test_protocol_timestamps_reject_out_of_range_clock_components(timestamp: str) -> None:
+    owner = deepcopy(
+        cast(
+            dict[str, object],
+            load_conformance_cases()["valid"]["owner-key-certificate"][0],
+        )
+    )
+    owner["valid_from"] = timestamp
+
+    assert not _validator("owner-key-certificate").is_valid(owner)
+    with pytest.raises(ProtocolContractError, match="canonical UTC"):
+        validate_protocol_semantics("owner-key-certificate", owner)
+
+
+def test_protocol_timestamps_accept_last_millisecond_of_day() -> None:
+    owner = deepcopy(
+        cast(
+            dict[str, object],
+            load_conformance_cases()["valid"]["owner-key-certificate"][0],
+        )
+    )
+    owner["valid_from"] = "2026-09-06T23:59:59.999Z"
+
+    assert _validator("owner-key-certificate").is_valid(owner)
+    validate_protocol_semantics("owner-key-certificate", owner)
+
+
+@pytest.mark.parametrize("line_ending", ("\n", "\r", "\u2028", "\u2029"))
+def test_protocol_timestamp_rejects_every_trailing_line_terminator(line_ending: str) -> None:
+    event = deepcopy(
+        cast(
+            dict[str, object],
+            load_conformance_cases()["valid"]["security-audit-event"][0],
+        )
+    )
+    event["occurred_at"] = f"2026-09-06T12:00:00Z{line_ending}"
+
+    assert not _validator("security-audit-event").is_valid(event)
+    with pytest.raises(ProtocolContractError, match="canonical UTC"):
+        validate_protocol_semantics("security-audit-event", event)
+
+
+@pytest.mark.parametrize(
+    ("contract", "field"),
+    (
+        ("cold-transfer-certificate", "issued_at"),
+        ("decision", "decided_at"),
+        ("durable-job", "updated_at"),
+        ("effect-receipt", "observed_at"),
+        ("grant", "issued_at"),
+        ("node-epoch-certificate", "issued_at"),
+        ("owner-key-certificate", "valid_from"),
+        ("proposal", "proposed_at"),
+        ("receipt", "issued_at"),
+        ("record", "observed_at"),
+        ("revision", "created_at"),
+        ("security-audit-event", "occurred_at"),
+        ("sequencer-stop-proof", "stopped_at"),
+    ),
+)
+def test_every_top_level_wire_timestamp_rejects_an_impossible_calendar_date(
+    contract: str,
+    field: str,
+) -> None:
+    document = deepcopy(
+        cast(dict[str, object], load_conformance_cases()["valid"][contract][0])
+    )
+    document[field] = "2026-02-30T12:00:00Z"
+
+    with pytest.raises(ProtocolContractError, match="valid timestamp"):
+        validate_protocol_semantics(contract, document)
+
+
+def test_nested_inspect_timestamp_rejects_an_impossible_calendar_date() -> None:
+    document = deepcopy(
+        cast(
+            dict[str, object],
+            next(
+                value
+                for value in load_conformance_cases()["valid"]["inspect"]
+                if isinstance(value, dict) and value.get("kind") == "entity"
+            ),
+        )
+    )
+    metadata = cast(dict[str, object], document["metadata"])
+    metadata["created_at"] = "2026-02-30T12:00:00Z"
+
+    with pytest.raises(ProtocolContractError, match="valid timestamp"):
+        validate_protocol_semantics("inspect", document)
+
+
+def test_timestamp_like_fields_inside_opaque_bodies_remain_application_data() -> None:
+    record = deepcopy(
+        cast(dict[str, object], load_conformance_cases()["valid"]["record"][0])
+    )
+    body = cast(dict[str, object], record["body"])
+    body["observed_at"] = "not a protocol timestamp"
+
+    assert _validator("record").is_valid(record)
+    validate_protocol_semantics("record", record)
+
+
+def test_record_envelope_requires_authority_times_provenance_and_integrity() -> None:
+    record = cast(dict[str, object], load_conformance_cases()["valid"]["record"][0])
+    required = {
+        "content_schema",
+        "producer_principal_id",
+        "origin_id",
+        "captured_at",
+        "observed_at",
+        "provenance",
+        "ciphertext_state",
+        "ciphertext_digest",
+    }
+
+    assert required <= set(record)
+    persisted = dict(record)
+    persisted["ciphertext_state"] = "verified"
+    persisted["ciphertext_digest"] = "b" * 64
+    assert _validator("record").is_valid(persisted)
+    for field in required:
+        incomplete = dict(record)
+        incomplete.pop(field)
+        assert not _validator("record").is_valid(incomplete), field
+
+    for state, digest in (
+        ("pending", "b" * 64),
+        ("verified", None),
+        ("unknown_historical", "b" * 64),
+    ):
+        inconsistent = dict(record)
+        inconsistent["ciphertext_state"] = state
+        inconsistent["ciphertext_digest"] = digest
+        assert not _validator("record").is_valid(inconsistent), state
+
+
+def test_commit_accepts_only_pending_record_envelopes() -> None:
+    batch = cast(dict[str, object], load_conformance_cases()["valid"]["commit-batch"][0])
+    persisted_batch = dict(batch)
+    items = cast(list[object], batch["items"])
+    persisted = dict(cast(dict[str, object], items[0]))
+    persisted["ciphertext_state"] = "verified"
+    persisted["ciphertext_digest"] = "b" * 64
+    persisted_batch["items"] = [persisted]
+
+    assert _validator("record").is_valid(persisted)
+    assert not _validator("commit-batch").is_valid(persisted_batch)
+
+
+def test_processor_provenance_requires_identity_and_a_source() -> None:
+    provenance = {
+        "schema_version": 1,
+        "brain_id": "brn_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "source_record_ids": [],
+        "source_revision_ids": [],
+        "processor": None,
+        "derivation": "processor",
+    }
+
+    assert not _validator("provenance").is_valid(provenance)
+
+
+def test_effect_reconciliation_is_bound_to_a_distinct_unknown_receipt() -> None:
+    initial = deepcopy(
+        cast(dict[str, object], load_conformance_cases()["valid"]["effect-receipt"][0])
+    )
+    assert initial["reconciles_receipt_id"] is None
+
+    reconciliation = deepcopy(initial)
+    reconciliation["receipt_id"] = "rcp_cccccccccccccccccccccccccc"
+    reconciliation["reconciles_receipt_id"] = initial["receipt_id"]
+    reconciliation["outcome"] = "succeeded"
+    assert _validator("effect-receipt").is_valid(reconciliation)
+    validate_protocol_semantics("effect-receipt", reconciliation)
+
+    self_reconciliation = deepcopy(reconciliation)
+    self_reconciliation["reconciles_receipt_id"] = self_reconciliation["receipt_id"]
+    assert _validator("effect-receipt").is_valid(self_reconciliation)
+    with pytest.raises(ProtocolContractError, match="cannot reconcile itself"):
+        validate_protocol_semantics("effect-receipt", self_reconciliation)
+
+
+def test_effect_receipt_purge_subject_cannot_use_replacement() -> None:
+    transition = deepcopy(
+        cast(
+            dict[str, object],
+            load_conformance_cases()["invalid"]["purge-transition"][1],
+        )
+    )
+
+    assert not _validator("purge-transition").is_valid(transition)
+    with pytest.raises(ProtocolContractError, match="cannot be replaced"):
+        validate_protocol_semantics("purge-transition", transition)
+
+
+def test_ledger_item_references_distinguish_versioned_and_member_items() -> None:
+    references = load_conformance_cases()["valid"]["ledger-item-ref"]
+
+    assert len(references) == 6
+    assert all(_validator("ledger-item-ref").is_valid(reference) for reference in references)
+    proposal = next(
+        cast(dict[str, object], reference)
+        for reference in references
+        if cast(dict[str, object], reference)["item_kind"] == "proposal"
+    )
+    purge = next(
+        cast(dict[str, object], reference)
+        for reference in references
+        if cast(dict[str, object], reference)["item_kind"] == "purge_transition"
+    )
+    assert set(proposal) == {"item_kind", "proposal_id", "proposal_revision_id"}
+    assert set(purge) == {"item_kind", "purge_id", "subject_kind", "subject_id"}
+
+
+def test_commit_semantics_reject_a_structurally_valid_foreign_brain_item() -> None:
+    batch = cast(dict[str, object], load_conformance_cases()["invalid"]["commit-batch"][0])
+
+    assert _validator("commit-batch").is_valid(batch)
+    with pytest.raises(ProtocolContractError, match="Brain boundary"):
+        validate_protocol_semantics("commit-batch", batch)
+
+
+def test_query_limit_counts_utf8_bytes_not_code_points() -> None:
+    request = dict(cast(dict[str, object], load_conformance_cases()["valid"]["query"][0]))
+    request["literal_text"] = "☃" * 1366
+
+    assert len(cast(str, request["literal_text"])) < 4096
+    assert len(cast(str, request["literal_text"]).encode("utf-8")) > 4096
+    assert _validator("query").is_valid(request)
+    with pytest.raises(ProtocolContractError, match="4096 UTF-8 bytes"):
+        validate_protocol_semantics("query", request)
+
+
+def test_query_page_rejects_evidence_from_another_brain() -> None:
+    page = deepcopy(
+        cast(
+            dict[str, object],
+            next(
+                value
+                for value in load_conformance_cases()["valid"]["query"]
+                if isinstance(value, dict) and value.get("kind") == "page"
+            ),
+        )
+    )
+    results = cast(list[dict[str, object]], page["results"])
+    evidence_values = cast(list[dict[str, object]], results[0]["evidence"])
+    evidence = evidence_values[0]
+    provenance = cast(dict[str, object], evidence["provenance"])
+    evidence["brain_id"] = "brn_bbbbbbbbbbbbbbbbbbbbbbbbbb"
+    provenance["brain_id"] = "brn_bbbbbbbbbbbbbbbbbbbbbbbbbb"
+
+    assert _validator("query-evidence").is_valid(evidence)
+    validate_protocol_semantics("query-evidence", evidence)
+    assert _validator("query").is_valid(page)
+    with pytest.raises(ProtocolContractError, match="query page Brain boundary"):
+        validate_protocol_semantics("query", page)
+
+
+def test_query_page_recursively_rejects_evidence_provenance_boundary() -> None:
+    page = deepcopy(
+        cast(
+            dict[str, object],
+            next(
+                value
+                for value in load_conformance_cases()["valid"]["query"]
+                if isinstance(value, dict) and value.get("kind") == "page"
+            ),
+        )
+    )
+    results = cast(list[dict[str, object]], page["results"])
+    evidence_values = cast(list[dict[str, object]], results[0]["evidence"])
+    evidence = evidence_values[0]
+    provenance = cast(dict[str, object], evidence["provenance"])
+    provenance["brain_id"] = "brn_bbbbbbbbbbbbbbbbbbbbbbbbbb"
+
+    assert _validator("query").is_valid(page)
+    with pytest.raises(ProtocolContractError, match="provenance crosses"):
+        validate_protocol_semantics("query-evidence", evidence)
+    with pytest.raises(ProtocolContractError, match="provenance crosses"):
+        validate_protocol_semantics("query", page)
+
+
+def test_commit_results_are_closed_typed_outcomes() -> None:
+    cases = load_conformance_cases()["valid"]
+    receipt = cast(dict[str, object], cases["receipt"][0])
+    validator = _validator("commit-result")
+
+    for kind in ("accepted", "replayed"):
+        result = {"schema_version": 1, "kind": kind, "receipt": receipt}
+        assert validator.is_valid(result)
+        validate_protocol_semantics("commit-result", result)
+
+    assert {
+        (cast(dict[str, object], result)["kind"], cast(dict[str, object], result)["code"])
+        for result in cases["commit-result"]
+    } == {
+        ("conflict", "digest_conflict"),
+        ("conflict", "revision_conflict"),
+        ("delivery_purged", "delivery_purged"),
+    }
+
+
+def test_changes_feed_accepts_every_typed_commit_identity() -> None:
+    references = load_conformance_cases()["valid"]["ledger-item-ref"]
+
+    for item_ref in references:
+        page = {
+            "schema_version": 1,
+            "kind": "page",
+            "brain_id": "brn_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "changes": [
+                {
+                    "cursor": "cur_v1_aaaaaaaaaaaaaaaa",
+                    "commit_id": "cmt_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+                    "item_ref": item_ref,
+                    "change": "committed",
+                }
+            ],
+            "next": None,
+        }
+        assert _validator("changes").is_valid(page), item_ref
+
+
+def test_inspect_not_found_has_no_presence_or_body_oracle() -> None:
+    cases = load_conformance_cases()["valid"]["inspect"]
+    not_found = next(
+        cast(dict[str, object], value)
+        for value in cases
+        if isinstance(value, dict) and value.get("kind") == "not_found"
+    )
+    assert not_found == {
+        "code": "not_found",
+        "kind": "not_found",
+        "message": "Entity was not found.",
+        "retry_safe": True,
+        "schema_version": 1,
+    }
+
+
+def test_bodyless_inspect_rejects_payload_and_commit_digest_metadata() -> None:
+    leaked = cast(dict[str, object], load_conformance_cases()["invalid"]["inspect"][0])
+
+    assert not _validator("inspect").is_valid(leaked)
+
+
+def test_continuity_heads_expose_only_an_opaque_history_commitment() -> None:
+    cases = load_conformance_cases()["valid"]
+    common = load_schema("common")
+    definitions = cast(dict[str, object], common["$defs"])
+    ledger_head = cast(dict[str, object], definitions["ledger_head"])
+
+    assert ledger_head["required"] == ["history_commitment"]
+    assert set(cast(dict[str, object], ledger_head["properties"])) == {
+        "history_commitment"
+    }
+    for contract in ("cold-transfer-certificate", "sequencer-stop-proof"):
+        serialized = json.dumps(cases[contract][0])
+        assert "commit_digest" not in serialized
+        assert "commit_id" not in serialized
+        assert "cursor" not in serialized
+
+
+def test_history_commitment_requires_canonical_32_byte_base64url() -> None:
+    proof = deepcopy(
+        cast(
+            dict[str, object],
+            load_conformance_cases()["valid"]["sequencer-stop-proof"][0],
+        )
+    )
+    ledger_head = cast(dict[str, object], proof["last_ledger_head"])
+    commitment = cast(str, ledger_head["history_commitment"])
+    ledger_head["history_commitment"] = f"{commitment[:-1]}R"
+
+    assert _validator("sequencer-stop-proof").is_valid(proof)
+    with pytest.raises(ProtocolContractError, match="exactly 32 bytes"):
+        validate_protocol_semantics("sequencer-stop-proof", proof)
+
+
+def test_failed_job_requires_a_bounded_attempt_and_error_code() -> None:
+    failed = cast(dict[str, object], load_conformance_cases()["invalid"]["durable-job"][0])
+
+    assert not _validator("durable-job").is_valid(failed)
+
+
+@pytest.mark.parametrize(
+    ("entity_kind", "entity_id"),
+    (
+        ("record", "rev_aaaaaaaaaaaaaaaaaaaaaaaaaa"),
+        ("proposal", "rec_aaaaaaaaaaaaaaaaaaaaaaaaaa"),
+        ("revision", "dec_aaaaaaaaaaaaaaaaaaaaaaaaaa"),
+        ("decision", "prp_aaaaaaaaaaaaaaaaaaaaaaaaaa"),
+        ("effect_receipt", "eff_aaaaaaaaaaaaaaaaaaaaaaaaaa"),
+        ("purge", "rec_aaaaaaaaaaaaaaaaaaaaaaaaaa"),
+        ("operation", "job_aaaaaaaaaaaaaaaaaaaaaaaaaa"),
+        ("job", "opn_aaaaaaaaaaaaaaaaaaaaaaaaaa"),
+        ("receipt", "cmt_aaaaaaaaaaaaaaaaaaaaaaaaaa"),
+    ),
+)
+def test_inspect_entity_kind_requires_the_matching_identifier_role(
+    entity_kind: str,
+    entity_id: str,
+) -> None:
+    request = dict(cast(dict[str, object], load_conformance_cases()["valid"]["inspect"][0]))
+    request["entity_kind"] = entity_kind
+    request["entity_id"] = entity_id
+
+    assert not _validator("inspect").is_valid(request)
+
+
+def test_typed_resource_failure_is_actionable() -> None:
+    failure = cast(
+        dict[str, object],
+        load_conformance_cases()["valid"]["resource-limit-failure"][0],
+    )
+    assert set(failure) == {
+        "accounting_scope",
+        "code",
+        "corrective_action",
+        "limit",
+        "message",
+        "observed",
+        "principal_id",
+        "retry_after_ms",
+        "retry_safe",
+        "schema_version",
+    }

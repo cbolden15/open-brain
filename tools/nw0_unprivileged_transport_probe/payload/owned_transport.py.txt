@@ -1,0 +1,440 @@
+"""One-shot unprivileged resolver and TLS transport with explicit ownership receipts."""
+
+from __future__ import annotations
+
+import asyncio
+import ipaddress
+import math
+import re
+import socket
+import ssl
+from collections.abc import Callable, Mapping
+from dataclasses import dataclass, field
+from hashlib import sha256
+from typing import Any
+
+import aiodns
+import pycares
+
+MAX_REQUEST_BYTES = 64 * 1024
+MAX_RESPONSE_BYTES = 16 * 1024
+_HOST = re.compile(r"[a-z0-9](?:[a-z0-9.-]{0,251}[a-z0-9])?")
+
+
+class TransportRejected(RuntimeError):
+    """The candidate could not preserve its ownership contract."""
+
+
+@dataclass(frozen=True, slots=True)
+class ResolverConfig:
+    nameserver: str
+    udp_port: int
+    timeout_seconds: float
+    tries: int
+
+    @classmethod
+    def capture(cls, values: Mapping[str, object]) -> ResolverConfig:
+        if set(values) != {"nameserver", "udp_port", "timeout_seconds", "tries"}:
+            raise TransportRejected("resolver configuration shape")
+        config = cls(
+            str(values["nameserver"]),
+            int(values["udp_port"]),
+            float(values["timeout_seconds"]),
+            int(values["tries"]),
+        )
+        if (
+            not ipaddress.ip_address(config.nameserver).is_loopback
+            or not 1024 <= config.udp_port <= 65535
+            or not math.isfinite(config.timeout_seconds)
+            or not 0.01 <= config.timeout_seconds <= 1.0
+            or not 1 <= config.tries <= 2
+        ):
+            raise TransportRejected("resolver configuration boundary")
+        return config
+
+
+@dataclass(slots=True)
+class Receipt:
+    events: list[dict[str, object]] = field(default_factory=list)
+    body_releases: int = 0
+    response_bytes: int = 0
+    resolver_closed: bool = False
+    socket_closed: bool = False
+    writer_closed: bool = False
+    cleanup_complete: bool = False
+
+    def add(self, name: str, operation_id: str, **values: object) -> None:
+        self.events.append(
+            {
+                "sequence": len(self.events) + 1,
+                "event": name,
+                "operation_id": operation_id,
+                **values,
+            }
+        )
+
+
+class OwnedResolver:
+    """Own one unshared aiodns resolver and every future it creates."""
+
+    def __init__(self, config: ResolverConfig, receipt: Receipt, operation_id: str) -> None:
+        self.config = config
+        self.receipt = receipt
+        self.operation_id = operation_id
+        self._resolver = aiodns.DNSResolver(
+            nameservers=[config.nameserver],
+            udp_port=config.udp_port,
+            tcp_port=config.udp_port,
+            timeout=config.timeout_seconds,
+            tries=config.tries,
+        )
+        self._channel = self._resolver._channel
+        if not callable(getattr(self._channel, "wait_closed", None)):
+            raise TransportRejected("owned pycares channel close unavailable")
+        self._futures: set[asyncio.Future[Any]] = set()
+        self._closed = False
+        receipt.add(
+            "resolver_created",
+            operation_id,
+            nameserver=config.nameserver,
+            udp_port=config.udp_port,
+            shared=False,
+        )
+
+    @property
+    def pending(self) -> int:
+        return sum(not future.done() for future in self._futures)
+
+    async def resolve_a(self, host: str, deadline: float) -> tuple[str, ...]:
+        if self._closed or _HOST.fullmatch(host) is None:
+            raise TransportRejected("resolver use boundary")
+        self.receipt.add("resolve_entered", self.operation_id, host=host, qtype="A")
+        future = self._resolver.query_dns(host, "A")
+        self._futures.add(future)
+        try:
+            async with asyncio.timeout_at(deadline):
+                result = await future
+        except TimeoutError:
+            self.receipt.add("resolve_timeout", self.operation_id)
+            raise
+        except asyncio.CancelledError:
+            self.receipt.add("resolve_cancelled", self.operation_id)
+            raise
+        except Exception as error:
+            self.receipt.add("resolve_rejected", self.operation_id, error=type(error).__name__)
+            raise TransportRejected("resolver response") from error
+        finally:
+            self._futures.discard(future)
+        addresses = tuple(
+            answer.data.addr
+            for answer in result.answer
+            if getattr(answer, "type", None) == 1
+            and getattr(getattr(answer, "data", None), "addr", None) is not None
+        )
+        if not addresses or any(not ipaddress.ip_address(value).is_loopback for value in addresses):
+            raise TransportRejected("resolver answer boundary")
+        self.receipt.add("resolve_completed", self.operation_id, addresses=list(addresses))
+        return addresses
+
+    async def close(self, deadline: float) -> None:
+        if self._closed:
+            return
+        self._closed = True
+        self.receipt.add("resolver_close_entered", self.operation_id, pending=self.pending)
+        await self._resolver.close()
+        remaining = deadline - asyncio.get_running_loop().time()
+        if remaining <= 0 or not self._channel.wait_closed(remaining):
+            raise TransportRejected("owned pycares channel close deadline")
+        shutdown = getattr(pycares, "shutdown", None)
+        shutdown_state = getattr(pycares, "shutdown_state", None)
+        if not callable(shutdown) or not callable(shutdown_state):
+            raise TransportRejected("terminal pycares lifecycle unavailable")
+        remaining = deadline - asyncio.get_running_loop().time()
+        if remaining <= 0:
+            raise TransportRejected("resolver shutdown deadline")
+        global_worker_stopped = shutdown(remaining)
+        while self.pending and asyncio.get_running_loop().time() < deadline:
+            await asyncio.sleep(0)
+        if self.pending:
+            raise TransportRejected("resolver futures remain")
+        state = shutdown_state()
+        expected = {"live_channels", "pending_destructions", "thread_alive", "stopping"}
+        if (
+            not isinstance(state, dict)
+            or set(state) != expected
+            or state["pending_destructions"] != 0
+            or state["stopping"] is not False
+            or (
+                global_worker_stopped
+                and state
+                != {
+                    "live_channels": 0,
+                    "pending_destructions": 0,
+                    "thread_alive": False,
+                    "stopping": False,
+                }
+            )
+            or (
+                not global_worker_stopped
+                and not (state["live_channels"] > 0 and state["thread_alive"] is True)
+            )
+        ):
+            raise TransportRejected("terminal pycares lifecycle state")
+        self.receipt.resolver_closed = True
+        self.receipt.add(
+            "resolver_close_completed",
+            self.operation_id,
+            pending=0,
+            global_worker_stopped=global_worker_stopped,
+            dependency_state=state,
+        )
+
+
+async def _drain_terminal(task: asyncio.Task[Any]) -> bool:
+    interrupted = False
+    while not task.done():
+        try:
+            await asyncio.wait({task})
+        except asyncio.CancelledError:
+            interrupted = True
+            current = asyncio.current_task()
+            if current is not None:
+                current.uncancel()
+            if not task.done():
+                task.cancel()
+    if not task.cancelled():
+        task.exception()
+    return interrupted
+
+
+class OwnedTlsTransport:
+    """Perform one loopback-mapped logical-host/443 exchange under one deadline."""
+
+    def __init__(
+        self,
+        *,
+        operation_id: str,
+        logical_host: str,
+        dial_port: int,
+        resolver_config: ResolverConfig,
+        ssl_context: ssl.SSLContext,
+        receipt: Receipt | None = None,
+    ) -> None:
+        if (
+            re.fullmatch(r"[A-Za-z0-9_.:-]{1,96}", operation_id) is None
+            or _HOST.fullmatch(logical_host) is None
+            or not 1024 <= dial_port <= 65535
+            or not isinstance(ssl_context, ssl.SSLContext)
+            or not ssl_context.check_hostname
+            or ssl_context.verify_mode != ssl.CERT_REQUIRED
+            or ssl_context.keylog_filename is not None
+        ):
+            raise TransportRejected("transport configuration")
+        self.operation_id = operation_id
+        self.logical_host = logical_host
+        self.logical_port = 443
+        self.dial_port = dial_port
+        self.ssl_context = ssl_context
+        self.receipt = receipt or Receipt()
+        self.resolver = OwnedResolver(resolver_config, self.receipt, operation_id)
+        self._socket: socket.socket | None = None
+        self._writer: asyncio.StreamWriter | None = None
+        self._tasks: set[asyncio.Task[Any]] = set()
+        self._used = False
+
+    @property
+    def active_tasks(self) -> int:
+        return sum(not task.done() for task in self._tasks)
+
+    async def _exchange(
+        self,
+        body: bytes,
+        path: str,
+        release: Callable[[], None],
+        io_deadline: float,
+    ) -> bytes:
+        loop = asyncio.get_running_loop()
+        addresses = await self.resolver.resolve_a(self.logical_host, io_deadline)
+        address = addresses[0]
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock.setblocking(False)
+        self._socket = sock
+        self.receipt.add(
+            "connect_entered",
+            self.operation_id,
+            logical_host=self.logical_host,
+            logical_port=self.logical_port,
+            address=address,
+            dial_port=self.dial_port,
+        )
+        async with asyncio.timeout_at(io_deadline):
+            await loop.sock_connect(sock, (address, self.dial_port))
+        if sock.getpeername() != (address, self.dial_port) or sock.getsockopt(
+            socket.SOL_SOCKET, socket.SO_ERROR
+        ) != 0:
+            raise TransportRejected("connect receipt")
+        self.receipt.add(
+            "connect_completed",
+            self.operation_id,
+            peer_connected=True,
+            socket_error=0,
+        )
+        remaining = io_deadline - loop.time()
+        if remaining <= 0:
+            raise TimeoutError("TLS deadline")
+        reader, writer = await asyncio.open_connection(
+            sock=sock,
+            ssl=self.ssl_context,
+            server_hostname=self.logical_host,
+            ssl_handshake_timeout=remaining,
+        )
+        self._socket = None
+        self._writer = writer
+        self.receipt.add("tls_completed", self.operation_id, server_hostname=self.logical_host)
+        request = (
+            f"POST {path} HTTP/1.1\r\n"
+            f"Host: {self.logical_host}\r\n"
+            "Connection: close\r\n"
+            "Content-Type: application/json\r\n"
+            f"Content-Length: {len(body)}\r\n\r\n"
+        ).encode("ascii") + body
+        if len(request) > MAX_REQUEST_BYTES:
+            raise TransportRejected("request limit")
+        if release() is not None:
+            raise TransportRejected("release callback result")
+        self.receipt.body_releases += 1
+        digest = sha256(body).hexdigest()
+        self.receipt.add(
+            "send_entered",
+            self.operation_id,
+            body_bytes=len(body),
+            body_sha256=digest,
+        )
+        writer.write(request)
+        async with asyncio.timeout_at(io_deadline):
+            await writer.drain()
+        self.receipt.add(
+            "send_completed",
+            self.operation_id,
+            completion="writer_drain",
+            body_sha256=digest,
+        )
+        async with asyncio.timeout_at(io_deadline):
+            header = await reader.readuntil(b"\r\n\r\n")
+        if len(header) > 4096 or not header.startswith(b"HTTP/1.1 200 "):
+            raise TransportRejected("response header")
+        lengths = [
+            line.split(b":", 1)[1].strip()
+            for line in header.split(b"\r\n")[1:]
+            if line.lower().startswith(b"content-length:")
+        ]
+        if len(lengths) != 1 or not lengths[0].isdigit():
+            raise TransportRejected("response length")
+        length = int(lengths[0])
+        if length > MAX_RESPONSE_BYTES:
+            raise TransportRejected("response limit")
+        async with asyncio.timeout_at(io_deadline):
+            response = await reader.readexactly(length)
+        self.receipt.response_bytes = len(response)
+        self.receipt.add("response_completed", self.operation_id, response_bytes=len(response))
+        return response
+
+    async def _cleanup(self, deadline: float) -> None:
+        writer, sock = self._writer, self._socket
+        self._writer = None
+        self._socket = None
+        if writer is not None:
+            writer.close()
+            remaining = deadline - asyncio.get_running_loop().time()
+            if remaining <= 0:
+                raise TransportRejected("writer close deadline")
+            async with asyncio.timeout(remaining):
+                await writer.wait_closed()
+            self.receipt.writer_closed = True
+        else:
+            self.receipt.writer_closed = True
+        if sock is not None:
+            sock.close()
+        self.receipt.socket_closed = True
+        await self.resolver.close(deadline)
+        self.receipt.cleanup_complete = True
+        self.receipt.add("cleanup_completed", self.operation_id, active_tasks=0)
+
+    async def request(
+        self,
+        body: bytes,
+        *,
+        path: str,
+        deadline: float,
+        cancel: asyncio.Event,
+        release: Callable[[], None],
+    ) -> bytes:
+        loop = asyncio.get_running_loop()
+        now = loop.time()
+        if (
+            self._used
+            or not isinstance(body, bytes)
+            or not body
+            or len(body) > MAX_REQUEST_BYTES
+            or not path.startswith("/")
+            or type(deadline) is not float
+            or not math.isfinite(deadline)
+            or not now < deadline <= now + 10
+            or not isinstance(cancel, asyncio.Event)
+            or not callable(release)
+        ):
+            raise TransportRejected("request boundary")
+        self._used = True
+        if cancel.is_set():
+            await self.resolver.close(deadline)
+            self.receipt.socket_closed = True
+            self.receipt.writer_closed = True
+            self.receipt.cleanup_complete = True
+            raise asyncio.CancelledError("cancelled before I/O")
+        cleanup_reserve = min(0.25, (deadline - now) / 4)
+        io_deadline = deadline - cleanup_reserve
+        exchange = asyncio.create_task(
+            self._exchange(body, path, release, io_deadline), name="e43-owned-exchange"
+        )
+        watcher = asyncio.create_task(cancel.wait(), name="e43-cancel-watcher")
+        self._tasks.update((exchange, watcher))
+        result: bytes | None = None
+        primary: BaseException | None = None
+        try:
+            remaining = max(0.0, io_deadline - loop.time())
+            done, _ = await asyncio.wait(
+                {exchange, watcher}, timeout=remaining, return_when=asyncio.FIRST_COMPLETED
+            )
+            if watcher in done:
+                self.receipt.add("cancel_observed", self.operation_id)
+                raise asyncio.CancelledError("cancelled")
+            if exchange in done:
+                result = await exchange
+            else:
+                raise TimeoutError("I/O deadline")
+        except BaseException as error:
+            primary = error
+            if isinstance(error, asyncio.CancelledError):
+                current = asyncio.current_task()
+                if current is not None:
+                    current.uncancel()
+        finally:
+            for task in (exchange, watcher):
+                if not task.done():
+                    task.cancel()
+            cleanup = asyncio.create_task(self._cleanup(deadline), name="e43-owned-cleanup")
+            self._tasks.add(cleanup)
+            cleanup_interrupted = await _drain_terminal(cleanup)
+            for task in (exchange, watcher):
+                if not task.done():
+                    await _drain_terminal(task)
+            self._tasks.difference_update((exchange, watcher, cleanup))
+            if cleanup_interrupted or cleanup.cancelled() or cleanup.exception() is not None:
+                raise TransportRejected("terminal cleanup") from primary
+            if loop.time() > deadline:
+                raise TransportRejected("operation deadline") from primary
+        if primary is not None:
+            raise primary
+        if result is None:
+            raise TransportRejected("missing result")
+        return result

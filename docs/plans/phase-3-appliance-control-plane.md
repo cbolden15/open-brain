@@ -1,4 +1,4 @@
-# Open Brain Phase 3 implementation plan: appliance control plane
+# Historical Phase 3 implementation plan: appliance control plane
 
 - Status: Independently reviewed and ready for goal contracting; implementation not started
 - Date: 2026-09-01
@@ -12,6 +12,10 @@
 - Predecessor plan: `<repo-root>/docs/plans/phase-2-deepen-modules-in-place.md`
 - Grounding note: `<repo-root>/docs/ai/workstreams/20260901-open-brain-public-phase3-planning-3c6a30/GROUNDING.md`
 - First independent review: `NEEDS_FIX`, P0/P1/P2 `1/4/0`; every finding is addressed in this revision
+
+Product-scope note: the implemented appliance control plane is preserved as Secure Node precursor
+and regression evidence. It no longer defines the default Open Brain journey. Current authority is
+[`../product-family.md`](../product-family.md).
 
 ## Objective
 

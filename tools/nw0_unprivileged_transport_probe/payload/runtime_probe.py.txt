@@ -1,0 +1,327 @@
+"""Run the frozen E43 loopback controls and write one path-free receipt."""
+
+from __future__ import annotations
+
+import asyncio
+import importlib.metadata
+import json
+import os
+import platform
+import sys
+import threading
+from pathlib import Path
+
+import pycares
+from fixtures import LOGICAL_HOST, DnsFixture, TlsFixture
+from owned_transport import (
+    OwnedResolver,
+    OwnedTlsTransport,
+    Receipt,
+    ResolverConfig,
+    TransportRejected,
+)
+
+
+def require(value: object, message: str) -> None:
+    if not value:
+        raise RuntimeError(message)
+
+
+def resources() -> dict[str, object]:
+    root = "/proc/self/fd" if os.path.isdir("/proc/self/fd") else "/dev/fd"
+    return {
+        "fd_count": len(os.listdir(root)),
+        "thread_ids": sorted(thread.ident for thread in threading.enumerate() if thread.ident),
+        "task_count": len(asyncio.all_tasks()),
+    }
+
+
+def resolver_config(port: int) -> ResolverConfig:
+    return ResolverConfig.capture(
+        {"nameserver": "127.0.0.1", "udp_port": port, "timeout_seconds": 0.05, "tries": 1}
+    )
+
+
+def selected(receipt: Receipt) -> dict[str, object]:
+    return {
+        "events": receipt.events,
+        "body_releases": receipt.body_releases,
+        "response_bytes": receipt.response_bytes,
+        "resolver_closed": receipt.resolver_closed,
+        "socket_closed": receipt.socket_closed,
+        "writer_closed": receipt.writer_closed,
+        "cleanup_complete": receipt.cleanup_complete,
+    }
+
+
+async def resolver_case(name: str) -> dict[str, object]:
+    mode = {"success": "success", "captured-config": "success", "timeout": "drop",
+            "caller-cancel": "drop", "concurrent-close": "drop", "malformed": "malformed"}[name]
+    fixture = await DnsFixture.start(mode)
+    receipt = Receipt()
+    source: dict[str, object] = {
+        "nameserver": "127.0.0.1",
+        "udp_port": fixture.port,
+        "timeout_seconds": 0.05,
+        "tries": 1,
+    }
+    config = ResolverConfig.capture(source)
+    if name == "captured-config":
+        source.update(nameserver="192.0.2.1", udp_port=53, tries=99)
+    resolver = OwnedResolver(config, receipt, "runtime-resolver-" + name)
+    outcome = "rejected"
+    deadline = asyncio.get_running_loop().time() + 0.7
+    task: asyncio.Task[tuple[str, ...]] | None = None
+    try:
+        if name == "caller-cancel":
+            task = asyncio.create_task(resolver.resolve_a(LOGICAL_HOST, deadline))
+            await asyncio.sleep(0.03)
+            task.cancel()
+            try:
+                await task
+            except asyncio.CancelledError:
+                outcome = "cancelled"
+        elif name == "concurrent-close":
+            task = asyncio.create_task(resolver.resolve_a(LOGICAL_HOST, deadline))
+            await asyncio.sleep(0.03)
+            await resolver.close(deadline)
+            try:
+                await task
+            except TransportRejected:
+                outcome = "closed"
+        elif name == "timeout":
+            try:
+                await resolver.resolve_a(LOGICAL_HOST, asyncio.get_running_loop().time() + 0.15)
+            except TimeoutError:
+                outcome = "timeout"
+        elif name == "malformed":
+            try:
+                await resolver.resolve_a(LOGICAL_HOST, deadline)
+            except TransportRejected:
+                outcome = "malformed-rejected"
+        else:
+            addresses = await resolver.resolve_a(LOGICAL_HOST, deadline)
+            require(addresses == ("127.0.0.1",), "resolver address")
+            require(config.nameserver == "127.0.0.1" and config.udp_port == fixture.port,
+                    "captured resolver configuration")
+            outcome = "resolved"
+    finally:
+        await resolver.close(deadline)
+        await fixture.close()
+    require(resolver.pending == 0 and receipt.resolver_closed, "resolver residue")
+    expected = {
+        "success": "resolved",
+        "captured-config": "resolved",
+        "timeout": "timeout",
+        "caller-cancel": "cancelled",
+        "concurrent-close": "closed",
+        "malformed": "malformed-rejected",
+    }[name]
+    require(outcome == expected, "resolver outcome")
+    return {
+        "case": name,
+        "outcome": outcome,
+        "queries": fixture.protocol.queries,
+        "pending_futures": resolver.pending,
+        "receipt": selected(receipt),
+        "provider_calls": 0,
+    }
+
+
+async def resolver_interleaving_case() -> dict[str, object]:
+    fixture = await DnsFixture.start("success")
+    first_receipt, second_receipt = Receipt(), Receipt()
+    first = OwnedResolver(
+        resolver_config(fixture.port), first_receipt, "runtime-resolver-first"
+    )
+    second = OwnedResolver(
+        resolver_config(fixture.port), second_receipt, "runtime-resolver-second"
+    )
+    initial = pycares.shutdown_state()
+    require(
+        initial
+        == {
+            "live_channels": 2,
+            "pending_destructions": 0,
+            "thread_alive": True,
+            "stopping": False,
+        },
+        "two-resolver initial lifecycle",
+    )
+    try:
+        await first.close(asyncio.get_running_loop().time() + 1.0)
+        between = pycares.shutdown_state()
+        require(
+            between
+            == {
+                "live_channels": 1,
+                "pending_destructions": 0,
+                "thread_alive": True,
+                "stopping": False,
+            },
+            "first close stopped shared worker",
+        )
+        addresses = await second.resolve_a(
+            LOGICAL_HOST, asyncio.get_running_loop().time() + 1.0
+        )
+        require(addresses == ("127.0.0.1",), "second resolver after first close")
+        await second.close(asyncio.get_running_loop().time() + 1.0)
+    finally:
+        await first.close(asyncio.get_running_loop().time() + 1.0)
+        await second.close(asyncio.get_running_loop().time() + 1.0)
+        await fixture.close()
+    final = pycares.shutdown_state()
+    require(
+        final
+        == {
+            "live_channels": 0,
+            "pending_destructions": 0,
+            "thread_alive": False,
+            "stopping": False,
+        },
+        "two-resolver terminal lifecycle",
+    )
+    require(
+        first_receipt.events[-1]["global_worker_stopped"] is False
+        and second_receipt.events[-1]["global_worker_stopped"] is True,
+        "two-resolver close receipts",
+    )
+    return {
+        "case": "two-resolver-interleaving",
+        "outcome": "serialized-terminal-stop",
+        "queries": fixture.protocol.queries,
+        "pending_futures": first.pending + second.pending,
+        "initial_dependency_state": initial,
+        "between_dependency_state": between,
+        "final_dependency_state": final,
+        "first_receipt": selected(first_receipt),
+        "receipt": selected(second_receipt),
+        "provider_calls": 0,
+    }
+
+
+async def transport_case(name: str) -> dict[str, object]:
+    tls_mode = "success" if name == "success" else "stall"
+    dns, tls = await DnsFixture.start("success"), await TlsFixture.start(tls_mode)
+    receipt = Receipt()
+    transport = OwnedTlsTransport(
+        operation_id="runtime-transport-" + name,
+        logical_host=LOGICAL_HOST,
+        dial_port=tls.port,
+        resolver_config=resolver_config(dns.port),
+        ssl_context=tls.material.client_context(),
+        receipt=receipt,
+    )
+    releases = 0
+
+    def release() -> None:
+        nonlocal releases
+        releases += 1
+
+    outcome = "unknown"
+    try:
+        if name == "success":
+            response = await transport.request(
+                b'{"synthetic":true}',
+                path="/v1/proof",
+                deadline=asyncio.get_running_loop().time() + 2.0,
+                cancel=asyncio.Event(),
+                release=release,
+            )
+            require(response == b'{"ok":true}', "transport response")
+            outcome = "completed"
+        else:
+            cancel = asyncio.Event()
+            task = asyncio.create_task(
+                transport.request(
+                    b'{"synthetic":true}',
+                    path="/v1/proof",
+                    deadline=asyncio.get_running_loop().time() + 2.0,
+                    cancel=cancel,
+                    release=release,
+                )
+            )
+            for _ in range(100):
+                if any(event["event"] == "connect_completed" for event in receipt.events):
+                    break
+                await asyncio.sleep(0.01)
+            cancel.set()
+            try:
+                await task
+            except asyncio.CancelledError:
+                outcome = "cancelled"
+    finally:
+        await tls.close()
+        await dns.close()
+    require(receipt.cleanup_complete and transport.active_tasks == 0, "transport residue")
+    require(all(event.get("address", "127.0.0.1") == "127.0.0.1" for event in receipt.events),
+            "non-loopback receipt")
+    if name == "success":
+        require(releases == receipt.body_releases == 1, "body release count")
+        require(tls.bodies == [b'{"synthetic":true}'] and tls.sni == [LOGICAL_HOST],
+                "TLS identity/body")
+    else:
+        require(releases == receipt.body_releases == 0, "stalled body release")
+    return {
+        "case": name,
+        "outcome": outcome,
+        "dns_queries": dns.protocol.queries,
+        "tls_sni": tls.sni,
+        "server_bodies": len(tls.bodies),
+        "receipt": selected(receipt),
+        "provider_calls": 0,
+    }
+
+
+async def run(output: Path) -> None:
+    require(hasattr(os, "geteuid") and os.geteuid() != 0, "proof must be unprivileged")
+    require(os.getuid() == os.geteuid() and os.getgid() == os.getegid(), "identity mismatch")
+    before = resources()
+    resolver_results = [
+        await resolver_case(name)
+        for name in ("success", "timeout", "caller-cancel", "concurrent-close",
+                     "captured-config", "malformed")
+    ]
+    resolver_results.append(await resolver_interleaving_case())
+    transport_results = [await transport_case(name) for name in ("success", "tls-stall")]
+    for _ in range(30):
+        await asyncio.sleep(0.01)
+    after = resources()
+    require(before == after, "process resource inventory changed")
+    result = {
+        "schema": "open-brain-e43-unprivileged-runtime-v1",
+        "passed": True,
+        "system": platform.system(),
+        "machine": platform.machine(),
+        "python": platform.python_version(),
+        "uid": os.getuid(),
+        "euid": os.geteuid(),
+        "gid": os.getgid(),
+        "egid": os.getegid(),
+        "unprivileged": True,
+        "namespaces": False,
+        "capabilities": False,
+        "fixture_owner_processes": 0,
+        "provider_calls": 0,
+        "dependency_versions": {
+            name: importlib.metadata.version(name)
+            for name in ("aiodns", "pycares", "cffi", "cryptography", "pycparser")
+        },
+        "c_ares_version": pycares.ARES_VERSION,
+        "resource_inventory_before": before,
+        "resource_inventory_after": after,
+        "resolver_cases": resolver_results,
+        "transport_cases": transport_results,
+    }
+    output.write_text(json.dumps(result, indent=2, sort_keys=True) + "\n")
+
+
+def main() -> int:
+    if len(sys.argv) != 2:
+        return 2
+    asyncio.run(run(Path(sys.argv[1])))
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

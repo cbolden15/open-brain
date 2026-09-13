@@ -27,8 +27,10 @@ MAX_HISTORY_BYTES = 512 * 1024 * 1024
 HISTORY_ALLOWLIST_PATH = PurePosixPath("release/public-history-allowlist.json")
 MAX_HISTORY_ALLOWLIST_BYTES = 128 * 1024
 MAX_HISTORY_ALLOWLIST_ENTRIES = 256
+MAX_REVIEWED_DENYLIST_OCCURRENCES = 256
 ALLOWLISTABLE_HISTORY_RULES = frozenset({"absolute-home-path", "private-ip-address"})
 _SHA256_RE = re.compile(r"[0-9a-f]{64}")
+_COMMIT_RE = re.compile(r"[0-9a-f]{40}")
 _REASON_RE = re.compile(r"[a-z0-9][a-z0-9-]{0,95}")
 
 
@@ -46,6 +48,7 @@ class _HistoryAllowance:
     blob_sha256: str
     path: str
     rule: str
+    commit: str | None = None
 
 
 def _string_mapping(value: object, *, error: str) -> dict[str, object]:
@@ -54,7 +57,15 @@ def _string_mapping(value: object, *, error: str) -> dict[str, object]:
     return {str(key): item for key, item in value.items()}
 
 
-def _load_history_allowlist(repository: Path) -> frozenset[_HistoryAllowance]:
+def _denylist_fingerprint(terms: Sequence[str]) -> str:
+    """Version-2 policy fingerprint of the scanner's normalized semantic term set."""
+    payload = json.dumps(sorted(set(terms)), ensure_ascii=True, separators=(",", ":"))
+    return sha256(payload.encode("ascii")).hexdigest()
+
+
+def _load_history_allowlist(
+    repository: Path, deny_terms: Sequence[str]
+) -> frozenset[_HistoryAllowance]:
     path = repository.joinpath(*HISTORY_ALLOWLIST_PATH.parts)
     if not path.exists():
         return frozenset()
@@ -68,11 +79,11 @@ def _load_history_allowlist(repository: Path) -> frozenset[_HistoryAllowance]:
     except (UnicodeDecodeError, json.JSONDecodeError) as error:
         raise ValueError("history audit allowlist is invalid") from error
     policy = _string_mapping(raw_policy, error="history audit allowlist is invalid")
-    policy_version = policy["policy_version"]
+    policy_version = policy.get("policy_version")
     if (
         set(policy) != {"entries", "policy_version"}
         or type(policy_version) is not int
-        or policy_version != 1
+        or policy_version not in (1, 2)
     ):
         raise ValueError("history audit allowlist policy is invalid")
     raw_entries = policy["entries"]
@@ -80,9 +91,14 @@ def _load_history_allowlist(repository: Path) -> frozenset[_HistoryAllowance]:
         raise ValueError("history audit allowlist entries are invalid")
 
     entries: set[_HistoryAllowance] = set()
+    reviewed_count = 0
     for raw_entry in raw_entries:
         entry = _string_mapping(raw_entry, error="history audit allowlist entry is invalid")
-        if set(entry) != {"blob_sha256", "path", "reason", "rule"}:
+        private_rule = policy_version == 2 and entry.get("rule") == "private-denylist-term"
+        required_keys = {"blob_sha256", "path", "reason", "rule"}
+        if private_rule:
+            required_keys |= {"reviewed_commits", "normalized_denylist_sha256"}
+        if set(entry) != required_keys:
             raise ValueError("history audit allowlist entry is invalid")
         blob_digest = entry["blob_sha256"]
         raw_path = entry["path"]
@@ -105,12 +121,35 @@ def _load_history_allowlist(repository: Path) -> frozenset[_HistoryAllowance]:
             raise ValueError("history audit allowlist path is invalid")
         if not isinstance(reason, str) or _REASON_RE.fullmatch(reason) is None:
             raise ValueError("history audit allowlist reason is invalid")
-        if not isinstance(rule, str) or rule not in ALLOWLISTABLE_HISTORY_RULES:
+        if not isinstance(rule, str) or (
+            rule not in ALLOWLISTABLE_HISTORY_RULES and not private_rule
+        ):
             raise ValueError("history audit allowlist rule is invalid")
-        allowance = _HistoryAllowance(blob_digest, raw_path, rule)
-        if allowance in entries:
-            raise ValueError("history audit allowlist contains a duplicate entry")
-        entries.add(allowance)
+        commits: list[str | None] = [None]
+        if private_rule:
+            fingerprint = entry["normalized_denylist_sha256"]
+            if (
+                not isinstance(fingerprint, str)
+                or _SHA256_RE.fullmatch(fingerprint) is None
+                or fingerprint != _denylist_fingerprint(deny_terms)
+            ):
+                raise ValueError("history audit denylist approval fingerprint is invalid")
+            reviewed = entry["reviewed_commits"]
+            if not isinstance(reviewed, list) or not reviewed:
+                raise ValueError("history audit reviewed commits are invalid")
+            reviewed_count += len(reviewed)
+            if reviewed_count > MAX_REVIEWED_DENYLIST_OCCURRENCES:
+                raise ValueError("history audit reviewed occurrence limit exceeded")
+            commits = []
+            for commit in reviewed:
+                if not isinstance(commit, str) or _COMMIT_RE.fullmatch(commit) is None:
+                    raise ValueError("history audit reviewed commits are invalid")
+                commits.append(commit)
+        for commit in commits:
+            allowance = _HistoryAllowance(blob_digest, raw_path, rule, commit)
+            if allowance in entries:
+                raise ValueError("history audit allowlist contains a duplicate entry")
+            entries.add(allowance)
     return frozenset(entries)
 
 
@@ -232,7 +271,7 @@ def audit_history(
     if not repository.is_dir():
         raise ValueError("repository must be an existing directory")
     terms = _load_denylist(denylist)
-    allowances = _load_history_allowlist(repository)
+    allowances = _load_history_allowlist(repository, terms)
     occurrences = _history_occurrences(
         repository,
         maximum_commits=maximum_commits,
@@ -254,6 +293,7 @@ def audit_history(
                 HistoryFinding(commit=commit, path=reported_path, rule=rule)
                 for rule in rules
                 if _HistoryAllowance(blob_digest, path, rule) not in allowances
+                and _HistoryAllowance(blob_digest, path, rule, commit) not in allowances
             )
     return sorted(findings, key=lambda finding: (finding.commit, finding.path, finding.rule))
 

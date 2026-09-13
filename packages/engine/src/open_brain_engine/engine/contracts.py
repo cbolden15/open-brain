@@ -3,14 +3,14 @@
 from __future__ import annotations
 
 import re
-from collections.abc import Iterator, Mapping, Sequence
+from collections.abc import Callable, Iterator, Mapping, Sequence
 from dataclasses import dataclass
 from enum import StrEnum
 from hashlib import sha256
 from html import unescape
 from pathlib import Path
 from types import MappingProxyType
-from typing import Any, NoReturn, Protocol, cast
+from typing import Any, Protocol, cast
 from urllib.parse import unquote
 
 from open_brain_engine.core.ids import canonicalize_source_url, portable_canonical_json_bytes
@@ -95,61 +95,10 @@ class PortabilityFault(StrEnum):
     AFTER_PROMOTION = "after_promotion"
 
 
-class BackupFault(StrEnum):
-    AFTER_STAGE_CREATED = "after_stage_created"
-    AFTER_BACKUP_FILE = "after_backup_file"
-    AFTER_MANIFEST = "after_manifest"
-    BEFORE_PROMOTION = "before_promotion"
-    AFTER_PROMOTION = "after_promotion"
-    AFTER_RESTORE_FILE = "after_restore_file"
-    BEFORE_RESTORE_PROMOTION = "before_restore_promotion"
-    AFTER_RESTORE_PROMOTION = "after_restore_promotion"
-
-
-class MutationAuthorityOwner(StrEnum):
-    APPLIANCE_DAEMON = "appliance_daemon"
-
-
-class MutationTransport(StrEnum):
-    UNIX_DOMAIN_SOCKET = "unix_domain_socket"
-
-
-class DaemonMutationPathUnavailableError(RuntimeError):
-    """The reserved daemon-only mutation path is not active in the current wave."""
-
-
-@dataclass(frozen=True, slots=True)
-class DaemonMutationPath:
-    owner: MutationAuthorityOwner
-    transport: MutationTransport
-    socket_path: Path
-
-    def __post_init__(self) -> None:
-        object.__setattr__(self, "owner", MutationAuthorityOwner(self.owner))
-        object.__setattr__(self, "transport", MutationTransport(self.transport))
-        if not isinstance(self.socket_path, Path) or not self.socket_path.is_absolute():
-            raise ValueError("invalid daemon mutation path")
-
-    @classmethod
-    def reserved(cls, root: Path) -> DaemonMutationPath:
-        if not isinstance(root, Path):
-            raise ValueError("invalid daemon mutation path")
-        return cls(
-            owner=MutationAuthorityOwner.APPLIANCE_DAEMON,
-            transport=MutationTransport.UNIX_DOMAIN_SOCKET,
-            socket_path=root.expanduser().absolute() / ".open-brain" / "run" / "control.sock",
-        )
-
-    def open(self) -> NoReturn:
-        raise DaemonMutationPathUnavailableError(
-            "daemon-only mutation path is reserved until the appliance daemon owns canonical writes"
-        )
-
-
 class InjectedFault(RuntimeError):
     """Synthetic process interruption at one named durable boundary."""
 
-    def __init__(self, point: CaptureFault | PortabilityFault | BackupFault) -> None:
+    def __init__(self, point: CaptureFault | PortabilityFault) -> None:
         self.point = point
         super().__init__(point.value)
 
@@ -221,7 +170,7 @@ class FilePayload:
             raise ValueError("invalid file name")
         if not isinstance(self.media_type, str) or _MEDIA_TYPE.fullmatch(self.media_type) is None:
             raise ValueError("invalid media type")
-        if not isinstance(self.data, bytes) or not self.data or len(self.data) > _MAX_FILE_BYTES:
+        if not isinstance(self.data, bytes) or len(self.data) > _MAX_FILE_BYTES:
             raise ValueError("invalid file payload")
         object.__setattr__(self, "file_name", name)
 
@@ -595,34 +544,6 @@ class PortabilityReceipt:
 
 
 @dataclass(frozen=True, slots=True)
-class BackupReceipt:
-    """Bounded public outcome for one engine-owned backup operation."""
-
-    backup_id: str
-    created_at: str
-    manifest_digest_sha256: str
-    status: str
-    portable_files: int
-    sqlite_snapshots: int
-    app_state_files: int
-    duplicate: bool = False
-
-    def __post_init__(self) -> None:
-        _portable_id(self.backup_id, "backup")
-        if not isinstance(self.created_at, str) or not self.created_at:
-            raise ValueError("invalid backup receipt timestamp")
-        if not isinstance(self.manifest_digest_sha256, str) or _HEX64.fullmatch(
-            self.manifest_digest_sha256
-        ) is None:
-            raise ValueError("invalid backup receipt digest")
-        if self.status not in {"created", "verified", "restored"}:
-            raise ValueError("invalid backup receipt status")
-        for value in (self.portable_files, self.sqlite_snapshots, self.app_state_files):
-            if type(value) is not int or value < 0:
-                raise ValueError("invalid backup receipt count")
-
-
-@dataclass(frozen=True, slots=True)
 class ReconciliationReceipt:
     """Bounded public outcome for canonical Markdown reconciliation."""
 
@@ -637,6 +558,150 @@ class ReconciliationReceipt:
         for value in (self.scanned_files, self.page_updates, self.space_updates):
             if type(value) is not int or value < 0:
                 raise ValueError("invalid reconciliation receipt count")
+
+
+class MarkdownImportFailure(RuntimeError):
+    """Bounded import failure whose details are safe for machine output."""
+
+    def __init__(self, code: str, *, details: Mapping[str, object] | None = None) -> None:
+        if code not in {
+            "import_confirmation_required",
+            "import_directory_unavailable",
+            "import_root_changed",
+            "import_scan_incomplete",
+            "large_vault_confirmation_required",
+            "overlapping_import_root",
+        }:
+            raise ValueError("invalid Markdown import failure")
+        super().__init__(code)
+        self.code = code
+        self.details = MappingProxyType(dict(details or {}))
+
+
+class MarkdownImportCancelled(RuntimeError):
+    """The owner declined a new-root import before any import state was written."""
+
+
+class MarkdownImportInterrupted(RuntimeError):
+    """Import stopped at a safe point before missing-path finalization."""
+
+
+@dataclass(frozen=True, slots=True)
+class MarkdownImportPreflight:
+    canonical_path: Path
+    selected_markdown_files: int
+    aggregate_bytes: int
+
+    def __post_init__(self) -> None:
+        if not self.canonical_path.is_absolute():
+            raise ValueError("invalid Markdown import preflight")
+        for value in (self.selected_markdown_files, self.aggregate_bytes):
+            if type(value) is not int or value < 0:
+                raise ValueError("invalid Markdown import preflight")
+
+
+@dataclass(frozen=True, slots=True)
+class MarkdownImportProgress:
+    visited_entries: int
+    processed_markdown_files: int
+
+    def __post_init__(self) -> None:
+        for value in (self.visited_entries, self.processed_markdown_files):
+            if type(value) is not int or value < 0:
+                raise ValueError("invalid Markdown import progress")
+
+
+@dataclass(frozen=True, slots=True)
+class MarkdownImportEntry:
+    outcome: str
+    path: str
+    reason: str | None = None
+
+    def __post_init__(self) -> None:
+        if self.outcome not in {
+            "failed",
+            "imported",
+            "missing",
+            "skipped",
+            "unchanged",
+            "updated",
+        }:
+            raise ValueError("invalid Markdown import outcome")
+        if not isinstance(self.path, str) or not self.path or len(self.path) > _MAX_TEXT:
+            raise ValueError("invalid Markdown import path")
+        if self.reason is not None and self.reason not in {
+            "dot_directory",
+            "file_changed",
+            "file_too_large",
+            "hardlink",
+            "invalid_content",
+            "invalid_path",
+            "invalid_utf8",
+            "non_markdown",
+            "path_collision",
+            "special_file",
+            "symlink",
+            "unreadable",
+        }:
+            raise ValueError("invalid Markdown import reason")
+
+    def to_dict(self) -> dict[str, object]:
+        value: dict[str, object] = {"outcome": self.outcome, "path": self.path}
+        if self.reason is not None:
+            value["reason"] = self.reason
+        return value
+
+
+@dataclass(frozen=True, slots=True)
+class MarkdownImportSummary:
+    entries: tuple[MarkdownImportEntry, ...]
+    entries_omitted: int
+    failed: int
+    imported: int
+    missing: int
+    missing_finalized: bool
+    selected: int
+    skipped: int
+    unchanged: int
+    updated: int
+
+    def __post_init__(self) -> None:
+        if len(self.entries) > 100:
+            raise ValueError("invalid Markdown import summary")
+        for value in (
+            self.entries_omitted,
+            self.failed,
+            self.imported,
+            self.missing,
+            self.selected,
+            self.skipped,
+            self.unchanged,
+            self.updated,
+        ):
+            if type(value) is not int or value < 0:
+                raise ValueError("invalid Markdown import summary")
+        if type(self.missing_finalized) is not bool:
+            raise ValueError("invalid Markdown import summary")
+
+    @property
+    def status(self) -> str:
+        return "partial" if self.failed else "completed"
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "entries": [entry.to_dict() for entry in self.entries],
+            "entries_omitted": self.entries_omitted,
+            "failed": self.failed,
+            "history_retained_after_source_removal": True,
+            "imported": self.imported,
+            "missing": self.missing,
+            "missing_finalized": self.missing_finalized,
+            "selected": self.selected,
+            "skipped": self.skipped,
+            "status": self.status,
+            "unchanged": self.unchanged,
+            "updated": self.updated,
+        }
 
 
 @dataclass(frozen=True, slots=True)
@@ -1147,26 +1212,20 @@ class PortabilityTask(Protocol):
     def rebuild_index(self) -> PortabilityReceipt: ...
 
 
-class BackupTask(Protocol):
-    def create(self, destination: Path, *, backup_id: str) -> BackupReceipt: ...
-
-    def verify(self, source: Path) -> BackupReceipt: ...
-
-    def restore(self, source: Path, destination: Path) -> BackupReceipt: ...
-
-
 class ReconciliationTask(Protocol):
     def reconcile(self) -> ReconciliationReceipt: ...
 
 
-@dataclass(frozen=True, slots=True)
-class Phase1TaskSet:
-    """The minimum task capabilities shared by the Phase 1 representations."""
-
-    capture: CaptureTask
-    inbox: InboxSpaceTask
-    review: ReviewTask
-    retrieval: RetrievalTask
+class MarkdownImportTask(Protocol):
+    def import_directory(
+        self,
+        directory: str,
+        *,
+        allow_large_vault: bool = False,
+        confirm: Callable[[MarkdownImportPreflight], bool] | None = None,
+        progress: Callable[[MarkdownImportProgress], None] | None = None,
+        interrupted: Callable[[], bool] | None = None,
+    ) -> MarkdownImportSummary: ...
 
 
 @dataclass(frozen=True, slots=True)
@@ -1179,10 +1238,8 @@ class EngineTaskSet:
     review: ReviewTask
     retrieval: RetrievalTask
     portability: PortabilityTask
-    backup: BackupTask
     reconciliation: ReconciliationTask
-    daemon_mutation_path: DaemonMutationPath
-    phase1: Phase1TaskSet
+    markdown_import: MarkdownImportTask
 
     @property
     def spaces(self) -> InboxSpaceTask:

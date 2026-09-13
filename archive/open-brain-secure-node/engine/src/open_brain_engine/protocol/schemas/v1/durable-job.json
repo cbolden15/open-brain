@@ -1,0 +1,59 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:open-brain:protocol:v1:durable-job",
+  "type": "object",
+  "properties": {
+    "schema_version": { "$ref": "urn:open-brain:protocol:v1:common#/$defs/schema_version" },
+    "brain_id": { "$ref": "urn:open-brain:protocol:v1:common#/$defs/brain_id" },
+    "job_id": { "$ref": "urn:open-brain:protocol:v1:common#/$defs/job_id" },
+    "job_type": { "enum": ["purge", "projection_rebuild"] },
+    "state": { "enum": ["pending", "running", "succeeded", "failed"] },
+    "compartments": { "$ref": "urn:open-brain:protocol:v1:common#/$defs/compartments" },
+    "attempt": { "type": "integer", "minimum": 0, "maximum": 8 },
+    "result_ref": { "type": ["string", "null"], "pattern": "^[a-z]{3}_[a-z2-7]{26}$" },
+    "error_code": { "type": ["string", "null"], "pattern": "^[a-z][a-z0-9_]{1,63}$" },
+    "updated_at": { "$ref": "urn:open-brain:protocol:v1:common#/$defs/timestamp" }
+  },
+  "required": [
+    "schema_version",
+    "brain_id",
+    "job_id",
+    "job_type",
+    "state",
+    "compartments",
+    "attempt",
+    "result_ref",
+    "error_code",
+    "updated_at"
+  ],
+  "allOf": [
+    {
+      "if": { "properties": { "state": { "const": "succeeded" } } },
+      "then": {
+        "properties": {
+          "result_ref": { "type": "string" },
+          "error_code": { "type": "null" }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "state": { "const": "failed" } } },
+      "then": {
+        "properties": {
+          "result_ref": { "type": "null" },
+          "error_code": { "type": "string" }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "state": { "enum": ["pending", "running"] } } },
+      "then": {
+        "properties": {
+          "result_ref": { "type": "null" },
+          "error_code": { "type": "null" }
+        }
+      }
+    }
+  ],
+  "additionalProperties": false
+}

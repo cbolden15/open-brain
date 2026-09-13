@@ -1,0 +1,48 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:open-brain:protocol:v1:query-evidence",
+  "type": "object",
+  "properties": {
+    "schema_version": { "$ref": "urn:open-brain:protocol:v1:common#/$defs/schema_version" },
+    "brain_id": { "$ref": "urn:open-brain:protocol:v1:common#/$defs/brain_id" },
+    "record_id": {
+      "oneOf": [
+        { "$ref": "urn:open-brain:protocol:v1:common#/$defs/record_id" },
+        { "type": "null" }
+      ]
+    },
+    "accepted_revision_id": {
+      "oneOf": [
+        { "$ref": "urn:open-brain:protocol:v1:common#/$defs/revision_id" },
+        { "type": "null" }
+      ]
+    },
+    "provenance": { "$ref": "urn:open-brain:protocol:v1:provenance" },
+    "compartments": { "$ref": "urn:open-brain:protocol:v1:common#/$defs/compartments" },
+    "body_visibility": { "enum": ["metadata", "body"] },
+    "body": { "type": "object" }
+  },
+  "required": [
+    "schema_version",
+    "brain_id",
+    "record_id",
+    "accepted_revision_id",
+    "provenance",
+    "compartments",
+    "body_visibility"
+  ],
+  "allOf": [
+    {
+      "anyOf": [
+        { "properties": { "record_id": { "type": "string" } } },
+        { "properties": { "accepted_revision_id": { "type": "string" } } }
+      ]
+    },
+    {
+      "if": { "properties": { "body_visibility": { "const": "body" } } },
+      "then": { "required": ["body"] },
+      "else": { "not": { "required": ["body"] } }
+    }
+  ],
+  "additionalProperties": false
+}

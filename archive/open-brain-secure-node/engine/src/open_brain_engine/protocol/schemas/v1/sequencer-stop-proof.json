@@ -1,0 +1,34 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:open-brain:protocol:v1:sequencer-stop-proof",
+  "type": "object",
+  "properties": {
+    "schema_version": { "$ref": "urn:open-brain:protocol:v1:common#/$defs/schema_version" },
+    "stop_proof_id": { "$ref": "urn:open-brain:protocol:v1:common#/$defs/stop_proof_id" },
+    "brain_id": { "$ref": "urn:open-brain:protocol:v1:common#/$defs/brain_id" },
+    "node_id": { "$ref": "urn:open-brain:protocol:v1:common#/$defs/node_id" },
+    "node_key_id": { "$ref": "urn:open-brain:protocol:v1:common#/$defs/key_id" },
+    "machine_instance": {
+      "$ref": "urn:open-brain:protocol:v1:common#/$defs/machine_instance_id"
+    },
+    "epoch": { "type": "integer", "minimum": 1 },
+    "last_ledger_head": { "$ref": "urn:open-brain:protocol:v1:common#/$defs/ledger_head" },
+    "stopped_at": { "$ref": "urn:open-brain:protocol:v1:common#/$defs/timestamp" },
+    "node_signature": {
+      "$ref": "urn:open-brain:protocol:v1:common#/$defs/ed25519_signature"
+    }
+  },
+  "required": [
+    "schema_version",
+    "stop_proof_id",
+    "brain_id",
+    "node_id",
+    "node_key_id",
+    "machine_instance",
+    "epoch",
+    "last_ledger_head",
+    "stopped_at",
+    "node_signature"
+  ],
+  "additionalProperties": false
+}

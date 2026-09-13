@@ -1,0 +1,328 @@
+"""Private, loopback-only async HTTPS mechanism candidate for C25."""
+
+from __future__ import annotations
+
+import asyncio
+import inspect
+import math
+import socket
+import ssl
+from collections.abc import Callable
+from dataclasses import dataclass, field
+
+import aiohttp
+import dns.asyncresolver
+from aiohttp.abc import AbstractResolver, ResolveResult
+
+LIMIT = 16 * 1024
+
+
+class TransportRejected(RuntimeError):
+    pass
+
+
+@dataclass
+class Evidence:
+    clients: int = 0
+    resolvers: int = 0
+    dns_queries: int = 0
+    releases: int = 0
+    response_bytes: int = 0
+    resolver_closed: bool = False
+    connector_closed: bool = False
+    session_closed: bool = False
+    active_resolutions: set[asyncio.Task] = field(default_factory=set)
+
+
+class DnsPythonResolver(AbstractResolver):
+    """aiohttp resolver using only dnspython's asyncio UDP backend."""
+
+    def __init__(self, dns_port: int, deadline: float, evidence: Evidence) -> None:
+        evidence.resolvers += 1
+        self._deadline = deadline
+        self._evidence = evidence
+        self._resolver = dns.asyncresolver.Resolver(configure=False)
+        self._resolver.nameservers = ["127.0.0.1"]
+        self._resolver.port = dns_port
+        self._resolver.retry_servfail = False
+        self._closed = False
+
+    async def resolve(
+        self, host: str, port: int = 0, family: socket.AddressFamily = socket.AF_INET
+    ) -> list[ResolveResult]:
+        if self._closed:
+            raise TransportRejected("resolver closed")
+        task = asyncio.current_task()
+        assert task is not None
+        self._evidence.active_resolutions.add(task)
+        self._evidence.dns_queries += 1
+        try:
+            remaining = self._deadline - asyncio.get_running_loop().time()
+            if remaining <= 0:
+                raise TimeoutError("DNS deadline")
+            answer = await self._resolver.resolve(
+                host, "A", lifetime=remaining, search=False
+            )
+            return [
+                {
+                    "hostname": host,
+                    "host": item.address,
+                    "port": port,
+                    "family": socket.AF_INET,
+                    "proto": socket.IPPROTO_TCP,
+                    "flags": socket.AI_NUMERICHOST | socket.AI_NUMERICSERV,
+                }
+                for item in answer
+            ]
+        finally:
+            self._evidence.active_resolutions.discard(task)
+
+    async def close(self) -> None:
+        self._closed = True
+        current = asyncio.current_task()
+        pending = [task for task in self._evidence.active_resolutions if task is not current]
+        for task in pending:
+            task.cancel()
+        if pending:
+            await asyncio.wait(pending, timeout=max(0.0, self._deadline - asyncio.get_running_loop().time()))
+        self._evidence.resolver_closed = True
+
+
+def _valid_timeout(timeout: object) -> bool:
+    return (
+        type(timeout) in (int, float)
+        and math.isfinite(timeout)
+        and timeout > 0
+        and timeout <= 60
+    )
+
+
+async def _settle(task: asyncio.Task, deadline: float, *, cancel: bool) -> tuple[bool, bool]:
+    """Bounded, repeated-cancellation-resistant task settlement."""
+    interrupted = False
+    if cancel and not task.done():
+        task.cancel()
+    while not task.done():
+        remaining = deadline - asyncio.get_running_loop().time()
+        if remaining <= 0:
+            try:
+                await asyncio.sleep(0)  # one attempt to deliver cancellation/enter cleanup
+            except asyncio.CancelledError:
+                interrupted = True
+                asyncio.current_task().uncancel()
+            break
+        try:
+            done, _ = await asyncio.wait({task}, timeout=remaining)
+            if not done:
+                break
+        except asyncio.CancelledError:
+            interrupted = True
+            asyncio.current_task().uncancel()
+            if not task.done():
+                task.cancel()
+    if not task.done():
+        task.cancel()
+        try:
+            await asyncio.sleep(0)
+        except asyncio.CancelledError:
+            interrupted = True
+            asyncio.current_task().uncancel()
+    if task.done() and not task.cancelled():
+        task.exception()
+    return task.done(), interrupted
+
+
+async def exchange(
+    request,
+    *,
+    dns_port: int,
+    tls_port: int,
+    ca_file: str,
+    timeout: float,
+    cancel: asyncio.Event,
+    release: Callable[[], None],
+    evidence: Evidence,
+    parse: Callable[[int, tuple[tuple[str, str], ...], bytes], object],
+    validate_after: Callable[[], None] = lambda: None,
+):
+    """Perform and parse one POST under one absolute clock."""
+    if not _valid_timeout(timeout):
+        raise TransportRejected("timeout")
+    if not callable(parse) or not callable(validate_after) or not callable(release):
+        raise TransportRejected("trusted callback")
+    if cancel.is_set():
+        raise asyncio.CancelledError("revoked before construction")
+    loop = asyncio.get_running_loop()
+    started = loop.time()
+    deadline = started + timeout
+    cleanup_reserve = min(0.20, timeout / 4)
+    io_deadline = deadline - cleanup_reserve
+    resolver = connector = session = None
+
+    async def body():
+        if cancel.is_set():
+            raise asyncio.CancelledError("revoked before body release")
+        released = release()  # immediately before aiohttp receives the only body chunk
+        if released is not None:
+            raise TransportRejected("release callback result")
+        if cancel.is_set():
+            raise asyncio.CancelledError("revoked at body release")
+        if loop.time() > io_deadline:
+            raise TimeoutError("body release deadline")
+        evidence.releases += 1
+        yield request.body
+
+    async def io():
+        nonlocal resolver, connector, session
+        resolver = DnsPythonResolver(dns_port, io_deadline, evidence)
+        ssl_context = ssl.create_default_context(cafile=ca_file)
+        if not ssl_context.check_hostname or ssl_context.verify_mode != ssl.CERT_REQUIRED:
+            raise TransportRejected("TLS verification disabled")
+        connector = aiohttp.TCPConnector(
+            resolver=resolver,
+            use_dns_cache=False,
+            force_close=True,
+            limit=1,
+            limit_per_host=1,
+            ssl=ssl_context,
+        )
+        evidence.clients += 1
+        phase_bound = io_deadline - loop.time()
+        if phase_bound <= 0:
+            raise TimeoutError("setup deadline")
+        session = aiohttp.ClientSession(
+            connector=connector,
+            connector_owner=True,
+            cookie_jar=aiohttp.DummyCookieJar(),
+            trust_env=False,
+            auto_decompress=False,
+            timeout=aiohttp.ClientTimeout(
+                total=phase_bound,
+                connect=phase_bound,
+                sock_connect=phase_bound,
+                sock_read=phase_bound,
+            ),
+            skip_auto_headers={"Accept-Encoding"},
+        )
+        url = f"https://{request.host}:{tls_port}{request.path}"
+        try:
+            async with session.request(
+                "POST",
+                url,
+                headers=dict(request.headers),
+                data=body(),
+                allow_redirects=False,
+                proxy=None,
+            ) as response:
+                chunks = bytearray()
+                async for chunk in response.content.iter_chunked(2048):
+                    chunks.extend(chunk)
+                    evidence.response_bytes = len(chunks)
+                    if len(chunks) > LIMIT:
+                        raise TransportRejected("wire output limit")
+                status, headers, raw = response.status, tuple(response.headers.items()), bytes(chunks)
+                validated = validate_after()
+                if validated is not None:
+                    raise TransportRejected("validation callback result")
+                if loop.time() > io_deadline:
+                    raise TimeoutError("post-I/O validation deadline")
+                result = parse(status, headers, raw)
+                if inspect.isawaitable(result):
+                    if inspect.iscoroutine(result):
+                        result.close()
+                    raise TransportRejected("async parser forbidden")
+                if loop.time() > io_deadline:
+                    raise TimeoutError("response parse deadline")
+                if cancel.is_set():
+                    raise asyncio.CancelledError("revoked before result")
+                return result
+        except aiohttp.ClientConnectionError as error:
+            if isinstance(error.__cause__, TransportRejected):
+                raise error.__cause__
+            raise
+
+    task = asyncio.create_task(io(), name="c25-owned-http")
+    cancel_task = asyncio.create_task(cancel.wait(), name="c25-owned-cancel-watch")
+    outcome = None
+    primary_error = None
+    cleanup_errors = []
+    try:
+        remaining = max(0.0, io_deadline - loop.time())
+        done, _ = await asyncio.wait(
+            {task, cancel_task}, timeout=remaining, return_when=asyncio.FIRST_COMPLETED
+        )
+        if cancel.is_set():
+            raise asyncio.CancelledError("revoked")
+        if task in done:
+            outcome = await task
+        else:
+            if cancel_task in done:
+                raise asyncio.CancelledError("revoked")
+            raise TimeoutError("inclusive I/O deadline")
+    except (Exception, asyncio.CancelledError) as error:  # noqa: BLE001 - cleanup every failure
+        primary_error = error
+        if isinstance(error, asyncio.CancelledError):
+            asyncio.current_task().uncancel()
+    finally:
+        settled, interrupted = await _settle(cancel_task, deadline, cancel=True)
+        if not settled or interrupted:
+            cleanup_errors.append("cancel watcher")
+        settled, interrupted = await _settle(task, deadline, cancel=not task.done())
+        if not settled or interrupted:
+            cleanup_errors.append("HTTP task")
+        if session is not None:
+            close_task = asyncio.create_task(session.close(), name="c25-owned-session-close")
+            settled, interrupted = await _settle(close_task, deadline, cancel=False)
+            if (
+                not settled
+                or interrupted
+                or close_task.cancelled()
+                or close_task.exception() is not None
+            ):
+                cleanup_errors.append("session close")
+            evidence.session_closed = session.closed
+        if connector is not None:
+            connector_task = asyncio.create_task(
+                connector.close(abort_ssl=True), name="c25-owned-connector-close"
+            )
+            settled, interrupted = await _settle(connector_task, deadline, cancel=False)
+            if (
+                not settled
+                or interrupted
+                or connector_task.cancelled()
+                or connector_task.exception() is not None
+            ):
+                cleanup_errors.append("connector close")
+            evidence.connector_closed = connector.closed
+        if resolver is not None:
+            resolver_task = asyncio.create_task(resolver.close(), name="c25-owned-resolver-close")
+            settled, interrupted = await _settle(resolver_task, deadline, cancel=False)
+            if (
+                not settled
+                or interrupted
+                or resolver_task.cancelled()
+                or resolver_task.exception() is not None
+            ):
+                cleanup_errors.append("resolver close")
+        if loop.time() > deadline:
+            cleanup_errors.append("operation deadline")
+    if cleanup_errors:
+        raise TransportRejected("cleanup/deadline failure: " + ", ".join(cleanup_errors)) from primary_error
+    if primary_error is not None:
+        raise primary_error
+    return outcome, loop.time() - started
+
+
+async def guarded_exchange(authorized: bool, credential: Callable[[], str], *args, **kwargs):
+    """Small seam demonstrating pre-construction ordering; not C10 integration."""
+    if not authorized:
+        raise TransportRejected("denied before credential/client/resolver")
+    if not _valid_timeout(kwargs.get("timeout")):
+        raise TransportRejected("timeout before credential")
+    cancel = kwargs.get("cancel")
+    if not isinstance(cancel, asyncio.Event) or cancel.is_set():
+        raise asyncio.CancelledError("revoked before credential")
+    marker = credential()
+    if marker != "synthetic-key":
+        raise TransportRejected("synthetic credential")
+    return await exchange(*args, **kwargs)

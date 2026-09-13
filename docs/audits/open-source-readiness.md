@@ -1,9 +1,19 @@
 # Open-source repository readiness report
 
 - Date: 2026-08-26
-- Repository: `vora-technology/open-brain`
-- Current visibility: private
+- Repository at audit: `vora-technology/open-brain`
+- Current repository: `cbolden15/open-brain`
+- Visibility at audit: private
 - Audited commit: `07b8e50b586ec9ecab272b8ea4352ec9a0e9e664`
+
+## Ownership disposition (2026-09-08)
+
+This report preserves the 2026-08-26 repository snapshot. The repository was transferred to the
+personal account `cbolden15` on 2026-09-08, and the Homebrew tap will be
+`cbolden15/homebrew-tap`. Organization team and organization-plan recommendations below describe
+the audit-time repository and are superseded by the ownership and release gate in
+[`../plans/2026-09-08-ob1-product-completion.md`](../plans/2026-09-08-ob1-product-completion.md).
+Package links intended for the first release use `https://github.com/cbolden15/open-brain`.
 
 ## Executive assessment
 
@@ -105,25 +115,24 @@ clear process for handling abuse: [code of conduct guidance](https://docs.github
 
 ### 3. Establish ownership and governance
 
-Only `cbolden15` currently has repository access, as an administrator. There is no visible Vora
-maintainer team, ownership map, or decision process.
+At audit time, only `cbolden15` had repository access, as an administrator. There was no ownership
+map or decision process.
 
 Add:
 
 - `GOVERNANCE.md` with project scope, decision rights, maintainer responsibilities, release
   authority, conflict resolution, and the process for adding or removing maintainers;
-- `MAINTAINERS.md` listing roles through company identities or GitHub teams;
-- a visible `@vora-technology/open-brain-maintainers` team with at least two members before
-  mandatory peer approval is enabled;
-- `.github/CODEOWNERS`, owned by that team, with explicit ownership for `.github/`,
+- `MAINTAINERS.md` listing `@cbolden15` and any future collaborators with their roles;
+- `.github/CODEOWNERS`, initially owned by `@cbolden15`, with explicit ownership for `.github/`,
   `SECURITY.md`, packaging metadata, release code, privacy code, and migration code.
 
 GitHub can automatically request owners for changed files and can require their approval.
 GitHub also recommends protecting the CODEOWNERS file itself: [CODEOWNERS guidance](https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/about-code-owners).
 
-For a one-maintainer launch, document an interim exception instead of creating a rule that no
-one can satisfy. The proper long-term setup is two maintainers, required review, and no routine
-administrator bypass.
+For a one-maintainer launch, document an interim exception instead of creating a rule that no one
+can satisfy. A personal repository has only owner and collaborator roles, so the long-term
+two-maintainer setup uses a named collaborator and required review rather than an organization team.
+Do not use routine owner bypass.
 
 ### 4. Make the security policy usable before and after launch
 
@@ -242,11 +251,11 @@ maintainers = [{ name = "Vora Technology" }]
 import-names = ["open_brain"]
 
 [project.urls]
-Homepage = "https://github.com/vora-technology/open-brain"
-Documentation = "https://github.com/vora-technology/open-brain#readme"
-Repository = "https://github.com/vora-technology/open-brain"
-Issues = "https://github.com/vora-technology/open-brain/issues"
-Changelog = "https://github.com/vora-technology/open-brain/blob/main/CHANGELOG.md"
+Homepage = "https://github.com/cbolden15/open-brain"
+Documentation = "https://github.com/cbolden15/open-brain#readme"
+Repository = "https://github.com/cbolden15/open-brain"
+Issues = "https://github.com/cbolden15/open-brain/issues"
+Changelog = "https://github.com/cbolden15/open-brain/blob/main/CHANGELOG.md"
 ```
 
 The Python packaging specification defines maintainers, project URLs, license expressions, and

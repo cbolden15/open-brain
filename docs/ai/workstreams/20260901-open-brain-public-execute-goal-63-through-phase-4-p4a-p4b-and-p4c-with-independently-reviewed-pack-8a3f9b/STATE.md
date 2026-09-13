@@ -4,34 +4,37 @@
 - Repo root: <repo-root>
 - Remote identity SHA-256 fingerprint: `cb5e9cd7ac71c16e5109717b4bc07f01aed1bbda2b18a99bfbc76f7bd98245bc`
 - Worktree: <repo-root>
-- Branch: goal/open-brain-phase4
-- Objective: Execute Goal 63 through Phase 4 P4A, P4B, and P4C with independently reviewed package isolation, unpublished native artifacts, full-stop cutover, and day-0 evidence
+- Branch: goal/open-brain-phase4-p4c
+- Objective: Complete Goal 63's public P4A/P4B source and CI work. By owner
+  direction on 2026-09-04, macOS binary notarization/distribution,
+  backup/restore operations, P4-W8, P4-W9, and private production cutover are
+  outside this project's scope.
 - Created date: 2026-09-01
 
 ## Current milestone
 
-- Milestone: P4-W7 exact-candidate audit and P4B review
-- Status: complete at accepted source
-  `537bc4f1059ef4b4e8f0916702f38f4e531b13fe` and its exact unpublished
-  candidate. Child 22 returned final `READY`, P0/P1/P2 `0/0/0`, and accepted
-  all three D-054 adjudications. P4-W5 remains complete at
-  `c7c4fad1b109ac7d7c55d55cdfa57b64a9c910db`; the immutable readiness
-  snapshot remains historical and unchanged. P4-W8 has not started.
-- Allowed scope: P4-W7 prompt, audit, and read-only review records; direct
-  checks of the existing exact source, candidate, CI, public release state,
-  and P4A/P4B evidence; bounded workstream state; and one local evidence-only
-  checkpoint. Product source, tests, tooling, workflows, and artifact bytes
-  are frozen.
-- Stop condition: any source/artifact mismatch, incomplete or failed required
-  gate, public package/tag/release/download, review finding, P4-W5 or readiness
-  change, private-data exposure, candidate rebuild, source repair, push,
-  merge, publication, deployment, production/private-state access, cutover,
-  or P4-W8 action.
-- Base: freshly fetched `origin/main` at
-  `3b89a4ba4787a378e6040ff042bd117da881918d`
+- Milestone: source/CI complete; macOS binary distribution deferred
+- Status: complete under the owner-revised scope. P4A/P4B product source and CI
+  are merged on `origin/main`; every commit on this branch after that merge is
+  confined to bounded P4C workstream records. The signed pre-notary DMG remains
+  unpublished and must not be represented as notarized or public-release-ready.
+  Exact cancellation record `cafaf03468842560fbb8ab1e4405be1012ec27e8ca9020d46b7d55eb456eda71`
+  supersedes the prior Apple submission authority. No Apple submission,
+  backup, restore, P4-W8, P4-W9, deployment, or production action occurred.
+  Final `make verify` passed Ruff, strict MyPy on 549 source files, all 3,249
+  tests, six isolated package builds, and artifact policy.
+- Allowed scope: historical preservation of source, signed candidate,
+  cancellation, and bounded workstream evidence only. No further execution is
+  authorized in this workstream.
+- Stop condition: any backup, restore, backup-access repair, recovery snapshot,
+  rehearsal, P4-W8, P4-W9, deployment, production cutover, service/content
+  mutation, helper mutation or removal, predecessor deletion, irreversible
+  cleanup, source/artifact mutation, publication, or rerun of Goal #24.
+- Base: merged `origin/main` at
+  `10769806361e7ed419b653534e1303b623d84673`
 - Launch commit: reviewed planning commit cherry-picked as
   `68c34d723e8f0bbdc7a51d5c5070e63e994b335d`
-- Branch: `goal/open-brain-phase4`
+- Branch: `goal/open-brain-phase4-p4c`
 - Plan SHA-256:
   `7fe6e5d1e48b44fb4fba232661a8b01eeca019e4f35a43f1b2c162914905bfd2`
 - Launch runtime goal thread: `01a05f1b-de55-7a41-bc01-673d277a1995`
@@ -40,8 +43,8 @@
 ## Launch constraints
 
 - Goal #24's earlier approved production apply is complete and must never be
-  rerun. Phase 4 will create a new, separately bound full-stop transaction only
-  after its source, artifact, recovery, and rehearsal gates pass.
+  rerun. The owner scope correction removes the later full-stop transaction;
+  no P4-W8 or P4-W9 transaction will be created.
 - The public repository stores bounded result classes and opaque identities
   only. Private topology, recovery material, and operational output remain in
   the private governed state repository.
@@ -87,12 +90,22 @@
 
 ## Next action
 
-Implement D-052 against the recorded red
-`tests/phase4/test_p4w6_release.py` contract, then add the artifact-only
-clean-host harness and CI matrix. Child 16 returned no verdict before the
-two-timeout breaker; retain a fresh final exact-source/artifact review. Keep
-P4-W5 and the immutable six-probe snapshot unchanged. Recovery readiness
-remains a separate blocker for the later P4-W8 recovery/rehearsal gates.
+No action remains in this workstream. If public macOS binary distribution is
+desired later, create a separate owner-authorized workstream with fresh Apple
+authority and revalidate the preserved candidate before use.
+
+## Owner scope amendment (2026-09-04)
+
+- Backup and restore operations are not part of this project and are no longer
+  a completion gate for this workstream.
+- P4-W8, P4-W9, private rehearsal, and production cutover are out of scope.
+- Apple notarization and public macOS binary distribution are deferred and are
+  not a completion gate for the source/CI project scope.
+- Existing product code, tests, plans, receipts, and installed helper versions
+  are retained unchanged. This amendment does not request feature deletion or
+  local helper cleanup.
+- Historical sections below remain factual records but grant no execution
+  authority.
 
 ## P4-W0 complete
 
@@ -713,3 +726,72 @@ remains a separate blocker for the later P4-W8 recovery/rehearsal gates.
 - No artifact was rebuilt, re-signed, published, tagged, released, deployed,
   or used for production/private-state access or cutover. P4-W5 and readiness
   were not rerun. P4C and P4-W8 remain unstarted.
+
+## P4-W8 launch and merge gate
+
+- PR #6 was retitled to the completed P4A/P4B scope, marked ready, and
+  squash-merged only after all 20 exact-head checks remained successful.
+  Merged commit `10769806361e7ed419b653534e1303b623d84673` and reviewed
+  head `7e269219b340335f8567ca7bc13f07b1ee9323f0` both resolve to tree
+  `5c98b73fe854dd05406bf7992174cfbe20092eb9`.
+- The remote P4A/P4B branch was deleted by the normal merge workflow. New
+  local branch `goal/open-brain-phase4-p4c` starts exactly at
+  `origin/main`; the prior local branch remains intact.
+- Fresh post-merge queries found zero tags, GitHub releases, and deployments.
+  The exact candidate verifier still returns `valid`, source `537bc4f`,
+  and 23 artifacts. The plan, readiness snapshot, and P4-W5 prompt still hash
+  to their recorded values.
+- The rendered P4-W8 contract requires a new independently reviewed Goal #63
+  transaction. Historical Goal #24 helper/recovery assets are static
+  architecture references only; its completed production apply and cleanup
+  remain permanently forbidden.
+- P4-W8 has not yet touched live state. Children 23 and 24 were both closed
+  without verdict after bounded CLI timeouts. Child 25 completed three passes
+  through the distinct in-app runtime and returned final architecture `READY`,
+  P0/P1/P2 `0/0/0`; its slot is released. Red-first private implementation is
+  eligible, while live work and P4-W9 remain prohibited.
+
+## P4-W8 pre-execution READY and fresh-inventory stop
+
+- The private controller contains 18 source modules, seven schemas, and 20
+  tests. Pytest, Ruff, strict MyPy, and all seven schema checks passed. Child
+  28's fifth bounded pass closed IR-001 through IR-008 and returned final
+  pre-execution `READY`, P0/P1/P2 `0/0/0`.
+- The exact 23-coordinate P4B candidate was transferred owner-only and staged
+  on the canonical macOS ARM64 host. All 16 stage coordinates validated; the
+  accepted source and protected candidate bytes remained exact.
+- Fresh read-only writer/service inventory stopped before the exact-profile
+  probe. It found one unexpected loaded registration with a known Open Brain
+  job-class identity. No process was running, but configuration discovery
+  proved five roots with three overlaps against the governed production root
+  set. An inactive loaded registration can still gain authority, so adding its
+  digest to an allowlist or treating it as unrelated would weaken the closed
+  writer-map guarantee.
+- The bounded private blocker receipt hashes to
+  `3af46ad50b9e61207e080ce203f887c744dc82fdc7043e955852cac5d036b9f8`.
+  No backup-access repair, backup, restore, candidate launch, rehearsal,
+  postflight, production service/content mutation, publication, deployment,
+  irreversible cleanup, or P4-W9 action occurred.
+
+## P4-W8 separate reconciliation result
+
+- Exact retained provenance proves the loaded registration was deliberately
+  installed as the canonical scheduled writer, stabilized to an empty queue,
+  and restored in two prior governed writer windows. Process absence between
+  calendar runs does not remove its authority. Removal or quarantine is
+  rejected.
+- The two configurations have seven unique roots and two separate writer
+  leases. Three roots match exactly. The two divergent role pairs contain
+  materially different inventories, so neither can stand in for the other.
+- Helper v18's immutable full profile covers exactly five candidate-generation
+  roots. A five-root encrypted snapshot cannot recover the complete seven-root
+  generation, and one held lease cannot fence both writers.
+- Independent reconciliation Child 1 returned `NOT_READY`, P0/P1/P2 `3/0/0`.
+  The minimum correct architecture is a two-generation manifest, deterministic
+  two-lease fence, exact seven-root encrypted backup/restore, generation-qualified
+  disposable staging, seven-root isolation, and exact two-generation rollback.
+- Continuing requires explicit authority to build and install a versioned
+  seven-root helper successor and use it for one encrypted snapshot in each
+  existing repository plus two disposable restores. Helper v18 remains an
+  unchanged rollback asset. Service state, production content, publication,
+  deployment, P4-W9, and irreversible cleanup remain excluded.

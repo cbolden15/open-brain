@@ -1,0 +1,495 @@
+from __future__ import annotations
+
+import asyncio
+import json
+import os
+import stat
+import tempfile
+import threading
+import time
+import unittest
+from pathlib import Path
+
+import async_transport
+import authority_gate as authority
+import test_async_transport as transport
+import test_source_binding as sources
+from async_bridge import AsyncAccess, AsyncRoute
+from direct_api import decode, encode
+
+MODELS = transport.MODELS
+CA_FILE = str(transport.FIXTURES / "ca.pem")
+
+
+def socket_fds():
+    result = set()
+    for name in os.listdir("/dev/fd"):
+        if not name.isdigit():
+            continue
+        descriptor = int(name)
+        try:
+            if stat.S_ISSOCK(os.fstat(descriptor).st_mode):
+                result.add(descriptor)
+        except OSError:
+            pass
+    return result
+
+
+def response(provider, edges=None):
+    value = decode(transport.success(provider))
+    payload = json.dumps(
+        {
+            "edges": edges
+            if edges is not None
+            else [{"source": "source-1", "target": "source-2"}]
+        }
+    )
+    if provider == "openai_api":
+        value["output"][0]["content"][0]["text"] = payload
+    elif provider == "anthropic_api":
+        value["content"][0]["text"] = payload
+    else:
+        value["candidates"][0]["content"]["parts"][0]["text"] = payload
+    return encode(value)
+
+
+class Tests(unittest.IsolatedAsyncioTestCase):
+    async def asyncSetUp(self):
+        self.fixture = sources.SourceBoundCompositionTests()
+        self.fixture.setUp()
+        self.bindings = authority.bindings_from_snapshot(self.fixture.base)
+        self.temp = tempfile.TemporaryDirectory()
+        self.root = Path(self.temp.name)
+        self.trusted = object()
+        self.gate = authority.AuthorityGate.create(
+            self.root / "authority.sqlite",
+            owner_id=self.fixture.base["owner_actor_id"],
+            sources=self.bindings,
+            trusted_process=self.trusted,
+        )
+        self.initial_threads = {thread.ident for thread in threading.enumerate()}
+
+    async def asyncTearDown(self):
+        self.gate.close()
+        self.temp.cleanup()
+        self.fixture.tearDown()
+
+    def capability(self):
+        return self.gate.mint_owner_capability(self.trusted)
+
+    def grant(self, provider):
+        self.gate.grant_consent(
+            self.capability(), provider=provider, operation="semantic_graph"
+        )
+        return self.capability()
+
+    def outcome(self, reservation):
+        return next(
+            item
+            for item in self.gate.snapshot()["attempts"]
+            if item["reservation_id"] == reservation
+        )
+
+    async def start_servers(self, provider, *, mode="success", payload=None):
+        dns_transport, dns_protocol, dns_port = await transport.dns_server()
+        seen = asyncio.Event()
+        runner, blocker, tls_port = await transport.https_server(
+            mode, payload if payload is not None else response(provider), seen
+        )
+        route = AsyncRoute(provider, MODELS[provider], dns_port, tls_port, CA_FILE)
+        self.server_socket_fds = socket_fds()
+        return dns_transport, dns_protocol, runner, blocker, seen, route
+
+    async def stop_servers(self, dns_transport, runner, blocker):
+        blocker.set()
+        await runner.cleanup()
+        dns_transport.close()
+        await asyncio.sleep(0)
+
+    async def assert_terminal(self, access):
+        await asyncio.sleep(0)
+        evidence = access.flight.evidence
+        self.assertTrue(evidence.session_closed)
+        self.assertTrue(evidence.resolver_closed)
+        self.assertTrue(evidence.connector_closed)
+        self.assertEqual(evidence.active_resolutions, set())
+        self.assertEqual(
+            [
+                task.get_name()
+                for task in asyncio.all_tasks()
+                if task is not asyncio.current_task()
+                and task.get_name().startswith(("c25-owned", "c27-authority"))
+            ],
+            [],
+        )
+        self.assertEqual(
+            {thread.ident for thread in threading.enumerate()}, self.initial_threads
+        )
+        self.assertEqual(socket_fds(), self.server_socket_fds)
+
+    async def test_actual_three_provider_flow_binds_sources_and_accounts(self):
+        for provider in MODELS:
+            with self.subTest(provider=provider):
+                dns, protocol, runner, blocker, _, route = await self.start_servers(
+                    provider
+                )
+                try:
+                    capability = self.grant(provider)
+                    access = AsyncAccess(route, self.bindings)
+                    reservation = access.reserve(
+                        self.gate, capability, probe_id=provider
+                    )
+                    result = json.loads(
+                        await access.release(self.gate, capability, reservation)
+                    )
+                    self.assertEqual(result["actual_model"], MODELS[provider])
+                    self.assertEqual(result["permanent_links_written"], 0)
+                    self.assertEqual(result["evidence_kind"], "attached_source_context")
+                    self.assertEqual(
+                        [
+                            result["edges"][0][side]["note_id"]
+                            for side in ("source", "target")
+                        ],
+                        [item.note_id for item in self.bindings],
+                    )
+                    self.assertEqual(self.outcome(reservation)["status"], "succeeded")
+                    self.assertEqual(
+                        (access.resolves, access.constructions, access.starts),
+                        (1, 1, 1),
+                    )
+                    self.assertEqual(protocol.queries, 1)
+                    await self.assert_terminal(access)
+                finally:
+                    await self.stop_servers(dns, runner, blocker)
+        self.assertEqual(self.gate.snapshot()["charged_attempts"], 3)
+
+    async def test_denial_and_revoke_during_credential_construct_nothing(self):
+        provider = "openai_api"
+        dns, _, runner, blocker, _, route = await self.start_servers(provider)
+        try:
+            access = AsyncAccess(route, self.bindings)
+            with self.assertRaises(authority.Rejected):
+                access.reserve(self.gate, self.capability())
+            capability = self.grant(provider)
+            reservation = access.reserve(self.gate, capability)
+            access.on_resolve = lambda: self.gate.revoke_consent(
+                self.capability(), provider=provider
+            )
+            with self.assertRaises(authority.Rejected):
+                await access.release(self.gate, capability, reservation)
+            self.assertEqual(
+                (access.resolves, access.constructions, access.starts), (1, 0, 0)
+            )
+            self.assertEqual(self.outcome(reservation)["status"], "cancelled")
+            self.assertEqual(self.gate.snapshot()["charged_attempts"], 0)
+        finally:
+            await self.stop_servers(dns, runner, blocker)
+
+    async def test_other_thread_revoke_during_request_cleans_before_failure(self):
+        provider = "anthropic_api"
+        dns, _, runner, blocker, seen, route = await self.start_servers(
+            provider, mode="headers_stall"
+        )
+        try:
+            capability = self.grant(provider)
+            access = AsyncAccess(route, self.bindings)
+            reservation = access.reserve(self.gate, capability)
+            task = asyncio.create_task(
+                access.release(self.gate, capability, reservation)
+            )
+            await asyncio.wait_for(seen.wait(), 0.5)
+            worker = threading.Thread(
+                target=lambda: self.gate.revoke_consent(
+                    self.capability(), provider=provider
+                )
+            )
+            worker.start()
+            worker.join(0.5)
+            self.assertFalse(worker.is_alive())
+            with self.assertRaises(asyncio.CancelledError):
+                await task
+            self.assertEqual(self.outcome(reservation)["status"], "failed")
+            self.assertEqual(self.gate.snapshot()["charged_attempts"], 1)
+            self.assertEqual(access.flight.cancel_calls, 1)
+            await self.assert_terminal(access)
+        finally:
+            await self.stop_servers(dns, runner, blocker)
+
+    async def test_revision_and_exclusion_are_superseded_at_content_release(self):
+        for change in ("revision", "exclusion"):
+            provider = "gemini_api"
+            bindings = authority.bindings_from_snapshot(self.fixture.base)
+            if change == "exclusion":
+                self.gate.observe_revision(bindings[0].note_id, bindings[0].revision_id)
+            dns, _, runner, blocker, seen, route = await self.start_servers(
+                provider, mode="headers_stall"
+            )
+            try:
+                capability = self.grant(provider)
+                access = AsyncAccess(route, bindings)
+                reservation = access.reserve(self.gate, capability, probe_id=change)
+                task = asyncio.create_task(
+                    access.release(self.gate, capability, reservation)
+                )
+                await asyncio.wait_for(seen.wait(), 0.5)
+                if change == "revision":
+                    self.gate.observe_revision(bindings[0].note_id, "new-revision")
+                else:
+                    self.gate.exclude_source(
+                        self.capability(), note_id=bindings[1].note_id
+                    )
+                blocker.set()
+                with self.assertRaises(authority.Superseded):
+                    await task
+                self.assertEqual(self.outcome(reservation)["status"], "superseded")
+                await self.assert_terminal(access)
+            finally:
+                await self.stop_servers(dns, runner, blocker)
+
+    async def test_alias_output_and_timeout_fail_once_and_are_charged(self):
+        cases = [
+            (
+                response("openai_api", [{"source": "source-1", "target": "foreign"}]),
+                "success",
+                16384,
+            ),
+            (b"bad-json", "success", 16384),
+            (response("openai_api"), "success", 1),
+            (response("openai_api"), "headers_stall", 16384),
+        ]
+        for index, (payload, mode, output) in enumerate(cases):
+            dns, protocol, runner, blocker, _, route = await self.start_servers(
+                "openai_api", mode=mode, payload=payload
+            )
+            try:
+                capability = self.grant("openai_api")
+                access = AsyncAccess(route, self.bindings)
+                reservation = access.reserve(
+                    self.gate,
+                    capability,
+                    probe_id=f"failure-{index}",
+                    timeout=1,
+                    max_output=output,
+                )
+                started = time.monotonic()
+                with self.assertRaises((ValueError, TimeoutError)):
+                    await access.release(self.gate, capability, reservation)
+                self.assertLess(time.monotonic() - started, 1.2)
+                self.assertEqual(self.outcome(reservation)["status"], "failed")
+                self.assertEqual(protocol.queries, 1)
+                await self.assert_terminal(access)
+            finally:
+                await self.stop_servers(dns, runner, blocker)
+
+    async def test_duplicate_restart_uncertain_and_route_races(self):
+        provider = "openai_api"
+        dns, _, runner, blocker, _, route = await self.start_servers(provider)
+        try:
+            capability = self.grant(provider)
+            access = AsyncAccess(route, self.bindings)
+            reservation = access.reserve(self.gate, capability, probe_id="success")
+            await access.release(self.gate, capability, reservation)
+            with self.assertRaises(authority.Rejected):
+                await access.release(self.gate, capability, reservation)
+
+            capability = self.capability()
+            held = AsyncAccess(route, self.bindings)
+            uncertain = held.reserve(self.gate, capability, probe_id="uncertain")
+            with self.assertRaises(authority.SimulatedCrash):
+                await held.release(
+                    self.gate, capability, uncertain, crash_after_intent=True
+                )
+            self.gate.close()
+            self.gate = authority.AuthorityGate.open(
+                self.root / "authority.sqlite", trusted_process=self.trusted
+            )
+            self.assertEqual(self.outcome(uncertain)["status"], "uncertain")
+
+            capability = self.grant(provider)
+            changed = AsyncAccess(route, self.bindings)
+            changed_reservation = changed.reserve(
+                self.gate, capability, probe_id="route-change"
+            )
+            changed.on_resolve = lambda: setattr(
+                changed,
+                "selected_route",
+                AsyncRoute(provider, MODELS[provider], route.dns_port, 1, CA_FILE),
+            )
+            with self.assertRaises(authority.Rejected):
+                await changed.release(self.gate, capability, changed_reservation)
+            self.assertEqual(changed.constructions, 0)
+            self.assertEqual(self.outcome(changed_reservation)["status"], "cancelled")
+        finally:
+            await self.stop_servers(dns, runner, blocker)
+
+    async def test_outer_repeated_cancel_after_handoff_is_terminal(self):
+        provider = "openai_api"
+        dns, _, runner, blocker, seen, route = await self.start_servers(
+            provider, mode="headers_stall"
+        )
+        original_close = async_transport.DnsPythonResolver.close
+
+        async def slow_close(resolver):
+            await asyncio.sleep(0.03)
+            await original_close(resolver)
+
+        try:
+            async_transport.DnsPythonResolver.close = slow_close
+            capability = self.grant(provider)
+            access = AsyncAccess(route, self.bindings)
+            reservation = access.reserve(self.gate, capability)
+            owner = asyncio.create_task(
+                access.release(self.gate, capability, reservation)
+            )
+            await asyncio.wait_for(seen.wait(), 0.5)
+            owner.cancel()
+            loop = asyncio.get_running_loop()
+            loop.call_later(0.005, owner.cancel)
+            loop.call_later(0.015, owner.cancel)
+            with self.assertRaises(asyncio.CancelledError):
+                await owner
+            self.assertEqual(self.outcome(reservation)["status"], "failed")
+            await self.assert_terminal(access)
+        finally:
+            async_transport.DnsPythonResolver.close = original_close
+            await self.stop_servers(dns, runner, blocker)
+
+    async def test_cancel_before_first_wait_turn_and_post_construct_route_freeze(self):
+        provider = "openai_api"
+        dns, protocol, runner, blocker, _, route = await self.start_servers(provider)
+        try:
+            capability = self.grant(provider)
+            access = AsyncAccess(route, self.bindings)
+            reservation = access.reserve(self.gate, capability, probe_id="pre-wait")
+            original_handoff = self.gate._handoff
+
+            def handoff_then_cancel(**kwargs):
+                handle, row = original_handoff(**kwargs)
+                handle.cancel()
+                return handle, row
+
+            self.gate._handoff = handoff_then_cancel
+            with self.assertRaises(asyncio.CancelledError):
+                await access.release(self.gate, capability, reservation)
+            self.gate._handoff = original_handoff
+            self.assertEqual(self.outcome(reservation)["status"], "failed")
+            self.assertEqual(protocol.queries, 0)
+            self.assertEqual(access.flight.evidence.clients, 0)
+            self.assertEqual(access.flight.evidence.resolvers, 0)
+            self.assertEqual(access.flight.evidence.active_resolutions, set())
+
+            capability = self.grant(provider)
+            frozen = AsyncAccess(route, self.bindings)
+            frozen_reservation = frozen.reserve(
+                self.gate, capability, probe_id="post-construct-route"
+            )
+            owner = asyncio.create_task(
+                frozen.release(self.gate, capability, frozen_reservation)
+            )
+            await asyncio.sleep(0)
+            self.assertIsNotNone(frozen.flight)
+            frozen.selected_route = AsyncRoute(
+                provider, MODELS[provider], route.dns_port, 1, CA_FILE
+            )
+            result = json.loads(await owner)
+            self.assertEqual(result["actual_model"], MODELS[provider])
+            self.assertEqual(self.outcome(frozen_reservation)["status"], "succeeded")
+            await self.assert_terminal(frozen)
+        finally:
+            self.gate._handoff = original_handoff
+            await self.stop_servers(dns, runner, blocker)
+
+    async def test_cleanup_failure_is_durable_failure_after_teardown_attempts(self):
+        provider = "gemini_api"
+        dns, _, runner, blocker, _, route = await self.start_servers(provider)
+        original_close = async_transport.DnsPythonResolver.close
+
+        async def close_then_fail(resolver):
+            await original_close(resolver)
+            raise RuntimeError("synthetic close failure")
+
+        try:
+            async_transport.DnsPythonResolver.close = close_then_fail
+            capability = self.grant(provider)
+            access = AsyncAccess(route, self.bindings)
+            reservation = access.reserve(self.gate, capability)
+            with self.assertRaisesRegex(RuntimeError, "cleanup/deadline failure"):
+                await access.release(self.gate, capability, reservation)
+            self.assertEqual(self.outcome(reservation)["status"], "failed")
+            self.assertTrue(access.flight.evidence.session_closed)
+            self.assertTrue(access.flight.evidence.connector_closed)
+            self.assertTrue(access.flight.evidence.resolver_closed)
+            self.assertEqual(access.flight.evidence.active_resolutions, set())
+        finally:
+            async_transport.DnsPythonResolver.close = original_close
+            await self.stop_servers(dns, runner, blocker)
+
+    async def test_publication_rechecks_clock_after_selection_validation(self):
+        provider = "openai_api"
+        dns, _, runner, blocker, _, route = await self.start_servers(provider)
+        original_validate = self.gate._validate_selection_locked
+        calls = 0
+
+        def delayed_sixth_validation(*args, **kwargs):
+            nonlocal calls
+            calls += 1
+            result = original_validate(*args, **kwargs)
+            # Credential preflight adds one validation before durable intent;
+            # publication remains the final, sixth validation in this path.
+            if calls == 6:
+                time.sleep(1.01)
+            return result
+
+        try:
+            capability = self.grant(provider)
+            access = AsyncAccess(route, self.bindings)
+            reservation = access.reserve(self.gate, capability, timeout=1)
+            self.gate._validate_selection_locked = delayed_sixth_validation
+            with self.assertRaisesRegex(authority.Rejected, "late publication"):
+                await access.release(self.gate, capability, reservation)
+            self.assertEqual(self.outcome(reservation)["status"], "superseded")
+            await self.assert_terminal(access)
+        finally:
+            self.gate._validate_selection_locked = original_validate
+            await self.stop_servers(dns, runner, blocker)
+
+    async def test_simultaneous_result_and_thread_revoke_has_one_terminal_state(self):
+        provider = "anthropic_api"
+        dns, _, runner, blocker, seen, route = await self.start_servers(provider)
+        try:
+            capability = self.grant(provider)
+            access = AsyncAccess(route, self.bindings)
+            reservation = access.reserve(self.gate, capability)
+            owner = asyncio.create_task(
+                access.release(self.gate, capability, reservation)
+            )
+            await asyncio.wait_for(seen.wait(), 0.5)
+            worker = threading.Thread(
+                target=lambda: self.gate.revoke_consent(
+                    self.capability(), provider=provider
+                )
+            )
+            worker.start()
+            try:
+                await owner
+            except (authority.Rejected, asyncio.CancelledError):
+                pass
+            worker.join(0.5)
+            self.assertFalse(worker.is_alive())
+            status = self.outcome(reservation)["status"]
+            self.assertIn(status, {"succeeded", "failed", "superseded"})
+            terminal = [
+                event
+                for event in self.gate.snapshot()["events"]
+                if event.get("reservation_id") == reservation
+                and event["kind"] in {"succeeded", "failed", "superseded"}
+            ]
+            self.assertEqual(len(terminal), 1)
+            self.assertNotIn(reservation, self.gate._inflight)
+            await self.assert_terminal(access)
+        finally:
+            await self.stop_servers(dns, runner, blocker)
+
+
+if __name__ == "__main__":
+    unittest.main()

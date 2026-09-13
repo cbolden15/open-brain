@@ -7,7 +7,7 @@ import os
 import stat
 import tomllib
 import uuid
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from contextlib import suppress
 from pathlib import Path
 from types import MappingProxyType
@@ -55,7 +55,10 @@ _PREFLIGHT_DIRECTORIES = tuple(
 
 
 def compile_single_user_local(
-    root: Path, *, starter_spaces: Sequence[str] = ()
+    root: Path,
+    *,
+    starter_spaces: Sequence[str] = (),
+    validate_before_identity_write: Callable[[], None] | None = None,
 ) -> SingleUserLocalProfile:
     """Create or reopen one root without replacing stable local identity."""
     if not isinstance(root, Path):
@@ -82,6 +85,8 @@ def compile_single_user_local(
         had_portable_content = _has_portable_content(root_fd)
         normalized_starters = _starter_spaces(starter_spaces)
         _preflight_layout(root_fd)
+        if validate_before_identity_write is not None:
+            validate_before_identity_write()
         identity = _load_or_create_identity(root_fd, had_portable_content=had_portable_content)
         os.fchmod(root_fd, 0o700)
         metadata = os.fstat(root_fd)

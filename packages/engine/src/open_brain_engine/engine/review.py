@@ -585,7 +585,6 @@ class ReviewOperations(_LocalEngineOperations):
                         space_id=cast(str, proposal["space_id"]),
                         title=cast(str, parsed.fields["title"]),
                         body=parsed.body,
-                        trust="reviewed",
                         canonical_path=canonical_path,
                         updated_at=cast(str, row["recorded_at"]),
                     )

@@ -19,6 +19,7 @@ from open_brain_engine.storage.markdown import MarkdownFormatError, parse_markdo
 
 from .contracts import LocalEngineContext
 from .local_store import _LocalStore
+from .search_projection import source_search_title, upsert_search_document
 
 
 @dataclass(frozen=True, slots=True)
@@ -283,26 +284,20 @@ def materialize_portable_root(
                     "import",
                 ),
             )
-            connection.execute(
-                """
-                INSERT INTO search_documents (
-                    result_id, capture_id, record_type, payload_family, space_id,
-                    title, body, trust, provenance_json, canonical_path, updated_at
-                ) VALUES (?, ?, 'source', ?, ?, ?, ?, ?, ?, NULL, ?)
-                """,
-                (
-                    capture_id,
-                    capture_id,
-                    payload["family"],
-                    record["space_id"],
-                    f"{payload['family']} source",
-                    _payload_search_text(payload),
-                    cast(Mapping[str, object], record["trust"])["label"],
-                    portable_canonical_json_bytes(
-                        {"capture_id": capture_id, "source_ref": source["reference"]}
-                    ).decode(),
-                    record["accepted_at"],
+            upsert_search_document(
+                connection,
+                result_id=capture_id,
+                capture_id=capture_id,
+                record_type="source",
+                payload_family=cast(str, payload["family"]),
+                space_id=cast(str | None, record["space_id"]),
+                title=source_search_title(
+                    payload_family=cast(str, payload["family"]),
+                    body=_payload_search_text(payload),
                 ),
+                body=_payload_search_text(payload),
+                canonical_path=None,
+                updated_at=cast(str, record["accepted_at"]),
             )
         for _, record in routes:
             route_id = cast(str, record["route_id"])
@@ -426,27 +421,17 @@ def materialize_portable_root(
             capture_id = provenance[0]
             capture = next(record for _, record in captures if record["capture_id"] == capture_id)
             payload = cast(Mapping[str, object], capture["payload"])
-            connection.execute(
-                """
-                INSERT INTO search_documents (
-                    result_id, capture_id, record_type, payload_family, space_id,
-                    title, body, trust, provenance_json, canonical_path, updated_at
-                ) VALUES (?, ?, 'canonical', ?, ?, ?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    page_id,
-                    capture_id,
-                    payload["family"],
-                    fields["space_id"],
-                    fields["title"],
-                    body,
-                    fields["trust"],
-                    portable_canonical_json_bytes(
-                        {"capture_id": capture_id, "source_ref": f"capture:{capture_id}"}
-                    ).decode(),
-                    page_path,
-                    fields["modified_at"],
-                ),
+            upsert_search_document(
+                connection,
+                result_id=page_id,
+                capture_id=capture_id,
+                record_type="canonical",
+                payload_family=cast(str, payload["family"]),
+                space_id=cast(str, fields["space_id"]),
+                title=cast(str, fields["title"]),
+                body=body,
+                canonical_path=page_path,
+                updated_at=cast(str, fields["modified_at"]),
             )
         superseded_routes = {
             cast(str, record["supersedes"])

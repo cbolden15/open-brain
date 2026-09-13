@@ -1,0 +1,639 @@
+{
+  "excluded_runtime_dependencies": [
+    {
+      "name": "aiohttp",
+      "reason": "shared resolver and private send path rejected by E42; not installed by E43",
+      "reference_manifest_sha256": "02e2e9ff346f69ab105a8ddc8699f805a75ecca5a8e5cc9b12f2fe3903b231be",
+      "version": "3.14.3"
+    }
+  ],
+  "platforms": {
+    "linux-x86_64": [
+      {
+        "bytes": 12696,
+        "expanded_bytes": 39415,
+        "filename": "aiodns-4.0.4-py3-none-any.whl",
+        "license_expression": "MIT",
+        "license_members": [
+          {
+            "member": "aiodns-4.0.4.dist-info/licenses/LICENSE",
+            "sha256": "3e91cfa76821ab70d22998136d674d20ae888463a7e8a7f377166cfe1ee64feb"
+          }
+        ],
+        "members": 9,
+        "name": "aiodns",
+        "native_loader": {
+          "native_members": [],
+          "needed": []
+        },
+        "requires_dist": [
+          {
+            "active": true,
+            "raw": "pycares<6,>=5.0.0"
+          }
+        ],
+        "requires_python": ">=3.10",
+        "sha256": "c24dd605bac70a1676ce503f967a98483ff163507198557d8e9db16267e6cfd2",
+        "url": "https://files.pythonhosted.org/packages/7f/70/72e4ab117425ccdc4d10bd523a94c1baa051a15586057d64a4c6888f9e3f/aiodns-4.0.4-py3-none-any.whl",
+        "version": "4.0.4",
+        "wheel_tags": [
+          "py3-none-any"
+        ]
+      },
+      {
+        "bytes": 219244,
+        "expanded_bytes": 726830,
+        "filename": "cffi-2.0.0-cp314-cp314-manylinux2014_x86_64.manylinux_2_17_x86_64.whl",
+        "license_expression": "MIT",
+        "license_members": [
+          {
+            "member": "cffi-2.0.0.dist-info/licenses/",
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          },
+          {
+            "member": "cffi-2.0.0.dist-info/licenses/AUTHORS",
+            "sha256": "2a67a60bbfb33759d67d645ff131b8e6d6bc4cafc232d751fcac3eda4d314cc8"
+          },
+          {
+            "member": "cffi-2.0.0.dist-info/licenses/LICENSE",
+            "sha256": "5ba24ddc57067f9249add644c3afc41a5d6dc37e23433ef759d95df370b0af63"
+          }
+        ],
+        "members": 33,
+        "name": "cffi",
+        "native_loader": {
+          "native_members": [
+            {
+              "bytes": 344664,
+              "path": "_cffi_backend.cpython-314-x86_64-linux-gnu.so",
+              "sha256": "202efbf6eaa01ba2dcf833edf7c6bf9449c599c38348169a583864b796029d87"
+            }
+          ],
+          "needed": [
+            "libpthread.so.0",
+            "libc.so.6",
+            "ld-linux-x86-64.so.2"
+          ]
+        },
+        "requires_dist": [
+          {
+            "active": true,
+            "raw": "pycparser; implementation_name != \"PyPy\""
+          }
+        ],
+        "requires_python": ">=3.9",
+        "sha256": "afb8db5439b81cf9c9d0c80404b60c3cc9c3add93e114dcae767f1477cb53775",
+        "url": "https://files.pythonhosted.org/packages/47/d9/d83e293854571c877a92da46fdec39158f8d7e68da75bf73581225d28e90/cffi-2.0.0-cp314-cp314-manylinux2014_x86_64.manylinux_2_17_x86_64.whl",
+        "version": "2.0.0",
+        "wheel_tags": [
+          "cp314-cp314-manylinux2014_x86_64",
+          "cp314-cp314-manylinux_2_17_x86_64"
+        ]
+      },
+      {
+        "bytes": 4424742,
+        "expanded_bytes": 13205196,
+        "filename": "cryptography-46.0.5-cp311-abi3-manylinux2014_x86_64.manylinux_2_17_x86_64.whl",
+        "license_expression": "Apache-2.0 OR BSD-3-Clause",
+        "license_members": [
+          {
+            "member": "cryptography-46.0.5.dist-info/licenses/",
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          },
+          {
+            "member": "cryptography-46.0.5.dist-info/licenses/LICENSE",
+            "sha256": "3e0c7c091a948b82533ba98fd7cbb40432d6f1a9acbf85f5922d2f99a93ae6bb"
+          },
+          {
+            "member": "cryptography-46.0.5.dist-info/licenses/LICENSE.APACHE",
+            "sha256": "aac73b3148f6d1d7111dbca32099f68d26c644c6813ae1e4f05f6579aa2663fe"
+          },
+          {
+            "member": "cryptography-46.0.5.dist-info/licenses/LICENSE.BSD",
+            "sha256": "602c4c7482de6479dd2e9793cda275e5e63d773dacd1eca689232ab7008fb4fb"
+          }
+        ],
+        "members": 127,
+        "name": "cryptography",
+        "native_loader": {
+          "native_members": [
+            {
+              "bytes": 12733496,
+              "path": "cryptography/hazmat/bindings/_rust.abi3.so",
+              "sha256": "a7407f5255964564fb1cc97263ca7ce9aa37659cf7d3d9aad81e990f5aeb1da8"
+            }
+          ],
+          "needed": [
+            "libgcc_s.so.1",
+            "librt.so.1",
+            "libpthread.so.0",
+            "libdl.so.2",
+            "libc.so.6",
+            "ld-linux-x86-64.so.2"
+          ]
+        },
+        "requires_dist": [
+          {
+            "active": false,
+            "raw": "cffi>=1.14 ; python_full_version == '3.8.*' and platform_python_implementation != 'PyPy'"
+          },
+          {
+            "active": true,
+            "raw": "cffi>=2.0.0 ; python_full_version >= '3.9' and platform_python_implementation != 'PyPy'"
+          },
+          {
+            "active": false,
+            "raw": "typing-extensions>=4.13.2 ; python_full_version < '3.11'"
+          },
+          {
+            "active": false,
+            "raw": "bcrypt>=3.1.5 ; extra == 'ssh'"
+          },
+          {
+            "active": false,
+            "raw": "nox[uv]>=2024.4.15 ; extra == 'nox'"
+          },
+          {
+            "active": false,
+            "raw": "cryptography-vectors==46.0.5 ; extra == 'test'"
+          },
+          {
+            "active": false,
+            "raw": "pytest>=7.4.0 ; extra == 'test'"
+          },
+          {
+            "active": false,
+            "raw": "pytest-benchmark>=4.0 ; extra == 'test'"
+          },
+          {
+            "active": false,
+            "raw": "pytest-cov>=2.10.1 ; extra == 'test'"
+          },
+          {
+            "active": false,
+            "raw": "pytest-xdist>=3.5.0 ; extra == 'test'"
+          },
+          {
+            "active": false,
+            "raw": "pretend>=0.7 ; extra == 'test'"
+          },
+          {
+            "active": false,
+            "raw": "certifi>=2024 ; extra == 'test'"
+          },
+          {
+            "active": false,
+            "raw": "pytest-randomly ; extra == 'test-randomorder'"
+          },
+          {
+            "active": false,
+            "raw": "sphinx>=5.3.0 ; extra == 'docs'"
+          },
+          {
+            "active": false,
+            "raw": "sphinx-rtd-theme>=3.0.0 ; extra == 'docs'"
+          },
+          {
+            "active": false,
+            "raw": "sphinx-inline-tabs ; extra == 'docs'"
+          },
+          {
+            "active": false,
+            "raw": "pyenchant>=3 ; extra == 'docstest'"
+          },
+          {
+            "active": false,
+            "raw": "readme-renderer>=30.0 ; extra == 'docstest'"
+          },
+          {
+            "active": false,
+            "raw": "sphinxcontrib-spelling>=7.3.1 ; extra == 'docstest'"
+          },
+          {
+            "active": false,
+            "raw": "build>=1.0.0 ; extra == 'sdist'"
+          },
+          {
+            "active": false,
+            "raw": "ruff>=0.11.11 ; extra == 'pep8test'"
+          },
+          {
+            "active": false,
+            "raw": "mypy>=1.14 ; extra == 'pep8test'"
+          },
+          {
+            "active": false,
+            "raw": "check-sdist ; extra == 'pep8test'"
+          },
+          {
+            "active": false,
+            "raw": "click>=8.0.1 ; extra == 'pep8test'"
+          }
+        ],
+        "requires_python": ">=3.8, !=3.9.0, !=3.9.1",
+        "sha256": "4d7e3d356b8cd4ea5aff04f129d5f66ebdc7b6f8eae802b93739ed520c47c79b",
+        "url": "https://files.pythonhosted.org/packages/63/e7/471ab61099a3920b0c77852ea3f0ea611c9702f651600397ac567848b897/cryptography-46.0.5-cp311-abi3-manylinux2014_x86_64.manylinux_2_17_x86_64.whl",
+        "version": "46.0.5",
+        "wheel_tags": [
+          "cp311-abi3-manylinux2014_x86_64",
+          "cp311-abi3-manylinux_2_17_x86_64"
+        ]
+      },
+      {
+        "bytes": 223501,
+        "expanded_bytes": 655846,
+        "filename": "pycares-5.0.1-cp314-cp314-manylinux_2_26_x86_64.manylinux_2_28_x86_64.whl",
+        "license_expression": "MIT",
+        "license_members": [
+          {
+            "member": "pycares-5.0.1.dist-info/licenses/",
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          },
+          {
+            "member": "pycares-5.0.1.dist-info/licenses/LICENSE",
+            "sha256": "427bb3a5372024a26e2c290b24382512bcc7ca123431c4dd178dd613beea7eee"
+          }
+        ],
+        "members": 15,
+        "name": "pycares",
+        "native_loader": {
+          "embedded_c_ares": {
+            "linkage": "static",
+            "version": "1.34.6"
+          },
+          "native_members": [
+            {
+              "bytes": 598592,
+              "path": "pycares/_cares.abi3.so",
+              "sha256": "2adc02a1ba71c40bea771b36eedcf342c3cc9da736518a7f57a30339526ba26f"
+            }
+          ],
+          "needed": [
+            "librt.so.1",
+            "libpthread.so.0",
+            "libc.so.6"
+          ]
+        },
+        "requires_dist": [
+          {
+            "active": false,
+            "raw": "cffi>=1.5.0; python_version < \"3.14\""
+          },
+          {
+            "active": true,
+            "raw": "cffi>=2.0.0b1; python_version >= \"3.14\""
+          },
+          {
+            "active": false,
+            "raw": "idna>=2.1; extra == \"idna\""
+          }
+        ],
+        "requires_python": ">=3.9",
+        "sha256": "f498a6606247bfe896c2a4d837db711eb7b0ba23e409e16e4b23def4bada4b9d",
+        "url": "https://files.pythonhosted.org/packages/3f/6c/d79c94809742b56b9180a9a9ec2937607db0b8eb34b8ca75d86d3114d6dd/pycares-5.0.1-cp314-cp314-manylinux_2_26_x86_64.manylinux_2_28_x86_64.whl",
+        "version": "5.0.1",
+        "wheel_tags": [
+          "cp314-cp314-manylinux_2_26_x86_64",
+          "cp314-cp314-manylinux_2_28_x86_64"
+        ]
+      },
+      {
+        "bytes": 48172,
+        "expanded_bytes": 203745,
+        "filename": "pycparser-3.0-py3-none-any.whl",
+        "license_expression": "BSD-3-Clause",
+        "license_members": [
+          {
+            "member": "pycparser-3.0.dist-info/licenses/LICENSE",
+            "sha256": "0c846399369ea76ddd7b5c44fe6d16497415fcf015f5cbb508c24bf98b81c5b1"
+          }
+        ],
+        "members": 13,
+        "name": "pycparser",
+        "native_loader": {
+          "native_members": [],
+          "needed": []
+        },
+        "requires_dist": [],
+        "requires_python": ">=3.10",
+        "sha256": "b727414169a36b7d524c1c3e31839a521725078d7b2ff038656844266160a992",
+        "url": "https://files.pythonhosted.org/packages/0c/c3/44f3fbbfa403ea2a7c779186dc20772604442dde72947e7d01069cbe98e3/pycparser-3.0-py3-none-any.whl",
+        "version": "3.0",
+        "wheel_tags": [
+          "py3-none-any"
+        ]
+      }
+    ],
+    "macos-arm64": [
+      {
+        "bytes": 12696,
+        "expanded_bytes": 39415,
+        "filename": "aiodns-4.0.4-py3-none-any.whl",
+        "license_expression": "MIT",
+        "license_members": [
+          {
+            "member": "aiodns-4.0.4.dist-info/licenses/LICENSE",
+            "sha256": "3e91cfa76821ab70d22998136d674d20ae888463a7e8a7f377166cfe1ee64feb"
+          }
+        ],
+        "members": 9,
+        "name": "aiodns",
+        "native_loader": {
+          "native_members": [],
+          "needed": []
+        },
+        "requires_dist": [
+          {
+            "active": true,
+            "raw": "pycares<6,>=5.0.0"
+          }
+        ],
+        "requires_python": ">=3.10",
+        "sha256": "c24dd605bac70a1676ce503f967a98483ff163507198557d8e9db16267e6cfd2",
+        "url": "https://files.pythonhosted.org/packages/7f/70/72e4ab117425ccdc4d10bd523a94c1baa051a15586057d64a4c6888f9e3f/aiodns-4.0.4-py3-none-any.whl",
+        "version": "4.0.4",
+        "wheel_tags": [
+          "py3-none-any"
+        ]
+      },
+      {
+        "bytes": 181487,
+        "expanded_bytes": 611597,
+        "filename": "cffi-2.0.0-cp314-cp314-macosx_11_0_arm64.whl",
+        "license_expression": "MIT",
+        "license_members": [
+          {
+            "member": "cffi-2.0.0.dist-info/licenses/",
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          },
+          {
+            "member": "cffi-2.0.0.dist-info/licenses/LICENSE",
+            "sha256": "5ba24ddc57067f9249add644c3afc41a5d6dc37e23433ef759d95df370b0af63"
+          },
+          {
+            "member": "cffi-2.0.0.dist-info/licenses/AUTHORS",
+            "sha256": "2a67a60bbfb33759d67d645ff131b8e6d6bc4cafc232d751fcac3eda4d314cc8"
+          }
+        ],
+        "members": 33,
+        "name": "cffi",
+        "native_loader": {
+          "native_members": [
+            {
+              "bytes": 229456,
+              "path": "_cffi_backend.cpython-314-darwin.so",
+              "sha256": "66fc2c5f14599ea1c95660d5287479776d45a0ef2643badc2c9d318394b502d8"
+            }
+          ],
+          "needed": [
+            "/usr/lib/libffi.dylib",
+            "/usr/lib/libSystem.B.dylib"
+          ]
+        },
+        "requires_dist": [
+          {
+            "active": true,
+            "raw": "pycparser; implementation_name != \"PyPy\""
+          }
+        ],
+        "requires_python": ">=3.9",
+        "sha256": "c654de545946e0db659b3400168c9ad31b5d29593291482c43e3564effbcee13",
+        "url": "https://files.pythonhosted.org/packages/59/dd/27e9fa567a23931c838c6b02d0764611c62290062a6d4e8ff7863daf9730/cffi-2.0.0-cp314-cp314-macosx_11_0_arm64.whl",
+        "version": "2.0.0",
+        "wheel_tags": [
+          "cp314-cp314-macosx_11_0_arm64"
+        ]
+      },
+      {
+        "bytes": 7176289,
+        "expanded_bytes": 21485076,
+        "filename": "cryptography-46.0.5-cp311-abi3-macosx_10_9_universal2.whl",
+        "license_expression": "Apache-2.0 OR BSD-3-Clause",
+        "license_members": [
+          {
+            "member": "cryptography-46.0.5.dist-info/licenses/LICENSE",
+            "sha256": "3e0c7c091a948b82533ba98fd7cbb40432d6f1a9acbf85f5922d2f99a93ae6bb"
+          },
+          {
+            "member": "cryptography-46.0.5.dist-info/licenses/LICENSE.APACHE",
+            "sha256": "aac73b3148f6d1d7111dbca32099f68d26c644c6813ae1e4f05f6579aa2663fe"
+          },
+          {
+            "member": "cryptography-46.0.5.dist-info/licenses/LICENSE.BSD",
+            "sha256": "602c4c7482de6479dd2e9793cda275e5e63d773dacd1eca689232ab7008fb4fb"
+          }
+        ],
+        "members": 107,
+        "name": "cryptography",
+        "native_loader": {
+          "native_members": [
+            {
+              "bytes": 21013520,
+              "path": "cryptography/hazmat/bindings/_rust.abi3.so",
+              "sha256": "a632309416e520040cebb4cdcb103b6b53193d32e59b10fdcaae3c82b417ffc0"
+            }
+          ],
+          "needed": [
+            "@rpath/cryptography.hazmat.bindings._rust.abi3.so",
+            "/usr/lib/libiconv.2.dylib",
+            "/usr/lib/libSystem.B.dylib"
+          ]
+        },
+        "requires_dist": [
+          {
+            "active": false,
+            "raw": "cffi>=1.14 ; python_full_version == '3.8.*' and platform_python_implementation != 'PyPy'"
+          },
+          {
+            "active": true,
+            "raw": "cffi>=2.0.0 ; python_full_version >= '3.9' and platform_python_implementation != 'PyPy'"
+          },
+          {
+            "active": false,
+            "raw": "typing-extensions>=4.13.2 ; python_full_version < '3.11'"
+          },
+          {
+            "active": false,
+            "raw": "bcrypt>=3.1.5 ; extra == 'ssh'"
+          },
+          {
+            "active": false,
+            "raw": "nox[uv]>=2024.4.15 ; extra == 'nox'"
+          },
+          {
+            "active": false,
+            "raw": "cryptography-vectors==46.0.5 ; extra == 'test'"
+          },
+          {
+            "active": false,
+            "raw": "pytest>=7.4.0 ; extra == 'test'"
+          },
+          {
+            "active": false,
+            "raw": "pytest-benchmark>=4.0 ; extra == 'test'"
+          },
+          {
+            "active": false,
+            "raw": "pytest-cov>=2.10.1 ; extra == 'test'"
+          },
+          {
+            "active": false,
+            "raw": "pytest-xdist>=3.5.0 ; extra == 'test'"
+          },
+          {
+            "active": false,
+            "raw": "pretend>=0.7 ; extra == 'test'"
+          },
+          {
+            "active": false,
+            "raw": "certifi>=2024 ; extra == 'test'"
+          },
+          {
+            "active": false,
+            "raw": "pytest-randomly ; extra == 'test-randomorder'"
+          },
+          {
+            "active": false,
+            "raw": "sphinx>=5.3.0 ; extra == 'docs'"
+          },
+          {
+            "active": false,
+            "raw": "sphinx-rtd-theme>=3.0.0 ; extra == 'docs'"
+          },
+          {
+            "active": false,
+            "raw": "sphinx-inline-tabs ; extra == 'docs'"
+          },
+          {
+            "active": false,
+            "raw": "pyenchant>=3 ; extra == 'docstest'"
+          },
+          {
+            "active": false,
+            "raw": "readme-renderer>=30.0 ; extra == 'docstest'"
+          },
+          {
+            "active": false,
+            "raw": "sphinxcontrib-spelling>=7.3.1 ; extra == 'docstest'"
+          },
+          {
+            "active": false,
+            "raw": "build>=1.0.0 ; extra == 'sdist'"
+          },
+          {
+            "active": false,
+            "raw": "ruff>=0.11.11 ; extra == 'pep8test'"
+          },
+          {
+            "active": false,
+            "raw": "mypy>=1.14 ; extra == 'pep8test'"
+          },
+          {
+            "active": false,
+            "raw": "check-sdist ; extra == 'pep8test'"
+          },
+          {
+            "active": false,
+            "raw": "click>=8.0.1 ; extra == 'pep8test'"
+          }
+        ],
+        "requires_python": ">=3.8, !=3.9.0, !=3.9.1",
+        "sha256": "351695ada9ea9618b3500b490ad54c739860883df6c1f555e088eaf25b1bbaad",
+        "url": "https://files.pythonhosted.org/packages/f7/81/b0bb27f2ba931a65409c6b8a8b358a7f03c0e46eceacddff55f7c84b1f3b/cryptography-46.0.5-cp311-abi3-macosx_10_9_universal2.whl",
+        "version": "46.0.5",
+        "wheel_tags": [
+          "cp311-abi3-macosx_10_9_universal2"
+        ]
+      },
+      {
+        "bytes": 131093,
+        "expanded_bytes": 365990,
+        "filename": "pycares-5.0.1-cp314-cp314-macosx_11_0_arm64.whl",
+        "license_expression": "MIT",
+        "license_members": [
+          {
+            "member": "pycares-5.0.1.dist-info/licenses/",
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          },
+          {
+            "member": "pycares-5.0.1.dist-info/licenses/LICENSE",
+            "sha256": "427bb3a5372024a26e2c290b24382512bcc7ca123431c4dd178dd613beea7eee"
+          }
+        ],
+        "members": 15,
+        "name": "pycares",
+        "native_loader": {
+          "embedded_c_ares": {
+            "linkage": "static",
+            "version": "1.34.6"
+          },
+          "native_members": [
+            {
+              "bytes": 308752,
+              "path": "pycares/_cares.abi3.so",
+              "sha256": "fa2a96ce0aa74584218b3b397c4dae3c106be489a200693b5703c24b63554be6"
+            }
+          ],
+          "needed": [
+            "/usr/lib/libSystem.B.dylib"
+          ]
+        },
+        "requires_dist": [
+          {
+            "active": false,
+            "raw": "cffi>=1.5.0; python_version < \"3.14\""
+          },
+          {
+            "active": true,
+            "raw": "cffi>=2.0.0b1; python_version >= \"3.14\""
+          },
+          {
+            "active": false,
+            "raw": "idna>=2.1; extra == \"idna\""
+          }
+        ],
+        "requires_python": ">=3.9",
+        "sha256": "82bd37fec2a3fa62add30d4a3854720f7b051386e2f18e6e8f4ee94b89b5a7b0",
+        "url": "https://files.pythonhosted.org/packages/42/da/e2e1683811c427492ee0e86e8fae8d55eb5cca032220438599991fdad866/pycares-5.0.1-cp314-cp314-macosx_11_0_arm64.whl",
+        "version": "5.0.1",
+        "wheel_tags": [
+          "cp314-cp314-macosx_11_0_arm64"
+        ]
+      },
+      {
+        "bytes": 48172,
+        "expanded_bytes": 203745,
+        "filename": "pycparser-3.0-py3-none-any.whl",
+        "license_expression": "BSD-3-Clause",
+        "license_members": [
+          {
+            "member": "pycparser-3.0.dist-info/licenses/LICENSE",
+            "sha256": "0c846399369ea76ddd7b5c44fe6d16497415fcf015f5cbb508c24bf98b81c5b1"
+          }
+        ],
+        "members": 13,
+        "name": "pycparser",
+        "native_loader": {
+          "native_members": [],
+          "needed": []
+        },
+        "requires_dist": [],
+        "requires_python": ">=3.10",
+        "sha256": "b727414169a36b7d524c1c3e31839a521725078d7b2ff038656844266160a992",
+        "url": "https://files.pythonhosted.org/packages/0c/c3/44f3fbbfa403ea2a7c779186dc20772604442dde72947e7d01069cbe98e3/pycparser-3.0-py3-none-any.whl",
+        "version": "3.0",
+        "wheel_tags": [
+          "py3-none-any"
+        ]
+      }
+    ]
+  },
+  "pycares_source": {
+    "module_sha256_after_patch": "5268cd8b98416d1240dc53572773b609a35abbf5a717159bdf04d6d95d9201af",
+    "module_sha256_before_patch": "513c4097c82d7caca59e9854d2b5740f939131bbdb210e6bd26b8730a14c3d3d",
+    "patch_sha256": "a8b27654b99c43d4ea542b901977eab8423ea87b1a7a4ca41561eb2c337c946c",
+    "upstream_version": "5.0.1"
+  },
+  "python": "CPython 3.14",
+  "schema": "open-brain-e43-dependency-wheel-manifest-v1"
+}

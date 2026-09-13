@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:open-brain:protocol:v1:request-binding",
+  "type": "object",
+  "properties": {
+    "method": { "enum": ["commit", "query", "changes", "inspect"] },
+    "brain_id": { "$ref": "urn:open-brain:protocol:v1:common#/$defs/brain_id" },
+    "delivery_id": { "$ref": "urn:open-brain:protocol:v1:common#/$defs/delivery_id" },
+    "nonce": { "$ref": "urn:open-brain:protocol:v1:common#/$defs/nonce_id" },
+    "body_digest": { "$ref": "urn:open-brain:protocol:v1:common#/$defs/digest" }
+  },
+  "required": ["method", "brain_id", "delivery_id", "nonce", "body_digest"],
+  "additionalProperties": false
+}

@@ -1,0 +1,85 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:open-brain:protocol:v1:ledger-item-ref",
+  "oneOf": [
+    {
+      "type": "object",
+      "properties": {
+        "item_kind": { "const": "record" },
+        "record_id": { "$ref": "urn:open-brain:protocol:v1:common#/$defs/record_id" }
+      },
+      "required": ["item_kind", "record_id"],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "item_kind": { "const": "proposal" },
+        "proposal_id": { "$ref": "urn:open-brain:protocol:v1:common#/$defs/proposal_id" },
+        "proposal_revision_id": {
+          "$ref": "urn:open-brain:protocol:v1:common#/$defs/revision_id"
+        }
+      },
+      "required": ["item_kind", "proposal_id", "proposal_revision_id"],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "item_kind": { "const": "revision" },
+        "revision_id": { "$ref": "urn:open-brain:protocol:v1:common#/$defs/revision_id" }
+      },
+      "required": ["item_kind", "revision_id"],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "item_kind": { "const": "decision" },
+        "decision_id": { "$ref": "urn:open-brain:protocol:v1:common#/$defs/decision_id" }
+      },
+      "required": ["item_kind", "decision_id"],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "item_kind": { "const": "purge_transition" },
+        "purge_id": { "$ref": "urn:open-brain:protocol:v1:common#/$defs/purge_id" },
+        "subject_kind": {
+          "enum": ["record", "revision", "proposal", "effect_receipt"]
+        },
+        "subject_id": { "type": "string", "pattern": "^[a-z]{3}_[a-z2-7]{26}$" }
+      },
+      "required": ["item_kind", "purge_id", "subject_kind", "subject_id"],
+      "allOf": [
+        {
+          "if": { "properties": { "subject_kind": { "const": "record" } } },
+          "then": { "properties": { "subject_id": { "pattern": "^rec_[a-z2-7]{26}$" } } }
+        },
+        {
+          "if": { "properties": { "subject_kind": { "const": "revision" } } },
+          "then": { "properties": { "subject_id": { "pattern": "^rev_[a-z2-7]{26}$" } } }
+        },
+        {
+          "if": { "properties": { "subject_kind": { "const": "proposal" } } },
+          "then": { "properties": { "subject_id": { "pattern": "^prp_[a-z2-7]{26}$" } } }
+        },
+        {
+          "if": { "properties": { "subject_kind": { "const": "effect_receipt" } } },
+          "then": { "properties": { "subject_id": { "pattern": "^rcp_[a-z2-7]{26}$" } } }
+        }
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "item_kind": { "const": "effect_receipt" },
+        "receipt_id": { "$ref": "urn:open-brain:protocol:v1:common#/$defs/receipt_id" }
+      },
+      "required": ["item_kind", "receipt_id"],
+      "additionalProperties": false
+    }
+  ]
+}

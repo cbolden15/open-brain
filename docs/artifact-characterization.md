@@ -1,107 +1,136 @@
-# v0 artifact characterization
+# Open Brain artifact characterization
 
-Status: Phase 4 P4-W6 unpublished release-candidate contract. Machine policy:
-[`release/v0-artifact-policy.json`](../release/v0-artifact-policy.json).
+Status: target release contract; artifacts are not published
 
-This records the isolated Python artifacts, the accepted P4-W5 native build subject, and the
-P4-W6 assembly and verification contract. It does not claim that a native v0 release exists or
-that any artifact is ready to publish. A P4-W6 candidate remains unpublished even after every
-manifest coordinate and host result passes.
+Date: 2026-09-08
 
-## Wheel
+## Shipping artifact
 
-Hatch builds two wheels with workspace sources disabled:
+Open Brain ships one PyInstaller one-file executable for each supported platform:
 
-- `open-brain-engine` contains the public engine facade, engine implementation, and Portable
-  schemas/conformance data. It contains no app, connector, legacy, test, or workspace module.
-- `open-brain` contains app composition, daemon/HTTP/UI behavior, installed CLI/MCP entry points,
-  and packaged launchd/systemd templates. It has an exact `open-brain-engine==0.1.0` dependency
-  and contains no engine copy, connector, legacy, test, or workspace module.
+- `open-brain-<version>-macos-arm64.tar.gz`
+- `open-brain-<version>-linux-x86_64.tar.gz`
 
-The app scanner rejects imports of engine modules not marked public in
-`docs/v0-package-classification.json`. Installed acceptance creates a fresh product environment
-from only the app and engine wheels and runs the app tests from a separate test environment.
+Each archive contains only the executable named `open-brain`. The executable bundles Python 3.14,
+the default app path, the base engine, SQLite support, and Portable Brain schemas. Its module audit
+rejects Secure Node, server, connector, legacy, and advanced cryptography dependencies.
 
-The machine policy derives required members from every classified artifact member. Missing files,
-new unaccounted-for files, private resources, and duplicate distribution/kind coordinates fail
-verification. The wheel statuses are `engine-isolated-unpublished` and
-`app-isolated-unpublished`.
+The frozen distribution retains dependency/version metadata, entry-point metadata, and legal notices.
+Installer records such as `direct_url.json`, `RECORD`, and uv caches are omitted. Generated Python
+`sysconfig` data keeps its complete scalar mapping, with references to its declared build prefixes
+relocated to the frozen interpreter's `sys.prefix` and `sys.exec_prefix`. Unrelated values are
+preserved; an unexpected home path outside those prefixes fails the build. This runtime is not a
+Python extension-building SDK. The native self-check verifies relocated library/bin paths and the
+pointer ABI before the product smoke runs.
 
-## Source distribution
+The macOS build must be exactly arm64. PyInstaller applies an ad hoc signature, and the build rejects
+the artifact unless `codesign --verify --strict` succeeds before the archive is hashed. The Linux
+build checks the ELF header for x86_64.
 
-Each sdist has an explicit Hatch include list. The engine sdist contains engine source, Portable
-resources, and release policy metadata. The app sdist contains app source, public documentation,
-synthetic examples, and release policy metadata. Neither includes tests, nested workstream state
-under `docs/ai`, connector source, or legacy source.
+## Release manifest
 
-`open_brain.dev.artifact_policy` strips the sdist root directory and compares actual archive
-members with the machine policy. Missing schemas or conformance evidence, duplicate members,
-unsafe member paths, operational state, credential paths, or database files fail verification.
+`open-brain-release-manifest-v1.txt` contains one exact version and one row per artifact:
 
-## Target release exclusions
+```text
+open-brain-release-manifest-v1
+version 0.1.0
+artifact linux-x86_64 <64-lowercase-hex-sha256> open-brain-0.1.0-linux-x86_64.tar.gz
+artifact macos-arm64 <64-lowercase-hex-sha256> open-brain-0.1.0-macos-arm64.tar.gz
+```
 
-The default app and engine artifacts already exclude workspace tooling, predecessor migration and
-cutover code, optional cloud code, and source-specific connector bridges. Connector and legacy
-distributions remain separate gated work. The complete exclusion list is machine-readable.
+Platform builds may first emit a one-row manifest. The `manifest` command in
+`tools/open_brain_dev/base_native.py` combines the two final archives and rejects duplicate
+platforms or mixed versions. There is no attestation or evidence-assembly layer.
 
-## Approved host matrix
+## Owner content audit
 
-The only supported v0 targets are macOS 14 or newer on Apple Silicon and Linux x86_64 on Ubuntu
-24.04 LTS, Ubuntu 26.04 LTS, and Debian 13. Intel macOS, Linux arm64, and Windows are outside the
-v0 support promise.
+Before accepting those provisional manifests for publication, run the owner audit on both exact
+archives with the same private denylist used for source and history checks:
 
-## Native artifact status
+```sh
+uv run --frozen --python 3.14 python -m tools.open_brain_dev.release_audit \
+  --root /absolute/path/to/clean-source \
+  --private-denylist /absolute/path/to/private-denylist.txt \
+  --artifacts /absolute/path/to/open-brain-0.1.0-linux-x86_64.tar.gz \
+              /absolute/path/to/open-brain-0.1.0-macos-arm64.tar.gz
+```
 
-Native build subjects are present for PyInstaller 6.22.2 onedir with
-`pyinstaller-hooks-contrib` 2026.7 and Python 3.12. The same checked-in spec runs on native macOS
-ARM64 and Ubuntu 24.04 x86_64 CI. Its bounded audit records exact source identity, member and tree
-digests, policy-confined runtime and exact tracked resource membership, confined symlinks, frozen
-child routing, daemon restart, Portable requests through the public daemon control contract,
-verified backup and disposable restore, owner-confirmed corrupt-candidate rollback, native
-lifecycle upgrade, application uninstall, and clean managed residue. Each build materializes only
-the named Git tree, compares the archive with raw no-replace Git blob IDs and modes, and verifies
-that source image before and after PyInstaller runs. Replacement refs, external attributes, extra
-resources, and every `.env*` member fail closed. A canonical adapter-owned inventory enrolls
-candidates through lifecycle operations and may bootstrap only the explicit current link.
-Uninstall quarantines enrolled trees before non-symlink-following removal, including a tree whose
-manifest no longer validates, while unregistered candidates survive.
+Exit zero is required. The private audit stays separate from contributor checks and CI. A successful
+build, module inventory, signature check, or manifest digest does not establish content safety.
 
-The accepted P4-W5 subjects remain immutable inputs, not published release artifacts. P4-W6 uses
-separate exact-source builds with the `candidate_native-p4w6` identity. Linux media is a
-deterministic checksummed tarball. macOS media is a Developer ID Application-signed DMG whose
-nested Mach-O files are signed inside-out with hardened runtime and secure timestamps before the
-DMG is notarized, stapled, and assessed. The artifact-only clean-host harness covers install,
-schema upgrade, daemon supervision, backup and exact restore, V0-GATE-07, V0-GATE-13, Portable
-round trip, forced rollback, successful upgrade, uninstall, and residue without a source checkout
-or system Python.
+`tools/open_brain_dev/artifact_audit.py` inspects the pinned Python 3.14 / PyInstaller 6 format as
+data. It checks the outer archive, ELF or Mach-O payload boundaries, CArchive members, compressed
+PYZ modules, and the nested base-library ZIP. A bounded marshal reader scans code strings, names,
+filenames, bytecode, and constants without constructing or executing code objects. PYZ import names
+are checked as module paths ending in `.py`; their original spelling is also content-scanned.
+The owner denylist and generic content rules apply to raw and decoded data. After full module
+validation and scanning, only `private-ip-address` findings for the exact name/hash pairs in the
+[approved standard-library policy](audits/2026-09-09-ob1-stdlib-content-policy-proposal.md) are
+suppressed at that module's location. Owner terms and every other rule remain enforced. Changed
+payload hashes require separate review and approval; source/history policy is unchanged.
 
-The final unpublished manifest binds six Python distributions, both native media files and their
-checksums, launchd and systemd resources, native-build and notarization evidence, SPDX and license
-evidence, and every required clean-host result. Linux runs the exact archive on Ubuntu 24.04,
-Ubuntu 26.04, and Debian 13. The signed DMG runs on the signing host. If an exact signed-candidate
-macOS 14 runner is unavailable, the manifest requires both a bounded unavailable-runner record and
-a separate source-equivalent macOS 14 lifecycle result. Nuitka standalone 4.2 remains the accepted
-fallback only if the documented PyInstaller failure gate is exhausted. The policy keeps
-`published` empty.
+Each artifact runs in a separate worker with these limits:
 
-## Private-history audit
+| Resource | Bound |
+|---|---|
+| Input archive and individual expanded member | 64 MiB each |
+| Total charged input, expanded members, and decoded strings | 256 MiB |
+| Archive entries across all layers | 4,096 |
+| Marshal bytes per record / decoded objects across the artifact | 8 MiB / 500,000 |
+| Archive nesting / marshal nesting | 4 / 64 |
+| ZIP central directory and native tables of contents | 1 MiB each |
+| Tar extension body / total extension bytes / consecutive extensions | 64 KiB / 1 MiB / 64 |
+| CPU / wall time per worker | 30 seconds / 45 seconds |
+| Findings / worker response | 128 / 64 KiB |
 
-`open_brain.dev.public_history_audit` scans each reachable Git blob once, applies bounded batch
-reads and command timeouts, fails closed when scan limits are exceeded, and emits only commit ID,
-redacted path, and rule ID. The owner declared no additional project-specific private terms for
-the clean public repository. Generic credential, private-IP, absolute-home, forbidden-path, and
-scan-limit rules run with a synthetic denylist in CI.
+Linux also imposes a 1 GiB address-space ceiling. macOS uses the parser's explicit byte, object,
+depth, and time bounds because its address-space resource limit is unavailable. Archive data stays
+in memory. Malformed data, unsupported formats, exceeded limits, timeouts, and worker failures all
+produce a failing result. Native internal locations are opaque member numbers; diagnostics never
+include matching content or parser exception text.
 
-Reviewed historical false positives may be recorded in
-`release/public-history-allowlist.json`. Each entry binds one SHA-256 blob digest, one normalized
-repository path, and one rule. Only `absolute-home-path` and `private-ip-address` are eligible;
-credential, denylist, forbidden-path, and scan-limit findings cannot be suppressed.
+This inspector supports the current arm64 Mach-O and x86_64 ELF bundles, stored or deflated ZIP
+members, and ordinary tar/gzip archives. It rejects unsupported compression, encrypted ZIPs, ZIP64,
+ZIP data descriptors, and ambiguous native member layouts. It does not verify cryptographic
+signatures or assess arbitrary executable behavior. The build's existing signature and module
+checks remain required. Format upgrades need new fixtures and parser verification.
 
-Gitleaks has a separate exact-fingerprint ignore file for reviewed synthetic or opaque public
-values that match a generic detector. Each exception binds the introducing commit, path, rule, and
-line. The immutable P4 readiness snapshot uses one such entry for an opaque receipt; its strict
-schema and fixed file SHA-256 remain independently enforced. Changing `.gitleaksignore` triggers
-the full Release audit workflow.
+ZIP directories and tar extension records are counted before the standard-library readers allocate
+their metadata. Tar padding must be zero and ZIP local records must cover the complete payload
+region. Native archives require gzip and reject tar extensions; generic source archives may use
+bounded PAX or GNU long-name records. Sparse tar metadata and binary size encodings are unsupported.
 
-The Phase 0 real-history result is recorded in
-[`docs/audits/2026-08-30-phase0-public-history-audit.md`](audits/2026-08-30-phase0-public-history-audit.md).
+The 2 MiB source/history content limit is unchanged. Ordinary wheel and source-distribution members
+also retain that limit. Large native payloads receive the separate bounded inspection described
+above; their size does not grant an exemption from content rules.
+
+## Homebrew
+
+The `formula` command reads the manifest and renders the formula for the external Homebrew tap. Each
+platform block uses the immutable GitHub Release URL and repeats the manifest SHA-256. The formula
+does not fetch the manifest during installation. Homebrew verifies the archive digest before its
+`bin.install "open-brain"` step.
+
+CI renders the same formula with a local archive URL, installs it using Homebrew, and runs the product
+smoke. The public tap is updated only after both final platform archives exist and the combined
+manifest is final.
+
+## macOS distribution decision
+
+The supported install path is Homebrew. Command-line downloads used by Homebrew do not normally add
+the quarantine attribute that triggers first-launch Gatekeeper assessment. Apple Silicon still
+requires a valid code signature, so ad hoc signing remains mandatory.
+
+Developer ID distribution, notarization, stapling, DMGs, and Gatekeeper acceptance are not part of
+this release. If browser or Finder download becomes a supported path, that assumption changes and the
+proper Developer ID plus notarization path must be designed before publication.
+
+## Removed release surface
+
+The repository has no curl installer, installer preflight, transactional activation, rollback,
+installation receipt, custom uninstall, build attestation, clean-host matrix, VM provisioning,
+fault-injection journey, timing watchdog, or metadata-only evidence bundle. Git history retains the
+old implementation.
+
+Source distributions remain a contributor build output. They are not the supported end-user
+installation path and carry no release-evidence documents.

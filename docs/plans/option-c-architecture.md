@@ -1,11 +1,18 @@
 # Option C architecture plan
 
-- Status: Ready for implementation against the approved v0 contract
+- Status: Historical package-architecture plan; product boundary superseded 2026-09-07
 - Baseline: repository state at `41666f9`
-- Product authority: [`../v0-product-contract.md`](../v0-product-contract.md)
+- Current product authority: [`../product-family.md`](../product-family.md)
+- Current roadmap: [`product-roadmap.md`](product-roadmap.md)
+- Historical product authority: [`../v0-product-contract.md`](../v0-product-contract.md)
 - Contract version: `0.3`
 - Direction: split the portable engine, self-hosted application, optional connectors, and legacy work; keep a clean dependency path for a later managed service
 - Delivery rule: prove the v0 journey before moving the package tree
+
+The four-distribution ownership work in this plan remains accepted evidence. Its appliance-shaped
+default, mandatory daemon, selected Brain root, and hosting-first product-family terminology do not.
+Under the current split, plain `open-brain` is the five-minute direct local product and Secure Node
+owns the advanced daemon, custody, authorization, and multi-client architecture.
 
 ## Decision
 

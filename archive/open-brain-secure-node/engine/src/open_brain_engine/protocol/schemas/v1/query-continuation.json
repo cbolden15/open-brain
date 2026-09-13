@@ -1,0 +1,11 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:open-brain:protocol:v1:query-continuation",
+  "type": "object",
+  "properties": {
+    "schema_version": { "$ref": "urn:open-brain:protocol:v1:common#/$defs/schema_version" },
+    "token": { "type": "string", "pattern": "^qct_v1_[A-Za-z0-9_-]{32,4096}$" }
+  },
+  "required": ["schema_version", "token"],
+  "additionalProperties": false
+}

@@ -29,6 +29,7 @@ from .contracts import (
     _LocalEngineOperations,
     project_public_capture_receipt,
 )
+from .markdown_import import capture_projection_is_active, capture_submission_is_reserved
 from .normalization import (
     _dated_path,
     _decision_record,
@@ -76,6 +77,7 @@ class CaptureOperations(_LocalEngineOperations):
 
     def _submit_capture(self, submission: CaptureSubmission) -> CaptureReceipt:
         submission.validate_profile(self.profile)
+        capture_submission_is_reserved(cast("BrainEngine", self), submission)
         payload = submission.payload
         delivery_id = submission.delivery_id
         action = submission.action
@@ -245,7 +247,12 @@ class CaptureOperations(_LocalEngineOperations):
             stage = 2
         if stage < 3:
             with self._store.transaction() as connection:
-                self._upsert_source_search(connection, row)
+                if capture_projection_is_active(
+                    connection,
+                    delivery_id=cast(str, row["delivery_id"]),
+                    capture_id=cast(str, row["capture_id"]),
+                ):
+                    self._upsert_source_search(connection, row)
                 if cast(str | None, row["canonical_path"]) is not None:
                     self._upsert_canonical_search(
                         connection,
@@ -255,7 +262,6 @@ class CaptureOperations(_LocalEngineOperations):
                         space_id=cast(str, row["space_id"]),
                         title=self._capture_title(row),
                         body=cast(str, row["search_text"]),
-                        trust="owner",
                         canonical_path=cast(str, row["canonical_path"]),
                         updated_at=cast(str, row["accepted_at"]),
                     )

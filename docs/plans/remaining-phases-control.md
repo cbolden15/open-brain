@@ -2,6 +2,10 @@
 
 This document is the execution authority for the remaining Open Brain replacement work in Phases 7 and 8. The extraction plan defines the intended outcome. This document defines the gates that decide whether work may advance.
 
+Product-scope note: these are legacy replacement and cutover gates. They do not define the default
+Open Brain installation or move Secure Node controls into it. Current product work follows
+[`product-roadmap.md`](product-roadmap.md).
+
 The live machine-readable status is maintained outside the public repository in the governed workstream. It refers to gates by the IDs below and records the exact commit that passed verification.
 
 ## Gate rules

@@ -1,0 +1,1289 @@
+{
+  "platforms": {
+    "linux-x86_64": [
+      {
+        "bytes": 15038,
+        "expanded_bytes": 40006,
+        "filename": "aiohappyeyeballs-2.7.1-py3-none-any.whl",
+        "filename_tags": [
+          "py3-none-any"
+        ],
+        "license_files": [
+          "licenses/linux-x86_64/aiohappyeyeballs/LICENSE"
+        ],
+        "members": 10,
+        "name": "aiohappyeyeballs",
+        "requires_dist": [],
+        "requires_python": ">=3.10",
+        "sha256": "9243213661e29250eb41368e5daa826fc017156c3b8a11440826b2e3ed376472",
+        "url": "https://files.pythonhosted.org/packages/71/43/1947f06babed6b3f1d7f38b0c767f52df66bfb2bc10b468c4a7de9eceff2/aiohappyeyeballs-2.7.1-py3-none-any.whl",
+        "version": "2.7.1",
+        "wheel_tags": [
+          "py3-none-any"
+        ]
+      },
+      {
+        "bytes": 1761112,
+        "expanded_bytes": 6405346,
+        "filename": "aiohttp-3.14.3-cp314-cp314-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl",
+        "filename_tags": [
+          "cp314-cp314-manylinux2014_x86_64",
+          "cp314-cp314-manylinux_2_17_x86_64",
+          "cp314-cp314-manylinux_2_28_x86_64"
+        ],
+        "license_files": [
+          "licenses/linux-x86_64/aiohttp/LICENSE.txt",
+          "licenses/linux-x86_64/aiohttp/LICENSE"
+        ],
+        "members": 80,
+        "name": "aiohttp",
+        "requires_dist": [
+          {
+            "active": true,
+            "raw": "aiohappyeyeballs>=2.5.0"
+          },
+          {
+            "active": true,
+            "raw": "aiosignal>=1.4.0"
+          },
+          {
+            "active": false,
+            "raw": "async-timeout<6.0,>=4.0; python_version < \"3.11\""
+          },
+          {
+            "active": true,
+            "raw": "attrs>=17.3.0"
+          },
+          {
+            "active": true,
+            "raw": "frozenlist>=1.1.1"
+          },
+          {
+            "active": true,
+            "raw": "multidict<7.0,>=4.5"
+          },
+          {
+            "active": true,
+            "raw": "propcache>=0.2.0"
+          },
+          {
+            "active": false,
+            "raw": "typing_extensions>=4.4; python_version < \"3.13\""
+          },
+          {
+            "active": true,
+            "raw": "yarl<2.0,>=1.17.0"
+          },
+          {
+            "active": false,
+            "raw": "aiodns>=3.3.0; (sys_platform != \"android\" and sys_platform != \"ios\") and extra == \"speedups\""
+          },
+          {
+            "active": false,
+            "raw": "Brotli>=1.2; (platform_python_implementation == \"CPython\" and sys_platform != \"android\" and sys_platform != \"ios\") and extra == \"speedups\""
+          },
+          {
+            "active": false,
+            "raw": "brotlicffi>=1.2; platform_python_implementation != \"CPython\" and extra == \"speedups\""
+          },
+          {
+            "active": false,
+            "raw": "backports.zstd; (platform_python_implementation == \"CPython\" and python_version < \"3.14\" and sys_platform != \"android\" and sys_platform != \"ios\") and extra == \"speedups\""
+          }
+        ],
+        "requires_python": ">=3.10",
+        "sha256": "18cb43369747b2ae007bd2655fb8e63a099c2ff1d207962943636dac989b3147",
+        "url": "https://files.pythonhosted.org/packages/d5/b7/1da684a04175473fa4cddbf9a2f572e79514c3fd27a74597f43057d4f3da/aiohttp-3.14.3-cp314-cp314-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl",
+        "version": "3.14.3",
+        "wheel_tags": [
+          "cp314-cp314-manylinux_2_17_x86_64",
+          "cp314-cp314-manylinux2014_x86_64",
+          "cp314-cp314-manylinux_2_28_x86_64"
+        ]
+      },
+      {
+        "bytes": 7490,
+        "expanded_bytes": 17188,
+        "filename": "aiosignal-1.4.0-py3-none-any.whl",
+        "filename_tags": [
+          "py3-none-any"
+        ],
+        "license_files": [
+          "licenses/linux-x86_64/aiosignal/LICENSE"
+        ],
+        "members": 7,
+        "name": "aiosignal",
+        "requires_dist": [
+          {
+            "active": true,
+            "raw": "frozenlist>=1.1.0"
+          },
+          {
+            "active": false,
+            "raw": "typing-extensions>=4.2; python_version < \"3.13\""
+          }
+        ],
+        "requires_python": ">=3.9",
+        "sha256": "053243f8b92b990551949e63930a839ff0cf0b0ebbe0597b0f3fb19e1a0fe82e",
+        "url": "https://files.pythonhosted.org/packages/fb/76/641ae371508676492379f16e2fa48f4e2c11741bd63c48be4b12a6b09cba/aiosignal-1.4.0-py3-none-any.whl",
+        "version": "1.4.0",
+        "wheel_tags": [
+          "py3-none-any"
+        ]
+      },
+      {
+        "bytes": 67548,
+        "expanded_bytes": 233691,
+        "filename": "attrs-26.1.0-py3-none-any.whl",
+        "filename_tags": [
+          "py3-none-any"
+        ],
+        "license_files": [
+          "licenses/linux-x86_64/attrs/LICENSE"
+        ],
+        "members": 35,
+        "name": "attrs",
+        "requires_dist": [],
+        "requires_python": ">=3.9",
+        "sha256": "c647aa4a12dfbad9333ca4e71fe62ddc36f4e63b2d260a37a8b83d2f043ac309",
+        "url": "https://files.pythonhosted.org/packages/64/b4/17d4b0b2a2dc85a6df63d1157e028ed19f90d4cd97c36717afef2bc2f395/attrs-26.1.0-py3-none-any.whl",
+        "version": "26.1.0",
+        "wheel_tags": [
+          "py3-none-any"
+        ]
+      },
+      {
+        "bytes": 219244,
+        "expanded_bytes": 726830,
+        "filename": "cffi-2.0.0-cp314-cp314-manylinux2014_x86_64.manylinux_2_17_x86_64.whl",
+        "filename_tags": [
+          "cp314-cp314-manylinux2014_x86_64",
+          "cp314-cp314-manylinux_2_17_x86_64"
+        ],
+        "license_files": [
+          "licenses/linux-x86_64/cffi/LICENSE"
+        ],
+        "members": 33,
+        "name": "cffi",
+        "requires_dist": [
+          {
+            "active": true,
+            "raw": "pycparser; implementation_name != \"PyPy\""
+          }
+        ],
+        "requires_python": ">=3.9",
+        "sha256": "afb8db5439b81cf9c9d0c80404b60c3cc9c3add93e114dcae767f1477cb53775",
+        "url": "https://files.pythonhosted.org/packages/47/d9/d83e293854571c877a92da46fdec39158f8d7e68da75bf73581225d28e90/cffi-2.0.0-cp314-cp314-manylinux2014_x86_64.manylinux_2_17_x86_64.whl",
+        "version": "2.0.0",
+        "wheel_tags": [
+          "cp314-cp314-manylinux_2_17_x86_64",
+          "cp314-cp314-manylinux2014_x86_64"
+        ]
+      },
+      {
+        "bytes": 4424742,
+        "expanded_bytes": 13205196,
+        "filename": "cryptography-46.0.5-cp311-abi3-manylinux2014_x86_64.manylinux_2_17_x86_64.whl",
+        "filename_tags": [
+          "cp311-abi3-manylinux2014_x86_64",
+          "cp311-abi3-manylinux_2_17_x86_64"
+        ],
+        "license_files": [
+          "licenses/linux-x86_64/cryptography/LICENSE",
+          "licenses/linux-x86_64/cryptography/LICENSE.APACHE",
+          "licenses/linux-x86_64/cryptography/LICENSE.BSD"
+        ],
+        "members": 127,
+        "name": "cryptography",
+        "requires_dist": [
+          {
+            "active": false,
+            "raw": "cffi>=1.14 ; python_full_version == '3.8.*' and platform_python_implementation != 'PyPy'"
+          },
+          {
+            "active": true,
+            "raw": "cffi>=2.0.0 ; python_full_version >= '3.9' and platform_python_implementation != 'PyPy'"
+          },
+          {
+            "active": false,
+            "raw": "typing-extensions>=4.13.2 ; python_full_version < '3.11'"
+          },
+          {
+            "active": false,
+            "raw": "bcrypt>=3.1.5 ; extra == 'ssh'"
+          },
+          {
+            "active": false,
+            "raw": "nox[uv]>=2024.4.15 ; extra == 'nox'"
+          },
+          {
+            "active": false,
+            "raw": "cryptography-vectors==46.0.5 ; extra == 'test'"
+          },
+          {
+            "active": false,
+            "raw": "pytest>=7.4.0 ; extra == 'test'"
+          },
+          {
+            "active": false,
+            "raw": "pytest-benchmark>=4.0 ; extra == 'test'"
+          },
+          {
+            "active": false,
+            "raw": "pytest-cov>=2.10.1 ; extra == 'test'"
+          },
+          {
+            "active": false,
+            "raw": "pytest-xdist>=3.5.0 ; extra == 'test'"
+          },
+          {
+            "active": false,
+            "raw": "pretend>=0.7 ; extra == 'test'"
+          },
+          {
+            "active": false,
+            "raw": "certifi>=2024 ; extra == 'test'"
+          },
+          {
+            "active": false,
+            "raw": "pytest-randomly ; extra == 'test-randomorder'"
+          },
+          {
+            "active": false,
+            "raw": "sphinx>=5.3.0 ; extra == 'docs'"
+          },
+          {
+            "active": false,
+            "raw": "sphinx-rtd-theme>=3.0.0 ; extra == 'docs'"
+          },
+          {
+            "active": false,
+            "raw": "sphinx-inline-tabs ; extra == 'docs'"
+          },
+          {
+            "active": false,
+            "raw": "pyenchant>=3 ; extra == 'docstest'"
+          },
+          {
+            "active": false,
+            "raw": "readme-renderer>=30.0 ; extra == 'docstest'"
+          },
+          {
+            "active": false,
+            "raw": "sphinxcontrib-spelling>=7.3.1 ; extra == 'docstest'"
+          },
+          {
+            "active": false,
+            "raw": "build>=1.0.0 ; extra == 'sdist'"
+          },
+          {
+            "active": false,
+            "raw": "ruff>=0.11.11 ; extra == 'pep8test'"
+          },
+          {
+            "active": false,
+            "raw": "mypy>=1.14 ; extra == 'pep8test'"
+          },
+          {
+            "active": false,
+            "raw": "check-sdist ; extra == 'pep8test'"
+          },
+          {
+            "active": false,
+            "raw": "click>=8.0.1 ; extra == 'pep8test'"
+          }
+        ],
+        "requires_python": ">=3.8, !=3.9.0, !=3.9.1",
+        "sha256": "4d7e3d356b8cd4ea5aff04f129d5f66ebdc7b6f8eae802b93739ed520c47c79b",
+        "url": "https://files.pythonhosted.org/packages/63/e7/471ab61099a3920b0c77852ea3f0ea611c9702f651600397ac567848b897/cryptography-46.0.5-cp311-abi3-manylinux2014_x86_64.manylinux_2_17_x86_64.whl",
+        "version": "46.0.5",
+        "wheel_tags": [
+          "cp311-abi3-manylinux_2_17_x86_64",
+          "cp311-abi3-manylinux2014_x86_64"
+        ]
+      },
+      {
+        "bytes": 331094,
+        "expanded_bytes": 1094463,
+        "filename": "dnspython-2.8.0-py3-none-any.whl",
+        "filename_tags": [
+          "py3-none-any"
+        ],
+        "license_files": [
+          "licenses/linux-x86_64/dnspython/LICENSE"
+        ],
+        "members": 154,
+        "name": "dnspython",
+        "requires_dist": [
+          {
+            "active": false,
+            "raw": "black>=25.1.0; extra == 'dev'"
+          },
+          {
+            "active": false,
+            "raw": "coverage>=7.0; extra == 'dev'"
+          },
+          {
+            "active": false,
+            "raw": "flake8>=7; extra == 'dev'"
+          },
+          {
+            "active": false,
+            "raw": "hypercorn>=0.17.0; extra == 'dev'"
+          },
+          {
+            "active": false,
+            "raw": "mypy>=1.17; extra == 'dev'"
+          },
+          {
+            "active": false,
+            "raw": "pylint>=3; extra == 'dev'"
+          },
+          {
+            "active": false,
+            "raw": "pytest-cov>=6.2.0; extra == 'dev'"
+          },
+          {
+            "active": false,
+            "raw": "pytest>=8.4; extra == 'dev'"
+          },
+          {
+            "active": false,
+            "raw": "quart-trio>=0.12.0; extra == 'dev'"
+          },
+          {
+            "active": false,
+            "raw": "sphinx-rtd-theme>=3.0.0; extra == 'dev'"
+          },
+          {
+            "active": false,
+            "raw": "sphinx>=8.2.0; extra == 'dev'"
+          },
+          {
+            "active": false,
+            "raw": "twine>=6.1.0; extra == 'dev'"
+          },
+          {
+            "active": false,
+            "raw": "wheel>=0.45.0; extra == 'dev'"
+          },
+          {
+            "active": false,
+            "raw": "cryptography>=45; extra == 'dnssec'"
+          },
+          {
+            "active": false,
+            "raw": "h2>=4.2.0; extra == 'doh'"
+          },
+          {
+            "active": false,
+            "raw": "httpcore>=1.0.0; extra == 'doh'"
+          },
+          {
+            "active": false,
+            "raw": "httpx>=0.28.0; extra == 'doh'"
+          },
+          {
+            "active": false,
+            "raw": "aioquic>=1.2.0; extra == 'doq'"
+          },
+          {
+            "active": false,
+            "raw": "idna>=3.10; extra == 'idna'"
+          },
+          {
+            "active": false,
+            "raw": "trio>=0.30; extra == 'trio'"
+          },
+          {
+            "active": false,
+            "raw": "wmi>=1.5.1; (platform_system == 'Windows') and extra == 'wmi'"
+          }
+        ],
+        "requires_python": ">=3.10",
+        "sha256": "01d9bbc4a2d76bf0db7c1f729812ded6d912bd318d3b1cf81d30c0f845dbf3af",
+        "url": "https://files.pythonhosted.org/packages/ba/5a/18ad964b0086c6e62e2e7500f7edc89e3faa45033c71c1893d34eed2b2de/dnspython-2.8.0-py3-none-any.whl",
+        "version": "2.8.0",
+        "wheel_tags": [
+          "py3-none-any"
+        ]
+      },
+      {
+        "bytes": 13409,
+        "expanded_bytes": 39787,
+        "filename": "frozenlist-1.8.0-py3-none-any.whl",
+        "filename_tags": [
+          "py3-none-any"
+        ],
+        "license_files": [
+          "licenses/linux-x86_64/frozenlist/LICENSE"
+        ],
+        "members": 9,
+        "name": "frozenlist",
+        "requires_dist": [],
+        "requires_python": ">=3.9",
+        "sha256": "0c18a16eab41e82c295618a77502e17b195883241c563b00f0aa5106fc4eaa0d",
+        "url": "https://files.pythonhosted.org/packages/9a/9a/e35b4a917281c0b8419d4207f4334c8e8c5dbf4f3f5f9ada73958d937dcc/frozenlist-1.8.0-py3-none-any.whl",
+        "version": "1.8.0",
+        "wheel_tags": [
+          "py3-none-any"
+        ]
+      },
+      {
+        "bytes": 68550,
+        "expanded_bytes": 337228,
+        "filename": "idna-3.19-py3-none-any.whl",
+        "filename_tags": [
+          "py3-none-any"
+        ],
+        "license_files": [
+          "licenses/linux-x86_64/idna/LICENSE.md"
+        ],
+        "members": 16,
+        "name": "idna",
+        "requires_dist": [
+          {
+            "active": false,
+            "raw": "ruff >= 0.16.0 ; extra == \"all\""
+          },
+          {
+            "active": false,
+            "raw": "mypy >= 1.11.2 ; extra == \"all\""
+          },
+          {
+            "active": false,
+            "raw": "ty >= 0.0.37 ; extra == \"all\""
+          },
+          {
+            "active": false,
+            "raw": "pytest >= 8.3.2 ; extra == \"all\""
+          },
+          {
+            "active": false,
+            "raw": "hypothesis >= 6.141.1 ; extra == \"all\""
+          },
+          {
+            "active": false,
+            "raw": "coverage >= 7.10.0 ; extra == \"all\""
+          }
+        ],
+        "requires_python": ">=3.9",
+        "sha256": "815e7be7a7806d54abb586dc943addc79e8b2ee16915059658cbeff4b1b43bf4",
+        "url": "https://files.pythonhosted.org/packages/57/b0/0e52c878c53f245edd3a11020f20979b3f490f245af532c7cae3027754b5/idna-3.19-py3-none-any.whl",
+        "version": "3.19",
+        "wheel_tags": [
+          "py3-none-any"
+        ]
+      },
+      {
+        "bytes": 281075,
+        "expanded_bytes": 1001427,
+        "filename": "multidict-6.8.0-cp314-cp314-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl",
+        "filename_tags": [
+          "cp314-cp314-manylinux2014_x86_64",
+          "cp314-cp314-manylinux_2_17_x86_64",
+          "cp314-cp314-manylinux_2_28_x86_64"
+        ],
+        "license_files": [
+          "licenses/linux-x86_64/multidict/LICENSE"
+        ],
+        "members": 14,
+        "name": "multidict",
+        "requires_dist": [
+          {
+            "active": false,
+            "raw": "typing-extensions>=4.1.0; python_version < \"3.11\""
+          }
+        ],
+        "requires_python": ">=3.10",
+        "sha256": "9606f583e7acaf61e7b3f56074e14037b9af7cb194590edfc0114b3ae5931ff7",
+        "url": "https://files.pythonhosted.org/packages/68/2a/066123b17291671bf67d2a5c65ee81a48de53913bd1b1578791519eacdb0/multidict-6.8.0-cp314-cp314-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl",
+        "version": "6.8.0",
+        "wheel_tags": [
+          "cp314-cp314-manylinux_2_17_x86_64",
+          "cp314-cp314-manylinux2014_x86_64",
+          "cp314-cp314-manylinux_2_28_x86_64"
+        ]
+      },
+      {
+        "bytes": 61633,
+        "expanded_bytes": 189464,
+        "filename": "propcache-0.5.2-cp314-cp314-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl",
+        "filename_tags": [
+          "cp314-cp314-manylinux2014_x86_64",
+          "cp314-cp314-manylinux_2_17_x86_64",
+          "cp314-cp314-manylinux_2_28_x86_64"
+        ],
+        "license_files": [
+          "licenses/linux-x86_64/propcache/LICENSE",
+          "licenses/linux-x86_64/propcache/NOTICE"
+        ],
+        "members": 16,
+        "name": "propcache",
+        "requires_dist": [],
+        "requires_python": ">=3.10",
+        "sha256": "e00820e192c8dbebcafb383ebbf99030895f09905e7a0eb2e0340a0bcc2bc825",
+        "url": "https://files.pythonhosted.org/packages/2b/76/7f1bfd6afff4c5e38e36a3c6d68eb5f4b7311ea80baf693db78d95b603c4/propcache-0.5.2-cp314-cp314-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl",
+        "version": "0.5.2",
+        "wheel_tags": [
+          "cp314-cp314-manylinux_2_17_x86_64",
+          "cp314-cp314-manylinux2014_x86_64",
+          "cp314-cp314-manylinux_2_28_x86_64"
+        ]
+      },
+      {
+        "bytes": 48172,
+        "expanded_bytes": 203745,
+        "filename": "pycparser-3.0-py3-none-any.whl",
+        "filename_tags": [
+          "py3-none-any"
+        ],
+        "license_files": [
+          "licenses/linux-x86_64/pycparser/LICENSE"
+        ],
+        "members": 13,
+        "name": "pycparser",
+        "requires_dist": [],
+        "requires_python": ">=3.10",
+        "sha256": "b727414169a36b7d524c1c3e31839a521725078d7b2ff038656844266160a992",
+        "url": "https://files.pythonhosted.org/packages/0c/c3/44f3fbbfa403ea2a7c779186dc20772604442dde72947e7d01069cbe98e3/pycparser-3.0-py3-none-any.whl",
+        "version": "3.0",
+        "wheel_tags": [
+          "py3-none-any"
+        ]
+      },
+      {
+        "bytes": 110830,
+        "expanded_bytes": 345174,
+        "filename": "yarl-1.24.5-cp314-cp314-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl",
+        "filename_tags": [
+          "cp314-cp314-manylinux2014_x86_64",
+          "cp314-cp314-manylinux_2_17_x86_64",
+          "cp314-cp314-manylinux_2_28_x86_64"
+        ],
+        "license_files": [
+          "licenses/linux-x86_64/yarl/LICENSE",
+          "licenses/linux-x86_64/yarl/NOTICE"
+        ],
+        "members": 20,
+        "name": "yarl",
+        "requires_dist": [
+          {
+            "active": true,
+            "raw": "idna>=2.0"
+          },
+          {
+            "active": true,
+            "raw": "multidict>=4.0"
+          },
+          {
+            "active": true,
+            "raw": "propcache>=0.2.1"
+          }
+        ],
+        "requires_python": ">=3.10",
+        "sha256": "66410eb6345d467151934b49bfa70fb32f5b35a6140baa40ad97d6436abea2e9",
+        "url": "https://files.pythonhosted.org/packages/9b/e8/f20557aca240d88e69850ad1ee91756821d094bb1310565c04d25c6682a2/yarl-1.24.5-cp314-cp314-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl",
+        "version": "1.24.5",
+        "wheel_tags": [
+          "cp314-cp314-manylinux_2_17_x86_64",
+          "cp314-cp314-manylinux2014_x86_64",
+          "cp314-cp314-manylinux_2_28_x86_64"
+        ]
+      },
+      {
+        "name": "rfc8785",
+        "version": "0.1.4",
+        "filename": "rfc8785-0.1.4-py3-none-any.whl",
+        "sha256": "520d690b448ecf0703691c76e1a34a24ddcd4fc5bc41d589cb7c58ec651bcd48",
+        "bytes": 9240,
+        "url": "https://files.pythonhosted.org/packages/4d/78/119878110660b2ad709888c8a1614fce7e2fab39080ab960656dc8605bf6/rfc8785-0.1.4-py3-none-any.whl",
+        "expanded_bytes": 21894,
+        "members": 7,
+        "license_files": [
+          "licenses/linux-x86_64/rfc8785/LICENSE"
+        ],
+        "filename_tags": [
+          "py3-none-any"
+        ],
+        "wheel_tags": [
+          "py3-none-any"
+        ],
+        "requires_python": ">=3.8",
+        "requires_dist": [
+          {
+            "raw": "rfc8785[doc,test,lint] ; extra == \"dev\"",
+            "active": false
+          },
+          {
+            "raw": "build ; extra == \"dev\"",
+            "active": false
+          },
+          {
+            "raw": "pdoc ; extra == \"doc\"",
+            "active": false
+          },
+          {
+            "raw": "ruff ~= 0.3 ; extra == \"lint\"",
+            "active": false
+          },
+          {
+            "raw": "mypy >= 1.0 ; extra == \"lint\"",
+            "active": false
+          },
+          {
+            "raw": "interrogate ; extra == \"lint\"",
+            "active": false
+          },
+          {
+            "raw": "pytest ; extra == \"test\"",
+            "active": false
+          },
+          {
+            "raw": "pytest-cov ; extra == \"test\"",
+            "active": false
+          },
+          {
+            "raw": "coverage ; extra == \"test\"",
+            "active": false
+          }
+        ]
+      }
+    ],
+    "macos-arm64": [
+      {
+        "bytes": 15038,
+        "expanded_bytes": 40006,
+        "filename": "aiohappyeyeballs-2.7.1-py3-none-any.whl",
+        "filename_tags": [
+          "py3-none-any"
+        ],
+        "license_files": [
+          "licenses/macos-arm64/aiohappyeyeballs/LICENSE"
+        ],
+        "members": 10,
+        "name": "aiohappyeyeballs",
+        "requires_dist": [],
+        "requires_python": ">=3.10",
+        "sha256": "9243213661e29250eb41368e5daa826fc017156c3b8a11440826b2e3ed376472",
+        "url": "https://files.pythonhosted.org/packages/71/43/1947f06babed6b3f1d7f38b0c767f52df66bfb2bc10b468c4a7de9eceff2/aiohappyeyeballs-2.7.1-py3-none-any.whl",
+        "version": "2.7.1",
+        "wheel_tags": [
+          "py3-none-any"
+        ]
+      },
+      {
+        "bytes": 512957,
+        "expanded_bytes": 1918120,
+        "filename": "aiohttp-3.14.3-cp314-cp314-macosx_11_0_arm64.whl",
+        "filename_tags": [
+          "cp314-cp314-macosx_11_0_arm64"
+        ],
+        "license_files": [
+          "licenses/macos-arm64/aiohttp/LICENSE.txt",
+          "licenses/macos-arm64/aiohttp/LICENSE"
+        ],
+        "members": 80,
+        "name": "aiohttp",
+        "requires_dist": [
+          {
+            "active": true,
+            "raw": "aiohappyeyeballs>=2.5.0"
+          },
+          {
+            "active": true,
+            "raw": "aiosignal>=1.4.0"
+          },
+          {
+            "active": false,
+            "raw": "async-timeout<6.0,>=4.0; python_version < \"3.11\""
+          },
+          {
+            "active": true,
+            "raw": "attrs>=17.3.0"
+          },
+          {
+            "active": true,
+            "raw": "frozenlist>=1.1.1"
+          },
+          {
+            "active": true,
+            "raw": "multidict<7.0,>=4.5"
+          },
+          {
+            "active": true,
+            "raw": "propcache>=0.2.0"
+          },
+          {
+            "active": false,
+            "raw": "typing_extensions>=4.4; python_version < \"3.13\""
+          },
+          {
+            "active": true,
+            "raw": "yarl<2.0,>=1.17.0"
+          },
+          {
+            "active": false,
+            "raw": "aiodns>=3.3.0; (sys_platform != \"android\" and sys_platform != \"ios\") and extra == \"speedups\""
+          },
+          {
+            "active": false,
+            "raw": "Brotli>=1.2; (platform_python_implementation == \"CPython\" and sys_platform != \"android\" and sys_platform != \"ios\") and extra == \"speedups\""
+          },
+          {
+            "active": false,
+            "raw": "brotlicffi>=1.2; platform_python_implementation != \"CPython\" and extra == \"speedups\""
+          },
+          {
+            "active": false,
+            "raw": "backports.zstd; (platform_python_implementation == \"CPython\" and python_version < \"3.14\" and sys_platform != \"android\" and sys_platform != \"ios\") and extra == \"speedups\""
+          }
+        ],
+        "requires_python": ">=3.10",
+        "sha256": "db332af25642007330fca8be5c4d194caf2bea7a7fc84415aff3497af5dfee6b",
+        "url": "https://files.pythonhosted.org/packages/85/ed/0357a015892fd68058bf2d39d3fd1958e459b997a7db30aaa6aaa434ae96/aiohttp-3.14.3-cp314-cp314-macosx_11_0_arm64.whl",
+        "version": "3.14.3",
+        "wheel_tags": [
+          "cp314-cp314-macosx_11_0_arm64"
+        ]
+      },
+      {
+        "bytes": 7490,
+        "expanded_bytes": 17188,
+        "filename": "aiosignal-1.4.0-py3-none-any.whl",
+        "filename_tags": [
+          "py3-none-any"
+        ],
+        "license_files": [
+          "licenses/macos-arm64/aiosignal/LICENSE"
+        ],
+        "members": 7,
+        "name": "aiosignal",
+        "requires_dist": [
+          {
+            "active": true,
+            "raw": "frozenlist>=1.1.0"
+          },
+          {
+            "active": false,
+            "raw": "typing-extensions>=4.2; python_version < \"3.13\""
+          }
+        ],
+        "requires_python": ">=3.9",
+        "sha256": "053243f8b92b990551949e63930a839ff0cf0b0ebbe0597b0f3fb19e1a0fe82e",
+        "url": "https://files.pythonhosted.org/packages/fb/76/641ae371508676492379f16e2fa48f4e2c11741bd63c48be4b12a6b09cba/aiosignal-1.4.0-py3-none-any.whl",
+        "version": "1.4.0",
+        "wheel_tags": [
+          "py3-none-any"
+        ]
+      },
+      {
+        "bytes": 67548,
+        "expanded_bytes": 233691,
+        "filename": "attrs-26.1.0-py3-none-any.whl",
+        "filename_tags": [
+          "py3-none-any"
+        ],
+        "license_files": [
+          "licenses/macos-arm64/attrs/LICENSE"
+        ],
+        "members": 35,
+        "name": "attrs",
+        "requires_dist": [],
+        "requires_python": ">=3.9",
+        "sha256": "c647aa4a12dfbad9333ca4e71fe62ddc36f4e63b2d260a37a8b83d2f043ac309",
+        "url": "https://files.pythonhosted.org/packages/64/b4/17d4b0b2a2dc85a6df63d1157e028ed19f90d4cd97c36717afef2bc2f395/attrs-26.1.0-py3-none-any.whl",
+        "version": "26.1.0",
+        "wheel_tags": [
+          "py3-none-any"
+        ]
+      },
+      {
+        "bytes": 181487,
+        "expanded_bytes": 611597,
+        "filename": "cffi-2.0.0-cp314-cp314-macosx_11_0_arm64.whl",
+        "filename_tags": [
+          "cp314-cp314-macosx_11_0_arm64"
+        ],
+        "license_files": [
+          "licenses/macos-arm64/cffi/LICENSE"
+        ],
+        "members": 33,
+        "name": "cffi",
+        "requires_dist": [
+          {
+            "active": true,
+            "raw": "pycparser; implementation_name != \"PyPy\""
+          }
+        ],
+        "requires_python": ">=3.9",
+        "sha256": "c654de545946e0db659b3400168c9ad31b5d29593291482c43e3564effbcee13",
+        "url": "https://files.pythonhosted.org/packages/59/dd/27e9fa567a23931c838c6b02d0764611c62290062a6d4e8ff7863daf9730/cffi-2.0.0-cp314-cp314-macosx_11_0_arm64.whl",
+        "version": "2.0.0",
+        "wheel_tags": [
+          "cp314-cp314-macosx_11_0_arm64"
+        ]
+      },
+      {
+        "bytes": 7176289,
+        "expanded_bytes": 21485076,
+        "filename": "cryptography-46.0.5-cp311-abi3-macosx_10_9_universal2.whl",
+        "filename_tags": [
+          "cp311-abi3-macosx_10_9_universal2"
+        ],
+        "license_files": [
+          "licenses/macos-arm64/cryptography/LICENSE",
+          "licenses/macos-arm64/cryptography/LICENSE.APACHE",
+          "licenses/macos-arm64/cryptography/LICENSE.BSD"
+        ],
+        "members": 107,
+        "name": "cryptography",
+        "requires_dist": [
+          {
+            "active": false,
+            "raw": "cffi>=1.14 ; python_full_version == '3.8.*' and platform_python_implementation != 'PyPy'"
+          },
+          {
+            "active": true,
+            "raw": "cffi>=2.0.0 ; python_full_version >= '3.9' and platform_python_implementation != 'PyPy'"
+          },
+          {
+            "active": false,
+            "raw": "typing-extensions>=4.13.2 ; python_full_version < '3.11'"
+          },
+          {
+            "active": false,
+            "raw": "bcrypt>=3.1.5 ; extra == 'ssh'"
+          },
+          {
+            "active": false,
+            "raw": "nox[uv]>=2024.4.15 ; extra == 'nox'"
+          },
+          {
+            "active": false,
+            "raw": "cryptography-vectors==46.0.5 ; extra == 'test'"
+          },
+          {
+            "active": false,
+            "raw": "pytest>=7.4.0 ; extra == 'test'"
+          },
+          {
+            "active": false,
+            "raw": "pytest-benchmark>=4.0 ; extra == 'test'"
+          },
+          {
+            "active": false,
+            "raw": "pytest-cov>=2.10.1 ; extra == 'test'"
+          },
+          {
+            "active": false,
+            "raw": "pytest-xdist>=3.5.0 ; extra == 'test'"
+          },
+          {
+            "active": false,
+            "raw": "pretend>=0.7 ; extra == 'test'"
+          },
+          {
+            "active": false,
+            "raw": "certifi>=2024 ; extra == 'test'"
+          },
+          {
+            "active": false,
+            "raw": "pytest-randomly ; extra == 'test-randomorder'"
+          },
+          {
+            "active": false,
+            "raw": "sphinx>=5.3.0 ; extra == 'docs'"
+          },
+          {
+            "active": false,
+            "raw": "sphinx-rtd-theme>=3.0.0 ; extra == 'docs'"
+          },
+          {
+            "active": false,
+            "raw": "sphinx-inline-tabs ; extra == 'docs'"
+          },
+          {
+            "active": false,
+            "raw": "pyenchant>=3 ; extra == 'docstest'"
+          },
+          {
+            "active": false,
+            "raw": "readme-renderer>=30.0 ; extra == 'docstest'"
+          },
+          {
+            "active": false,
+            "raw": "sphinxcontrib-spelling>=7.3.1 ; extra == 'docstest'"
+          },
+          {
+            "active": false,
+            "raw": "build>=1.0.0 ; extra == 'sdist'"
+          },
+          {
+            "active": false,
+            "raw": "ruff>=0.11.11 ; extra == 'pep8test'"
+          },
+          {
+            "active": false,
+            "raw": "mypy>=1.14 ; extra == 'pep8test'"
+          },
+          {
+            "active": false,
+            "raw": "check-sdist ; extra == 'pep8test'"
+          },
+          {
+            "active": false,
+            "raw": "click>=8.0.1 ; extra == 'pep8test'"
+          }
+        ],
+        "requires_python": ">=3.8, !=3.9.0, !=3.9.1",
+        "sha256": "351695ada9ea9618b3500b490ad54c739860883df6c1f555e088eaf25b1bbaad",
+        "url": "https://files.pythonhosted.org/packages/f7/81/b0bb27f2ba931a65409c6b8a8b358a7f03c0e46eceacddff55f7c84b1f3b/cryptography-46.0.5-cp311-abi3-macosx_10_9_universal2.whl",
+        "version": "46.0.5",
+        "wheel_tags": [
+          "cp311-abi3-macosx_10_9_universal2"
+        ]
+      },
+      {
+        "bytes": 331094,
+        "expanded_bytes": 1094463,
+        "filename": "dnspython-2.8.0-py3-none-any.whl",
+        "filename_tags": [
+          "py3-none-any"
+        ],
+        "license_files": [
+          "licenses/macos-arm64/dnspython/LICENSE"
+        ],
+        "members": 154,
+        "name": "dnspython",
+        "requires_dist": [
+          {
+            "active": false,
+            "raw": "black>=25.1.0; extra == 'dev'"
+          },
+          {
+            "active": false,
+            "raw": "coverage>=7.0; extra == 'dev'"
+          },
+          {
+            "active": false,
+            "raw": "flake8>=7; extra == 'dev'"
+          },
+          {
+            "active": false,
+            "raw": "hypercorn>=0.17.0; extra == 'dev'"
+          },
+          {
+            "active": false,
+            "raw": "mypy>=1.17; extra == 'dev'"
+          },
+          {
+            "active": false,
+            "raw": "pylint>=3; extra == 'dev'"
+          },
+          {
+            "active": false,
+            "raw": "pytest-cov>=6.2.0; extra == 'dev'"
+          },
+          {
+            "active": false,
+            "raw": "pytest>=8.4; extra == 'dev'"
+          },
+          {
+            "active": false,
+            "raw": "quart-trio>=0.12.0; extra == 'dev'"
+          },
+          {
+            "active": false,
+            "raw": "sphinx-rtd-theme>=3.0.0; extra == 'dev'"
+          },
+          {
+            "active": false,
+            "raw": "sphinx>=8.2.0; extra == 'dev'"
+          },
+          {
+            "active": false,
+            "raw": "twine>=6.1.0; extra == 'dev'"
+          },
+          {
+            "active": false,
+            "raw": "wheel>=0.45.0; extra == 'dev'"
+          },
+          {
+            "active": false,
+            "raw": "cryptography>=45; extra == 'dnssec'"
+          },
+          {
+            "active": false,
+            "raw": "h2>=4.2.0; extra == 'doh'"
+          },
+          {
+            "active": false,
+            "raw": "httpcore>=1.0.0; extra == 'doh'"
+          },
+          {
+            "active": false,
+            "raw": "httpx>=0.28.0; extra == 'doh'"
+          },
+          {
+            "active": false,
+            "raw": "aioquic>=1.2.0; extra == 'doq'"
+          },
+          {
+            "active": false,
+            "raw": "idna>=3.10; extra == 'idna'"
+          },
+          {
+            "active": false,
+            "raw": "trio>=0.30; extra == 'trio'"
+          },
+          {
+            "active": false,
+            "raw": "wmi>=1.5.1; (platform_system == 'Windows') and extra == 'wmi'"
+          }
+        ],
+        "requires_python": ">=3.10",
+        "sha256": "01d9bbc4a2d76bf0db7c1f729812ded6d912bd318d3b1cf81d30c0f845dbf3af",
+        "url": "https://files.pythonhosted.org/packages/ba/5a/18ad964b0086c6e62e2e7500f7edc89e3faa45033c71c1893d34eed2b2de/dnspython-2.8.0-py3-none-any.whl",
+        "version": "2.8.0",
+        "wheel_tags": [
+          "py3-none-any"
+        ]
+      },
+      {
+        "bytes": 49749,
+        "expanded_bytes": 184202,
+        "filename": "frozenlist-1.8.0-cp314-cp314-macosx_11_0_arm64.whl",
+        "filename_tags": [
+          "cp314-cp314-macosx_11_0_arm64"
+        ],
+        "license_files": [
+          "licenses/macos-arm64/frozenlist/LICENSE"
+        ],
+        "members": 13,
+        "name": "frozenlist",
+        "requires_dist": [],
+        "requires_python": ">=3.9",
+        "sha256": "4970ece02dbc8c3a92fcc5228e36a3e933a01a999f7094ff7c23fbd2beeaa67c",
+        "url": "https://files.pythonhosted.org/packages/a1/93/72b1736d68f03fda5fdf0f2180fb6caaae3894f1b854d006ac61ecc727ee/frozenlist-1.8.0-cp314-cp314-macosx_11_0_arm64.whl",
+        "version": "1.8.0",
+        "wheel_tags": [
+          "cp314-cp314-macosx_11_0_arm64"
+        ]
+      },
+      {
+        "bytes": 68550,
+        "expanded_bytes": 337228,
+        "filename": "idna-3.19-py3-none-any.whl",
+        "filename_tags": [
+          "py3-none-any"
+        ],
+        "license_files": [
+          "licenses/macos-arm64/idna/LICENSE.md"
+        ],
+        "members": 16,
+        "name": "idna",
+        "requires_dist": [
+          {
+            "active": false,
+            "raw": "ruff >= 0.16.0 ; extra == \"all\""
+          },
+          {
+            "active": false,
+            "raw": "mypy >= 1.11.2 ; extra == \"all\""
+          },
+          {
+            "active": false,
+            "raw": "ty >= 0.0.37 ; extra == \"all\""
+          },
+          {
+            "active": false,
+            "raw": "pytest >= 8.3.2 ; extra == \"all\""
+          },
+          {
+            "active": false,
+            "raw": "hypothesis >= 6.141.1 ; extra == \"all\""
+          },
+          {
+            "active": false,
+            "raw": "coverage >= 7.10.0 ; extra == \"all\""
+          }
+        ],
+        "requires_python": ">=3.9",
+        "sha256": "815e7be7a7806d54abb586dc943addc79e8b2ee16915059658cbeff4b1b43bf4",
+        "url": "https://files.pythonhosted.org/packages/57/b0/0e52c878c53f245edd3a11020f20979b3f490f245af532c7cae3027754b5/idna-3.19-py3-none-any.whl",
+        "version": "3.19",
+        "wheel_tags": [
+          "py3-none-any"
+        ]
+      },
+      {
+        "bytes": 48786,
+        "expanded_bytes": 185083,
+        "filename": "multidict-6.8.0-cp314-cp314-macosx_11_0_arm64.whl",
+        "filename_tags": [
+          "cp314-cp314-macosx_11_0_arm64"
+        ],
+        "license_files": [
+          "licenses/macos-arm64/multidict/LICENSE"
+        ],
+        "members": 14,
+        "name": "multidict",
+        "requires_dist": [
+          {
+            "active": false,
+            "raw": "typing-extensions>=4.1.0; python_version < \"3.11\""
+          }
+        ],
+        "requires_python": ">=3.10",
+        "sha256": "bea7df027015856ba5d0a88e3b4777ff8cb5c66b58fc108050fe79d4dd9d4d2d",
+        "url": "https://files.pythonhosted.org/packages/f5/b7/f4f4989594f99bc121ad9277090c4e49819b08ab1a96e132b628a9e10b7d/multidict-6.8.0-cp314-cp314-macosx_11_0_arm64.whl",
+        "version": "6.8.0",
+        "wheel_tags": [
+          "cp314-cp314-macosx_11_0_arm64"
+        ]
+      },
+      {
+        "bytes": 54650,
+        "expanded_bytes": 195784,
+        "filename": "propcache-0.5.2-cp314-cp314-macosx_11_0_arm64.whl",
+        "filename_tags": [
+          "cp314-cp314-macosx_11_0_arm64"
+        ],
+        "license_files": [
+          "licenses/macos-arm64/propcache/LICENSE",
+          "licenses/macos-arm64/propcache/NOTICE"
+        ],
+        "members": 16,
+        "name": "propcache",
+        "requires_dist": [],
+        "requires_python": ">=3.10",
+        "sha256": "97797ebb098e670a2f92dd66f32897e30d7615b14e7f59711de23e30a9072539",
+        "url": "https://files.pythonhosted.org/packages/63/b1/4260d67d6bd85e58a66b72d54ce15d5de789b6f3870cc6bedf8ff9667401/propcache-0.5.2-cp314-cp314-macosx_11_0_arm64.whl",
+        "version": "0.5.2",
+        "wheel_tags": [
+          "cp314-cp314-macosx_11_0_arm64"
+        ]
+      },
+      {
+        "bytes": 48172,
+        "expanded_bytes": 203745,
+        "filename": "pycparser-3.0-py3-none-any.whl",
+        "filename_tags": [
+          "py3-none-any"
+        ],
+        "license_files": [
+          "licenses/macos-arm64/pycparser/LICENSE"
+        ],
+        "members": 13,
+        "name": "pycparser",
+        "requires_dist": [],
+        "requires_python": ">=3.10",
+        "sha256": "b727414169a36b7d524c1c3e31839a521725078d7b2ff038656844266160a992",
+        "url": "https://files.pythonhosted.org/packages/0c/c3/44f3fbbfa403ea2a7c779186dc20772604442dde72947e7d01069cbe98e3/pycparser-3.0-py3-none-any.whl",
+        "version": "3.0",
+        "wheel_tags": [
+          "py3-none-any"
+        ]
+      },
+      {
+        "bytes": 97223,
+        "expanded_bytes": 348006,
+        "filename": "yarl-1.24.5-cp314-cp314-macosx_11_0_arm64.whl",
+        "filename_tags": [
+          "cp314-cp314-macosx_11_0_arm64"
+        ],
+        "license_files": [
+          "licenses/macos-arm64/yarl/LICENSE",
+          "licenses/macos-arm64/yarl/NOTICE"
+        ],
+        "members": 20,
+        "name": "yarl",
+        "requires_dist": [
+          {
+            "active": true,
+            "raw": "idna>=2.0"
+          },
+          {
+            "active": true,
+            "raw": "multidict>=4.0"
+          },
+          {
+            "active": true,
+            "raw": "propcache>=0.2.1"
+          }
+        ],
+        "requires_python": ">=3.10",
+        "sha256": "e42d75862735da90e7fc5a7b23db0c976f737113a54b3c9777a9b665e9cbff75",
+        "url": "https://files.pythonhosted.org/packages/18/a9/a07f76f3c44e02b25cc743af5ef93eef27f7013eadca770451b6a6ccb5db/yarl-1.24.5-cp314-cp314-macosx_11_0_arm64.whl",
+        "version": "1.24.5",
+        "wheel_tags": [
+          "cp314-cp314-macosx_11_0_arm64"
+        ]
+      },
+      {
+        "name": "rfc8785",
+        "version": "0.1.4",
+        "filename": "rfc8785-0.1.4-py3-none-any.whl",
+        "sha256": "520d690b448ecf0703691c76e1a34a24ddcd4fc5bc41d589cb7c58ec651bcd48",
+        "bytes": 9240,
+        "url": "https://files.pythonhosted.org/packages/4d/78/119878110660b2ad709888c8a1614fce7e2fab39080ab960656dc8605bf6/rfc8785-0.1.4-py3-none-any.whl",
+        "expanded_bytes": 21894,
+        "members": 7,
+        "license_files": [
+          "licenses/macos-arm64/rfc8785/LICENSE"
+        ],
+        "filename_tags": [
+          "py3-none-any"
+        ],
+        "wheel_tags": [
+          "py3-none-any"
+        ],
+        "requires_python": ">=3.8",
+        "requires_dist": [
+          {
+            "raw": "rfc8785[doc,test,lint] ; extra == \"dev\"",
+            "active": false
+          },
+          {
+            "raw": "build ; extra == \"dev\"",
+            "active": false
+          },
+          {
+            "raw": "pdoc ; extra == \"doc\"",
+            "active": false
+          },
+          {
+            "raw": "ruff ~= 0.3 ; extra == \"lint\"",
+            "active": false
+          },
+          {
+            "raw": "mypy >= 1.0 ; extra == \"lint\"",
+            "active": false
+          },
+          {
+            "raw": "interrogate ; extra == \"lint\"",
+            "active": false
+          },
+          {
+            "raw": "pytest ; extra == \"test\"",
+            "active": false
+          },
+          {
+            "raw": "pytest-cov ; extra == \"test\"",
+            "active": false
+          },
+          {
+            "raw": "coverage ; extra == \"test\"",
+            "active": false
+          }
+        ]
+      }
+    ]
+  },
+  "schema": "open-brain-c31-wheel-manifest-v1",
+  "dependency_tree_sha256": {
+    "macos-arm64": "dc368a6138e854702f65454068824bceeafc2b6e1e4fdeee67279d5c9c1cdf7b",
+    "linux-x86_64": "f02e1649b6ffdb44ab488ce03a9d177c544ce4290b7f3f2a650d043e48c00d29"
+  }
+}

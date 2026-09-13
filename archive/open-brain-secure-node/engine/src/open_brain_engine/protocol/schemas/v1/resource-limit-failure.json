@@ -1,0 +1,59 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:open-brain:protocol:v1:resource-limit-failure",
+  "type": "object",
+  "properties": {
+    "schema_version": { "$ref": "urn:open-brain:protocol:v1:common#/$defs/schema_version" },
+    "code": {
+      "enum": [
+        "active_label_set_limit",
+        "blob_staging_limit",
+        "commit_batch_limit",
+        "concurrent_request_limit",
+        "label_limit",
+        "nonce_capacity",
+        "query_fanout_limit",
+        "records_per_label_set_limit"
+      ]
+    },
+    "message": { "type": "string", "minLength": 1, "maxLength": 256 },
+    "retry_safe": { "type": "boolean" },
+    "retry_after_ms": { "type": ["integer", "null"], "minimum": 0 },
+    "corrective_action": { "type": ["string", "null"], "minLength": 1, "maxLength": 256 },
+    "accounting_scope": { "enum": ["brain", "principal"] },
+    "principal_id": {
+      "oneOf": [
+        { "$ref": "urn:open-brain:protocol:v1:common#/$defs/principal_id" },
+        { "type": "null" }
+      ]
+    },
+    "limit": { "type": "integer", "minimum": 1 },
+    "observed": { "type": "integer", "minimum": 0 }
+  },
+  "required": [
+    "schema_version",
+    "code",
+    "message",
+    "retry_safe",
+    "retry_after_ms",
+    "corrective_action",
+    "accounting_scope",
+    "principal_id",
+    "limit",
+    "observed"
+  ],
+  "allOf": [
+    {
+      "anyOf": [
+        { "properties": { "retry_after_ms": { "type": "integer" } } },
+        { "properties": { "corrective_action": { "type": "string" } } }
+      ]
+    },
+    {
+      "if": { "properties": { "accounting_scope": { "const": "principal" } } },
+      "then": { "properties": { "principal_id": { "type": "string" } } },
+      "else": { "properties": { "principal_id": { "type": "null" } } }
+    }
+  ],
+  "additionalProperties": false
+}

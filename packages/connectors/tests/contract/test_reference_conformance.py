@@ -1,16 +1,16 @@
 from __future__ import annotations
 
-from open_brain.extensions.connector_worker_v1 import (
+from open_brain_connectors.conformance import connector
+from open_brain_connectors.runtime.connector_worker_v1 import (
     ConnectorNetworkMode,
     ConnectorWorkerHost,
     ConnectorWorkerRequest,
 )
-from open_brain.extensions.connectors import (
+from open_brain_connectors.runtime.connectors import (
     ConnectorBudgetLimits,
     ConnectorOutcome,
     ConnectorProfile,
 )
-from open_brain_connectors.conformance import connector
 
 
 def test_reference_connector_runs_and_replays_through_the_worker_contract() -> None:

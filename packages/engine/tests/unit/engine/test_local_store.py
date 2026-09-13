@@ -2,10 +2,12 @@ from __future__ import annotations
 
 import sqlite3
 
-from open_brain_engine.engine.local_store import _add_route_operation_columns
+import pytest
+from open_brain_engine.engine.local_schema import _prepare_local_schema
+from open_brain_engine.storage.sqlite import SchemaError
 
 
-def test_legacy_route_operations_gain_stable_append_only_route_chain_ids() -> None:
+def test_partial_legacy_route_layout_is_refused_without_resetting_operations() -> None:
     connection = sqlite3.connect(":memory:", isolation_level=None)
     connection.row_factory = sqlite3.Row
     connection.execute(
@@ -52,14 +54,9 @@ def test_legacy_route_operations_gain_stable_append_only_route_chain_ids() -> No
         rows,
     )
 
-    _add_route_operation_columns(connection)
-    migrated = tuple(connection.execute("SELECT * FROM route_operations ORDER BY rowid"))
-
-    assert [row["route_id"] for row in migrated] == [
-        "route_123e4567-e89b-42d3-a456-426614174120",
-        "route_123e4567-e89b-42d3-a456-426614174121",
-    ]
-    assert migrated[0]["supersedes_route_id"] is None
-    assert migrated[1]["supersedes_route_id"] == migrated[0]["route_id"]
-    assert [row["stage"] for row in migrated] == [0, 0]
+    before = list(connection.iterdump())
+    with pytest.raises(SchemaError, match="invalid"):
+        _prepare_local_schema(connection, created=False, setup_required=True)
+    assert list(connection.iterdump()) == before
+    assert [row[0] for row in connection.execute("SELECT stage FROM route_operations")] == [1, 1]
     connection.close()

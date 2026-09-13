@@ -1,49 +1,51 @@
 # Privacy model
 
-Every capture receives an immutable privacy decision before persistence. The decision includes a tier, deterministic reason, and cloud/egress authority.
+Open Brain trusts one local operating-system user. Every capture receives an immutable privacy
+decision before persistence, but the application does not encrypt its own database or isolate data
+from another process running as that user.
 
-The single-user profile is one owner and one private Brain root. Its provider mode is `none`, and
-its connector allow-list is empty with egress disabled by default. The app wheel has no connector
-dependency and passes its installed contract with the connector distribution absent. An explicit
-`JOB-029` configuration can enable the bounded YouTube reference proof, but it receives only a
-capture-accept capability. It cannot route to a space, approve a review, publish owner output, or
-perform an action.
+## Local storage
 
-Connector discovery reads installed entry-point metadata and returns only explicitly enabled
-names. It does not load connector code in the app process. The provisional v1 worker request binds
-the exact manifest, count budgets, and `host_mediated` network mode. The child starts with an empty
-environment, direct socket APIs disabled, CPU/process/memory/time/output limits, and metadata-only
-responses. The current reference conformance uses synthetic host-mediated media, commits a bounded
-checkpoint receipt, and proves replay without a second submission. Secret values never cross the
-worker protocol.
+The Brain root, SQLite databases, search indexes, Portable Brain exports, and imported content may
+contain readable personal information. Open Brain uses owner-only paths where POSIX permissions are
+available and performs no network egress. Users remain responsible for account security, full-disk
+encryption, backups, and physical access.
 
-Missing, invalid, or ambiguous classification is local-only `hold` with no cloud or external egress authority. Later components may narrow authority but cannot broaden it.
+The live public-safe FTS5 projection is stored in `.open-brain/state/phase1.sqlite3`. The filename is
+retained for compatibility. It does not indicate a running Phase 1 service. SQLite may use temporary
+operating-system storage for sorter or FTS scratch.
 
-Tool-capable model processing must run through a staged-asset execution boundary with explicit readable assets, no inherited credentials, no access to host, home, or source trees, no host sockets, bounded network authority, and redacted failures.
+## MCP
 
-Production staged execution is available only where the operating-system confinement matrix passes. The Linux local-model runtime uses bubblewrap with an empty environment, no network, explicit read-only assets, bounded output, and process, CPU, memory, and file limits. Darwin downloaded-media execution uses the separately verified native sandbox boundary. Unsupported hosts fail closed.
+The owner explicitly launches `open-brain mcp` with capture, search, or both. Inherited stdio and the
+invoking OS account are the trust boundary. EOF stops the process. No listener, token service,
+daemon, connector, or background process is created.
 
-Work-tier capture events use the built-in, policy-version-locked redactor. Its receipt binds the exact normalized extraction and redacted output. Private raw captures remain unchanged.
+Search grants the connected client whole-Brain read access. A network-backed client may send results
+to its provider, even though Open Brain itself does not. Returned note content is untrusted data and
+may contain prompt injection.
 
-Only owner-authored work text can publish directly to the work inbox. Third-party web,
-social, and video captures publish to saved content with provenance. Third-party text does
-not become owner-authored work, and derived ideas or actions still require owner review.
+Capture uses a non-owner sink limited to durable, unverified text. Version 0.1.0 has no selective
+deletion, session rollback, or certified purge. Session call and byte limits reduce accidental loops
+but do not constrain hostile same-user code.
 
-Provider selection receives the full immutable privacy decision. An authorized cloud route still scans the final prompt for credential, contact, network, and private-path findings before constructing an adapter or resolving a credential. Failure selects no fallback provider.
+## Markdown import
 
-Connector counters and checkpoint claims are untrusted connector output. The host owns the
-budget meters and metadata receipt, records the exact sink-issued capture receipt with its
-delivery ID and source reference, and advances a checkpoint only when that host evidence matches.
-Rejected rows may advance past an ineligible input; an eligible row whose sink submission fails
-keeps the retry cursor so later work is not starved and the evidence remains retryable.
+Import reads only the absolute source root selected by the owner, follows no links, loads no plugins,
+and does not modify the source tree. Markdown, frontmatter, wiki links, embeds, HTML, and code remain
+inert text. Imported records are unverified and their prior revisions remain in local history and
+Portable Brain export after source changes or deletion.
 
-Ledger model text is untrusted. Sanitized leaves are one line, escaped, redaction-checked, directive-checked, and revalidated at merge and synthesis boundaries. Third-party source text can enter review records for audit, but owner-authored output contains only owner text and a deterministic opaque capture reference.
+## Search projection
 
-All public task and representation results use an engine-owned projection after storage and
-ranking. It protects raw and bounded percent/HTML-encoded source references, bare SHA-256-shaped
-tokens, absolute POSIX/Windows paths, credential assignments, storage-derived space slugs and
-canonical paths, and other protected literals while retaining useful searchable text, opaque IDs,
-and bounded provenance. Query explanations never echo query terms, and MCP retrieval IDs are
-random opaque values rather than hashes or other derivatives of the query. Renderers consume the
-projection; they do not implement separate redaction. Portable/source bytes and internal trusted
-records remain unchanged.
+Public search applies an engine-owned projection before matching and again before representation.
+It removes protected paths, credential-like values, source references, and digests while retaining
+useful text. This limits accidental disclosure through search. It does not make every excerpt
+non-sensitive or create compartment isolation.
+
+## Excluded claims
+
+Open Brain does not claim encrypted custody, multi-user grants, compartments, signed receipts,
+fencing, cryptographic erasure, certified purge, or hostile same-user isolation. Those properties
+require a separate product and conformance boundary. Archived Secure Node source does not add them
+to the active distribution.
