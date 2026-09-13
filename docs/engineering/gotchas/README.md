@@ -1587,3 +1587,19 @@ and reveal it. Allocate a new tab only when no matching leaf exists. Test both b
 the before/after tab count in Obsidian.
 
 Discovered: 2026-09-13, [NW3 Obsidian plugin audit](../../audits/2026-09-13-ob1-nw3-obsidian-plugin-audit.md).
+
+### INTEGRATION-032: Archive reproducibility does not imply frozen-build reproducibility
+
+Symptom: Two clean macOS builds from identical tracked source produce different executable, archive,
+and component-manifest SHA-256 values, even though rebuilding an archive from either fixed executable
+is byte-for-byte stable.
+
+Cause: The current contract normalizes tar and gzip metadata around a completed PyInstaller
+executable. It does not make independent PyInstaller and ad hoc signing runs deterministic.
+
+Fix: Select one exact candidate build, preserve its paired archives, and bind those exact bytes in the
+component manifest and release formula. Do not substitute an independently rebuilt artifact under an
+already reviewed digest. Treat end-to-end reproducible frozen builds as a separate requirement with
+its own toolchain proof.
+
+Discovered: 2026-09-13, NW4 exact-commit macOS candidate preparation.
