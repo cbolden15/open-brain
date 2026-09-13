@@ -196,23 +196,28 @@
         "463546f4a6677cfc260c623f61363b2263ba4536",
         "4c927660e52d3ea6230f7e14997a74d8ea6062ff",
         "54b7d0e5922b9bae9c04f176ab4289e99f84b0ce",
+        "54c48bb87733522af314e2158727d0f28a1980c3",
         "566b46e8ad8368ee9c14eb95811cdeee46ef9ef3",
         "58162e57f72d98c7d7cf16254d50ab7a8ae29d97",
         "5a5179780e8b7d2c4acec34d19adb9e538bc304c",
         "5f1395a82c670bd87739c6dd2c273aebb4c1e8cc",
+        "601cd08ca968bae892f1a004d57fccf5d36dd02b",
         "609c6de3daf25138e1f9203e839fff4a9501e1be",
         "72fbda0b1b92bafe8ff1b0da7fcb16461fc3981e",
         "73e4d18d5e2430baf0b18e100c66893e55183630",
         "79f3b44dda4ec96227e28c4e890170f834e78072",
         "7ec92c9e7ea77e0b0d70f274e06bbe8649ff53e2",
+        "8414577b477dcc91f68cc716ad134e093ca139e9",
         "84d1f95cf987bbcc5f62006c14f426973280971f",
         "8d3cbd6e8c910bbc581a4d467105c75560224156",
         "97583a668f77eef92b9a40107638796eeee547de",
         "9945e48b0f72299d512bf97363ee4782695e1d28",
+        "9e11bcf09a5c1a42cfa0137787df1c0e01f61176",
         "a6d92a983e15f58d223880b27cd376d458a091e0",
         "a79a9f48e23bb79757b93841854b8e387c154bb1",
         "aa9057c3878b082178e7444efb4db5fad9cbde44",
         "aaa902fec53113f3a9ee0725a97bbc90d7bc5762",
+        "b14eec4b7c6d415da11d29fd80b672fbcab7f239",
         "b3f74f616c3de470e9631ebae60e4d6e0dcb04ac",
         "b729466f4a06d0ec445e173156ed1bfbb8984330",
         "c065d7633a2a4fb03b8aa300e71940ba829beea5",
@@ -225,7 +230,8 @@
         "eb1ee380080548d5d04cf62f480c44aa519550a3",
         "ebef782afa066fb5108342f529cd0635b804eacd",
         "f1e3ceb8c7968505eba02b273d095bc0a34805e0",
-        "f23b4cef430bfd262b01f653ab326675fbd3cff5"
+        "f23b4cef430bfd262b01f653ab326675fbd3cff5",
+        "f7507ac79c1b6a92f7c3879316a7ec81b88cf627"
       ],
       "rule": "private-denylist-term"
     },
@@ -249,23 +255,28 @@
         "463546f4a6677cfc260c623f61363b2263ba4536",
         "4c927660e52d3ea6230f7e14997a74d8ea6062ff",
         "54b7d0e5922b9bae9c04f176ab4289e99f84b0ce",
+        "54c48bb87733522af314e2158727d0f28a1980c3",
         "566b46e8ad8368ee9c14eb95811cdeee46ef9ef3",
         "58162e57f72d98c7d7cf16254d50ab7a8ae29d97",
         "5a5179780e8b7d2c4acec34d19adb9e538bc304c",
         "5f1395a82c670bd87739c6dd2c273aebb4c1e8cc",
+        "601cd08ca968bae892f1a004d57fccf5d36dd02b",
         "609c6de3daf25138e1f9203e839fff4a9501e1be",
         "72fbda0b1b92bafe8ff1b0da7fcb16461fc3981e",
         "73e4d18d5e2430baf0b18e100c66893e55183630",
         "79f3b44dda4ec96227e28c4e890170f834e78072",
         "7ec92c9e7ea77e0b0d70f274e06bbe8649ff53e2",
+        "8414577b477dcc91f68cc716ad134e093ca139e9",
         "84d1f95cf987bbcc5f62006c14f426973280971f",
         "8d3cbd6e8c910bbc581a4d467105c75560224156",
         "97583a668f77eef92b9a40107638796eeee547de",
         "9945e48b0f72299d512bf97363ee4782695e1d28",
+        "9e11bcf09a5c1a42cfa0137787df1c0e01f61176",
         "a6d92a983e15f58d223880b27cd376d458a091e0",
         "a79a9f48e23bb79757b93841854b8e387c154bb1",
         "aa9057c3878b082178e7444efb4db5fad9cbde44",
         "aaa902fec53113f3a9ee0725a97bbc90d7bc5762",
+        "b14eec4b7c6d415da11d29fd80b672fbcab7f239",
         "b3f74f616c3de470e9631ebae60e4d6e0dcb04ac",
         "b729466f4a06d0ec445e173156ed1bfbb8984330",
         "c065d7633a2a4fb03b8aa300e71940ba829beea5",
@@ -278,10 +289,155 @@
         "eb1ee380080548d5d04cf62f480c44aa519550a3",
         "ebef782afa066fb5108342f529cd0635b804eacd",
         "f1e3ceb8c7968505eba02b273d095bc0a34805e0",
-        "f23b4cef430bfd262b01f653ab326675fbd3cff5"
+        "f23b4cef430bfd262b01f653ab326675fbd3cff5",
+        "f7507ac79c1b6a92f7c3879316a7ec81b88cf627"
       ],
       "rule": "private-denylist-term"
+    },
+    {
+      "blob_sha256": "da4ef9fad7c61762aa5ec679f4245c8a0873116fa79252acf2d2d0aace098fca",
+      "path": "docs/ai-os/integration-design.md",
+      "reason": "public-worktree-path-removed-from-current-tree",
+      "rule": "absolute-home-path"
+    },
+    {
+      "blob_sha256": "33b0a2df35e12adb6683be977a6630fd5e5aab7f777d6cbe162167a9905a3185",
+      "path": "docs/ai/workstreams/20260907-open-brain-public-ai-os-workspace-25c393/STATE.md",
+      "reason": "public-workstream-path-removed-from-current-tree",
+      "rule": "absolute-home-path"
+    },
+    {
+      "blob_sha256": "a7b732fcb3592e0e083f3cdba16193be7e09127a7db94d37b62b706aac7c18c2",
+      "path": "docs/ai/workstreams/20260907-open-brain-public-ai-os-workspace-25c393/STATE.md",
+      "reason": "public-workstream-path-removed-from-current-tree",
+      "rule": "absolute-home-path"
+    },
+    {
+      "blob_sha256": "493edad17162e17098f9951f5464a9f32b8d2ec8071aa7473388a6c70e13227c",
+      "path": "packages/app/src/open_brain/services/provider_credentials.py",
+      "reason": "credential-local-renamed-in-current-tree",
+      "rule": "credential-assignment",
+      "reviewed_commits": [
+        "53bcff913e4f7f4ceb6ef2bd23bd342e77a776aa",
+        "86e8336fa39525bdae7abaa206e83459a79f232e",
+        "896c208b5a8cceaf9501f37a1ec2d16418b4613e",
+        "8db4c64c687173471d70769e92d4d848aeba7d84",
+        "b5a0e6d485c7b011a36c8b15c87f757358addc57",
+        "cfe188e7744404604088ff1e48b7ca27e35af480",
+        "e009c2346661ab12eee1d73e0e2edeca076330e2",
+        "eebde6823980913a940f5179dac07ab12adfad84",
+        "f74550ead0b9af357d07c53bef75f578f79d25b4",
+        "f7d13a4cbc3c7d9945cefd955274c64f318f7836"
+      ]
+    },
+    {
+      "blob_sha256": "b783355c80b7759f5cb6489e5b66d51c1b1d7be06ec1e41c1b104467a0c538a9",
+      "path": "packages/app/tests/unit/test_plugin_bridge.py",
+      "reason": "synthetic-credential-fixture-renamed-in-current-tree",
+      "rule": "credential-assignment",
+      "reviewed_commits": [
+        "eebde6823980913a940f5179dac07ab12adfad84"
+      ]
+    },
+    {
+      "blob_sha256": "dcec7ffe63b661ec9cdb8a1ee83ca63ea4606719d8a58df1a33a6521adb99f31",
+      "path": "packages/app/tests/unit/test_plugin_bridge.py",
+      "reason": "synthetic-credential-fixture-renamed-in-current-tree",
+      "rule": "credential-assignment",
+      "reviewed_commits": [
+        "53bcff913e4f7f4ceb6ef2bd23bd342e77a776aa",
+        "86e8336fa39525bdae7abaa206e83459a79f232e",
+        "896c208b5a8cceaf9501f37a1ec2d16418b4613e",
+        "8db4c64c687173471d70769e92d4d848aeba7d84",
+        "b5a0e6d485c7b011a36c8b15c87f757358addc57",
+        "cfe188e7744404604088ff1e48b7ca27e35af480",
+        "e009c2346661ab12eee1d73e0e2edeca076330e2",
+        "f74550ead0b9af357d07c53bef75f578f79d25b4",
+        "f7d13a4cbc3c7d9945cefd955274c64f318f7836"
+      ]
+    },
+    {
+      "blob_sha256": "03449e2470ac3e16e7bf2a08859c4fbf086ae58c23161624061bd9033be5785a",
+      "path": "packages/obsidian-plugin/src/bridge.ts",
+      "reason": "linuxbrew-public-install-path-split-in-current-tree",
+      "rule": "absolute-home-path"
+    },
+    {
+      "blob_sha256": "2be32b58af6a19a89c8d744a47258c21151dd0d4864e08ff25188a38606e85d3",
+      "path": "packages/obsidian-plugin/src/bridge.ts",
+      "reason": "linuxbrew-public-install-path-split-in-current-tree",
+      "rule": "absolute-home-path"
+    },
+    {
+      "blob_sha256": "5c83b67cce3cfd156e55f029782f22954e2deca002b50ee5f444b6048e26c513",
+      "path": "packages/obsidian-plugin/src/bridge.ts",
+      "reason": "linuxbrew-public-install-path-split-in-current-tree",
+      "rule": "absolute-home-path"
+    },
+    {
+      "blob_sha256": "6a7ebe5b7d803307220f931306aeadd91bddeef4b797f538ac4f7026af8bff35",
+      "path": "packages/obsidian-plugin/src/bridge.ts",
+      "reason": "linuxbrew-public-install-path-split-in-current-tree",
+      "rule": "absolute-home-path"
+    },
+    {
+      "blob_sha256": "1c38f886832507bc8dc3423cb8e9d5c6f18acef23f17dc1ba9173179b22915ee",
+      "path": "packages/obsidian-plugin/tests/bridge.test.ts",
+      "reason": "linuxbrew-public-test-path-split-in-current-tree",
+      "rule": "absolute-home-path"
+    },
+    {
+      "blob_sha256": "3b26b288a50a98c24366f167613730cae8caa9e973702048b3147af3817be866",
+      "path": "packages/obsidian-plugin/tests/bridge.test.ts",
+      "reason": "linuxbrew-public-test-path-split-in-current-tree",
+      "rule": "absolute-home-path"
+    },
+    {
+      "blob_sha256": "d82dfddf50b5000feeb648011869420efb929ad8a4c5c87d79d42c769c8b9af1",
+      "path": "packages/obsidian-plugin/tests/bridge.test.ts",
+      "reason": "linuxbrew-public-test-path-split-in-current-tree",
+      "rule": "absolute-home-path"
+    },
+    {
+      "blob_sha256": "fc988ac7f81b9bfa64cb0c136e38b6415882943cebff37380f1f87632a5fa395",
+      "path": "packages/obsidian-plugin/tests/bridge.test.ts",
+      "reason": "linuxbrew-public-test-path-split-in-current-tree",
+      "rule": "absolute-home-path"
+    },
+    {
+      "blob_sha256": "2474e71d023d8884eb9a0bf77f0f60bd1f2cb7bf29eb7751060e9a5c6b00e80d",
+      "path": "packages/obsidian-plugin/tests/contracts.test.ts",
+      "reason": "synthetic-credential-fixture-split-in-current-tree",
+      "rule": "credential-assignment",
+      "reviewed_commits": [
+        "53bcff913e4f7f4ceb6ef2bd23bd342e77a776aa"
+      ]
+    },
+    {
+      "blob_sha256": "a4de06e563a308020545f7737294880ad08f4f409f810cc136881907a9396450",
+      "path": "packages/obsidian-plugin/tests/contracts.test.ts",
+      "reason": "synthetic-credential-fixture-split-in-current-tree",
+      "rule": "credential-assignment",
+      "reviewed_commits": [
+        "86e8336fa39525bdae7abaa206e83459a79f232e",
+        "896c208b5a8cceaf9501f37a1ec2d16418b4613e",
+        "8db4c64c687173471d70769e92d4d848aeba7d84",
+        "b5a0e6d485c7b011a36c8b15c87f757358addc57",
+        "cfe188e7744404604088ff1e48b7ca27e35af480",
+        "e009c2346661ab12eee1d73e0e2edeca076330e2",
+        "f74550ead0b9af357d07c53bef75f578f79d25b4",
+        "f7d13a4cbc3c7d9945cefd955274c64f318f7836"
+      ]
+    },
+    {
+      "blob_sha256": "dc6a75f8d4b875c9b01f4581ef42eecf09d6dfeb29adeab114e08dfbfc707174",
+      "path": "packages/obsidian-plugin/tests/contracts.test.ts",
+      "reason": "synthetic-credential-fixture-split-in-current-tree",
+      "rule": "credential-assignment",
+      "reviewed_commits": [
+        "eebde6823980913a940f5179dac07ab12adfad84"
+      ]
     }
   ],
-  "policy_version": 2
+  "policy_version": 3
 }

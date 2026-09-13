@@ -83,7 +83,7 @@ def _load_history_allowlist(
     if (
         set(policy) != {"entries", "policy_version"}
         or type(policy_version) is not int
-        or policy_version not in (1, 2)
+        or policy_version not in (1, 2, 3)
     ):
         raise ValueError("history audit allowlist policy is invalid")
     raw_entries = policy["entries"]
@@ -94,10 +94,15 @@ def _load_history_allowlist(
     reviewed_count = 0
     for raw_entry in raw_entries:
         entry = _string_mapping(raw_entry, error="history audit allowlist entry is invalid")
-        private_rule = policy_version == 2 and entry.get("rule") == "private-denylist-term"
+        rule_value = entry.get("rule")
+        private_rule = policy_version in (2, 3) and rule_value == "private-denylist-term"
+        reviewed_credential_rule = policy_version == 3 and rule_value == "credential-assignment"
+        reviewed_rule = private_rule or reviewed_credential_rule
         required_keys = {"blob_sha256", "path", "reason", "rule"}
+        if reviewed_rule:
+            required_keys.add("reviewed_commits")
         if private_rule:
-            required_keys |= {"reviewed_commits", "normalized_denylist_sha256"}
+            required_keys.add("normalized_denylist_sha256")
         if set(entry) != required_keys:
             raise ValueError("history audit allowlist entry is invalid")
         blob_digest = entry["blob_sha256"]
@@ -122,18 +127,19 @@ def _load_history_allowlist(
         if not isinstance(reason, str) or _REASON_RE.fullmatch(reason) is None:
             raise ValueError("history audit allowlist reason is invalid")
         if not isinstance(rule, str) or (
-            rule not in ALLOWLISTABLE_HISTORY_RULES and not private_rule
+            rule not in ALLOWLISTABLE_HISTORY_RULES and not reviewed_rule
         ):
             raise ValueError("history audit allowlist rule is invalid")
         commits: list[str | None] = [None]
-        if private_rule:
-            fingerprint = entry["normalized_denylist_sha256"]
-            if (
-                not isinstance(fingerprint, str)
-                or _SHA256_RE.fullmatch(fingerprint) is None
-                or fingerprint != _denylist_fingerprint(deny_terms)
-            ):
-                raise ValueError("history audit denylist approval fingerprint is invalid")
+        if reviewed_rule:
+            if private_rule:
+                fingerprint = entry["normalized_denylist_sha256"]
+                if (
+                    not isinstance(fingerprint, str)
+                    or _SHA256_RE.fullmatch(fingerprint) is None
+                    or fingerprint != _denylist_fingerprint(deny_terms)
+                ):
+                    raise ValueError("history audit denylist approval fingerprint is invalid")
             reviewed = entry["reviewed_commits"]
             if not isinstance(reviewed, list) or not reviewed:
                 raise ValueError("history audit reviewed commits are invalid")

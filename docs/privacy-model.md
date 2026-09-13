@@ -6,10 +6,10 @@ from another process running as that user.
 
 ## Local storage
 
-The Brain root, SQLite databases, search indexes, Portable Brain exports, and imported content may
-contain readable personal information. Open Brain uses owner-only paths where POSIX permissions are
-available and performs no network egress. Users remain responsible for account security, full-disk
-encryption, backups, and physical access.
+The Brain root, managed vault, SQLite databases, search indexes, Portable Brain exports, and imported
+content may contain readable personal information. Open Brain uses owner-only paths where POSIX
+permissions are available. Users remain responsible for account security, full-disk encryption,
+backups, and physical access.
 
 The live public-safe FTS5 projection is stored in `.open-brain/state/phase1.sqlite3`. The filename is
 retained for compatibility. It does not indicate a running Phase 1 service. SQLite may use temporary
@@ -29,6 +29,41 @@ Capture uses a non-owner sink limited to durable, unverified text. Version 0.1.0
 deletion, session rollback, or certified purge. Session call and byte limits reduce accidental loops
 but do not constrain hostile same-user code.
 
+Workspace status, graph suggestions, and graph projection are separate read capabilities. Semantic
+refresh is a separate launch capability, but version 0.1.0 returns `provider_not_configured` because
+MCP exposes no provider-credential setup operation. MCP also cannot alter consent or exclusions,
+accept a suggestion, resolve a conflict, or write an owner-authored revision.
+
+## Managed vault and plugin
+
+The dedicated `Open Brain Vault` is a human-editable sibling of the private Brain, not the canonical
+store. Stable note identities and accepted revisions remain in the private Brain. Open Brain observes
+and validates vault changes before accepting them. Conflicting edits preserve both candidates for
+explicit review. The plugin is restricted to that vault and does not receive a SQLite handle.
+
+The desktop plugin starts one normal-user `open-brain plugin` child and communicates through bounded
+newline-framed stdio using `open-brain-client` protocol version 1. The bridge filters its inherited
+environment and accepts only fixed operations with exact arguments. Disabling or unloading the
+plugin closes the child. Neither side opens a listener or installs a background service.
+
+## Semantic providers
+
+Semantic graph refresh is the only active product path that intentionally sends note content over
+the network. The owner must select OpenAI API, Anthropic API, or Google Gemini API, acknowledge that
+eligible managed-vault notes may be sent, and grant current consent. Selection removes ineligible
+or excluded notes and applies the cloud redaction check before credential resolution or HTTPS
+dispatch. One operation uses one selected provider; failures do not fall back to another provider.
+
+API keys may live only in the current plugin child or the operating-system credential store. The
+plugin settings, managed vault, command arguments, logs, exports, and provider results do not contain
+the raw key. Changing or removing provider selection revokes the matching consent. Session keys and
+provider selection disappear with the plugin child. Data already sent to a provider cannot be
+recalled by a later exclusion or revocation.
+
+Claude subscription is not an active transport. The product reports
+`subscription_isolation_unproven` and withholds note content because the required unprivileged,
+tool-free client confinement has not been established.
+
 ## Markdown import
 
 Import reads only the absolute source root selected by the owner, follows no links, loads no plugins,
@@ -42,6 +77,19 @@ Public search applies an engine-owned projection before matching and again befor
 It removes protected paths, credential-like values, source references, and digests while retaining
 useful text. This limits accidental disclosure through search. It does not make every excerpt
 non-sensitive or create compartment isolation.
+
+## Graph representation
+
+The Graphify helper is a separately packaged, normal-user foreground subprocess. It receives one
+bounded snapshot of accepted managed notes over private stdio and returns structural links. It has no
+network configuration, Brain root, SQLite access, or write operation. The app-private projection
+cache and plugin-owned `Open Brain Graph.canvas` are rebuildable views. They are excluded from
+semantic input selection and Portable Brain export.
+
+Inferred suggestions record the selected source revisions, short evidence quotes, provider, and
+model. Displaying an inferred edge does not edit Markdown. Only an explicit acceptance of a current
+suggestion enters the normal revision flow and materializes a permanent link. Stale suggestions are
+rejected.
 
 ## Excluded claims
 

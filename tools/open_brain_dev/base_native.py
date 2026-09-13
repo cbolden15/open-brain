@@ -26,6 +26,7 @@ from typing import Final, cast
 _SPEC = Path("release/open-brain/open-brain.spec")
 _EXECUTABLE = "open-brain"
 _MANIFEST = "open-brain-component-manifest-v1.txt"
+_OBSIDIAN_PLUGIN_ASSETS: Final = ("main.js", "manifest.json", "styles.css")
 _PLATFORMS: Final = ("linux-x86_64", "macos-arm64")
 _ARCHIVE_PATTERN: Final = re.compile(
     r"^open-brain-(?:(?P<component>graphify)-)?"
@@ -45,6 +46,9 @@ _REQUIRED_MODULES: Final = frozenset(
         "open_brain.services.graph_projection_store",
         "open_brain.services.graphify_projection",
         "open_brain.services.local_operations",
+        "open_brain.services.obsidian_plugin",
+        "open_brain.services.plugin_bridge",
+        "open_brain.services.provider_credentials",
         "open_brain.services.local_mcp",
         "open_brain.services.mcp_protocol",
         "open_brain_engine.engine.capture",
@@ -138,9 +142,7 @@ class ReleaseManifest:
     artifacts: tuple[ReleaseArtifact, ...]
 
 
-def native_platform_tag(
-    *, system_name: str | None = None, machine_name: str | None = None
-) -> str:
+def native_platform_tag(*, system_name: str | None = None, machine_name: str | None = None) -> str:
     system = platform.system() if system_name is None else system_name
     machine = platform.machine() if machine_name is None else machine_name
     mapping = {
@@ -269,6 +271,8 @@ def smoke_base_artifact(
         if graphify_artifact is not None:
             _smoke_graphify_projection(executable, graphify_artifact, home, environment)
             journey["graph_projection"] = "passed"
+            _smoke_obsidian_plugin(executable, home, environment)
+            journey["obsidian_plugin"] = "passed"
         return {"journey": journey, "self_check": "passed"}
 
 
@@ -277,12 +281,18 @@ def write_base_archive(
     destination: Path,
     *,
     version: str,
+    obsidian_plugin_directory: Path,
 ) -> Path:
     audit = audit_base_artifact(artifact)
     selected_destination = destination.resolve()
     selected_destination.mkdir(parents=True, exist_ok=True)
     archive = selected_destination / f"open-brain-{version}-{audit.platform_tag}.tar.gz"
-    _write_reproducible_archive(artifact.resolve(strict=True), archive)
+    _write_reproducible_archive(
+        artifact.resolve(strict=True),
+        archive,
+        obsidian_plugin_directory=obsidian_plugin_directory,
+        version=version,
+    )
     return archive
 
 
@@ -437,6 +447,7 @@ def render_homebrew_formula(
         (
             "  def install",
             f'    bin.install "{_EXECUTABLE}"',
+            '    (share/"open-brain/obsidian-plugin").install Dir["obsidian-plugin/*"]',
             '    resource("graphify").stage do',
             '      libexec.install "open-brain" => "open-brain-graphify"',
             '      (share/"open-brain/licenses/graphify").install Dir["licenses/graphify/*"]',
@@ -448,6 +459,7 @@ def render_homebrew_formula(
                 f'    assert_match "open-brain #{{version}}", '
                 f'shell_output("#{{bin}}/{_EXECUTABLE} --version")'
             ),
+            '    assert_path_exists share/"open-brain/obsidian-plugin/main.js"',
             (
                 '    assert_match "open-brain-graphify-helper-v1", '
                 'shell_output("#{libexec}/open-brain-graphify --capabilities")'
@@ -485,12 +497,11 @@ def build_base_artifact(root: Path, output: Path) -> tuple[Path, Path, Path, Pat
         artifact,
         output.resolve() / "release",
         version=version,
+        obsidian_plugin_directory=(root.resolve(strict=True) / "build/obsidian-plugin/open-brain"),
     )
     from tools.open_brain_dev.graphify_native import build_graphify_artifact
 
-    graphify_artifact, graphify_archive = build_graphify_artifact(
-        root, output, version=version
-    )
+    graphify_artifact, graphify_archive = build_graphify_artifact(root, output, version=version)
     manifest = write_release_manifest(
         (
             _release_artifact(archive, executable=artifact),
@@ -533,8 +544,7 @@ def _validate_release_artifact(artifact: ReleaseArtifact) -> None:
         or match is None
         or match.group("version") != artifact.version
         or match.group("platform") != artifact.platform_tag
-        or ("graphify" if match.group("component") == "graphify" else "base")
-        != artifact.role
+        or ("graphify" if match.group("component") == "graphify" else "base") != artifact.role
     ):
         raise BaseNativeError("release artifact record is invalid")
 
@@ -879,13 +889,13 @@ def _smoke_markdown_import(
         raise BaseNativeError("native Markdown provenance failed")
 
 
-def _smoke_local_mcp(
-    executable: Path, home: Path, environment: Mapping[str, str]
-) -> None:
+def _smoke_local_mcp(executable: Path, home: Path, environment: Mapping[str, str]) -> None:
     """Exercise installed stdio capabilities after the required CLI journey."""
     token = "w6-installed-mcp-capture-token"
     initialize = {
-        "jsonrpc": "2.0", "id": 1, "method": "initialize",
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "initialize",
         "params": {"protocolVersion": "2025-03-26", "capabilities": {}, "clientInfo": {}},
     }
 
@@ -893,18 +903,27 @@ def _smoke_local_mcp(
         requests = [
             initialize,
             {"jsonrpc": "2.0", "id": 2, "method": "tools/list"},
-            {"jsonrpc": "2.0", "id": 3, "method": "tools/call",
-             "params": {"name": name, "arguments": arguments}},
+            {
+                "jsonrpc": "2.0",
+                "id": 3,
+                "method": "tools/call",
+                "params": {"name": name, "arguments": arguments},
+            },
         ]
         try:
             process = subprocess.run(
-                (os.fspath(executable), "mcp", flag), env=dict(environment),
+                (os.fspath(executable), "mcp", flag),
+                env=dict(environment),
                 input="".join(json.dumps(request) + "\n" for request in requests),
-                capture_output=True, text=True, timeout=30, check=True,
+                capture_output=True,
+                text=True,
+                timeout=30,
+                check=True,
             )
             responses = [json.loads(line) for line in process.stdout.splitlines()]
             if (
-                process.stderr or len(responses) != 3
+                process.stderr
+                or len(responses) != 3
                 or responses[0]["result"]["capabilities"] != {"tools": {}}
                 or [tool["name"] for tool in responses[1]["result"]["tools"]] != [name]
                 or responses[2]["result"].get("isError")
@@ -914,20 +933,32 @@ def _smoke_local_mcp(
         except (OSError, subprocess.SubprocessError, ValueError, KeyError, TypeError) as error:
             raise BaseNativeError("native MCP exchange failed") from error
 
-    capture = exchange("--allow-capture", "brain_capture", {
-        "text": token, "idempotency_key": "installed-smoke",
-    })
-    repeated = exchange("--allow-capture", "brain_capture", {
-        "text": token, "idempotency_key": "installed-smoke",
-    })
+    capture = exchange(
+        "--allow-capture",
+        "brain_capture",
+        {
+            "text": token,
+            "idempotency_key": "installed-smoke",
+        },
+    )
+    repeated = exchange(
+        "--allow-capture",
+        "brain_capture",
+        {
+            "text": token,
+            "idempotency_key": "installed-smoke",
+        },
+    )
     if capture.get("status") != "captured" or repeated != {**capture, "duplicate": True}:
         raise BaseNativeError("native MCP replay failed")
     search = exchange("--allow-search", "brain_search", {"query": token})
-    cli_search = json.loads(_run((os.fspath(executable), "search", token, "--json"),
-                                environment).stdout)
+    cli_search = json.loads(
+        _run((os.fspath(executable), "search", token, "--json"), environment).stdout
+    )
     results = cast(list[dict[str, object]], search.get("results"))
     if (
-        search != cli_search or len(results) != 1
+        search != cli_search
+        or len(results) != 1
         or results[0].get("capture_id") != capture.get("capture_id")
         or results[0].get("trust") != "unverified"
         or results[0].get("source_origin") != "unknown"
@@ -994,6 +1025,39 @@ def _smoke_graphify_projection(
         raise BaseNativeError("native Graphify projection left a runtime artifact")
 
 
+def _smoke_obsidian_plugin(
+    executable: Path,
+    home: Path,
+    environment: Mapping[str, str],
+) -> None:
+    installed = json.loads(
+        _run((os.fspath(executable), "obsidian-plugin", "install", "--json"), environment).stdout
+    )
+    status = json.loads(
+        _run((os.fspath(executable), "obsidian-plugin", "status", "--json"), environment).stdout
+    )
+    workspace = _brain_root(home).parent / "Open Brain Vault"
+    plugin = workspace / ".obsidian/plugins/open-brain"
+    if (
+        installed.get("status") != "installed"
+        or status.get("status") != "current"
+        or not all((plugin / name).is_file() for name in ("main.js", "manifest.json", "styles.css"))
+        or (workspace / ".obsidian/community-plugins.json").exists()
+    ):
+        raise BaseNativeError("native Obsidian plugin install failed")
+    removed = json.loads(
+        _run((os.fspath(executable), "obsidian-plugin", "remove", "--json"), environment).stdout
+    )
+    if removed.get("status") != "removed" or any(
+        (plugin / name).exists()
+        for name in ("main.js", "manifest.json", "styles.css", ".open-brain-owned.json")
+    ):
+        raise BaseNativeError("native Obsidian plugin removal failed")
+    run_root = _brain_root(home) / ".open-brain/run"
+    if run_root.is_dir() and any(run_root.iterdir()):
+        raise BaseNativeError("native Obsidian plugin journey left a runtime artifact")
+
+
 def _seed_managed_graph_fixture(brain_root: Path) -> None:
     from open_brain_engine.engine import CaptureAction, TextPayload, open_local_engine
 
@@ -1027,7 +1091,14 @@ def _seed_managed_graph_fixture(brain_root: Path) -> None:
     )
 
 
-def _write_reproducible_archive(executable: Path, archive: Path) -> None:
+def _write_reproducible_archive(
+    executable: Path,
+    archive: Path,
+    *,
+    obsidian_plugin_directory: Path,
+    version: str,
+) -> None:
+    plugin_assets = _validated_obsidian_plugin_assets(obsidian_plugin_directory, version=version)
     with (
         archive.open("wb") as raw,
         gzip.GzipFile(fileobj=raw, mode="wb", mtime=0) as compressed,
@@ -1041,6 +1112,46 @@ def _write_reproducible_archive(executable: Path, archive: Path) -> None:
         info.gname = ""
         info.mtime = 0
         bundle.addfile(info, stream)
+        for name, path in plugin_assets:
+            with path.open("rb") as asset_stream:
+                asset_info = bundle.gettarinfo(os.fspath(path), arcname=f"obsidian-plugin/{name}")
+                asset_info.uid = 0
+                asset_info.gid = 0
+                asset_info.uname = ""
+                asset_info.gname = ""
+                asset_info.mode = 0o644
+                asset_info.mtime = 0
+                bundle.addfile(asset_info, asset_stream)
+
+
+def _validated_obsidian_plugin_assets(
+    directory: Path, *, version: str
+) -> tuple[tuple[str, Path], ...]:
+    try:
+        selected = directory.resolve(strict=True)
+        metadata = directory.stat(follow_symlinks=False)
+        if directory.is_symlink() or not stat.S_ISDIR(metadata.st_mode):
+            raise BaseNativeError("Obsidian plugin build is invalid")
+        result: list[tuple[str, Path]] = []
+        for name in _OBSIDIAN_PLUGIN_ASSETS:
+            path = selected / name
+            item = path.stat(follow_symlinks=False)
+            if path.is_symlink() or not stat.S_ISREG(item.st_mode) or item.st_size <= 0:
+                raise BaseNativeError("Obsidian plugin build is invalid")
+            result.append((name, path))
+        manifest = json.loads((selected / "manifest.json").read_bytes())
+        if (
+            not isinstance(manifest, dict)
+            or manifest.get("id") != "open-brain"
+            or manifest.get("version") != version
+            or manifest.get("isDesktopOnly") is not True
+        ):
+            raise BaseNativeError("Obsidian plugin build is invalid")
+        return tuple(result)
+    except BaseNativeError:
+        raise
+    except OSError, json.JSONDecodeError, UnicodeDecodeError, ValueError:
+        raise BaseNativeError("Obsidian plugin build is unavailable") from None
 
 
 def _brain_root(home: Path) -> Path:
@@ -1110,8 +1221,8 @@ def _main(argv: Sequence[str] | None = None) -> int:
     formula.add_argument("--smoke", action="store_true")
     namespace = parser.parse_args(argv)
     if namespace.command == "build":
-        artifact, graphify_artifact, archive, graphify_archive, manifest_path = (
-            build_base_artifact(namespace.root, namespace.output)
+        artifact, graphify_artifact, archive, graphify_archive, manifest_path = build_base_artifact(
+            namespace.root, namespace.output
         )
         payload: object = {
             "archive": os.fspath(archive),

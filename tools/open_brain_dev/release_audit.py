@@ -74,6 +74,13 @@ PORTABLE_FIXTURE_PATHS = (
     ("src", "open_brain_engine", "portable", "conformance", "v1", "brain-root"),
 )
 LEGACY_SYNTHETIC_VAULT_PREFIX = ("examples", "synthetic-vault")
+PUBLIC_CONNECTOR_RUNTIME_PREFIX = (
+    "packages",
+    "connectors",
+    "src",
+    "open_brain_connectors",
+    "runtime",
+)
 
 
 @dataclass(frozen=True)
@@ -105,6 +112,11 @@ def _is_legacy_synthetic_vault(path: PurePosixPath) -> bool:
     return path.parts[: len(LEGACY_SYNTHETIC_VAULT_PREFIX)] == LEGACY_SYNTHETIC_VAULT_PREFIX
 
 
+def _is_public_connector_runtime(path: PurePosixPath) -> bool:
+    lowered = tuple(part.lower() for part in path.parts)
+    return lowered[: len(PUBLIC_CONNECTOR_RUNTIME_PREFIX)] == PUBLIC_CONNECTOR_RUNTIME_PREFIX
+
+
 def _path_rules(name: str) -> list[Finding]:
     normalized = name.replace("\\", "/")
     path = PurePosixPath(normalized)
@@ -116,6 +128,8 @@ def _path_rules(name: str) -> list[Finding]:
         forbidden_parts -= {"captures", "content"}
     if _is_legacy_synthetic_vault(path):
         forbidden_parts -= {"vault"}
+    if _is_public_connector_runtime(path):
+        forbidden_parts -= {"runtime"}
     if forbidden_parts:
         findings.append(Finding(_safe_location(normalized), "forbidden-path-family"))
     lowered_name = path.name.lower()

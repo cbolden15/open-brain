@@ -1,102 +1,156 @@
 # Five-minute Open Brain acceptance test
 
-Status: accepted target contract; W7 contributor checks pass locally on macOS arm64; exact-head
-two-platform CI is pending. The public release and tap are not published yet.
+Status: current target contract; command-line integration and macOS plugin structure are proven;
+exact-candidate real-provider timing on macOS and Linux desktop timing remain open
 
-Date: 2026-09-08
+Date: 2026-09-13
 
 ## Supported starting point
 
-The test starts with a regular user account on one of these hosts:
+Run each journey from a regular user account on one of these hosts:
 
 - macOS on Apple Silicon (`arm64`)
-- Linux on `x86_64`
+- Linux on `x86_64`; the project currently uses an identified Ubuntu UTM guest, so its timing is
+  emulated evidence rather than native-hardware evidence
 
-Homebrew must already be installed and available as `brew`. The account has no prior Open Brain
-formula or Open Brain data. Network access to Homebrew and GitHub Releases is available.
+Homebrew must already be installed and available as `brew`. Installing Homebrew is outside the
+product clock. The selected provider account and API key must be usable. Network access must reach
+Homebrew, GitHub Releases, the Obsidian download host when Obsidian is missing, and only the selected
+provider endpoint during semantic refresh.
 
-This is a clean Open Brain state, not a factory-clean operating system. Installing Homebrew is
-outside the product journey.
+The account starts without Open Brain data or an installed Open Brain formula. Record whether
+Obsidian was absent, newly installed, or reused. A reused Obsidian installation must not already have
+the Open Brain plugin enabled in the acceptance vault.
 
-## Exact journey
+## Candidate identity
 
-Run this block in a fresh shell:
+Before starting, record all of these values:
 
-```sh
-set -eu
+- Git commit and Open Brain version;
+- base archive filename and SHA-256;
+- Graphify archive filename and SHA-256;
+- component manifest SHA-256;
+- plugin ID, version, minimum Obsidian version, and `main.js` SHA-256;
+- Open Brain, Graphify, Obsidian, operating-system, architecture, and Homebrew versions;
+- selected provider, access mode, account prerequisite, network conditions, and whether credentials
+  use the session or operating-system store.
 
-brew --version
-! brew list --formula open-brain >/dev/null 2>&1
+The base archive, Graphify archive, component manifest, and Homebrew formula must refer to one
+version. Use the exact files under review. A local formula may substitute file URLs before the public
+release exists, but it must retain the same resource layout and digests.
 
-TOKEN="five-minute-$(date +%s)-$$"
-EXPORT_PARENT="$(mktemp -d "${TMPDIR:-/tmp}/open-brain-export.XXXXXX")"
+## Timed desktop journey
 
-brew install cbolden15/tap/open-brain
-open-brain capture "$TOKEN"
-open-brain search "$TOKEN" | grep -F "$TOKEN"
-open-brain export "$EXPORT_PARENT/brain" --verify
-open-brain status --json
-open-brain doctor --check private-data-directory
-open-brain doctor --check foreground-runtime
-open-brain doctor --check base-dependency-closure
-```
+Run the journey once for each supported direct access path on each platform: OpenAI API key,
+Anthropic API key, and Google Gemini API key. Claude subscription is outside this candidate because
+the product fails it closed with `subscription_isolation_unproven`. Do not add privileges, root
+staging, namespaces, capabilities, alternate fixture ownership, or wider host access to make that
+transport run.
 
-The five-minute product target runs from the start of `brew install` through the successful verified
-export. CI records ordinary job duration, but the repository has no custom 300-second watchdog or
-timing-evidence format.
+Use a bounded synthetic corpus of two related, previously unlinked notes and one unrelated
+distractor. Start an ordinary monotonic wall-clock timer immediately before installing the candidate.
+Do not pause it for downloads, Obsidian activation, API-key entry, or provider latency.
+
+1. Install the paired candidate resources through Homebrew. Install and launch Obsidian if needed.
+2. Run `open-brain workspace setup` and `open-brain obsidian-plugin install`. Open `Open Brain Vault`,
+   enable the Open Brain community plugin, and run **Open Brain: Initialize or locate managed vault**.
+3. Capture the three synthetic notes. Configure the selected provider, review the eligible-note
+   scope, choose session or OS credential storage, and run **Open Brain: Refresh graph now**.
+4. Open `Open Brain Graph.canvas`. Verify an inferred edge joins the related notes, its source
+   evidence is shown, and source navigation opens the original Markdown note. Verify no permanent
+   wiki link was written by inference.
+5. Edit and save a source note. Refresh, review the current suggestion, preview the proposed link,
+   accept it, and retrieve the edited text with Open Brain search. Export with
+   `open-brain export <new-directory> --verify` and stop the timer.
 
 ## Pass conditions
 
-The journey passes when all of these are true:
+The journey passes only when the recorded elapsed time is at most 300 seconds and all conditions
+below hold:
 
-1. Homebrew installs one `open-brain` executable and verifies the release archive against the
-   formula's SHA-256.
-2. The first capture creates one private platform-local Brain and SQLite state without a setup
-   prompt, configuration file, storage choice, or database command.
-3. Search returns the exact token, and the verified Portable Brain export contains that capture.
-4. Status reports `profile=local`, `storage=sqlite`, `daemon_running=false`, and
-   `application_encryption=false`.
-5. Every command exits zero and no daemon, listener, service, container, or runtime process remains.
+1. Homebrew verifies and installs the base and Graphify archive digests, the plugin loads only after
+   explicit activation, and all processes run as the regular user.
+2. The first operation creates the private Brain and managed sibling vault without a storage prompt,
+   configuration file, database command, listener, daemon, service, container, or elevated setup.
+3. Only eligible accepted notes reach the selected provider after explicit consent. The distractor
+   behaves according to the declared fixture policy, no second provider is contacted, and no raw key
+   appears in arguments, settings, vault files, logs, output, or export.
+4. Structural and inferred edges remain distinct. Inference alone does not edit Markdown. Accepting
+   the reviewed current suggestion writes one permanent link through the revision flow; stale
+   acceptance is rejected.
+5. Search returns the saved edit. The verified Portable Brain export contains the accepted revision
+   and suggestion provenance, but contains no credential, local path, plugin setting, generated
+   Canvas, or graph cache.
 
-The automatic Brain root is:
+Closing or disabling the plugin must stop its `open-brain plugin` child. The Obsidian desktop process
+may remain open and must be reported separately from Open Brain's no-background-service guarantee.
 
-| Host | Brain root |
-|---|---|
-| macOS | `$HOME/Library/Application Support/open-brain/brain` |
-| Linux | `${XDG_DATA_HOME:-$HOME/.local/share}/open-brain/brain` |
+## Command-line integration coverage
 
-## CI smoke
+`make contributor-check` is the contributor and hosted-CI gate. It runs `make verify`, which includes
+the real plugin typecheck, production build, and tests, followed by `make native-integration-smoke`.
+The native smoke builds and audits both executables, renders a temporary keg-only formula, installs
+the paired resources and plugin assets, and exercises CLI capture/search/export, Markdown import,
+MCP, managed workspace, structural Graphify projection, and plugin staging/removal.
 
-CI has exactly two native jobs: `macos-latest` with an explicit `arm64` assertion and
-`ubuntu-latest` with an explicit `x86_64` assertion. Each invokes `make contributor-check`, the same
-command documented for contributors. It runs repository verification before building the native
-executable, rendering a temporary keg-only `open-brain-smoke` formula from the release manifest,
-installing it with Homebrew, and invoking its unlinked binary by absolute prefix path.
+CI runs that command on `macos-latest` after asserting `arm64` and on `ubuntu-latest` after asserting
+`x86_64`. It records ordinary job duration and uploads the platform build output. This proves native
+command-line behavior on both hosted runners. It does not prove that Obsidian opened, the plugin
+activated, a real provider completed inference, source navigation worked in the GUI, or the
+five-minute desktop clock passed.
 
-The smoke snapshots any existing product's prefix, version, link, and binary digest and requires them
-to remain unchanged. It does not install a product-named stand-in when the real product is absent.
-Production-shell tests with a command-recording fake Homebrew prove preservation of a modeled
-installed product, INT/TERM cleanup, and next-run recovery after SIGKILL. The local live run verified
-the absent-product case. Private release audits are separate owner checks, excluded from this target.
+## Current evidence and open gate
 
-The five-minute acceptance boundary ends after the verified export in the timed data journey above.
-The same installed binary then runs status and doctor, followed by the W4 smoke: import the committed
-synthetic Markdown fixture, prove an unchanged rerun, search a nested marker, and verify exact
-exported bytes plus unverified provenance. Capture-only MCP replay and search-only MCP exchange
-then verify the W6 CLI/MCP contract. These post-export checks do not change the five-minute
-acceptance boundary.
+The merged NW3 candidate at `b5a0e6d` passed the full local contributor check on macOS arm64. Obsidian
+1.13.7 also demonstrated plugin activation, capture/search, source navigation, one reused Canvas tab,
+and plugin-child cleanup on macOS using synthetic data. Those runs were structural and were not
+timed exact-candidate journeys with a real provider.
 
-The CI formula uses local build output. A published-release smoke uses the public tap and immutable
-GitHub Release URLs.
+No Linux desktop GUI/provider journey is accepted. The earlier clean-Ubuntu attempt ended at a
+documented boot blocker, and its disposable CI root staging or ownership topology is not product
+architecture. Ubuntu installation by itself is not acceptance evidence. The release acceptance gate
+therefore remains open until exact-candidate macOS and Linux desktop records meet the pass conditions
+or the product scope is explicitly changed.
+
+## Evidence record
+
+For each run, record:
+
+```text
+candidate_commit:
+product_version:
+base_archive: <filename> <sha256>
+graphify_archive: <filename> <sha256>
+component_manifest_sha256:
+plugin: open-brain <version> minAppVersion=<version> main_js_sha256=<sha256>
+platform: <os/version/architecture; identify emulation>
+runtime: <open-brain/graphify/obsidian/homebrew versions>
+starting_state: <Open Brain absent; Obsidian absent/new/reused>
+provider: <name> access=api_key custody=<session|os>
+network: <declared reachable endpoints/conditions>
+timer_started_utc:
+timer_stopped_utc:
+elapsed_seconds:
+result: <pass|fail|blocked>
+failed_step_or_blocker:
+isolation: <uid; no root/capabilities/namespaces/listener/service/container/host sharing>
+export_verification:
+plugin_child_after_unload:
+```
+
+Retain command output and GUI captures beside the record. Redact API keys, account identifiers, note
+content beyond the public fixture, local usernames, and private host paths.
 
 ## Deliberate exclusions
 
-This acceptance test does not cover curl installation, Docker, certificates, grants, service setup,
-manual databases, storage-root selection, reinstall, fault injection, offline behavior, receipt-bound
-uninstall, VM matrices, notarization, artifact attestations, or metadata-only evidence bundles.
+This acceptance test does not cover curl installation, Docker, certificates, multi-user grants,
+arbitrary existing-vault synchronization, local Ollama models, Claude or Codex subscription access,
+notarization, browser-downloaded Gatekeeper behavior, full-vault indexing, or a factory-clean
+operating system.
 
-`brew uninstall open-brain` removes the Homebrew-managed executable. It does not remove the Brain
-data directory. Data removal is a separate, explicit user action.
+`brew uninstall open-brain` removes Homebrew-managed product files. It does not remove the Brain or
+managed vault. Data removal is a separate explicit action.
 
 Open Brain relies on the operating-system account and disk protections. It does not claim
-application-level encryption, custody, compartment, purge, fencing, or recovery guarantees.
+application-level encryption, hostile same-user isolation, custody, compartments, certified purge,
+fencing, or recovery guarantees.
