@@ -29,13 +29,14 @@ from .local_schema_catalog import (
     IMPORT_SCHEMA,
     LIVE_SEARCH_SCHEMA,
     LOCAL_MIGRATIONS,
+    MANAGED_WORKSPACE_SCHEMA,
     SEARCH_SCHEMA,
 )
 from .normalization import _MAX_FILE_BYTES, _MAX_TEXT, _utc_now
 from .search_projection import _durable_source_origin, public_search_text
 
 PHASE1_STATE_DATABASE = ".open-brain/state/phase1.sqlite3"
-PHASE1_STATE_SCHEMA_VERSION = 2
+PHASE1_STATE_SCHEMA_VERSION = 3
 
 
 class LocalRecoveryRequiredError(SchemaError):
@@ -82,6 +83,9 @@ def _expected_shape(era: int, nullable: bool, ledger: bool) -> tuple[tuple[str, 
         if era >= 4:
             for statement in IMPORT_SCHEMA:
                 connection.execute(statement)
+        if era >= 5:
+            for statement in MANAGED_WORKSPACE_SCHEMA:
+                connection.execute(statement)
         if ledger:
             connection.execute(_SCHEMA_MIGRATIONS_SQL)
         return _shape(connection)
@@ -104,7 +108,7 @@ def classify_local_schema(connection: sqlite3.Connection) -> SchemaState:
             ).fetchall()
             if any(type(row[0]) is int and row[0] > PHASE1_STATE_SCHEMA_VERSION for row in rows):
                 return SchemaState("newer", version)
-            if version not in (1, 2) or len(rows) != version:
+            if version not in (1, 2, 3) or len(rows) != version:
                 return SchemaState("invalid", version)
             for row, migration in zip(rows, LOCAL_MIGRATIONS[:version], strict=True):
                 if tuple(row[:3]) != (migration.version, migration.name, migration.checksum):
@@ -112,13 +116,18 @@ def classify_local_schema(connection: sqlite3.Connection) -> SchemaState:
                 timestamp = datetime.strptime(row[3], "%Y-%m-%dT%H:%M:%S.%fZ")
                 if timestamp.strftime("%Y-%m-%dT%H:%M:%S.%fZ") != row[3]:
                     return SchemaState("invalid", version)
-            expected = (
-                _expected_shape(2, True, True) if version == 1 else _expected_shape(4, False, True)
-            )
+            expected = {
+                1: _expected_shape(2, True, True),
+                2: _expected_shape(4, False, True),
+                3: _expected_shape(5, False, True),
+            }[version]
             if shape == expected:
-                return SchemaState("supported_old" if version == 1 else "current", version)
+                return SchemaState(
+                    "current" if version == PHASE1_STATE_SCHEMA_VERSION else "supported_old",
+                    version,
+                )
         elif version in (0, 1):
-            eras = (2,) if version == 0 else (2, 3, 4)
+            eras = (2,) if version == 0 else (2, 3, 4, 5)
             for era in eras:
                 for nullable in (True,) if era == 2 else (True, False):
                     if shape == _expected_shape(era, nullable, False):

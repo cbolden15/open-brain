@@ -1,4 +1,4 @@
-"""Frozen SQL for the two local schema migrations; independent of event storage."""
+"""Frozen SQL for the local schema migrations; independent of event storage."""
 
 from open_brain_engine.storage.migrations import _migration
 
@@ -348,7 +348,227 @@ ORDER BY i.fts_rowid
     + LIVE_SEARCH_SCHEMA[2:]
 )
 
+MANAGED_WORKSPACE_SCHEMA = (
+    """
+CREATE TABLE IF NOT EXISTS managed_workspaces (
+    workspace_id TEXT PRIMARY KEY,
+    root_path TEXT NOT NULL UNIQUE,
+    device TEXT NOT NULL,
+    inode TEXT NOT NULL,
+    owner_actor_id TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    observation_generation INTEGER NOT NULL DEFAULT 0 CHECK (observation_generation >= 0),
+    policy_generation INTEGER NOT NULL DEFAULT 0 CHECK (policy_generation >= 0),
+    UNIQUE (device, inode)
+)
+    """.strip(),
+    """
+CREATE TABLE IF NOT EXISTS managed_note_revisions (
+    revision_id TEXT PRIMARY KEY,
+    note_id TEXT NOT NULL,
+    parent_revision_id TEXT,
+    kind TEXT NOT NULL CHECK (kind IN ('setup', 'edit', 'link', 'merge', 'restore')),
+    body_bytes BLOB NOT NULL,
+    body_sha256 TEXT NOT NULL CHECK (length(body_sha256) = 64),
+    accepted_by_actor_id TEXT NOT NULL,
+    provenance_json TEXT NOT NULL,
+    privacy_json TEXT NOT NULL,
+    recorded_at TEXT NOT NULL,
+    operation_id TEXT NOT NULL UNIQUE,
+    UNIQUE (note_id, revision_id),
+    FOREIGN KEY (note_id) REFERENCES managed_notes(note_id)
+        DEFERRABLE INITIALLY DEFERRED,
+    FOREIGN KEY (note_id, parent_revision_id)
+        REFERENCES managed_note_revisions(note_id, revision_id)
+        DEFERRABLE INITIALLY DEFERRED
+)
+    """.strip(),
+    """
+CREATE TABLE IF NOT EXISTS managed_notes (
+    note_id TEXT PRIMARY KEY,
+    workspace_id TEXT NOT NULL REFERENCES managed_workspaces(workspace_id),
+    relative_path TEXT NOT NULL,
+    accepted_revision_id TEXT NOT NULL,
+    materialized_revision_id TEXT,
+    materialized_sha256 TEXT CHECK (
+        materialized_sha256 IS NULL OR length(materialized_sha256) = 64
+    ),
+    active INTEGER NOT NULL DEFAULT 1 CHECK (active IN (0, 1)),
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    UNIQUE (workspace_id, relative_path),
+    CHECK (
+        (materialized_revision_id IS NULL AND materialized_sha256 IS NULL)
+        OR
+        (materialized_revision_id IS NOT NULL AND materialized_sha256 IS NOT NULL)
+    ),
+    FOREIGN KEY (note_id, accepted_revision_id)
+        REFERENCES managed_note_revisions(note_id, revision_id)
+        DEFERRABLE INITIALLY DEFERRED,
+    FOREIGN KEY (note_id, materialized_revision_id)
+        REFERENCES managed_note_revisions(note_id, revision_id)
+        DEFERRABLE INITIALLY DEFERRED
+)
+    """.strip(),
+    """
+CREATE TABLE IF NOT EXISTS managed_note_observations (
+    workspace_id TEXT NOT NULL REFERENCES managed_workspaces(workspace_id),
+    generation INTEGER NOT NULL CHECK (generation > 0),
+    note_id TEXT NOT NULL REFERENCES managed_notes(note_id),
+    relative_path TEXT NOT NULL,
+    observed_sha256 TEXT NOT NULL CHECK (length(observed_sha256) = 64),
+    materialized_sha256 TEXT CHECK (
+        materialized_sha256 IS NULL OR length(materialized_sha256) = 64
+    ),
+    fingerprint_json TEXT NOT NULL,
+    observed_at TEXT NOT NULL,
+    PRIMARY KEY (workspace_id, generation, note_id),
+    UNIQUE (workspace_id, generation, relative_path)
+)
+    """.strip(),
+    """
+CREATE TABLE IF NOT EXISTS managed_links (
+    link_id TEXT PRIMARY KEY,
+    source_note_id TEXT NOT NULL REFERENCES managed_notes(note_id),
+    source_revision_id TEXT NOT NULL,
+    target_note_id TEXT NOT NULL REFERENCES managed_notes(note_id),
+    target_revision_id TEXT NOT NULL,
+    source_quote TEXT NOT NULL,
+    target_quote TEXT NOT NULL,
+    provenance_json TEXT NOT NULL,
+    accepted_at TEXT NOT NULL,
+    active INTEGER NOT NULL DEFAULT 1 CHECK (active IN (0, 1)),
+    UNIQUE (source_revision_id, target_note_id),
+    CHECK (source_note_id != target_note_id),
+    FOREIGN KEY (source_note_id, source_revision_id)
+        REFERENCES managed_note_revisions(note_id, revision_id),
+    FOREIGN KEY (target_note_id, target_revision_id)
+        REFERENCES managed_note_revisions(note_id, revision_id)
+)
+    """.strip(),
+    """
+CREATE TABLE IF NOT EXISTS managed_conflicts (
+    conflict_id TEXT PRIMARY KEY,
+    note_id TEXT NOT NULL REFERENCES managed_notes(note_id),
+    base_revision_id TEXT NOT NULL,
+    accepted_revision_id TEXT NOT NULL,
+    candidate_body_bytes BLOB NOT NULL,
+    candidate_sha256 TEXT NOT NULL CHECK (length(candidate_sha256) = 64),
+    status TEXT NOT NULL CHECK (status IN ('open', 'resolved')),
+    resolution_revision_id TEXT,
+    detected_at TEXT NOT NULL,
+    resolved_at TEXT,
+    CHECK (
+        (status = 'open' AND resolution_revision_id IS NULL AND resolved_at IS NULL)
+        OR
+        (status = 'resolved' AND resolution_revision_id IS NOT NULL AND resolved_at IS NOT NULL)
+    ),
+    FOREIGN KEY (note_id, base_revision_id)
+        REFERENCES managed_note_revisions(note_id, revision_id),
+    FOREIGN KEY (note_id, accepted_revision_id)
+        REFERENCES managed_note_revisions(note_id, revision_id),
+    FOREIGN KEY (note_id, resolution_revision_id)
+        REFERENCES managed_note_revisions(note_id, revision_id)
+)
+    """.strip(),
+    """
+CREATE UNIQUE INDEX IF NOT EXISTS managed_open_conflict_idx
+ON managed_conflicts(note_id) WHERE status = 'open'
+    """.strip(),
+    """
+CREATE TABLE IF NOT EXISTS managed_consents (
+    consent_id TEXT PRIMARY KEY,
+    workspace_id TEXT NOT NULL REFERENCES managed_workspaces(workspace_id),
+    provider TEXT NOT NULL,
+    operation TEXT NOT NULL,
+    note_scope TEXT NOT NULL,
+    granted_generation INTEGER NOT NULL CHECK (granted_generation >= 0),
+    active INTEGER NOT NULL CHECK (active IN (0, 1)),
+    granted_at TEXT NOT NULL,
+    revoked_at TEXT,
+    CHECK (
+        (active = 1 AND revoked_at IS NULL)
+        OR
+        (active = 0 AND revoked_at IS NOT NULL)
+    ),
+    UNIQUE (workspace_id, provider, operation, note_scope)
+)
+    """.strip(),
+    """
+CREATE TABLE IF NOT EXISTS managed_exclusions (
+    exclusion_id TEXT PRIMARY KEY,
+    workspace_id TEXT NOT NULL REFERENCES managed_workspaces(workspace_id),
+    kind TEXT NOT NULL CHECK (kind IN ('note', 'folder')),
+    subject TEXT NOT NULL,
+    active INTEGER NOT NULL DEFAULT 1 CHECK (active IN (0, 1)),
+    policy_generation INTEGER NOT NULL CHECK (policy_generation >= 0),
+    recorded_at TEXT NOT NULL,
+    UNIQUE (workspace_id, kind, subject)
+)
+    """.strip(),
+    """
+CREATE TABLE IF NOT EXISTS managed_inference_budgets (
+    workspace_id TEXT NOT NULL REFERENCES managed_workspaces(workspace_id),
+    provider TEXT NOT NULL,
+    window_key TEXT NOT NULL,
+    request_limit INTEGER NOT NULL CHECK (request_limit >= 0),
+    byte_limit INTEGER NOT NULL CHECK (byte_limit >= 0),
+    used_requests INTEGER NOT NULL DEFAULT 0 CHECK (used_requests >= 0),
+    used_bytes INTEGER NOT NULL DEFAULT 0 CHECK (used_bytes >= 0),
+    reserved_requests INTEGER NOT NULL DEFAULT 0 CHECK (reserved_requests >= 0),
+    reserved_bytes INTEGER NOT NULL DEFAULT 0 CHECK (reserved_bytes >= 0),
+    uncertain_requests INTEGER NOT NULL DEFAULT 0 CHECK (uncertain_requests >= 0),
+    uncertain_bytes INTEGER NOT NULL DEFAULT 0 CHECK (uncertain_bytes >= 0),
+    updated_at TEXT NOT NULL,
+    PRIMARY KEY (workspace_id, provider, window_key),
+    CHECK (used_requests + reserved_requests + uncertain_requests <= request_limit),
+    CHECK (used_bytes + reserved_bytes + uncertain_bytes <= byte_limit)
+)
+    """.strip(),
+    """
+CREATE TABLE IF NOT EXISTS managed_operations (
+    operation_id TEXT PRIMARY KEY,
+    request_sha256 TEXT NOT NULL CHECK (length(request_sha256) = 64),
+    workspace_id TEXT NOT NULL REFERENCES managed_workspaces(workspace_id),
+    note_id TEXT REFERENCES managed_notes(note_id),
+    kind TEXT NOT NULL CHECK (
+        kind IN ('setup', 'accept_revision', 'materialize', 'deactivate', 'restore', 'resolve')
+    ),
+    caller_actor_id TEXT NOT NULL,
+    target_relative_path TEXT,
+    expected_revision_id TEXT,
+    expected_target_sha256 TEXT CHECK (
+        expected_target_sha256 IS NULL OR length(expected_target_sha256) = 64
+    ),
+    body_bytes BLOB,
+    body_sha256 TEXT CHECK (body_sha256 IS NULL OR length(body_sha256) = 64),
+    status TEXT NOT NULL CHECK (
+        status IN ('prepared', 'writing', 'promoted', 'completed', 'conflict', 'cancelled')
+    ),
+    stage INTEGER NOT NULL DEFAULT 0 CHECK (stage >= 0),
+    created_at TEXT NOT NULL,
+    completed_at TEXT,
+    CHECK (
+        (body_bytes IS NULL AND body_sha256 IS NULL)
+        OR
+        (body_bytes IS NOT NULL AND body_sha256 IS NOT NULL)
+    ),
+    CHECK (
+        (status IN ('prepared', 'writing', 'promoted') AND completed_at IS NULL)
+        OR
+        (status IN ('completed', 'conflict', 'cancelled') AND completed_at IS NOT NULL)
+    )
+)
+    """.strip(),
+    """
+CREATE INDEX IF NOT EXISTS managed_operations_recovery_idx
+ON managed_operations(workspace_id, status, created_at)
+WHERE status IN ('prepared', 'writing', 'promoted')
+    """.strip(),
+)
+
 LOCAL_MIGRATIONS = (
     _migration(1, "local_baseline", BASELINE),
     _migration(2, "local_search_and_import", _MIGRATION_2),
+    _migration(3, "managed_workspace", MANAGED_WORKSPACE_SCHEMA),
 )
