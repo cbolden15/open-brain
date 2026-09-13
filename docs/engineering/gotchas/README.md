@@ -1557,3 +1557,19 @@ structural results. Test multiple framed requests through one child and terminal
 remains a foreground, lifecycle-owned process rather than a daemon.
 
 Discovered: 2026-09-13, NW3 Obsidian plugin integration.
+
+### INTEGRATION-030: Client parsers must accept every bounded backend status
+
+Symptom: The Obsidian plugin activates and the backend returns a valid failure Canvas, but the UI
+reports an invalid response instead of showing the bounded failure card.
+
+Cause: The backend's graph projection contract includes `failed`, while the TypeScript client union
+and parser listed only `fresh`, `missing`, and `stale`. Happy-path mocks never crossed the initial
+empty-vault failure boundary.
+
+Fix: Keep client status unions synchronized with the backend response contract and add a parser
+fixture for every terminal status, including safe failure projections. Exercise initial activation
+against an empty synthetic vault so a renderer-facing contract mismatch cannot hide behind a fresh
+projection.
+
+Discovered: 2026-09-13, [NW3 Obsidian plugin audit](../../audits/2026-09-13-ob1-nw3-obsidian-plugin-audit.md).
