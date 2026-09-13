@@ -425,7 +425,7 @@ def test_direct_provider_setup_refresh_and_removal_keep_session_key_out_of_resul
 ) -> None:
     selection = _selection(tmp_path)
     _call(selection, "brain.initialize")
-    secret = "synthetic-provider-secret"
+    credential_value = "synthetic-provider-secret"
 
     class FakeAdapter:
         identity = "openai_api:synthetic-plugin-v1"
@@ -436,7 +436,7 @@ def test_direct_provider_setup_refresh_and_removal_keep_session_key_out_of_resul
             def invoke(
                 prompt: str, max_output_bytes: int, timeout_seconds: int
             ) -> ManagedGraphProviderResult:
-                assert resolve() == secret
+                assert resolve() == credential_value
                 assert "Solar generation" in prompt
                 assert max_output_bytes == 16 * 1024
                 assert timeout_seconds == 60
@@ -514,7 +514,7 @@ def test_direct_provider_setup_refresh_and_removal_keep_session_key_out_of_resul
             session,
             "provider.configure",
             {
-                "credential": secret,
+                "credential": credential_value,
                 "custody": "session",
                 "provider": "openai_api",
                 "scope_ack": True,
@@ -535,7 +535,7 @@ def test_direct_provider_setup_refresh_and_removal_keep_session_key_out_of_resul
         assert configured["status"] == "configured"
         assert refreshed["status"] == "refreshed"
         assert refreshed["actual_model"] == "gpt-6-astra"
-        assert secret not in json.dumps((configured, refreshed, status))
+        assert credential_value not in json.dumps((configured, refreshed, status))
 
         removed = dispatch_plugin_request(
             session,

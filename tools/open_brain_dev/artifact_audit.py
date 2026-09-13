@@ -52,6 +52,14 @@ GRAPHIFY_RELEASE_LEGAL = frozenset(
     "licenses/graphify/" + name
     for name in ("LICENSE", "LICENSE-MIT", "NOTICE", "OPEN-BRAIN-NOTICE")
 )
+BASE_RELEASE_MEMBERS = frozenset(
+    {
+        "open-brain",
+        "obsidian-plugin/main.js",
+        "obsidian-plugin/manifest.json",
+        "obsidian-plugin/styles.css",
+    }
+)
 COOKIE = struct.Struct("!8sIIII64s")
 COOKIE_MAGIC = b"MEI\014\013\012\013\016"
 ENTRY = struct.Struct("!IIIIBc")
@@ -701,10 +709,12 @@ class Scanner:
                     require(not member.pax_headers)
                     if helper and member.name in helper_legal:
                         self.content(loc, payload)
+                    elif not helper and member.name in BASE_RELEASE_MEMBERS - {"open-brain"}:
+                        require(member.mode == 0o644)
+                        self.content(loc, payload)
                     else:
                         expected_name = "open-brain-graphify" if proof_helper else "open-brain"
                         require(member.name == expected_name and member.mode & 0o100 != 0)
-                        require(helper or count == 1)
                         self.native(payload, native.group(1), "native", 1)
                 else:
                     self.content(loc, payload)
@@ -717,7 +727,7 @@ class Scanner:
                     == {name.casefold() for name in helper_legal} | {executable_name}
                 )
             else:
-                require(count == 1)
+                require(names == {name.casefold() for name in BASE_RELEASE_MEMBERS})
 
 
 def worker() -> int:

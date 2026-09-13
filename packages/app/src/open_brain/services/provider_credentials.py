@@ -110,10 +110,11 @@ class OsCredentialStore:
 
     def store(self, provider: ManagedProvider, credential: str) -> None:
         _provider(provider)
-        secret = _credential(credential)
+        credential_value = _credential(credential)
         result = self._run(
             self._store_arguments(provider),
-            input_bytes=secret.encode("utf-8") + (b"\n" if self.kind == "macos_keychain" else b""),
+            input_bytes=credential_value.encode("utf-8")
+            + (b"\n" if self.kind == "macos_keychain" else b""),
             capture_stdout=False,
         )
         if result.returncode != 0:

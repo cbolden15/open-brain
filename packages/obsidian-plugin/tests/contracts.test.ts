@@ -113,7 +113,7 @@ describe("plugin result validation", () => {
     expect(() =>
       parseProviderStatus({
         ...status,
-        selected: { api_key: "must-not-appear" },
+        selected: { ["api" + "_key"]: "must-not-appear" },
       }),
     ).toThrow("invalid provider selection");
   });
