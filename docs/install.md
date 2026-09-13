@@ -1,6 +1,6 @@
 # Install Open Brain
 
-Status: target instructions; the public release and tap are not published yet
+Status: v0.1.0 release instructions
 
 ## Requirement
 
@@ -15,7 +15,7 @@ image, Python runtime requirement, or manual database setup for end users.
 
 ## Install
 
-After the first release is published:
+Install Open Brain:
 
 ```sh
 brew install cbolden15/tap/open-brain

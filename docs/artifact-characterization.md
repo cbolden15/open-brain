@@ -1,6 +1,6 @@
 # Open Brain artifact characterization
 
-Status: implemented release contract; artifacts are not published
+Status: v0.1.0 release contract
 
 Date: 2026-09-13
 

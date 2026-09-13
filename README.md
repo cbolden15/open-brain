@@ -9,18 +9,16 @@ The first Secure Node implementation is preserved under `archive/open-brain-secu
 non-building history. It is not an Open Brain extra, entry point, dependency, or runtime profile.
 Portable Brain and shared record identities remain the boundary for any future separate product.
 
-## Install target
+## Install
 
-Homebrew is the prerequisite on macOS and Linux. After the first release and tap are published, the
-entire install is:
+Homebrew is the prerequisite on macOS and Linux. Install the complete resource set with:
 
 ```sh
 brew install cbolden15/tap/open-brain
 ```
 
-The release is not published yet. The exact product journey is in
-[the five-minute acceptance test](docs/acceptance/five-minute-install.md), and the install details are
-in [the installation guide](docs/install.md).
+The exact product journey is in [the five-minute acceptance test](docs/acceptance/five-minute-install.md),
+and the install details are in [the installation guide](docs/install.md).
 
 The native package also includes a desktop-only Obsidian plugin for the managed Markdown vault and
 a separately packaged structural Graphify helper. The plugin offers capture, search, source
