@@ -1,0 +1,24 @@
+{
+  "name": "open-brain-obsidian",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Desktop Obsidian interface for the local Open Brain runtime.",
+  "main": "main.js",
+  "type": "module",
+  "scripts": {
+    "build": "node esbuild.config.mjs production",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit --skipLibCheck"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "license": "Apache-2.0",
+  "devDependencies": {
+    "@types/node": "22.15.17",
+    "esbuild": "0.25.5",
+    "obsidian": "1.13.1",
+    "typescript": "5.8.3",
+    "vitest": "3.2.4"
+  }
+}

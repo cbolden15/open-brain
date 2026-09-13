@@ -39,6 +39,7 @@ coverage/
 htmlcov/
 build/
 dist/
+node_modules/
 *.egg-info/
 
 # Editor and operating-system files

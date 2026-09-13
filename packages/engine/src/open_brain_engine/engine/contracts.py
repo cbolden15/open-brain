@@ -1636,6 +1636,8 @@ class ManagedPolicyTask(Protocol):
 class ManagedInferenceTask(Protocol):
     def suggestions(self, workspace_id: str) -> tuple[ManagedSuggestion, ...]: ...
 
+    def suggestion(self, workspace_id: str, suggestion_id: str) -> ManagedSuggestion: ...
+
     def prepare(
         self,
         workspace_id: str,

@@ -26,6 +26,7 @@ from open_brain_engine.engine import (
 )
 
 import open_brain.services.local_bootstrap as bootstrap_module
+import open_brain.services.obsidian_plugin as obsidian_plugin_module
 from open_brain.local_data import LocalDataError
 from open_brain.profile import compile_single_user_local, open_existing_single_user_local
 from open_brain.services.local_entrypoints import run_cli
@@ -48,7 +49,15 @@ def test_local_help_and_version_are_root_free(
     assert run_cli(("--help",), environment={}) == 0
     help_output = capsys.readouterr().out
     assert "daemonless" in help_output
-    for command in ("capture", "import", "search", "export", "status", "doctor"):
+    for command in (
+        "capture",
+        "import",
+        "search",
+        "obsidian-plugin",
+        "export",
+        "status",
+        "doctor",
+    ):
         assert command in help_output
     assert run_cli(("--version",), environment={}) == 0
     assert capsys.readouterr().out == "open-brain 0.1.0\n"
@@ -134,6 +143,72 @@ def test_local_init_absolute_override_names_brain_root_directly(
     assert json.loads(capsys.readouterr().out)["status"] == "initialized"
     assert (brain_root / "brain.toml").is_file()
     assert not (brain_root / "brain").exists()
+
+
+def test_obsidian_plugin_cli_installs_reports_and_removes_owned_assets(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    home = _private_home(tmp_path)
+    root = home / "brain"
+    assets = tmp_path / "plugin-assets"
+    assets.mkdir()
+    (assets / "main.js").write_text("module.exports = {};\n", encoding="utf-8")
+    (assets / "manifest.json").write_text(
+        json.dumps(
+            {
+                "id": "open-brain",
+                "isDesktopOnly": True,
+                "minAppVersion": "1.12.7",
+                "name": "Open Brain",
+                "version": "0.1.0",
+            }
+        ),
+        encoding="utf-8",
+    )
+    (assets / "styles.css").write_text(".open-brain {}\n", encoding="utf-8")
+    monkeypatch.setattr(
+        obsidian_plugin_module,
+        "discover_obsidian_plugin_assets",
+        lambda: assets,
+    )
+    options = {
+        "environment": {"HOME": str(home)},
+        "platform_name": "linux",
+        "filesystem_type_probe": _filesystem,
+    }
+
+    assert run_cli(("workspace", "setup", "--data-dir", str(root), "--json"), **options) == 0
+    capsys.readouterr()
+    assert (
+        run_cli(
+            ("obsidian-plugin", "install", "--data-dir", str(root), "--json"),
+            **options,
+        )
+        == 0
+    )
+    assert json.loads(capsys.readouterr().out)["status"] == "installed"
+
+    assert (
+        run_cli(
+            ("obsidian-plugin", "status", "--data-dir", str(root), "--json"),
+            **options,
+        )
+        == 0
+    )
+    assert json.loads(capsys.readouterr().out)["status"] == "current"
+
+    workspace = home / "Open Brain Vault"
+    assert not (workspace / ".obsidian/community-plugins.json").exists()
+    assert (
+        run_cli(
+            ("obsidian-plugin", "remove", "--data-dir", str(root), "--json"),
+            **options,
+        )
+        == 0
+    )
+    assert json.loads(capsys.readouterr().out)["status"] == "removed"
 
 
 def test_local_init_redacts_private_data_failures(

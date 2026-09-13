@@ -200,6 +200,15 @@ def _run_parsed_command(
                     "Application encryption: false."
                 )
             return 0
+        if parsed.command == "plugin":
+            from open_brain.services.plugin_bridge import serve_plugin_stdio
+
+            return serve_plugin_stdio(
+                selection,
+                input_stream=sys.stdin.buffer,
+                output_stream=sys.stdout.buffer,
+                filesystem_type_probe=filesystem_type_probe,
+            )
         with open_local_brain(
             selection,
             filesystem_type_probe=filesystem_type_probe,
@@ -318,6 +327,21 @@ def _parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Allow refresh with the already configured provider and active owner consent.",
     )
+    plugin_parser = subparsers.add_parser(
+        "plugin",
+        help=argparse.SUPPRESS,
+        description="Serve one lifecycle-owned Open Brain desktop-plugin session over stdio.",
+    )
+    plugin_parser.add_argument("--data-dir", default=argparse.SUPPRESS, help=argparse.SUPPRESS)
+    obsidian_plugin_parser = subparsers.add_parser(
+        "obsidian-plugin",
+        help="Install, inspect, or remove the desktop Obsidian plugin.",
+    )
+    _add_local_options(obsidian_plugin_parser)
+    obsidian_plugin_parser.add_argument(
+        "action",
+        choices=("install", "status", "remove"),
+    )
     workspace_parser = subparsers.add_parser(
         "workspace", help="Manage the dedicated Open Brain Markdown workspace."
     )
@@ -410,6 +434,8 @@ def _run_local_command(
             json_output=json_output,
         )
     tasks = session.tasks
+    if parsed.command == "obsidian-plugin":
+        return _run_obsidian_plugin(parsed, session, json_output=json_output)
     if parsed.command == "capture":
         capture_receipt = capture_text(
             tasks.capture, cast(str, parsed.text),
@@ -493,6 +519,43 @@ def _run_local_command(
         _write_export(export_receipt, verification=verification, json_output=json_output)
         return 0
     raise ValueError("invalid local command")
+
+
+def _run_obsidian_plugin(
+    parsed: argparse.Namespace,
+    session: LocalBrainSession,
+    *,
+    json_output: bool,
+) -> int:
+    from open_brain.services.obsidian_plugin import (
+        ObsidianPluginFailure,
+        discover_obsidian_plugin_assets,
+        install_obsidian_plugin,
+        load_obsidian_plugin_bundle,
+        obsidian_plugin_status,
+        remove_obsidian_plugin,
+    )
+
+    status = session.tasks.managed_workspace.status()
+    if status is None or not status.connected:
+        failure = ObsidianPluginFailure("workspace_unconfigured")
+        return _write_obsidian_plugin_failure(failure.code, json_output=json_output)
+    workspace = session.profile.root.parent / "Open Brain Vault"
+    try:
+        action = cast(str, parsed.action)
+        if action == "remove":
+            payload = remove_obsidian_plugin(workspace)
+        else:
+            bundle = load_obsidian_plugin_bundle(discover_obsidian_plugin_assets())
+            payload = (
+                install_obsidian_plugin(workspace, bundle)
+                if action == "install"
+                else obsidian_plugin_status(workspace, bundle)
+            )
+    except ObsidianPluginFailure as error:
+        return _write_obsidian_plugin_failure(error.code, json_output=json_output)
+    _write_managed(payload, json_output=json_output)
+    return 0
 
 
 def _run_workspace(
@@ -1153,6 +1216,24 @@ def _write_private_data_failure(*, json_output: bool) -> None:
         )
     else:
         print("Open Brain could not use the private data directory.", file=sys.stderr)
+
+
+def _write_obsidian_plugin_failure(code: str, *, json_output: bool) -> int:
+    messages = {
+        "assets_unavailable": "The packaged Open Brain Obsidian plugin is unavailable.",
+        "foreign_plugin": "The Obsidian plugin directory is not owned by Open Brain.",
+        "modified_plugin": "An installed Open Brain plugin file was modified; no files changed.",
+        "unsafe_workspace": "The managed Open Brain vault is unavailable or unsafe.",
+        "workspace_unconfigured": (
+            "Set up the managed Open Brain vault before installing the plugin."
+        ),
+    }
+    message = messages.get(code, "Open Brain could not manage the Obsidian plugin.")
+    if json_output:
+        _write_json({"error": {"code": code, "message": message}, "status": "failed"})
+    else:
+        print(f"{code}: {message}", file=sys.stderr)
+    return 78
 
 
 def _write_usage_failure(*, json_output: bool) -> None:

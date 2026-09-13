@@ -39,6 +39,7 @@ engine. Never migrate between products by copying or reinterpreting live SQLite 
 | `packages/engine/src/open_brain_engine` | Shared records, local tasks, SQLite storage, retrieval, and Portable Brain schemas |
 | `packages/app/src/open_brain` | Direct local bootstrap, CLI, MCP over stdio, and local operations |
 | `packages/app/src/open_brain/services/local_entrypoints.py` | Installed default `open-brain` callable |
+| `packages/obsidian-plugin` | Desktop-only Obsidian source, bounded stdio client, and compiled plugin checks |
 | `packages/connectors` | Optional connector distribution; not a default dependency |
 | `archive/open-brain-secure-node` | Historical Secure Node implementation; excluded from builds and tests |
 | `archive/legacy` | Historical predecessor; excluded from the workspace, builds, imports, and tests |
@@ -65,6 +66,7 @@ make lint
 make typecheck
 make test
 make build
+make plugin-test
 make verify
 make native-audit
 make homebrew-smoke
