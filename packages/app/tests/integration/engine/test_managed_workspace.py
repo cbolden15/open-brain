@@ -8,6 +8,8 @@ from open_brain_engine.engine import (
     BrainEngine,
     CaptureAction,
     InjectedFault,
+    ManagedAccessMode,
+    ManagedProvider,
     ManagedWorkspaceFailure,
     ManagedWorkspaceFault,
     TextPayload,
@@ -121,15 +123,12 @@ def test_deactivate_and_restore_change_state_without_touching_markdown_or_consen
     page = _managed_page(workspace, note_id)
     expected = page.read_bytes()
     database = root / ".open-brain/state/phase1.sqlite3"
-    with sqlite3.connect(database) as connection:
-        connection.execute(
-            """INSERT INTO managed_consents
-            (consent_id, workspace_id, provider, operation, note_scope,
-             granted_generation, active, granted_at)
-            VALUES ('consent_test', ?, 'fake', 'infer', '*', 0, 1,
-                    '2026-09-12T00:00:00Z')""",
-            (setup.workspace_id,),
-        )
+    engine.managed_policy.grant_consent(
+        setup.workspace_id,
+        ManagedProvider.OPENAI_API,
+        ManagedAccessMode.API_KEY,
+        operation_id="managed.consent",
+    )
 
     engine.managed_workspace.deactivate(
         setup.workspace_id, note_id, operation_id="managed.deactivate"
@@ -143,7 +142,8 @@ def test_deactivate_and_restore_change_state_without_touching_markdown_or_consen
     assert len(engine.managed_workspace.observe(setup.workspace_id).notes) == 1
     with sqlite3.connect(database) as connection:
         consent = connection.execute(
-            "SELECT active, revoked_at FROM managed_consents WHERE consent_id = 'consent_test'"
+            "SELECT active, revoked_at FROM managed_consents WHERE workspace_id = ?",
+            (setup.workspace_id,),
         ).fetchone()
     assert consent is not None
     assert consent[0] == 0
@@ -162,3 +162,29 @@ def test_managed_workspace_rejects_overlap_and_existing_markdown(tmp_path: Path)
     (workspace / "existing.md").write_text("synthetic", encoding="utf-8")
     with pytest.raises(ManagedWorkspaceFailure, match="unsafe_workspace"):
         engine.managed_workspace.setup(str(workspace), operation_id="managed.nonempty")
+
+
+def test_missing_file_is_observed_but_requires_explicit_deactivation(tmp_path: Path) -> None:
+    engine = _engine(tmp_path / "brain")
+    note_id = _capture_page(engine, "Missing managed body", "managed.missing.capture")
+    workspace = tmp_path / "workspace"
+    workspace.mkdir(mode=0o700)
+    setup = engine.managed_workspace.setup(str(workspace), operation_id="managed.missing.setup")
+    page = _managed_page(workspace, note_id)
+    page.unlink()
+
+    missing = engine.managed_workspace.observe(setup.workspace_id).notes[0]
+
+    assert missing.note_id == note_id
+    assert not missing.present
+    assert missing.observed_sha256 is None
+    assert missing.changed
+    with sqlite3.connect(tmp_path / "brain/.open-brain/state/phase1.sqlite3") as connection:
+        assert connection.execute(
+            "SELECT active FROM managed_notes WHERE note_id = ?", (note_id,)
+        ).fetchone() == (1,)
+
+    engine.managed_workspace.deactivate(
+        setup.workspace_id, note_id, operation_id="managed.missing.deactivate"
+    )
+    assert engine.managed_workspace.observe(setup.workspace_id).notes == ()

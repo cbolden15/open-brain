@@ -352,14 +352,20 @@ MANAGED_WORKSPACE_SCHEMA = (
     """
 CREATE TABLE IF NOT EXISTS managed_workspaces (
     workspace_id TEXT PRIMARY KEY,
-    root_path TEXT NOT NULL UNIQUE,
-    device TEXT NOT NULL,
-    inode TEXT NOT NULL,
+    root_path TEXT UNIQUE,
+    device TEXT,
+    inode TEXT,
     owner_actor_id TEXT NOT NULL,
+    origin_owner_actor_id TEXT NOT NULL,
     created_at TEXT NOT NULL,
     observation_generation INTEGER NOT NULL DEFAULT 0 CHECK (observation_generation >= 0),
     policy_generation INTEGER NOT NULL DEFAULT 0 CHECK (policy_generation >= 0),
-    UNIQUE (device, inode)
+    UNIQUE (device, inode),
+    CHECK (
+        (root_path IS NULL AND device IS NULL AND inode IS NULL)
+        OR
+        (root_path IS NOT NULL AND device IS NOT NULL AND inode IS NOT NULL)
+    )
 )
     """.strip(),
     """
@@ -387,11 +393,14 @@ CREATE TABLE IF NOT EXISTS managed_note_revisions (
 CREATE TABLE IF NOT EXISTS managed_notes (
     note_id TEXT PRIMARY KEY,
     workspace_id TEXT NOT NULL REFERENCES managed_workspaces(workspace_id),
-    relative_path TEXT NOT NULL,
+    relative_path TEXT,
     accepted_revision_id TEXT NOT NULL,
     materialized_revision_id TEXT,
     materialized_sha256 TEXT CHECK (
         materialized_sha256 IS NULL OR length(materialized_sha256) = 64
+    ),
+    write_base_sha256 TEXT CHECK (
+        write_base_sha256 IS NULL OR length(write_base_sha256) = 64
     ),
     active INTEGER NOT NULL DEFAULT 1 CHECK (active IN (0, 1)),
     created_at TEXT NOT NULL,
@@ -402,6 +411,7 @@ CREATE TABLE IF NOT EXISTS managed_notes (
         OR
         (materialized_revision_id IS NOT NULL AND materialized_sha256 IS NOT NULL)
     ),
+    CHECK (materialized_revision_id IS NOT NULL OR write_base_sha256 IS NULL),
     FOREIGN KEY (note_id, accepted_revision_id)
         REFERENCES managed_note_revisions(note_id, revision_id)
         DEFERRABLE INITIALLY DEFERRED,
@@ -483,8 +493,10 @@ CREATE TABLE IF NOT EXISTS managed_consents (
     consent_id TEXT PRIMARY KEY,
     workspace_id TEXT NOT NULL REFERENCES managed_workspaces(workspace_id),
     provider TEXT NOT NULL,
+    access_mode TEXT NOT NULL,
     operation TEXT NOT NULL,
     note_scope TEXT NOT NULL,
+    owner_actor_id TEXT NOT NULL,
     granted_generation INTEGER NOT NULL CHECK (granted_generation >= 0),
     active INTEGER NOT NULL CHECK (active IN (0, 1)),
     granted_at TEXT NOT NULL,
@@ -493,15 +505,19 @@ CREATE TABLE IF NOT EXISTS managed_consents (
         (active = 1 AND revoked_at IS NULL)
         OR
         (active = 0 AND revoked_at IS NOT NULL)
-    ),
-    UNIQUE (workspace_id, provider, operation, note_scope)
+    )
 )
+    """.strip(),
+    """
+CREATE UNIQUE INDEX IF NOT EXISTS managed_active_consent_idx
+ON managed_consents(workspace_id, provider, access_mode, operation, note_scope)
+WHERE active = 1
     """.strip(),
     """
 CREATE TABLE IF NOT EXISTS managed_exclusions (
     exclusion_id TEXT PRIMARY KEY,
     workspace_id TEXT NOT NULL REFERENCES managed_workspaces(workspace_id),
-    kind TEXT NOT NULL CHECK (kind IN ('note', 'folder')),
+    kind TEXT NOT NULL CHECK (kind IN ('note', 'folder', 'portable_set')),
     subject TEXT NOT NULL,
     active INTEGER NOT NULL DEFAULT 1 CHECK (active IN (0, 1)),
     policy_generation INTEGER NOT NULL CHECK (policy_generation >= 0),
@@ -529,13 +545,75 @@ CREATE TABLE IF NOT EXISTS managed_inference_budgets (
 )
     """.strip(),
     """
+CREATE TABLE IF NOT EXISTS managed_inference_requests (
+    request_id TEXT PRIMARY KEY,
+    request_sha256 TEXT NOT NULL CHECK (length(request_sha256) = 64),
+    workspace_id TEXT NOT NULL REFERENCES managed_workspaces(workspace_id),
+    provider TEXT NOT NULL,
+    access_mode TEXT NOT NULL,
+    operation TEXT NOT NULL,
+    adapter_identity TEXT NOT NULL,
+    policy_generation INTEGER NOT NULL CHECK (policy_generation >= 0),
+    selections_json TEXT NOT NULL,
+    prompt_bytes BLOB NOT NULL,
+    prompt_sha256 TEXT NOT NULL CHECK (length(prompt_sha256) = 64),
+    effective_privacy_json TEXT NOT NULL,
+    input_bytes INTEGER NOT NULL CHECK (input_bytes > 0),
+    max_output_bytes INTEGER NOT NULL CHECK (max_output_bytes > 0),
+    timeout_seconds INTEGER NOT NULL CHECK (timeout_seconds > 0),
+    status TEXT NOT NULL CHECK (
+        status IN ('reserved', 'dispatching', 'succeeded', 'failed', 'uncertain',
+                   'superseded', 'cancelled')
+    ),
+    output_bytes INTEGER CHECK (output_bytes IS NULL OR output_bytes >= 0),
+    created_at TEXT NOT NULL,
+    completed_at TEXT,
+    CHECK (
+        (status IN ('reserved', 'dispatching') AND completed_at IS NULL)
+        OR
+        (status IN ('succeeded', 'failed', 'uncertain', 'superseded', 'cancelled')
+         AND completed_at IS NOT NULL)
+    )
+)
+    """.strip(),
+    """
+CREATE TABLE IF NOT EXISTS managed_suggestions (
+    suggestion_id TEXT PRIMARY KEY,
+    request_id TEXT NOT NULL REFERENCES managed_inference_requests(request_id),
+    workspace_id TEXT NOT NULL REFERENCES managed_workspaces(workspace_id),
+    source_note_id TEXT NOT NULL REFERENCES managed_notes(note_id),
+    source_revision_id TEXT NOT NULL,
+    target_note_id TEXT NOT NULL REFERENCES managed_notes(note_id),
+    target_revision_id TEXT NOT NULL,
+    source_quote TEXT NOT NULL,
+    target_quote TEXT NOT NULL,
+    provider TEXT NOT NULL,
+    model TEXT NOT NULL,
+    output_sha256 TEXT NOT NULL CHECK (length(output_sha256) = 64),
+    status TEXT NOT NULL CHECK (status IN ('pending', 'accepted', 'invalidated')),
+    issued_at TEXT NOT NULL,
+    accepted_at TEXT,
+    CHECK (source_note_id != target_note_id),
+    CHECK (
+        (status = 'accepted' AND accepted_at IS NOT NULL)
+        OR
+        (status != 'accepted' AND accepted_at IS NULL)
+    ),
+    FOREIGN KEY (source_note_id, source_revision_id)
+        REFERENCES managed_note_revisions(note_id, revision_id),
+    FOREIGN KEY (target_note_id, target_revision_id)
+        REFERENCES managed_note_revisions(note_id, revision_id)
+)
+    """.strip(),
+    """
 CREATE TABLE IF NOT EXISTS managed_operations (
     operation_id TEXT PRIMARY KEY,
     request_sha256 TEXT NOT NULL CHECK (length(request_sha256) = 64),
     workspace_id TEXT NOT NULL REFERENCES managed_workspaces(workspace_id),
     note_id TEXT REFERENCES managed_notes(note_id),
     kind TEXT NOT NULL CHECK (
-        kind IN ('setup', 'accept_revision', 'materialize', 'deactivate', 'restore', 'resolve')
+        kind IN ('setup', 'accept_revision', 'materialize', 'deactivate', 'restore',
+                 'resolve', 'grant_consent', 'revoke_consent', 'set_exclusion', 'accept_link')
     ),
     caller_actor_id TEXT NOT NULL,
     target_relative_path TEXT,

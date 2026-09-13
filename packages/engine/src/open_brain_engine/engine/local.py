@@ -49,6 +49,8 @@ from .contracts import (
 from .local_schema import open_local_database_read_only
 from .local_store import _LocalStore, live_search_schema_is_available
 from .maintenance import inspect_phase1_state
+from .managed_inference import ManagedInferenceTasks
+from .managed_policy import ManagedPolicyTasks
 from .managed_workspace import ManagedWorkspaceTasks
 from .markdown_import import MarkdownImportTasks
 from .normalization import _done, _utc_now
@@ -159,6 +161,8 @@ class BrainEngine(CaptureOperations, SpaceOperations, ReviewOperations, Retrieva
         self.reconciliation = ReconciliationTasks(self)
         self.markdown_import = MarkdownImportTasks(self)
         self.managed_workspace = ManagedWorkspaceTasks(self)
+        self.managed_policy = ManagedPolicyTasks(self, self.managed_workspace)
+        self.managed_inference = ManagedInferenceTasks(self, self.managed_workspace)
         self._task_set = EngineTaskSet(
             profile=profile,
             capture=self.capture,
@@ -169,6 +173,8 @@ class BrainEngine(CaptureOperations, SpaceOperations, ReviewOperations, Retrieva
             reconciliation=self.reconciliation,
             markdown_import=self.markdown_import,
             managed_workspace=self.managed_workspace,
+            managed_policy=self.managed_policy,
+            managed_inference=self.managed_inference,
         )
 
     @classmethod
@@ -191,7 +197,7 @@ class BrainEngine(CaptureOperations, SpaceOperations, ReviewOperations, Retrieva
             validate_mutation_authority=validate_mutation_authority,
         )
         with engine._writer_lease.acquire_shared_writer():
-            engine._recover()
+            engine._recover(startup=True)
             for name in profile.starter_spaces:
                 key = sha256(name.encode("utf-8")).hexdigest()
                 engine._space_operation("create", None, name, f"starter.{key}")
@@ -208,7 +214,7 @@ class BrainEngine(CaptureOperations, SpaceOperations, ReviewOperations, Retrieva
     def _rederive_live_search_projection(self) -> None:
         rederive_live_search_projection(self)
 
-    def _recover(self) -> int:
+    def _recover(self, *, startup: bool = False) -> int:
         recovered = 0
         for table, processor in (
             ("space_operations", self._process_space_operation),
@@ -228,6 +234,8 @@ class BrainEngine(CaptureOperations, SpaceOperations, ReviewOperations, Retrieva
                 processor(row)
                 recovered += 1
         recovered += self.managed_workspace._recover_locked()
+        if startup:
+            recovered += self.managed_inference._recover_startup_locked()
         return recovered
 
     def _fault(

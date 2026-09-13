@@ -345,8 +345,9 @@ def test_managed_workspace_schema_enforces_revision_and_budget_links(tmp_path: P
         connection.execute("BEGIN")
         connection.execute(
             """INSERT INTO managed_workspaces
-            (workspace_id, root_path, device, inode, owner_actor_id, created_at)
-            VALUES ('workspace-1', '/synthetic/vault', '1', '2', 'owner-1',
+            (workspace_id, root_path, device, inode, owner_actor_id,
+             origin_owner_actor_id, created_at)
+            VALUES ('workspace-1', '/synthetic/vault', '1', '2', 'owner-1', 'owner-1',
                     '2026-09-12T00:00:00Z')"""
         )
         connection.execute(

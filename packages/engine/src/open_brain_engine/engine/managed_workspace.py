@@ -128,6 +128,14 @@ class ManagedWorkspaceTasks:
                 )
                 if inventory.candidates or any(outcome.failed for outcome in inventory.outcomes):
                     raise ManagedWorkspaceFailure("unsafe_workspace")
+                detached = self._detached_workspace()
+                if detached is not None:
+                    return self._attach_detached(
+                        detached,
+                        root=pinned.snapshot.canonical_path,
+                        identity=pinned.snapshot.identity,
+                        caller_operation_id=operation_id,
+                    )
                 pages = self._canonical_pages()
                 workspace_id = _new_id("workspace")
                 now = _timestamp(self._engine._clock())
@@ -136,13 +144,15 @@ class ManagedWorkspaceTasks:
                     with self._engine._store.transaction() as connection:
                         connection.execute(
                             """INSERT INTO managed_workspaces
-                            (workspace_id, root_path, device, inode, owner_actor_id, created_at)
-                            VALUES (?, ?, ?, ?, ?, ?)""",
+                            (workspace_id, root_path, device, inode, owner_actor_id,
+                             origin_owner_actor_id, created_at)
+                            VALUES (?, ?, ?, ?, ?, ?, ?)""",
                             (
                                 workspace_id,
                                 str(pinned.snapshot.canonical_path),
                                 str(pinned.snapshot.identity[0]),
                                 str(pinned.snapshot.identity[1]),
+                                self._engine.profile.owner_actor_id,
                                 self._engine.profile.owner_actor_id,
                                 now,
                             ),
@@ -314,8 +324,27 @@ class ManagedWorkspaceTasks:
                                             str | None, note["materialized_sha256"]
                                         ),
                                         observed_sha256=observed_sha256,
+                                        present=True,
                                         changed=observed_sha256
                                         != cast(str | None, note["materialized_sha256"]),
+                                    )
+                                )
+                        for note_id in sorted(set(known) - set(observed)):
+                            note = known[note_id]
+                            if int(note["active"]) == 1:
+                                result.append(
+                                    ManagedNoteObservation(
+                                        note_id=note_id,
+                                        relative_path=cast(str, note["relative_path"]),
+                                        accepted_revision_id=cast(
+                                            str, note["accepted_revision_id"]
+                                        ),
+                                        materialized_sha256=cast(
+                                            str | None, note["materialized_sha256"]
+                                        ),
+                                        observed_sha256=None,
+                                        present=False,
+                                        changed=True,
                                     )
                                 )
                         connection.execute(
@@ -323,6 +352,7 @@ class ManagedWorkspaceTasks:
                             "WHERE workspace_id = ?",
                             (generation, workspace_id),
                         )
+                        result.sort(key=lambda note: note.note_id)
                 return ManagedWorkspaceObservation(workspace_id, generation, tuple(result))
         except ManagedWorkspaceFailure:
             raise
@@ -415,11 +445,13 @@ class ManagedWorkspaceTasks:
                 connection.execute(
                     """UPDATE managed_notes
                     SET accepted_revision_id = ?, materialized_revision_id = ?,
-                        materialized_sha256 = ?, relative_path = ?, updated_at = ?
+                        materialized_sha256 = ?, write_base_sha256 = ?,
+                        relative_path = ?, updated_at = ?
                     WHERE note_id = ?""",
                     (
                         revision_id,
                         revision_id,
+                        observation["observed_sha256"],
                         observation["observed_sha256"],
                         observation["relative_path"],
                         now,
@@ -491,7 +523,7 @@ class ManagedWorkspaceTasks:
                     kind="materialize",
                     target_relative_path=cast(str, note["relative_path"]),
                     expected_revision_id=cast(str, note["accepted_revision_id"]),
-                    expected_target_sha256=cast(str | None, note["materialized_sha256"]),
+                    expected_target_sha256=cast(str | None, note["write_base_sha256"]),
                     body=cast(bytes, revision["body_bytes"]),
                     now=now,
                 )
@@ -508,6 +540,140 @@ class ManagedWorkspaceTasks:
         self, workspace_id: str, note_id: str, *, operation_id: str
     ) -> ManagedWorkspaceReceipt:
         return self._set_active(workspace_id, note_id, operation_id, active=True)
+
+    def resolve_conflict(
+        self,
+        workspace_id: str,
+        note_id: str,
+        choice: str,
+        *,
+        operation_id: str,
+    ) -> ManagedWorkspaceReceipt:
+        from .managed_policy import _advance_policy
+
+        _portable_id(workspace_id, "workspace")
+        _portable_id(note_id, "page")
+        _delivery_id(operation_id)
+        if choice not in {"accepted", "workspace"}:
+            raise ManagedWorkspaceFailure("operation_conflict")
+        request_sha256 = _request_sha256(
+            {
+                "choice": choice,
+                "kind": "resolve",
+                "note_id": note_id,
+                "operation_id": operation_id,
+                "workspace_id": workspace_id,
+            }
+        )
+        existing = self._operation(operation_id)
+        if existing is not None:
+            self._require_matching_operation(existing, request_sha256, "resolve")
+            return ManagedWorkspaceReceipt(
+                "conflict_resolved", workspace_id, note_id, duplicate=True
+            )
+        workspace = self._workspace(workspace_id)
+        with self._engine._writer_lease.acquire_shared_writer():  # noqa: SIM117
+            with self._engine._store.transaction() as connection:
+                note = self._note_row(connection, workspace_id, note_id)
+                conflict = connection.execute(
+                    """SELECT * FROM managed_conflicts
+                    WHERE note_id = ? AND status = 'open'""",
+                    (note_id,),
+                ).fetchone()
+                if conflict is None:
+                    raise ManagedWorkspaceFailure("operation_conflict")
+                if note["accepted_revision_id"] != conflict["accepted_revision_id"]:
+                    raise ManagedWorkspaceFailure("operation_conflict")
+                candidate = cast(bytes, conflict["candidate_body_bytes"])
+                current = read_confined(
+                    root=workspace.root,
+                    relative=cast(str, note["relative_path"]),
+                    expected_root_identity=workspace.root_identity,
+                    maximum_bytes=MAX_FILE_BYTES,
+                )
+                if current != candidate or _digest(candidate) != conflict["candidate_sha256"]:
+                    raise ManagedWorkspaceFailure("target_changed")
+                now = _timestamp(self._engine._clock())
+                resolution_revision_id = cast(str, note["accepted_revision_id"])
+                if choice == "workspace":
+                    try:
+                        parsed = parse_markdown(candidate)
+                    except MarkdownFormatError:
+                        raise ManagedWorkspaceFailure("operation_conflict") from None
+                    if parsed.fields.get("page_id") != note_id:
+                        raise ManagedWorkspaceFailure("operation_conflict")
+                    previous = connection.execute(
+                        "SELECT * FROM managed_note_revisions WHERE revision_id = ?",
+                        (note["accepted_revision_id"],),
+                    ).fetchone()
+                    if previous is None:
+                        raise ManagedWorkspaceFailure("operation_replay_mismatch")
+                    resolution_revision_id = _new_id("revision")
+                    connection.execute(
+                        """INSERT INTO managed_note_revisions
+                        (revision_id, note_id, parent_revision_id, kind, body_bytes,
+                         body_sha256, accepted_by_actor_id, provenance_json, privacy_json,
+                         recorded_at, operation_id)
+                        VALUES (?, ?, ?, 'merge', ?, ?, ?, ?, ?, ?, ?)""",
+                        (
+                            resolution_revision_id,
+                            note_id,
+                            previous["revision_id"],
+                            candidate,
+                            conflict["candidate_sha256"],
+                            self._engine.profile.owner_actor_id,
+                            previous["provenance_json"],
+                            previous["privacy_json"],
+                            now,
+                            operation_id,
+                        ),
+                    )
+                    connection.execute(
+                        """UPDATE managed_notes
+                        SET accepted_revision_id = ?, materialized_revision_id = ?,
+                            materialized_sha256 = ?, write_base_sha256 = ?, updated_at = ?
+                        WHERE note_id = ?""",
+                        (
+                            resolution_revision_id,
+                            resolution_revision_id,
+                            conflict["candidate_sha256"],
+                            conflict["candidate_sha256"],
+                            now,
+                            note_id,
+                        ),
+                    )
+                else:
+                    connection.execute(
+                        """UPDATE managed_notes SET write_base_sha256 = ?, updated_at = ?
+                        WHERE note_id = ?""",
+                        (conflict["candidate_sha256"], now, note_id),
+                    )
+                connection.execute(
+                    """UPDATE managed_conflicts
+                    SET status = 'resolved', resolution_revision_id = ?, resolved_at = ?
+                    WHERE conflict_id = ?""",
+                    (resolution_revision_id, now, conflict["conflict_id"]),
+                )
+                _advance_policy(connection, workspace_id, now)
+                self._insert_operation(
+                    connection,
+                    operation_id=operation_id,
+                    request_sha256=request_sha256,
+                    workspace_id=workspace_id,
+                    note_id=note_id,
+                    kind="resolve",
+                    target_relative_path=None,
+                    expected_revision_id=cast(str, note["accepted_revision_id"]),
+                    expected_target_sha256=cast(str, conflict["candidate_sha256"]),
+                    body=candidate,
+                    now=now,
+                    status="completed",
+                )
+                connection.execute(
+                    "DELETE FROM managed_note_observations WHERE workspace_id = ?",
+                    (workspace_id,),
+                )
+        return ManagedWorkspaceReceipt("conflict_resolved", workspace_id, note_id)
 
     def recover(self) -> int:
         with self._engine._writer_lease.acquire_shared_writer():  # noqa: SIM117
@@ -540,6 +706,8 @@ class ManagedWorkspaceTasks:
         *,
         active: bool,
     ) -> ManagedWorkspaceReceipt:
+        from .managed_policy import _advance_policy
+
         _portable_id(workspace_id, "workspace")
         _portable_id(note_id, "page")
         _delivery_id(operation_id)
@@ -562,20 +730,16 @@ class ManagedWorkspaceTasks:
                 note = self._note_row(connection, workspace_id, note_id)
                 duplicate = int(note["active"]) == int(active)
                 now = _timestamp(self._engine._clock())
-                connection.execute(
-                    "UPDATE managed_notes SET active = ?, updated_at = ? WHERE note_id = ?",
-                    (int(active), now, note_id),
-                )
-                connection.execute(
-                    """UPDATE managed_workspaces
-                    SET policy_generation = policy_generation + 1 WHERE workspace_id = ?""",
-                    (workspace_id,),
-                )
-                if not active:
+                if not duplicate:
                     connection.execute(
-                        """UPDATE managed_consents SET active = 0, revoked_at = ?
-                        WHERE workspace_id = ? AND active = 1""",
-                        (now, workspace_id),
+                        "UPDATE managed_notes SET active = ?, updated_at = ? WHERE note_id = ?",
+                        (int(active), now, note_id),
+                    )
+                    _advance_policy(
+                        connection,
+                        workspace_id,
+                        now,
+                        revoke_all_consents=not active,
                     )
                 self._insert_operation(
                     connection,
@@ -690,10 +854,12 @@ class ManagedWorkspaceTasks:
                 raise ManagedWorkspaceFailure("operation_replay_mismatch")
             connection.execute(
                 """UPDATE managed_notes
-                SET materialized_revision_id = ?, materialized_sha256 = ?, updated_at = ?
+                SET materialized_revision_id = ?, materialized_sha256 = ?,
+                    write_base_sha256 = ?, updated_at = ?
                 WHERE note_id = ?""",
                 (
                     operation["expected_revision_id"],
+                    body_sha256,
                     body_sha256,
                     now,
                     operation["note_id"],
@@ -709,6 +875,16 @@ class ManagedWorkspaceTasks:
     def _record_conflict(self, operation: sqlite3.Row, candidate: bytes) -> None:
         now = _timestamp(self._engine._clock())
         with self._engine._store.transaction() as connection:
+            note = self._note_row(
+                connection,
+                cast(str, operation["workspace_id"]),
+                cast(str, operation["note_id"]),
+            )
+            base_revision_id = note["materialized_revision_id"] or operation[
+                "expected_revision_id"
+            ]
+            if base_revision_id is None:
+                raise ManagedWorkspaceFailure("operation_replay_mismatch")
             existing = connection.execute(
                 "SELECT conflict_id FROM managed_conflicts WHERE note_id = ? AND status = 'open'",
                 (operation["note_id"],),
@@ -722,7 +898,7 @@ class ManagedWorkspaceTasks:
                     (
                         _new_id("conflict"),
                         operation["note_id"],
-                        operation["expected_revision_id"],
+                        base_revision_id,
                         operation["expected_revision_id"],
                         candidate,
                         _digest(candidate),
@@ -790,6 +966,103 @@ class ManagedWorkspaceTasks:
             targets.add(target)
         return tuple(pages)
 
+    def _detached_workspace(self) -> sqlite3.Row | None:
+        connection = self._engine._store.connect()
+        try:
+            rows = tuple(
+                connection.execute(
+                    "SELECT * FROM managed_workspaces WHERE root_path IS NULL ORDER BY workspace_id"
+                )
+            )
+        finally:
+            connection.close()
+        if len(rows) > 1:
+            raise ManagedWorkspaceFailure("unsafe_workspace")
+        return None if not rows else cast(sqlite3.Row, rows[0])
+
+    def _attach_detached(
+        self,
+        workspace_row: sqlite3.Row,
+        *,
+        root: Path,
+        identity: RootIdentity,
+        caller_operation_id: str,
+    ) -> ManagedWorkspaceReceipt:
+        workspace_id = cast(str, workspace_row["workspace_id"])
+        pages = {page.note_id: page.relative_path for page in self._canonical_pages()}
+        operation_ids: list[str] = []
+        now = _timestamp(self._engine._clock())
+        with self._engine._writer_lease.acquire_shared_writer():  # noqa: SIM117
+            with self._engine._store.transaction() as connection:
+                current = self._workspace_row(connection, workspace_id)
+                if (
+                    current["root_path"] is not None
+                    or current["owner_actor_id"] != self._engine.profile.owner_actor_id
+                ):
+                    raise ManagedWorkspaceFailure("unsafe_workspace")
+                notes = tuple(
+                    connection.execute(
+                        "SELECT * FROM managed_notes WHERE workspace_id = ? ORDER BY note_id",
+                        (workspace_id,),
+                    )
+                )
+                if {cast(str, note["note_id"]) for note in notes} != set(pages):
+                    raise ManagedWorkspaceFailure("unsafe_workspace")
+                connection.execute(
+                    """UPDATE managed_workspaces SET root_path = ?, device = ?, inode = ?
+                    WHERE workspace_id = ?""",
+                    (str(root), str(identity[0]), str(identity[1]), workspace_id),
+                )
+                for note in notes:
+                    note_id = cast(str, note["note_id"])
+                    target = pages[note_id]
+                    connection.execute(
+                        """UPDATE managed_notes SET relative_path = ?, updated_at = ?
+                        WHERE note_id = ?""",
+                        (target, now, note_id),
+                    )
+                    if not bool(note["active"]):
+                        continue
+                    revision = connection.execute(
+                        """SELECT body_bytes FROM managed_note_revisions
+                        WHERE note_id = ? AND revision_id = ?""",
+                        (note_id, note["accepted_revision_id"]),
+                    ).fetchone()
+                    if revision is None:
+                        raise ManagedWorkspaceFailure("unsafe_workspace")
+                    internal_operation_id = _new_id("operation")
+                    operation_ids.append(internal_operation_id)
+                    self._insert_operation(
+                        connection,
+                        operation_id=internal_operation_id,
+                        request_sha256=_request_sha256(
+                            {
+                                "caller_operation_id": caller_operation_id,
+                                "kind": "setup",
+                                "note_id": note_id,
+                                "revision_id": note["accepted_revision_id"],
+                                "target": target,
+                                "workspace_id": workspace_id,
+                            }
+                        ),
+                        workspace_id=workspace_id,
+                        note_id=note_id,
+                        kind="setup",
+                        target_relative_path=target,
+                        expected_revision_id=cast(str, note["accepted_revision_id"]),
+                        expected_target_sha256=None,
+                        body=cast(bytes, revision["body_bytes"]),
+                        now=now,
+                    )
+            self._engine._fault(ManagedWorkspaceFault.AFTER_OPERATION_PREPARED)
+            for internal_operation_id in operation_ids:
+                self._process_materialization(internal_operation_id)
+        return ManagedWorkspaceReceipt(
+            "setup",
+            workspace_id,
+            generation=int(workspace_row["observation_generation"]),
+        )
+
     def _require_safe_workspace(self, root: Path, identity: RootIdentity) -> None:
         engine_root = snapshot_directory(self._engine.profile.root)
         workspace_root = snapshot_directory(root)
@@ -824,6 +1097,8 @@ class ManagedWorkspaceTasks:
         return value
 
     def _workspace_value(self, row: sqlite3.Row) -> _Workspace:
+        if row["root_path"] is None or row["device"] is None or row["inode"] is None:
+            raise ManagedWorkspaceFailure("unsafe_workspace")
         root = Path(cast(str, row["root_path"]))
         if not root.is_absolute() or row["owner_actor_id"] != self._engine.profile.owner_actor_id:
             raise ManagedWorkspaceFailure("unsafe_workspace")

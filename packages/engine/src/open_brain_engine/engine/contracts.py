@@ -571,15 +571,25 @@ class ManagedWorkspaceFailure(RuntimeError):
 
     def __init__(self, code: str) -> None:
         if code not in {
+            "active_consent_required",
+            "budget_exhausted",
             "conflict_open",
             "inactive_note",
+            "ineligible_source",
             "invalid_observation",
+            "invalid_policy",
+            "invalid_request",
+            "invalid_suggestion",
             "operation_conflict",
             "operation_replay_mismatch",
+            "request_replay_mismatch",
+            "stale_request",
             "stale_observation",
             "target_changed",
             "unsafe_workspace",
             "unknown_note",
+            "unknown_request",
+            "unknown_suggestion",
             "unknown_workspace",
         }:
             raise ValueError("invalid managed-workspace failure")
@@ -593,7 +603,8 @@ class ManagedNoteObservation:
     relative_path: str
     accepted_revision_id: str
     materialized_sha256: str | None
-    observed_sha256: str
+    observed_sha256: str | None
+    present: bool
     changed: bool
 
     def __post_init__(self) -> None:
@@ -608,8 +619,10 @@ class ManagedNoteObservation:
         for value in (self.materialized_sha256, self.observed_sha256):
             if value is not None and _HEX64.fullmatch(value) is None:
                 raise ValueError("invalid managed note digest")
-        if type(self.changed) is not bool:
+        if type(self.present) is not bool or type(self.changed) is not bool:
             raise ValueError("invalid managed note observation")
+        if self.present is not (self.observed_sha256 is not None):
+            raise ValueError("invalid managed note presence")
 
 
 @dataclass(frozen=True, slots=True)
@@ -639,6 +652,7 @@ class ManagedWorkspaceReceipt:
     def __post_init__(self) -> None:
         if self.status not in {
             "accepted",
+            "conflict_resolved",
             "deactivated",
             "materialized",
             "restored",
@@ -654,6 +668,136 @@ class ManagedWorkspaceReceipt:
             raise ValueError("invalid managed workspace generation")
         if type(self.duplicate) is not bool:
             raise ValueError("invalid managed workspace duplicate marker")
+
+
+class ManagedProvider(StrEnum):
+    OPENAI_API = "openai_api"
+    ANTHROPIC_API = "anthropic_api"
+    CLAUDE_SUBSCRIPTION = "claude_subscription"
+    GEMINI_API = "gemini_api"
+
+
+class ManagedAccessMode(StrEnum):
+    API_KEY = "api_key"
+    SUBSCRIPTION = "subscription"
+
+
+@dataclass(frozen=True, slots=True)
+class ManagedPolicyReceipt:
+    status: str
+    workspace_id: str
+    policy_generation: int
+    duplicate: bool = False
+
+    def __post_init__(self) -> None:
+        if self.status not in {"consent_granted", "consent_revoked", "exclusion_updated"}:
+            raise ValueError("invalid managed policy receipt")
+        _portable_id(self.workspace_id, "workspace")
+        if type(self.policy_generation) is not int or self.policy_generation < 0:
+            raise ValueError("invalid managed policy generation")
+        if type(self.duplicate) is not bool:
+            raise ValueError("invalid managed policy duplicate marker")
+
+
+@dataclass(frozen=True, slots=True)
+class ManagedInferenceSource:
+    note_id: str
+    revision_id: str
+    privacy_sha256: str
+
+    def __post_init__(self) -> None:
+        _portable_id(self.note_id, "page")
+        _portable_id(self.revision_id, "revision")
+        if _HEX64.fullmatch(self.privacy_sha256) is None:
+            raise ValueError("invalid managed inference privacy digest")
+
+
+@dataclass(frozen=True, slots=True)
+class ManagedInferenceRequest:
+    request_id: str
+    workspace_id: str
+    provider: ManagedProvider
+    access_mode: ManagedAccessMode
+    adapter_identity: str
+    policy_generation: int
+    sources: tuple[ManagedInferenceSource, ...]
+    prompt: str
+    effective_privacy: PrivacyDecision
+    max_output_bytes: int
+    timeout_seconds: int
+
+    def __post_init__(self) -> None:
+        _portable_id(self.request_id, "request")
+        _portable_id(self.workspace_id, "workspace")
+        object.__setattr__(self, "provider", ManagedProvider(self.provider))
+        object.__setattr__(self, "access_mode", ManagedAccessMode(self.access_mode))
+        if (
+            not isinstance(self.adapter_identity, str)
+            or not self.adapter_identity.startswith(f"{self.provider.value}:")
+            or not self.adapter_identity.removeprefix(f"{self.provider.value}:")
+        ):
+            raise ValueError("invalid managed inference adapter")
+        if type(self.policy_generation) is not int or self.policy_generation < 0:
+            raise ValueError("invalid managed inference policy generation")
+        if not isinstance(self.sources, tuple) or not 0 < len(self.sources) <= 64:
+            raise ValueError("invalid managed inference sources")
+        if len({source.note_id for source in self.sources}) != len(self.sources):
+            raise ValueError("invalid managed inference sources")
+        if not isinstance(self.prompt, str) or not self.prompt:
+            raise ValueError("invalid managed inference prompt")
+        if not isinstance(self.effective_privacy, PrivacyDecision):
+            raise ValueError("invalid managed inference privacy")
+        if type(self.max_output_bytes) is not int or self.max_output_bytes < 1:
+            raise ValueError("invalid managed inference output limit")
+        if type(self.timeout_seconds) is not int or self.timeout_seconds < 1:
+            raise ValueError("invalid managed inference timeout")
+
+
+@dataclass(frozen=True, slots=True)
+class ManagedSuggestion:
+    suggestion_id: str
+    workspace_id: str
+    source_note_id: str
+    target_note_id: str
+    source_quote: str
+    target_quote: str
+    provider: ManagedProvider
+    model: str
+
+    def __post_init__(self) -> None:
+        _portable_id(self.suggestion_id, "suggestion")
+        _portable_id(self.workspace_id, "workspace")
+        _portable_id(self.source_note_id, "page")
+        _portable_id(self.target_note_id, "page")
+        if self.source_note_id == self.target_note_id:
+            raise ValueError("invalid managed suggestion identity")
+        for value in (self.source_quote, self.target_quote, self.model):
+            if not isinstance(value, str) or not value.strip() or len(value) > _MAX_TEXT:
+                raise ValueError("invalid managed suggestion text")
+        object.__setattr__(self, "provider", ManagedProvider(self.provider))
+
+
+@dataclass(frozen=True, slots=True)
+class ManagedInferenceReceipt:
+    status: str
+    request_id: str
+    suggestion_id: str | None = None
+    duplicate: bool = False
+
+    def __post_init__(self) -> None:
+        if self.status not in {
+            "cancelled",
+            "dispatching",
+            "failed",
+            "suggestion_accepted",
+            "suggestion_recorded",
+        }:
+            raise ValueError("invalid managed inference receipt")
+        _portable_id(self.request_id, "request")
+        if self.suggestion_id is not None:
+            _portable_id(self.suggestion_id, "suggestion")
+        if type(self.duplicate) is not bool:
+            raise ValueError("invalid managed inference duplicate marker")
 
 
 class MarkdownImportFailure(RuntimeError):
@@ -1350,6 +1494,79 @@ class ManagedWorkspaceTask(Protocol):
         self, workspace_id: str, note_id: str, *, operation_id: str
     ) -> ManagedWorkspaceReceipt: ...
 
+    def resolve_conflict(
+        self,
+        workspace_id: str,
+        note_id: str,
+        choice: str,
+        *,
+        operation_id: str,
+    ) -> ManagedWorkspaceReceipt: ...
+
+
+class ManagedPolicyTask(Protocol):
+    def grant_consent(
+        self,
+        workspace_id: str,
+        provider: ManagedProvider,
+        access_mode: ManagedAccessMode,
+        *,
+        operation_id: str,
+    ) -> ManagedPolicyReceipt: ...
+
+    def revoke_consent(
+        self,
+        workspace_id: str,
+        provider: ManagedProvider,
+        access_mode: ManagedAccessMode,
+        *,
+        operation_id: str,
+    ) -> ManagedPolicyReceipt: ...
+
+    def set_exclusion(
+        self,
+        workspace_id: str,
+        kind: str,
+        subject: str,
+        *,
+        excluded: bool,
+        operation_id: str,
+    ) -> ManagedPolicyReceipt: ...
+
+
+class ManagedInferenceTask(Protocol):
+    def prepare(
+        self,
+        workspace_id: str,
+        provider: ManagedProvider,
+        access_mode: ManagedAccessMode,
+        adapter_identity: str,
+        note_ids: tuple[str, ...],
+        *,
+        request_id: str,
+        max_output_bytes: int,
+        timeout_seconds: int,
+    ) -> ManagedInferenceRequest: ...
+
+    def release(self, request_id: str) -> ManagedInferenceRequest: ...
+
+    def record_suggestion(
+        self,
+        request_id: str,
+        *,
+        source_note_id: str,
+        target_note_id: str,
+        source_quote: str,
+        target_quote: str,
+        model: str,
+    ) -> ManagedSuggestion: ...
+
+    def fail(self, request_id: str) -> ManagedInferenceReceipt: ...
+
+    def accept_suggestion(
+        self, workspace_id: str, suggestion_id: str, *, operation_id: str
+    ) -> ManagedInferenceReceipt: ...
+
 
 @dataclass(frozen=True, slots=True)
 class EngineTaskSet:
@@ -1364,6 +1581,8 @@ class EngineTaskSet:
     reconciliation: ReconciliationTask
     markdown_import: MarkdownImportTask
     managed_workspace: ManagedWorkspaceTask
+    managed_policy: ManagedPolicyTask
+    managed_inference: ManagedInferenceTask
 
     @property
     def spaces(self) -> InboxSpaceTask:

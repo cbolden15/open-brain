@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
+from dataclasses import replace
 from datetime import UTC, datetime
 from hashlib import sha256
 from pathlib import Path
@@ -11,8 +12,10 @@ from typing import TYPE_CHECKING, cast
 
 from open_brain_engine.core.ids import portable_canonical_json_bytes
 from open_brain_engine.core.locks import LockScope
-from open_brain_engine.portable import PORTABLE_V1_SCHEMA_CATALOG_DIGEST, validate_portable_root
-from open_brain_engine.portable.v1 import PortableSnapshot, validated_portable_snapshot
+from open_brain_engine.portable import PORTABLE_V1_SCHEMA_CATALOG_DIGEST
+from open_brain_engine.portable.managed_v2 import PORTABLE_V2_SCHEMA_CATALOG_DIGEST
+from open_brain_engine.portable.v1 import PortableSnapshot
+from open_brain_engine.portable.versioned import validate_portable_root, validated_portable_snapshot
 from open_brain_engine.storage.filesystem import RootIdentity, capture_root_identity, read_confined
 from open_brain_engine.storage.locks import FileLease
 from open_brain_engine.storage.sqlite import SchemaError, connect_database_read_only
@@ -24,6 +27,7 @@ from open_brain_engine.storage.staging import (
 )
 
 from .contracts import PortabilityFault, PortabilityReceipt
+from .managed_portability import export_managed_workspace_state, import_managed_workspace_state
 from .materializer import Materialization, _profile, materialize_portable_root
 from .portability_ports import LocalPortableWrites, LocalTenantStorage, local_portability_ports
 from .portable_index import IndexBuild, rebuild_portable_index
@@ -51,7 +55,10 @@ def _receipt(
     duplicate: bool = False,
     index_generation: int | None = None,
 ) -> PortabilityReceipt:
-    if type(manifest.get("schema_version")) is not int or manifest["schema_version"] != 1:
+    if type(manifest.get("schema_version")) is not int or manifest["schema_version"] not in {
+        1,
+        2,
+    }:
         raise ValueError("unsupported Portable Brain schema")
     entries = cast(list[dict[str, object]], manifest["files"])
     paths = [cast(str, entry["path"]) for entry in entries]
@@ -68,19 +75,33 @@ def _receipt(
 
 
 def _manifest(
-    files: list[tuple[str, bytes]], *, export_id: str, created_at: str, tenant_id: str
+    files: list[tuple[str, bytes]],
+    *,
+    export_id: str,
+    created_at: str,
+    tenant_id: str,
+    version: int = 1,
 ) -> dict[str, object]:
+    if version not in {1, 2}:
+        raise ValueError("unsupported Portable Brain schema")
     return {
-        "compatibility": {"maximum_contract_version": "1", "minimum_contract_version": "1"},
-        "contract_version": "1",
+        "compatibility": {
+            "maximum_contract_version": str(version),
+            "minimum_contract_version": "1",
+        },
+        "contract_version": str(version),
         "created_at": created_at,
         "export_id": export_id,
         "files": [
             {"path": relative, "sha256": sha256(payload).hexdigest()} for relative, payload in files
         ],
-        "layout_version": 1,
-        "schema_catalog_digest": PORTABLE_V1_SCHEMA_CATALOG_DIGEST,
-        "schema_version": 1,
+        "layout_version": version,
+        "schema_catalog_digest": (
+            PORTABLE_V1_SCHEMA_CATALOG_DIGEST
+            if version == 1
+            else PORTABLE_V2_SCHEMA_CATALOG_DIGEST
+        ),
+        "schema_version": version,
         "tenant_id": tenant_id,
     }
 
@@ -413,16 +434,24 @@ class PortabilityTasks:
         files = [
             (relative, payload)
             for relative, payload in storage.portable_files()
-            if relative == "brain.toml" or relative.startswith(("content/", "history/", "sources/"))
+            if (
+                relative == "brain.toml"
+                or relative.startswith(("content/", "history/", "sources/"))
+            )
+            and not relative.startswith("history/managed-workspace/")
         ]
         if not files or files[0][0] != "brain.toml":
             raise ValueError("local Portable profile is unavailable")
+        managed = export_managed_workspace_state(self._engine)
+        if managed is not None:
+            files.append(managed)
         files.sort(key=lambda item: item[0])
         manifest = _manifest(
             files,
             export_id=export_id,
             created_at=_timestamp(self._engine._clock()),
             tenant_id=self._engine.profile.tenant_id,
+            version=2 if managed is not None else 1,
         )
         try:
             with sibling_stage(
@@ -567,6 +596,25 @@ class PortabilityTasks:
                     snapshot=stage_snapshot,
                     expected_root_identity=stage_identity,
                 )
+                if manifest["schema_version"] == 2:
+                    managed_paths = [
+                        path
+                        for path in stage_snapshot.files
+                        if path.startswith("history/managed-workspace/")
+                    ]
+                    if len(managed_paths) != 1:
+                        raise ValueError("Portable v2 managed state is unavailable")
+                    from .local import BrainEngine
+
+                    staged_engine = BrainEngine.open(materialization.profile)
+                    import_managed_workspace_state(
+                        staged_engine,
+                        stage_snapshot.files[managed_paths[0]],
+                    )
+                    materialization = replace(
+                        materialization,
+                        history_records=materialization.history_records + 1,
+                    )
                 stage.assert_identity()
                 self._engine._fault(PortabilityFault.AFTER_MATERIALIZATION)
                 index = rebuild_portable_index(materialization.profile)
@@ -639,6 +687,7 @@ class PortabilityTasks:
                 relative == "brain.toml"
                 or relative.startswith(("content/", "history/", "sources/"))
             )
+            and not relative.startswith("history/managed-workspace/")
         ]
         manifest = _manifest(
             files,
