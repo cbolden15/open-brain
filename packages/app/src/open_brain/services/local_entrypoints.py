@@ -62,6 +62,7 @@ from open_brain.services.local_operations import (
     graph_projection,
     graph_suggestions,
     mcp_capture_sink,
+    refresh_structural_graph,
     search_brain,
     search_result,
 )
@@ -345,6 +346,7 @@ def _parser() -> argparse.ArgumentParser:
         "action",
         choices=(
             "projection",
+            "refresh-structural",
             "suggestions",
             "accept",
             "grant-consent",
@@ -591,6 +593,9 @@ def _run_graph(
     action = cast(str, parsed.action)
     if action == "projection":
         _write_managed(graph_projection(tasks), json_output=json_output)
+        return 0
+    if action == "refresh-structural":
+        _write_managed(refresh_structural_graph(tasks), json_output=json_output)
         return 0
     if action == "suggestions":
         _write_managed(graph_suggestions(tasks), json_output=json_output)

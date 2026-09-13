@@ -18,6 +18,7 @@ from typing import NoReturn
 import pytest
 
 from tools.open_brain_dev import artifact_audit as native
+from tools.open_brain_dev.graphify_native import write_graphify_archive
 from tools.open_brain_dev.release_audit import content_rule_ids, main
 
 TERM = "synthetic_owner_marker"
@@ -648,3 +649,24 @@ def test_graphify_proof_envelope_rejects_invalid_members(bad: str) -> None:
     except native.InvalidArtifact:
         return
     assert scanner.findings
+
+
+def test_graphify_release_envelope_inspects_the_helper_and_legal_files(
+    tmp_path: Path,
+) -> None:
+    helper = tmp_path / "open-brain-graphify"
+    helper.write_bytes(
+        executable(
+            package([("PYZ.pyz", b"z", pyz(module()))]),
+            "linux-x86_64",
+        )
+    )
+    licenses = tmp_path / "licenses"
+    licenses.mkdir()
+    for name in ("LICENSE", "LICENSE-MIT", "NOTICE", "OPEN-BRAIN-NOTICE"):
+        (licenses / name).write_text("safe", encoding="utf-8")
+    target = tmp_path / "open-brain-graphify-0.1.0-linux-x86_64.tar.gz"
+
+    write_graphify_archive(helper, licenses, target)
+
+    assert native.inspect_artifact(target, ()) == []

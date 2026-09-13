@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from hashlib import sha256
+from pathlib import Path
 
 from open_brain_engine.core.models import (
     Authority,
@@ -34,7 +35,11 @@ from open_brain.services.graph_projection_store import (
     GraphProjectionStore,
     projection_result,
 )
-from open_brain.services.graphify_projection import GraphifyFailure
+from open_brain.services.graphify_projection import (
+    GraphifyAdapter,
+    GraphifyFailure,
+    discover_graphify_executable,
+)
 from open_brain.services.managed_providers import (
     ManagedGraphProviderResult,
     ManagedProviderFailure,
@@ -185,6 +190,33 @@ def graph_projection(tasks: EngineTaskSet) -> dict[str, object]:
             "structural_links": [],
             "workspace_id": status.workspace_id,
         }
+    return projection_result(
+        snapshot,
+        structural,
+        tasks.managed_inference.suggestions(status.workspace_id),
+    )
+
+
+def refresh_structural_graph(
+    tasks: EngineTaskSet,
+    *,
+    base_executable: Path | None = None,
+) -> dict[str, object]:
+    """Rebuild the structural projection with the helper from this installed prefix."""
+    status = tasks.managed_workspace.status()
+    if status is None:
+        return {
+            "inferred_suggestions": [],
+            "status": "unconfigured",
+            "structural_links": [],
+        }
+    snapshot = tasks.managed_workspace.graph_snapshot(status.workspace_id)
+    store = GraphProjectionStore(tasks.profile.root, tasks.profile.root_identity)
+    try:
+        helper = discover_graphify_executable(base_executable)
+        structural = store.refresh(snapshot, GraphifyAdapter(helper))
+    except GraphifyFailure as error:
+        structural = store.record_failure(snapshot, error.code)
     return projection_result(
         snapshot,
         structural,

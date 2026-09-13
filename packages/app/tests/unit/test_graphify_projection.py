@@ -36,6 +36,7 @@ from open_brain.services.graphify_projection import (
     GraphifyFailure,
     GraphifyLink,
     SubprocessGraphifyTransport,
+    discover_graphify_executable,
 )
 
 FIRST = "page_00000000-0000-4000-8000-000000000101"
@@ -244,6 +245,30 @@ def test_subprocess_transport_actively_cancels_normal_user_worker() -> None:
         )
 
     assert time.monotonic() - started < 1
+
+
+def test_helper_discovery_binds_to_same_keg_and_rejects_symlinked_helper(
+    tmp_path: Path,
+) -> None:
+    prefix = tmp_path / "Cellar/open-brain/0.1.0"
+    base = prefix / "bin/open-brain"
+    helper = prefix / "libexec/open-brain-graphify"
+    base.parent.mkdir(parents=True)
+    helper.parent.mkdir(parents=True)
+    base.write_text("base", encoding="utf-8")
+    helper.write_text("helper", encoding="utf-8")
+    base.chmod(0o755)
+    helper.chmod(0o755)
+    linked_base = tmp_path / "bin/open-brain"
+    linked_base.parent.mkdir()
+    linked_base.symlink_to(base)
+
+    assert discover_graphify_executable(linked_base) == helper
+
+    helper.unlink()
+    helper.symlink_to(base)
+    with pytest.raises(GraphifyFailure, match="adapter_unavailable"):
+        discover_graphify_executable(linked_base)
 
 
 def test_projection_store_publishes_complete_generation_and_detects_staleness(

@@ -1511,3 +1511,17 @@ row introduced after that era. Assert the final current version through the expo
 constant rather than repeating its number in tests.
 
 Discovered: 2026-09-12, NW1 managed-workspace migration verification.
+
+### INTEGRATION-027: Homebrew can delete an untrusted local tap before smoke installation
+
+Symptom: A contributor smoke creates a temporary local tap, but `brew tap` rejects the tap as
+untrusted and removes its checkout before the formula can be installed.
+
+Cause: Homebrew 6 requires tap or formula trust before it will load third-party formulae. Trusting
+the formula through the failed tap flow cannot preserve the checkout needed for installation.
+
+Fix: Clone the exact generated tap into the path returned by `brew --repository`, verify its
+ownership marker and formula bytes, then install the fully qualified formula. Snapshot formula
+trust before the run and verify that uninstalling and untapping remove the temporary trust entry.
+
+Discovered: 2026-09-13, NW2 paired native Graphify Homebrew smoke.

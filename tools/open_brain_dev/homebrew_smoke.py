@@ -30,6 +30,18 @@ def installed() -> list[str]:
     return brew("list", "--formula", "--full-name").splitlines()
 
 
+def trusted_formulae() -> set[str]:
+    value = json.loads(brew("trust", "--json", "v1"))
+    if (
+        not isinstance(value, dict)
+        or set(value) != {"casks", "commands", "formulae", "taps"}
+        or not isinstance(value.get("formulae"), list)
+        or not all(isinstance(item, str) for item in value["formulae"])
+    ):
+        raise ValueError("Homebrew trust state is invalid")
+    return set(value["formulae"])
+
+
 def link_state(path: Path) -> dict[str, str]:
     try:
         mode = path.lstat().st_mode
@@ -56,11 +68,14 @@ def absolute_prefix(*arguments: str) -> Path:
 
 def snapshot() -> dict[str, object]:
     products = [name for name in installed() if name.split("/")[-1] == "open-brain"]
+    if FORMULA in trusted_formulae():
+        raise ValueError("reserved smoke formula already has trust state; refusing smoke")
     if len(products) > 1 or any(name.startswith(f"{TAP}/") for name in products):
         raise ValueError("ambiguous or reserved-tap product installation; refusing smoke")
     result: dict[str, object] = {
         "product": None,
         "link": link_state(absolute_prefix() / "bin/open-brain"),
+        "smoke_formula_trusted": False,
     }
     if products:
         name = products[0]
@@ -105,9 +120,28 @@ def cleanup() -> None:
     brew("untap", TAP)
 
 
+def verify_owned_tap(source: Path) -> None:
+    repository = Path(brew("--repository", TAP))
+    source_formula = source / "Formula/open-brain-smoke.rb"
+    installed_formula = repository / "Formula/open-brain-smoke.rb"
+    if (
+        not repository.is_absolute()
+        or repository.is_symlink()
+        or not source_formula.is_file()
+        or source_formula.is_symlink()
+        or not installed_formula.is_file()
+        or installed_formula.is_symlink()
+        or (repository / MARKER).read_bytes() != OWNERSHIP
+        or installed_formula.read_bytes() != source_formula.read_bytes()
+    ):
+        raise ValueError("reserved smoke tap clone is invalid")
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("operation", choices=("snapshot", "verify", "cleanup", "mark"))
+    parser.add_argument(
+        "operation", choices=("snapshot", "verify", "cleanup", "mark", "verify-tap")
+    )
     parser.add_argument("path", type=Path, nargs="?")
     args = parser.parse_args()
     try:
@@ -117,6 +151,8 @@ def main() -> int:
             parser.error("path is required")
         elif args.operation == "mark":
             (args.path / MARKER).write_bytes(OWNERSHIP)
+        elif args.operation == "verify-tap":
+            verify_owned_tap(args.path)
         elif args.operation == "snapshot":
             args.path.write_text(json.dumps(snapshot(), sort_keys=True), encoding="utf-8")
         else:

@@ -6,6 +6,7 @@ import json
 import re
 import stat
 import subprocess
+import sys
 import tempfile
 import time
 from collections.abc import Callable, Mapping
@@ -289,6 +290,38 @@ class GraphifyAdapter:
         return MappingProxyType(value)
 
 
+def discover_graphify_executable(base_executable: Path | None = None) -> Path:
+    """Select the helper from the same installed prefix as the running base binary."""
+    if base_executable is None:
+        if not bool(getattr(sys, "frozen", False)):
+            raise GraphifyFailure("adapter_unavailable")
+        base_executable = Path(sys.executable)
+    if not isinstance(base_executable, Path) or not base_executable.is_absolute():
+        raise GraphifyFailure("adapter_unavailable")
+    try:
+        resolved_base = base_executable.resolve(strict=True)
+        base_metadata = resolved_base.stat(follow_symlinks=False)
+        if (
+            resolved_base.name != "open-brain"
+            or resolved_base.parent.name != "bin"
+            or not stat.S_ISREG(base_metadata.st_mode)
+        ):
+            raise GraphifyFailure("adapter_unavailable")
+        helper = resolved_base.parent.parent / "libexec/open-brain-graphify"
+        helper_metadata = helper.stat(follow_symlinks=False)
+        if (
+            helper.is_symlink()
+            or not stat.S_ISREG(helper_metadata.st_mode)
+            or helper_metadata.st_mode & 0o111 == 0
+        ):
+            raise GraphifyFailure("adapter_unavailable")
+        return helper
+    except GraphifyFailure:
+        raise
+    except OSError:
+        raise GraphifyFailure("adapter_unavailable") from None
+
+
 def _component_identity() -> dict[str, object]:
     return {
         "graphify_version": GRAPHIFY_VERSION,
@@ -424,4 +457,5 @@ __all__ = [
     "GraphifyHelperTransport",
     "GraphifyLink",
     "SubprocessGraphifyTransport",
+    "discover_graphify_executable",
 ]
