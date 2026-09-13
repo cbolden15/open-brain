@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.1.0 - 2026-09-13
 
 - The base distribution is now strictly foreground-only. Secure Node and legacy implementations
   are preserved under `archive/` and are excluded from the workspace, builds, tests, and entry points.
@@ -11,5 +11,3 @@
 - Local MCP capture and search use the same operations as the CLI.
 - Contributors can run lint, type checking, tests, builds, and isolated Homebrew smoke checks with
   `make contributor-check` on macOS arm64 or Linux x86_64.
-
-The public Homebrew tap and first product release are not published yet.
