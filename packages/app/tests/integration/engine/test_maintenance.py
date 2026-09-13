@@ -4,7 +4,11 @@ import sqlite3
 from pathlib import Path
 
 import pytest
-from open_brain_engine.engine import TextPayload, open_local_engine
+from open_brain_engine.engine import (
+    PHASE1_STATE_SCHEMA_VERSION,
+    TextPayload,
+    open_local_engine,
+)
 from open_brain_engine.engine.local import (
     ReadViewUnavailableError,
     StateSchemaUnavailableError,
@@ -38,17 +42,22 @@ def test_open_local_read_view_rejects_absent_and_newer_schema_without_mutation(
     database = newer_root / ".open-brain" / "state" / "phase1.sqlite3"
     lock_directory = newer_root / ".open-brain" / ".open-brain-locks"
     lock_before = _lock_bytes(lock_directory)
+    newer_version = PHASE1_STATE_SCHEMA_VERSION + 1
     with sqlite3.connect(database) as connection:
-        connection.execute("PRAGMA user_version = 3")
+        connection.execute(f"PRAGMA user_version = {newer_version}")
     after_schema_change = database.read_bytes()
 
     with pytest.raises(ReadViewUnavailableError, match="schema is newer"):
         open_local_read_view(open_existing_single_user_local(newer_root))
 
-    assert sqlite3.connect(database).execute("PRAGMA user_version").fetchone() == (3,)
+    assert sqlite3.connect(database).execute("PRAGMA user_version").fetchone() == (
+        newer_version,
+    )
     lock_after = _lock_bytes(lock_directory)
     assert lock_after == lock_before
-    assert sqlite3.connect(database).execute("PRAGMA user_version").fetchone() == (3,)
+    assert sqlite3.connect(database).execute("PRAGMA user_version").fetchone() == (
+        newer_version,
+    )
     assert database.read_bytes() == after_schema_change
 
 
@@ -58,8 +67,9 @@ def test_mutating_engine_rejects_newer_schema_before_writer_acquisition(
     root = tmp_path / "brain"
     open_local_engine(compile_single_user_local(root))
     database = root / ".open-brain" / "state" / "phase1.sqlite3"
+    newer_version = PHASE1_STATE_SCHEMA_VERSION + 1
     with sqlite3.connect(database) as connection:
-        connection.execute("PRAGMA user_version = 3")
+        connection.execute(f"PRAGMA user_version = {newer_version}")
     lock_directory = root / ".open-brain" / ".open-brain-locks"
     locks_before = _lock_bytes(lock_directory)
 
@@ -68,7 +78,7 @@ def test_mutating_engine_rejects_newer_schema_before_writer_acquisition(
 
     assert _lock_bytes(lock_directory) == locks_before
     with sqlite3.connect(database) as connection:
-        assert connection.execute("PRAGMA user_version").fetchone() == (3,)
+        assert connection.execute("PRAGMA user_version").fetchone() == (newer_version,)
 
 
 def test_read_only_view_rejects_missing_live_search_schema_without_adopting_it(
@@ -122,7 +132,9 @@ def test_mutating_engine_migrates_legacy_schema_without_replacing_content(
 
     assert reopened.retrieval.fetch(captured.capture_id) is not None
     with sqlite3.connect(database) as connection:
-        assert connection.execute("PRAGMA user_version").fetchone() == (2,)
+        assert connection.execute("PRAGMA user_version").fetchone() == (
+            PHASE1_STATE_SCHEMA_VERSION,
+        )
 
 
 def test_maintenance_snapshot_projects_local_schema_and_search_indexes(
@@ -138,7 +150,7 @@ def test_maintenance_snapshot_projects_local_schema_and_search_indexes(
     snapshot = read_maintenance_snapshot(open_existing_single_user_local(root))
 
     assert snapshot.schema.state == "current"
-    assert snapshot.schema.version == 2
+    assert snapshot.schema.version == PHASE1_STATE_SCHEMA_VERSION
     assert snapshot.live_search.state == "current"
     assert snapshot.live_search.projection_count >= 1
     assert snapshot.live_search.projection_count == snapshot.live_search.identity_count

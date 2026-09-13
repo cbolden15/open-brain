@@ -528,6 +528,7 @@ class PortabilityReceipt:
     batches: int
     blobs: int
     history_records: int
+    schema_version: int = 1
     index_generation: int | None = None
     duplicate: bool = False
 
@@ -543,6 +544,8 @@ class PortabilityReceipt:
         ):
             if type(value) is not int or value < 0:
                 raise ValueError("invalid portability receipt count")
+        if self.schema_version not in {1, 2}:
+            raise ValueError("invalid portability receipt schema version")
         if self.index_generation is not None and (
             type(self.index_generation) is not int or self.index_generation < 1
         ):
@@ -642,6 +645,33 @@ class ManagedWorkspaceObservation:
 
 
 @dataclass(frozen=True, slots=True)
+class ManagedWorkspaceStatus:
+    workspace_id: str
+    connected: bool
+    observation_generation: int
+    policy_generation: int
+    active_notes: int
+    inactive_notes: int
+    open_conflicts: int
+    pending_suggestions: int
+
+    def __post_init__(self) -> None:
+        _portable_id(self.workspace_id, "workspace")
+        if type(self.connected) is not bool:
+            raise ValueError("invalid managed workspace connection state")
+        for value in (
+            self.observation_generation,
+            self.policy_generation,
+            self.active_notes,
+            self.inactive_notes,
+            self.open_conflicts,
+            self.pending_suggestions,
+        ):
+            if type(value) is not int or value < 0:
+                raise ValueError("invalid managed workspace status count")
+
+
+@dataclass(frozen=True, slots=True)
 class ManagedWorkspaceReceipt:
     status: str
     workspace_id: str
@@ -655,6 +685,7 @@ class ManagedWorkspaceReceipt:
             "conflict_resolved",
             "deactivated",
             "materialized",
+            "refreshed",
             "restored",
             "setup",
         }:
@@ -1469,7 +1500,11 @@ class MarkdownImportTask(Protocol):
 
 
 class ManagedWorkspaceTask(Protocol):
+    def status(self) -> ManagedWorkspaceStatus | None: ...
+
     def setup(self, directory: str, *, operation_id: str) -> ManagedWorkspaceReceipt: ...
+
+    def refresh(self, workspace_id: str, *, operation_id: str) -> ManagedWorkspaceReceipt: ...
 
     def observe(self, workspace_id: str) -> ManagedWorkspaceObservation: ...
 
@@ -1535,6 +1570,8 @@ class ManagedPolicyTask(Protocol):
 
 
 class ManagedInferenceTask(Protocol):
+    def suggestions(self, workspace_id: str) -> tuple[ManagedSuggestion, ...]: ...
+
     def prepare(
         self,
         workspace_id: str,

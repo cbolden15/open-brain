@@ -164,6 +164,28 @@ def test_managed_workspace_rejects_overlap_and_existing_markdown(tmp_path: Path)
         engine.managed_workspace.setup(str(workspace), operation_id="managed.nonempty")
 
 
+def test_explicit_refresh_adds_only_new_canonical_pages(tmp_path: Path) -> None:
+    engine = _engine(tmp_path / "brain")
+    workspace = tmp_path / "workspace"
+    workspace.mkdir(mode=0o700)
+    setup = engine.managed_workspace.setup(str(workspace), operation_id="managed.empty.setup")
+    engine.capture.accept(TextPayload("Quick content"), delivery_id="managed.quick")
+    note_id = _capture_page(engine, "Later canonical body", "managed.later.capture")
+
+    first = engine.managed_workspace.refresh(
+        setup.workspace_id, operation_id="managed.explicit.refresh"
+    )
+    repeated = engine.managed_workspace.refresh(
+        setup.workspace_id, operation_id="managed.explicit.refresh"
+    )
+
+    assert first.status == "refreshed"
+    assert not first.duplicate
+    assert repeated.duplicate
+    assert _managed_page(workspace, note_id).is_file()
+    assert len(tuple(workspace.rglob("*.md"))) == 1
+
+
 def test_missing_file_is_observed_but_requires_explicit_deactivation(tmp_path: Path) -> None:
     engine = _engine(tmp_path / "brain")
     note_id = _capture_page(engine, "Missing managed body", "managed.missing.capture")

@@ -6,6 +6,7 @@ from pathlib import Path
 
 import pytest
 from open_brain_engine.engine import (
+    PHASE1_STATE_SCHEMA_VERSION,
     BrainEngine,
     CaptureAction,
     DecisionOutcome,
@@ -513,7 +514,9 @@ def test_version_one_adoption_is_public_safe_atomic_and_idempotent(tmp_path: Pat
     assert reopened.retrieval.search("synthetic-protected-source") == ()
     assert reopened.retrieval.search("adoption-secret") == ()
     with sqlite3.connect(_database(root)) as connection:
-        assert connection.execute("PRAGMA user_version").fetchone() == (2,)
+        assert connection.execute("PRAGMA user_version").fetchone() == (
+            PHASE1_STATE_SCHEMA_VERSION,
+        )
         first_identity = connection.execute(
             "SELECT fts_rowid, result_id FROM search_fts_identity"
         ).fetchall()

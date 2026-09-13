@@ -50,8 +50,6 @@ def export_managed_workspace_state(engine: BrainEngine) -> tuple[str, bytes] | N
                 (workspace_id,),
             )
         )
-        if not notes:
-            raise ValueError("Portable export requires managed notes")
         if workspace["root_path"] is not None:
             managed = engine.managed_workspace._workspace(workspace_id)
             for note in notes:

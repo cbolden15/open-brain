@@ -166,8 +166,6 @@ def validate_managed_workspace_record(
     _nonnegative(record["observation_generation"], "observation generation")
     _nonnegative(record["policy_generation"], "policy generation")
     notes = _list(record["notes"], "managed notes")
-    if not notes:
-        raise PortableValidationError("managed notes are required")
     revision_ids: dict[str, str] = {}
     accepted: dict[str, str] = {}
     seen_notes: set[str] = set()

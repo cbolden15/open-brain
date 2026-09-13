@@ -69,6 +69,7 @@ def _receipt(
         batches=sum(path.startswith("sources/batches/") for path in paths),
         blobs=sum(path.startswith("sources/blobs/") for path in paths),
         history_records=sum(path.startswith("history/") for path in paths),
+        schema_version=manifest["schema_version"],
         index_generation=index_generation,
         duplicate=duplicate,
     )

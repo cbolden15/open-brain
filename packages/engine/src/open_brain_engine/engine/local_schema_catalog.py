@@ -612,7 +612,7 @@ CREATE TABLE IF NOT EXISTS managed_operations (
     workspace_id TEXT NOT NULL REFERENCES managed_workspaces(workspace_id),
     note_id TEXT REFERENCES managed_notes(note_id),
     kind TEXT NOT NULL CHECK (
-        kind IN ('setup', 'accept_revision', 'materialize', 'deactivate', 'restore',
+        kind IN ('setup', 'refresh', 'accept_revision', 'materialize', 'deactivate', 'restore',
                  'resolve', 'grant_consent', 'revoke_consent', 'set_exclusion', 'accept_link')
     ),
     caller_actor_id TEXT NOT NULL,

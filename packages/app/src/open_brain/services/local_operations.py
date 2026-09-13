@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable, Mapping
 from hashlib import sha256
 
 from open_brain_engine.core.models import (
@@ -17,6 +18,8 @@ from open_brain_engine.engine import (
     CaptureReceipt,
     CaptureTask,
     EngineTaskSet,
+    ManagedAccessMode,
+    ManagedProvider,
     PublicJobCaptureContext,
     PublicJobCaptureSink,
     ReconciliationTask,
@@ -28,6 +31,7 @@ from open_brain_engine.storage.locks import LockBusyError
 from open_brain_engine.storage.sqlite import is_database_busy
 
 _MCP_IDENTITY = "cf350566-c33d-49ab-bef7-e0d760171ae1"
+GraphProvider = Callable[[str, int, int], Mapping[str, object]]
 
 
 def mcp_capture_sink(tasks: EngineTaskSet) -> PublicJobCaptureSink:
@@ -108,6 +112,133 @@ def search_result(results: tuple[RetrievalResult, ...]) -> dict[str, object]:
         ],
         "status": "ok",
     }
+
+
+def workspace_status(tasks: EngineTaskSet) -> dict[str, object]:
+    status = tasks.managed_workspace.status()
+    if status is None:
+        return {"status": "unconfigured"}
+    return {
+        "active_notes": status.active_notes,
+        "connected": status.connected,
+        "inactive_notes": status.inactive_notes,
+        "observation_generation": status.observation_generation,
+        "open_conflicts": status.open_conflicts,
+        "pending_suggestions": status.pending_suggestions,
+        "policy_generation": status.policy_generation,
+        "status": "ok",
+        "workspace_id": status.workspace_id,
+    }
+
+
+def graph_suggestions(tasks: EngineTaskSet) -> dict[str, object]:
+    status = tasks.managed_workspace.status()
+    if status is None:
+        return {"status": "unconfigured", "suggestions": []}
+    suggestions = tasks.managed_inference.suggestions(status.workspace_id)
+    return {
+        "status": "ok",
+        "suggestions": [
+            {
+                "model": suggestion.model,
+                "provider": suggestion.provider.value,
+                "source_note_id": suggestion.source_note_id,
+                "source_quote": suggestion.source_quote,
+                "suggestion_id": suggestion.suggestion_id,
+                "target_note_id": suggestion.target_note_id,
+                "target_quote": suggestion.target_quote,
+            }
+            for suggestion in suggestions
+        ],
+        "workspace_id": status.workspace_id,
+    }
+
+
+def refresh_graph(
+    tasks: EngineTaskSet,
+    *,
+    provider: ManagedProvider,
+    access_mode: ManagedAccessMode,
+    adapter_identity: str,
+    model: str,
+    request_id: str,
+    invoke: GraphProvider,
+    remaining_attempts: int,
+    remaining_input_bytes: int,
+) -> tuple[dict[str, object], int, int]:
+    """Run one exact-source graph attempt for an already configured provider."""
+    if remaining_attempts < 1 or remaining_input_bytes < 1:
+        raise ValueError("graph refresh process budget is exhausted")
+    status = tasks.managed_workspace.status()
+    if status is None or not status.connected:
+        raise ValueError("managed workspace is unavailable")
+    observation = tasks.managed_workspace.observe(status.workspace_id)
+    note_ids = tuple(
+        note.note_id for note in observation.notes if note.present and not note.changed
+    )
+    request = tasks.managed_inference.prepare(
+        status.workspace_id,
+        provider,
+        access_mode,
+        adapter_identity,
+        note_ids,
+        request_id=request_id,
+        max_output_bytes=16 * 1024,
+        timeout_seconds=60,
+    )
+    input_bytes = len(request.prompt.encode("utf-8"))
+    if input_bytes > remaining_input_bytes:
+        tasks.managed_inference.fail(request_id)
+        raise ValueError("graph refresh process budget is exhausted")
+    released = tasks.managed_inference.release(request_id)
+    try:
+        draft = invoke(
+            released.prompt,
+            released.max_output_bytes,
+            released.timeout_seconds,
+        )
+        if set(draft) != {"source", "source_quote", "target", "target_quote"}:
+            raise ValueError("invalid graph provider result")
+        source_index = draft["source"]
+        target_index = draft["target"]
+        if (
+            type(source_index) is not int
+            or type(target_index) is not int
+            or not 1 <= source_index <= len(released.sources)
+            or not 1 <= target_index <= len(released.sources)
+            or source_index == target_index
+            or not isinstance(draft["source_quote"], str)
+            or not isinstance(draft["target_quote"], str)
+        ):
+            raise ValueError("invalid graph provider result")
+        suggestion = tasks.managed_inference.record_suggestion(
+            request_id,
+            source_note_id=released.sources[source_index - 1].note_id,
+            target_note_id=released.sources[target_index - 1].note_id,
+            source_quote=draft["source_quote"],
+            target_quote=draft["target_quote"],
+            model=model,
+        )
+    except Exception:
+        tasks.managed_inference.fail(request_id)
+        return {"status": "failed"}, 1, input_bytes
+    return (
+        {
+            "status": "refreshed",
+            "suggestion": {
+                "model": suggestion.model,
+                "provider": suggestion.provider.value,
+                "source_note_id": suggestion.source_note_id,
+                "source_quote": suggestion.source_quote,
+                "suggestion_id": suggestion.suggestion_id,
+                "target_note_id": suggestion.target_note_id,
+                "target_quote": suggestion.target_quote,
+            },
+            "workspace_id": suggestion.workspace_id,
+        },
+        1,
+        input_bytes,
+    )
 
 
 def database_is_busy(error: BaseException) -> bool:

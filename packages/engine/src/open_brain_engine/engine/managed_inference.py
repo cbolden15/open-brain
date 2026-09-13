@@ -56,6 +56,38 @@ class ManagedInferenceTasks:
         self._engine = engine
         self._workspace_tasks = workspace
 
+    def suggestions(self, workspace_id: str) -> tuple[ManagedSuggestion, ...]:
+        _portable_id(workspace_id, "workspace")
+        connection = self._engine._store.connect()
+        try:
+            if connection.execute(
+                "SELECT 1 FROM managed_workspaces WHERE workspace_id = ?", (workspace_id,)
+            ).fetchone() is None:
+                raise ManagedWorkspaceFailure("unknown_workspace")
+            rows = tuple(
+                connection.execute(
+                    """SELECT * FROM managed_suggestions
+                    WHERE workspace_id = ? AND status = 'pending'
+                    ORDER BY issued_at, suggestion_id""",
+                    (workspace_id,),
+                )
+            )
+        finally:
+            connection.close()
+        return tuple(
+            ManagedSuggestion(
+                suggestion_id=cast(str, row["suggestion_id"]),
+                workspace_id=workspace_id,
+                source_note_id=cast(str, row["source_note_id"]),
+                target_note_id=cast(str, row["target_note_id"]),
+                source_quote=cast(str, row["source_quote"]),
+                target_quote=cast(str, row["target_quote"]),
+                provider=ManagedProvider(cast(str, row["provider"])),
+                model=cast(str, row["model"]),
+            )
+            for row in rows
+        )
+
     def prepare(
         self,
         workspace_id: str,

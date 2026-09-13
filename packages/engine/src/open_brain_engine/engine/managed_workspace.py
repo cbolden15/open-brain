@@ -29,6 +29,7 @@ from .contracts import (
     ManagedWorkspaceFault,
     ManagedWorkspaceObservation,
     ManagedWorkspaceReceipt,
+    ManagedWorkspaceStatus,
 )
 from .markdown_import_fs import (
     MAX_FILE_BYTES,
@@ -101,6 +102,57 @@ class ManagedWorkspaceTasks:
     def __init__(self, engine: BrainEngine, *, scan_limits: ScanLimits | None = None) -> None:
         self._engine = engine
         self._scan_limits = scan_limits or ScanLimits()
+
+    def status(self) -> ManagedWorkspaceStatus | None:
+        connection = self._engine._store.connect()
+        try:
+            rows = tuple(
+                connection.execute("SELECT * FROM managed_workspaces ORDER BY workspace_id")
+            )
+            if not rows:
+                return None
+            if len(rows) != 1:
+                raise ManagedWorkspaceFailure("unsafe_workspace")
+            row = cast(sqlite3.Row, rows[0])
+            workspace_id = cast(str, row["workspace_id"])
+            counts = connection.execute(
+                """SELECT
+                    sum(CASE WHEN active = 1 THEN 1 ELSE 0 END) AS active_notes,
+                    sum(CASE WHEN active = 0 THEN 1 ELSE 0 END) AS inactive_notes
+                FROM managed_notes WHERE workspace_id = ?""",
+                (workspace_id,),
+            ).fetchone()
+            conflicts = connection.execute(
+                """SELECT count(*) FROM managed_conflicts AS c
+                JOIN managed_notes AS n ON n.note_id = c.note_id
+                WHERE n.workspace_id = ? AND c.status = 'open'""",
+                (workspace_id,),
+            ).fetchone()
+            suggestions = connection.execute(
+                """SELECT count(*) FROM managed_suggestions
+                WHERE workspace_id = ? AND status = 'pending'""",
+                (workspace_id,),
+            ).fetchone()
+        finally:
+            connection.close()
+        connected = False
+        if row["root_path"] is not None:
+            try:
+                self._workspace(workspace_id)
+            except ManagedWorkspaceFailure:
+                pass
+            else:
+                connected = True
+        return ManagedWorkspaceStatus(
+            workspace_id=workspace_id,
+            connected=connected,
+            observation_generation=int(row["observation_generation"]),
+            policy_generation=int(row["policy_generation"]),
+            active_notes=int(counts["active_notes"] or 0),
+            inactive_notes=int(counts["inactive_notes"] or 0),
+            open_conflicts=int(conflicts[0]),
+            pending_suggestions=int(suggestions[0]),
+        )
 
     def setup(self, directory: str, *, operation_id: str) -> ManagedWorkspaceReceipt:
         _delivery_id(operation_id)
@@ -358,6 +410,114 @@ class ManagedWorkspaceTasks:
             raise
         except (ImportDirectoryUnavailable, ImportScanIncomplete, OSError, ValueError):
             raise ManagedWorkspaceFailure("invalid_observation") from None
+
+    def refresh(self, workspace_id: str, *, operation_id: str) -> ManagedWorkspaceReceipt:
+        _portable_id(workspace_id, "workspace")
+        _delivery_id(operation_id)
+        workspace = self._workspace(workspace_id)
+        request_sha256 = _request_sha256(
+            {"kind": "refresh", "operation_id": operation_id, "workspace_id": workspace_id}
+        )
+        existing = self._operation(operation_id)
+        if existing is not None:
+            self._require_matching_operation(existing, request_sha256, "refresh")
+            return ManagedWorkspaceReceipt(
+                "refreshed", workspace_id, generation=workspace.generation, duplicate=True
+            )
+        pages = {page.note_id: page for page in self._canonical_pages()}
+        operation_ids: list[str] = []
+        now = _timestamp(self._engine._clock())
+        with self._engine._writer_lease.acquire_shared_writer():  # noqa: SIM117
+            with self._engine._store.transaction() as connection:
+                current = self._workspace_row(connection, workspace_id)
+                self._assert_workspace_row(current, workspace)
+                known = {
+                    cast(str, row[0])
+                    for row in connection.execute(
+                        "SELECT note_id FROM managed_notes WHERE workspace_id = ?",
+                        (workspace_id,),
+                    )
+                }
+                for note_id in sorted(set(pages) - known):
+                    page = pages[note_id]
+                    revision_id = _new_id("revision")
+                    internal_operation_id = _new_id("operation")
+                    operation_ids.append(internal_operation_id)
+                    body_sha256 = _digest(page.payload)
+                    connection.execute(
+                        """INSERT INTO managed_notes
+                        (note_id, workspace_id, relative_path, accepted_revision_id,
+                         created_at, updated_at)
+                        VALUES (?, ?, ?, ?, ?, ?)""",
+                        (
+                            note_id,
+                            workspace_id,
+                            page.relative_path,
+                            revision_id,
+                            now,
+                            now,
+                        ),
+                    )
+                    connection.execute(
+                        """INSERT INTO managed_note_revisions
+                        (revision_id, note_id, kind, body_bytes, body_sha256,
+                         accepted_by_actor_id, provenance_json, privacy_json,
+                         recorded_at, operation_id)
+                        VALUES (?, ?, 'setup', ?, ?, ?, ?, ?, ?, ?)""",
+                        (
+                            revision_id,
+                            note_id,
+                            page.payload,
+                            body_sha256,
+                            self._engine.profile.owner_actor_id,
+                            page.provenance_json,
+                            page.privacy_json,
+                            now,
+                            internal_operation_id,
+                        ),
+                    )
+                    self._insert_operation(
+                        connection,
+                        operation_id=internal_operation_id,
+                        request_sha256=_request_sha256(
+                            {
+                                "caller_operation_id": operation_id,
+                                "kind": "setup",
+                                "note_id": note_id,
+                                "revision_id": revision_id,
+                                "target": page.relative_path,
+                                "workspace_id": workspace_id,
+                            }
+                        ),
+                        workspace_id=workspace_id,
+                        note_id=note_id,
+                        kind="setup",
+                        target_relative_path=page.relative_path,
+                        expected_revision_id=revision_id,
+                        expected_target_sha256=None,
+                        body=page.payload,
+                        now=now,
+                    )
+                self._insert_operation(
+                    connection,
+                    operation_id=operation_id,
+                    request_sha256=request_sha256,
+                    workspace_id=workspace_id,
+                    note_id=None,
+                    kind="refresh",
+                    target_relative_path=None,
+                    expected_revision_id=None,
+                    expected_target_sha256=None,
+                    body=None,
+                    now=now,
+                    status="completed",
+                )
+            self._engine._fault(ManagedWorkspaceFault.AFTER_OPERATION_PREPARED)
+            for internal_operation_id in operation_ids:
+                self._process_materialization(internal_operation_id)
+        return ManagedWorkspaceReceipt(
+            "refreshed", workspace_id, generation=workspace.generation
+        )
 
     def accept_observed(
         self,

@@ -240,9 +240,10 @@ commit comments and explicit columns. Never commit generated databases.
 | Atomicity and concurrency | Inject failures after DDL, ledger insertion, projection, backfill, and before commit; include callback failure and subprocess interruption. Reopen and compare the prior committed state, then retry. Race two upgrade opens and test a held writer lock with a bounded timeout. |
 | Privacy and integration | Paths, protected literals, credentials, digest-shaped strings, and Unicode vectors never enter rebuilt FTS or results. Reopen is a no-op. Exercise engine, materializer, import, read-only maintenance, backup/restore, search, and verified Portable export; ensure other databases' catalogs and versions stay unchanged. |
 
-Export continues to validate the Portable manifest and reports its `schema_version=1` in
-`open-brain export --json`. It must never expose local version 2 as the Portable version or include
-SQLite files and ledger rows in the export. Native packaging must include the extracted modules
+Export reports `schema_version=1` when no managed workspace exists and `schema_version=2` when the
+path-free managed-workspace history extension is present. Local state schema version 3 is independent
+of both Portable versions. Export must never include SQLite files or operational ledger rows. Native
+packaging must include the extracted modules
 without broadening the default dependency closure.
 
 Local verification passed: integrated `make verify` (3,545 passed, 5 skipped), native/Homebrew smoke,

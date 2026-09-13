@@ -7,7 +7,12 @@ from pathlib import Path
 from typing import cast
 
 from open_brain_engine.core.ids import portable_canonical_json_bytes
-from open_brain_engine.storage.filesystem import RootIdentity, capture_root_identity, read_confined
+from open_brain_engine.storage.filesystem import (
+    RootConfinementError,
+    RootIdentity,
+    capture_root_identity,
+    read_confined,
+)
 
 from .managed_v2 import validated_portable_snapshot_v2
 from .v1 import (
@@ -22,16 +27,19 @@ from .v1 import (
 def validated_portable_snapshot(
     root: Path, *, expected_root_identity: RootIdentity | None = None
 ) -> PortableSnapshot:
-    identity = (
-        capture_root_identity(root)
-        if expected_root_identity is None
-        else expected_root_identity
-    )
-    payload = read_confined(
-        root=root,
-        relative="portable-manifest.json",
-        expected_root_identity=identity,
-    )
+    try:
+        identity = (
+            capture_root_identity(root)
+            if expected_root_identity is None
+            else expected_root_identity
+        )
+        payload = read_confined(
+            root=root,
+            relative="portable-manifest.json",
+            expected_root_identity=identity,
+        )
+    except (OSError, RootConfinementError) as error:
+        raise PortableValidationError("Portable root must be a real directory") from error
     if payload is None:
         raise PortableValidationError("manifest is missing")
     try:

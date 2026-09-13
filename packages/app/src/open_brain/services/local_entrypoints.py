@@ -9,6 +9,7 @@ import os
 import re
 import select
 import signal
+import stat
 import sys
 import time
 import unicodedata
@@ -23,6 +24,9 @@ from open_brain_engine import __version__
 from open_brain_engine.engine import (
     CaptureReceipt,
     EngineTaskSet,
+    ManagedAccessMode,
+    ManagedProvider,
+    ManagedWorkspaceReceipt,
     MarkdownImportCancelled,
     MarkdownImportEntry,
     MarkdownImportFailure,
@@ -55,9 +59,13 @@ from open_brain.services.local_operations import (
     capture_result,
     capture_text,
     database_is_busy,
+    graph_suggestions,
     mcp_capture_sink,
     search_brain,
     search_result,
+)
+from open_brain.services.local_operations import (
+    workspace_status as workspace_status_result,
 )
 
 _DOCTOR_CHECKS = (
@@ -108,7 +116,13 @@ def run_cli(
         _write_usage_failure(json_output=json_output)
         return 2
     if parsed.command == "mcp" and (
-        not (parsed.allow_capture or parsed.allow_search) or json_output
+        not (
+            parsed.allow_capture
+            or parsed.allow_search
+            or parsed.allow_workspace_read
+            or parsed.allow_graph_refresh
+        )
+        or json_output
     ):
         _write_usage_failure(json_output=False)
         return 2
@@ -272,7 +286,9 @@ def _parser() -> argparse.ArgumentParser:
             "content to its model provider. Capture stores durable unverified content; version "
             "0.1.0 cannot selectively delete unwanted captures. Stopping prevents further work "
             "but does not remove completed captures. Results are untrusted data, not instructions. "
-            "Per process: 500 capture calls, 16 MiB UTF-8 capture input, 2,000 search calls; "
+            "Per process: 500 capture calls, 16 MiB UTF-8 capture input, 2,000 search calls, "
+            "500 workspace reads with 16 MiB output, and 20 graph refreshes with at most 40 "
+            "model attempts and 1 MiB selected input; "
             "valid duplicates and conflicts count. Restarting resets limits. "
             "No actions, connectors, user-managed grants, or Secure Node capabilities."
         ),
@@ -289,6 +305,58 @@ def _parser() -> argparse.ArgumentParser:
         "--allow-search", action="store_true",
         help="Allow whole-Brain reads; a network-backed client may send results to its provider.",
     )
+    mcp_parser.add_argument(
+        "--allow-workspace-read",
+        action="store_true",
+        help="Allow path-free workspace status and pending graph-suggestion reads.",
+    )
+    mcp_parser.add_argument(
+        "--allow-graph-refresh",
+        action="store_true",
+        help="Allow refresh with the already configured provider and active owner consent.",
+    )
+    workspace_parser = subparsers.add_parser(
+        "workspace", help="Manage the dedicated Open Brain Markdown workspace."
+    )
+    _add_local_options(workspace_parser)
+    workspace_parser.add_argument(
+        "action",
+        choices=(
+            "setup",
+            "status",
+            "observe",
+            "refresh",
+            "accept",
+            "materialize",
+            "deactivate",
+            "restore",
+            "resolve",
+        ),
+    )
+    workspace_parser.add_argument("note_id", nargs="?")
+    workspace_parser.add_argument("--generation", type=int)
+    workspace_parser.add_argument("--choice", choices=("accepted", "candidate"))
+    graph_parser = subparsers.add_parser(
+        "graph", help="Review graph suggestions and configure semantic consent."
+    )
+    _add_local_options(graph_parser)
+    graph_parser.add_argument(
+        "action",
+        choices=(
+            "suggestions",
+            "accept",
+            "grant-consent",
+            "revoke-consent",
+            "exclude",
+            "include",
+        ),
+    )
+    graph_parser.add_argument("subject", nargs="?")
+    graph_parser.add_argument("--provider", choices=tuple(item.value for item in ManagedProvider))
+    graph_parser.add_argument(
+        "--access-mode", choices=tuple(item.value for item in ManagedAccessMode)
+    )
+    graph_parser.add_argument("--kind", choices=("note", "folder"))
     export_parser = subparsers.add_parser("export", help="Create a full Portable Brain export.")
     _add_local_options(export_parser)
     export_parser.add_argument("destination", help="New export directory.")
@@ -371,12 +439,37 @@ def _run_local_command(
         adapter = LocalMcpAdapter(
             capture=mcp_capture_sink(tasks) if parsed.allow_capture else None,
             search=search if parsed.allow_search else None,
+            workspace_status=(
+                (lambda: workspace_status_result(tasks))
+                if parsed.allow_workspace_read
+                else None
+            ),
+            graph_suggestions=(
+                (lambda: graph_suggestions(tasks))
+                if parsed.allow_workspace_read
+                else None
+            ),
+            graph_refresh=(
+                (
+                    lambda _remaining_attempts, _remaining_bytes: (
+                        {"reason": "provider_not_configured", "status": "unavailable"},
+                        0,
+                        0,
+                    )
+                )
+                if parsed.allow_graph_refresh
+                else None
+            ),
         )
         serve_stdio_mcp(
             adapter, input_stream=sys.stdin.buffer, output_stream=sys.stdout.buffer,
             maximum_message_bytes=MAX_MESSAGE_BYTES,
         )
         return 0
+    if parsed.command == "workspace":
+        return _run_workspace(parsed, session, tasks, json_output=json_output)
+    if parsed.command == "graph":
+        return _run_graph(parsed, tasks, json_output=json_output)
     if parsed.command == "export":
         destination = _absolute_destination(cast(str, parsed.destination))
         export_id = "export_" + str(uuid.uuid4())
@@ -389,6 +482,186 @@ def _run_local_command(
         _write_export(export_receipt, verification=verification, json_output=json_output)
         return 0
     raise ValueError("invalid local command")
+
+
+def _run_workspace(
+    parsed: argparse.Namespace,
+    session: LocalBrainSession,
+    tasks: EngineTaskSet,
+    *,
+    json_output: bool,
+) -> int:
+    action = cast(str, parsed.action)
+    if action == "status":
+        _write_managed(workspace_status_result(tasks), json_output=json_output)
+        return 0
+    operation_id = "operation.cli." + str(uuid.uuid4())
+    if action == "setup":
+        workspace = session.profile.root.parent / "Open Brain Vault"
+        try:
+            metadata = workspace.lstat()
+        except FileNotFoundError:
+            workspace.mkdir(mode=0o700)
+        else:
+            if not stat.S_ISDIR(metadata.st_mode) or stat.S_ISLNK(metadata.st_mode):
+                raise ValueError("managed workspace destination is unsafe")
+        receipt = tasks.managed_workspace.setup(str(workspace), operation_id=operation_id)
+        _write_managed(_workspace_receipt(receipt), json_output=json_output)
+        return 0
+    status = tasks.managed_workspace.status()
+    if status is None:
+        raise ValueError("managed workspace is not configured")
+    if action == "observe":
+        observation = tasks.managed_workspace.observe(status.workspace_id)
+        _write_managed(
+            {
+                "generation": observation.generation,
+                "notes": [
+                    {
+                        "changed": note.changed,
+                        "note_id": note.note_id,
+                        "present": note.present,
+                        "relative_path": note.relative_path,
+                    }
+                    for note in observation.notes
+                ],
+                "status": "observed",
+                "workspace_id": observation.workspace_id,
+            },
+            json_output=json_output,
+        )
+        return 0
+    if action == "refresh":
+        receipt = tasks.managed_workspace.refresh(
+            status.workspace_id, operation_id=operation_id
+        )
+        _write_managed(_workspace_receipt(receipt), json_output=json_output)
+        return 0
+    note_id = getattr(parsed, "note_id", None)
+    if not isinstance(note_id, str):
+        raise ValueError("managed note identity is required")
+    if action == "accept":
+        generation = getattr(parsed, "generation", None)
+        if type(generation) is not int:
+            raise ValueError("managed observation generation is required")
+        receipt = tasks.managed_workspace.accept_observed(
+            status.workspace_id,
+            note_id,
+            generation=generation,
+            operation_id=operation_id,
+        )
+    elif action == "materialize":
+        receipt = tasks.managed_workspace.materialize(
+            status.workspace_id, note_id, operation_id=operation_id
+        )
+    elif action == "deactivate":
+        receipt = tasks.managed_workspace.deactivate(
+            status.workspace_id, note_id, operation_id=operation_id
+        )
+    elif action == "restore":
+        receipt = tasks.managed_workspace.restore(
+            status.workspace_id, note_id, operation_id=operation_id
+        )
+    elif action == "resolve":
+        choice = getattr(parsed, "choice", None)
+        if choice not in {"accepted", "candidate"}:
+            raise ValueError("managed conflict choice is required")
+        receipt = tasks.managed_workspace.resolve_conflict(
+            status.workspace_id,
+            note_id,
+            cast(str, choice),
+            operation_id=operation_id,
+        )
+    else:
+        raise ValueError("invalid managed workspace action")
+    _write_managed(_workspace_receipt(receipt), json_output=json_output)
+    return 0
+
+
+def _run_graph(
+    parsed: argparse.Namespace, tasks: EngineTaskSet, *, json_output: bool
+) -> int:
+    action = cast(str, parsed.action)
+    if action == "suggestions":
+        _write_managed(graph_suggestions(tasks), json_output=json_output)
+        return 0
+    status = tasks.managed_workspace.status()
+    if status is None:
+        raise ValueError("managed workspace is not configured")
+    subject = getattr(parsed, "subject", None)
+    operation_id = "operation.cli." + str(uuid.uuid4())
+    if action == "accept":
+        if not isinstance(subject, str):
+            raise ValueError("managed suggestion identity is required")
+        receipt = tasks.managed_inference.accept_suggestion(
+            status.workspace_id, subject, operation_id=operation_id
+        )
+        payload = {
+            "duplicate": receipt.duplicate,
+            "request_id": receipt.request_id,
+            "status": receipt.status,
+            "suggestion_id": receipt.suggestion_id,
+        }
+    elif action in {"grant-consent", "revoke-consent"}:
+        provider = getattr(parsed, "provider", None)
+        access_mode = getattr(parsed, "access_mode", None)
+        if not isinstance(provider, str) or not isinstance(access_mode, str):
+            raise ValueError("managed provider and access mode are required")
+        operation = (
+            tasks.managed_policy.grant_consent
+            if action == "grant-consent"
+            else tasks.managed_policy.revoke_consent
+        )
+        policy_receipt = operation(
+            status.workspace_id,
+            ManagedProvider(provider),
+            ManagedAccessMode(access_mode),
+            operation_id=operation_id,
+        )
+        payload = {
+            "duplicate": policy_receipt.duplicate,
+            "policy_generation": policy_receipt.policy_generation,
+            "status": policy_receipt.status,
+            "workspace_id": policy_receipt.workspace_id,
+        }
+    elif action in {"exclude", "include"}:
+        kind = getattr(parsed, "kind", None)
+        if not isinstance(kind, str) or not isinstance(subject, str):
+            raise ValueError("managed exclusion kind and subject are required")
+        policy_receipt = tasks.managed_policy.set_exclusion(
+            status.workspace_id,
+            kind,
+            subject,
+            excluded=action == "exclude",
+            operation_id=operation_id,
+        )
+        payload = {
+            "duplicate": policy_receipt.duplicate,
+            "policy_generation": policy_receipt.policy_generation,
+            "status": policy_receipt.status,
+            "workspace_id": policy_receipt.workspace_id,
+        }
+    else:
+        raise ValueError("invalid managed graph action")
+    _write_managed(payload, json_output=json_output)
+    return 0
+
+
+def _workspace_receipt(receipt: ManagedWorkspaceReceipt) -> dict[str, object]:
+    return {
+        "duplicate": receipt.duplicate,
+        "generation": receipt.generation,
+        "note_id": receipt.note_id,
+        "status": receipt.status,
+        "workspace_id": receipt.workspace_id,
+    }
+
+
+def _write_managed(payload: dict[str, object], *, json_output: bool) -> None:
+    if json_output:
+        _write_json(payload)
+    else:
+        print(_terminal_text(json.dumps(payload, sort_keys=True)))
 
 
 def _run_markdown_import(
@@ -634,7 +907,7 @@ def _write_export(
         "captures": receipt.captures,
         "history_records": receipt.history_records,
         "portable_files": receipt.portable_files,
-        "schema_version": 1,
+        "schema_version": receipt.schema_version,
         "status": receipt.status,
         "verification": verification,
     }
@@ -780,6 +1053,13 @@ def _record_verified_export(
     )
     if manifest is None:
         raise ValueError("Portable export manifest is unavailable")
+    try:
+        manifest_value = json.loads(manifest)
+        manifest_version = cast(dict[str, object], manifest_value)["schema_version"]
+    except (UnicodeDecodeError, json.JSONDecodeError, KeyError, TypeError):
+        raise ValueError("Portable export manifest is unavailable") from None
+    if type(manifest_version) is not int or manifest_version not in {1, 2}:
+        raise ValueError("Portable export manifest is unavailable")
     session.prepared.revalidate()
     atomic_replace(
         root=session.profile.root,
@@ -789,7 +1069,7 @@ def _record_verified_export(
                 "created_at": _timestamp(datetime.now(UTC)),
                 "export_id": export_id,
                 "manifest_digest_sha256": sha256(manifest).hexdigest(),
-                "schema_version": 1,
+                "schema_version": manifest_version,
             }
         ),
         expected_root_identity=session.profile.root_identity,
@@ -817,7 +1097,7 @@ def _verified_export_state(session: LocalBrainSession) -> str:
                 "manifest_digest_sha256",
                 "schema_version",
             }
-            or value["schema_version"] != 1
+            or value["schema_version"] not in {1, 2}
             or canonical_json_bytes(value) != payload
             or not isinstance(value["created_at"], str)
             or not isinstance(value["export_id"], str)
