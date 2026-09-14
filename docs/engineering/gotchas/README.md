@@ -1587,3 +1587,48 @@ and reveal it. Allocate a new tab only when no matching leaf exists. Test both b
 the before/after tab count in Obsidian.
 
 Discovered: 2026-09-13, [NW3 Obsidian plugin audit](../../audits/2026-09-13-ob1-nw3-obsidian-plugin-audit.md).
+
+### INTEGRATION-032: Archive reproducibility does not imply frozen-build reproducibility
+
+Symptom: Two clean macOS builds from identical tracked source produce different executable, archive,
+and component-manifest SHA-256 values, even though rebuilding an archive from either fixed executable
+is byte-for-byte stable.
+
+Cause: The current contract normalizes tar and gzip metadata around a completed PyInstaller
+executable. It does not make independent PyInstaller and ad hoc signing runs deterministic.
+
+Fix: Select one exact candidate build, preserve its paired archives, and bind those exact bytes in the
+component manifest and release formula. Do not substitute an independently rebuilt artifact under an
+already reviewed digest. Treat end-to-end reproducible frozen builds as a separate requirement with
+its own toolchain proof.
+
+Discovered: 2026-09-13, NW4 exact-commit macOS candidate preparation.
+
+### INTEGRATION-033: `uv run --frozen` can hide a stale dependency lock
+
+Symptom: CI stays green after raising dependency minimums in `pyproject.toml`, but `uv lock --check`
+reports that `uv.lock` needs to be updated and the locked tools remain below those minimums.
+
+Cause: `uv run --frozen` uses the existing lock without checking whether project metadata would
+change its resolution. It proves the old lock still runs, not that the lock matches the edited
+requirements.
+
+Fix: Regenerate `uv.lock` whenever dependency requirements change, then run `uv lock --check` before
+the normal frozen test commands. Review the resolved direct and transitive dependency changes.
+
+Discovered: 2026-09-13, Dependabot Python development dependency review.
+
+### INTEGRATION-034: Frozen proof dependencies have multiple version bindings
+
+Symptom: Dependabot updates a hashed proof requirement, but the proof fails before testing because
+its wheel inventory and executable payload still expect the previous version.
+
+Cause: The proof binds each reviewed dependency across `requirements.txt`, the platform wheel
+inventory, the payload's installed-version assertion, human-readable documentation, and the source
+manifest. Updating only the requirement creates an intentionally rejected mixed evidence set.
+
+Fix: Treat a frozen proof dependency update as one atomic evidence refresh. Inspect the selected
+wheel metadata for every target, verify license bytes, update every version binding, regenerate the
+source hashes, and execute the proof on each available platform before accepting CI evidence.
+
+Discovered: 2026-09-13, NW0 async API proof cryptography 50.0.0 review.

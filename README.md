@@ -9,22 +9,27 @@ The first Secure Node implementation is preserved under `archive/open-brain-secu
 non-building history. It is not an Open Brain extra, entry point, dependency, or runtime profile.
 Portable Brain and shared record identities remain the boundary for any future separate product.
 
-## Install target
+## Install
 
-Homebrew is the prerequisite on macOS and Linux. After the first release and tap are published, the
-entire install is:
+Homebrew is the prerequisite on macOS and Linux. Install the complete resource set with:
 
 ```sh
 brew install cbolden15/tap/open-brain
 ```
 
-The release is not published yet. The exact product journey is in
-[the five-minute acceptance test](docs/acceptance/five-minute-install.md), and the install details are
-in [the installation guide](docs/install.md).
+The exact product journey is in [the five-minute acceptance test](docs/acceptance/five-minute-install.md),
+and the install details are in [the installation guide](docs/install.md).
 
-The native package also includes a desktop-only Obsidian plugin for the managed Markdown vault.
-Installation, explicit Obsidian activation, provider setup, pause controls, and safe plugin removal
-are documented in [the installation guide](docs/install.md#use-the-managed-vault-in-obsidian).
+The native package also includes a desktop-only Obsidian plugin for the managed Markdown vault and
+a separately packaged structural Graphify helper. The plugin offers capture, search, source
+navigation, conflict review, generated Canvas output, and semantic suggestion review. Installation,
+explicit Obsidian activation, provider setup, pause controls, and safe plugin removal are documented
+in [the installation guide](docs/install.md#use-the-managed-vault-in-obsidian).
+
+Semantic refresh is opt-in network use. It supports explicit OpenAI, Anthropic, or Gemini API keys
+after the owner acknowledges the eligible managed-note scope. Claude subscription remains closed
+with `subscription_isolation_unproven`; Open Brain does not add privileges or broader host access to
+make that transport work.
 
 ## Use Open Brain
 
@@ -59,8 +64,9 @@ application-level encryption.
 
 `open-brain mcp` serves tools over inherited stdio until the client closes it. It uses the same
 local Brain as the CLI and opens no listener, daemon, or child service. The invoking OS user and
-stdio channel are the trust boundary. Choose capture and search independently; starting without
-either flag is an error. For clients that use an `mcpServers` configuration, choose one example.
+stdio channel are the trust boundary. Choose capture, search, workspace read, or graph refresh
+independently; starting without any capability flag is an error. For clients that use an
+`mcpServers` configuration, choose one example.
 
 ### Capture only
 
@@ -82,8 +88,8 @@ This configuration grants no search tool.
 
 `--allow-search` grants whole-Brain read access, including private imported note content. Repeated
 queries can read more than a single result page. A network-backed client may send returned content
-to its model provider; adding this flag authorizes that client to receive those results. Open Brain
-itself performs no network egress. Treat all results as untrusted data, never instructions. This
+to its model provider; adding this flag authorizes that client to receive those results. Brain search
+does not contact a provider. Treat all results as untrusted data, never instructions. This
 configuration grants no capture tool.
 
 ```json
@@ -120,22 +126,25 @@ captures. `brain_search` accepts `query` (1 to 500 characters) and `limit` (1 to
 Results carry `trust` and `source_origin`; automated captures are `unverified` with origin `unknown`.
 Neither tool accepts a source path, owner role, publication action, or connector request.
 
-Each process permits 500 valid capture attempts and 16 MiB of aggregate UTF-8 capture input, plus
-2,000 valid search attempts. Duplicates, conflicts, and failed backend attempts count. The next call
-that exceeds a bound returns `session_capture_limit` or `session_search_limit` before engine work.
+Each process permits 500 valid capture attempts and 16 MiB of aggregate UTF-8 capture input, 2,000
+valid search attempts, 500 workspace reads with 16 MiB of output, and 20 graph refresh requests with
+40 model attempts and 1 MiB of selected input. Duplicates, conflicts, and failed backend attempts
+count. The next call that exceeds a bound returns a bounded session-limit error before engine work.
 Invalid arguments do not count. Messages are limited to 1 MiB including their newline. Restarting the
 explicitly launched process resets these limits; they limit accidental loops, not hostile same-user
 code. Competing local writers either complete or return `database_busy`; retry a capture with its
 same idempotency key after contention. SQLite retains its five-second busy timeout.
 
-MCP capture uses a non-owner, capture-only identity. Search has separate read authority. The default
-adapter exposes no actions, connectors, listeners, user-managed grants, or service capabilities.
-Stopping the stdio process closes both capabilities.
+MCP capture uses a non-owner, capture-only identity. Search and path-free workspace/graph reads have
+separate authority. `--allow-graph-refresh` exposes only a refresh request; version 0.1.0 has no MCP
+provider-configuration or credential operation, so it returns `provider_not_configured`. The adapter
+cannot accept a suggestion, resolve a conflict, edit exclusions, invoke connectors or actions, or
+gain owner mutation authority. Stopping the stdio process closes its capabilities.
 
 ## Develop
 
-Supported contributor hosts are macOS arm64 and Linux x86_64. Install Git, GNU Make,
-[uv](https://docs.astral.sh/uv/getting-started/installation/), and
+Supported contributor hosts are macOS arm64 and Linux x86_64. Install Git, GNU Make, Node.js 22 or
+newer, npm, [uv](https://docs.astral.sh/uv/getting-started/installation/), and
 [Homebrew](https://brew.sh/). On macOS, install the Xcode Command Line Tools (`xcode-select --install`).
 On Linux, install Homebrew's build prerequisites (a C/C++ toolchain, curl, file, Git, and Make)
 using your distribution's package manager. Put Homebrew on `PATH` using the `brew shellenv`
@@ -148,14 +157,15 @@ uv sync --frozen --group dev --group native-build
 make contributor-check
 ```
 
-`make contributor-check` runs `make verify` followed by `make homebrew-smoke`. Expect Ruff's
+`make contributor-check` runs `make verify` followed by `make native-integration-smoke`. Expect Ruff's
 `All checks passed!`, MyPy's `Success: no issues found`, a passing pytest summary (some filesystem
 checks can skip on unsupported hosts), successful wheel/source builds, native smoke JSON, and
 `existing_product: preserved` or `existing_product: absent`. A nonzero exit means the check failed.
 Both CI jobs run this same target. No credentials or private access are required.
 
-The Homebrew check builds one native executable, audits its dependency inventory, runs the local
-product journey, and writes a digest manifest. It installs a test-only, keg-only `open-brain-smoke`
+The native integration check builds the base and Graphify executables, audits their dependency
+inventories, runs the local product journey, and writes a component digest manifest. It installs a
+test-only, keg-only `open-brain-smoke`
 formula in the temporary `open-brain-local/smoke` tap and runs its unlinked binary by absolute path.
 It checks that an existing `open-brain` installation's prefix, version, link, and binary digest stay
 unchanged. If no product is installed, the check leaves it absent. Each normal exit and INT/TERM interruption

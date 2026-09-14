@@ -1,6 +1,6 @@
 # Install Open Brain
 
-Status: target instructions; the public release and tap are not published yet
+Status: v0.1.0 release instructions
 
 ## Requirement
 
@@ -15,14 +15,16 @@ image, Python runtime requirement, or manual database setup for end users.
 
 ## Install
 
-After the first release is published:
+Install Open Brain:
 
 ```sh
 brew install cbolden15/tap/open-brain
 ```
 
-Homebrew downloads the platform archive from an immutable GitHub Release URL and verifies the
-SHA-256 stored in the formula.
+Homebrew downloads the platform's base and Graphify archives from immutable GitHub Release URLs and
+verifies both SHA-256 values stored in the formula. It installs the app, the separately confined
+Graphify structural helper, and the three compiled Obsidian plugin assets as one versioned resource
+set.
 
 ## First use
 
@@ -69,13 +71,29 @@ settings.
 Use the Obsidian command palette for capture, search, graph refresh, source navigation, suggestion
 review, conflict resolution, and semantic exclusions. **Open Brain: Configure semantic provider**
 supports OpenAI, Anthropic, and Gemini API keys. Each setup requires explicit consent for eligible
-managed notes. Store the key for the current Obsidian session, or use macOS Keychain or Linux Secret
-Service when available. Raw keys are never saved in plugin settings. Claude subscription access is
-currently unavailable because an unprivileged client-isolation path has not been proven.
+managed notes. Review note and folder exclusions before setup if the default eligible-note scope is
+too broad. Store the key for the current Obsidian session, or use macOS Keychain or Linux Secret
+Service when available. Raw keys are never saved in plugin settings, vault files, command arguments,
+logs, exports, or provider results. Open Brain uses no ambient provider credential and never falls
+back to another provider. Removing access revokes consent and deletes the selected saved or session
+key. It cannot retract content already sent to the provider.
+
+Semantic refresh is intentional network egress to the selected provider. Ordinary local capture,
+import, search, workspace, structural graph, export, status, and doctor operations remain offline.
+Claude subscription access is unavailable with `subscription_isolation_unproven` because an
+unprivileged, tool-free client path has not been proven. Do not run Open Brain with root, capabilities,
+namespaces, alternate fixture ownership, or broader host access to bypass that block.
 
 Automatic graph refresh batches Markdown edits. **Open Brain: Pause or resume automatic inference**
 persists the pause preference; **Open Brain: Refresh graph now** remains available while paused.
-Closing or disabling the plugin stops its foreground Open Brain child process.
+Structural links and inferred suggestions appear in the plugin-owned `Open Brain Graph.canvas`.
+Inferred edges include review evidence but do not change Markdown. **Open Brain: Review graph
+suggestions** previews a current suggestion before an explicit acceptance writes one permanent link.
+Generated Canvas and graph cache data are rebuildable views and are not exported as Brain content.
+
+The plugin uses `open-brain-client` protocol version 1 over bounded inherited stdio. It never opens
+the SQLite database directly. Closing or disabling the plugin stops its foreground Open Brain child
+process; Obsidian itself may remain open.
 
 To remove the staged plugin files without deleting the managed vault or its settings:
 
@@ -102,4 +120,5 @@ a separate explicit action; do not delete it unless a verified export or another
 ## Build from source
 
 End users should use Homebrew. Contributors can follow [`../CONTRIBUTING.md`](../CONTRIBUTING.md) and
-run `make verify`, `make native`, and `make homebrew-smoke` from a checkout.
+run `make contributor-check` from a checkout. The command-line check does not replace the separate
+real-provider and Obsidian GUI timing record in the five-minute acceptance test.

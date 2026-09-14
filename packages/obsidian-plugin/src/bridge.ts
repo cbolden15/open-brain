@@ -254,9 +254,17 @@ export function executableCandidates(
     return ["/opt/homebrew/bin/open-brain", "/usr/local/bin/open-brain"];
   }
   if (platform === "linux") {
+    const linuxbrewExecutable = path.join(
+      path.sep,
+      "home",
+      "linuxbrew",
+      ".linuxbrew",
+      "bin",
+      "open-brain",
+    );
     return [
       ...(home === undefined ? [] : [path.join(home, ".linuxbrew/bin/open-brain")]),
-      "/home/linuxbrew/.linuxbrew/bin/open-brain",
+      linuxbrewExecutable,
       "/usr/local/bin/open-brain",
       "/usr/bin/open-brain",
     ];

@@ -19,15 +19,16 @@ uv sync --frozen --group dev --group native-build
 make contributor-check
 ```
 
-`make contributor-check` runs `make verify` followed by `make homebrew-smoke`. Expect Ruff's
+`make contributor-check` runs `make verify` followed by `make native-integration-smoke`. Expect Ruff's
 `All checks passed!`, MyPy's `Success: no issues found`, a passing pytest summary (some filesystem
 checks can skip on unsupported hosts), passing Obsidian plugin type/build/test checks, successful
 wheel/source builds, native smoke JSON, and
 `existing_product: preserved` or `existing_product: absent`. A nonzero exit means the check failed.
 Both CI jobs run this same target. No credentials or private access are required.
 
-The Homebrew check builds one native executable, audits its dependency inventory, runs the local
-product journey, and writes a digest manifest. It installs a test-only, keg-only `open-brain-smoke`
+The native integration check builds the base and Graphify executables, audits their dependency
+inventories, stages the compiled plugin assets, runs the local command-line product journey, and
+writes a component digest manifest. It installs a test-only, keg-only `open-brain-smoke`
 formula in the temporary `open-brain-local/smoke` tap and runs its unlinked binary by absolute path.
 It checks that an existing `open-brain` installation's prefix, version, link, and binary digest stay
 unchanged. If no product is installed, the check leaves it absent. Each normal exit and INT/TERM interruption
@@ -48,6 +49,11 @@ Common failures:
 Private release auditing is **not required for normal contributions** and is excluded from
 `make contributor-check` and CI. The owner runs `make audit` and `make audit-history` separately with
 an uncommitted `PRIVATE_DENYLIST`; contributors do not need that file.
+
+The contributor check is command-line integration coverage. It does not claim that Obsidian opened,
+the plugin activated, a real provider accepted a request, source navigation worked in the GUI, or the
+five-minute journey met its elapsed-time target. Record those observations separately against exact
+release-candidate digests.
 
 Contributions must use synthetic fixtures. Never include private notes, captures, transcripts, credentials, hostnames, infrastructure addresses, logs, databases, or generated private configuration.
 

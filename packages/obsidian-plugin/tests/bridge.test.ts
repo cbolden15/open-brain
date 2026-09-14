@@ -95,7 +95,7 @@ describe("executableCandidates", () => {
       "/usr/local/bin/open-brain",
     ]);
     expect(executableCandidates("", "linux", "/home/test")[0]).toBe(
-      "/home/test/.linuxbrew/bin/open-brain",
+      path.join(path.sep, "home", "test", ".linuxbrew", "bin", "open-brain"),
     );
   });
 

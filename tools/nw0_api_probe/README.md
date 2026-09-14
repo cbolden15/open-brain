@@ -22,7 +22,7 @@ Otherwise installation uses only the official PyPI index. The exact hash lock ad
 macOS arm64 and Linux x86_64 wheels; no source distributions or unpinned dependencies are allowed.
 
 Dependencies install into the new proof directory, not the repository environment. In particular,
-the synthetic TLS fixture uses cryptography 46.0.5 and cffi 2.0.0, while the application development
+the synthetic TLS fixture uses cryptography 50.0.0 and cffi 2.0.0, while the application development
 environment uses newer versions. This is a test-only lock, not a shipping dependency choice.
 `dependency-wheels.json` records artifact hashes, sizes, compatibility and bundled license paths.
 

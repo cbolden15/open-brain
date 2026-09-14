@@ -181,9 +181,9 @@
         ]
       },
       {
-        "bytes": 4424742,
-        "expanded_bytes": 13205196,
-        "filename": "cryptography-46.0.5-cp311-abi3-manylinux2014_x86_64.manylinux_2_17_x86_64.whl",
+        "bytes": 4702130,
+        "expanded_bytes": 14831352,
+        "filename": "cryptography-50.0.0-cp311-abi3-manylinux2014_x86_64.manylinux_2_17_x86_64.whl",
         "filename_tags": [
           "cp311-abi3-manylinux2014_x86_64",
           "cp311-abi3-manylinux_2_17_x86_64"
@@ -193,16 +193,12 @@
           "licenses/linux-x86_64/cryptography/LICENSE.APACHE",
           "licenses/linux-x86_64/cryptography/LICENSE.BSD"
         ],
-        "members": 127,
+        "members": 141,
         "name": "cryptography",
         "requires_dist": [
           {
-            "active": false,
-            "raw": "cffi>=1.14 ; python_full_version == '3.8.*' and platform_python_implementation != 'PyPy'"
-          },
-          {
             "active": true,
-            "raw": "cffi>=2.0.0 ; python_full_version >= '3.9' and platform_python_implementation != 'PyPy'"
+            "raw": "cffi>=2.0.0 ; platform_python_implementation != 'PyPy'"
           },
           {
             "active": false,
@@ -211,92 +207,12 @@
           {
             "active": false,
             "raw": "bcrypt>=3.1.5 ; extra == 'ssh'"
-          },
-          {
-            "active": false,
-            "raw": "nox[uv]>=2024.4.15 ; extra == 'nox'"
-          },
-          {
-            "active": false,
-            "raw": "cryptography-vectors==46.0.5 ; extra == 'test'"
-          },
-          {
-            "active": false,
-            "raw": "pytest>=7.4.0 ; extra == 'test'"
-          },
-          {
-            "active": false,
-            "raw": "pytest-benchmark>=4.0 ; extra == 'test'"
-          },
-          {
-            "active": false,
-            "raw": "pytest-cov>=2.10.1 ; extra == 'test'"
-          },
-          {
-            "active": false,
-            "raw": "pytest-xdist>=3.5.0 ; extra == 'test'"
-          },
-          {
-            "active": false,
-            "raw": "pretend>=0.7 ; extra == 'test'"
-          },
-          {
-            "active": false,
-            "raw": "certifi>=2024 ; extra == 'test'"
-          },
-          {
-            "active": false,
-            "raw": "pytest-randomly ; extra == 'test-randomorder'"
-          },
-          {
-            "active": false,
-            "raw": "sphinx>=5.3.0 ; extra == 'docs'"
-          },
-          {
-            "active": false,
-            "raw": "sphinx-rtd-theme>=3.0.0 ; extra == 'docs'"
-          },
-          {
-            "active": false,
-            "raw": "sphinx-inline-tabs ; extra == 'docs'"
-          },
-          {
-            "active": false,
-            "raw": "pyenchant>=3 ; extra == 'docstest'"
-          },
-          {
-            "active": false,
-            "raw": "readme-renderer>=30.0 ; extra == 'docstest'"
-          },
-          {
-            "active": false,
-            "raw": "sphinxcontrib-spelling>=7.3.1 ; extra == 'docstest'"
-          },
-          {
-            "active": false,
-            "raw": "build>=1.0.0 ; extra == 'sdist'"
-          },
-          {
-            "active": false,
-            "raw": "ruff>=0.11.11 ; extra == 'pep8test'"
-          },
-          {
-            "active": false,
-            "raw": "mypy>=1.14 ; extra == 'pep8test'"
-          },
-          {
-            "active": false,
-            "raw": "check-sdist ; extra == 'pep8test'"
-          },
-          {
-            "active": false,
-            "raw": "click>=8.0.1 ; extra == 'pep8test'"
           }
         ],
-        "requires_python": ">=3.8, !=3.9.0, !=3.9.1",
-        "sha256": "4d7e3d356b8cd4ea5aff04f129d5f66ebdc7b6f8eae802b93739ed520c47c79b",
-        "url": "https://files.pythonhosted.org/packages/63/e7/471ab61099a3920b0c77852ea3f0ea611c9702f651600397ac567848b897/cryptography-46.0.5-cp311-abi3-manylinux2014_x86_64.manylinux_2_17_x86_64.whl",
-        "version": "46.0.5",
+        "requires_python": ">=3.9, !=3.9.0, !=3.9.1",
+        "sha256": "06a32a980526a6ab9a4b9bf8f7385800791e2bb960903cb6b530e4817509a3b7",
+        "url": "https://files.pythonhosted.org/packages/d9/41/029086c34d91052fc3b88bcc8056f709a7c915c7a23b235a54eb800b1c97/cryptography-50.0.0-cp311-abi3-manylinux2014_x86_64.manylinux_2_17_x86_64.whl",
+        "version": "50.0.0",
         "wheel_tags": [
           "cp311-abi3-manylinux_2_17_x86_64",
           "cp311-abi3-manylinux2014_x86_64"
@@ -767,27 +683,23 @@
         ]
       },
       {
-        "bytes": 7176289,
-        "expanded_bytes": 21485076,
-        "filename": "cryptography-46.0.5-cp311-abi3-macosx_10_9_universal2.whl",
+        "bytes": 4001252,
+        "expanded_bytes": 12357833,
+        "filename": "cryptography-50.0.0-cp311-abi3-macosx_11_0_arm64.whl",
         "filename_tags": [
-          "cp311-abi3-macosx_10_9_universal2"
+          "cp311-abi3-macosx_11_0_arm64"
         ],
         "license_files": [
           "licenses/macos-arm64/cryptography/LICENSE",
           "licenses/macos-arm64/cryptography/LICENSE.APACHE",
           "licenses/macos-arm64/cryptography/LICENSE.BSD"
         ],
-        "members": 107,
+        "members": 120,
         "name": "cryptography",
         "requires_dist": [
           {
-            "active": false,
-            "raw": "cffi>=1.14 ; python_full_version == '3.8.*' and platform_python_implementation != 'PyPy'"
-          },
-          {
             "active": true,
-            "raw": "cffi>=2.0.0 ; python_full_version >= '3.9' and platform_python_implementation != 'PyPy'"
+            "raw": "cffi>=2.0.0 ; platform_python_implementation != 'PyPy'"
           },
           {
             "active": false,
@@ -796,94 +708,14 @@
           {
             "active": false,
             "raw": "bcrypt>=3.1.5 ; extra == 'ssh'"
-          },
-          {
-            "active": false,
-            "raw": "nox[uv]>=2024.4.15 ; extra == 'nox'"
-          },
-          {
-            "active": false,
-            "raw": "cryptography-vectors==46.0.5 ; extra == 'test'"
-          },
-          {
-            "active": false,
-            "raw": "pytest>=7.4.0 ; extra == 'test'"
-          },
-          {
-            "active": false,
-            "raw": "pytest-benchmark>=4.0 ; extra == 'test'"
-          },
-          {
-            "active": false,
-            "raw": "pytest-cov>=2.10.1 ; extra == 'test'"
-          },
-          {
-            "active": false,
-            "raw": "pytest-xdist>=3.5.0 ; extra == 'test'"
-          },
-          {
-            "active": false,
-            "raw": "pretend>=0.7 ; extra == 'test'"
-          },
-          {
-            "active": false,
-            "raw": "certifi>=2024 ; extra == 'test'"
-          },
-          {
-            "active": false,
-            "raw": "pytest-randomly ; extra == 'test-randomorder'"
-          },
-          {
-            "active": false,
-            "raw": "sphinx>=5.3.0 ; extra == 'docs'"
-          },
-          {
-            "active": false,
-            "raw": "sphinx-rtd-theme>=3.0.0 ; extra == 'docs'"
-          },
-          {
-            "active": false,
-            "raw": "sphinx-inline-tabs ; extra == 'docs'"
-          },
-          {
-            "active": false,
-            "raw": "pyenchant>=3 ; extra == 'docstest'"
-          },
-          {
-            "active": false,
-            "raw": "readme-renderer>=30.0 ; extra == 'docstest'"
-          },
-          {
-            "active": false,
-            "raw": "sphinxcontrib-spelling>=7.3.1 ; extra == 'docstest'"
-          },
-          {
-            "active": false,
-            "raw": "build>=1.0.0 ; extra == 'sdist'"
-          },
-          {
-            "active": false,
-            "raw": "ruff>=0.11.11 ; extra == 'pep8test'"
-          },
-          {
-            "active": false,
-            "raw": "mypy>=1.14 ; extra == 'pep8test'"
-          },
-          {
-            "active": false,
-            "raw": "check-sdist ; extra == 'pep8test'"
-          },
-          {
-            "active": false,
-            "raw": "click>=8.0.1 ; extra == 'pep8test'"
           }
         ],
-        "requires_python": ">=3.8, !=3.9.0, !=3.9.1",
-        "sha256": "351695ada9ea9618b3500b490ad54c739860883df6c1f555e088eaf25b1bbaad",
-        "url": "https://files.pythonhosted.org/packages/f7/81/b0bb27f2ba931a65409c6b8a8b358a7f03c0e46eceacddff55f7c84b1f3b/cryptography-46.0.5-cp311-abi3-macosx_10_9_universal2.whl",
-        "version": "46.0.5",
+        "requires_python": ">=3.9, !=3.9.0, !=3.9.1",
+        "sha256": "031e2d5dd4bb9caa3ca9c82e5a197fd8ae680232cee62603d1a813f3f07e3d03",
+        "url": "https://files.pythonhosted.org/packages/c5/5c/59086b4aac5e879d38ddbcf74e4be7ade89cebc3eb199a55da998c3bb46a/cryptography-50.0.0-cp311-abi3-macosx_11_0_arm64.whl",
+        "version": "50.0.0",
         "wheel_tags": [
-          "cp311-abi3-macosx_10_9_universal2"
+          "cp311-abi3-macosx_11_0_arm64"
         ]
       },
       {

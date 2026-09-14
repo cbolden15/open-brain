@@ -269,6 +269,52 @@ def test_history_allowlist_does_not_cover_the_same_blob_at_another_path(
     assert {finding.rule for finding in findings} == {"private-ip-address"}
 
 
+def test_reviewed_credential_pattern_is_bound_to_blob_path_and_commit(tmp_path: Path) -> None:
+    repository = tmp_path / "synthetic-history"
+    repository.mkdir()
+    git(repository, "init")
+    git(repository, "config", "user.name", "Synthetic Test")
+    git(repository, "config", "user.email", "synthetic@example.invalid")
+    denylist = tmp_path / "denylist.txt"
+    denylist.write_text("unrelated-history-canary\n", encoding="utf-8")
+    path = "provider.py"
+    payload = "secret" + ' = "synthetic-provider-value"\n'
+    (repository / path).write_text(payload, encoding="utf-8")
+    git(repository, "add", path)
+    git(repository, "commit", "-m", "add synthetic credential fixture")
+    reviewed = git(repository, "rev-parse", "HEAD")
+    git(repository, "rm", path)
+    git(repository, "commit", "-m", "remove synthetic credential fixture")
+    release = repository / "release"
+    release.mkdir()
+    (release / "public-history-allowlist.json").write_text(
+        json.dumps(
+            {
+                "policy_version": 3,
+                "entries": [
+                    {
+                        "blob_sha256": sha256(payload.encode()).hexdigest(),
+                        "path": path,
+                        "reason": "reviewed-synthetic-credential-fixture",
+                        "reviewed_commits": [reviewed],
+                        "rule": "credential-assignment",
+                    }
+                ],
+            }
+        )
+    )
+
+    assert audit_history(repository, denylist) == []
+
+    (repository / path).write_text(payload, encoding="utf-8")
+    git(repository, "add", path)
+    git(repository, "commit", "-m", "reintroduce synthetic credential fixture")
+    later = git(repository, "rev-parse", "HEAD")
+    assert audit_history(repository, denylist) == [
+        HistoryFinding(later, path, "credential-assignment")
+    ]
+
+
 def test_history_allowlist_rejects_inexact_or_unsafe_entries(tmp_path: Path) -> None:
     repository = tmp_path / "synthetic-history"
     repository.mkdir()
