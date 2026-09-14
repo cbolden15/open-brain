@@ -1,6 +1,6 @@
 # Desktop companion and source capture
 
-Status: D0 and D1 complete locally on macOS arm64; D2 through D4 remain proposed.
+Status: D0 and D1 complete locally on macOS arm64; D2 through D5 remain proposed.
 
 Date: 2026-09-14
 
@@ -9,7 +9,7 @@ Grounded against commit: `33df3d79268c47525e2aefd597ecbd66ea831726`.
 D0's boundaries are recorded in [ADR 0017](../architecture/decisions/0017-desktop-companion-boundary.md)
 and the updated [product contract](../product-family.md). Its native acceptance is recorded in the
 [D0 evidence report](../audits/2026-09-14-desktop-d0.md). D1 acceptance is recorded in the
-[D1 audit](../audits/2026-09-14-desktop-d1-audit.md). D2 through D4 propose new behavior; this plan does
+[D1 audit](../audits/2026-09-14-desktop-d1-audit.md). D2 through D5 propose new behavior; this plan does
 not authorize enabling background collection on a user's computer.
 
 ## Outcome
@@ -251,7 +251,7 @@ subsequent import; resume without duplicates; sleep/wake and restart from the sa
 collector cleanup, owned-service removal, locked credentials, disk-full behavior, and coexistence
 with desktop, Obsidian, CLI, and MCP on each supported platform.
 
-### D4: add the remaining sources behind their own gates
+### D4: add the other originally requested sources behind their own gates
 
 | Source | First supported scope | Release gate |
 |---|---|---|
@@ -264,6 +264,69 @@ with desktop, Obsidian, CLI, and MCP on each supported platform.
 Finish one adapter's authentication-to-export journey before marking it supported. Do not infer
 Codex event support from Claude hooks or treat iMessage as a cloud OAuth connector. Provider account
 approval and real desktop acceptance may block a source release without blocking completed sources.
+
+### D5: cover everyday knowledge beyond developer tools
+
+Proposed on 2026-09-14 at the owner's request. Target individual knowledge workers who want to recall
+their documents, research, meetings, and decisions across work and personal tools. The ranking below
+is a product recommendation based on breadth of use, memory value, and integration friction. It is
+not a measured majority of Open Brain users; validate the order with pilot-user requests before
+committing the whole milestone.
+
+Two adoption signals support including knowledge bases and Microsoft workspaces: Notion reported
+[100 million users in August 2024](https://www.notion.com/blog/100-million-of-you), while Microsoft's
+[Teams overview](https://learn.microsoft.com/en-us/MicrosoftTeams/platform/overview) reports more than
+320 million monthly active users. These are different measures, not a market-share comparison or
+evidence that those users want an Open Brain connector.
+
+Deliver these five groups in the proposed order. Each file format, browser, and provider is a
+separate acceptance unit; a group label does not mean one adapter implements everything in the row.
+
+| Stage | Additional sources | First scope and user value | Specific release gate |
+|---|---|---|---|
+| D5.1 | Local documents and saved web pages | Selected text PDFs and DOCX files alongside existing Markdown/text import; explicit Save to Brain for the current page or selected passage. Makes reports and research searchable without requiring a particular SaaS account. | Preview extracted text; preserve file/page provenance and revision identity; bound parser resources; report unsupported scans/encrypted files; prove browser-to-local delivery. Start with explicit capture, not browsing-history collection or OCR. |
+| D5.2 | Google Calendar and Outlook Calendar | Selected calendars and date ranges; event descriptions, attendees, meeting links, and recurrence. Supplies who/when context alongside saved notes. | Read-only scopes, account identity, time zones, recurring-event exceptions, cancellations, and invalidated sync checkpoints. Calendar access does not enable email or meeting-transcript capture. |
+| D5.3 | Notion and Confluence Cloud | Selected Notion pages/data sources and Confluence spaces/pages, with comments and original links. Recalls project notes, specifications, and team decisions. | Nested content traversal, permission inheritance/loss, revisions, pagination, and a proven public authentication architecture. Confluence Data Center remains a separate adapter. |
+| D5.4 | Microsoft Teams, OneDrive, and SharePoint | Selected Teams channels/threads and selected document folders/libraries. Adds Microsoft workplace conversations and files; Outlook email already belongs to D4. | Separate content grants, tenant consent, personal/work account support matrix, file extraction, change tracking, and access-loss handling. Prove provider identity when a Teams file is also exposed through SharePoint/OneDrive. |
+| D5.5 | Zoom, Google Meet, and Teams meeting transcripts | Existing transcripts from selected accessible meetings, with speaker/timestamp attribution when provided. Retrieves what was discussed and connects it to its meeting. | Eligible account/license and permissions, transcript availability/retention, source links, and artifact identity across meeting and Drive/SharePoint adapters. No meeting bot, recording, or live audio capture in this scope. |
+
+D5.1 is the recommended first slice: selected local documents, followed by explicit web clipping.
+This is a reach-first choice, not a measured delivery estimate. Adding it does not make existing
+Markdown import a new feature. Browser integrations must declare their supported browsers separately;
+Chrome's [activeTab permission](https://developer.chrome.com/docs/extensions/develop/concepts/activeTab)
+provides a documented basis for user-triggered page access. Authenticated pages require a tested
+clip flow, not credential or cookie extraction.
+
+Feasibility evidence and unresolved gates:
+
+- Calendar synchronization has a documented [Google incremental-sync mechanism](https://developers.google.com/workspace/calendar/api/guides/sync).
+  Microsoft exposes calendar, file, and collaboration resources through [Graph](https://learn.microsoft.com/en-us/graph/overview).
+  A shared API does not establish identical scopes or consent for each resource.
+- Notion offers page selection during authorization, but its documented [public OAuth exchange](https://developers.notion.com/guides/get-started/authorization)
+  requires a client secret. Public desktop sign-in is pending an approved confidential-client design;
+  never embed that secret in the app. A manual token or export can be a clearly labeled interim path,
+  not evidence of one-click sign-in. Confluence's [REST API](https://developer.atlassian.com/cloud/confluence/rest/v2/intro/)
+  establishes content access; its chosen authentication flow still needs a native-product proof.
+- Meeting artifact APIs exist for [Zoom](https://developers.zoom.us/docs/api/meetings/),
+  [Google Meet](https://developers.google.com/workspace/meet/api/guides/artifacts), and
+  [Teams](https://learn.microsoft.com/en-us/microsoftteams/platform/graph-api/meeting-transcripts/overview-transcripts).
+  They do not guarantee a transcript exists or that the connected user can fetch it. Meet API transcript
+  entries have a 30-day retention window; its saved Drive artifacts have separate retention behavior.
+
+Reuse D2's validated intake, preview, revisions, and export and D3's optional collector for recurring
+sync. Keep extraction dependencies and provider network access outside the default core package.
+Desktop and headless configuration use the same source operations. Preserve separate connection
+permissions when linking copies of a provider artifact; text similarity alone must not collapse
+unrelated records. All existing consent, retrieval-scope, disconnect, and history-retention rules apply.
+
+Gate per adapter: select, preview, import, retrieve through a fresh agent session, update/re-import
+without duplicates, pause, handle revoked access, and export with provenance. For an explicit local
+file or web clip, use removal of the selected file/page or denied browser permission in place of
+account revocation. Mark only that tested adapter and content scope supported.
+
+Reserve candidates for later demand validation: OneNote/Apple Notes, Dropbox, Readwise/highlights,
+task managers, and CRM/support systems. These are not D5 completion requirements; their individual
+integration feasibility and authentication remain unverified.
 
 ## Verification and completion evidence
 
@@ -283,7 +346,7 @@ or unattended process launch alone does not establish that journey.
 
 Implementation is tracked by milestone. D0 and D1 have passing local native evidence. D1 includes
 shared headless setup and actual Claude Code/Codex save and fresh-session recall with the desktop
-closed. Source connections and independent collection remain D2 through D4. Public desktop
+closed. Source connections and independent collection remain D2 through D5. Public desktop
 distribution and Linux clean-host acceptance remain separate gates.
 
 ## References
