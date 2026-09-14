@@ -1617,3 +1617,18 @@ Fix: Regenerate `uv.lock` whenever dependency requirements change, then run `uv 
 the normal frozen test commands. Review the resolved direct and transitive dependency changes.
 
 Discovered: 2026-09-13, Dependabot Python development dependency review.
+
+### INTEGRATION-034: Frozen proof dependencies have multiple version bindings
+
+Symptom: Dependabot updates a hashed proof requirement, but the proof fails before testing because
+its wheel inventory and executable payload still expect the previous version.
+
+Cause: The proof binds each reviewed dependency across `requirements.txt`, the platform wheel
+inventory, the payload's installed-version assertion, human-readable documentation, and the source
+manifest. Updating only the requirement creates an intentionally rejected mixed evidence set.
+
+Fix: Treat a frozen proof dependency update as one atomic evidence refresh. Inspect the selected
+wheel metadata for every target, verify license bytes, update every version binding, regenerate the
+source hashes, and execute the proof on each available platform before accepting CI evidence.
+
+Discovered: 2026-09-13, NW0 async API proof cryptography 50.0.0 review.
