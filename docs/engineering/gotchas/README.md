@@ -1632,3 +1632,17 @@ wheel metadata for every target, verify license bytes, update every version bind
 source hashes, and execute the proof on each available platform before accepting CI evidence.
 
 Discovered: 2026-09-13, NW0 async API proof cryptography 50.0.0 review.
+
+### INTEGRATION-035: A Vitest major can raise hidden build-tool requirements
+
+Symptom: A Vitest-only Dependabot update produces an npm resolution failure before tests run,
+because Vitest's peer Vite selects a release that rejects the project's directly pinned esbuild.
+
+Cause: Vitest, Vite, and esbuild form one development toolchain even when only Vitest is declared
+directly. Vitest 5 also narrows its supported Node releases beyond a broad `>=22` package engine.
+
+Fix: Review the complete peer dependency graph for major test-runner updates. Upgrade the directly
+pinned build tool to a supported version, align the declared Node engine with the test runner, then
+verify a clean install, type check, production bundle, and test run together.
+
+Discovered: 2026-09-13, Obsidian plugin Vitest 5 dependency review.
