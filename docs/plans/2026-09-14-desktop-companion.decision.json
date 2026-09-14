@@ -1,7 +1,7 @@
 {
   "id": "2026-09-14-desktop-companion-notes",
-  "title": "Implementation notes — Desktop companion and source capture",
-  "subtitle": "D0 complete locally on macOS arm64 · 2026-09-14",
+  "title": "Implementation notes \u2014 Desktop companion and source capture",
+  "subtitle": "D1 in progress; desktop remains optional",
   "introTitle": "How to use",
   "intro": "<p>Each item is a decision, deviation, or tradeoff made during implementation. <strong>Acknowledge</strong> if fine. <strong>Discuss</strong> to write what should change. <strong>Revert</strong> to flag for undo.</p>",
   "actions": [
@@ -12,8 +12,13 @@
   "groups": [
     {
       "id": "d0",
-      "label": "D0 — Native desktop and runtime boundary",
+      "label": "D0 \u2014 Native desktop and runtime boundary",
       "badge": "D0"
+    },
+    {
+      "id": "d1",
+      "label": "D1: local use and agent setup",
+      "badge": "D1"
     }
   ],
   "items": [
@@ -85,6 +90,19 @@
         "Why": "The desktop and shared runtime now have evidence for the next milestone. Synthetic capture/search is not presented as source onboarding.",
         "Risk": "Five platform-specific filesystem tests skip on this Mac. Linux native acceptance, public desktop release, and mixed-old-client compatibility remain open gates.",
         "Followup": "D1 is the next implementation milestone: usable local capture/search and Claude Code/Codex setup. D2 through D4 contain source connections and collection."
+      }
+    },
+    {
+      "id": "N6",
+      "group": "d1",
+      "title": "Keep setup usable headlessly",
+      "where": "D1",
+      "default": "acknowledge",
+      "body": {
+        "Spec said": "Provide local desktop capture/search and Claude Code/Codex setup.",
+        "What I did": "Use shared CLI setup and runtime operations beneath the optional desktop interface.",
+        "Why": "The owner retained the desktop app while confirming headless use remains supported.",
+        "Followup": "Source adapters and independent collection remain D2-D4."
       }
     }
   ]

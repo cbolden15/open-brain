@@ -1,6 +1,6 @@
 # Desktop companion and source capture
 
-Status: D0 complete locally on macOS arm64; D1 through D4 remain proposed.
+Status: D0 complete locally on macOS arm64; D1 in progress; D2 through D4 remain proposed.
 
 Date: 2026-09-14
 
@@ -199,6 +199,7 @@ requirements need a clean-host check; documentation support is not an install pr
 
 ### D1: deliver local desktop use and agent memory
 
+Keep the desktop optional. Expose the same agent-setup operations through a headless CLI.
 Implement the five destinations and the real local capture/search path. Reuse the existing Brain
 location automatically. Empty states explain the next action. A missing/incompatible runtime or
 unsupported platform gets an actionable state, not a fabricated connected indicator.
