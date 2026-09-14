@@ -148,6 +148,32 @@ def test_legacy_synthetic_vault_exception_suppresses_only_its_vault_path_part(
     assert ("examples/synthetic-vault/vault/sensitive.md", "credential-assignment") in findings
 
 
+def test_public_connector_runtime_source_exception_is_exact(tmp_path: Path) -> None:
+    root = tmp_path / "project"
+    denylist = write_safe_tree(root)
+    allowed = root / "packages/connectors/src/open_brain_connectors/runtime/worker.py"
+    allowed.parent.mkdir(parents=True)
+    allowed.write_text("synthetic public source", encoding="utf-8")
+
+    assert audit(root, denylist) == []
+
+    adjacent = root / "packages/connectors/src/other/runtime/worker.py"
+    adjacent.parent.mkdir(parents=True)
+    adjacent.write_text("synthetic", encoding="utf-8")
+    sensitive = allowed.parent / "sensitive.py"
+    sensitive.write_text("api" + "_key=" + "abcdefghijklmnop", encoding="utf-8")
+
+    findings = {(finding.location, finding.rule) for finding in audit(root, denylist)}
+    assert (
+        "packages/connectors/src/other/runtime/worker.py",
+        "forbidden-path-family",
+    ) in findings
+    assert (
+        "packages/connectors/src/open_brain_connectors/runtime/sensitive.py",
+        "credential-assignment",
+    ) in findings
+
+
 def test_oversized_content_fails_closed(tmp_path: Path) -> None:
     root = tmp_path / "project"
     denylist = write_safe_tree(root)

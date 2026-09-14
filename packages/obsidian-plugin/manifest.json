@@ -1,0 +1,10 @@
+{
+  "id": "open-brain",
+  "name": "Open Brain",
+  "version": "0.1.0",
+  "minAppVersion": "1.12.7",
+  "description": "Capture, search, and review your local Open Brain from its managed vault.",
+  "author": "Open Brain contributors",
+  "authorUrl": "https://github.com/cbolden15/open-brain",
+  "isDesktopOnly": true
+}

@@ -1,19 +1,29 @@
 # Open Brain artifact characterization
 
-Status: target release contract; artifacts are not published
+Status: v0.1.0 release contract
 
-Date: 2026-09-08
+Date: 2026-09-13
 
 ## Shipping artifact
 
-Open Brain ships one PyInstaller one-file executable for each supported platform:
+Open Brain ships a paired resource set for each supported platform:
 
 - `open-brain-<version>-macos-arm64.tar.gz`
 - `open-brain-<version>-linux-x86_64.tar.gz`
+- `open-brain-graphify-<version>-macos-arm64.tar.gz`
+- `open-brain-graphify-<version>-linux-x86_64.tar.gz`
 
-Each archive contains only the executable named `open-brain`. The executable bundles Python 3.14,
-the default app path, the base engine, SQLite support, and Portable Brain schemas. Its module audit
-rejects Secure Node, server, connector, legacy, and advanced cryptography dependencies.
+Each base archive contains the `open-brain` executable and exactly three desktop plugin assets under
+`obsidian-plugin/`: `main.js`, `manifest.json`, and `styles.css`. The executable bundles Python 3.14,
+the foreground app, the base engine, SQLite support, Portable Brain schemas, bounded direct provider
+adapters, the plugin bridge, and the Graphify client. Its module audit rejects Secure Node, server,
+connector, legacy, privilege, and advanced cryptography dependencies.
+
+Each Graphify archive contains one executable named `open-brain` for Homebrew resource staging plus
+the pinned Graphify and Open Brain notices under `licenses/graphify/`. Homebrew installs that payload
+as `libexec/open-brain-graphify`. It is a separate PyInstaller executable with a narrow, separately
+audited dependency closure. Its protocol accepts only bounded structural Markdown extraction. It has
+no Open Brain app modules, provider adapter, network configuration, Brain root, or write operation.
 
 The frozen distribution retains dependency/version metadata, entry-point metadata, and legal notices.
 Installer records such as `direct_url.json`, `RECORD`, and uv caches are omitted. Generated Python
@@ -23,24 +33,29 @@ preserved; an unexpected home path outside those prefixes fails the build. This 
 Python extension-building SDK. The native self-check verifies relocated library/bin paths and the
 pointer ABI before the product smoke runs.
 
-The macOS build must be exactly arm64. PyInstaller applies an ad hoc signature, and the build rejects
-the artifact unless `codesign --verify --strict` succeeds before the archive is hashed. The Linux
-build checks the ELF header for x86_64.
+Both macOS executables must be exactly arm64. PyInstaller applies an ad hoc signature, and the build
+rejects either artifact unless `codesign --verify --strict` succeeds before the archive is hashed.
+Both Linux executables are checked for an x86_64 ELF header.
 
 ## Release manifest
 
-`open-brain-release-manifest-v1.txt` contains one exact version and one row per artifact:
+`open-brain-component-manifest-v1.txt` contains one exact version and a base/helper pair for each
+platform. Every row binds the resource role, platform, archive digest, executable digest, filename,
+and final Homebrew destination:
 
 ```text
-open-brain-release-manifest-v1
+open-brain-component-manifest-v1
 version 0.1.0
-artifact linux-x86_64 <64-lowercase-hex-sha256> open-brain-0.1.0-linux-x86_64.tar.gz
-artifact macos-arm64 <64-lowercase-hex-sha256> open-brain-0.1.0-macos-arm64.tar.gz
+resource base linux-x86_64 <archive-sha256> <executable-sha256> open-brain-0.1.0-linux-x86_64.tar.gz bin/open-brain
+resource graphify linux-x86_64 <archive-sha256> <executable-sha256> open-brain-graphify-0.1.0-linux-x86_64.tar.gz libexec/open-brain-graphify
+resource base macos-arm64 <archive-sha256> <executable-sha256> open-brain-0.1.0-macos-arm64.tar.gz bin/open-brain
+resource graphify macos-arm64 <archive-sha256> <executable-sha256> open-brain-graphify-0.1.0-macos-arm64.tar.gz libexec/open-brain-graphify
 ```
 
-Platform builds may first emit a one-row manifest. The `manifest` command in
-`tools/open_brain_dev/base_native.py` combines the two final archives and rejects duplicate
-platforms or mixed versions. There is no attestation or evidence-assembly layer.
+Platform builds first emit one two-row component manifest. The `manifest` command in
+`tools/open_brain_dev/base_native.py` combines all four final archives and rejects a missing pair,
+duplicate role/platform, mixed version, noncanonical order, filename mismatch, or destination
+mismatch. The manifest is the reviewable digest record; there is no attestation layer.
 
 ## Owner content audit
 
@@ -51,8 +66,10 @@ archives with the same private denylist used for source and history checks:
 uv run --frozen --python 3.14 python -m tools.open_brain_dev.release_audit \
   --root /absolute/path/to/clean-source \
   --private-denylist /absolute/path/to/private-denylist.txt \
-  --artifacts /absolute/path/to/open-brain-0.1.0-linux-x86_64.tar.gz \
-              /absolute/path/to/open-brain-0.1.0-macos-arm64.tar.gz
+    --artifacts /absolute/path/to/open-brain-0.1.0-linux-x86_64.tar.gz \
+                /absolute/path/to/open-brain-graphify-0.1.0-linux-x86_64.tar.gz \
+                /absolute/path/to/open-brain-0.1.0-macos-arm64.tar.gz \
+                /absolute/path/to/open-brain-graphify-0.1.0-macos-arm64.tar.gz
 ```
 
 Exit zero is required. The private audit stays separate from contributor checks and CI. A successful
@@ -107,9 +124,10 @@ above; their size does not grant an exemption from content rules.
 ## Homebrew
 
 The `formula` command reads the manifest and renders the formula for the external Homebrew tap. Each
-platform block uses the immutable GitHub Release URL and repeats the manifest SHA-256. The formula
-does not fetch the manifest during installation. Homebrew verifies the archive digest before its
-`bin.install "open-brain"` step.
+platform block uses immutable GitHub Release URLs and repeats both archive SHA-256 values. The formula
+does not fetch the manifest during installation. Homebrew installs the base executable in `bin`, the
+Graphify helper in `libexec`, its notices under `share/open-brain/licenses/graphify`, and the plugin
+assets under `share/open-brain/obsidian-plugin`.
 
 CI renders the same formula with a local archive URL, installs it using Homebrew, and runs the product
 smoke. The public tap is updated only after both final platform archives exist and the combined
@@ -124,6 +142,19 @@ requires a valid code signature, so ad hoc signing remains mandatory.
 Developer ID distribution, notarization, stapling, DMGs, and Gatekeeper acceptance are not part of
 this release. If browser or Finder download becomes a supported path, that assumption changes and the
 proper Developer ID plus notarization path must be designed before publication.
+
+## Acceptance evidence boundary
+
+`make contributor-check` runs repository verification, including the real plugin type/build/test
+suite, then the platform-native Homebrew integration smoke. That smoke builds and audits both
+executables, installs the paired resources and plugin assets through a temporary keg-only formula,
+and exercises CLI, MCP, managed workspace, Graphify, and plugin staging/removal without changing an
+existing product installation.
+
+Hosted CI command-line coverage does not prove Obsidian activation, modal behavior, source
+navigation, provider account access, or five-minute elapsed time. Those observations belong in a
+separate exact-candidate desktop acceptance record with the app, plugin, runtime, platform,
+prerequisites, network conditions, provider access mode, start/end timestamps, and result.
 
 ## Removed release surface
 

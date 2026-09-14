@@ -49,10 +49,16 @@ def test_application_package_contains_only_foreground_local_surfaces() -> None:
         "services/__init__.py",
         "services/local_bootstrap.py",
         "services/local_entrypoints.py",
+        "services/graphify_projection.py",
+        "services/graph_projection_store.py",
         "services/local_mcp.py",
         "services/local_native_entrypoint.py",
         "services/local_operations.py",
+        "services/managed_providers.py",
         "services/mcp_protocol.py",
+        "services/obsidian_plugin.py",
+        "services/plugin_bridge.py",
+        "services/provider_credentials.py",
     }
 
 

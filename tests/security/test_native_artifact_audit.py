@@ -18,6 +18,7 @@ from typing import NoReturn
 import pytest
 
 from tools.open_brain_dev import artifact_audit as native
+from tools.open_brain_dev.graphify_native import write_graphify_archive
 from tools.open_brain_dev.release_audit import content_rule_ids, main
 
 TERM = "synthetic_owner_marker"
@@ -97,13 +98,20 @@ def executable(pkg: bytes, platform: str, prefix: bytes = b"") -> bytes:
     )
 
 
-def archive(binary: bytes) -> bytes:
+def archive(binary: bytes, *, plugin_assets: bool = True) -> bytes:
     buffer = io.BytesIO()
     with tarfile.open(fileobj=buffer, mode="w:gz", format=tarfile.USTAR_FORMAT) as tar:
         entry = tarfile.TarInfo("open-brain")
         entry.size = len(binary)
         entry.mode = 0o755
         tar.addfile(entry, io.BytesIO(binary))
+        if plugin_assets:
+            for name in ("main.js", "manifest.json", "styles.css"):
+                payload = b"synthetic plugin asset"
+                entry = tarfile.TarInfo(f"obsidian-plugin/{name}")
+                entry.size = len(payload)
+                entry.mode = 0o644
+                tar.addfile(entry, io.BytesIO(payload))
     return buffer.getvalue()
 
 
@@ -123,6 +131,17 @@ def test_large_native_is_inspected_without_relaxing_source_limit(platform: str) 
     padding = b"X" * (3 * 1024 * 1024)
     assert not scan([("PYZ.pyz", b"z", pyz(module()))], platform, padding).findings
     assert "content-scan-limit-exceeded" in content_rule_ids(padding, [TERM])
+
+
+def test_native_release_archive_requires_the_plugin_resource_set() -> None:
+    binary = executable(package([("PYZ.pyz", b"z", pyz(module()))]), "linux-x86_64")
+    scanner = native.Scanner([])
+
+    with pytest.raises(native.InvalidArtifact):
+        scanner.archive(
+            archive(binary, plugin_assets=False),
+            "open-brain-0.1.0-linux-x86_64.tar.gz",
+        )
 
 
 @pytest.mark.parametrize(
@@ -648,3 +667,24 @@ def test_graphify_proof_envelope_rejects_invalid_members(bad: str) -> None:
     except native.InvalidArtifact:
         return
     assert scanner.findings
+
+
+def test_graphify_release_envelope_inspects_the_helper_and_legal_files(
+    tmp_path: Path,
+) -> None:
+    helper = tmp_path / "open-brain-graphify"
+    helper.write_bytes(
+        executable(
+            package([("PYZ.pyz", b"z", pyz(module()))]),
+            "linux-x86_64",
+        )
+    )
+    licenses = tmp_path / "licenses"
+    licenses.mkdir()
+    for name in ("LICENSE", "LICENSE-MIT", "NOTICE", "OPEN-BRAIN-NOTICE"):
+        (licenses / name).write_text("safe", encoding="utf-8")
+    target = tmp_path / "open-brain-graphify-0.1.0-linux-x86_64.tar.gz"
+
+    write_graphify_archive(helper, licenses, target)
+
+    assert native.inspect_artifact(target, ()) == []

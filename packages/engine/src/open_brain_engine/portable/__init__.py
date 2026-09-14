@@ -7,8 +7,8 @@ from .v1 import (
     PortableValidationError,
     export_portable_tree,
     validate_portable_file_set,
-    validate_portable_root,
 )
+from .versioned import validate_portable_root
 
 __all__ = [
     "PORTABLE_V1_SCHEMA_CATALOG_DIGEST",

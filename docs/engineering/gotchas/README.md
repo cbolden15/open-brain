@@ -1497,3 +1497,123 @@ source or restore service APIs to make CI pass.
 Discovered: 2026-09-12, [foreground runtime boundary](../../architecture/decisions/0016-foreground-runtime-package-boundary.md)
 reconciliation with the
 [archived authority proof](../../../archive/open-brain-secure-node/proofs/nw0_authority_probe/README.md).
+
+### SCHEMA-001: Historical fixtures must remove every later migration surface
+
+Symptom: A migration test lowers `user_version` and restores an older table, but the engine rejects
+the database as an invalid schema instead of adopting it.
+
+Cause: Tables from a newer migration remain in the database, so its declared version and physical
+shape describe different eras.
+
+Fix: When rematerializing a historical fixture, remove every table, index, trigger, and migration
+row introduced after that era. Assert the final current version through the exported schema-version
+constant rather than repeating its number in tests.
+
+Discovered: 2026-09-12, NW1 managed-workspace migration verification.
+
+### INTEGRATION-027: Homebrew can delete an untrusted local tap before smoke installation
+
+Symptom: A contributor smoke creates a temporary local tap, but `brew tap` rejects the tap as
+untrusted and removes its checkout before the formula can be installed.
+
+Cause: Homebrew 6 requires tap or formula trust before it will load third-party formulae. Trusting
+the formula through the failed tap flow cannot preserve the checkout needed for installation.
+
+Fix: Clone the exact generated tap into the path returned by `brew --repository`, verify its
+ownership marker and formula bytes, then install the fully qualified formula. Snapshot formula
+trust before the run and verify that uninstalling and untapping remove the temporary trust entry.
+
+Discovered: 2026-09-13, NW2 paired native Graphify Homebrew smoke.
+
+### INTEGRATION-028: A path-derived graph target does not preserve permanent note identity
+
+Symptom: A materialized `[[page_<uuid>]]` link remains unresolved even though that exact selected
+page is present in the same Graphify snapshot.
+
+Cause: Graphify derives a target identity from a hypothetical filesystem path. That derived value
+is not the Engine's permanent page identity and cannot establish which selected page was intended.
+
+Fix: Parse the bounded link token and bind an exact permanent page ID directly against the selected
+snapshot inventory. Keep the existing-file stamp for ordinary path links, and retain genuinely
+unresolved references as diagnostics.
+
+Discovered: 2026-09-13, NW2 installed Graphify and Canvas acceptance.
+
+### INTEGRATION-029: Provider consent and suggestion review need one plugin-owned engine lifetime
+
+Symptom: Provider setup succeeds, but the following semantic refresh or suggestion review reports
+inactive consent or loses the pending suggestion when every plugin operation starts a new CLI
+process.
+
+Cause: Engine startup recovery deliberately revokes active provider consent and invalidates pending
+inference work. A stateless one-process-per-operation bridge therefore crosses a recovery boundary
+between setup, refresh, review, and acceptance.
+
+Fix: Keep one bounded stdio child and one engine session for the Obsidian plugin lifetime. Store
+session-only credentials, provider selection, and request budgets only in that process. Stop the
+child on plugin unload; after a bridge restart, require provider setup again while preserving local
+structural results. Test multiple framed requests through one child and terminal cleanup. This
+remains a foreground, lifecycle-owned process rather than a daemon.
+
+Discovered: 2026-09-13, NW3 Obsidian plugin integration.
+
+### INTEGRATION-030: Client parsers must accept every bounded backend status
+
+Symptom: The Obsidian plugin activates and the backend returns a valid failure Canvas, but the UI
+reports an invalid response instead of showing the bounded failure card.
+
+Cause: The backend's graph projection contract includes `failed`, while the TypeScript client union
+and parser listed only `fresh`, `missing`, and `stale`. Happy-path mocks never crossed the initial
+empty-vault failure boundary.
+
+Fix: Keep client status unions synchronized with the backend response contract and add a parser
+fixture for every terminal status, including safe failure projections. Exercise initial activation
+against an empty synthetic vault so a renderer-facing contract mismatch cannot hide behind a fresh
+projection.
+
+Discovered: 2026-09-13, [NW3 Obsidian plugin audit](../../audits/2026-09-13-ob1-nw3-obsidian-plugin-audit.md).
+
+### INTEGRATION-031: Generated views need stable leaf reuse
+
+Symptom: Each graph refresh opens another `Open Brain Graph` tab, and the user can remain on an
+older Canvas even though the generated file on disk is current.
+
+Cause: Calling `workspace.getLeaf("tab")` for every publication always allocates a new tab. The
+write and the visible leaf then have separate lifecycles.
+
+Fix: Find the existing Canvas leaf by its exact generated file path, reopen the file in that leaf,
+and reveal it. Allocate a new tab only when no matching leaf exists. Test both branches and verify
+the before/after tab count in Obsidian.
+
+Discovered: 2026-09-13, [NW3 Obsidian plugin audit](../../audits/2026-09-13-ob1-nw3-obsidian-plugin-audit.md).
+
+### INTEGRATION-032: Archive reproducibility does not imply frozen-build reproducibility
+
+Symptom: Two clean macOS builds from identical tracked source produce different executable, archive,
+and component-manifest SHA-256 values, even though rebuilding an archive from either fixed executable
+is byte-for-byte stable.
+
+Cause: The current contract normalizes tar and gzip metadata around a completed PyInstaller
+executable. It does not make independent PyInstaller and ad hoc signing runs deterministic.
+
+Fix: Select one exact candidate build, preserve its paired archives, and bind those exact bytes in the
+component manifest and release formula. Do not substitute an independently rebuilt artifact under an
+already reviewed digest. Treat end-to-end reproducible frozen builds as a separate requirement with
+its own toolchain proof.
+
+Discovered: 2026-09-13, NW4 exact-commit macOS candidate preparation.
+
+### INTEGRATION-033: `uv run --frozen` can hide a stale dependency lock
+
+Symptom: CI stays green after raising dependency minimums in `pyproject.toml`, but `uv lock --check`
+reports that `uv.lock` needs to be updated and the locked tools remain below those minimums.
+
+Cause: `uv run --frozen` uses the existing lock without checking whether project metadata would
+change its resolution. It proves the old lock still runs, not that the lock matches the edited
+requirements.
+
+Fix: Regenerate `uv.lock` whenever dependency requirements change, then run `uv lock --check` before
+the normal frozen test commands. Review the resolved direct and transitive dependency changes.
+
+Discovered: 2026-09-13, Dependabot Python development dependency review.

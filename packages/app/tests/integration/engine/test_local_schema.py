@@ -14,6 +14,7 @@ import pytest
 from open_brain_engine.engine.contracts import LocalEngineContext
 from open_brain_engine.engine.local_schema import (
     PHASE1_STATE_DATABASE,
+    PHASE1_STATE_SCHEMA_VERSION,
     classify_local_schema,
     inspect_phase1_state,
     open_local_database,
@@ -102,8 +103,8 @@ def test_historical_layouts_converge_without_losing_records(tmp_path: Path, era:
         if ordered is not None:
             assert _search(upgraded) == ordered
         ledger = [tuple(row) for row in upgraded.execute("SELECT * FROM schema_migrations")]
-        assert [row[0] for row in ledger] == [1, 2]
-        assert upgraded.execute("PRAGMA user_version").fetchone()[0] == 2
+        assert [row[0] for row in ledger] == [migration.version for migration in LOCAL_MIGRATIONS]
+        assert upgraded.execute("PRAGMA user_version").fetchone()[0] == PHASE1_STATE_SCHEMA_VERSION
         snapshot = list(upgraded.iterdump())
     finally:
         upgraded.close()
@@ -141,7 +142,7 @@ def test_w2_upgraded_search_declaration_is_normalized(tmp_path: Path, era: str) 
 @pytest.mark.parametrize(
     "statement",
     (
-        "PRAGMA user_version=3",
+        f"PRAGMA user_version={PHASE1_STATE_SCHEMA_VERSION + 1}",
         "PRAGMA user_version=2",
         "CREATE TABLE unexpected (id TEXT)",
         "DROP INDEX route_identity_idx",
@@ -296,6 +297,88 @@ def test_catalog_checksums_are_frozen() -> None:
     )
 
 
+def test_version_two_database_upgrades_without_changing_existing_rows(tmp_path: Path) -> None:
+    profile = _fixture(tmp_path / "brain", "w4")
+    database = profile.root / PHASE1_STATE_DATABASE
+    with sqlite3.connect(database) as connection:
+        connection.execute(
+            """CREATE TABLE schema_migrations (
+            version INTEGER PRIMARY KEY CHECK (version > 0), name TEXT NOT NULL,
+            checksum TEXT NOT NULL, applied_at TEXT NOT NULL)"""
+        )
+        for migration in LOCAL_MIGRATIONS[:2]:
+            connection.execute(
+                "INSERT INTO schema_migrations VALUES (?, ?, ?, ?)",
+                (
+                    migration.version,
+                    migration.name,
+                    migration.checksum,
+                    "2026-09-09T00:00:00.000000Z",
+                ),
+            )
+        connection.execute("PRAGMA user_version=2")
+        before = _rows(connection)
+    assert inspect_phase1_state(profile).state == "supported_old"
+    upgraded = open_local_database(profile)
+    try:
+        after = _rows(upgraded)
+        assert all(after[table] == rows for table, rows in before.items())
+        assert all(not rows for table, rows in after.items() if table not in before)
+        assert upgraded.execute("PRAGMA user_version").fetchone()[0] == 3
+        assert [
+            tuple(row)
+            for row in upgraded.execute(
+                "SELECT version, name, checksum FROM schema_migrations ORDER BY version"
+            )
+        ] == [
+            (migration.version, migration.name, migration.checksum)
+            for migration in LOCAL_MIGRATIONS
+        ]
+    finally:
+        upgraded.close()
+
+
+def test_managed_workspace_schema_enforces_revision_and_budget_links(tmp_path: Path) -> None:
+    profile = compile_single_user_local(tmp_path / "brain", starter_spaces=())
+    connection = open_local_database(profile)
+    try:
+        connection.execute("BEGIN")
+        connection.execute(
+            """INSERT INTO managed_workspaces
+            (workspace_id, root_path, device, inode, owner_actor_id,
+             origin_owner_actor_id, created_at)
+            VALUES ('workspace-1', '/synthetic/vault', '1', '2', 'owner-1', 'owner-1',
+                    '2026-09-12T00:00:00Z')"""
+        )
+        connection.execute(
+            """INSERT INTO managed_notes
+            (note_id, workspace_id, relative_path, accepted_revision_id, created_at, updated_at)
+            VALUES ('note-1', 'workspace-1', 'note.md', 'revision-1',
+                    '2026-09-12T00:00:00Z', '2026-09-12T00:00:00Z')"""
+        )
+        connection.execute(
+            """INSERT INTO managed_note_revisions
+            (revision_id, note_id, kind, body_bytes, body_sha256, accepted_by_actor_id,
+             provenance_json, privacy_json, recorded_at, operation_id)
+            VALUES ('revision-1', 'note-1', 'setup', ?, ?, 'owner-1', '{}', '{}',
+                    '2026-09-12T00:00:00Z', 'operation-1')""",
+            (b"body", "0" * 64),
+        )
+        connection.execute("COMMIT")
+        assert connection.execute("PRAGMA foreign_key_check").fetchone() is None
+        with pytest.raises(sqlite3.IntegrityError):
+            connection.execute(
+                """INSERT INTO managed_inference_budgets
+                (workspace_id, provider, window_key, request_limit, byte_limit,
+                 used_requests, used_bytes, reserved_requests, reserved_bytes,
+                 uncertain_requests, uncertain_bytes, updated_at)
+                VALUES ('workspace-1', 'fake', 'daily', 1, 4, 1, 4, 1, 1, 0, 0,
+                        '2026-09-12T00:00:00Z')"""
+            )
+    finally:
+        connection.close()
+
+
 def test_concurrent_upgraders_observe_one_committed_ledger(tmp_path: Path) -> None:
     profile = _fixture(tmp_path / "brain", "w4")
     script = """import sys
@@ -325,7 +408,9 @@ open_local_database(open_existing_single_user_local(Path(sys.argv[1]))).close()
                 worker.wait(timeout=5)
     connection = open_local_database(profile)
     try:
-        assert connection.execute("SELECT count(*) FROM schema_migrations").fetchone()[0] == 2
+        assert connection.execute("SELECT count(*) FROM schema_migrations").fetchone()[0] == len(
+            LOCAL_MIGRATIONS
+        )
     finally:
         connection.close()
 
@@ -341,9 +426,9 @@ def test_reader_keeps_validated_snapshot_when_another_writer_changes_version(
     try:
         assert reader.in_transaction
         with sqlite3.connect(profile.root / PHASE1_STATE_DATABASE) as writer:
-            writer.execute("PRAGMA user_version=3")
+            writer.execute(f"PRAGMA user_version={PHASE1_STATE_SCHEMA_VERSION + 1}")
             writer.execute("DELETE FROM search_documents")
-        assert reader.execute("PRAGMA user_version").fetchone()[0] == 2
+        assert reader.execute("PRAGMA user_version").fetchone()[0] == PHASE1_STATE_SCHEMA_VERSION
         assert len(_search(reader)) == 2
     finally:
         reader.close()
@@ -363,7 +448,7 @@ def test_write_revalidates_after_open_before_application_sql(
     def raced(profile: LocalEngineContext, **kwargs: Any) -> sqlite3.Connection:
         connection = original(profile, **kwargs)
         with sqlite3.connect(profile.root / PHASE1_STATE_DATABASE) as writer:
-            writer.execute("PRAGMA user_version=3")
+            writer.execute(f"PRAGMA user_version={PHASE1_STATE_SCHEMA_VERSION + 1}")
         return connection
 
     monkeypatch.setattr(local_store, "open_local_database", raced)
@@ -382,7 +467,7 @@ def test_invalid_locked_recheck_does_not_change_journal_mode_or_permissions(
     def raced(parent: int, name: str) -> sqlite3.Connection:
         nonlocal changed_bytes
         connection = original(parent, name)
-        connection.execute("PRAGMA user_version=3")
+        connection.execute(f"PRAGMA user_version={PHASE1_STATE_SCHEMA_VERSION + 1}")
         changed_bytes = database.read_bytes()
         return connection
 
@@ -491,7 +576,9 @@ def test_hot_rollback_journal_recovers_before_migration_retry(tmp_path: Path) ->
     recovered = open_local_database(profile)
     try:
         assert classify_local_schema(recovered).state == "current"
-        assert _rows(recovered) == before
+        after = _rows(recovered)
+        assert all(after[table] == rows for table, rows in before.items())
+        assert all(not rows for table, rows in after.items() if table not in before)
         assert recovered.execute("PRAGMA journal_mode").fetchone()[0] == "wal"
     finally:
         recovered.close()
@@ -530,7 +617,9 @@ def test_pending_import_reservation_survives_upgrade(tmp_path: Path) -> None:
         before = _rows(connection)
     upgraded = open_local_database(profile)
     try:
-        assert _rows(upgraded) == before
+        after = _rows(upgraded)
+        assert all(after[table] == rows for table, rows in before.items())
+        assert all(not rows for table, rows in after.items() if table not in before)
         assert len(_search(upgraded)) == 3
     finally:
         upgraded.close()
@@ -564,7 +653,9 @@ def test_migration_uses_injected_clock_and_preserves_old_ledger_timestamp(tmp_pa
             for row in connection.execute(
                 "SELECT applied_at FROM schema_migrations ORDER BY version"
             )
-        ] == ["2026-09-09T00:00:00.000000Z", "2026-09-10T01:02:03.000000Z"]
+        ] == ["2026-09-09T00:00:00.000000Z"] + [
+            "2026-09-10T01:02:03.000000Z"
+        ] * (len(LOCAL_MIGRATIONS) - 1)
     finally:
         connection.close()
 
