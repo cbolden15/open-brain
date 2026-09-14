@@ -195,6 +195,21 @@ fn validate_manifest(manifest: &ComponentManifest) -> Result<(), ProofError> {
     Ok(())
 }
 
+pub(crate) fn validate_runtime_pair(
+    core: &Path,
+    graphify: &Path,
+    manifest_path: &Path,
+) -> Result<(), ProofError> {
+    let manifest: ComponentManifest = serde_json::from_slice(
+        &fs::read(manifest_path).map_err(|_| ProofError::ComponentManifestInvalid)?,
+    )
+    .map_err(|_| ProofError::ComponentManifestInvalid)?;
+    validate_manifest(&manifest)?;
+    verify_component(core, &manifest, "core")?;
+    verify_component(graphify, &manifest, "graphify")?;
+    Ok(())
+}
+
 fn verify_component(
     executable: &Path,
     manifest: &ComponentManifest,

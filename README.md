@@ -31,9 +31,10 @@ after the owner acknowledges the eligible managed-note scope. Claude subscriptio
 with `subscription_isolation_unproven`; Open Brain does not add privileges or broader host access to
 make that transport work.
 
-A dedicated desktop companion is under development in `packages/desktop`. Its current D0 build is
-a synthetic native proof, separate from the Homebrew installation. The source connection wizard,
-agent setup, and optional collector are later milestones in the
+An optional desktop companion in `packages/desktop` provides local capture, search, and Claude Code
+and Codex setup. It is a contributor build separate from Homebrew. The same
+[agent setup works headlessly](docs/agent-setup.md). Source connections and recurring collection
+remain later milestones in the
 [desktop plan](docs/plans/2026-09-14-desktop-companion.md). See
 [ADR 0017](docs/architecture/decisions/0017-desktop-companion-boundary.md) for the package and
 permission boundaries.
@@ -150,14 +151,14 @@ gain owner mutation authority. Stopping the stdio process closes its capabilitie
 
 ## Develop
 
-Supported contributor hosts are macOS arm64 and Linux x86_64. Install Git, GNU Make, Node.js 24,
+Supported contributor hosts are macOS arm64 and Linux x86_64. Install Git, GNU Make, Node.js 24.15+ or 26+,
 npm, stable Rust, [uv](https://docs.astral.sh/uv/getting-started/installation/), and
 [Homebrew](https://brew.sh/). On macOS, install the Xcode Command Line Tools (`xcode-select --install`).
 On Linux, install Homebrew's build prerequisites (a C/C++ toolchain, curl, file, Git, and Make)
 using your distribution's package manager. Put Homebrew on `PATH` using the `brew shellenv`
 command printed by its installer. The workspace uses Python 3.14; uv downloads it if needed.
 The desktop checks also need [Tauri's platform prerequisites](https://v2.tauri.app/start/prerequisites/),
-including WebKitGTK on Linux. CI uses Node.js 24.
+including WebKitGTK on Linux. CI uses the latest Node.js 24 release.
 
 From the repository root in a fresh clone:
 

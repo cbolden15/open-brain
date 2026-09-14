@@ -41,6 +41,7 @@ _REQUIRED_MODULES: Final = frozenset(
     {
         "open_brain.local_data",
         "open_brain.profile",
+        "open_brain.services.agent_setup",
         "open_brain.services.local_bootstrap",
         "open_brain.services.local_entrypoints",
         "open_brain.services.graph_projection_store",

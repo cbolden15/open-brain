@@ -95,6 +95,7 @@ def test_native_specs_keep_base_and_graphify_in_separate_executables() -> None:
     assert "open_brain_engine.engine.local_schema_catalog" in base_native._REQUIRED_MODULES
     assert "open_brain_engine.storage.migrations" in base_native._REQUIRED_MODULES
     for module in (
+        "open_brain.services.agent_setup",
         "open_brain.services.graph_projection_store",
         "open_brain.services.graphify_projection",
         "open_brain.services.local_mcp",

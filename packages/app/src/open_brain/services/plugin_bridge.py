@@ -13,6 +13,7 @@ from typing import BinaryIO, cast
 
 from open_brain_engine import __version__
 from open_brain_engine.engine import (
+    PHASE1_STATE_SCHEMA_VERSION,
     EngineTaskSet,
     ManagedAccessMode,
     ManagedGraphSource,
@@ -23,11 +24,18 @@ from open_brain_engine.engine import (
     ManagedWorkspaceStatus,
     StateSchemaUnavailableError,
     canonical_json_bytes,
+    inspect_phase1_state,
 )
 from open_brain_engine.storage.locks import LockBusyError
 
 from open_brain.local_data import FilesystemTypeProbe, LocalDataError, LocalRootSelection
-from open_brain.profile import ProfileError
+from open_brain.profile import ProfileError, open_existing_single_user_local
+from open_brain.services.agent_setup import (
+    AgentSetupFailure,
+    apply_agent_setup,
+    preview_agent_setup,
+    resolve_agent_runtime,
+)
 from open_brain.services.graphify_projection import GraphifyFailure
 from open_brain.services.local_bootstrap import (
     LocalBrainSession,
@@ -44,6 +52,10 @@ from open_brain.services.local_operations import (
     search_brain,
     search_result,
     workspace_status,
+)
+from open_brain.services.local_runtime_session import (
+    RUNTIME_SESSION_VERSION,
+    LocalRuntimeCompatibilityError,
 )
 from open_brain.services.managed_providers import (
     DEFAULT_MODELS,
@@ -66,6 +78,8 @@ _REQUEST_ID = re.compile(
     r"^plugin_[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
 )
 _OPERATIONS = (
+    "agent.setup.apply",
+    "agent.setup.preview",
     "brain.initialize",
     "capture.create",
     "graph.accept",
@@ -81,6 +95,7 @@ _OPERATIONS = (
     "provider.status",
     "search.query",
     "system.handshake",
+    "system.status",
     "workspace.reconcile",
     "workspace.conflict_review",
     "workspace.conflicts",
@@ -114,8 +129,14 @@ class PluginBridgeFailure(RuntimeError):
             "operation_failed",
             "response_too_large",
             "session_exhausted",
+            "setup_conflict",
+            "setup_preview_stale",
+            "generated_instructions",
+            "instructions_too_large",
             "setup_required",
             "subscription_unavailable",
+            "client_config_invalid",
+            "unsafe_config_path",
             "unknown_operation",
         }:
             raise ValueError("invalid plugin bridge failure")
@@ -188,13 +209,30 @@ def serve_plugin_stdio(
                 if operation == "system.handshake":
                     _require_keys(arguments, frozenset())
                     result: dict[str, object] = {
+                        "brain_root": os.fspath(selection.brain_root),
                         "desktop_only": True,
                         "operations": list(_OPERATIONS),
                         "product_version": __version__,
                         "protocol": OPEN_BRAIN_CLIENT_PROTOCOL,
                         "protocol_version": OPEN_BRAIN_CLIENT_PROTOCOL_VERSION,
+                        "runtime_session_version": RUNTIME_SESSION_VERSION,
+                        "state_schema_version": PHASE1_STATE_SCHEMA_VERSION,
                         "status": "ok",
                     }
+                elif operation == "system.status":
+                    _require_keys(arguments, frozenset())
+                    result = _system_status(selection)
+                elif operation in {"agent.setup.preview", "agent.setup.apply"}:
+                    try:
+                        result = _agent_setup(
+                            selection,
+                            operation,
+                            arguments,
+                            base_executable=base_executable,
+                            environment=selected_environment,
+                        )
+                    except AgentSetupFailure as error:
+                        raise PluginBridgeFailure(error.code) from None
                 elif operation == "brain.initialize":
                     _require_keys(arguments, frozenset())
                     if session is not None:
@@ -230,6 +268,8 @@ def serve_plugin_stdio(
             except LockBusyError:
                 _write_error(output_stream, request_id, "database_busy")
             except StateSchemaUnavailableError:
+                _write_error(output_stream, request_id, "incompatible_schema")
+            except LocalRuntimeCompatibilityError:
                 _write_error(output_stream, request_id, "incompatible_schema")
             except ManagedWorkspaceFailure as error:
                 _write_error(output_stream, request_id, error.code)
@@ -455,6 +495,81 @@ def dispatch_plugin_request(
     if operation not in _OPERATIONS:
         raise PluginBridgeFailure("unknown_operation")
     raise PluginBridgeFailure("invalid_arguments")
+
+
+def _system_status(selection: LocalRootSelection) -> dict[str, object]:
+    try:
+        selection.brain_root.lstat()
+    except FileNotFoundError:
+        return {
+            "brain_root": os.fspath(selection.brain_root),
+            "initialized": False,
+            "runtime_session_version": RUNTIME_SESSION_VERSION,
+            "state_schema_version": PHASE1_STATE_SCHEMA_VERSION,
+            "status": "ok",
+        }
+    except OSError:
+        raise ProfileError("Brain root is unavailable") from None
+    profile = open_existing_single_user_local(selection.brain_root)
+    schema = inspect_phase1_state(profile)
+    if schema.state == "absent":
+        return {
+            "brain_root": os.fspath(selection.brain_root),
+            "initialized": False,
+            "runtime_session_version": RUNTIME_SESSION_VERSION,
+            "state_schema_version": PHASE1_STATE_SCHEMA_VERSION,
+            "status": "ok",
+        }
+    if schema.state not in {"current", "supported_old"} or schema.version is None:
+        raise StateSchemaUnavailableError(f"local state schema is {schema.state}")
+    return {
+        "brain_root": os.fspath(selection.brain_root),
+        "initialized": True,
+        "runtime_session_version": RUNTIME_SESSION_VERSION,
+        "state_schema_version": schema.version,
+        "status": "ok",
+    }
+
+
+def _agent_setup(
+    selection: LocalRootSelection,
+    operation: str,
+    arguments: Mapping[str, object],
+    *,
+    base_executable: Path | None,
+    environment: Mapping[str, object],
+) -> dict[str, object]:
+    required = {"action", "allow_capture", "allow_search", "client", "scope"}
+    optional = {"project_dir"}
+    if operation == "agent.setup.apply":
+        required.add("preview_id")
+    if not required.issubset(arguments) or not set(arguments).issubset(required | optional):
+        raise PluginBridgeFailure("invalid_arguments")
+    runtime_path = resolve_agent_runtime(base_executable)
+    if operation == "agent.setup.preview":
+        return preview_agent_setup(
+            selection,
+            action=arguments["action"],
+            allow_capture=arguments["allow_capture"],
+            allow_search=arguments["allow_search"],
+            client=arguments["client"],
+            environment=environment,
+            project_dir=arguments.get("project_dir"),
+            runtime_path=runtime_path,
+            scope=arguments["scope"],
+        )
+    return apply_agent_setup(
+        selection,
+        action=arguments["action"],
+        allow_capture=arguments["allow_capture"],
+        allow_search=arguments["allow_search"],
+        client=arguments["client"],
+        environment=environment,
+        preview_id=arguments["preview_id"],
+        project_dir=arguments.get("project_dir"),
+        runtime_path=runtime_path,
+        scope=arguments["scope"],
+    )
 
 
 def _provider_status(runtime: PluginRuntimeState) -> dict[str, object]:

@@ -22,10 +22,10 @@ While enabled, the plugin owns one `open-brain plugin` child over inherited stdi
 process on unload. The child is part of the foreground desktop session. It is not a service. The
 Obsidian application may remain open after an Open Brain operation finishes.
 
-The separate Tauri companion currently provides a synthetic native proof. It owns its own matched
-runtime bundle and is not installed by the core formula. Source onboarding and the optional
-independent collector remain later milestones. Their dependencies and permissions belong outside
-the core package. D0 does not connect accounts or register a background service.
+The optional Tauri companion provides local capture/search and Claude Code/Codex setup. It owns a
+matched runtime bundle and is not installed by the core formula. The same setup is available through
+the headless CLI. Source onboarding and the optional independent collector remain later milestones;
+their dependencies and permissions belong outside the core package.
 
 The first Secure Node implementation and the predecessor package are retained as source history in
 `archive/open-brain-secure-node` and `archive/legacy`. Neither archive is part of the uv workspace,
@@ -53,6 +53,9 @@ The supported command families are:
 - `graph` for structural projection, suggestion review, consent, and exclusions;
 - `obsidian-plugin` for owned plugin installation, status, and removal; and
 - `mcp` over explicitly launched stdio with capabilities selected independently.
+
+`agent setup` previews and applies owned Claude Code/Codex configuration at project or user scope.
+It configures explicitly granted capture/search tools without accessing client login credentials.
 
 The runtime uses the platform default directory unless an expert supplies an absolute `--data-dir`:
 
@@ -119,7 +122,7 @@ not portable contracts.
 | `open-brain` | Local bootstrap, foreground CLI, MCP/plugin stdio, provider adapters, plugin assets, local operations | Shipping application |
 | `open-brain-graphify` | Pinned, patched structural Markdown helper with its own dependency closure and licenses | Shipping private helper resource |
 | `packages/obsidian-plugin` | Desktop-only Obsidian client compiled into the base release archive | Shipping desktop interface |
-| `packages/desktop` | Separately versioned Tauri host, packaged interface, and matched runtime pair | D0 native proof; not a public desktop release |
+| `packages/desktop` | Separately versioned Tauri host, packaged interface, and matched runtime pair | D1 contributor build; not a public desktop release |
 | `open-brain-connectors` | Optional connector SDK and worker runtime | Separate optional distribution |
 | `packages/collector` (planned) | Source scheduling and optional per-user collection lifecycle | Not implemented or installed |
 | `archive/open-brain-secure-node` | Historical appliance, protocol, custody, service, and lifecycle implementation | Never built or installed |

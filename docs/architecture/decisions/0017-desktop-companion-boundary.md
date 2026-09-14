@@ -28,7 +28,7 @@ selector, or raw credential retrieval capability. Normal app exit must stop its 
 group, including descendants that outlive the immediate child.
 
 D0 is a synthetic native proof. It does not open the owner's existing Brain or configure accounts.
-D1 will add the usable local interface and agent setup. GitHub collection belongs to D2; independent
+D1 adds the usable local interface and shared desktop/headless agent setup. GitHub collection belongs to D2; independent
 collection belongs to D3. The full scope is in the
 [desktop plan](../../plans/2026-09-14-desktop-companion.md).
 
@@ -49,7 +49,10 @@ These guarantees require participating clients. An older installed runtime that 
 its lifetime can still run the older recovery path. Matching a version string alone does not prove
 compatibility. Before D1 opens an existing Brain concurrently with installed clients, its setup must
 enforce a tested runtime/schema compatibility floor. A runtime must reject a newer unsupported
-SQLite schema without mutating it. D0's isolated proof does not establish mixed-release support.
+SQLite schema without mutating it. D1 uses private state schema 4 and runtime session version 1,
+with migration under exclusive participating-client admission. Desktop setup points clients at its
+exact bundled executable. Stop old sessions before upgrading; existing installed runtimes must be
+updated to read the new schema. Product version 0.1.0 alone is not the compatibility check.
 
 The stdio bridge has bounded writes, responses, deadlines, and a 2,000-request session limit.
 Cold runtime startup gets a separate bounded handshake allowance. Session exhaustion is explicit.

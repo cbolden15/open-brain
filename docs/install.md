@@ -121,9 +121,11 @@ a separate explicit action; do not delete it unless a verified export or another
 
 ### Dedicated desktop companion
 
-The dedicated desktop app is currently a contributor-only D0 proof in `packages/desktop`. The
-Homebrew command above installs the core and Obsidian assets; it does not install this app. D0 runs
-against disposable synthetic data and has no source connections or background collection.
+The optional desktop companion in `packages/desktop` is a contributor build with local capture,
+search, and agent setup. Homebrew installs the core and Obsidian assets separately. Source
+connections and background collection are not implemented.
+
+Claude Code and Codex can also be configured through the [headless CLI](agent-setup.md).
 
 On macOS arm64, build the `.app` and run its isolated proof from the repository root:
 

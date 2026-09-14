@@ -1680,3 +1680,33 @@ Use a permanent page ID for the helper fixture's reference; an unresolved title 
 produce a valid helper response with zero links and must not pass the integration proof.
 
 Discovered: 2026-09-14, [desktop D0 verification](../../audits/2026-09-14-desktop-d0.md).
+
+### INTEGRATION-038: Owned setup blocks must own their separators
+
+Symptom: Removing a generated agent instruction block trims unrelated blank lines, or an atomic
+replacement overwrites an edit made while its temporary file was being prepared.
+
+Cause: Cleanup normalizes the surrounding document, and a preview-time preimage check does not cover
+file preparation. Opening a FIFO before checking its type can also block setup indefinitely.
+
+Fix: Include the leading separator in the owned block and preserve all outside bytes. Check the
+expected preimage immediately before replacement, condition rollback on the current contents, and
+open candidate files nonblocking before validating regular-file ownership. Test exact trailing bytes,
+concurrent edits, partial setup recovery, and a FIFO with a bounded subprocess.
+
+Discovered: 2026-09-14, desktop D1 setup verification.
+
+### INTEGRATION-039: MCP discovery does not prove current-client tool calls
+
+Symptom: Claude Code lists Open Brain tools, but every search and capture returns `invalid params`.
+
+Cause: The client sends `params._meta` with `claudecode/toolUseId` and `progressToken`. The original
+transport required exactly `name` and `arguments`, rejecting valid MCP metadata. Handwritten smoke
+requests did not contain it.
+
+Fix: Accept object-valued request metadata as transport context and never pass it to the adapter as
+tool input or authority. Keep argument validation and capability checks unchanged. Test both valid
+and malformed metadata, then exercise actual client tool calls against the exact native candidate.
+See the [MCP metadata contract](https://modelcontextprotocol.io/specification/2025-11-25/basic#_meta).
+
+Discovered: 2026-09-14, desktop D1 actual Claude Code acceptance.

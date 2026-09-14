@@ -17,7 +17,7 @@
 | Product authority | `docs/product-family.md` |
 | Acceptance | `docs/acceptance/five-minute-install.md` |
 
-Use `docs/install.md` for the core release and tap instructions. Desktop D0 is not a public desktop release.
+Use `docs/install.md` for the core release and tap instructions. The desktop contributor build is not a public desktop release.
 
 ## Product boundary
 
@@ -29,8 +29,9 @@ containers, a daemon, or another background service. The enabled plugin owns one
 `open-brain plugin` child over inherited stdio and stops it on unload.
 
 The separately packaged Tauri companion in `packages/desktop` follows
-`docs/architecture/decisions/0017-desktop-companion-boundary.md`. D0 is a synthetic native proof;
-existing-Brain onboarding and source capture remain later milestones. The future optional collector
+`docs/architecture/decisions/0017-desktop-companion-boundary.md`. D1 provides local capture/search
+and shared CLI/desktop agent setup against the same Brain. Source capture remains a later milestone.
+The future optional collector
 owns its own scheduling, credential references, control IPC, and service permissions. Do not add
 those dependencies or a listener to the core, and do not restore archived modules.
 
@@ -52,7 +53,7 @@ engine. Never migrate between products by copying or reinterpreting live SQLite 
 | `packages/app/src/open_brain/services/plugin_bridge.py` | Bounded `open-brain-client` protocol version 1 server and plugin-session lifecycle |
 | `packages/app/src/open_brain/services/managed_providers.py` | Consent-gated, bounded OpenAI, Anthropic, and Gemini direct adapters |
 | `packages/obsidian-plugin` | Desktop-only Obsidian source, bounded stdio client, and compiled plugin checks |
-| `packages/desktop` | Separate Tauri/React build, native stdio bridge, and synthetic D0 proof |
+| `packages/desktop` | Optional Tauri/React UI, native stdio bridge, local capture/search, and agent setup |
 | `packages/connectors` | Optional connector distribution; not a default dependency |
 | `archive/open-brain-secure-node` | Historical Secure Node implementation; excluded from builds and tests |
 | `archive/legacy` | Historical predecessor; excluded from the workspace, builds, imports, and tests |
@@ -111,6 +112,11 @@ The local runtime needs no configuration. macOS data lives under
 `${XDG_DATA_HOME:-$HOME/.local/share}/open-brain/brain`. An absolute `--data-dir` is available for
 expert and test use. `OPEN_BRAIN_ROOT` is a historical compatibility setting and is not consumed by
 the active package.
+
+Agent setup uses `agent setup` in the CLI and named plugin operations. Capture and search grants
+are separate and off by default. Preview IDs bind configuration preimages; only owned fragments may
+be changed. Use synthetic client profiles for tests. Existing Brain state requires schema 4 and
+runtime session version 1; never weaken the compatibility checks to admit an older client.
 
 ## Safety and verification
 

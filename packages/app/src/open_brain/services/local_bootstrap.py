@@ -10,6 +10,7 @@ from open_brain_engine.engine import (
     PHASE1_STATE_SCHEMA_VERSION,
     EngineTaskSet,
     LocalEngineContext,
+    StateSchemaUnavailableError,
     inspect_phase1_state,
     open_local_engine,
 )
@@ -21,7 +22,11 @@ from open_brain.local_data import (
     prepare_local_root,
 )
 from open_brain.profile import compile_single_user_local
-from open_brain.services.local_runtime_session import hold_local_runtime_session
+from open_brain.services.local_runtime_session import (
+    LocalRuntimeCompatibilityError,
+    LocalRuntimeSession,
+    hold_local_runtime_session,
+)
 
 _STATE_DATABASE = ".open-brain/state/phase1.sqlite3"
 
@@ -75,23 +80,44 @@ def open_local_brain(
             selection.brain_root,
             validate_before_identity_write=prepared.revalidate,
         )
+        initial_schema = inspect_phase1_state(profile)
+        if initial_schema.state in {"invalid", "newer"}:
+            raise StateSchemaUnavailableError(f"local state schema is {initial_schema.state}")
 
         def validate_direct_write() -> None:
             prepared.revalidate()
 
-        tasks = open_local_engine(
-            profile,
-            validate_before_write=validate_direct_write,
-            recover_abandoned_sessions=False,
-        )
-        prepared.revalidate()
-        _require_current_local_state(prepared, profile)
+        tasks: EngineTaskSet | None = None
+
+        def admit(runtime_session: LocalRuntimeSession) -> None:
+            nonlocal tasks
+            schema = inspect_phase1_state(profile)
+            if schema.state != "current" and runtime_session.live_peer_count > 0:
+                raise LocalRuntimeCompatibilityError(
+                    "state migration requires exclusive runtime admission"
+                )
+            tasks = open_local_engine(
+                profile,
+                validate_before_write=validate_direct_write,
+                recover_abandoned_sessions=False,
+            )
+            prepared.revalidate()
+            _require_current_local_state(prepared, profile)
+
+        def recover_abandoned_sessions() -> object:
+            if tasks is None:
+                raise RuntimeError("local engine admission did not complete")
+            return tasks.managed_inference.recover_abandoned_sessions()
+
         with hold_local_runtime_session(
             profile.root,
             profile.root_identity,
             legacy_state_exists=initialized_before,
-            recover_abandoned_sessions=tasks.managed_inference.recover_abandoned_sessions,
+            recover_abandoned_sessions=recover_abandoned_sessions,
+            admit_session=admit,
         ):
+            if tasks is None:
+                raise RuntimeError("local engine admission did not complete")
             yield LocalBrainSession(
                 initialized_before=initialized_before,
                 prepared=prepared,

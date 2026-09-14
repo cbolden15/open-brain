@@ -1,6 +1,6 @@
 # Desktop companion and source capture
 
-Status: D0 complete locally on macOS arm64; D1 in progress; D2 through D4 remain proposed.
+Status: D0 and D1 complete locally on macOS arm64; D2 through D4 remain proposed.
 
 Date: 2026-09-14
 
@@ -8,8 +8,9 @@ Grounded against commit: `33df3d79268c47525e2aefd597ecbd66ea831726`.
 
 D0's boundaries are recorded in [ADR 0017](../architecture/decisions/0017-desktop-companion-boundary.md)
 and the updated [product contract](../product-family.md). Its native acceptance is recorded in the
-[D0 evidence report](../audits/2026-09-14-desktop-d0.md). The remaining milestones propose new behavior;
-this plan does not authorize enabling background collection on a user's computer.
+[D0 evidence report](../audits/2026-09-14-desktop-d0.md). D1 acceptance is recorded in the
+[D1 audit](../audits/2026-09-14-desktop-d1-audit.md). D2 through D4 propose new behavior; this plan does
+not authorize enabling background collection on a user's computer.
 
 ## Outcome
 
@@ -280,9 +281,10 @@ process lifetimes, connection/import receipts, and export verification. Public r
 new-user journey on every claimed platform. A clickable concept, mocked sign-in, successful compiler,
 or unattended process launch alone does not establish that journey.
 
-Current deliverable: this plan only. No desktop package, collector service, source connection, or
-runtime policy change has been implemented by writing it. Architecture and release feasibility gates
-above remain open.
+Implementation is tracked by milestone. D0 and D1 have passing local native evidence. D1 includes
+shared headless setup and actual Claude Code/Codex save and fresh-session recall with the desktop
+closed. Source connections and independent collection remain D2 through D4. Public desktop
+distribution and Linux clean-host acceptance remain separate gates.
 
 ## References
 

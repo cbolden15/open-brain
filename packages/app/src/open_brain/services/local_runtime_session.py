@@ -31,10 +31,15 @@ _REGISTRY_PENDING_VERSION = "registry-version.pending"
 _REGISTRY_VERSION_BYTES = b"open-brain-runtime-sessions-v1\n"
 _SESSION_FILE = re.compile(r"^session-[0-9a-f]{32}\.lock$")
 _REGISTRY_LOCK_TIMEOUT_SECONDS = 2.0
+RUNTIME_SESSION_VERSION = 1
 
 
 class LocalRuntimeSessionError(RuntimeError):
     """The foreground runtime-session registry could not fail closed."""
+
+
+class LocalRuntimeCompatibilityError(LocalRuntimeSessionError):
+    """A schema migration cannot proceed while another runtime is admitted."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -53,6 +58,7 @@ def hold_local_runtime_session(
     *,
     legacy_state_exists: bool,
     recover_abandoned_sessions: Callable[[], object],
+    admit_session: Callable[[LocalRuntimeSession], object] | None = None,
 ) -> Iterator[LocalRuntimeSession]:
     """Register one client and distinguish live peers from abandoned sessions."""
     root_fd = state_fd = directory_fd = registry_fd = session_fd = -1
@@ -91,16 +97,30 @@ def hold_local_runtime_session(
         crash_recovery_required = stale_sessions > 0 or (
             legacy_state_exists and not registry_initialized
         )
+        runtime_session = LocalRuntimeSession(
+            crash_recovery_required=crash_recovery_required,
+            live_peer_count=live_peers,
+            stale_session_count=stale_sessions,
+        )
+        if admit_session is not None:
+            admit_session(runtime_session)
         if crash_recovery_required:
             recover_abandoned_sessions()
         fcntl.flock(registry_fd, fcntl.LOCK_UN)
         registry_locked = False
         body_entered = True
-        yield LocalRuntimeSession(
-            crash_recovery_required=crash_recovery_required,
-            live_peer_count=live_peers,
-            stale_session_count=stale_sessions,
-        )
+        yield runtime_session
+    except LocalRuntimeCompatibilityError:
+        if session_created and directory_fd >= 0:
+            try:
+                os.unlink(session_name, dir_fd=directory_fd)
+                os.fsync(directory_fd)
+                session_created = False
+            except OSError:
+                raise LocalRuntimeSessionError(
+                    "runtime compatibility rejection cleanup failed"
+                ) from None
+        raise
     except LocalRuntimeSessionError:
         raise
     except (RootConfinementError, DurabilityError):
@@ -254,6 +274,8 @@ def _require_private_directory(directory_fd: int) -> None:
 
 __all__ = [
     "LocalRuntimeSession",
+    "LocalRuntimeCompatibilityError",
     "LocalRuntimeSessionError",
+    "RUNTIME_SESSION_VERSION",
     "hold_local_runtime_session",
 ]

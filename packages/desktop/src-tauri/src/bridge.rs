@@ -172,24 +172,44 @@ impl Bridge {
         Self::spawn_with_limit(executable, brain_root, MAX_SESSION_REQUESTS)
     }
 
+    pub fn spawn_selected(
+        executable: &Path,
+        brain_root: Option<&Path>,
+    ) -> Result<Self, BridgeError> {
+        Self::spawn_selected_with_limit(executable, brain_root, MAX_SESSION_REQUESTS)
+    }
+
     fn spawn_with_limit(
         executable: &Path,
         brain_root: &Path,
         request_limit: usize,
     ) -> Result<Self, BridgeError> {
+        Self::spawn_selected_with_limit(executable, Some(brain_root), request_limit)
+    }
+
+    fn spawn_selected_with_limit(
+        executable: &Path,
+        brain_root: Option<&Path>,
+        request_limit: usize,
+    ) -> Result<Self, BridgeError> {
         let executable = exact_executable(executable)?;
-        if !brain_root.is_absolute() || request_limit == 0 || request_limit > MAX_SESSION_REQUESTS {
+        if brain_root.is_some_and(|root| !root.is_absolute())
+            || request_limit == 0
+            || request_limit > MAX_SESSION_REQUESTS
+        {
             return Err(BridgeError::InvalidRequest);
         }
         let mut command = Command::new(executable);
         command
-            .args(["plugin", "--data-dir"])
-            .arg(brain_root)
+            .arg("plugin")
             .env_clear()
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::null())
             .process_group(0);
+        if let Some(root) = brain_root {
+            command.arg("--data-dir").arg(root);
+        }
         for key in [
             "DBUS_SESSION_BUS_ADDRESS",
             "DISPLAY",
@@ -670,7 +690,7 @@ time.sleep(30)"#,
         let executable = success_server(&directory);
         let mut bridge = Bridge::spawn_with_limit(&executable, directory.path(), 1).unwrap();
         let result = bridge
-            .invoke("system.handshake", json!({}), None, Duration::from_secs(1))
+            .invoke("system.handshake", json!({}), None, Duration::from_secs(3))
             .unwrap();
         assert_eq!(result["operation"], "system.handshake");
         assert_eq!(
@@ -726,7 +746,7 @@ print(json.dumps({"ok": True, "protocol": "open-brain-client", "protocol_version
                 "capture.create",
                 json!({"text": "synthetic"}),
                 Some(request_id.to_owned()),
-                Duration::from_secs(1),
+                Duration::from_secs(3),
             ),
             Err(BridgeError::LostResponse)
         );

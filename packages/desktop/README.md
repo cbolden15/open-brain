@@ -1,14 +1,14 @@
-# Open Brain Desktop D0
+# Open Brain Desktop
 
-This is a native integration proof, not the source-connection product. It creates a disposable
-synthetic Brain, checks its packaged runtime pair, captures and searches one note, exercises
-Graphify, and stops the owned children. It does not open an existing Brain, connect an account,
-configure an AI client, or install a collector.
+The optional desktop companion provides Search, Capture, Sources, Activity, and Settings.
+Search and capture use the same platform-default Brain as the CLI. Settings can configure Claude
+Code and Codex to use the desktop's exact packaged runtime and Brain. Source accounts and recurring
+collection are planned; their cards do not imply a connection.
 
 ## Build and verify
 
-Run commands from the repository root. Install the core contributor prerequisites, stable Rust,
-and [Tauri's platform prerequisites](https://v2.tauri.app/start/prerequisites/).
+Run commands from the repository root. Install the core contributor prerequisites, Node.js 24.15+
+or 26+, stable Rust, and [Tauri's platform prerequisites](https://v2.tauri.app/start/prerequisites/).
 
 ```sh
 uv sync --frozen --group dev --group native-build
@@ -16,50 +16,55 @@ make verify
 make native-audit homebrew-smoke desktop-native-proof
 ```
 
-The final command shares the native-build prerequisite within one Make invocation. Do not run
-another Homebrew smoke check concurrently. The desktop build verifies executable digests against
-the core component manifest and keeps the helper in the `runtime/libexec` location expected by
-the core in `runtime/bin`.
-
-On macOS arm64, the app is at:
+The last command shares the native-build prerequisite. Do not run another Homebrew smoke check
+concurrently. On macOS arm64, the app is at:
 
 ```text
 packages/desktop/src-tauri/target/release/bundle/macos/Open Brain Desktop.app
 ```
 
-Open it and check that the native window reports successful capture, one search match, Graphify
-success, and confirmed cleanup. Use **Run proof again** to repeat against another disposable Brain.
-The headless JSON proof is a separate check and does not establish that the webview rendered or
-that quitting during an active operation stops its children.
+Opening the app selects the normal Brain. For isolated native verification, launch its executable
+with `--data-dir /absolute/path/to/synthetic-brain`. Never use real notes or personal client
+configuration for contributor tests. The `--d0-proof-json` mode remains a separate disposable capture,
+search, helper, and cleanup check. It does not prove that the window works.
 
-The first packaged Python startup can take several seconds. Its handshake has a 15-second deadline;
-later local capture/search requests have five-second deadlines. The Rust failure tests retain short
-deadlines to prove that a stalled child is terminated. No provider request is made by the proof.
+## Use the companion
 
-## Component boundaries
+1. Capture a note, then use **Find this note** to verify retrieval.
+2. Open **Settings** and select Claude Code or Codex, project or user scope, and the desired capture
+   and search permissions. Both grants start off. Project scope requires an absolute project path.
+3. Preview the owned configuration and instruction fragments, then apply them. Restart the client
+   and complete its own project trust or MCP approval when prompted.
+4. Ask the client to remember a synthetic fact. Start a fresh client session and ask for that fact.
 
-The renderer can invoke the native proof command and has no general shell or database interface.
-The native host launches only the packaged component paths, checks their digests and protocol, and
-owns their process groups. Once shutdown starts, it admits no new child. A malformed response or
-deadline closes the bridge. Retrying an uncertain capture requires the original request ID.
+Search permission reads the whole Brain. A network-backed client may send retrieved text to its
+provider. Setup writes no login credentials and enables no transcript collection. Instructions ask
+for explicit memory saves and relevant retrieval. Activity shows only this app session and resets
+on close. Quitting stops the app's child; configured agent sessions run independently when invoked.
 
-The synthetic directory lives outside the app bundle and is removed when the proof finishes.
-Packaged resources are not writable application state. An installed Homebrew CLI is neither
-discovered nor modified by desktop startup.
+The equivalent [headless setup](../../docs/agent-setup.md) needs no desktop. Removing an integration
+uses another preview and preserves unrelated client settings. Moving the runtime or app requires
+setup again because the configuration contains an absolute executable path.
 
-The Python fixture in `tests/test_control_boundary.py` proves private Unix-domain control transport
-and one lock-held instance. It belongs to the optional desktop scope; the core test suite continues
-to prohibit socket access. This fixture does not implement the collector protocol or scheduling.
+## Runtime boundary
 
-## Linux and public distribution
+The renderer has only named native operations, no general shell or database interface. The host
+verifies the exact packaged core/Graphify pair before launch and checks protocol version 1, runtime
+session version 1, and state schema version 4. Existing state migrates through the core; incompatible
+older readers reject the newer private schema. Stop older sessions before upgrading existing state.
 
-`make desktop-native` selects an AppImage build on Linux x86_64 with a matching Linux runtime pair.
-The contributor needs WebKitGTK and Tauri's Linux dependencies. Validate the AppImage on a clean
-target host before claiming Linux desktop support. The macOS-only `desktop-native-proof` target
-deliberately does not stand in for that gate.
+Cold startup has a 15-second handshake deadline; interactive requests have a 10-second deadline.
+Malformed replies, lost transport, deadlines, and the 2,000-request session limit close the bridge.
+An uncertain capture retains its text and request ID for an explicit retry. Reconnection does not
+replay mutations or restore provider consent. Native exit stops the owned process group.
 
-D0 creates local development artifacts. Public macOS desktop distribution still needs Developer ID
-signing, notarization, and installation evidence. Mixed use of an existing Brain with older installed
-clients also needs an enforced compatibility floor before D1 onboarding. See
-[ADR 0017](../../docs/architecture/decisions/0017-desktop-companion-boundary.md) and the
-[ordered desktop plan](../../docs/plans/2026-09-14-desktop-companion.md).
+The Python control fixture proves private Unix-domain transport and one lock-held instance. It does
+not implement a collector. Core tests continue to prohibit socket access.
+
+## Release status
+
+This is a contributor build, separate from Homebrew. Public macOS distribution still needs
+Developer ID signing, notarization, and installation evidence. `make desktop-native` defines a Linux
+x86_64 AppImage build with a matched runtime pair; clean-host native UI and helper acceptance remain
+a separate Linux gate. See [ADR 0017](../../docs/architecture/decisions/0017-desktop-companion-boundary.md)
+and the [desktop plan](../../docs/plans/2026-09-14-desktop-companion.md).

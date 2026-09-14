@@ -19,8 +19,13 @@ from open_brain_engine.engine import (
 
 import open_brain.services.plugin_bridge as plugin_bridge_module
 from open_brain.local_data import LocalRootSelection, select_local_root
+from open_brain.profile import open_existing_single_user_local
 from open_brain.services.local_bootstrap import open_local_brain
 from open_brain.services.local_operations import refresh_graph
+from open_brain.services.local_runtime_session import (
+    LocalRuntimeCompatibilityError,
+    hold_local_runtime_session,
+)
 from open_brain.services.managed_providers import ManagedGraphProviderResult
 from open_brain.services.plugin_bridge import (
     OPEN_BRAIN_CLIENT_PROTOCOL,
@@ -50,6 +55,8 @@ def _call(
     arguments: dict[str, object] | None = None,
     *,
     request_id: str | None = None,
+    base_executable: Path | None = None,
+    environment: dict[str, object] | None = None,
 ) -> dict[str, object]:
     request = {
         "arguments": arguments or {},
@@ -65,6 +72,8 @@ def _call(
             input_stream=BytesIO(json.dumps(request).encode("utf-8")),
             output_stream=output,
             filesystem_type_probe=_filesystem,
+            base_executable=base_executable,
+            environment=environment,
         )
         == 0
     )
@@ -83,8 +92,88 @@ def test_handshake_is_bounded_and_does_not_initialize_the_brain(tmp_path: Path) 
     assert result["protocol"] == OPEN_BRAIN_CLIENT_PROTOCOL
     assert result["protocol_version"] == OPEN_BRAIN_CLIENT_PROTOCOL_VERSION
     assert result["desktop_only"] is True
+    assert result["brain_root"] == str(selection.brain_root)
+    assert result["runtime_session_version"] == 1
+    assert result["state_schema_version"] == 4
     assert "graph.review" in cast(list[str], result["operations"])
+    assert "system.status" in cast(list[str], result["operations"])
+    assert "agent.setup.preview" in cast(list[str], result["operations"])
     assert not selection.brain_root.exists()
+
+
+def test_status_is_non_mutating_for_empty_state_and_reports_initialized_state(
+    tmp_path: Path,
+) -> None:
+    selection = _selection(tmp_path)
+
+    empty = cast(dict[str, object], _call(selection, "system.status")["result"])
+
+    assert empty == {
+        "brain_root": str(selection.brain_root),
+        "initialized": False,
+        "runtime_session_version": 1,
+        "state_schema_version": 4,
+        "status": "ok",
+    }
+    assert not selection.brain_root.exists()
+
+    assert _call(selection, "brain.initialize")["ok"] is True
+    initialized = cast(dict[str, object], _call(selection, "system.status")["result"])
+    assert initialized["initialized"] is True
+    assert initialized["state_schema_version"] == 4
+
+
+def test_plugin_agent_setup_uses_known_runtime_and_never_initializes_brain(
+    tmp_path: Path,
+) -> None:
+    selection = _selection(tmp_path)
+    project = tmp_path / "project"
+    project.mkdir()
+    runtime = tmp_path / "runtime/open-brain"
+    runtime.parent.mkdir()
+    runtime.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+    runtime.chmod(0o700)
+    arguments: dict[str, object] = {
+        "action": "configure",
+        "allow_capture": True,
+        "allow_search": False,
+        "client": "claude-code",
+        "project_dir": str(project),
+        "scope": "project",
+    }
+
+    preview_response = _call(
+        selection,
+        "agent.setup.preview",
+        arguments,
+        base_executable=runtime,
+        environment={"HOME": str(tmp_path)},
+    )
+    preview = cast(dict[str, object], preview_response["result"])
+    applied = _call(
+        selection,
+        "agent.setup.apply",
+        {**arguments, "preview_id": preview["preview_id"]},
+        base_executable=runtime,
+        environment={"HOME": str(tmp_path)},
+    )
+
+    assert cast(dict[str, object], applied["result"])["status"] == "configured"
+    entry = json.loads((project / ".mcp.json").read_text(encoding="utf-8"))["mcpServers"][
+        "open-brain"
+    ]
+    assert entry["command"] == str(runtime)
+    assert entry["args"][-1] == "--allow-capture"
+    assert not selection.brain_root.exists()
+
+    denied = _call(
+        selection,
+        "agent.setup.preview",
+        {**arguments, "allow_capture": False},
+        base_executable=runtime,
+        environment={"HOME": str(tmp_path)},
+    )
+    assert cast(dict[str, object], denied["error"])["code"] == "invalid_arguments"
 
 
 def test_bridge_rejects_unknown_operations_without_echoing_input(tmp_path: Path) -> None:
@@ -202,6 +291,43 @@ def test_concurrent_local_clients_preserve_live_consent_and_reserved_state(
             assert prepared.request_id == "request_00000000-0000-4000-8000-000000000901"
             assert first.tasks.managed_inference.release(prepared.request_id) == prepared
             assert second.tasks.managed_inference.fail(prepared.request_id).status == "failed"
+
+
+def test_v3_migration_waits_until_an_older_registered_runtime_exits(tmp_path: Path) -> None:
+    selection = _selection(tmp_path)
+    assert _call(selection, "brain.initialize")["ok"] is True
+    database = selection.brain_root / ".open-brain/state/phase1.sqlite3"
+    with sqlite3.connect(database) as connection:
+        connection.execute("DELETE FROM schema_migrations WHERE version = 4")
+        connection.execute("DROP TABLE runtime_compatibility")
+        connection.execute("PRAGMA user_version = 3")
+    with open_local_brain(selection, filesystem_type_probe=_filesystem) as migrated:
+        migrated.tasks.capture.accept(
+            TextPayload("Synthetic compatibility record"),
+            delivery_id="desktop.compatibility.capture",
+        )
+    with sqlite3.connect(database) as connection:
+        connection.execute("DELETE FROM schema_migrations WHERE version = 4")
+        connection.execute("DROP TABLE runtime_compatibility")
+        connection.execute("PRAGMA user_version = 3")
+
+    profile = open_existing_single_user_local(selection.brain_root)
+    with hold_local_runtime_session(
+        profile.root,
+        profile.root_identity,
+        legacy_state_exists=True,
+        recover_abandoned_sessions=lambda: None,
+    ):
+        with (
+            pytest.raises(LocalRuntimeCompatibilityError, match="exclusive runtime"),
+            open_local_brain(selection, filesystem_type_probe=_filesystem),
+        ):
+            pass
+        assert sqlite3.connect(database).execute("PRAGMA user_version").fetchone() == (3,)
+
+    with open_local_brain(selection, filesystem_type_probe=_filesystem) as reopened:
+        assert reopened.tasks.retrieval.search("compatibility")[0].title
+    assert sqlite3.connect(database).execute("PRAGMA user_version").fetchone() == (4,)
 
 
 def test_bridge_rejects_wrong_or_missing_protocol_versions(tmp_path: Path) -> None:

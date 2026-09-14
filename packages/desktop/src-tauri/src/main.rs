@@ -33,5 +33,16 @@ fn main() {
         }
         return;
     }
-    open_brain_desktop_lib::run();
+    let arguments: Vec<String> = std::env::args().skip(1).collect();
+    let data_dir = match arguments.as_slice() {
+        [] => None,
+        [flag, path] if flag == "--data-dir" && std::path::Path::new(path).is_absolute() => {
+            Some(std::path::PathBuf::from(path))
+        }
+        _ => {
+            eprintln!("Usage: open-brain-desktop [--data-dir ABSOLUTE_BRAIN_PATH]");
+            std::process::exit(2);
+        }
+    };
+    open_brain_desktop_lib::run_with_data_dir(data_dir);
 }

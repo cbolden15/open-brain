@@ -15,11 +15,11 @@
     },
     "windows": [
       {
-        "title": "Open Brain Desktop D0",
-        "width": 760,
-        "height": 680,
-        "minWidth": 520,
-        "minHeight": 520,
+        "title": "Open Brain",
+        "width": 1080,
+        "height": 760,
+        "minWidth": 640,
+        "minHeight": 540,
         "resizable": true
       }
     ]
