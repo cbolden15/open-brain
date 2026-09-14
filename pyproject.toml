@@ -6,7 +6,7 @@ dev = [
   "open-brain==0.1.0",
   "open-brain-engine==0.1.0",
   "pytest>=9.1.1,<10",
-  "ruff>=0.16.6,<1",
+  "ruff>=0.16.7,<1",
 ]
 native-build = [
   "open-brain==0.1.0",
