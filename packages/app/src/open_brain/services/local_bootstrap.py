@@ -21,6 +21,7 @@ from open_brain.local_data import (
     prepare_local_root,
 )
 from open_brain.profile import compile_single_user_local
+from open_brain.services.local_runtime_session import hold_local_runtime_session
 
 _STATE_DATABASE = ".open-brain/state/phase1.sqlite3"
 
@@ -78,15 +79,25 @@ def open_local_brain(
         def validate_direct_write() -> None:
             prepared.revalidate()
 
-        tasks = open_local_engine(profile, validate_before_write=validate_direct_write)
+        tasks = open_local_engine(
+            profile,
+            validate_before_write=validate_direct_write,
+            recover_abandoned_sessions=False,
+        )
         prepared.revalidate()
         _require_current_local_state(prepared, profile)
-        yield LocalBrainSession(
-            initialized_before=initialized_before,
-            prepared=prepared,
-            profile=profile,
-            tasks=tasks,
-        )
+        with hold_local_runtime_session(
+            profile.root,
+            profile.root_identity,
+            legacy_state_exists=initialized_before,
+            recover_abandoned_sessions=tasks.managed_inference.recover_abandoned_sessions,
+        ):
+            yield LocalBrainSession(
+                initialized_before=initialized_before,
+                prepared=prepared,
+                profile=profile,
+                tasks=tasks,
+            )
         prepared.revalidate()
 
 

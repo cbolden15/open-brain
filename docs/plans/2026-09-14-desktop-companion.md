@@ -1,14 +1,15 @@
 # Desktop companion and source capture
 
-Status: implementation proposal; dedicated desktop companion selected by the owner.
+Status: D0 complete locally on macOS arm64; D1 through D4 remain proposed.
 
 Date: 2026-09-14
 
 Grounded against commit: `33df3d79268c47525e2aefd597ecbd66ea831726`.
 
-This plan proposes new behavior. It does not amend the current
-[product contract](../product-family.md) or authorize enabling background collection on a user's
-computer. Milestone D0 records the precise contract changes before implementation introduces them.
+D0's boundaries are recorded in [ADR 0017](../architecture/decisions/0017-desktop-companion-boundary.md)
+and the updated [product contract](../product-family.md). Its native acceptance is recorded in the
+[D0 evidence report](../audits/2026-09-14-desktop-d0.md). The remaining milestones propose new behavior;
+this plan does not authorize enabling background collection on a user's computer.
 
 ## Outcome
 
@@ -30,7 +31,7 @@ must not appear as working integrations before their end-to-end checks pass.
 | Question | Direction | Status |
 |---|---|---|
 | Product surface | Dedicated desktop companion, independent of Obsidian | Selected by owner |
-| Desktop shell | Tauri 2 with React and TypeScript; native Rust command boundary | Recommended; native integration proof required |
+| Desktop shell | Tauri 2 with React and TypeScript; native Rust command boundary | Selected; D0 native proof passed on macOS arm64 |
 | Core | Reuse the current Python engine and versioned stdio client protocol | Grounded in existing implementation |
 | Background collection | Separate optional local collector with explicit enable, pause, and stop controls | Proposed; no service installation authorized by this document |
 | Platform sequence | Prove macOS arm64 first; preserve Linux x86_64 as a separate release gate | Proposed delivery order, not a Linux support claim |
@@ -171,6 +172,9 @@ locked OS credential store produces Needs sign-in/unlock, not an endless rapid r
 ## Ordered milestones
 
 ### D0: prove the desktop and distribution boundaries
+
+Completed locally on 2026-09-14. See the [native and recovery evidence](../audits/2026-09-14-desktop-d0.md).
+Linux clean-host acceptance and public desktop distribution remain separate release gates.
 
 Write an ADR that scopes the current foreground-only guarantees to the core distribution and defines
 the separate companion/collector permissions. Reconcile the product, configuration, architecture,

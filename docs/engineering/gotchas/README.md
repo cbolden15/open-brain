@@ -1646,3 +1646,37 @@ pinned build tool to a supported version, align the declared Node engine with th
 verify a clean install, type check, production bundle, and test run together.
 
 Discovered: 2026-09-13, Obsidian plugin Vitest 5 dependency review.
+
+### INTEGRATION-036: Engine opening is not evidence that another client crashed
+
+Symptom: Starting a second foreground client revokes consent and invalidates inference belonging
+to a healthy client. A first attempt at a session registry can also lose crash evidence by deleting
+a marker before recovery commits.
+
+Cause: Startup recovery treated every engine opener as the start of a new exclusive lifetime.
+Separating the liveness check from recovery then admitted competing clients during that transition.
+
+Fix: Register participating client lifetimes with lock-held markers, serialize admission and recovery,
+and preserve a durable marker until recovery succeeds. Test delayed admission, partial metadata
+writes, and process death during final shutdown. Older clients that lack this protocol require an
+explicit compatibility gate; a shared product-version string does not make them participants.
+
+Discovered: 2026-09-14, [desktop D0 verification](../../audits/2026-09-14-desktop-d0.md).
+
+### INTEGRATION-037: A native wrapper needs its own startup and process-group proof
+
+Symptom: A compiled desktop window reports a handshake timeout, cannot discover its bundled helper,
+or leaves a descendant alive after the immediate child exits.
+
+Cause: The measured frozen-core startup took 5.457 seconds, exceeding a three-second handshake
+deadline. Side-by-side executables did not match the core's `bin`/`libexec` helper layout. Waiting
+only for the immediate child missed surviving process-group members.
+
+Fix: Give cold startup a separate bounded allowance, preserve the runtime's expected packaged
+layout, and exercise the actual helper. Reap and terminate the whole process group, close child
+admission before app shutdown, and verify the result in the native app. Keep writable test data
+outside the app bundle and canonicalize temporary paths before strict core path validation.
+Use a permanent page ID for the helper fixture's reference; an unresolved title reference can
+produce a valid helper response with zero links and must not pass the integration proof.
+
+Discovered: 2026-09-14, [desktop D0 verification](../../audits/2026-09-14-desktop-d0.md).

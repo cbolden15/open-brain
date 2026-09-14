@@ -31,6 +31,13 @@ after the owner acknowledges the eligible managed-note scope. Claude subscriptio
 with `subscription_isolation_unproven`; Open Brain does not add privileges or broader host access to
 make that transport work.
 
+A dedicated desktop companion is under development in `packages/desktop`. Its current D0 build is
+a synthetic native proof, separate from the Homebrew installation. The source connection wizard,
+agent setup, and optional collector are later milestones in the
+[desktop plan](docs/plans/2026-09-14-desktop-companion.md). See
+[ADR 0017](docs/architecture/decisions/0017-desktop-companion-boundary.md) for the package and
+permission boundaries.
+
 ## Use Open Brain
 
 ```sh
@@ -143,12 +150,14 @@ gain owner mutation authority. Stopping the stdio process closes its capabilitie
 
 ## Develop
 
-Supported contributor hosts are macOS arm64 and Linux x86_64. Install Git, GNU Make, Node.js 22 or
-newer, npm, [uv](https://docs.astral.sh/uv/getting-started/installation/), and
+Supported contributor hosts are macOS arm64 and Linux x86_64. Install Git, GNU Make, Node.js 24,
+npm, stable Rust, [uv](https://docs.astral.sh/uv/getting-started/installation/), and
 [Homebrew](https://brew.sh/). On macOS, install the Xcode Command Line Tools (`xcode-select --install`).
 On Linux, install Homebrew's build prerequisites (a C/C++ toolchain, curl, file, Git, and Make)
 using your distribution's package manager. Put Homebrew on `PATH` using the `brew shellenv`
 command printed by its installer. The workspace uses Python 3.14; uv downloads it if needed.
+The desktop checks also need [Tauri's platform prerequisites](https://v2.tauri.app/start/prerequisites/),
+including WebKitGTK on Linux. CI uses Node.js 24.
 
 From the repository root in a fresh clone:
 
@@ -157,11 +166,17 @@ uv sync --frozen --group dev --group native-build
 make contributor-check
 ```
 
-`make contributor-check` runs `make verify` followed by `make native-integration-smoke`. Expect Ruff's
+`make contributor-check` runs `make verify`, `make native-integration-smoke`, and `make desktop-native`.
+The verification includes the desktop frontend, local control fixture, and Rust bridge tests. Expect Ruff's
 `All checks passed!`, MyPy's `Success: no issues found`, a passing pytest summary (some filesystem
 checks can skip on unsupported hosts), successful wheel/source builds, native smoke JSON, and
 `existing_product: preserved` or `existing_product: absent`. A nonzero exit means the check failed.
 Both CI jobs run this same target. No credentials or private access are required.
+
+The desktop build produces a local native app containing its own runtime pair. On macOS, run
+`make desktop-native-proof` for the packaged synthetic check, then open the app for the separate
+native UI check. See [the desktop contributor guide](packages/desktop/README.md). Compiling the Linux
+AppImage in CI does not replace its clean-host UI and runtime acceptance gate.
 
 The native integration check builds the base and Graphify executables, audits their dependency
 inventories, runs the local product journey, and writes a component digest manifest. It installs a

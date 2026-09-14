@@ -21,6 +21,7 @@ from open_brain_engine.engine import (
     ManagedWorkspaceFailure,
     ManagedWorkspaceReceipt,
     ManagedWorkspaceStatus,
+    StateSchemaUnavailableError,
     canonical_json_bytes,
 )
 from open_brain_engine.storage.locks import LockBusyError
@@ -106,11 +107,13 @@ class PluginBridgeFailure(RuntimeError):
             "credential_store_unavailable",
             "credential_unavailable",
             "database_busy",
+            "incompatible_schema",
             "incompatible_protocol",
             "invalid_arguments",
             "invalid_request",
             "operation_failed",
             "response_too_large",
+            "session_exhausted",
             "setup_required",
             "subscription_unavailable",
             "unknown_operation",
@@ -226,6 +229,8 @@ def serve_plugin_stdio(
                 _write_error(output_stream, request_id, error.code)
             except LockBusyError:
                 _write_error(output_stream, request_id, "database_busy")
+            except StateSchemaUnavailableError:
+                _write_error(output_stream, request_id, "incompatible_schema")
             except ManagedWorkspaceFailure as error:
                 _write_error(output_stream, request_id, error.code)
             except GraphifyFailure as error:
@@ -241,7 +246,7 @@ def serve_plugin_stdio(
             except Exception:
                 _write_error(output_stream, request_id, "operation_failed")
         else:
-            _write_error(output_stream, None, "operation_failed")
+            _write_error(output_stream, None, "session_exhausted")
     return 0
 
 

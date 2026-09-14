@@ -1,7 +1,7 @@
 # Open Brain
 
 **GitHub:** `cbolden15/open-brain`
-**Stack:** Python 3.14, uv workspace packages, SQLite, Markdown, PyInstaller, Homebrew
+**Stack:** Python 3.14, uv workspace packages, SQLite, Markdown, PyInstaller, Homebrew; Tauri/Rust and React/TypeScript for the separate desktop
 
 ## Quick reference
 
@@ -13,19 +13,26 @@
 | Native distribution audit | `make native-audit` |
 | Native integration smoke | `make native-integration-smoke` |
 | Complete contributor check | `make contributor-check` |
+| Desktop native proof (macOS) | `make desktop-native-proof`, then a separate native UI check |
 | Product authority | `docs/product-family.md` |
 | Acceptance | `docs/acceptance/five-minute-install.md` |
 
-No release or tap is published yet.
+Use `docs/install.md` for the core release and tap instructions. Desktop D0 is not a public desktop release.
 
 ## Product boundary
 
-Open Brain is one unprivileged, foreground-only local runtime. It gives one operating-system user
+The Open Brain core is one unprivileged, foreground-only local runtime. It gives one operating-system user
 one automatically selected Brain, direct SQLite-backed capture and search, Markdown import, a
 managed sibling vault, a desktop Obsidian plugin, graph projections, and a full Portable Brain
 export. Open Brain never requires root, operating-system capabilities, namespaces, launchd, systemd,
 containers, a daemon, or another background service. The enabled plugin owns one foreground
 `open-brain plugin` child over inherited stdio and stops it on unload.
+
+The separately packaged Tauri companion in `packages/desktop` follows
+`docs/architecture/decisions/0017-desktop-companion-boundary.md`. D0 is a synthetic native proof;
+existing-Brain onboarding and source capture remain later milestones. The future optional collector
+owns its own scheduling, credential references, control IPC, and service permissions. Do not add
+those dependencies or a listener to the core, and do not restore archived modules.
 
 Secure Node is not an extra, profile, entry point, or dependency of the Open Brain distribution.
 The first Secure Node implementation is quarantined under `archive/open-brain-secure-node` as
@@ -45,6 +52,7 @@ engine. Never migrate between products by copying or reinterpreting live SQLite 
 | `packages/app/src/open_brain/services/plugin_bridge.py` | Bounded `open-brain-client` protocol version 1 server and plugin-session lifecycle |
 | `packages/app/src/open_brain/services/managed_providers.py` | Consent-gated, bounded OpenAI, Anthropic, and Gemini direct adapters |
 | `packages/obsidian-plugin` | Desktop-only Obsidian source, bounded stdio client, and compiled plugin checks |
+| `packages/desktop` | Separate Tauri/React build, native stdio bridge, and synthetic D0 proof |
 | `packages/connectors` | Optional connector distribution; not a default dependency |
 | `archive/open-brain-secure-node` | Historical Secure Node implementation; excluded from builds and tests |
 | `archive/legacy` | Historical predecessor; excluded from the workspace, builds, imports, and tests |
@@ -91,8 +99,8 @@ make native-integration-smoke
 make contributor-check
 ```
 
-`make contributor-check` runs `make verify` followed by `make native-integration-smoke`. It covers
-the real plugin build/test suite and platform-native Homebrew command-line integration. GUI timing
+`make contributor-check` runs `make verify`, `make native-integration-smoke`, and `make desktop-native`.
+It covers the plugin and desktop test suites, native desktop compilation, and Homebrew integration. GUI timing
 and real-provider evidence remain separate exact-candidate checks. Private release audits remain
 separate owner checks.
 

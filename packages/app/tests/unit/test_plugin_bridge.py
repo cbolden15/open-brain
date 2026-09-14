@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import sqlite3
 import uuid
 from io import BytesIO
 from pathlib import Path
@@ -13,6 +14,7 @@ from open_brain_engine.engine import (
     ManagedProvider,
     ManagedWorkspaceFailure,
     TextPayload,
+    canonical_json_bytes,
 )
 
 import open_brain.services.plugin_bridge as plugin_bridge_module
@@ -156,6 +158,52 @@ def test_stdio_session_serves_multiple_framed_requests_in_one_engine_lifecycle(
     assert cast(dict[str, object], responses[1]["result"])["status"] == "unconfigured"
 
 
+def test_concurrent_local_clients_preserve_live_consent_and_reserved_state(
+    tmp_path: Path,
+) -> None:
+    selection = _selection(tmp_path)
+    assert _call(selection, "brain.initialize")["ok"] is True
+    with open_local_brain(selection, filesystem_type_probe=_filesystem) as first:
+        space_id = first.tasks.inbox.create_space(
+            "Concurrent", delivery_id="desktop.concurrent.space"
+        ).space_id
+        note_ids: list[str] = []
+        for index, text in enumerate(("First concurrent note", "Second concurrent note")):
+            first.tasks.capture.accept(
+                TextPayload(text),
+                delivery_id=f"desktop.concurrent.capture.{index}",
+                action=CaptureAction.CANONICAL_NOTE,
+                space_id=space_id,
+            )
+            result = first.tasks.retrieval.search(text, record_type="canonical")[0]
+            note_ids.append(result.result_id)
+        workspace = tmp_path / "concurrent-workspace"
+        workspace.mkdir(mode=0o700)
+        workspace_id = first.tasks.managed_workspace.setup(
+            str(workspace), operation_id="desktop.concurrent.setup"
+        ).workspace_id
+        first.tasks.managed_policy.grant_consent(
+            workspace_id,
+            ManagedProvider.OPENAI_API,
+            ManagedAccessMode.API_KEY,
+            operation_id="desktop.concurrent.consent",
+        )
+        with open_local_brain(selection, filesystem_type_probe=_filesystem) as second:
+            prepared = second.tasks.managed_inference.prepare(
+                workspace_id,
+                ManagedProvider.OPENAI_API,
+                ManagedAccessMode.API_KEY,
+                "openai_api:synthetic-v1",
+                tuple(note_ids),
+                request_id="request_00000000-0000-4000-8000-000000000901",
+                max_output_bytes=4096,
+                timeout_seconds=30,
+            )
+            assert prepared.request_id == "request_00000000-0000-4000-8000-000000000901"
+            assert first.tasks.managed_inference.release(prepared.request_id) == prepared
+            assert second.tasks.managed_inference.fail(prepared.request_id).status == "failed"
+
+
 def test_bridge_rejects_wrong_or_missing_protocol_versions(tmp_path: Path) -> None:
     selection = _selection(tmp_path)
     request_id = f"plugin_{uuid.uuid4()}"
@@ -188,6 +236,133 @@ def test_bridge_rejects_wrong_or_missing_protocol_versions(tmp_path: Path) -> No
             "protocol_version": OPEN_BRAIN_CLIENT_PROTOCOL_VERSION,
             "request_id": None,
         }
+
+
+def test_bridge_rejects_newer_schema_without_mutating_it(tmp_path: Path) -> None:
+    selection = _selection(tmp_path)
+    assert _call(selection, "brain.initialize")["ok"] is True
+    database = selection.brain_root / ".open-brain/state/phase1.sqlite3"
+    with sqlite3.connect(database) as connection:
+        connection.execute("PRAGMA user_version = 999")
+    before = database.read_bytes()
+
+    response = _call(selection, "capture.create", {"text": "synthetic rejection"})
+
+    assert response["ok"] is False
+    assert cast(dict[str, object], response["error"])["code"] == "incompatible_schema"
+    assert database.read_bytes() == before
+
+
+def test_bridge_reports_session_exhaustion(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    selection = _selection(tmp_path)
+    monkeypatch.setattr(plugin_bridge_module, "MAX_PLUGIN_SESSION_REQUESTS", 1)
+    requests = [
+        {
+            "arguments": {},
+            "operation": "system.handshake",
+            "protocol": OPEN_BRAIN_CLIENT_PROTOCOL,
+            "protocol_version": OPEN_BRAIN_CLIENT_PROTOCOL_VERSION,
+            "request_id": f"plugin_{uuid.uuid4()}",
+        }
+        for _index in range(2)
+    ]
+    output = BytesIO()
+
+    assert (
+        serve_plugin_stdio(
+            selection,
+            input_stream=BytesIO(
+                b"".join(
+                    json.dumps(request).encode("utf-8") + b"\n" for request in requests
+                )
+            ),
+            output_stream=output,
+            filesystem_type_probe=_filesystem,
+        )
+        == 0
+    )
+
+    responses = [json.loads(line) for line in output.getvalue().splitlines()]
+    assert responses[0]["ok"] is True
+    assert responses[1] == {
+        "error": {"code": "session_exhausted"},
+        "ok": False,
+        "protocol": OPEN_BRAIN_CLIENT_PROTOCOL,
+        "protocol_version": OPEN_BRAIN_CLIENT_PROTOCOL_VERSION,
+        "request_id": None,
+    }
+
+
+def test_stale_client_marker_runs_crash_recovery_and_revokes_consent(tmp_path: Path) -> None:
+    selection = _selection(tmp_path)
+    assert _call(selection, "brain.initialize")["ok"] is True
+    workspace = tmp_path / "crash-workspace"
+    workspace.mkdir(mode=0o700)
+    request_id = "request_00000000-0000-4000-8000-000000000902"
+    with open_local_brain(selection, filesystem_type_probe=_filesystem) as session:
+        space_id = session.tasks.inbox.create_space(
+            "Crash recovery", delivery_id="desktop.crash.space"
+        ).space_id
+        session.tasks.capture.accept(
+            TextPayload("Synthetic crash recovery note"),
+            delivery_id="desktop.crash.capture",
+            action=CaptureAction.CANONICAL_NOTE,
+            space_id=space_id,
+        )
+        note_id = session.tasks.retrieval.search(
+            "Synthetic crash recovery note", record_type="canonical"
+        )[0].result_id
+        workspace_id = session.tasks.managed_workspace.setup(
+            str(workspace), operation_id="desktop.crash.setup"
+        ).workspace_id
+        session.tasks.managed_policy.grant_consent(
+            workspace_id,
+            ManagedProvider.OPENAI_API,
+            ManagedAccessMode.API_KEY,
+            operation_id="desktop.crash.consent",
+        )
+        session.tasks.managed_inference.prepare(
+            workspace_id,
+            ManagedProvider.OPENAI_API,
+            ManagedAccessMode.API_KEY,
+            "openai_api:synthetic-v1",
+            (note_id,),
+            request_id=request_id,
+            max_output_bytes=4096,
+            timeout_seconds=30,
+        )
+        session_id = "b" * 32
+        marker = (
+            selection.brain_root
+            / f".open-brain/runtime-sessions/session-{session_id}.lock"
+        )
+        marker.write_bytes(
+            canonical_json_bytes({"pid": 12345, "session_id": session_id, "version": 1})
+        )
+        marker.chmod(0o600)
+
+    with (
+        open_local_brain(selection, filesystem_type_probe=_filesystem) as recovered,
+        pytest.raises(ManagedWorkspaceFailure, match="active_consent_required"),
+    ):
+        recovered.tasks.managed_inference.prepare(
+            workspace_id,
+            ManagedProvider.OPENAI_API,
+            ManagedAccessMode.API_KEY,
+            "openai_api:synthetic-v1",
+            (note_id,),
+            request_id="request_00000000-0000-4000-8000-000000000903",
+            max_output_bytes=4096,
+            timeout_seconds=30,
+        )
+    database = selection.brain_root / ".open-brain/state/phase1.sqlite3"
+    with sqlite3.connect(database) as connection:
+        assert connection.execute(
+            "SELECT status FROM managed_inference_requests WHERE request_id = ?", (request_id,)
+        ).fetchone() == ("cancelled",)
+        assert connection.execute(
+            "SELECT active FROM managed_consents WHERE workspace_id = ?", (workspace_id,)
+        ).fetchone() == (0,)
 
 
 def test_plugin_capture_search_workspace_and_reconciliation_flow(tmp_path: Path) -> None:

@@ -1,0 +1,91 @@
+{
+  "id": "2026-09-14-desktop-companion-notes",
+  "title": "Implementation notes — Desktop companion and source capture",
+  "subtitle": "D0 complete locally on macOS arm64 · 2026-09-14",
+  "introTitle": "How to use",
+  "intro": "<p>Each item is a decision, deviation, or tradeoff made during implementation. <strong>Acknowledge</strong> if fine. <strong>Discuss</strong> to write what should change. <strong>Revert</strong> to flag for undo.</p>",
+  "actions": [
+    "acknowledge",
+    "discuss",
+    "revert"
+  ],
+  "groups": [
+    {
+      "id": "d0",
+      "label": "D0 — Native desktop and runtime boundary",
+      "badge": "D0"
+    }
+  ],
+  "items": [
+    {
+      "id": "N1",
+      "group": "d0",
+      "title": "Serialize client admission and crash recovery",
+      "where": "packages/app/src/open_brain/services/local_runtime_session.py",
+      "default": "acknowledge",
+      "body": {
+        "Spec said": "Opening a second client must preserve live authority while actual crash recovery still revokes abandoned consent.",
+        "What I did": "Added private lock-held session markers and bounded registry locking. Admission waits for recovery, and failed admission or final recovery preserves a durable marker.",
+        "Why": "The existing bootstrap revoked active consent on every engine open. A simple live-client count also allowed admission during unfinished recovery and could lose crash evidence.",
+        "Risk": "Older installed clients do not participate in this registry. Matching the current version string alone does not establish safe mixed-release use.",
+        "Followup": "D1 must enforce and test a runtime/schema compatibility floor before opening the owner's Brain with multiple clients."
+      }
+    },
+    {
+      "id": "N2",
+      "group": "d0",
+      "title": "Bundle an exact core and Graphify pair",
+      "where": "packages/desktop/src-tauri/src/proof.rs",
+      "default": "acknowledge",
+      "body": {
+        "Spec said": "Compare the installed Homebrew runtime with a matched desktop bundle and prove native launch, helper integration, protocol checks, and cleanup.",
+        "What I did": "Selected a separately built Tauri bundle with digest-checked runtime/bin and runtime/libexec resources. The synthetic Brain lives outside the app. The native host owns whole process groups and closes spawn admission during shutdown.",
+        "Why": "An exact pair avoids depending on whichever CLI is installed. The core requires the helper's libexec layout. Measured packaged startup took 5.457 seconds, so its initial handshake budget is 15 seconds; later requests retain five-second limits.",
+        "Risk": "The longer initial deadline bounds cold startup but does not remove platform-specific startup variability. Public distribution is not established by a local ad hoc signed build.",
+        "Followup": "Retain native cold-start and quit-during-operation evidence as desktop behavior grows. Complete public signing and installation gates separately."
+      }
+    },
+    {
+      "id": "N3",
+      "group": "d0",
+      "title": "Prove collector control primitives without installing a service",
+      "where": "packages/desktop/tests/test_control_boundary.py",
+      "default": "acknowledge",
+      "body": {
+        "Spec said": "Choose and prove a private local control transport with single-instance ownership.",
+        "What I did": "Added an optional desktop test for Unix-domain request/reply, owner-only filesystem permissions, and exclusive instance locking.",
+        "Why": "This verifies the selected primitives without adding a listener or service dependency to the core. The existing core socket prohibition remains intact.",
+        "Risk": "The fixture is not a collector protocol or a hostile-same-user isolation boundary.",
+        "Followup": "D3 owns collector messages, durable pause, startup registration, scheduling, and service lifecycle."
+      }
+    },
+    {
+      "id": "N4",
+      "group": "d0",
+      "title": "Keep Linux and public release acceptance explicit",
+      "where": "D0 distribution boundary",
+      "default": "acknowledge",
+      "body": {
+        "Spec said": "Require native macOS arm64 evidence and define a Linux x86_64 packaging path without treating documentation as an install proof.",
+        "What I did": "Added the Linux AppImage build path and CI prerequisites. Documented clean-host Linux acceptance and public macOS signing/notarization as separate gates.",
+        "Why": "This workstation can establish local macOS behavior, not clean Linux behavior or a public desktop release.",
+        "Risk": "The new CI path has not been executed remotely. System-library and clean-host compatibility remain unverified.",
+        "Followup": "Run the Linux native/helper/UI checks on the intended baseline and complete public macOS installation evidence before advertising those release claims."
+      }
+    },
+    {
+      "id": "N5",
+      "group": "d0",
+      "title": "Implementation complete: D0 only",
+      "where": "docs/audits/2026-09-14-desktop-d0.md",
+      "default": "acknowledge",
+      "body": {
+        "Spec said": "Stop at the verified native/runtime boundary before implementing local onboarding or collection.",
+        "What I did": "Completed D0 with passing full verification, native audit, Homebrew preservation smoke, packaged proof, real native UI runs, and quit-during-operation process cleanup.",
+        "Why": "The desktop and shared runtime now have evidence for the next milestone. Synthetic capture/search is not presented as source onboarding.",
+        "Risk": "Five platform-specific filesystem tests skip on this Mac. Linux native acceptance, public desktop release, and mixed-old-client compatibility remain open gates.",
+        "Followup": "D1 is the next implementation milestone: usable local capture/search and Claude Code/Codex setup. D2 through D4 contain source connections and collection."
+      }
+    }
+  ]
+}

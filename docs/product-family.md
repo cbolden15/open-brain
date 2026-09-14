@@ -2,24 +2,30 @@
 
 Status: current product authority
 
-Version: v1.0
+Version: v1.1
 
-Date: 2026-09-13
+Date: 2026-09-14
 
 ## Decision
 
-Open Brain is the only active product in this repository. It is an unprivileged local application
-that runs a requested command in the foreground and exits. One operating-system user gets one local
-Brain backed by SQLite and ordinary files.
+The Open Brain core is an unprivileged local application that runs a requested command in the
+foreground and exits. One operating-system user gets one local Brain backed by SQLite and ordinary
+files. A dedicated desktop companion is developed separately under
+[ADR 0017](architecture/decisions/0017-desktop-companion-boundary.md).
 
-Open Brain never requires root, operating-system capabilities, namespaces, launchd, systemd,
+The core never requires root, operating-system capabilities, namespaces, launchd, systemd,
 containers, a daemon, a supervisor, or another background service. It has no HTTP listener and no
 service lifecycle. Its MCP transport is inherited stdio and lives only for the invoking process.
 
-The optional desktop interface is a plugin installed into Open Brain's dedicated Obsidian vault.
+The shipping optional desktop interface is a plugin installed into Open Brain's dedicated Obsidian vault.
 While enabled, the plugin owns one `open-brain plugin` child over inherited stdio and stops that
 process on unload. The child is part of the foreground desktop session. It is not a service. The
 Obsidian application may remain open after an Open Brain operation finishes.
+
+The separate Tauri companion currently provides a synthetic native proof. It owns its own matched
+runtime bundle and is not installed by the core formula. Source onboarding and the optional
+independent collector remain later milestones. Their dependencies and permissions belong outside
+the core package. D0 does not connect accounts or register a background service.
 
 The first Secure Node implementation and the predecessor package are retained as source history in
 `archive/open-brain-secure-node` and `archive/legacy`. Neither archive is part of the uv workspace,
@@ -113,7 +119,9 @@ not portable contracts.
 | `open-brain` | Local bootstrap, foreground CLI, MCP/plugin stdio, provider adapters, plugin assets, local operations | Shipping application |
 | `open-brain-graphify` | Pinned, patched structural Markdown helper with its own dependency closure and licenses | Shipping private helper resource |
 | `packages/obsidian-plugin` | Desktop-only Obsidian client compiled into the base release archive | Shipping desktop interface |
+| `packages/desktop` | Separately versioned Tauri host, packaged interface, and matched runtime pair | D0 native proof; not a public desktop release |
 | `open-brain-connectors` | Optional connector SDK and worker runtime | Separate optional distribution |
+| `packages/collector` (planned) | Source scheduling and optional per-user collection lifecycle | Not implemented or installed |
 | `archive/open-brain-secure-node` | Historical appliance, protocol, custody, service, and lifecycle implementation | Never built or installed |
 | `archive/legacy` | Historical predecessor implementation | Never built or installed |
 
@@ -127,6 +135,10 @@ reject server, cryptography, container, and service dependencies. Passing a sour
 enough; the built executable's collected module inventory is the distribution evidence.
 
 ## Acceptance
+
+The `OB-*` requirements below apply to the core distribution and its shipping Obsidian client.
+Desktop and collector acceptance is recorded separately by milestone; the existing results do not
+certify a desktop release or a source integration.
 
 | ID | Requirement |
 |---|---|

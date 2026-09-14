@@ -46,6 +46,7 @@ _REQUIRED_MODULES: Final = frozenset(
         "open_brain.services.graph_projection_store",
         "open_brain.services.graphify_projection",
         "open_brain.services.local_operations",
+        "open_brain.services.local_runtime_session",
         "open_brain.services.obsidian_plugin",
         "open_brain.services.plugin_bridge",
         "open_brain.services.provider_credentials",

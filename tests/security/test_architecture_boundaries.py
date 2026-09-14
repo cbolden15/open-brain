@@ -54,6 +54,7 @@ def test_application_package_contains_only_foreground_local_surfaces() -> None:
         "services/local_mcp.py",
         "services/local_native_entrypoint.py",
         "services/local_operations.py",
+        "services/local_runtime_session.py",
         "services/managed_providers.py",
         "services/mcp_protocol.py",
         "services/obsidian_plugin.py",
