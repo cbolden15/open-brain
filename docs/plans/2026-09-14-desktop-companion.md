@@ -273,22 +273,21 @@ is a product recommendation based on breadth of use, memory value, and integrati
 not a measured majority of Open Brain users; validate the order with pilot-user requests before
 committing the whole milestone.
 
-Two adoption signals support including knowledge bases and Microsoft workspaces: Notion reported
-[100 million users in August 2024](https://www.notion.com/blog/100-million-of-you), while Microsoft's
-[Teams overview](https://learn.microsoft.com/en-us/MicrosoftTeams/platform/overview) reports more than
-320 million monthly active users. These are different measures, not a market-share comparison or
-evidence that those users want an Open Brain connector.
+One adoption signal supports including knowledge bases: Notion reported
+[100 million users in August 2024](https://www.notion.com/blog/100-million-of-you). That is evidence
+of platform reach, not evidence that those users want an Open Brain connector.
 
-Deliver these five groups in the proposed order. Each file format, browser, and provider is a
+Deliver these four groups in the proposed order. Each file format, browser, and provider is a
 separate acceptance unit; a group label does not mean one adapter implements everything in the row.
+D5.4 (Teams conversations, OneDrive, and SharePoint) and Teams meeting transcripts were removed at
+the owner's request. Keep the remaining stage IDs stable; D5.5 covers Zoom and Google Meet only.
 
 | Stage | Additional sources | First scope and user value | Specific release gate |
 |---|---|---|---|
 | D5.1 | Local documents and saved web pages | Selected text PDFs and DOCX files alongside existing Markdown/text import; explicit Save to Brain for the current page or selected passage. Makes reports and research searchable without requiring a particular SaaS account. | Preview extracted text; preserve file/page provenance and revision identity; bound parser resources; report unsupported scans/encrypted files; prove browser-to-local delivery. Start with explicit capture, not browsing-history collection or OCR. |
 | D5.2 | Google Calendar and Outlook Calendar | Selected calendars and date ranges; event descriptions, attendees, meeting links, and recurrence. Supplies who/when context alongside saved notes. | Read-only scopes, account identity, time zones, recurring-event exceptions, cancellations, and invalidated sync checkpoints. Calendar access does not enable email or meeting-transcript capture. |
 | D5.3 | Notion and Confluence Cloud | Selected Notion pages/data sources and Confluence spaces/pages, with comments and original links. Recalls project notes, specifications, and team decisions. | Nested content traversal, permission inheritance/loss, revisions, pagination, and a proven public authentication architecture. Confluence Data Center remains a separate adapter. |
-| D5.4 | Microsoft Teams, OneDrive, and SharePoint | Selected Teams channels/threads and selected document folders/libraries. Adds Microsoft workplace conversations and files; Outlook email already belongs to D4. | Separate content grants, tenant consent, personal/work account support matrix, file extraction, change tracking, and access-loss handling. Prove provider identity when a Teams file is also exposed through SharePoint/OneDrive. |
-| D5.5 | Zoom, Google Meet, and Teams meeting transcripts | Existing transcripts from selected accessible meetings, with speaker/timestamp attribution when provided. Retrieves what was discussed and connects it to its meeting. | Eligible account/license and permissions, transcript availability/retention, source links, and artifact identity across meeting and Drive/SharePoint adapters. No meeting bot, recording, or live audio capture in this scope. |
+| D5.5 | Zoom and Google Meet transcripts | Existing transcripts from selected accessible meetings, with speaker/timestamp attribution when provided. Retrieves what was discussed and connects it to its meeting. | Eligible account/license and permissions, transcript availability/retention, source links, and artifact identity when a transcript also arrives through document import. No meeting bot, recording, or live audio capture in this scope. |
 
 D5.1 is the recommended first slice: selected local documents, followed by explicit web clipping.
 This is a reach-first choice, not a measured delivery estimate. Adding it does not make existing
@@ -300,16 +299,15 @@ clip flow, not credential or cookie extraction.
 Feasibility evidence and unresolved gates:
 
 - Calendar synchronization has a documented [Google incremental-sync mechanism](https://developers.google.com/workspace/calendar/api/guides/sync).
-  Microsoft exposes calendar, file, and collaboration resources through [Graph](https://learn.microsoft.com/en-us/graph/overview).
-  A shared API does not establish identical scopes or consent for each resource.
+  Outlook Calendar is exposed through [Microsoft Graph](https://learn.microsoft.com/en-us/graph/overview).
+  Calendar scopes and consent must be verified separately from the D4 email integration.
 - Notion offers page selection during authorization, but its documented [public OAuth exchange](https://developers.notion.com/guides/get-started/authorization)
   requires a client secret. Public desktop sign-in is pending an approved confidential-client design;
   never embed that secret in the app. A manual token or export can be a clearly labeled interim path,
   not evidence of one-click sign-in. Confluence's [REST API](https://developer.atlassian.com/cloud/confluence/rest/v2/intro/)
   establishes content access; its chosen authentication flow still needs a native-product proof.
-- Meeting artifact APIs exist for [Zoom](https://developers.zoom.us/docs/api/meetings/),
-  [Google Meet](https://developers.google.com/workspace/meet/api/guides/artifacts), and
-  [Teams](https://learn.microsoft.com/en-us/microsoftteams/platform/graph-api/meeting-transcripts/overview-transcripts).
+- Meeting artifact APIs exist for [Zoom](https://developers.zoom.us/docs/api/meetings/) and
+  [Google Meet](https://developers.google.com/workspace/meet/api/guides/artifacts).
   They do not guarantee a transcript exists or that the connected user can fetch it. Meet API transcript
   entries have a 30-day retention window; its saved Drive artifacts have separate retention behavior.
 

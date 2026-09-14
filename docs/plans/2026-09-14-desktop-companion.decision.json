@@ -1,7 +1,7 @@
 {
   "id": "2026-09-14-desktop-companion-notes",
   "title": "Implementation notes \u2014 Desktop companion and source capture",
-  "subtitle": "2026-09-14 23:38 UTC: D1 complete locally; D2 through D5 proposed; desktop optional",
+  "subtitle": "2026-09-14 23:42 UTC: D1 complete locally; D2 through D5 proposed; D5.4 removed",
   "introTitle": "How to use",
   "intro": "<p>Each item is a decision, deviation, or tradeoff made during implementation. <strong>Acknowledge</strong> if fine. <strong>Discuss</strong> to write what should change. <strong>Revert</strong> to flag for undo.</p>",
   "actions": [
@@ -174,7 +174,7 @@
       "default": "acknowledge",
       "body": {
         "Spec said": "Suggest additional sources for broad user demand and put them in D5.",
-        "What I did": "Added five independently delivered groups: local documents/web clips, calendars, Notion/Confluence, Microsoft workplace content, and existing meeting transcripts. Documented first scopes, adoption evidence, and unresolved integration gates.",
+        "What I did": "Proposed four independently delivered groups: local documents/web clips, calendars, Notion/Confluence, and existing Zoom/Google Meet transcripts. Removed D5.4 Teams conversations, OneDrive, SharePoint, and Teams meeting transcripts at the owner's request. Kept remaining stage IDs stable.",
         "Why": "These cover documents, research, schedules, and workplace knowledge beyond the original developer-heavy source list. The ranking is a product recommendation, not a measured majority of Open Brain users.",
         "Risk": "Notion public OAuth requires a confidential-client design; provider consent and transcript availability need real proofs. Each provider and content type retains its own acceptance gate.",
         "Followup": "Start D5 with selected local documents and explicit web clipping after the preceding milestones. This update changes the proposal only; no connector implementation or account connection was started."
