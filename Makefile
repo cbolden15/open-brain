@@ -17,6 +17,7 @@ build: plugin-build
 	uv build --no-sources --project packages/engine --out-dir dist
 	uv build --no-sources --project packages/app --out-dir dist
 	uv build --no-sources --project packages/connectors --out-dir dist
+	uv build --no-sources --project packages/collector --out-dir dist
 
 test:
 	uv run --frozen pytest -q

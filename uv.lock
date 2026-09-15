@@ -9,6 +9,7 @@ resolution-markers = [
 [manifest]
 members = [
     "open-brain",
+    "open-brain-collector",
     "open-brain-connectors",
     "open-brain-engine",
 ]
@@ -311,6 +312,21 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [{ name = "open-brain-engine", editable = "packages/engine" }]
+
+[[package]]
+name = "open-brain-collector"
+version = "0.1.0"
+source = { editable = "packages/collector" }
+dependencies = [
+    { name = "open-brain-connectors" },
+    { name = "open-brain-engine" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "open-brain-connectors", editable = "packages/connectors" },
+    { name = "open-brain-engine", editable = "packages/engine" },
+]
 
 [[package]]
 name = "open-brain-connectors"

@@ -32,8 +32,10 @@ The separately packaged Tauri companion in `packages/desktop` follows
 `docs/architecture/decisions/0017-desktop-companion-boundary.md`. D1 provides local capture/search
 and shared CLI/desktop agent setup against the same Brain. Source capture remains a later milestone.
 The future optional collector
-owns its own scheduling, credential references, control IPC, and service permissions. Do not add
-those dependencies or a listener to the core, and do not restore archived modules.
+owns its own scheduling, credential references, control IPC, and service permissions. Installing it
+does not install a desktop app, collector, scheduler, network listener, or service manager
+dependency in the core. Do not add those dependencies or a listener to the core, and do not restore
+archived modules.
 
 Secure Node is not an extra, profile, entry point, or dependency of the Open Brain distribution.
 The first Secure Node implementation is quarantined under `archive/open-brain-secure-node` as
@@ -55,6 +57,7 @@ engine. Never migrate between products by copying or reinterpreting live SQLite 
 | `packages/obsidian-plugin` | Desktop-only Obsidian source, bounded stdio client, and compiled plugin checks |
 | `packages/desktop` | Optional Tauri/React UI, native stdio bridge, local capture/search, and agent setup |
 | `packages/connectors` | Optional connector distribution; not a default dependency |
+| `packages/collector` | Optional collector distribution; not a default or native base dependency |
 | `archive/open-brain-secure-node` | Historical Secure Node implementation; excluded from builds and tests |
 | `archive/legacy` | Historical predecessor; excluded from the workspace, builds, imports, and tests |
 | `tools/open_brain_dev/base_native.py` | Paired native build, module audit, component manifest, and formula renderer |

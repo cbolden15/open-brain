@@ -93,6 +93,90 @@ describe("desktop user operations", () => {
     expect(screen.getByText("Unverified source")).toBeTruthy();
   });
 
+  it("uses collector status and control operations from the desktop", async () => {
+    const enabled = {
+      status: "ready",
+      brain_root: "/synthetic/brain",
+      sources: [{
+        source_id: "github.fixture.closed",
+        status: "enabled",
+        outcome: "completed",
+        interval_seconds: 900,
+        next_run_epoch: 200,
+        last_run_epoch: 100,
+        last_success_epoch: 100,
+        pause_ack_epoch: null,
+        captured_count: 1,
+        failed_count: 0,
+      }],
+    };
+    const paused = {
+      ...enabled,
+      sources: [{ ...enabled.sources[0], status: "paused", pause_ack_epoch: 300 }],
+    };
+    mockedInvoke.mockImplementation(async (_command, input) => {
+      const request = input as { operation: string };
+      if (request.operation === "system.status") return status;
+      if (request.operation === "collector.status") {
+        return mockedInvoke.mock.calls.some(([, callInput]) => (callInput as { operation: string }).operation === "collector.pause")
+          ? paused
+          : enabled;
+      }
+      if (request.operation === "collector.pause") return paused.sources[0];
+      throw "unexpected_operation";
+    });
+    await ready();
+    fireEvent.click(screen.getByRole("button", { name: "Sources" }));
+    fireEvent.click(screen.getByRole("button", { name: "Refresh status" }));
+    await screen.findByText("github.fixture.closed");
+    expect(screen.getByRole("button", { name: "Sync now" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Pause" }));
+    await screen.findByText(/paused/);
+    const operations = mockedInvoke.mock.calls.map(([, input]) => (input as { operation: string }).operation);
+    expect(operations).toContain("collector.status");
+    expect(operations).toContain("collector.pause");
+  });
+
+  it("enables a collector source and updates its schedule from the desktop", async () => {
+    const source = {
+      source_id: "github.fixture/repo#issues?label=goal&owner=cbolden15",
+      status: "enabled",
+      outcome: "skipped",
+      interval_seconds: 900,
+      next_run_epoch: 300,
+      last_run_epoch: null,
+      last_success_epoch: null,
+      pause_ack_epoch: null,
+      captured_count: 0,
+      failed_count: 0,
+    };
+    mockedInvoke.mockImplementation(async (_command, input) => {
+      const request = input as { operation: string; arguments: Record<string, unknown> };
+      if (request.operation === "system.status") return status;
+      if (request.operation === "collector.enable") return source;
+      if (request.operation === "collector.status") return { status: "ready", brain_root: "/synthetic/brain", sources: [source] };
+      if (request.operation === "collector.schedule") return { ...source, interval_seconds: request.arguments.interval_seconds };
+      throw "unexpected_operation";
+    });
+    await ready();
+    fireEvent.click(screen.getByRole("button", { name: "Sources" }));
+    fireEvent.change(screen.getByLabelText("Source ID"), { target: { value: source.source_id } });
+    fireEvent.click(screen.getByRole("button", { name: "Enable source" }));
+    await screen.findByText(source.source_id);
+    const schedule = screen.getAllByLabelText(/Every/).at(-1) as HTMLInputElement;
+    fireEvent.change(schedule, { target: { value: "120" } });
+    fireEvent.blur(schedule);
+
+    await waitFor(() => expect(mockedInvoke.mock.calls.some(([, input]) =>
+      (input as { operation: string }).operation === "collector.schedule")).toBe(true));
+    const enableCall = mockedInvoke.mock.calls.find(([, input]) => (input as { operation: string }).operation === "collector.enable");
+    expect((enableCall?.[1] as { arguments: object }).arguments).toMatchObject({
+      credential_ref: "github-user-token:fixture",
+      source_id: source.source_id,
+      interval_seconds: 900,
+    });
+  });
+
   it("never displays raw configuration-bearing errors", async () => {
     mockedInvoke.mockRejectedValue('parser error with private_setting="synthetic-secret"');
     render(<App />);

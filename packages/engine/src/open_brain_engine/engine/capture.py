@@ -9,6 +9,7 @@ from hashlib import sha256
 from typing import TYPE_CHECKING, cast
 
 from open_brain_engine.core.ids import portable_canonical_json_bytes
+from open_brain_engine.core.models import ContentOrigin
 from open_brain_engine.providers.base import EnrichmentState
 from open_brain_engine.storage.markdown import render_markdown
 
@@ -17,6 +18,7 @@ from .contracts import (
     CaptureFault,
     CaptureReceipt,
     CaptureSubmission,
+    CaptureSubmissionPath,
     DecisionOutcome,
     EnrichmentRequest,
     EnrichmentUnavailable,
@@ -25,6 +27,7 @@ from .contracts import (
     ProposalRecord,
     PublicJobCaptureContext,
     PublicJobCaptureSink,
+    ReferencePayload,
     TextPayload,
     _LocalEngineOperations,
     project_public_capture_receipt,
@@ -99,7 +102,71 @@ class CaptureOperations(_LocalEngineOperations):
             ).fetchone()
             if existing is not None:
                 if cast(str, existing["request_sha256"]) != request_sha:
-                    conflict = (cast(str, existing["request_sha256"]), request_sha)
+                    if _can_replace_public_source(submission, existing):
+                        previous_capture_id = cast(str, existing["capture_id"])
+                        capture_id = _new_id("capture")
+                        accepted_at = _timestamp(self._clock())
+                        connection.execute(
+                            "DELETE FROM search_documents WHERE capture_id = ? OR result_id = ?",
+                            (previous_capture_id, previous_capture_id),
+                        )
+                        connection.execute(
+                            """
+                            UPDATE captures
+                            SET request_sha256 = ?, capture_id = ?, accepted_receipt_id = ?,
+                                payload_family = ?, payload_json = ?, search_text = ?,
+                                file_bytes = ?, source_origin = ?, source_reference = ?,
+                                space_id = ?, intent = ?, capture_why = ?, action = ?,
+                                title = ?, accepted_at = ?, stage = 0, source_path = NULL,
+                                canonical_path = NULL, publication_path = NULL,
+                                enrichment_state = 'pending_enrichment', actor_id = ?,
+                                role_claim_json = ?, privacy_json = ?, provenance_json = ?,
+                                submission_path = ?
+                            WHERE delivery_id = ?
+                            """,
+                            (
+                                request_sha,
+                                capture_id,
+                                _new_id("receipt"),
+                                payload.family,
+                                payload_bytes,
+                                payload.search_text(),
+                                payload.data if isinstance(payload, FilePayload) else None,
+                                source_origin,
+                                source_reference,
+                                space_id,
+                                intent,
+                                capture_why,
+                                action.value,
+                                title,
+                                accepted_at,
+                                submission.actor_id,
+                                portable_canonical_json_bytes(
+                                    {
+                                        "actor_id": submission.role_claim["actor_id"],
+                                        "capabilities": list(
+                                            cast(
+                                                tuple[str, ...],
+                                                submission.role_claim["capabilities"],
+                                            )
+                                        ),
+                                        "role_claim_id": submission.role_claim["role_claim_id"],
+                                        "role_id": submission.role_claim["role_id"],
+                                        "tenant_id": submission.role_claim["tenant_id"],
+                                    }
+                                ).decode("utf-8"),
+                                portable_canonical_json_bytes(submission.privacy.to_dict()).decode(
+                                    "utf-8"
+                                ),
+                                portable_canonical_json_bytes(
+                                    submission.provenance.to_dict()
+                                ).decode("utf-8"),
+                                submission.submission_path.value,
+                                delivery_id,
+                            ),
+                        )
+                    else:
+                        conflict = (cast(str, existing["request_sha256"]), request_sha)
                 else:
                     duplicate = True
                     capture_id = cast(str, existing["capture_id"])
@@ -505,6 +572,25 @@ def _stored_submission_value(row: sqlite3.Row, column: str) -> dict[str, object]
     if not isinstance(value, dict):
         raise RuntimeError("public-job capture metadata is invalid")
     return cast(dict[str, object], value)
+
+
+def _can_replace_public_source(submission: CaptureSubmission, existing: sqlite3.Row) -> bool:
+    stored_source_reference = cast(str | None, existing["source_reference"])
+    stored_provenance = _stored_submission_value(existing, "provenance_json")
+    return (
+        submission.submission_path is CaptureSubmissionPath.PUBLIC_JOB
+        and submission.source_origin is ContentOrigin.THIRD_PARTY
+        and cast(str | None, existing["submission_path"]) == CaptureSubmissionPath.PUBLIC_JOB.value
+        and cast(str | None, existing["source_origin"]) == "third_party"
+        and cast(str | None, existing["action"]) == CaptureAction.QUICK.value
+        and cast(str | None, existing["space_id"]) is None
+        and submission.action is CaptureAction.QUICK
+        and submission.space_id is None
+        and isinstance(submission.payload, ReferencePayload)
+        and cast(str | None, existing["payload_family"]) == "reference_or_file"
+        and stored_source_reference == submission.source_reference
+        and stored_provenance == submission.provenance.to_dict()
+    )
 
 
 class CaptureTasks:

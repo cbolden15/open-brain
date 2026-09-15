@@ -9,22 +9,26 @@ import pytest
 ROOT = Path(__file__).parents[2]
 _DISTRIBUTION_FOR_IMPORT = {
     "open_brain": "app",
+    "open_brain_collector": "collector",
     "open_brain_connectors": "connectors",
     "open_brain_engine": "engine",
     "tools": "workspace",
 }
 _SOURCE_ROOTS = {
     "app": ROOT / "packages/app/src",
+    "collector": ROOT / "packages/collector/src",
     "connectors": ROOT / "packages/connectors/src",
     "engine": ROOT / "packages/engine/src",
 }
 _ALLOWED_IMPORTS = {
     "app": {"engine"},
+    "collector": {"connectors", "engine"},
     "connectors": {"engine"},
     "engine": set(),
 }
 _PROJECT_FILES = {
     "app": ROOT / "packages/app/pyproject.toml",
+    "collector": ROOT / "packages/collector/pyproject.toml",
     "connectors": ROOT / "packages/connectors/pyproject.toml",
     "engine": ROOT / "packages/engine/pyproject.toml",
 }
@@ -56,6 +60,7 @@ def _declared_distribution_dependencies(project_file: Path) -> set[str]:
     }
     mapping = {
         "open-brain": "app",
+        "open-brain-collector": "collector",
         "open-brain-connectors": "connectors",
         "open-brain-engine": "engine",
     }

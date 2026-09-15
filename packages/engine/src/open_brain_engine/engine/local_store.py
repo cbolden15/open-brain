@@ -7,7 +7,7 @@ from collections.abc import Callable, Iterator
 from contextlib import contextmanager, suppress
 from datetime import datetime
 
-from open_brain_engine.storage.sqlite import SchemaError
+from open_brain_engine.storage.sqlite import SchemaError, begin_immediate, restore_busy_timeout
 
 from .contracts import LocalEngineContext
 from .local_schema import classify_local_schema, open_local_database, open_local_database_read_only
@@ -31,14 +31,17 @@ class _LocalStore:
     def transaction(self) -> Iterator[sqlite3.Connection]:
         connection = open_local_database(self.profile, clock=self._clock)
         try:
-            connection.execute("BEGIN IMMEDIATE")
+            begin_immediate(connection)
             if classify_local_schema(connection).state != "current":
                 raise SchemaError("local state schema changed before write")
             yield connection
             connection.execute("COMMIT")
+            restore_busy_timeout(connection)
         except BaseException:
             with suppress(sqlite3.Error):
                 connection.execute("ROLLBACK")
+            with suppress(sqlite3.Error):
+                restore_busy_timeout(connection)
             raise
         finally:
             connection.close()

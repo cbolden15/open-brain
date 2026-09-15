@@ -217,6 +217,7 @@ impl Bridge {
             "LANG",
             "LC_ALL",
             "LC_CTYPE",
+            "OPEN_BRAIN_COLLECTOR",
             "TMPDIR",
             "WAYLAND_DISPLAY",
             "XDG_DATA_HOME",
@@ -626,6 +627,8 @@ mod tests {
     use std::os::unix::fs::PermissionsExt;
     use tempfile::TempDir;
 
+    static ENV_LOCK: Mutex<()> = Mutex::new(());
+
     fn script(directory: &TempDir, body: &str) -> PathBuf {
         let path = directory.path().join(format!("server-{}", Uuid::new_v4()));
         fs::write(&path, format!("#!/usr/bin/python3\n{body}\n")).unwrap();
@@ -696,6 +699,48 @@ time.sleep(30)"#,
         assert_eq!(
             bridge.invoke("search.query", json!({}), None, Duration::from_secs(1)),
             Err(BridgeError::SessionExhausted)
+        );
+    }
+
+    #[test]
+    fn spawn_forwards_only_the_optional_collector_executable_path() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        let directory = TempDir::new().unwrap();
+        let executable = script(
+            &directory,
+            r#"import json, os, pathlib, sys
+pathlib.Path(sys.argv[-1]).write_text(os.environ.get("OPEN_BRAIN_COLLECTOR", ""))
+request = json.loads(sys.stdin.readline())
+print(json.dumps({"ok": True, "protocol": "open-brain-client", "protocol_version": 1, "request_id": request["request_id"], "result": {}}), flush=True)"#,
+        );
+        let collector = directory.path().join("open-brain-collector");
+        fs::write(&collector, "#!/bin/sh\nexit 0\n").unwrap();
+        fs::set_permissions(&collector, fs::Permissions::from_mode(0o700)).unwrap();
+        let receipt = directory.path().join("collector-env");
+        let old_collector = std::env::var_os("OPEN_BRAIN_COLLECTOR");
+        let old_secret = std::env::var_os("OPEN_BRAIN_COLLECTOR_SECRET");
+        unsafe {
+            std::env::set_var("OPEN_BRAIN_COLLECTOR", &collector);
+            std::env::set_var("OPEN_BRAIN_COLLECTOR_SECRET", "must-not-forward");
+        }
+        let mut bridge = Bridge::spawn(&executable, &receipt).unwrap();
+        bridge
+            .invoke("system.handshake", json!({}), None, Duration::from_secs(3))
+            .unwrap();
+        unsafe {
+            match old_collector {
+                Some(value) => std::env::set_var("OPEN_BRAIN_COLLECTOR", value),
+                None => std::env::remove_var("OPEN_BRAIN_COLLECTOR"),
+            }
+            match old_secret {
+                Some(value) => std::env::set_var("OPEN_BRAIN_COLLECTOR_SECRET", value),
+                None => std::env::remove_var("OPEN_BRAIN_COLLECTOR_SECRET"),
+            }
+        }
+
+        assert_eq!(
+            fs::read_to_string(receipt).unwrap(),
+            collector.to_string_lossy()
         );
     }
 

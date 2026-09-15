@@ -14,13 +14,24 @@ ROOT = Path(__file__).resolve().parents[2]
 
 def test_package_metadata_has_no_secure_node_extra_or_entry_point() -> None:
     app = tomllib.loads((ROOT / "packages/app/pyproject.toml").read_text(encoding="utf-8"))
+    collector = tomllib.loads(
+        (ROOT / "packages/collector/pyproject.toml").read_text(encoding="utf-8")
+    )
     engine = tomllib.loads((ROOT / "packages/engine/pyproject.toml").read_text(encoding="utf-8"))
 
     assert app["project"]["dependencies"] == ["open-brain-engine==0.1.0"]
+    assert collector["project"]["dependencies"] == [
+        "open-brain-connectors==0.1.0",
+        "open-brain-engine==0.1.0",
+    ]
     assert "optional-dependencies" not in app["project"]
+    assert "optional-dependencies" not in collector["project"]
     assert "optional-dependencies" not in engine["project"]
     assert app["project"]["scripts"] == {
         "open-brain": "open_brain.services.local_entrypoints:run_cli",
+    }
+    assert collector["project"]["scripts"] == {
+        "open-brain-collector": "open_brain_collector.cli:run_cli",
     }
 
 
@@ -36,6 +47,7 @@ def test_contributor_guide_describes_the_foreground_only_boundary() -> None:
     assert "`archive/open-brain-secure-node`" in guide
     assert "Open Brain never requires root" in guide
     assert "open-brain[secure-node]" not in guide
+    assert "does not install a desktop app, collector, scheduler" in guide
 
 
 def test_local_entrypoint_source_has_no_secure_node_import() -> None:
@@ -51,7 +63,15 @@ def test_local_entrypoint_source_has_no_secure_node_import() -> None:
         or module.startswith("open_brain_engine.protocol")
         or module.startswith("open_brain_engine.ledger")
         or module.split(".", 1)[0]
-        in {"argon2", "cryptography", "keyring", "sqlcipher3", "starlette", "uvicorn"}
+        in {
+            "argon2",
+            "cryptography",
+            "keyring",
+            "open_brain_collector",
+            "sqlcipher3",
+            "starlette",
+            "uvicorn",
+        }
         for module in imports
     )
 
@@ -66,6 +86,7 @@ import open_brain.services.local_entrypoints
 forbidden = [
     name for name in sys.modules
     if name.startswith("open_brain.services.appliance")
+    or name.startswith("open_brain_collector")
     or name.startswith("open_brain_engine.protocol")
     or name.startswith("open_brain_engine.ledger")
     or name.startswith("open_brain_engine.portability.secure_node")

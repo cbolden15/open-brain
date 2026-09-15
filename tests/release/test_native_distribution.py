@@ -82,6 +82,7 @@ def test_native_specs_keep_base_and_graphify_in_separate_executables() -> None:
         "open_brain_engine.portability.secure_node",
         "open_brain_engine.ledger",
         "open_brain_engine.protocol",
+        "open_brain_collector",
         "http.server",
         "docker",
         "prctl",

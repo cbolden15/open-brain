@@ -17,12 +17,15 @@ native-build = [
 [tool.uv.workspace]
 members = [
   "packages/app",
+  "packages/collector",
   "packages/connectors",
   "packages/engine",
 ]
 
 [tool.uv.sources]
 open-brain = { workspace = true }
+open-brain-collector = { workspace = true }
+open-brain-connectors = { workspace = true }
 open-brain-engine = { workspace = true }
 
 [tool.pytest.ini_options]
@@ -30,12 +33,14 @@ addopts = "-ra --import-mode=importlib"
 pythonpath = [
   ".",
   "packages/app/src",
+  "packages/collector/src",
   "packages/connectors/src",
   "packages/engine/src",
 ]
 testpaths = [
   "tests",
   "packages/app/tests",
+  "packages/collector/tests",
   "packages/connectors/tests",
   "packages/engine/tests",
 ]
@@ -49,7 +54,7 @@ extend-exclude = ["archive", "release/open-brain-graphify/overrides"]
 select = ["E", "F", "I", "UP", "B", "SIM"]
 
 [tool.ruff.lint.isort]
-known-first-party = ["open_brain", "open_brain_connectors", "tools"]
+known-first-party = ["open_brain", "open_brain_collector", "open_brain_connectors", "tools"]
 known-third-party = ["open_brain_engine"]
 
 [tool.mypy]
@@ -58,6 +63,7 @@ strict = true
 explicit_package_bases = true
 mypy_path = [
   "packages/app/src",
+  "packages/collector/src",
   "packages/connectors/src",
   "packages/engine/src",
 ]

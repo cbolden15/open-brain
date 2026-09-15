@@ -67,6 +67,7 @@ analysis = Analysis(
         "open_brain.services.phase1_entrypoints",
         "open_brain.services.runtime",
         "open_brain.services.secure_node_entrypoints",
+        "open_brain_collector",
         "open_brain_connectors",
         "open_brain_engine.portability.secure_node",
         "open_brain_engine.engine.authority",

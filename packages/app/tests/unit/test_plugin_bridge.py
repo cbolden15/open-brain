@@ -80,6 +80,14 @@ def _call(
     return cast(dict[str, object], json.loads(output.getvalue()))
 
 
+def _collector_environment(tmp_path: Path) -> dict[str, object]:
+    executable = tmp_path / "runtime/open-brain-collector"
+    executable.parent.mkdir(parents=True, exist_ok=True)
+    executable.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+    executable.chmod(0o700)
+    return {"HOME": str(tmp_path), "OPEN_BRAIN_COLLECTOR": str(executable)}
+
+
 def test_handshake_is_bounded_and_does_not_initialize_the_brain(tmp_path: Path) -> None:
     selection = _selection(tmp_path)
 
@@ -121,6 +129,294 @@ def test_status_is_non_mutating_for_empty_state_and_reports_initialized_state(
     initialized = cast(dict[str, object], _call(selection, "system.status")["result"])
     assert initialized["initialized"] is True
     assert initialized["state_schema_version"] == 4
+
+
+def test_plugin_bridge_exposes_durable_collector_controls(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("OPEN_BRAIN_COLLECTOR_TEST_EPOCH", "300")
+    selection = _selection(tmp_path)
+    assert _call(selection, "brain.initialize")["ok"] is True
+    state = selection.brain_root / "collector" / "state.json"
+    state.parent.mkdir(parents=True)
+    state.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "sources": {
+                    "github.fixture.closed": {
+                        "active_run": None,
+                        "committed_revisions": {},
+                        "connection_id": "account:fixture",
+                        "connector_name": "github",
+                        "interval_seconds": 60,
+                        "last_run": {
+                            "captured_count": 1,
+                            "duplicate_count": 0,
+                            "failure_code": None,
+                            "finished_epoch": 100,
+                            "next_cursor": None,
+                            "outcome": "completed",
+                            "run_id": "github.fixture.closed:100:initial",
+                        },
+                        "next_cursor": None,
+                        "next_run_epoch": 200,
+                        "pause_ack_epoch": None,
+                        "resource_id": "repo:fixture/open-brain",
+                        "resource_type": "repository",
+                        "status": "enabled",
+                    }
+                },
+            },
+            sort_keys=True,
+        ),
+        encoding="utf-8",
+    )
+
+    environment = _collector_environment(tmp_path)
+    status = cast(
+        dict[str, object],
+        _call(selection, "collector.status", environment=environment)["result"],
+    )
+    sources = cast(list[dict[str, object]], status["sources"])
+    assert status["status"] == "ready"
+    assert sources[0]["source_id"] == "github.fixture.closed"
+    assert sources[0]["status"] == "enabled"
+    assert sources[0]["interval_seconds"] == 60
+    assert sources[0]["last_success_epoch"] == 100
+
+    paused = cast(
+        dict[str, object],
+        _call(
+            selection,
+            "collector.pause",
+            {"source_id": "github.fixture.closed"},
+            environment=environment,
+        )["result"],
+    )
+    assert paused["status"] == "paused"
+    assert paused["pause_ack_epoch"] == 300
+    saved = json.loads(state.read_text(encoding="utf-8"))
+    assert saved["sources"]["github.fixture.closed"]["status"] == "paused"
+
+    resumed = cast(
+        dict[str, object],
+        _call(
+            selection,
+            "collector.resume",
+            {"source_id": "github.fixture.closed"},
+            environment=environment,
+        )["result"],
+    )
+    assert resumed["status"] == "enabled"
+    assert resumed["pause_ack_epoch"] is None
+    assert resumed["next_run_epoch"] == 300
+    disabled = cast(
+        dict[str, object],
+        _call(
+            selection,
+            "collector.disable",
+            {"source_id": "github.fixture.closed"},
+            environment=environment,
+        )["result"],
+    )
+    assert disabled["status"] == "disabled"
+    assert disabled["next_run_epoch"] is None
+
+
+def test_plugin_bridge_enables_schedules_and_controls_full_collector_source_ids(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("OPEN_BRAIN_COLLECTOR_TEST_EPOCH", "300")
+    selection = _selection(tmp_path)
+    assert _call(selection, "brain.initialize")["ok"] is True
+    environment = _collector_environment(tmp_path)
+    source_id = "github.fixture/repo#issues?label=goal&owner=cbolden15"
+
+    enabled = cast(
+        dict[str, object],
+        _call(
+            selection,
+            "collector.enable",
+            {
+                "connection_id": "account:fixture",
+                "connector_name": "github",
+                "credential_ref": "github-user-token:fixture",
+                "interval_seconds": 60,
+                "resource_id": "repo:fixture/open-brain",
+                "resource_type": "repository",
+                "source_id": source_id,
+            },
+            environment=environment,
+        )["result"],
+    )
+
+    assert enabled["source_id"] == source_id
+    assert enabled["status"] == "enabled"
+    assert enabled["interval_seconds"] == 60
+    scheduled = cast(
+        dict[str, object],
+        _call(
+            selection,
+            "collector.schedule",
+            {"interval_seconds": 120, "source_id": source_id},
+            environment=environment,
+        )["result"],
+    )
+    assert scheduled["interval_seconds"] == 120
+    paused = cast(
+        dict[str, object],
+        _call(selection, "collector.pause", {"source_id": source_id}, environment=environment)[
+            "result"
+        ],
+    )
+    assert paused["status"] == "paused"
+    saved = json.loads((selection.brain_root / "collector" / "state.json").read_text())
+    assert saved["sources"][source_id]["interval_seconds"] == 120
+    assert saved["sources"][source_id]["credential_ref"] == "github-user-token:fixture"
+
+
+def test_plugin_bridge_rejects_collector_enable_without_credential_ref(
+    tmp_path: Path,
+) -> None:
+    selection = _selection(tmp_path)
+    assert _call(selection, "brain.initialize")["ok"] is True
+    response = _call(
+        selection,
+        "collector.enable",
+        {
+            "connection_id": "account:fixture",
+            "connector_name": "github",
+            "interval_seconds": 60,
+            "resource_id": "repo:fixture/open-brain",
+            "resource_type": "repository",
+            "source_id": "github.fixture",
+        },
+        environment=_collector_environment(tmp_path),
+    )
+
+    assert response["ok"] is False
+    assert cast(dict[str, object], response["error"])["code"] == "credential_missing"
+
+
+def test_plugin_bridge_rejects_unsupported_collector_enable(
+    tmp_path: Path,
+) -> None:
+    selection = _selection(tmp_path)
+    assert _call(selection, "brain.initialize")["ok"] is True
+    response = _call(
+        selection,
+        "collector.enable",
+        {
+            "connection_id": "account:fixture",
+            "connector_name": "slack",
+            "credential_ref": "slack-user-token:fixture",
+            "interval_seconds": 60,
+            "resource_id": "channel:fixture",
+            "resource_type": "channel",
+            "source_id": "slack.fixture",
+        },
+        environment=_collector_environment(tmp_path),
+    )
+
+    assert response["ok"] is False
+    assert cast(dict[str, object], response["error"])["code"] == "unsupported_collector_source"
+
+
+def test_plugin_bridge_sync_now_persists_due_request_without_executing_collector(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    selection = _selection(tmp_path)
+    assert _call(selection, "brain.initialize")["ok"] is True
+    state = selection.brain_root / "collector" / "state.json"
+    state.parent.mkdir(parents=True)
+    state.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "sources": {
+                    "github.fixture.closed": {
+                        "active_run": None,
+                        "committed_revisions": {},
+                        "connection_id": "account:fixture",
+                        "connector_name": "github",
+                        "interval_seconds": 60,
+                        "last_run": None,
+                        "next_cursor": None,
+                        "next_run_epoch": 200,
+                        "pause_ack_epoch": None,
+                        "resource_id": "repo:fixture/open-brain",
+                        "resource_type": "repository",
+                        "status": "enabled",
+                    }
+                },
+            },
+            sort_keys=True,
+        ),
+        encoding="utf-8",
+    )
+    environment = _collector_environment(tmp_path)
+    monkeypatch.setenv("OPEN_BRAIN_COLLECTOR", str(environment["OPEN_BRAIN_COLLECTOR"]))
+    monkeypatch.setenv("OPEN_BRAIN_COLLECTOR_FIXTURE_RUNTIME_JSON", "/tmp/fixture-runtime.json")
+
+    result = cast(
+        dict[str, object],
+        _call(
+            selection,
+            "collector.sync_now",
+            {"source_id": "github.fixture.closed"},
+            environment=environment,
+        )["result"],
+    )
+    saved = json.loads(state.read_text(encoding="utf-8"))
+    source = saved["sources"]["github.fixture.closed"]
+
+    assert source["next_run_epoch"] > 200
+    assert result["status"] == "requested"
+    assert result["requested"] is True
+    assert cast(dict[str, object], result["source"])["next_run_epoch"] == source["next_run_epoch"]
+
+
+def test_plugin_bridge_sync_now_requires_optional_collector_runtime(
+    tmp_path: Path,
+) -> None:
+    selection = _selection(tmp_path)
+    assert _call(selection, "brain.initialize")["ok"] is True
+    state = selection.brain_root / "collector" / "state.json"
+    state.parent.mkdir(parents=True)
+    state.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "sources": {
+                    "github.fixture.closed": {
+                        "active_run": None,
+                        "committed_revisions": {},
+                        "connection_id": "account:fixture",
+                        "connector_name": "github",
+                        "interval_seconds": 60,
+                        "last_run": None,
+                        "next_cursor": None,
+                        "next_run_epoch": 200,
+                        "pause_ack_epoch": None,
+                        "resource_id": "repo:fixture/open-brain",
+                        "resource_type": "repository",
+                        "status": "enabled",
+                    }
+                },
+            },
+            sort_keys=True,
+        ),
+        encoding="utf-8",
+    )
+
+    response = _call(selection, "collector.sync_now", {"source_id": "github.fixture.closed"})
+
+    assert response["ok"] is False
+    assert cast(dict[str, object], response["error"])["code"] == "collector_unavailable"
 
 
 def test_plugin_agent_setup_uses_known_runtime_and_never_initializes_brain(

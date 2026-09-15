@@ -1,6 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
-import { errorMessage, request, saveMayHaveCompleted, setupReady, type BrainStatus, type SearchHit, type SetupInput, type SetupPreview, type SetupResult } from "./client";
+import { errorMessage, request, saveMayHaveCompleted, setupReady, type BrainStatus, type CollectorEnableInput, type CollectorStatus, type SearchHit, type SetupInput, type SetupPreview, type SetupResult } from "./client";
 
 const destinations = ["Search", "Capture", "Sources", "Activity", "Settings"] as const;
 type Destination = typeof destinations[number];
@@ -21,6 +21,17 @@ export function App() {
   const [saveError, setSaveError] = useState("");
   const [savedText, setSavedText] = useState("");
   const [activity, setActivity] = useState<Activity[]>([]);
+  const [collector, setCollector] = useState<CollectorStatus | null>(null);
+  const [collectorError, setCollectorError] = useState("");
+  const [collectorSetup, setCollectorSetup] = useState<CollectorEnableInput>({
+    source_id: "github.fixture.closed",
+    connector_name: "github",
+    connection_id: "account:fixture",
+    credential_ref: "github-user-token:fixture",
+    resource_id: "repo:fixture/open-brain",
+    resource_type: "repository",
+    interval_seconds: 900,
+  });
   const [setup, setSetup] = useState<SetupInput>({
     client: "claude-code", scope: "project", project_dir: "",
     allow_capture: false, allow_search: false, action: "configure",
@@ -145,6 +156,76 @@ export function App() {
     } finally { setBusy(false); }
   }
 
+  async function refreshCollector() {
+    if (unavailable) return;
+    setBusy(true);
+    setCollectorError("");
+    try {
+      const result = await request<CollectorStatus>("collector.status");
+      setCollector(result);
+      record("Collector status refreshed", result.sources.length + (result.sources.length === 1 ? " source" : " sources"));
+    } catch (error) {
+      setCollectorError(errorMessage(error));
+      record("Collector status needs attention", errorMessage(error), true);
+    } finally { setBusy(false); }
+  }
+  function updateCollectorSetup(patch: Partial<CollectorEnableInput>) {
+    setCollectorSetup(previous => ({ ...previous, ...patch }));
+    setCollectorError("");
+  }
+  async function collectorCommand(operation: "collector.pause" | "collector.resume" | "collector.disable" | "collector.sync_now", sourceId: string) {
+    if (unavailable) return;
+    setBusy(true);
+    setCollectorError("");
+    try {
+      await request(operation, { source_id: sourceId });
+      const result = await request<CollectorStatus>("collector.status");
+      setCollector(result);
+      record(operation === "collector.sync_now" ? "Collector sync requested" : "Collector control saved", sourceId);
+    } catch (error) {
+      setCollectorError(errorMessage(error));
+      record("Collector control needs attention", errorMessage(error), true);
+    } finally { setBusy(false); }
+  }
+  async function enableCollector(event: FormEvent) {
+    event.preventDefault();
+    if (unavailable) return;
+    setBusy(true);
+    setCollectorError("");
+    try {
+      const payload = {
+        ...collectorSetup,
+        source_id: collectorSetup.source_id.trim(),
+        connector_name: collectorSetup.connector_name.trim(),
+        connection_id: collectorSetup.connection_id.trim(),
+        credential_ref: collectorSetup.credential_ref.trim(),
+        resource_id: collectorSetup.resource_id.trim(),
+        resource_type: collectorSetup.resource_type.trim(),
+      };
+      await request("collector.enable", payload);
+      const result = await request<CollectorStatus>("collector.status");
+      setCollector(result);
+      record("Collector source enabled", payload.source_id);
+    } catch (error) {
+      setCollectorError(errorMessage(error));
+      record("Collector setup needs attention", errorMessage(error), true);
+    } finally { setBusy(false); }
+  }
+  async function updateCollectorSchedule(sourceId: string, intervalSeconds: number) {
+    if (unavailable) return;
+    setBusy(true);
+    setCollectorError("");
+    try {
+      await request("collector.schedule", { source_id: sourceId, interval_seconds: intervalSeconds });
+      const result = await request<CollectorStatus>("collector.status");
+      setCollector(result);
+      record("Collector schedule saved", sourceId);
+    } catch (error) {
+      setCollectorError(errorMessage(error));
+      record("Collector schedule needs attention", errorMessage(error), true);
+    } finally { setBusy(false); }
+  }
+
   return <div className="app-shell">
     <aside className="sidebar">
       <div className="brand"><span className="brand-mark" aria-hidden="true">ob</span><span>Open Brain</span></div>
@@ -208,6 +289,30 @@ export function App() {
           <h2 className="section-heading upcoming-heading">Account imports</h2>
           <p className="helper-text">Account imports are not available in this build. GitHub issues and pull requests are the next planned source.</p>
           <div className="planned-sources">{["GitHub", "Jira", "Email", "Google Drive", "iMessage", "Slack", "GitLab"].map(source => <span key={source}>{source}<small>Planned</small></span>)}</div>
+          <h2 className="section-heading upcoming-heading">Unattended collector</h2>
+          <div className="collector-panel">
+            <div><h3>Background imports</h3><p>Optional collection stays disabled until a source is explicitly enabled.</p></div>
+            <button type="button" className="secondary" disabled={unavailable || busy} onClick={() => void refreshCollector()}>{busy ? "Checking..." : "Refresh status"}</button>
+          </div>
+          <form className="collector-enable" onSubmit={event => void enableCollector(event)}>
+            <label>Source ID<input value={collectorSetup.source_id} onChange={event => updateCollectorSetup({ source_id: event.target.value })} spellCheck={false} /></label>
+            <label>Connection<input value={collectorSetup.connection_id} onChange={event => updateCollectorSetup({ connection_id: event.target.value })} spellCheck={false} /></label>
+            <label>Credential<input value={collectorSetup.credential_ref} onChange={event => updateCollectorSetup({ credential_ref: event.target.value })} spellCheck={false} /></label>
+            <label>Resource<input value={collectorSetup.resource_id} onChange={event => updateCollectorSetup({ resource_id: event.target.value })} spellCheck={false} /></label>
+            <label>Every<input type="number" min="1" max="31536000" step="1" value={collectorSetup.interval_seconds} onChange={event => updateCollectorSetup({ interval_seconds: Number(event.target.value) })} /></label>
+            <button type="submit" disabled={unavailable || busy || !collectorSetup.source_id.trim() || !collectorSetup.connection_id.trim() || !collectorSetup.credential_ref.trim() || !collectorSetup.resource_id.trim()}>Enable source</button>
+          </form>
+          {collectorError ? <p className="notice error" role="alert">{collectorError}</p> : null}
+          {collector ? <div className="source-list collector-list">{collector.sources.length ? collector.sources.map(source => <div className="source-row collector-row" key={source.source_id}>
+            <div><h3>{source.source_id}</h3><p>{source.status} · next run {source.next_run_epoch ?? "not scheduled"} · captured {source.captured_count}</p>
+              <label className="inline-schedule">Every <input type="number" min="1" max="31536000" step="1" defaultValue={source.interval_seconds} onBlur={event => void updateCollectorSchedule(source.source_id, Number(event.currentTarget.value))} /> seconds</label></div>
+            <div className="row-actions">
+              <button type="button" className="secondary" disabled={busy || source.status !== "enabled"} onClick={() => void collectorCommand("collector.pause", source.source_id)}>Pause</button>
+              <button type="button" className="secondary" disabled={busy || source.status !== "paused"} onClick={() => void collectorCommand("collector.resume", source.source_id)}>Resume</button>
+              <button type="button" className="secondary" disabled={busy || source.status === "disabled"} onClick={() => void collectorCommand("collector.disable", source.source_id)}>Disable</button>
+              <button type="button" disabled={busy || source.status !== "enabled"} onClick={() => void collectorCommand("collector.sync_now", source.source_id)}>Sync now</button>
+            </div>
+          </div>) : <div className="empty-state compact-empty"><h2>No enabled collector sources.</h2><p>Use the collector CLI or provider setup flow to opt in a source first.</p></div>}</div> : null}
           <div className="subtle-note"><strong>You control capture and search separately.</strong><p>Connecting an agent does not import its conversation history. Background collection is not enabled.</p></div>
         </section> : null}
 
@@ -222,6 +327,7 @@ export function App() {
         {page === "Settings" ? <section aria-labelledby="settings-title">
           <div className="page-title"><p className="eyebrow">Settings</p><h1 id="settings-title">One Brain. Your tools.</h1><p>Use the desktop, a terminal, or your preferred coding agent.</p></div>
           <div className="brain-location"><div><h2>Brain location</h2><p className="selectable-path">{brain?.brain_root ?? "Waiting for the local runtime"}</p></div><button type="button" className="secondary" disabled={busy || connecting} onClick={() => void connect(true)}>Reconnect</button></div>
+          <div className="brain-location collector-settings"><div><h2>Unattended collector</h2><p>{collector ? collector.sources.length + (collector.sources.length === 1 ? " configured source" : " configured sources") : "Refresh collector status from Sources."}</p></div><button type="button" className="secondary" disabled={unavailable || busy} onClick={() => { setPage("Sources"); void refreshCollector(); }}>Manage collector</button></div>
           <h2 className="section-heading">Agent setup</h2>
           <form onSubmit={event => void previewSetup(event)}><fieldset disabled={busy}>
             <div className="field-grid"><label>Agent<select value={setup.client} onChange={event => updateSetup({ client: event.target.value as SetupInput["client"] })}><option value="claude-code">Claude Code</option><option value="codex">Codex</option></select></label>

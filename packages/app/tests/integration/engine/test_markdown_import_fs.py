@@ -167,7 +167,7 @@ def test_invalid_utf8_filename_is_rendered_as_opaque_token(tmp_path: Path) -> No
                 dir_fd=descriptor,
             )
         except OSError as error:
-            if error.errno == errno.EILSEQ:
+            if error.errno in (errno.EILSEQ, errno.EPERM):
                 pytest.skip("filesystem rejects non-UTF-8 filenames")
             raise
         try:

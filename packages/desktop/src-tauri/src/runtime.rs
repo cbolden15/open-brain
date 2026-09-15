@@ -7,12 +7,21 @@ use std::time::Duration;
 use tauri::{AppHandle, Manager, State, path::BaseDirectory};
 
 const MINIMUM_STATE_SCHEMA: u64 = 4;
-const OPERATIONS: &[&str] = &[
+const BASE_OPERATIONS: &[&str] = &[
     "system.status",
     "capture.create",
     "search.query",
     "agent.setup.preview",
     "agent.setup.apply",
+];
+const COLLECTOR_OPERATIONS: &[&str] = &[
+    "collector.enable",
+    "collector.schedule",
+    "collector.disable",
+    "collector.pause",
+    "collector.resume",
+    "collector.status",
+    "collector.sync_now",
 ];
 
 #[derive(Default)]
@@ -38,7 +47,10 @@ pub(crate) async fn desktop_request(
     arguments: Value,
     request_id: Option<String>,
 ) -> Result<Value, String> {
-    if !OPERATIONS.contains(&operation.as_str()) || !arguments.is_object() {
+    if !(BASE_OPERATIONS.contains(&operation.as_str())
+        || COLLECTOR_OPERATIONS.contains(&operation.as_str()))
+        || !arguments.is_object()
+    {
         return Err("invalid_request".to_owned());
     }
     let session = Arc::clone(&state.session);
@@ -125,7 +137,7 @@ fn validate_handshake(value: &Value) -> Result<(), String> {
             .get("brain_root")
             .and_then(Value::as_str)
             .is_some_and(|root| Path::new(root).is_absolute())
-        || !OPERATIONS.iter().all(|operation| {
+        || !BASE_OPERATIONS.iter().all(|operation| {
             operations
                 .is_some_and(|items| items.iter().any(|item| item.as_str() == Some(operation)))
         })
@@ -147,7 +159,7 @@ mod tests {
             "runtime_session_version": 1,
             "state_schema_version": 4,
             "brain_root": "/synthetic/brain",
-            "operations": OPERATIONS,
+            "operations": BASE_OPERATIONS,
         })
     }
 

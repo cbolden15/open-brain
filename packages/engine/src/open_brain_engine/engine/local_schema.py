@@ -17,10 +17,12 @@ from open_brain_engine.storage.migrations import (
 )
 from open_brain_engine.storage.sqlite import (
     DatabaseBusyError,
+    begin_immediate,
     connect_database,
     connect_database_read_only,
     has_private_rollback_journal,
     is_database_busy,
+    restore_busy_timeout,
 )
 
 from .contracts import LocalEngineContext
@@ -159,11 +161,18 @@ def _require_supported(state: SchemaState, *, current_only: bool = False) -> Non
         raise SchemaError(f"local state schema is {state.state}")
 
 
-def inspect_phase1_state(profile: LocalEngineContext) -> SchemaState:
+def inspect_phase1_state(
+    profile: LocalEngineContext, *, timeout_seconds: float = 5.0, busy_timeout_ms: int = 5000
+) -> SchemaState:
     if not isinstance(profile, LocalEngineContext):
         raise ValueError("invalid local profile")
     try:
-        connection = open_local_database_read_only(profile, inspect_only=True)
+        connection = open_local_database_read_only(
+            profile,
+            inspect_only=True,
+            timeout_seconds=timeout_seconds,
+            busy_timeout_ms=busy_timeout_ms,
+        )
     except DatabaseBusyError:
         raise
     except SchemaError:
@@ -189,12 +198,19 @@ def inspect_phase1_state(profile: LocalEngineContext) -> SchemaState:
 
 
 def open_local_database_read_only(
-    profile: LocalEngineContext, *, inspect_only: bool = False, allow_old: bool = False
+    profile: LocalEngineContext,
+    *,
+    inspect_only: bool = False,
+    allow_old: bool = False,
+    timeout_seconds: float = 5.0,
+    busy_timeout_ms: int = 5000,
 ) -> sqlite3.Connection:
     connection = connect_database_read_only(
         root=profile.root,
         database_name=PHASE1_STATE_DATABASE,
         expected_root_identity=profile.root_identity,
+        timeout_seconds=timeout_seconds,
+        busy_timeout_ms=busy_timeout_ms,
     )
     if inspect_only:
         return connection
@@ -315,15 +331,17 @@ def _prepare_local_schema(
             connection.execute("BEGIN")
             state = classify_local_schema(connection)
             connection.execute("COMMIT")
+            restore_busy_timeout(connection)
             if state.state == "current":
                 return
-        connection.execute("BEGIN IMMEDIATE")
+        begin_immediate(connection)
         state = classify_local_schema(connection)
         empty = created and state.version == 0 and not _shape(connection)
         if not empty:
             _require_supported(state)
             if state.state == "current":
                 connection.execute("COMMIT")
+                restore_busy_timeout(connection)
                 return
             _validate_upgrade_data(connection)
         connection.create_function("local_public_search_text", 2, _public_text, deterministic=True)
@@ -337,9 +355,12 @@ def _prepare_local_schema(
         _validate_upgrade_data(connection)
         _validate_backfill(connection)
         connection.execute("COMMIT")
+        restore_busy_timeout(connection)
     except BaseException as error:
         with suppress(sqlite3.Error):
             connection.execute("ROLLBACK")
+        with suppress(sqlite3.Error):
+            restore_busy_timeout(connection)
         if is_database_busy(error):
             raise DatabaseBusyError("database busy") from None
         if isinstance(error, SchemaError):
@@ -354,8 +375,11 @@ def _prepare_local_schema(
 def open_local_database(
     profile: LocalEngineContext, *, clock: Callable[[], datetime] = _utc_now
 ) -> sqlite3.Connection:
-    state = inspect_phase1_state(profile)
-    if state.state != "absent":
+    try:
+        state = inspect_phase1_state(profile, timeout_seconds=0.05, busy_timeout_ms=50)
+    except DatabaseBusyError:
+        state = SchemaState("busy", None)
+    if state.state not in {"absent", "busy"}:
         _require_supported(state)
     return connect_database(
         root=profile.root,
