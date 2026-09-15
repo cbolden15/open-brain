@@ -45,6 +45,16 @@ def test_source_cli_catalog_exposes_registered_public_onboarding(
         },
         {
             "auth_mode": "device_flow",
+            "connector_name": "confluence",
+            "content_types": ["comment", "page"],
+            "display_name": "Confluence",
+            "preview_limit": 25,
+            "public_onboarding": True,
+            "resource_types": ["cloud_page", "cloud_space"],
+            "schema_version": 1,
+        },
+        {
+            "auth_mode": "device_flow",
             "connector_name": "github",
             "content_types": ["comment", "issue", "pull_request"],
             "display_name": "GitHub",
@@ -104,6 +114,16 @@ def test_source_cli_catalog_exposes_registered_public_onboarding(
             "schema_version": 1,
         },
         {
+            "auth_mode": "session_only",
+            "connector_name": "meeting_transcript",
+            "content_types": ["meeting_transcript"],
+            "display_name": "Meeting Transcripts",
+            "preview_limit": 25,
+            "public_onboarding": False,
+            "resource_types": ["google_meet", "zoom"],
+            "schema_version": 1,
+        },
+        {
             "auth_mode": "device_flow",
             "connector_name": "microsoft_mail",
             "content_types": ["mail_message"],
@@ -111,6 +131,16 @@ def test_source_cli_catalog_exposes_registered_public_onboarding(
             "preview_limit": 25,
             "public_onboarding": True,
             "resource_types": ["mail_folder"],
+            "schema_version": 1,
+        },
+        {
+            "auth_mode": "device_flow",
+            "connector_name": "notion",
+            "content_types": ["block", "comment", "page"],
+            "display_name": "Notion",
+            "preview_limit": 25,
+            "public_onboarding": True,
+            "resource_types": ["data_source", "page"],
             "schema_version": 1,
         },
         {
@@ -192,6 +222,222 @@ def test_source_cli_selects_calendar(
         "schema_version": 1,
         "status": "selected",
     }
+
+
+def test_source_cli_selects_meeting_transcript(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    assert (
+        run_cli(
+            (
+                "meeting-transcript",
+                "select-meeting",
+                "--connection-id",
+                "account:meeting-fixture",
+                "--meeting-id",
+                "meeting:weekly-sync",
+                "--provider",
+                "zoom",
+            )
+        )
+        == 0
+    )
+    payload = _json(capsys)
+
+    assert payload == {
+        "connection_id": "account:meeting-fixture",
+        "connector_name": "meeting_transcript",
+        "resource_id": "meeting:weekly-sync",
+        "resource_type": "zoom",
+        "schema_version": 1,
+        "status": "selected",
+    }
+
+
+def test_source_cli_previews_meeting_transcripts_without_payload_bodies(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    source = tmp_path / "transcripts.json"
+    source.write_text(
+        json.dumps(
+            [
+                {
+                    "meeting_id": "meeting:weekly-sync",
+                    "provider": "zoom",
+                    "revision_id": "rev-1",
+                    "source_kind": "meeting_transcript",
+                    "speaker_segments": ["Ada 00:01 Synthetic segment must not print."],
+                    "started_at": "2026-09-15T15:00:00Z",
+                    "title": "Weekly Sync",
+                    "transcript": "Synthetic meeting body must not print.",
+                    "transcript_id": "transcript:weekly-sync-v1",
+                    "transcript_secret_scan": "clean",
+                }
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    assert (
+        run_cli(
+            (
+                "meeting-transcript",
+                "preview-transcripts",
+                "--connection-id",
+                "account:meeting-fixture",
+                "--meeting-id",
+                "meeting:weekly-sync",
+                "--provider",
+                "zoom",
+                "--input",
+                str(source),
+                "--next-cursor",
+                "cursor:meeting2",
+                "--selected-meeting-id",
+                "meeting:weekly-sync",
+            )
+        )
+        == 0
+    )
+    payload = _json(capsys)
+
+    assert payload["status"] == "ready"
+    assert payload["next_cursor"] == "cursor:meeting2"
+    assert payload["connector_name"] == "meeting_transcript"
+    records = cast(list[dict[str, object]], payload["records"])
+    assert [record["content_type"] for record in records] == ["meeting_transcript"]
+    assert records[0]["title"] == "Weekly Sync"
+    assert "must not print" not in repr(payload)
+
+
+def test_source_cli_rejects_unselected_meeting_transcript_preview(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    source = tmp_path / "transcripts.json"
+    source.write_text(
+        json.dumps(
+            [
+                {
+                    "meeting_id": "meeting:weekly-sync",
+                    "provider": "zoom",
+                    "revision_id": "rev-1",
+                    "source_kind": "meeting_transcript",
+                    "started_at": "2026-09-15T15:00:00Z",
+                    "title": "Weekly Sync",
+                    "transcript": "Synthetic meeting body must not print.",
+                    "transcript_id": "transcript:weekly-sync-v1",
+                    "transcript_secret_scan": "clean",
+                }
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    assert (
+        run_cli(
+            (
+                "meeting-transcript",
+                "preview-transcripts",
+                "--connection-id",
+                "account:meeting-fixture",
+                "--meeting-id",
+                "meeting:weekly-sync",
+                "--provider",
+                "zoom",
+                "--input",
+                str(source),
+                "--selected-meeting-id",
+                "meeting:weekly-sync",
+                "--selected-meeting-id",
+                "meeting:other",
+            )
+        )
+        == 78
+    )
+    payload = _json(capsys)
+
+    assert payload == {"error": {"code": "invalid meeting transcripts"}, "status": "failed"}
+    assert "must not print" not in repr(payload)
+
+
+def test_source_cli_rejects_blank_meeting_transcript_body(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    source = tmp_path / "transcripts.json"
+    source.write_text(
+        json.dumps(
+            [
+                {
+                    "meeting_id": "meeting:weekly-sync",
+                    "provider": "zoom",
+                    "revision_id": "rev-1",
+                    "source_kind": "meeting_transcript",
+                    "started_at": "2026-09-15T15:00:00Z",
+                    "title": "Weekly Sync",
+                    "transcript": " \n\t ",
+                    "transcript_id": "transcript:weekly-sync-v1",
+                    "transcript_secret_scan": "clean",
+                }
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    assert (
+        run_cli(
+            (
+                "meeting-transcript",
+                "preview-transcripts",
+                "--connection-id",
+                "account:meeting-fixture",
+                "--meeting-id",
+                "meeting:weekly-sync",
+                "--provider",
+                "zoom",
+                "--input",
+                str(source),
+                "--selected-meeting-id",
+                "meeting:weekly-sync",
+            )
+        )
+        == 78
+    )
+    payload = _json(capsys)
+
+    assert payload == {"error": {"code": "invalid meeting transcript"}, "status": "failed"}
+
+
+def test_source_cli_reports_meeting_transcript_checkpoint_without_payload(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    assert (
+        run_cli(
+            (
+                "meeting-transcript",
+                "checkpoint",
+                "--connection-id",
+                "account:meeting-fixture",
+                "--meeting-id",
+                "meeting:weekly-sync",
+                "--provider",
+                "google_meet",
+                "--checkpoint-dir",
+                str(tmp_path / "checkpoints"),
+            )
+        )
+        == 0
+    )
+    payload = _json(capsys)
+
+    assert payload["status"] == "ok"
+    assert payload["resource_id"] == "meeting:weekly-sync"
+    assert payload["resource_type"] == "google_meet"
+    assert payload["committed_delivery_ids"] == []
+    assert payload["committed_revision_identities"] == []
 
 
 def test_source_cli_previews_calendar_events_without_payload_bodies(
@@ -1304,9 +1550,7 @@ def test_source_cli_previews_github_repository_from_host_payload_without_bodies(
                 {
                     "id": 987,
                     "issue_url": "https://api.github.com/repos/fixture/project/issues/42",
-                    "html_url": (
-                        "https://github.com/fixture/project/issues/42#issuecomment-987"
-                    ),
+                    "html_url": ("https://github.com/fixture/project/issues/42#issuecomment-987"),
                     "body": "Synthetic comment body that must stay out of preview JSON.",
                     "updated_at": "2026-09-14T12:05:00Z",
                 },

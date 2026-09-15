@@ -13,13 +13,16 @@ from open_brain_connectors.runtime.source_registry import (
     SourceResourceSelection,
     agent_session_source_descriptor,
     calendar_source_descriptor,
+    confluence_source_descriptor,
     github_source_descriptor,
     gitlab_source_descriptor,
     gmail_source_descriptor,
     google_drive_source_descriptor,
     jira_source_descriptor,
     local_document_source_descriptor,
+    meeting_transcript_source_descriptor,
     microsoft_mail_source_descriptor,
+    notion_source_descriptor,
     slack_source_descriptor,
     web_clip_source_descriptor,
 )
@@ -44,6 +47,7 @@ def test_source_catalog_lists_descriptors_without_import_or_capture_authority() 
     catalog = SourceCatalog(
         (
             jira_source_descriptor(),
+            confluence_source_descriptor(),
             agent_session_source_descriptor(),
             calendar_source_descriptor(),
             github_source_descriptor(),
@@ -52,8 +56,10 @@ def test_source_catalog_lists_descriptors_without_import_or_capture_authority() 
             local_document_source_descriptor(),
             google_drive_source_descriptor(),
             gmail_source_descriptor(),
+            notion_source_descriptor(),
             slack_source_descriptor(),
             web_clip_source_descriptor(),
+            meeting_transcript_source_descriptor(),
         )
     )
 
@@ -64,8 +70,11 @@ def test_source_catalog_lists_descriptors_without_import_or_capture_authority() 
     assert catalog.require("gmail").resource_types == ("mail_label",)
     assert catalog.require("google_drive").resource_types == ("drive_file",)
     assert catalog.require("jira").content_types == ("comment", "issue")
+    assert catalog.require("confluence").resource_types == ("cloud_page", "cloud_space")
     assert catalog.require("local_document").resource_types == ("docx_file", "text_pdf")
+    assert catalog.require("meeting_transcript").resource_types == ("google_meet", "zoom")
     assert catalog.require("microsoft_mail").resource_types == ("mail_folder",)
+    assert catalog.require("notion").resource_types == ("data_source", "page")
     assert catalog.require("slack").content_types == ("message", "thread_reply")
     assert catalog.require("web_clip").content_types == ("page", "selected_passage")
     with pytest.raises(ConnectorContractError, match="source connector is not registered"):
@@ -152,6 +161,36 @@ def test_d5_2_descriptor_declares_selected_calendar_scope() -> None:
     assert descriptor.resource_types == ("google_calendar", "outlook_calendar")
     assert descriptor.content_types == ("calendar_event",)
     assert descriptor.public_onboarding is True
+
+
+def test_d5_5_descriptor_declares_selected_meeting_transcript_scope() -> None:
+    descriptor = meeting_transcript_source_descriptor()
+
+    assert descriptor.connector_name == "meeting_transcript"
+    assert descriptor.display_name == "Meeting Transcripts"
+    assert descriptor.auth_mode is SourceAuthMode.SESSION_ONLY
+    assert descriptor.resource_types == ("google_meet", "zoom")
+    assert descriptor.content_types == ("meeting_transcript",)
+    assert descriptor.public_onboarding is False
+
+
+def test_d5_3_descriptors_declare_selected_workspace_scope() -> None:
+    notion = notion_source_descriptor()
+    confluence = confluence_source_descriptor()
+
+    assert notion.connector_name == "notion"
+    assert notion.display_name == "Notion"
+    assert notion.auth_mode is SourceAuthMode.DEVICE_FLOW
+    assert notion.resource_types == ("data_source", "page")
+    assert notion.content_types == ("block", "comment", "page")
+    assert notion.public_onboarding is True
+
+    assert confluence.connector_name == "confluence"
+    assert confluence.display_name == "Confluence"
+    assert confluence.auth_mode is SourceAuthMode.DEVICE_FLOW
+    assert confluence.resource_types == ("cloud_page", "cloud_space")
+    assert confluence.content_types == ("comment", "page")
+    assert confluence.public_onboarding is True
 
 
 def test_source_preview_page_is_bounded_metadata_only_and_selection_bound() -> None:

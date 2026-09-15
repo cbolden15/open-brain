@@ -21,7 +21,10 @@ __all__ = [
     "D4_SLACK_SOURCE",
     "D5_LOCAL_DOCUMENT_SOURCE",
     "D5_CALENDAR_SOURCE",
+    "D5_CONFLUENCE_SOURCE",
+    "D5_NOTION_SOURCE",
     "D5_WEB_CLIP_SOURCE",
+    "D5_MEETING_TRANSCRIPT_SOURCE",
     "SourceAuthMode",
     "SourceCatalog",
     "SourceConnectorDescriptor",
@@ -36,9 +39,12 @@ __all__ = [
     "jira_source_descriptor",
     "local_document_source_descriptor",
     "calendar_source_descriptor",
+    "confluence_source_descriptor",
     "microsoft_mail_source_descriptor",
+    "notion_source_descriptor",
     "slack_source_descriptor",
     "web_clip_source_descriptor",
+    "meeting_transcript_source_descriptor",
 ]
 
 _CONNECTOR_NAME = re.compile(r"[a-z][a-z0-9_-]{0,63}")
@@ -57,7 +63,10 @@ D4_MICROSOFT_MAIL_SOURCE = "microsoft_mail"
 D4_SLACK_SOURCE = "slack"
 D5_LOCAL_DOCUMENT_SOURCE = "local_document"
 D5_CALENDAR_SOURCE = "calendar"
+D5_CONFLUENCE_SOURCE = "confluence"
+D5_NOTION_SOURCE = "notion"
 D5_WEB_CLIP_SOURCE = "web_clip"
+D5_MEETING_TRANSCRIPT_SOURCE = "meeting_transcript"
 
 
 class SourceAuthMode(StrEnum):
@@ -464,6 +473,36 @@ def calendar_source_descriptor() -> SourceConnectorDescriptor:
     )
 
 
+def confluence_source_descriptor() -> SourceConnectorDescriptor:
+    """Return D5.3's selected Confluence Cloud space/page capture capability."""
+
+    return SourceConnectorDescriptor(
+        schema_version=1,
+        connector_name=D5_CONFLUENCE_SOURCE,
+        display_name="Confluence",
+        auth_mode=SourceAuthMode.DEVICE_FLOW,
+        resource_types=("cloud_page", "cloud_space"),
+        content_types=("comment", "page"),
+        preview_limit=25,
+        public_onboarding=True,
+    )
+
+
+def notion_source_descriptor() -> SourceConnectorDescriptor:
+    """Return D5.3's selected Notion page/data-source capture capability."""
+
+    return SourceConnectorDescriptor(
+        schema_version=1,
+        connector_name=D5_NOTION_SOURCE,
+        display_name="Notion",
+        auth_mode=SourceAuthMode.DEVICE_FLOW,
+        resource_types=("data_source", "page"),
+        content_types=("block", "comment", "page"),
+        preview_limit=25,
+        public_onboarding=True,
+    )
+
+
 def web_clip_source_descriptor() -> SourceConnectorDescriptor:
     """Return D5.1's explicit browser-to-local web clip capability."""
 
@@ -474,6 +513,21 @@ def web_clip_source_descriptor() -> SourceConnectorDescriptor:
         auth_mode=SourceAuthMode.SESSION_ONLY,
         resource_types=("current_page", "selected_passage"),
         content_types=("page", "selected_passage"),
+        preview_limit=25,
+        public_onboarding=False,
+    )
+
+
+def meeting_transcript_source_descriptor() -> SourceConnectorDescriptor:
+    """Return D5.5's selected meeting transcript capture capability."""
+
+    return SourceConnectorDescriptor(
+        schema_version=1,
+        connector_name=D5_MEETING_TRANSCRIPT_SOURCE,
+        display_name="Meeting Transcripts",
+        auth_mode=SourceAuthMode.SESSION_ONLY,
+        resource_types=("google_meet", "zoom"),
+        content_types=("meeting_transcript",),
         preview_limit=25,
         public_onboarding=False,
     )

@@ -37,17 +37,24 @@ from open_brain_connectors.runtime.local_document import (
     LocalDocumentCheckpointStore,
     LocalDocumentSourceAdapter,
 )
+from open_brain_connectors.runtime.meeting_transcript import (
+    MeetingTranscriptCheckpointStore,
+    MeetingTranscriptSourceAdapter,
+)
 from open_brain_connectors.runtime.source_registry import (
     SourceCatalog,
     agent_session_source_descriptor,
     calendar_source_descriptor,
+    confluence_source_descriptor,
     github_source_descriptor,
     gitlab_source_descriptor,
     gmail_source_descriptor,
     google_drive_source_descriptor,
     jira_source_descriptor,
     local_document_source_descriptor,
+    meeting_transcript_source_descriptor,
     microsoft_mail_source_descriptor,
+    notion_source_descriptor,
     slack_source_descriptor,
     web_clip_source_descriptor,
 )
@@ -255,6 +262,28 @@ def _parser() -> argparse.ArgumentParser:
     calendar_checkpoint = calendar_subparsers.add_parser("checkpoint")
     _add_calendar_args(calendar_checkpoint)
     calendar_checkpoint.add_argument("--checkpoint-dir", required=True)
+
+    meeting_transcript = subparsers.add_parser(
+        "meeting-transcript",
+        help="Selected Zoom or Google Meet transcript selection and preview.",
+    )
+    meeting_subparsers = meeting_transcript.add_subparsers(
+        dest="meeting_transcript_command",
+        required=True,
+    )
+
+    meeting_selection = meeting_subparsers.add_parser("select-meeting")
+    _add_meeting_transcript_args(meeting_selection)
+
+    meeting_preview = meeting_subparsers.add_parser("preview-transcripts")
+    _add_meeting_transcript_args(meeting_preview)
+    meeting_preview.add_argument("--input", required=True)
+    meeting_preview.add_argument("--next-cursor")
+    meeting_preview.add_argument("--selected-meeting-id", action="append", required=True)
+
+    meeting_checkpoint = meeting_subparsers.add_parser("checkpoint")
+    _add_meeting_transcript_args(meeting_checkpoint)
+    meeting_checkpoint.add_argument("--checkpoint-dir", required=True)
     return parser
 
 
@@ -287,6 +316,12 @@ def _add_calendar_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--provider", required=True)
 
 
+def _add_meeting_transcript_args(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("--connection-id", required=True)
+    parser.add_argument("--meeting-id", required=True)
+    parser.add_argument("--provider", required=True)
+
+
 def _run(parsed: argparse.Namespace) -> dict[str, object]:
     if parsed.command == "catalog":
         catalog = SourceCatalog(
@@ -294,12 +329,15 @@ def _run(parsed: argparse.Namespace) -> dict[str, object]:
                 github_source_descriptor(),
                 agent_session_source_descriptor(),
                 calendar_source_descriptor(),
+                confluence_source_descriptor(),
                 gitlab_source_descriptor(),
                 gmail_source_descriptor(),
                 google_drive_source_descriptor(),
                 jira_source_descriptor(),
                 local_document_source_descriptor(),
+                meeting_transcript_source_descriptor(),
                 microsoft_mail_source_descriptor(),
+                notion_source_descriptor(),
                 slack_source_descriptor(),
                 web_clip_source_descriptor(),
             )
@@ -317,6 +355,8 @@ def _run(parsed: argparse.Namespace) -> dict[str, object]:
         return _run_web_clip(parsed)
     if parsed.command == "calendar":
         return _run_calendar(parsed)
+    if parsed.command == "meeting-transcript":
+        return _run_meeting_transcript(parsed)
     if parsed.command != "github":
         raise _UsageError("invalid command")
     adapter = GitHubSourceAdapter()
@@ -515,9 +555,9 @@ def _run_agent_session(parsed: argparse.Namespace) -> dict[str, object]:
             connection_id=cast(str, parsed.connection_id),
             project_id=cast(str, parsed.project_id),
         )
-        checkpoint = AgentSessionCheckpointStore(
-            Path(cast(str, parsed.checkpoint_dir))
-        ).load(selection)
+        checkpoint = AgentSessionCheckpointStore(Path(cast(str, parsed.checkpoint_dir))).load(
+            selection
+        )
         return {**checkpoint.to_dict(), "status": "ok"}
     raise _UsageError("invalid command")
 
@@ -562,9 +602,9 @@ def _run_local_document(parsed: argparse.Namespace) -> dict[str, object]:
             document_id=cast(str, parsed.selected_document_id),
             file_kind=cast(str, parsed.file_kind),
         )
-        checkpoint = LocalDocumentCheckpointStore(
-            Path(cast(str, parsed.checkpoint_dir))
-        ).load(selection)
+        checkpoint = LocalDocumentCheckpointStore(Path(cast(str, parsed.checkpoint_dir))).load(
+            selection
+        )
         return {**checkpoint.to_dict(), "status": "ok"}
     raise _UsageError("invalid command")
 
@@ -656,7 +696,52 @@ def _run_calendar(parsed: argparse.Namespace) -> dict[str, object]:
             calendar_id=cast(str, parsed.calendar_id),
             provider=cast(str, parsed.provider),
         )
-        checkpoint = CalendarCheckpointStore(Path(cast(str, parsed.checkpoint_dir))).load(
+        checkpoint = CalendarCheckpointStore(Path(cast(str, parsed.checkpoint_dir))).load(selection)
+        return {**checkpoint.to_dict(), "status": "ok"}
+    raise _UsageError("invalid command")
+
+
+def _run_meeting_transcript(parsed: argparse.Namespace) -> dict[str, object]:
+    adapter = MeetingTranscriptSourceAdapter()
+    command = cast(str, parsed.meeting_transcript_command)
+    if command == "select-meeting":
+        selection = adapter.meeting_selection(
+            connection_id=cast(str, parsed.connection_id),
+            meeting_id=cast(str, parsed.meeting_id),
+            provider=cast(str, parsed.provider),
+        )
+        return {
+            "connection_id": selection.connection_id,
+            "connector_name": selection.connector_name,
+            "resource_id": selection.resource_id,
+            "resource_type": selection.resource_type,
+            "schema_version": 1,
+            "status": "selected",
+        }
+    if command == "preview-transcripts":
+        selection = adapter.meeting_selection(
+            connection_id=cast(str, parsed.connection_id),
+            meeting_id=cast(str, parsed.meeting_id),
+            provider=cast(str, parsed.provider),
+        )
+        transcripts = _read_json_list(Path(cast(str, parsed.input)))
+        page = adapter.page_from_transcripts(
+            selection,
+            transcripts,
+            privacy=_local_agent_privacy(),
+            selected_meeting_ids=tuple(cast(list[str], parsed.selected_meeting_id)),
+            next_cursor=parsed.next_cursor,
+        )
+        if page.preview is None:
+            raise ConnectorContractError("invalid meeting transcript page")
+        return {**page.preview.to_dict(), "status": page.status.value}
+    if command == "checkpoint":
+        selection = adapter.meeting_selection(
+            connection_id=cast(str, parsed.connection_id),
+            meeting_id=cast(str, parsed.meeting_id),
+            provider=cast(str, parsed.provider),
+        )
+        checkpoint = MeetingTranscriptCheckpointStore(Path(cast(str, parsed.checkpoint_dir))).load(
             selection
         )
         return {**checkpoint.to_dict(), "status": "ok"}
@@ -709,17 +794,20 @@ def _start_github_device_flow(
     digest = hashlib.sha256(device_code.encode("utf-8")).hexdigest()
     session_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
     session_path = session_dir / f"github-device-flow-{digest[:32]}.json"
-    session_payload = json.dumps(
-        {
-            "app_type": "github_app",
-            "device_code": device_code,
-            "permission_model": "github_app_permissions",
-            "schema_version": 1,
-            "scope": "",
-        },
-        sort_keys=True,
-        separators=(",", ":"),
-    ) + "\n"
+    session_payload = (
+        json.dumps(
+            {
+                "app_type": "github_app",
+                "device_code": device_code,
+                "permission_model": "github_app_permissions",
+                "schema_version": 1,
+                "scope": "",
+            },
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+        + "\n"
+    )
     with NamedTemporaryFile(
         "w",
         delete=False,
