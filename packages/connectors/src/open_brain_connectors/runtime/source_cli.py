@@ -18,6 +18,14 @@ from urllib.request import Request, urlopen
 
 from open_brain_engine.engine import PrivacyDecision
 
+from open_brain_connectors.runtime.agent_session import (
+    AgentSessionCheckpointStore,
+    AgentSessionSourceAdapter,
+)
+from open_brain_connectors.runtime.calendar import (
+    CalendarCheckpointStore,
+    CalendarSourceAdapter,
+)
 from open_brain_connectors.runtime.connectors import ConnectorContractError
 from open_brain_connectors.runtime.github import (
     GitHubDeviceAuthSession,
@@ -25,15 +33,27 @@ from open_brain_connectors.runtime.github import (
     GitHubSourceAdapter,
     GitHubUserTokenStore,
 )
+from open_brain_connectors.runtime.local_document import (
+    LocalDocumentCheckpointStore,
+    LocalDocumentSourceAdapter,
+)
 from open_brain_connectors.runtime.source_registry import (
     SourceCatalog,
+    agent_session_source_descriptor,
+    calendar_source_descriptor,
     github_source_descriptor,
     gitlab_source_descriptor,
     gmail_source_descriptor,
     google_drive_source_descriptor,
     jira_source_descriptor,
+    local_document_source_descriptor,
     microsoft_mail_source_descriptor,
     slack_source_descriptor,
+    web_clip_source_descriptor,
+)
+from open_brain_connectors.runtime.web_clip import (
+    WebClipCheckpointStore,
+    WebClipSourceAdapter,
 )
 
 __all__ = ["run_cli"]
@@ -144,6 +164,97 @@ def _parser() -> argparse.ArgumentParser:
     checkpoint = github_subparsers.add_parser("checkpoint")
     _add_repository_args(checkpoint)
     checkpoint.add_argument("--checkpoint-dir", required=True)
+
+    agent_session = subparsers.add_parser(
+        "agent-session",
+        help="Explicit local agent-session selection and preview.",
+    )
+    agent_subparsers = agent_session.add_subparsers(
+        dest="agent_session_command",
+        required=True,
+    )
+
+    agent_selection = agent_subparsers.add_parser("select-project")
+    _add_agent_project_args(agent_selection)
+
+    agent_preview = agent_subparsers.add_parser("preview-events")
+    _add_agent_project_args(agent_preview)
+    agent_preview.add_argument("--input", required=True)
+    agent_preview.add_argument("--include-transcripts", action="store_true")
+    agent_preview.add_argument("--next-cursor")
+    agent_preview.add_argument("--session-id", action="append", required=True)
+
+    agent_checkpoint = agent_subparsers.add_parser("checkpoint")
+    _add_agent_project_args(agent_checkpoint)
+    agent_checkpoint.add_argument("--checkpoint-dir", required=True)
+
+    local_document = subparsers.add_parser(
+        "local-document",
+        help="Explicit local document selection and preview.",
+    )
+    document_subparsers = local_document.add_subparsers(
+        dest="local_document_command",
+        required=True,
+    )
+
+    document_selection = document_subparsers.add_parser("select-file")
+    _add_local_document_args(document_selection)
+
+    document_preview = document_subparsers.add_parser("preview-file")
+    _add_local_document_args(document_preview)
+    document_preview.add_argument("--input", required=True)
+    document_preview.add_argument("--next-cursor")
+    document_preview.add_argument("--document-id", action="append", required=True)
+
+    document_checkpoint = document_subparsers.add_parser("checkpoint")
+    _add_local_document_args(document_checkpoint)
+    document_checkpoint.add_argument("--checkpoint-dir", required=True)
+
+    web_clip = subparsers.add_parser(
+        "web-clip",
+        help="Explicit browser-to-local web clip selection and preview.",
+    )
+    web_clip_subparsers = web_clip.add_subparsers(
+        dest="web_clip_command",
+        required=True,
+    )
+
+    web_clip_selection = web_clip_subparsers.add_parser("select-browser")
+    _add_web_clip_args(web_clip_selection)
+
+    web_clip_preview = web_clip_subparsers.add_parser("preview-clips")
+    _add_web_clip_args(web_clip_preview)
+    web_clip_preview.add_argument("--input", required=True)
+    web_clip_preview.add_argument("--next-cursor")
+    web_clip_preview.add_argument("--clip-id", action="append", required=True)
+
+    web_clip_checkpoint = web_clip_subparsers.add_parser("checkpoint")
+    _add_web_clip_args(web_clip_checkpoint)
+    web_clip_checkpoint.add_argument("--checkpoint-dir", required=True)
+
+    calendar = subparsers.add_parser(
+        "calendar",
+        help="Selected calendar date-range selection and preview.",
+    )
+    calendar_subparsers = calendar.add_subparsers(
+        dest="calendar_command",
+        required=True,
+    )
+
+    calendar_selection = calendar_subparsers.add_parser("select-calendar")
+    _add_calendar_args(calendar_selection)
+
+    calendar_preview = calendar_subparsers.add_parser("preview-events")
+    _add_calendar_args(calendar_preview)
+    calendar_preview.add_argument("--input", required=True)
+    calendar_preview.add_argument("--range-start", required=True)
+    calendar_preview.add_argument("--range-end", required=True)
+    calendar_preview.add_argument("--next-cursor")
+    calendar_preview.add_argument("--event-id", action="append", required=True)
+
+    calendar_checkpoint = calendar_subparsers.add_parser("checkpoint")
+    _add_calendar_args(calendar_checkpoint)
+    calendar_checkpoint.add_argument("--checkpoint-dir", required=True)
     return parser
 
 
@@ -153,17 +264,44 @@ def _add_repository_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--repository", required=True)
 
 
+def _add_agent_project_args(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("--connection-id", required=True)
+    parser.add_argument("--project-id", required=True)
+
+
+def _add_local_document_args(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("--connection-id", required=True)
+    parser.add_argument("--selected-document-id", required=True)
+    parser.add_argument("--file-kind", required=True)
+
+
+def _add_web_clip_args(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("--connection-id", required=True)
+    parser.add_argument("--browser-id", required=True)
+    parser.add_argument("--clip-type", required=True)
+
+
+def _add_calendar_args(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("--connection-id", required=True)
+    parser.add_argument("--calendar-id", required=True)
+    parser.add_argument("--provider", required=True)
+
+
 def _run(parsed: argparse.Namespace) -> dict[str, object]:
     if parsed.command == "catalog":
         catalog = SourceCatalog(
             (
                 github_source_descriptor(),
+                agent_session_source_descriptor(),
+                calendar_source_descriptor(),
                 gitlab_source_descriptor(),
                 gmail_source_descriptor(),
                 google_drive_source_descriptor(),
                 jira_source_descriptor(),
+                local_document_source_descriptor(),
                 microsoft_mail_source_descriptor(),
                 slack_source_descriptor(),
+                web_clip_source_descriptor(),
             )
         )
         return {
@@ -171,6 +309,14 @@ def _run(parsed: argparse.Namespace) -> dict[str, object]:
             "schema_version": 1,
             "status": "ok",
         }
+    if parsed.command == "agent-session":
+        return _run_agent_session(parsed)
+    if parsed.command == "local-document":
+        return _run_local_document(parsed)
+    if parsed.command == "web-clip":
+        return _run_web_clip(parsed)
+    if parsed.command == "calendar":
+        return _run_calendar(parsed)
     if parsed.command != "github":
         raise _UsageError("invalid command")
     adapter = GitHubSourceAdapter()
@@ -325,6 +471,192 @@ def _run(parsed: argparse.Namespace) -> dict[str, object]:
             repository=cast(str, parsed.repository),
         )
         checkpoint = GitHubRepositoryCheckpointStore(Path(cast(str, parsed.checkpoint_dir))).load(
+            selection
+        )
+        return {**checkpoint.to_dict(), "status": "ok"}
+    raise _UsageError("invalid command")
+
+
+def _run_agent_session(parsed: argparse.Namespace) -> dict[str, object]:
+    adapter = AgentSessionSourceAdapter()
+    command = cast(str, parsed.agent_session_command)
+    if command == "select-project":
+        selection = adapter.project_selection(
+            connection_id=cast(str, parsed.connection_id),
+            project_id=cast(str, parsed.project_id),
+        )
+        return {
+            "connection_id": selection.connection_id,
+            "connector_name": selection.connector_name,
+            "resource_id": selection.resource_id,
+            "resource_type": selection.resource_type,
+            "schema_version": 1,
+            "status": "selected",
+        }
+    if command == "preview-events":
+        selection = adapter.project_selection(
+            connection_id=cast(str, parsed.connection_id),
+            project_id=cast(str, parsed.project_id),
+        )
+        events = _read_json_list(Path(cast(str, parsed.input)))
+        page = adapter.page_from_events(
+            selection,
+            events,
+            privacy=_local_agent_privacy(),
+            include_transcripts=cast(bool, parsed.include_transcripts),
+            selected_session_ids=tuple(cast(list[str], parsed.session_id)),
+            next_cursor=parsed.next_cursor,
+        )
+        if page.preview is None:
+            raise ConnectorContractError("invalid agent session page")
+        return {**page.preview.to_dict(), "status": page.status.value}
+    if command == "checkpoint":
+        selection = adapter.project_selection(
+            connection_id=cast(str, parsed.connection_id),
+            project_id=cast(str, parsed.project_id),
+        )
+        checkpoint = AgentSessionCheckpointStore(
+            Path(cast(str, parsed.checkpoint_dir))
+        ).load(selection)
+        return {**checkpoint.to_dict(), "status": "ok"}
+    raise _UsageError("invalid command")
+
+
+def _run_local_document(parsed: argparse.Namespace) -> dict[str, object]:
+    adapter = LocalDocumentSourceAdapter()
+    command = cast(str, parsed.local_document_command)
+    if command == "select-file":
+        selection = adapter.file_selection(
+            connection_id=cast(str, parsed.connection_id),
+            document_id=cast(str, parsed.selected_document_id),
+            file_kind=cast(str, parsed.file_kind),
+        )
+        return {
+            "connection_id": selection.connection_id,
+            "connector_name": selection.connector_name,
+            "resource_id": selection.resource_id,
+            "resource_type": selection.resource_type,
+            "schema_version": 1,
+            "status": "selected",
+        }
+    if command == "preview-file":
+        selection = adapter.file_selection(
+            connection_id=cast(str, parsed.connection_id),
+            document_id=cast(str, parsed.selected_document_id),
+            file_kind=cast(str, parsed.file_kind),
+        )
+        documents = _read_json_list(Path(cast(str, parsed.input)))
+        page = adapter.page_from_documents(
+            selection,
+            documents,
+            privacy=_local_agent_privacy(),
+            selected_document_ids=tuple(cast(list[str], parsed.document_id)),
+            next_cursor=parsed.next_cursor,
+        )
+        if page.preview is None:
+            raise ConnectorContractError("invalid local document page")
+        return {**page.preview.to_dict(), "status": page.status.value}
+    if command == "checkpoint":
+        selection = adapter.file_selection(
+            connection_id=cast(str, parsed.connection_id),
+            document_id=cast(str, parsed.selected_document_id),
+            file_kind=cast(str, parsed.file_kind),
+        )
+        checkpoint = LocalDocumentCheckpointStore(
+            Path(cast(str, parsed.checkpoint_dir))
+        ).load(selection)
+        return {**checkpoint.to_dict(), "status": "ok"}
+    raise _UsageError("invalid command")
+
+
+def _run_web_clip(parsed: argparse.Namespace) -> dict[str, object]:
+    adapter = WebClipSourceAdapter()
+    command = cast(str, parsed.web_clip_command)
+    if command == "select-browser":
+        selection = adapter.clip_selection(
+            connection_id=cast(str, parsed.connection_id),
+            browser_id=cast(str, parsed.browser_id),
+            clip_type=cast(str, parsed.clip_type),
+        )
+        return {
+            "connection_id": selection.connection_id,
+            "connector_name": selection.connector_name,
+            "resource_id": selection.resource_id,
+            "resource_type": selection.resource_type,
+            "schema_version": 1,
+            "status": "selected",
+        }
+    if command == "preview-clips":
+        selection = adapter.clip_selection(
+            connection_id=cast(str, parsed.connection_id),
+            browser_id=cast(str, parsed.browser_id),
+            clip_type=cast(str, parsed.clip_type),
+        )
+        clips = _read_json_list(Path(cast(str, parsed.input)))
+        page = adapter.page_from_clips(
+            selection,
+            clips,
+            privacy=_local_agent_privacy(),
+            selected_clip_ids=tuple(cast(list[str], parsed.clip_id)),
+            next_cursor=parsed.next_cursor,
+        )
+        if page.preview is None:
+            raise ConnectorContractError("invalid web clip page")
+        return {**page.preview.to_dict(), "status": page.status.value}
+    if command == "checkpoint":
+        selection = adapter.clip_selection(
+            connection_id=cast(str, parsed.connection_id),
+            browser_id=cast(str, parsed.browser_id),
+            clip_type=cast(str, parsed.clip_type),
+        )
+        checkpoint = WebClipCheckpointStore(Path(cast(str, parsed.checkpoint_dir))).load(selection)
+        return {**checkpoint.to_dict(), "status": "ok"}
+    raise _UsageError("invalid command")
+
+
+def _run_calendar(parsed: argparse.Namespace) -> dict[str, object]:
+    adapter = CalendarSourceAdapter()
+    command = cast(str, parsed.calendar_command)
+    if command == "select-calendar":
+        selection = adapter.calendar_selection(
+            connection_id=cast(str, parsed.connection_id),
+            calendar_id=cast(str, parsed.calendar_id),
+            provider=cast(str, parsed.provider),
+        )
+        return {
+            "connection_id": selection.connection_id,
+            "connector_name": selection.connector_name,
+            "resource_id": selection.resource_id,
+            "resource_type": selection.resource_type,
+            "schema_version": 1,
+            "status": "selected",
+        }
+    if command == "preview-events":
+        selection = adapter.calendar_selection(
+            connection_id=cast(str, parsed.connection_id),
+            calendar_id=cast(str, parsed.calendar_id),
+            provider=cast(str, parsed.provider),
+        )
+        events = _read_json_list(Path(cast(str, parsed.input)))
+        page = adapter.page_from_events(
+            selection,
+            events,
+            privacy=_local_agent_privacy(),
+            selected_event_ids=tuple(cast(list[str], parsed.event_id)),
+            range_start=cast(str, parsed.range_start),
+            range_end=cast(str, parsed.range_end),
+            next_cursor=parsed.next_cursor,
+        )
+        if page.preview is None:
+            raise ConnectorContractError("invalid calendar page")
+        return {**page.preview.to_dict(), "status": page.status.value}
+    if command == "checkpoint":
+        selection = adapter.calendar_selection(
+            connection_id=cast(str, parsed.connection_id),
+            calendar_id=cast(str, parsed.calendar_id),
+            provider=cast(str, parsed.provider),
+        )
+        checkpoint = CalendarCheckpointStore(Path(cast(str, parsed.checkpoint_dir))).load(
             selection
         )
         return {**checkpoint.to_dict(), "status": "ok"}
@@ -758,6 +1090,18 @@ def _public_provider_privacy() -> PrivacyDecision:
             "policy_version": "privacy-v1",
             "reason": "policy_public",
             "tier": "public",
+        }
+    )
+
+
+def _local_agent_privacy() -> PrivacyDecision:
+    return PrivacyDecision.from_dict(
+        {
+            "authority": {"cloud": False, "external_egress": False},
+            "confirmation_ref": None,
+            "policy_version": "privacy-v1",
+            "reason": "personal_local_only",
+            "tier": "personal",
         }
     )
 

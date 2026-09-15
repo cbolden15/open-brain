@@ -15,9 +15,13 @@ __all__ = [
     "D4_GITLAB_SOURCE",
     "D4_GMAIL_SOURCE",
     "D4_GOOGLE_DRIVE_SOURCE",
+    "D4_AGENT_SESSION_SOURCE",
     "D4_JIRA_SOURCE",
     "D4_MICROSOFT_MAIL_SOURCE",
     "D4_SLACK_SOURCE",
+    "D5_LOCAL_DOCUMENT_SOURCE",
+    "D5_CALENDAR_SOURCE",
+    "D5_WEB_CLIP_SOURCE",
     "SourceAuthMode",
     "SourceCatalog",
     "SourceConnectorDescriptor",
@@ -28,9 +32,13 @@ __all__ = [
     "github_source_descriptor",
     "gmail_source_descriptor",
     "google_drive_source_descriptor",
+    "agent_session_source_descriptor",
     "jira_source_descriptor",
+    "local_document_source_descriptor",
+    "calendar_source_descriptor",
     "microsoft_mail_source_descriptor",
     "slack_source_descriptor",
+    "web_clip_source_descriptor",
 ]
 
 _CONNECTOR_NAME = re.compile(r"[a-z][a-z0-9_-]{0,63}")
@@ -43,9 +51,13 @@ D2_GITHUB_SOURCE = "github"
 D4_GITLAB_SOURCE = "gitlab"
 D4_GMAIL_SOURCE = "gmail"
 D4_GOOGLE_DRIVE_SOURCE = "google_drive"
+D4_AGENT_SESSION_SOURCE = "agent_session"
 D4_JIRA_SOURCE = "jira"
 D4_MICROSOFT_MAIL_SOURCE = "microsoft_mail"
 D4_SLACK_SOURCE = "slack"
+D5_LOCAL_DOCUMENT_SOURCE = "local_document"
+D5_CALENDAR_SOURCE = "calendar"
+D5_WEB_CLIP_SOURCE = "web_clip"
 
 
 class SourceAuthMode(StrEnum):
@@ -362,6 +374,21 @@ def google_drive_source_descriptor() -> SourceConnectorDescriptor:
     )
 
 
+def agent_session_source_descriptor() -> SourceConnectorDescriptor:
+    """Return D4's local agent-session capture capability."""
+
+    return SourceConnectorDescriptor(
+        schema_version=1,
+        connector_name=D4_AGENT_SESSION_SOURCE,
+        display_name="Agent Sessions",
+        auth_mode=SourceAuthMode.SESSION_ONLY,
+        resource_types=("local_project",),
+        content_types=("session_summary", "session_transcript"),
+        preview_limit=25,
+        public_onboarding=False,
+    )
+
+
 def jira_source_descriptor() -> SourceConnectorDescriptor:
     """Return D4's planned Jira source capability without importing a provider client."""
 
@@ -404,6 +431,51 @@ def slack_source_descriptor() -> SourceConnectorDescriptor:
         content_types=("message", "thread_reply"),
         preview_limit=25,
         public_onboarding=True,
+    )
+
+
+def local_document_source_descriptor() -> SourceConnectorDescriptor:
+    """Return D5.1's explicit local document capture capability."""
+
+    return SourceConnectorDescriptor(
+        schema_version=1,
+        connector_name=D5_LOCAL_DOCUMENT_SOURCE,
+        display_name="Local Documents",
+        auth_mode=SourceAuthMode.SESSION_ONLY,
+        resource_types=("docx_file", "text_pdf"),
+        content_types=("document_text",),
+        preview_limit=25,
+        public_onboarding=False,
+    )
+
+
+def calendar_source_descriptor() -> SourceConnectorDescriptor:
+    """Return D5.2's selected calendar/date-range capture capability."""
+
+    return SourceConnectorDescriptor(
+        schema_version=1,
+        connector_name=D5_CALENDAR_SOURCE,
+        display_name="Calendars",
+        auth_mode=SourceAuthMode.DEVICE_FLOW,
+        resource_types=("google_calendar", "outlook_calendar"),
+        content_types=("calendar_event",),
+        preview_limit=25,
+        public_onboarding=True,
+    )
+
+
+def web_clip_source_descriptor() -> SourceConnectorDescriptor:
+    """Return D5.1's explicit browser-to-local web clip capability."""
+
+    return SourceConnectorDescriptor(
+        schema_version=1,
+        connector_name=D5_WEB_CLIP_SOURCE,
+        display_name="Web Clips",
+        auth_mode=SourceAuthMode.SESSION_ONLY,
+        resource_types=("current_page", "selected_passage"),
+        content_types=("page", "selected_passage"),
+        preview_limit=25,
+        public_onboarding=False,
     )
 
 

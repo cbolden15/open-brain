@@ -24,6 +24,26 @@ def test_source_cli_catalog_exposes_registered_public_onboarding(
     connectors = cast(list[dict[str, object]], payload["connectors"])
     assert connectors == [
         {
+            "auth_mode": "session_only",
+            "connector_name": "agent_session",
+            "content_types": ["session_summary", "session_transcript"],
+            "display_name": "Agent Sessions",
+            "preview_limit": 25,
+            "public_onboarding": False,
+            "resource_types": ["local_project"],
+            "schema_version": 1,
+        },
+        {
+            "auth_mode": "device_flow",
+            "connector_name": "calendar",
+            "content_types": ["calendar_event"],
+            "display_name": "Calendars",
+            "preview_limit": 25,
+            "public_onboarding": True,
+            "resource_types": ["google_calendar", "outlook_calendar"],
+            "schema_version": 1,
+        },
+        {
             "auth_mode": "device_flow",
             "connector_name": "github",
             "content_types": ["comment", "issue", "pull_request"],
@@ -74,6 +94,16 @@ def test_source_cli_catalog_exposes_registered_public_onboarding(
             "schema_version": 1,
         },
         {
+            "auth_mode": "session_only",
+            "connector_name": "local_document",
+            "content_types": ["document_text"],
+            "display_name": "Local Documents",
+            "preview_limit": 25,
+            "public_onboarding": False,
+            "resource_types": ["docx_file", "text_pdf"],
+            "schema_version": 1,
+        },
+        {
             "auth_mode": "device_flow",
             "connector_name": "microsoft_mail",
             "content_types": ["mail_message"],
@@ -93,7 +123,557 @@ def test_source_cli_catalog_exposes_registered_public_onboarding(
             "resource_types": ["channel"],
             "schema_version": 1,
         },
+        {
+            "auth_mode": "session_only",
+            "connector_name": "web_clip",
+            "content_types": ["page", "selected_passage"],
+            "display_name": "Web Clips",
+            "preview_limit": 25,
+            "public_onboarding": False,
+            "resource_types": ["current_page", "selected_passage"],
+            "schema_version": 1,
+        },
     ]
+
+
+def test_source_cli_selects_agent_session_project(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    assert (
+        run_cli(
+            (
+                "agent-session",
+                "select-project",
+                "--connection-id",
+                "account:agent-fixture",
+                "--project-id",
+                "project:0123456789abcdef0123456789abcdef",
+            )
+        )
+        == 0
+    )
+    payload = _json(capsys)
+
+    assert payload == {
+        "connection_id": "account:agent-fixture",
+        "connector_name": "agent_session",
+        "resource_id": "project:0123456789abcdef0123456789abcdef",
+        "resource_type": "local_project",
+        "schema_version": 1,
+        "status": "selected",
+    }
+
+
+def test_source_cli_selects_calendar(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    assert (
+        run_cli(
+            (
+                "calendar",
+                "select-calendar",
+                "--connection-id",
+                "account:calendar-fixture",
+                "--calendar-id",
+                "calendar:primary",
+                "--provider",
+                "google_calendar",
+            )
+        )
+        == 0
+    )
+    payload = _json(capsys)
+
+    assert payload == {
+        "connection_id": "account:calendar-fixture",
+        "connector_name": "calendar",
+        "resource_id": "calendar:primary",
+        "resource_type": "google_calendar",
+        "schema_version": 1,
+        "status": "selected",
+    }
+
+
+def test_source_cli_previews_calendar_events_without_payload_bodies(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    source = tmp_path / "events.json"
+    source.write_text(
+        json.dumps(
+            [
+                {
+                    "attendees": ["Ada Example"],
+                    "body_secret_scan": "clean",
+                    "calendar_id": "calendar:primary",
+                    "description": "Synthetic event body must not print.",
+                    "end_time": "2026-09-15T10:30:00Z",
+                    "event_id": "event:standup",
+                    "provider": "google_calendar",
+                    "revision_id": "rev-1",
+                    "source_kind": "calendar_event",
+                    "start_time": "2026-09-15T10:00:00Z",
+                    "timezone": "America/Chicago",
+                    "title": "Daily Standup",
+                }
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    assert (
+        run_cli(
+            (
+                "calendar",
+                "preview-events",
+                "--connection-id",
+                "account:calendar-fixture",
+                "--calendar-id",
+                "calendar:primary",
+                "--provider",
+                "google_calendar",
+                "--input",
+                str(source),
+                "--event-id",
+                "event:standup",
+                "--range-start",
+                "2026-09-15T00:00:00Z",
+                "--range-end",
+                "2026-09-16T00:00:00Z",
+            )
+        )
+        == 0
+    )
+    payload = _json(capsys)
+
+    assert payload["connector_name"] == "calendar"
+    assert payload["resource_id"] == "calendar:primary"
+    assert payload["resource_type"] == "google_calendar"
+    assert payload["status"] == "ready"
+    records = cast(list[dict[str, object]], payload["records"])
+    assert records[0]["content_type"] == "calendar_event"
+    assert records[0]["title"] == "Daily Standup"
+    assert "must not print" not in json.dumps(payload)
+
+
+def test_source_cli_previews_agent_session_events_without_payload_bodies(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    source = tmp_path / "agent-events.json"
+    source.write_text(
+        json.dumps(
+            [
+                {
+                    "brain_result_reference": False,
+                    "client_name": "codex",
+                    "project_id": "project:0123456789abcdef0123456789abcdef",
+                    "revision_id": "rev-1",
+                    "session_id": "codex-session-1",
+                    "source_kind": "agent_session",
+                    "summary": "Synthetic summary body must not print.",
+                    "summary_secret_scan": "clean",
+                    "transcript": "Synthetic transcript body must not print.",
+                    "transcript_secret_scan": "clean",
+                }
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    assert (
+        run_cli(
+            (
+                "agent-session",
+                "preview-events",
+                "--connection-id",
+                "account:agent-fixture",
+                "--project-id",
+                "project:0123456789abcdef0123456789abcdef",
+                "--input",
+                str(source),
+                "--include-transcripts",
+                "--next-cursor",
+                "cursor:agent2",
+                "--session-id",
+                "codex-session-1",
+            )
+        )
+        == 0
+    )
+    payload = _json(capsys)
+
+    assert payload["status"] == "ready"
+    assert payload["next_cursor"] == "cursor:agent2"
+    records = cast(list[dict[str, object]], payload["records"])
+    assert [record["content_type"] for record in records] == [
+        "session_summary",
+        "session_transcript",
+    ]
+    assert all(record["selected"] is True for record in records)
+    assert "must not print" not in repr(payload)
+
+
+def test_source_cli_reports_agent_session_checkpoint_without_payload(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    assert (
+        run_cli(
+            (
+                "agent-session",
+                "checkpoint",
+                "--connection-id",
+                "account:agent-fixture",
+                "--project-id",
+                "project:0123456789abcdef0123456789abcdef",
+                "--checkpoint-dir",
+                str(tmp_path / "checkpoints"),
+            )
+        )
+        == 0
+    )
+    payload = _json(capsys)
+
+    assert payload["status"] == "ok"
+    assert payload["resource_id"] == "project:0123456789abcdef0123456789abcdef"
+    assert payload["committed_delivery_ids"] == []
+    assert payload["committed_revision_identities"] == []
+    assert "Synthetic" not in repr(payload)
+
+
+def test_source_cli_selects_local_document_file(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    assert (
+        run_cli(
+            (
+                "local-document",
+                "select-file",
+                "--connection-id",
+                "account:local-doc-fixture",
+                "--selected-document-id",
+                "document:0123456789abcdef0123456789abcdef",
+                "--file-kind",
+                "text_pdf",
+            )
+        )
+        == 0
+    )
+    payload = _json(capsys)
+
+    assert payload == {
+        "connection_id": "account:local-doc-fixture",
+        "connector_name": "local_document",
+        "resource_id": "document:0123456789abcdef0123456789abcdef",
+        "resource_type": "text_pdf",
+        "schema_version": 1,
+        "status": "selected",
+    }
+
+
+def test_source_cli_previews_local_document_without_payload_body(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    source = tmp_path / "documents.json"
+    source.write_text(
+        json.dumps(
+            [
+                {
+                    "document_id": "document:0123456789abcdef0123456789abcdef",
+                    "file_kind": "text_pdf",
+                    "revision_id": "rev-1",
+                    "source_kind": "local_document",
+                    "text": "Synthetic local document body must not print.",
+                    "text_secret_scan": "clean",
+                    "title": "Fixture PDF",
+                }
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    assert (
+        run_cli(
+            (
+                "local-document",
+                "preview-file",
+                "--connection-id",
+                "account:local-doc-fixture",
+                "--selected-document-id",
+                "document:0123456789abcdef0123456789abcdef",
+                "--file-kind",
+                "text_pdf",
+                "--input",
+                str(source),
+                "--next-cursor",
+                "cursor:doc2",
+                "--document-id",
+                "document:0123456789abcdef0123456789abcdef",
+            )
+        )
+        == 0
+    )
+    payload = _json(capsys)
+
+    assert payload["status"] == "ready"
+    assert payload["next_cursor"] == "cursor:doc2"
+    records = cast(list[dict[str, object]], payload["records"])
+    assert [record["content_type"] for record in records] == ["document_text"]
+    assert records[0]["selected"] is True
+    assert "must not print" not in repr(payload)
+
+
+def test_source_cli_rejects_local_document_secret_title_without_printing_it(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    source = tmp_path / "documents.json"
+    source.write_text(
+        json.dumps(
+            [
+                {
+                    "document_id": "document:0123456789abcdef0123456789abcdef",
+                    "file_kind": "text_pdf",
+                    "revision_id": "rev-1",
+                    "source_kind": "local_document",
+                    "text": "Synthetic local document body.",
+                    "text_secret_scan": "clean",
+                    "title": "access_token = synthetic-secret",
+                }
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    assert (
+        run_cli(
+            (
+                "local-document",
+                "preview-file",
+                "--connection-id",
+                "account:local-doc-fixture",
+                "--selected-document-id",
+                "document:0123456789abcdef0123456789abcdef",
+                "--file-kind",
+                "text_pdf",
+                "--input",
+                str(source),
+                "--document-id",
+                "document:0123456789abcdef0123456789abcdef",
+            )
+        )
+        == 78
+    )
+    payload = _json(capsys)
+
+    assert payload == {
+        "error": {"code": "invalid local document record"},
+        "status": "failed",
+    }
+    assert "synthetic-secret" not in repr(payload)
+
+
+def test_source_cli_reports_local_document_checkpoint_without_payload(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    assert (
+        run_cli(
+            (
+                "local-document",
+                "checkpoint",
+                "--connection-id",
+                "account:local-doc-fixture",
+                "--selected-document-id",
+                "document:0123456789abcdef0123456789abcdef",
+                "--file-kind",
+                "docx_file",
+                "--checkpoint-dir",
+                str(tmp_path / "checkpoints"),
+            )
+        )
+        == 0
+    )
+    payload = _json(capsys)
+
+    assert payload["status"] == "ok"
+    assert payload["resource_id"] == "document:0123456789abcdef0123456789abcdef"
+    assert payload["resource_type"] == "docx_file"
+    assert payload["committed_delivery_ids"] == []
+    assert payload["committed_revision_identities"] == []
+
+
+def test_source_cli_selects_web_clip_browser(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    assert (
+        run_cli(
+            (
+                "web-clip",
+                "select-browser",
+                "--connection-id",
+                "account:web-clip-fixture",
+                "--browser-id",
+                "browser:safari-fixture",
+                "--clip-type",
+                "selected_passage",
+            )
+        )
+        == 0
+    )
+    payload = _json(capsys)
+
+    assert payload == {
+        "connection_id": "account:web-clip-fixture",
+        "connector_name": "web_clip",
+        "resource_id": "browser:safari-fixture",
+        "resource_type": "selected_passage",
+        "schema_version": 1,
+        "status": "selected",
+    }
+
+
+def test_source_cli_previews_web_clip_without_payload_body_or_history(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    source = tmp_path / "web-clips.json"
+    source.write_text(
+        json.dumps(
+            [
+                {
+                    "browser_id": "browser:safari-fixture",
+                    "clip_id": "clip:0123456789abcdef0123456789abcdef",
+                    "clip_type": "selected_passage",
+                    "cookie_capture": False,
+                    "history_scan": False,
+                    "page_url": "https://example.invalid/page",
+                    "revision_id": "rev-1",
+                    "source_kind": "web_clip",
+                    "text": "Synthetic web clip body must not print.",
+                    "text_secret_scan": "clean",
+                    "title": "Fixture Page",
+                }
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    assert (
+        run_cli(
+            (
+                "web-clip",
+                "preview-clips",
+                "--connection-id",
+                "account:web-clip-fixture",
+                "--browser-id",
+                "browser:safari-fixture",
+                "--clip-type",
+                "selected_passage",
+                "--input",
+                str(source),
+                "--next-cursor",
+                "cursor:clip2",
+                "--clip-id",
+                "clip:0123456789abcdef0123456789abcdef",
+            )
+        )
+        == 0
+    )
+    payload = _json(capsys)
+
+    assert payload["status"] == "ready"
+    assert payload["next_cursor"] == "cursor:clip2"
+    records = cast(list[dict[str, object]], payload["records"])
+    assert [record["content_type"] for record in records] == ["selected_passage"]
+    assert records[0]["selected"] is True
+    assert "must not print" not in repr(payload)
+
+
+def test_source_cli_rejects_web_clip_history_scan_without_printing_body(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    source = tmp_path / "web-clips.json"
+    source.write_text(
+        json.dumps(
+            [
+                {
+                    "browser_id": "browser:safari-fixture",
+                    "clip_id": "clip:0123456789abcdef0123456789abcdef",
+                    "clip_type": "selected_passage",
+                    "cookie_capture": False,
+                    "history_scan": True,
+                    "page_url": "https://example.invalid/page",
+                    "revision_id": "rev-1",
+                    "source_kind": "web_clip",
+                    "text": "Synthetic web clip body must not print.",
+                    "text_secret_scan": "clean",
+                    "title": "Fixture Page",
+                }
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    assert (
+        run_cli(
+            (
+                "web-clip",
+                "preview-clips",
+                "--connection-id",
+                "account:web-clip-fixture",
+                "--browser-id",
+                "browser:safari-fixture",
+                "--clip-type",
+                "selected_passage",
+                "--input",
+                str(source),
+                "--clip-id",
+                "clip:0123456789abcdef0123456789abcdef",
+            )
+        )
+        == 78
+    )
+    payload = _json(capsys)
+
+    assert payload == {
+        "error": {"code": "invalid web clip record"},
+        "status": "failed",
+    }
+    assert "must not print" not in repr(payload)
+
+
+def test_source_cli_reports_web_clip_checkpoint_without_payload(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    assert (
+        run_cli(
+            (
+                "web-clip",
+                "checkpoint",
+                "--connection-id",
+                "account:web-clip-fixture",
+                "--browser-id",
+                "browser:safari-fixture",
+                "--clip-type",
+                "current_page",
+                "--checkpoint-dir",
+                str(tmp_path / "checkpoints"),
+            )
+        )
+        == 0
+    )
+    payload = _json(capsys)
+
+    assert payload["status"] == "ok"
+    assert payload["resource_id"] == "browser:safari-fixture"
+    assert payload["resource_type"] == "current_page"
+    assert payload["committed_delivery_ids"] == []
+    assert payload["committed_revision_identities"] == []
 
 
 def test_source_cli_requires_approved_github_public_client_id(

@@ -11,13 +11,17 @@ from open_brain_connectors.runtime.source_registry import (
     SourcePreviewPage,
     SourcePreviewRecord,
     SourceResourceSelection,
+    agent_session_source_descriptor,
+    calendar_source_descriptor,
     github_source_descriptor,
     gitlab_source_descriptor,
     gmail_source_descriptor,
     google_drive_source_descriptor,
     jira_source_descriptor,
+    local_document_source_descriptor,
     microsoft_mail_source_descriptor,
     slack_source_descriptor,
+    web_clip_source_descriptor,
 )
 
 from .test_source_intake import _privacy
@@ -40,23 +44,30 @@ def test_source_catalog_lists_descriptors_without_import_or_capture_authority() 
     catalog = SourceCatalog(
         (
             jira_source_descriptor(),
+            agent_session_source_descriptor(),
+            calendar_source_descriptor(),
             github_source_descriptor(),
             gitlab_source_descriptor(),
             microsoft_mail_source_descriptor(),
+            local_document_source_descriptor(),
             google_drive_source_descriptor(),
             gmail_source_descriptor(),
             slack_source_descriptor(),
+            web_clip_source_descriptor(),
         )
     )
 
-    assert catalog.list()[0].connector_name == "github"
+    assert catalog.list()[0].connector_name == "agent_session"
+    assert catalog.require("agent_session").auth_mode is SourceAuthMode.SESSION_ONLY
     assert catalog.require("github").auth_mode is SourceAuthMode.DEVICE_FLOW
     assert catalog.require("gitlab").content_types == ("comment", "issue", "merge_request")
     assert catalog.require("gmail").resource_types == ("mail_label",)
     assert catalog.require("google_drive").resource_types == ("drive_file",)
     assert catalog.require("jira").content_types == ("comment", "issue")
+    assert catalog.require("local_document").resource_types == ("docx_file", "text_pdf")
     assert catalog.require("microsoft_mail").resource_types == ("mail_folder",)
     assert catalog.require("slack").content_types == ("message", "thread_reply")
+    assert catalog.require("web_clip").content_types == ("page", "selected_passage")
     with pytest.raises(ConnectorContractError, match="source connector is not registered"):
         catalog.require("zoom")
 
@@ -101,6 +112,46 @@ def test_d4_slack_descriptor_declares_selected_channel_thread_scope() -> None:
     assert slack.content_types == ("message", "thread_reply")
     assert slack.auth_mode is SourceAuthMode.DEVICE_FLOW
     assert slack.public_onboarding is True
+
+
+def test_d4_agent_session_descriptor_declares_local_project_session_scope() -> None:
+    descriptor = agent_session_source_descriptor()
+
+    assert descriptor.connector_name == "agent_session"
+    assert descriptor.display_name == "Agent Sessions"
+    assert descriptor.auth_mode is SourceAuthMode.SESSION_ONLY
+    assert descriptor.resource_types == ("local_project",)
+    assert descriptor.content_types == ("session_summary", "session_transcript")
+    assert descriptor.public_onboarding is False
+
+
+def test_d5_1_descriptors_declare_explicit_local_selection_scope() -> None:
+    document = local_document_source_descriptor()
+    web_clip = web_clip_source_descriptor()
+
+    assert document.connector_name == "local_document"
+    assert document.display_name == "Local Documents"
+    assert document.auth_mode is SourceAuthMode.SESSION_ONLY
+    assert document.resource_types == ("docx_file", "text_pdf")
+    assert document.content_types == ("document_text",)
+    assert document.public_onboarding is False
+    assert web_clip.connector_name == "web_clip"
+    assert web_clip.display_name == "Web Clips"
+    assert web_clip.auth_mode is SourceAuthMode.SESSION_ONLY
+    assert web_clip.resource_types == ("current_page", "selected_passage")
+    assert web_clip.content_types == ("page", "selected_passage")
+    assert web_clip.public_onboarding is False
+
+
+def test_d5_2_descriptor_declares_selected_calendar_scope() -> None:
+    descriptor = calendar_source_descriptor()
+
+    assert descriptor.connector_name == "calendar"
+    assert descriptor.display_name == "Calendars"
+    assert descriptor.auth_mode is SourceAuthMode.DEVICE_FLOW
+    assert descriptor.resource_types == ("google_calendar", "outlook_calendar")
+    assert descriptor.content_types == ("calendar_event",)
+    assert descriptor.public_onboarding is True
 
 
 def test_source_preview_page_is_bounded_metadata_only_and_selection_bound() -> None:
