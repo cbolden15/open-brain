@@ -32,6 +32,7 @@ from open_brain.services.local_mcp import (
     MAX_REVIEW_DECISION_CALLS,
     MAX_REVIEW_PROPOSAL_CALLS,
     MAX_REVIEW_READ_CALLS,
+    MAX_REVIEW_RESPONSE_BYTES,
     LocalMcpAdapter,
 )
 from open_brain.services.local_operations import mcp_capture_sink, search_brain
@@ -284,17 +285,37 @@ def test_review_quotas_validate_before_charging_and_separate_operation_groups() 
 
 def test_review_response_budget_includes_request_id_and_reserves_before_write() -> None:
     calls = 0
-    result = {"status": "listed", "proposals": [], "offset": 0, "next_offset": None}
+    result = {"status": "shown", "markdown": ('雪😀\\"\n\t\x00' * 1000)}
 
     def operation(_arguments: Mapping[str, object]) -> dict[str, object]:
         nonlocal calls
         calls += 1
         return result
 
-    request_id = "request-" + "x" * 200
+    request_id = "request-" + '😀\\"\n' * 200
     reader = LocalMcpAdapter(review_list=operation)
+    request = {**_call("brain_review_list", {}), "id": request_id}
+    incoming = b"".join(json.dumps(item).encode() + b"\n" for item in (INITIALIZE, request))
+    outgoing = io.BytesIO()
+    serve_stdio_mcp(
+        reader,
+        input_stream=io.BytesIO(incoming),
+        output_stream=outgoing,
+        maximum_message_bytes=MAX_MESSAGE_BYTES,
+    )
+    response_bytes = outgoing.getvalue().splitlines()[1]
+    response = json.loads(response_bytes)
+    assert response["result"]["structuredContent"] == result
+    assert json.loads(response["result"]["content"][0]["text"]) == result
+    size = len(response_bytes)
+    assert reader._review_response_bytes == size
+    assert size == encoded_tool_response_size(request_id, result)
+
+    reader._review_response_bytes = MAX_REVIEW_RESPONSE_BYTES - size
     assert reader.call_tool("brain_review_list", {}, request_id=request_id) == result
-    assert reader._review_response_bytes == encoded_tool_response_size(request_id, result)
+    assert reader._review_response_bytes == MAX_REVIEW_RESPONSE_BYTES
+    with pytest.raises(McpCallError, match="^session_review_response_limit$"):
+        reader.call_tool("brain_review_list", {}, request_id=request_id)
 
     writer = LocalMcpAdapter(review_propose=operation)
     with pytest.raises(McpCallError, match="^session_review_response_limit$"):
@@ -304,7 +325,15 @@ def test_review_response_budget_includes_request_id_and_reserves_before_write() 
             request_id=request_id,
             maximum_response_bytes=1024,
         )
-    assert calls == 1
+    assert calls == 3
+    writer._review_response_bytes = MAX_REVIEW_RESPONSE_BYTES - 1
+    with pytest.raises(McpCallError, match="^session_review_response_limit$"):
+        writer.call_tool(
+            "brain_review_propose",
+            {"capture_ids": [REVIEW_CAPTURE], "title": "Title", "markdown": "Body"},
+            request_id=request_id,
+        )
+    assert calls == 3
 
 
 @pytest.mark.parametrize(

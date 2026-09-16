@@ -170,8 +170,9 @@ def test_invalid_review_arguments_do_not_create_a_brain(
     assert not brain.exists()
 
 
+@pytest.mark.parametrize("platform_name", ["darwin", "linux"])
 def test_owner_review_cli_runs_all_operations_without_mcp_grants(
-    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], platform_name: str
 ) -> None:
     home = _private_home(tmp_path)
     brain = home / "brain"
@@ -194,7 +195,8 @@ def test_owner_review_cli_runs_all_operations_without_mcp_grants(
             run_cli(
                 (*arguments, "--data-dir", str(brain), "--json"),
                 environment={"HOME": str(home)},
-                platform_name="darwin",
+                platform_name=platform_name,
+                filesystem_type_probe=_filesystem,
             )
             == 0
         )
@@ -220,7 +222,8 @@ def test_owner_review_cli_runs_all_operations_without_mcp_grants(
         run_cli(
             ("review", "show", str(proposed["proposal_id"]), "--data-dir", str(brain)),
             environment={"HOME": str(home)},
-            platform_name="darwin",
+            platform_name=platform_name,
+            filesystem_type_probe=_filesystem,
         )
         == 0
     )
