@@ -1,0 +1,184 @@
+{
+  "id": "2026-09-14-desktop-companion-notes",
+  "title": "Implementation notes \u2014 Desktop companion and source capture",
+  "subtitle": "2026-09-14 23:42 UTC: D1 complete locally; D2 through D5 proposed; D5.4 removed",
+  "introTitle": "How to use",
+  "intro": "<p>Each item is a decision, deviation, or tradeoff made during implementation. <strong>Acknowledge</strong> if fine. <strong>Discuss</strong> to write what should change. <strong>Revert</strong> to flag for undo.</p>",
+  "actions": [
+    "acknowledge",
+    "discuss",
+    "revert"
+  ],
+  "groups": [
+    {
+      "id": "d0",
+      "label": "D0 \u2014 Native desktop and runtime boundary",
+      "badge": "D0"
+    },
+    {
+      "id": "d1",
+      "label": "D1: local use and agent setup",
+      "badge": "D1"
+    },
+    {
+      "id": "d5",
+      "label": "D5: proposed everyday knowledge sources",
+      "badge": "Proposed"
+    }
+  ],
+  "items": [
+    {
+      "id": "N1",
+      "group": "d0",
+      "title": "Serialize client admission and crash recovery",
+      "where": "packages/app/src/open_brain/services/local_runtime_session.py",
+      "default": "acknowledge",
+      "body": {
+        "Spec said": "Opening a second client must preserve live authority while actual crash recovery still revokes abandoned consent.",
+        "What I did": "Added private lock-held session markers and bounded registry locking. Admission waits for recovery, and failed admission or final recovery preserves a durable marker.",
+        "Why": "The existing bootstrap revoked active consent on every engine open. A simple live-client count also allowed admission during unfinished recovery and could lose crash evidence.",
+        "Risk": "Older installed clients do not participate in this registry. Matching the current version string alone does not establish safe mixed-release use.",
+        "Followup": "D1 must enforce and test a runtime/schema compatibility floor before opening the owner's Brain with multiple clients."
+      }
+    },
+    {
+      "id": "N2",
+      "group": "d0",
+      "title": "Bundle an exact core and Graphify pair",
+      "where": "packages/desktop/src-tauri/src/proof.rs",
+      "default": "acknowledge",
+      "body": {
+        "Spec said": "Compare the installed Homebrew runtime with a matched desktop bundle and prove native launch, helper integration, protocol checks, and cleanup.",
+        "What I did": "Selected a separately built Tauri bundle with digest-checked runtime/bin and runtime/libexec resources. The synthetic Brain lives outside the app. The native host owns whole process groups and closes spawn admission during shutdown.",
+        "Why": "An exact pair avoids depending on whichever CLI is installed. The core requires the helper's libexec layout. Measured packaged startup took 5.457 seconds, so its initial handshake budget is 15 seconds; later requests retain five-second limits.",
+        "Risk": "The longer initial deadline bounds cold startup but does not remove platform-specific startup variability. Public distribution is not established by a local ad hoc signed build.",
+        "Followup": "Retain native cold-start and quit-during-operation evidence as desktop behavior grows. Complete public signing and installation gates separately."
+      }
+    },
+    {
+      "id": "N3",
+      "group": "d0",
+      "title": "Prove collector control primitives without installing a service",
+      "where": "packages/desktop/tests/test_control_boundary.py",
+      "default": "acknowledge",
+      "body": {
+        "Spec said": "Choose and prove a private local control transport with single-instance ownership.",
+        "What I did": "Added an optional desktop test for Unix-domain request/reply, owner-only filesystem permissions, and exclusive instance locking.",
+        "Why": "This verifies the selected primitives without adding a listener or service dependency to the core. The existing core socket prohibition remains intact.",
+        "Risk": "The fixture is not a collector protocol or a hostile-same-user isolation boundary.",
+        "Followup": "D3 owns collector messages, durable pause, startup registration, scheduling, and service lifecycle."
+      }
+    },
+    {
+      "id": "N4",
+      "group": "d0",
+      "title": "Keep Linux and public release acceptance explicit",
+      "where": "D0 distribution boundary",
+      "default": "acknowledge",
+      "body": {
+        "Spec said": "Require native macOS arm64 evidence and define a Linux x86_64 packaging path without treating documentation as an install proof.",
+        "What I did": "Added the Linux AppImage build path and CI prerequisites. Documented clean-host Linux acceptance and public macOS signing/notarization as separate gates.",
+        "Why": "This workstation can establish local macOS behavior, not clean Linux behavior or a public desktop release.",
+        "Risk": "The new CI path has not been executed remotely. System-library and clean-host compatibility remain unverified.",
+        "Followup": "Run the Linux native/helper/UI checks on the intended baseline and complete public macOS installation evidence before advertising those release claims."
+      }
+    },
+    {
+      "id": "N5",
+      "group": "d0",
+      "title": "Implementation complete: D0 only",
+      "where": "docs/audits/2026-09-14-desktop-d0.md",
+      "default": "acknowledge",
+      "body": {
+        "Spec said": "Stop at the verified native/runtime boundary before implementing local onboarding or collection.",
+        "What I did": "Completed D0 with passing full verification, native audit, Homebrew preservation smoke, packaged proof, real native UI runs, and quit-during-operation process cleanup.",
+        "Why": "The desktop and shared runtime now have evidence for the next milestone. Synthetic capture/search is not presented as source onboarding.",
+        "Risk": "Five platform-specific filesystem tests skip on this Mac. Linux native acceptance, public desktop release, and mixed-old-client compatibility remain open gates.",
+        "Followup": "D1 is the next implementation milestone: usable local capture/search and Claude Code/Codex setup. D2 through D4 contain source connections and collection."
+      }
+    },
+    {
+      "id": "N6",
+      "group": "d1",
+      "title": "Keep setup usable headlessly",
+      "where": "D1",
+      "default": "acknowledge",
+      "body": {
+        "Spec said": "Provide local desktop capture/search and Claude Code/Codex setup.",
+        "What I did": "Use shared CLI setup and runtime operations beneath the optional desktop interface.",
+        "Why": "The owner retained the desktop app while confirming headless use remains supported.",
+        "Followup": "Source adapters and independent collection remain D2-D4."
+      }
+    },
+    {
+      "id": "N7",
+      "group": "d1",
+      "title": "Bind desktop and agents to one runtime and Brain",
+      "where": "D1 runtime and setup",
+      "default": "acknowledge",
+      "body": {
+        "Spec said": "Keep headless use and configure agents against the desktop Brain.",
+        "What I did": "Added shared CLI/plugin setup with independent capture/search grants. Desktop setup selects its exact bundled executable and Brain root. The host requires schema 4 and runtime session version 1.",
+        "Why": "Product version equality cannot establish compatible concurrent recovery.",
+        "Risk": "Older installed cores reject the new private schema; moving an executable requires setup again.",
+        "Followup": "Source adapters and scheduling remain later milestones."
+      }
+    },
+    {
+      "id": "N8",
+      "group": "d1",
+      "title": "Preserve client files with preview-bound owned fragments",
+      "where": "packages/app/src/open_brain/services/agent_setup.py",
+      "default": "acknowledge",
+      "body": {
+        "Spec said": "Preview configuration, make repeated setup idempotent, and preserve unrelated edits on removal.",
+        "What I did": "Used checksummed owned JSON/TOML/Markdown fragments, preimage-bound previews, atomic writes, and conditional rollback. Owned blocks include their separator so removal preserves surrounding bytes. Unsafe special files, generated instructions, oversized Codex instructions, and changed owned fragments produce bounded errors.",
+        "Why": "Copying whole configuration backups or rewriting instruction boundaries can expose unrelated settings or destroy later edits.",
+        "Risk": "File replacement cannot provide a transaction with unrelated editors that do not cooperate; interruption between files is repaired by previewing again.",
+        "Followup": "Keep account credentials in the future collector boundary."
+      }
+    },
+    {
+      "id": "N9",
+      "group": "d1",
+      "title": "Verify tool calls with actual coding clients",
+      "where": "packages/app/src/open_brain/services/mcp_protocol.py",
+      "default": "acknowledge",
+      "body": {
+        "Spec said": "A native desktop capture must be found through Claude Code and Codex.",
+        "What I did": "Actual Claude Code calls exposed rejection of standard request metadata. The transport now accepts object-valued _meta without passing it to tool arguments or authority. Added integration tests and retained exact tool argument validation.",
+        "Why": "Successful tool discovery and handwritten smoke frames did not exercise the current client envelope.",
+        "Risk": "Client project trust and per-tool execution approval remain separate client decisions. Test-only Codex overrides approve only the synthetic tools and do not modify personal settings.",
+        "Followup": "Retain real-client native acceptance when the protocol or client wiring changes."
+      }
+    },
+    {
+      "id": "N10",
+      "group": "d1",
+      "title": "Implementation complete: D1",
+      "where": "docs/audits/2026-09-14-desktop-d1-audit.md",
+      "default": "acknowledge",
+      "body": {
+        "Spec said": "Deliver usable local desktop capture/search and shared headless agent setup, verified through actual clients.",
+        "What I did": "Completed all seven D1 requirements. Full verification, native audit, Homebrew smoke, packaged proof, native UI, user-scope setup, and old/new runtime compatibility pass. Claude Code and Codex each found the desktop note, saved a fact, and retrieved the exact capture ID in a fresh session while the desktop stayed closed.",
+        "Why": "The optional desktop and headless path now share one tested runtime and Brain.",
+        "Risk": "This is a local macOS arm64 contributor build. Five filesystem-specific tests skip on this Mac. Linux clean-host acceptance and public signing/notarization remain release gates. Initial Codex attempts made no tool calls; final acceptance required MCP startup and allowed tool discovery with test-only tool approval.",
+        "Followup": "D2 begins GitHub source configuration and import. D3 adds independent collection; D4 adds later adapters and transcript opt-ins. No source account or background service was enabled."
+      }
+    },
+    {
+      "id": "N11",
+      "group": "d5",
+      "title": "Propose D5 sources for broader everyday use",
+      "where": "docs/plans/2026-09-14-desktop-companion.md#d5-cover-everyday-knowledge-beyond-developer-tools",
+      "default": "acknowledge",
+      "body": {
+        "Spec said": "Suggest additional sources for broad user demand and put them in D5.",
+        "What I did": "Proposed four independently delivered groups: local documents/web clips, calendars, Notion/Confluence, and existing Zoom/Google Meet transcripts. Removed D5.4 Teams conversations, OneDrive, SharePoint, and Teams meeting transcripts at the owner's request. Kept remaining stage IDs stable.",
+        "Why": "These cover documents, research, schedules, and workplace knowledge beyond the original developer-heavy source list. The ranking is a product recommendation, not a measured majority of Open Brain users.",
+        "Risk": "Notion public OAuth requires a confidential-client design; provider consent and transcript availability need real proofs. Each provider and content type retains its own acceptance gate.",
+        "Followup": "Start D5 with selected local documents and explicit web clipping after the preceding milestones. This update changes the proposal only; no connector implementation or account connection was started."
+      }
+    }
+  ]
+}

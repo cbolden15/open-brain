@@ -5,6 +5,7 @@ import sqlite3
 import stat
 import threading
 from collections.abc import Callable
+from contextlib import suppress
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from urllib.parse import quote
@@ -39,6 +40,8 @@ from .migrations import (
 
 SCHEMA_VERSION = 1
 _SQLITE_OPEN_LOCK = threading.Lock()
+_SQLITE_BUSY_TIMEOUT_MS = 5000
+_SQLITE_WRITE_ACQUIRE_TIMEOUT_MS = _SQLITE_BUSY_TIMEOUT_MS
 
 
 class DatabaseBusyError(SchemaError):
@@ -52,6 +55,16 @@ def is_database_busy(error: BaseException) -> bool:
             sqlite3.SQLITE_BUSY, sqlite3.SQLITE_LOCKED,
         )
     )
+
+
+def begin_immediate(connection: sqlite3.Connection) -> None:
+    """Acquire the SQLite writer lock within the tested logical busy window."""
+    connection.execute(f"PRAGMA busy_timeout = {_SQLITE_WRITE_ACQUIRE_TIMEOUT_MS}")
+    connection.execute("BEGIN IMMEDIATE")
+
+
+def restore_busy_timeout(connection: sqlite3.Connection) -> None:
+    connection.execute(f"PRAGMA busy_timeout = {_SQLITE_BUSY_TIMEOUT_MS}")
 
 
 @dataclass(frozen=True, slots=True)
@@ -197,10 +210,13 @@ def connect_database(
             os.umask(old_umask)
         connection.row_factory = sqlite3.Row
         connection.execute("PRAGMA foreign_keys = ON")
-        connection.execute("PRAGMA busy_timeout = 5000")
+        connection.execute(f"PRAGMA busy_timeout = {_SQLITE_BUSY_TIMEOUT_MS}")
         connection.execute("PRAGMA synchronous = FULL")
-        journal_mode = connection.execute("PRAGMA journal_mode").fetchone()[0]
-        setup_required = str(journal_mode).lower() != "wal"
+        journal_mode = None
+        setup_required = created
+        if prepare is None:
+            journal_mode = connection.execute("PRAGMA journal_mode").fetchone()[0]
+            setup_required = str(journal_mode).lower() != "wal"
         for suffix in ("", "-wal", "-shm"):
             try:
                 mode = os.stat(parts[-1] + suffix, dir_fd=parent_fd, follow_symlinks=False).st_mode
@@ -209,17 +225,21 @@ def connect_database(
                 pass
         if prepare is not None:
             prepare(connection, created, setup_required)
-        if prepare is None or setup_required:
+        if prepare is not None or setup_required:
+            if journal_mode is None:
+                journal_mode = connection.execute("PRAGMA journal_mode").fetchone()[0]
             if str(journal_mode).lower() != "wal":
                 journal_mode = connection.execute("PRAGMA journal_mode = WAL").fetchone()[0]
             for suffix in ("", "-wal", "-shm"):
                 _restrict_existing_file(parent_fd, parts[-1] + suffix)
+        if journal_mode is None:
+            journal_mode = connection.execute("PRAGMA journal_mode").fetchone()[0]
         settings = (
             connection.execute("PRAGMA foreign_keys").fetchone()[0],
             connection.execute("PRAGMA busy_timeout").fetchone()[0],
             connection.execute("PRAGMA synchronous").fetchone()[0],
         )
-        if str(journal_mode).lower() != "wal" or settings != (1, 5000, 2):
+        if str(journal_mode).lower() != "wal" or settings != (1, _SQLITE_BUSY_TIMEOUT_MS, 2):
             connection.close()
             raise SchemaError("required database settings unavailable")
         return connection
@@ -248,6 +268,8 @@ def connect_database_read_only(
     root: Path,
     database_name: str | PurePosixPath,
     expected_root_identity: RootIdentity | None = None,
+    timeout_seconds: float = 5.0,
+    busy_timeout_ms: int = _SQLITE_BUSY_TIMEOUT_MS,
 ) -> sqlite3.Connection:
     """Open an existing root-confined SQLite database without creating or migrating it."""
     parts = _validated_parts(str(database_name))
@@ -278,7 +300,7 @@ def connect_database_read_only(
                     connection = sqlite3.connect(
                         uri,
                         uri=True,
-                        timeout=5.0,
+                        timeout=timeout_seconds,
                         isolation_level=None,
                     )
                 finally:
@@ -287,7 +309,9 @@ def connect_database_read_only(
             os.close(original_directory_fd)
         connection.row_factory = sqlite3.Row
         connection.execute("PRAGMA query_only = ON")
-        connection.execute("PRAGMA busy_timeout = 5000")
+        if type(busy_timeout_ms) is not int or busy_timeout_ms < 0:
+            raise SchemaError("invalid database busy timeout")
+        connection.execute(f"PRAGMA busy_timeout = {busy_timeout_ms}")
         return connection
     except RootConfinementError, SchemaError:
         raise
@@ -376,15 +400,18 @@ def migrate(
 ) -> int:
     _validate_migration_set(migrations, schema_version)
     try:
-        connection.execute("BEGIN IMMEDIATE")
+        begin_immediate(connection)
         version = apply_migrations(
             connection, clock=clock, migrations=migrations, schema_version=schema_version
         )
         connection.commit()
+        restore_busy_timeout(connection)
         return version
     except BaseException as error:
         if connection.in_transaction:
             connection.rollback()
+        with suppress(sqlite3.Error):
+            restore_busy_timeout(connection)
         if isinstance(error, SchemaError):
             raise
         if isinstance(error, (IndexError, KeyError, TypeError, ValueError, sqlite3.Error)):

@@ -35,6 +35,7 @@ def rematerialize_w2(connection: sqlite3.Connection, *, version: int = 1) -> Non
         "managed_notes",
         "managed_note_revisions",
         "managed_workspaces",
+        "runtime_compatibility",
         "search_documents_fts",
         "search_fts_identity",
         "markdown_import_files",

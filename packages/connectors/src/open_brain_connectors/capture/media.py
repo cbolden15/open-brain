@@ -215,6 +215,8 @@ class BoundedMediaRunner:
                     process_failure = (
                         ExtractionFailure.TOOL_RESOURCE_LIMIT
                         if process.returncode is not None and process.returncode < 0
+                        else ExtractionFailure.TOOL_UNAVAILABLE
+                        if _sandbox_apply_was_denied(output.stderr)
                         else ExtractionFailure.MALFORMED_TOOL_OUTPUT
                     )
                     return MediaRunResult((), b"", b"", process_failure, True)
@@ -285,6 +287,10 @@ def _darwin_sandbox_profile(stage: Path) -> str:
 
 def _sandbox_literal(value: str) -> str:
     return '"' + value.replace("\\", "\\\\").replace('"', '\\"') + '"'
+
+
+def _sandbox_apply_was_denied(stderr: bytes) -> bool:
+    return b"sandbox-exec: sandbox_apply: Operation not permitted" in stderr
 
 
 def collect_staged_media(

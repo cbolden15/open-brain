@@ -186,6 +186,7 @@ class BrainEngine(CaptureOperations, SpaceOperations, ReviewOperations, Retrieva
         clock: Callable[[], datetime] | None = None,
         enrichment_provider: EnrichmentProvider | None = None,
         validate_mutation_authority: Callable[[], None] | None = None,
+        recover_abandoned_sessions: bool = True,
     ) -> BrainEngine:
         if not isinstance(profile, LocalEngineContext):
             raise ValueError("invalid local profile")
@@ -197,7 +198,7 @@ class BrainEngine(CaptureOperations, SpaceOperations, ReviewOperations, Retrieva
             validate_mutation_authority=validate_mutation_authority,
         )
         with engine._writer_lease.acquire_shared_writer():
-            engine._recover(startup=True)
+            engine._recover(startup=recover_abandoned_sessions)
             for name in profile.starter_spaces:
                 key = sha256(name.encode("utf-8")).hexdigest()
                 engine._space_operation("create", None, name, f"starter.{key}")
@@ -256,6 +257,7 @@ def open_local_engine(
     clock: Callable[[], datetime] | None = None,
     enrichment_provider: EnrichmentProvider | None = None,
     validate_before_write: Callable[[], None] | None = None,
+    recover_abandoned_sessions: bool = True,
 ) -> EngineTaskSet:
     """Open one local root and expose only its named task capabilities."""
     return BrainEngine.open(
@@ -264,6 +266,7 @@ def open_local_engine(
         clock=clock,
         enrichment_provider=enrichment_provider,
         validate_mutation_authority=validate_before_write,
+        recover_abandoned_sessions=recover_abandoned_sessions,
     ).tasks
 
 

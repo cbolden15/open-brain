@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "Packaged desktop controls use bounded named runtime operations and the isolated contributor proof.",
+  "windows": ["main"],
+  "permissions": ["core:default"]
+}

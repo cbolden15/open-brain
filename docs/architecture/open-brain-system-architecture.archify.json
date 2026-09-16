@@ -1,0 +1,415 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "Open Brain foreground core",
+    "locale": "en",
+    "quality_profile": "showcase",
+    "repository": {
+      "url": "https://github.com/cbolden15/open-brain",
+      "provider": "github",
+      "revision": "3a9a023c68f23a64d141e0c9b53f61806427aabd"
+    },
+    "viewBox": [
+      1060,
+      490
+    ]
+  },
+  "components": [
+    {
+      "id": "cliMcp",
+      "type": "frontend",
+      "label": "CLI + stdio MCP",
+      "sublabel": "Direct commands and gated local tools",
+      "pos": [
+        290,
+        20
+      ],
+      "size": [
+        175,
+        72
+      ],
+      "sources": [
+        {
+          "path": "packages/app/src/open_brain/services/local_entrypoints.py",
+          "line": 254,
+          "end_line": 395,
+          "label": "CLI commands"
+        },
+        {
+          "path": "packages/app/src/open_brain/services/local_mcp.py",
+          "line": 38,
+          "label": "MCP adapter"
+        }
+      ]
+    },
+    {
+      "id": "providerApis",
+      "type": "external",
+      "label": "Model provider APIs",
+      "sublabel": "Optional remote inference endpoints",
+      "pos": [
+        560,
+        20
+      ],
+      "size": [
+        180,
+        72
+      ]
+    },
+    {
+      "id": "providerAdapters",
+      "type": "cloud",
+      "label": "Managed provider adapters",
+      "sublabel": "Consent, limits, and protocol adapters",
+      "pos": [
+        850,
+        20
+      ],
+      "size": [
+        190,
+        72
+      ],
+      "sources": [
+        {
+          "path": "packages/app/src/open_brain/services/managed_providers.py",
+          "line": 19,
+          "end_line": 31,
+          "label": "Provider limits and models"
+        },
+        {
+          "path": "packages/app/src/open_brain/services/managed_providers.py",
+          "line": 131,
+          "end_line": 258,
+          "label": "Bounded HTTPS adapter"
+        }
+      ]
+    },
+    {
+      "id": "obsidian",
+      "type": "frontend",
+      "label": "Obsidian plugin",
+      "sublabel": "Vault events, review, and Canvas",
+      "tag": "NW3 desktop integration",
+      "pos": [
+        20,
+        170
+      ],
+      "size": [
+        170,
+        72
+      ]
+    },
+    {
+      "id": "pluginBridge",
+      "type": "backend",
+      "label": "Plugin bridge",
+      "sublabel": "Lifecycle-owned open-brain plugin child",
+      "tag": "NW3 desktop integration",
+      "pos": [
+        290,
+        170
+      ],
+      "size": [
+        175,
+        72
+      ]
+    },
+    {
+      "id": "application",
+      "type": "backend",
+      "label": "Open Brain application",
+      "sublabel": "Foreground entrypoints and adapters",
+      "pos": [
+        560,
+        170
+      ],
+      "size": [
+        180,
+        72
+      ],
+      "sources": [
+        {
+          "path": "packages/app/src/open_brain/services/local_bootstrap.py",
+          "line": 60,
+          "end_line": 111,
+          "label": "Daemonless bootstrap"
+        },
+        {
+          "path": "packages/app/src/open_brain/services/local_operations.py",
+          "line": 53,
+          "end_line": 100,
+          "label": "Shared operations"
+        }
+      ]
+    },
+    {
+      "id": "engine",
+      "type": "backend",
+      "label": "open-brain-engine",
+      "sublabel": "Capture, search, workspace, and review",
+      "pos": [
+        850,
+        170
+      ],
+      "size": [
+        190,
+        72
+      ],
+      "sources": [
+        {
+          "path": "packages/engine/src/open_brain_engine/engine/local.py",
+          "line": 116,
+          "end_line": 260,
+          "label": "Engine composition"
+        },
+        {
+          "path": "packages/engine/src/open_brain_engine/engine/contracts.py",
+          "line": 1,
+          "end_line": 118,
+          "label": "Task contracts"
+        }
+      ]
+    },
+    {
+      "id": "workspace",
+      "type": "database",
+      "label": "Managed Markdown workspace",
+      "sublabel": "Owner-editable notes in the Brain root",
+      "pos": [
+        20,
+        340
+      ],
+      "size": [
+        170,
+        72
+      ],
+      "sources": [
+        {
+          "path": "packages/engine/src/open_brain_engine/engine/managed_workspace.py",
+          "line": 103,
+          "end_line": 220,
+          "label": "Workspace task"
+        }
+      ]
+    },
+    {
+      "id": "graphProjection",
+      "type": "database",
+      "label": "Graph projection",
+      "sublabel": "Rebuildable structural links",
+      "pos": [
+        290,
+        340
+      ],
+      "size": [
+        175,
+        72
+      ],
+      "sources": [
+        {
+          "path": "packages/app/src/open_brain/services/graph_projection_store.py",
+          "line": 30,
+          "end_line": 237,
+          "label": "Projection store"
+        }
+      ]
+    },
+    {
+      "id": "graphify",
+      "type": "backend",
+      "label": "Graphify helper",
+      "sublabel": "Pinned local extraction helper",
+      "pos": [
+        560,
+        340
+      ],
+      "size": [
+        180,
+        72
+      ],
+      "sources": [
+        {
+          "path": "packages/app/src/open_brain/services/graphify_projection.py",
+          "line": 137,
+          "end_line": 263,
+          "label": "Bounded helper adapter"
+        }
+      ]
+    },
+    {
+      "id": "brainState",
+      "type": "database",
+      "label": "SQLite state + FTS",
+      "sublabel": "Revisions, suggestions, and search",
+      "pos": [
+        850,
+        340
+      ],
+      "size": [
+        190,
+        72
+      ],
+      "sources": [
+        {
+          "path": "packages/app/src/open_brain/services/local_bootstrap.py",
+          "line": 25,
+          "label": "State database path"
+        },
+        {
+          "path": "packages/engine/src/open_brain_engine/engine/search_projection.py",
+          "line": 1,
+          "end_line": 180,
+          "label": "Search projection"
+        }
+      ]
+    }
+  ],
+  "connections": [
+    {
+      "id": "cliCallsApplication",
+      "from": "cliMcp",
+      "to": "application",
+      "label": "CLI / MCP JSON-RPC",
+      "variant": "emphasis"
+    },
+    {
+      "id": "obsidianUsesBridge",
+      "from": "obsidian",
+      "to": "pluginBridge",
+      "label": "JSONL stdio",
+      "variant": "emphasis"
+    },
+    {
+      "id": "bridgeCallsApplication",
+      "from": "pluginBridge",
+      "to": "application",
+      "label": "RPC",
+      "variant": "emphasis",
+      "labelAt": [
+        512,
+        256
+      ]
+    },
+    {
+      "id": "applicationCallsEngine",
+      "from": "application",
+      "to": "engine",
+      "label": "EngineTaskSet",
+      "variant": "emphasis"
+    },
+    {
+      "id": "engineUsesState",
+      "from": "engine",
+      "to": "brainState",
+      "label": "SQLite + FTS",
+      "variant": "emphasis",
+      "labelAt": [
+        945,
+        256
+      ]
+    },
+    {
+      "id": "obsidianEditsWorkspace",
+      "from": "obsidian",
+      "to": "workspace",
+      "label": "direct Markdown edits",
+      "labelAt": [
+        105,
+        256
+      ]
+    },
+    {
+      "id": "engineOwnsWorkspace",
+      "from": "engine",
+      "to": "workspace",
+      "label": "materialize / reconcile",
+      "fromSide": "right",
+      "toSide": "right",
+      "via": [
+        [
+          1050,
+          206
+        ],
+        [
+          1050,
+          455
+        ],
+        [
+          210,
+          455
+        ],
+        [
+          210,
+          376
+        ]
+      ],
+      "labelAt": [
+        500,
+        445
+      ]
+    },
+    {
+      "id": "applicationRunsGraphify",
+      "from": "application",
+      "to": "graphify",
+      "label": "accepted snapshot JSON",
+      "labelAt": [
+        650,
+        256
+      ]
+    },
+    {
+      "id": "graphifyBuildsProjection",
+      "from": "graphify",
+      "to": "graphProjection",
+      "label": "links"
+    },
+    {
+      "id": "projectionReturnsCanvas",
+      "from": "graphProjection",
+      "to": "pluginBridge",
+      "label": "Canvas JSON via app"
+    },
+    {
+      "id": "engineUsesProviders",
+      "from": "engine",
+      "to": "providerAdapters",
+      "label": "consent-gated AI",
+      "variant": "dashed"
+    },
+    {
+      "id": "adaptersCallProviders",
+      "from": "providerAdapters",
+      "to": "providerApis",
+      "label": "HTTPS",
+      "variant": "dashed"
+    }
+  ],
+  "cards": [
+    {
+      "dot": "cyan",
+      "title": "Foreground core boundary",
+      "items": [
+        "CLI calls are short lived; MCP and the Obsidian child use inherited stdio",
+        "The core needs no listener, daemon, root staging, namespace, or capability setup"
+      ]
+    },
+    {
+      "dot": "violet",
+      "title": "Two graph paths",
+      "items": [
+        "Graphify extracts explicit Markdown links locally into a rebuildable projection",
+        "Consent-gated model calls create evidence-bound suggestions for owner review"
+      ]
+    },
+    {
+      "dot": "emerald",
+      "title": "Snapshot scope",
+      "items": [
+        "Core snapshot at 3a9a023; source links describe that revision",
+        "Optional desktop and live-source collector are outside this view; see the priority capture plan"
+      ]
+    }
+  ]
+}

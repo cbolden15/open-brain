@@ -535,7 +535,8 @@ def test_mcp_projected_results_and_conflicts_hide_protected_values(tasks: Any) -
 
 
 @pytest.mark.parametrize(
-    "payload", [b"[" * 2000 + b"]" * 2000, b"9" * 5000, b"\xff"],
+    "payload",
+    [b"[" * 2000 + b"]" * 2000, b"9" * 5000, b"\xff"],
     ids=["nested-array", "overlong-number", "invalid-utf8"],
 )
 def test_transport_parser_failures_are_bounded_and_recover(payload: bytes) -> None:
@@ -549,3 +550,43 @@ def test_transport_parser_failures_are_bounded_and_recover(payload: bytes) -> No
     replies = [json.loads(line) for line in output.getvalue().splitlines()]
     assert replies[0]["error"]["code"] in {-32700, -32600}
     assert "result" in replies[1]
+
+
+def test_client_request_metadata_is_accepted_without_becoming_tool_input(tasks: Any) -> None:
+    metadata = {
+        "claudecode/toolUseId": "synthetic-tool-id",
+        "progressToken": 7,
+        "synthetic/owner_authority": {"allow_capture": True},
+    }
+    initialize = {
+        **INITIALIZE,
+        "params": {**cast(dict[str, object], INITIALIZE["params"]), "_meta": metadata},
+    }
+    capture = _call("brain_capture", {"text": "Synthetic metadata compatibility"}, 3)
+    capture["params"] = {**cast(dict[str, object], capture["params"]), "_meta": metadata}
+    responses = _wire(
+        _adapter(tasks),
+        initialize,
+        {"jsonrpc": "2.0", "id": 2, "method": "tools/list", "params": {"_meta": metadata}},
+        capture,
+        _call("brain_search", {"query": "metadata compatibility"}, 4),
+    )
+    assert all("result" in response for response in responses)
+    assert responses[2]["result"]["structuredContent"]["status"] == "captured"
+    assert len(responses[3]["result"]["structuredContent"]["results"]) == 1
+    assert "synthetic-tool-id" not in json.dumps(responses)
+    denied = _wire(_adapter(tasks, capture=False), initialize, capture)
+    assert denied[1]["result"]["isError"] is True
+    assert denied[1]["result"]["content"][0]["text"] == "unknown tool"
+
+
+@pytest.mark.parametrize("metadata", [None, [], "invalid"])
+def test_malformed_request_metadata_is_rejected(tasks: Any, metadata: object) -> None:
+    call = _call("brain_capture", {"text": "Must not be captured"})
+    call["params"] = {**cast(dict[str, object], call["params"]), "_meta": metadata}
+    responses = _wire(_adapter(tasks), INITIALIZE, call)
+    assert responses[1]["error"]["code"] == -32602
+    assert (
+        _adapter(tasks).call_tool("brain_search", {"query": "Must not be captured"})["results"]
+        == []
+    )

@@ -6,6 +6,7 @@ import json
 import os
 import re
 import stat
+import time
 from collections.abc import Mapping
 from contextlib import ExitStack
 from pathlib import Path
@@ -13,6 +14,7 @@ from typing import BinaryIO, cast
 
 from open_brain_engine import __version__
 from open_brain_engine.engine import (
+    PHASE1_STATE_SCHEMA_VERSION,
     EngineTaskSet,
     ManagedAccessMode,
     ManagedGraphSource,
@@ -21,12 +23,20 @@ from open_brain_engine.engine import (
     ManagedWorkspaceFailure,
     ManagedWorkspaceReceipt,
     ManagedWorkspaceStatus,
+    StateSchemaUnavailableError,
     canonical_json_bytes,
+    inspect_phase1_state,
 )
 from open_brain_engine.storage.locks import LockBusyError
 
 from open_brain.local_data import FilesystemTypeProbe, LocalDataError, LocalRootSelection
-from open_brain.profile import ProfileError
+from open_brain.profile import ProfileError, open_existing_single_user_local
+from open_brain.services.agent_setup import (
+    AgentSetupFailure,
+    apply_agent_setup,
+    preview_agent_setup,
+    resolve_agent_runtime,
+)
 from open_brain.services.graphify_projection import GraphifyFailure
 from open_brain.services.local_bootstrap import (
     LocalBrainSession,
@@ -43,6 +53,10 @@ from open_brain.services.local_operations import (
     search_brain,
     search_result,
     workspace_status,
+)
+from open_brain.services.local_runtime_session import (
+    RUNTIME_SESSION_VERSION,
+    LocalRuntimeCompatibilityError,
 )
 from open_brain.services.managed_providers import (
     DEFAULT_MODELS,
@@ -64,7 +78,9 @@ MAX_PLUGIN_SESSION_REQUESTS = 2_000
 _REQUEST_ID = re.compile(
     r"^plugin_[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
 )
-_OPERATIONS = (
+_BASE_OPERATIONS = (
+    "agent.setup.apply",
+    "agent.setup.preview",
     "brain.initialize",
     "capture.create",
     "graph.accept",
@@ -80,6 +96,7 @@ _OPERATIONS = (
     "provider.status",
     "search.query",
     "system.handshake",
+    "system.status",
     "workspace.reconcile",
     "workspace.conflict_review",
     "workspace.conflicts",
@@ -88,6 +105,16 @@ _OPERATIONS = (
     "workspace.setup",
     "workspace.status",
 )
+_COLLECTOR_OPERATIONS = (
+    "collector.enable",
+    "collector.schedule",
+    "collector.disable",
+    "collector.pause",
+    "collector.resume",
+    "collector.status",
+    "collector.sync_now",
+)
+_OPERATIONS = _BASE_OPERATIONS + _COLLECTOR_OPERATIONS
 
 _DIRECT_PROVIDERS = (
     ManagedProvider.OPENAI_API,
@@ -106,13 +133,25 @@ class PluginBridgeFailure(RuntimeError):
             "credential_store_unavailable",
             "credential_unavailable",
             "database_busy",
+            "incompatible_schema",
             "incompatible_protocol",
             "invalid_arguments",
             "invalid_request",
             "operation_failed",
             "response_too_large",
+            "session_exhausted",
+            "setup_conflict",
+            "setup_preview_stale",
+            "generated_instructions",
+            "instructions_too_large",
+            "collector_unavailable",
+            "credential_missing",
             "setup_required",
             "subscription_unavailable",
+            "client_config_invalid",
+            "unsafe_config_path",
+            "unsupported_collector_source",
+            "unknown_collector_source",
             "unknown_operation",
         }:
             raise ValueError("invalid plugin bridge failure")
@@ -185,13 +224,30 @@ def serve_plugin_stdio(
                 if operation == "system.handshake":
                     _require_keys(arguments, frozenset())
                     result: dict[str, object] = {
+                        "brain_root": os.fspath(selection.brain_root),
                         "desktop_only": True,
-                        "operations": list(_OPERATIONS),
+                        "operations": _available_operations(selected_environment),
                         "product_version": __version__,
                         "protocol": OPEN_BRAIN_CLIENT_PROTOCOL,
                         "protocol_version": OPEN_BRAIN_CLIENT_PROTOCOL_VERSION,
+                        "runtime_session_version": RUNTIME_SESSION_VERSION,
+                        "state_schema_version": PHASE1_STATE_SCHEMA_VERSION,
                         "status": "ok",
                     }
+                elif operation == "system.status":
+                    _require_keys(arguments, frozenset())
+                    result = _system_status(selection)
+                elif operation in {"agent.setup.preview", "agent.setup.apply"}:
+                    try:
+                        result = _agent_setup(
+                            selection,
+                            operation,
+                            arguments,
+                            base_executable=base_executable,
+                            environment=selected_environment,
+                        )
+                    except AgentSetupFailure as error:
+                        raise PluginBridgeFailure(error.code) from None
                 elif operation == "brain.initialize":
                     _require_keys(arguments, frozenset())
                     if session is not None:
@@ -210,6 +266,7 @@ def serve_plugin_stdio(
                         arguments,
                         request_id=request_id,
                         base_executable=base_executable,
+                        environment=selected_environment,
                         runtime=runtime,
                     )
                 _write_response(
@@ -226,6 +283,10 @@ def serve_plugin_stdio(
                 _write_error(output_stream, request_id, error.code)
             except LockBusyError:
                 _write_error(output_stream, request_id, "database_busy")
+            except StateSchemaUnavailableError:
+                _write_error(output_stream, request_id, "incompatible_schema")
+            except LocalRuntimeCompatibilityError:
+                _write_error(output_stream, request_id, "incompatible_schema")
             except ManagedWorkspaceFailure as error:
                 _write_error(output_stream, request_id, error.code)
             except GraphifyFailure as error:
@@ -241,7 +302,7 @@ def serve_plugin_stdio(
             except Exception:
                 _write_error(output_stream, request_id, "operation_failed")
         else:
-            _write_error(output_stream, None, "operation_failed")
+            _write_error(output_stream, None, "session_exhausted")
     return 0
 
 
@@ -252,6 +313,7 @@ def dispatch_plugin_request(
     *,
     request_id: str,
     base_executable: Path | None,
+    environment: Mapping[str, object] | None = None,
     runtime: PluginRuntimeState | None = None,
 ) -> dict[str, object]:
     tasks = session.tasks
@@ -269,6 +331,13 @@ def dispatch_plugin_request(
             search_brain(tasks.retrieval, tasks.reconciliation, query, limit=limit)
         )
         return _with_workspace_paths(tasks, result)
+    if operation.startswith("collector."):
+        return _collector_control(
+            session.prepared.selection,
+            operation,
+            arguments,
+            environment=environment,
+        )
     if operation == "workspace.setup":
         _require_keys(arguments, frozenset())
         workspace = _workspace_path(session)
@@ -450,6 +519,446 @@ def dispatch_plugin_request(
     if operation not in _OPERATIONS:
         raise PluginBridgeFailure("unknown_operation")
     raise PluginBridgeFailure("invalid_arguments")
+
+
+_COLLECTOR_SOURCE_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:/#?=&%@,+~|-]{0,511}$")
+_COLLECTOR_RESOURCE_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:/#?=&%@,+~|-]{0,511}$")
+_COLLECTOR_LABEL = re.compile(r"^[A-Za-z][A-Za-z0-9_-]{0,63}$")
+_COLLECTOR_MAX_INTERVAL = 31_536_000
+_COLLECTOR_SUPPORTED_SELECTIONS = {("github", "repository")}
+_COLLECTOR_ENTRY_KEYS = {
+    "active_run",
+    "committed_revisions",
+    "connection_id",
+    "connector_name",
+    "credential_ref",
+    "interval_seconds",
+    "last_run",
+    "last_success_epoch",
+    "next_cursor",
+    "next_run_epoch",
+    "pause_ack_epoch",
+    "resource_id",
+    "resource_type",
+    "status",
+}
+
+
+def _collector_control(
+    selection: LocalRootSelection,
+    operation: str,
+    arguments: dict[str, object],
+    *,
+    environment: Mapping[str, object] | None,
+) -> dict[str, object]:
+    if not _collector_runtime_available(environment):
+        raise PluginBridgeFailure("collector_unavailable")
+    if operation == "collector.status":
+        _require_keys(arguments, frozenset())
+        return _collector_status(selection)
+    if operation == "collector.enable":
+        required = frozenset(
+            {
+                "connection_id",
+                "connector_name",
+                "interval_seconds",
+                "resource_id",
+                "resource_type",
+                "source_id",
+            }
+        )
+        if not required <= set(arguments) or set(arguments) - (required | {"credential_ref"}):
+            raise PluginBridgeFailure("invalid_arguments")
+        return _collector_enable(selection, arguments)
+    if operation == "collector.schedule":
+        _require_keys(arguments, frozenset({"interval_seconds", "source_id"}))
+        source_id = _collector_source_id(arguments["source_id"])
+        return _collector_schedule(selection, source_id, arguments["interval_seconds"])
+    _require_keys(arguments, frozenset({"source_id"}))
+    source_id = _collector_source_id(arguments["source_id"])
+    if operation in {"collector.pause", "collector.resume", "collector.disable"}:
+        return _collector_update(selection, source_id, operation.removeprefix("collector."))
+    if operation == "collector.sync_now":
+        return _collector_sync_now(selection, source_id)
+    raise PluginBridgeFailure("unknown_operation")
+
+
+def _collector_status(selection: LocalRootSelection) -> dict[str, object]:
+    state = _load_collector_state(selection, missing_ok=True)
+    state_sources = cast(dict[str, object], state["sources"])
+    sources = [
+        _collector_source_result(selection, source_id, _collector_source(state_sources, source_id))
+        for source_id, source in sorted(state_sources.items())
+        if isinstance(source_id, str) and isinstance(source, dict)
+    ]
+    return {
+        "brain_root": os.fspath(selection.brain_root),
+        "sources": sources,
+        "status": "ready" if sources else "not_configured",
+    }
+
+
+def _collector_enable(
+    selection: LocalRootSelection,
+    arguments: Mapping[str, object],
+) -> dict[str, object]:
+    source_id = _collector_source_id(arguments["source_id"])
+    connector_name = _collector_label(arguments["connector_name"])
+    connection_id = _collector_resource_id(arguments["connection_id"])
+    resource_id = _collector_resource_id(arguments["resource_id"])
+    resource_type = _collector_label(arguments["resource_type"])
+    interval_seconds = _collector_interval(arguments["interval_seconds"])
+    if (connector_name, resource_type) not in _COLLECTOR_SUPPORTED_SELECTIONS:
+        raise PluginBridgeFailure("unsupported_collector_source")
+    state = _load_collector_state(selection, missing_ok=True)
+    sources = cast(dict[str, object], state["sources"])
+    previous = sources.get(source_id)
+    if previous is not None and not isinstance(previous, dict):
+        raise PluginBridgeFailure("operation_failed")
+    previous_entry = previous if isinstance(previous, dict) else {}
+    credential_ref = arguments.get("credential_ref", previous_entry.get("credential_ref"))
+    if credential_ref is None:
+        raise PluginBridgeFailure("credential_missing")
+    credential_ref = _collector_resource_id(credential_ref)
+    sources[source_id] = {
+        "active_run": previous_entry.get("active_run"),
+        "committed_revisions": previous_entry.get("committed_revisions", {}),
+        "connection_id": connection_id,
+        "connector_name": connector_name,
+        "credential_ref": credential_ref,
+        "interval_seconds": interval_seconds,
+        "last_run": previous_entry.get("last_run"),
+        "last_success_epoch": previous_entry.get(
+            "last_success_epoch",
+            _collector_success_epoch(previous_entry.get("last_run")),
+        ),
+        "next_cursor": previous_entry.get("next_cursor"),
+        "next_run_epoch": _collector_now(),
+        "pause_ack_epoch": None,
+        "resource_id": resource_id,
+        "resource_type": resource_type,
+        "status": "enabled",
+    }
+    _collector_source(sources, source_id)
+    _save_collector_state(selection, state)
+    return _collector_source_result(
+        selection,
+        source_id,
+        cast(dict[str, object], sources[source_id]),
+    )
+
+
+def _collector_schedule(
+    selection: LocalRootSelection,
+    source_id: str,
+    interval_value: object,
+) -> dict[str, object]:
+    interval_seconds = _collector_interval(interval_value)
+    state = _load_collector_state(selection, missing_ok=False)
+    source = _collector_source(
+        cast(dict[str, object], state["sources"]),
+        source_id,
+    )
+    source["interval_seconds"] = interval_seconds
+    if source.get("status") == "enabled":
+        source["next_run_epoch"] = _collector_now()
+    _save_collector_state(selection, state)
+    return _collector_source_result(selection, source_id, source)
+
+
+def _collector_update(
+    selection: LocalRootSelection,
+    source_id: str,
+    command: str,
+) -> dict[str, object]:
+    state = _load_collector_state(selection, missing_ok=False)
+    sources = cast(dict[str, object], state["sources"])
+    source = _collector_source(sources, source_id)
+    now = _collector_now()
+    if command == "pause":
+        source["status"] = "paused"
+        source["pause_ack_epoch"] = now
+    elif command == "resume":
+        source["status"] = "enabled"
+        source["pause_ack_epoch"] = None
+        source["next_run_epoch"] = now
+    elif command == "disable":
+        source["status"] = "disabled"
+        source["next_run_epoch"] = None
+    else:
+        raise PluginBridgeFailure("unknown_operation")
+    _save_collector_state(selection, state)
+    return _collector_source_result(selection, source_id, source)
+
+
+def _collector_sync_now(selection: LocalRootSelection, source_id: str) -> dict[str, object]:
+    state = _load_collector_state(selection, missing_ok=False)
+    source = _collector_source(cast(dict[str, object], state["sources"]), source_id)
+    if source.get("status") != "enabled":
+        raise PluginBridgeFailure("collector_unavailable")
+    source["next_run_epoch"] = _collector_now()
+    _save_collector_state(selection, state)
+    return {
+        "brain_root": os.fspath(selection.brain_root),
+        "requested": True,
+        "source": _collector_source_result(selection, source_id, source),
+        "status": "requested",
+    }
+
+
+def _collector_root(selection: LocalRootSelection) -> Path:
+    return selection.brain_root / "collector"
+
+
+def _collector_state_path(selection: LocalRootSelection) -> Path:
+    return _collector_root(selection) / "state.json"
+
+
+def _load_collector_state(
+    selection: LocalRootSelection,
+    *,
+    missing_ok: bool,
+) -> dict[str, object]:
+    path = _collector_state_path(selection)
+    try:
+        state = json.loads(path.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        if missing_ok:
+            return {"schema_version": 1, "sources": {}}
+        raise PluginBridgeFailure("unknown_collector_source") from None
+    except (OSError, json.JSONDecodeError) as error:
+        raise PluginBridgeFailure("operation_failed") from error
+    if (
+        not isinstance(state, dict)
+        or state.get("schema_version") != 1
+        or not isinstance(state.get("sources"), dict)
+    ):
+        raise PluginBridgeFailure("operation_failed")
+    return state
+
+
+def _save_collector_state(selection: LocalRootSelection, state: dict[str, object]) -> None:
+    path = _collector_state_path(selection)
+    path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+    temporary = path.with_suffix(".tmp")
+    try:
+        temporary.write_text(
+            json.dumps(state, sort_keys=True, separators=(",", ":")) + "\n",
+            encoding="utf-8",
+        )
+        temporary.replace(path)
+        path.chmod(0o600)
+    except OSError as error:
+        raise PluginBridgeFailure("operation_failed") from error
+
+
+def _collector_source_id(value: object) -> str:
+    if type(value) is not str or _COLLECTOR_SOURCE_ID.fullmatch(value) is None:
+        raise PluginBridgeFailure("invalid_arguments")
+    return value
+
+
+def _collector_resource_id(value: object) -> str:
+    if type(value) is not str or _COLLECTOR_RESOURCE_ID.fullmatch(value) is None:
+        raise PluginBridgeFailure("invalid_arguments")
+    return value
+
+
+def _collector_label(value: object) -> str:
+    if type(value) is not str or _COLLECTOR_LABEL.fullmatch(value) is None:
+        raise PluginBridgeFailure("invalid_arguments")
+    return value
+
+
+def _collector_interval(value: object) -> int:
+    if type(value) is not int or not 1 <= value <= _COLLECTOR_MAX_INTERVAL:
+        raise PluginBridgeFailure("invalid_arguments")
+    return value
+
+
+def _collector_source(sources: dict[str, object], source_id: str) -> dict[str, object]:
+    source = sources.get(source_id)
+    if not isinstance(source, dict):
+        raise PluginBridgeFailure("unknown_collector_source")
+    if "credential_ref" not in source:
+        source["credential_ref"] = None
+    if "last_success_epoch" not in source:
+        source["last_success_epoch"] = _collector_success_epoch(source.get("last_run"))
+    last_success_epoch = source.get("last_success_epoch")
+    if set(source) != _COLLECTOR_ENTRY_KEYS:
+        raise PluginBridgeFailure("operation_failed")
+    if (
+        source.get("status") not in {"enabled", "paused", "disabled"}
+        or not isinstance(source.get("committed_revisions"), dict)
+        or not isinstance(source.get("interval_seconds"), int)
+        or not 1 <= cast(int, source.get("interval_seconds")) <= _COLLECTOR_MAX_INTERVAL
+        or (
+            last_success_epoch is not None
+            and (
+                type(last_success_epoch) is not int
+                or last_success_epoch < 0
+            )
+        )
+    ):
+        raise PluginBridgeFailure("operation_failed")
+    _collector_label(source.get("connector_name"))
+    _collector_resource_id(source.get("connection_id"))
+    credential_ref = source.get("credential_ref")
+    if credential_ref is not None:
+        _collector_resource_id(credential_ref)
+    _collector_resource_id(source.get("resource_id"))
+    _collector_label(source.get("resource_type"))
+    return source
+
+
+def _collector_source_result(
+    selection: LocalRootSelection,
+    source_id: str,
+    source: Mapping[str, object],
+) -> dict[str, object]:
+    last_run = source.get("last_run")
+    if last_run is not None and not isinstance(last_run, Mapping):
+        raise PluginBridgeFailure("operation_failed")
+    return {
+        "brain_root": os.fspath(selection.brain_root),
+        "captured_count": _collector_run_count(last_run, "captured_count"),
+        "failed_count": 1
+        if isinstance(last_run, Mapping) and last_run.get("failure_code") is not None
+        else 0,
+        "last_run_epoch": last_run.get("finished_epoch") if last_run is not None else None,
+        "last_success_epoch": source.get("last_success_epoch"),
+        "interval_seconds": source.get("interval_seconds"),
+        "next_run_epoch": source.get("next_run_epoch"),
+        "outcome": last_run.get("outcome") if last_run is not None else "skipped",
+        "pause_ack_epoch": source.get("pause_ack_epoch"),
+        "source_id": source_id,
+        "status": source.get("status"),
+    }
+
+
+def _collector_run_count(last_run: object, key: str) -> int:
+    if last_run is None:
+        return 0
+    value = cast(Mapping[str, object], last_run).get(key)
+    if type(value) is not int or value < 0:
+        raise PluginBridgeFailure("operation_failed")
+    return value
+
+
+def _collector_now() -> int:
+    override = os.environ.get("OPEN_BRAIN_COLLECTOR_TEST_EPOCH")
+    if override is not None:
+        try:
+            value = int(override)
+        except ValueError as error:
+            raise PluginBridgeFailure("invalid_arguments") from error
+        if value < 0:
+            raise PluginBridgeFailure("invalid_arguments")
+        return value
+    return int(time.time())
+
+
+def _collector_success_epoch(last_run: object) -> int | None:
+    if last_run is None:
+        return None
+    run = cast(Mapping[str, object], last_run)
+    if run.get("outcome") not in {"completed", "empty"}:
+        return None
+    value = run.get("finished_epoch")
+    if type(value) is not int or value < 0:
+        raise PluginBridgeFailure("operation_failed")
+    return value
+
+
+def _available_operations(environment: Mapping[str, object]) -> list[str]:
+    operations = list(_BASE_OPERATIONS)
+    if _collector_runtime_available(environment):
+        operations.extend(_COLLECTOR_OPERATIONS)
+    return operations
+
+
+def _collector_runtime_available(environment: Mapping[str, object] | None) -> bool:
+    selected_environment = os.environ if environment is None else environment
+    executable = selected_environment.get("OPEN_BRAIN_COLLECTOR")
+    if type(executable) is not str or not executable:
+        return False
+    path = Path(executable)
+    return path.is_absolute() and path.is_file() and os.access(path, os.X_OK)
+
+
+def _system_status(selection: LocalRootSelection) -> dict[str, object]:
+    try:
+        selection.brain_root.lstat()
+    except FileNotFoundError:
+        return {
+            "brain_root": os.fspath(selection.brain_root),
+            "initialized": False,
+            "runtime_session_version": RUNTIME_SESSION_VERSION,
+            "state_schema_version": PHASE1_STATE_SCHEMA_VERSION,
+            "status": "ok",
+        }
+    except OSError:
+        raise ProfileError("Brain root is unavailable") from None
+    profile = open_existing_single_user_local(selection.brain_root)
+    schema = inspect_phase1_state(profile)
+    if schema.state == "absent":
+        return {
+            "brain_root": os.fspath(selection.brain_root),
+            "initialized": False,
+            "runtime_session_version": RUNTIME_SESSION_VERSION,
+            "state_schema_version": PHASE1_STATE_SCHEMA_VERSION,
+            "status": "ok",
+        }
+    if schema.state not in {"current", "supported_old"} or schema.version is None:
+        raise StateSchemaUnavailableError(f"local state schema is {schema.state}")
+    return {
+        "brain_root": os.fspath(selection.brain_root),
+        "initialized": True,
+        "runtime_session_version": RUNTIME_SESSION_VERSION,
+        "state_schema_version": schema.version,
+        "status": "ok",
+    }
+
+
+def _agent_setup(
+    selection: LocalRootSelection,
+    operation: str,
+    arguments: Mapping[str, object],
+    *,
+    base_executable: Path | None,
+    environment: Mapping[str, object],
+) -> dict[str, object]:
+    required = {"action", "allow_capture", "allow_search", "client", "scope"}
+    optional = {"project_dir"}
+    if operation == "agent.setup.apply":
+        required.add("preview_id")
+    if not required.issubset(arguments) or not set(arguments).issubset(required | optional):
+        raise PluginBridgeFailure("invalid_arguments")
+    runtime_path = resolve_agent_runtime(base_executable)
+    if operation == "agent.setup.preview":
+        return preview_agent_setup(
+            selection,
+            action=arguments["action"],
+            allow_capture=arguments["allow_capture"],
+            allow_search=arguments["allow_search"],
+            client=arguments["client"],
+            environment=environment,
+            project_dir=arguments.get("project_dir"),
+            runtime_path=runtime_path,
+            scope=arguments["scope"],
+        )
+    return apply_agent_setup(
+        selection,
+        action=arguments["action"],
+        allow_capture=arguments["allow_capture"],
+        allow_search=arguments["allow_search"],
+        client=arguments["client"],
+        environment=environment,
+        preview_id=arguments["preview_id"],
+        project_dir=arguments.get("project_dir"),
+        runtime_path=runtime_path,
+        scope=arguments["scope"],
+    )
 
 
 def _provider_status(runtime: PluginRuntimeState) -> dict[str, object]:

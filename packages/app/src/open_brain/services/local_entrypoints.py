@@ -50,6 +50,12 @@ from open_brain_engine.storage.operational import (
 
 from open_brain.local_data import FilesystemTypeProbe, LocalDataError, select_local_root
 from open_brain.profile import ProfileError
+from open_brain.services.agent_setup import (
+    AgentSetupFailure,
+    apply_agent_setup,
+    preview_agent_setup,
+    resolve_agent_runtime,
+)
 from open_brain.services.local_bootstrap import (
     LocalBrainSession,
     initialize_local_brain,
@@ -210,6 +216,13 @@ def _run_parsed_command(
                 filesystem_type_probe=filesystem_type_probe,
                 environment=environment,
             )
+        if parsed.command == "agent":
+            return _run_agent_setup(
+                parsed,
+                selection=selection,
+                environment=environment,
+                json_output=json_output,
+            )
         with open_local_brain(
             selection,
             filesystem_type_probe=filesystem_type_probe,
@@ -223,6 +236,8 @@ def _run_parsed_command(
     except LocalDataError, ProfileError:
         _write_private_data_failure(json_output=json_output)
         return 78
+    except AgentSetupFailure as error:
+        return _write_agent_setup_failure(error.code, json_output=json_output)
     except LockBusyError:
         if parsed.command in {"capture", "search", "mcp"}:
             _write_database_busy(json_output=json_output)
@@ -334,6 +349,31 @@ def _parser() -> argparse.ArgumentParser:
         description="Serve one lifecycle-owned Open Brain desktop-plugin session over stdio.",
     )
     plugin_parser.add_argument("--data-dir", default=argparse.SUPPRESS, help=argparse.SUPPRESS)
+    agent_parser = subparsers.add_parser(
+        "agent",
+        help="Preview or apply owned Claude Code and Codex memory setup.",
+    )
+    agent_subparsers = agent_parser.add_subparsers(dest="agent_command", required=True)
+    agent_setup_parser = agent_subparsers.add_parser(
+        "setup",
+        help="Configure or remove one previewed agent integration.",
+    )
+    _add_local_options(agent_setup_parser)
+    agent_setup_parser.add_argument(
+        "--client", required=True, choices=("claude-code", "codex")
+    )
+    agent_setup_parser.add_argument("--scope", required=True, choices=("project", "user"))
+    agent_setup_parser.add_argument("--project-dir")
+    agent_setup_parser.add_argument("--allow-capture", action="store_true")
+    agent_setup_parser.add_argument("--allow-search", action="store_true")
+    agent_setup_parser.add_argument(
+        "--action", choices=("configure", "remove"), default="configure"
+    )
+    agent_setup_parser.add_argument("--apply", action="store_true")
+    agent_setup_parser.add_argument("--preview-id")
+    agent_setup_parser.add_argument(
+        "--runtime", help="Use this exact absolute runtime path for contributor setup."
+    )
     obsidian_plugin_parser = subparsers.add_parser(
         "obsidian-plugin",
         help="Install, inspect, or remove the desktop Obsidian plugin.",
@@ -416,6 +456,42 @@ def _add_local_options(parser: argparse.ArgumentParser) -> None:
         default=argparse.SUPPRESS,
         help="Use this absolute Brain root instead of the platform-local default.",
     )
+
+
+def _run_agent_setup(
+    parsed: argparse.Namespace,
+    *,
+    selection: object,
+    environment: Mapping[str, object],
+    json_output: bool,
+) -> int:
+    from open_brain.local_data import LocalRootSelection
+
+    if not isinstance(selection, LocalRootSelection) or parsed.agent_command != "setup":
+        raise AgentSetupFailure("invalid_arguments")
+    if not parsed.apply and parsed.preview_id is not None:
+        raise AgentSetupFailure("invalid_arguments")
+    runtime_path = resolve_agent_runtime(parsed.runtime)
+    values = {
+        "action": parsed.action,
+        "allow_capture": parsed.allow_capture,
+        "allow_search": parsed.allow_search,
+        "client": parsed.client,
+        "environment": environment,
+        "project_dir": parsed.project_dir,
+        "runtime_path": runtime_path,
+        "scope": parsed.scope,
+    }
+    result = (
+        apply_agent_setup(selection, preview_id=parsed.preview_id, **values)
+        if parsed.apply
+        else preview_agent_setup(selection, **values)
+    )
+    if json_output:
+        _write_json(result)
+    else:
+        print(json.dumps(result, ensure_ascii=False, indent=2, sort_keys=True))
+    return 0
 
 
 def _run_local_command(
@@ -1235,6 +1311,23 @@ def _write_obsidian_plugin_failure(code: str, *, json_output: bool) -> int:
     else:
         print(f"{code}: {message}", file=sys.stderr)
     return 78
+
+
+def _write_agent_setup_failure(code: str, *, json_output: bool) -> int:
+    messages = {
+        "client_config_invalid": "The client configuration is malformed or unsupported.",
+        "invalid_arguments": "The agent setup request is invalid.",
+        "operation_failed": "Open Brain could not apply the agent setup transaction.",
+        "setup_conflict": "An owned setup fragment changed or the target name is already in use.",
+        "setup_preview_stale": "The setup preview is stale; create a new preview before applying.",
+        "unsafe_config_path": "The client configuration path is unavailable or unsafe.",
+    }
+    message = messages[code]
+    if json_output:
+        _write_json({"error": {"code": code, "message": message}, "status": "failed"})
+    else:
+        print(f"{code}: {message}", file=sys.stderr)
+    return 2 if code == "invalid_arguments" else 78
 
 
 def _write_usage_failure(*, json_output: bool) -> None:

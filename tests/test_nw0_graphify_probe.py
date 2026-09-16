@@ -43,6 +43,23 @@ def test_build_success_and_failure(tmp_path: Path) -> None:
         run([sys.executable, "-c", "raise SystemExit(4)"], tmp_path, {}, "exit", timeout=3)
 
 
+def test_cleanup_permission_failure_rejects_and_reaps_child(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    children: list[int] = []
+
+    def denied(pid: int, signal_number: int) -> None:
+        children.append(pid)
+        raise PermissionError("synthetic cleanup denial")
+
+    monkeypatch.setattr(os, "killpg", denied)
+    with pytest.raises(RuntimeError, match="cleanup failed"):
+        run([sys.executable, "-c", "print('done')"], tmp_path, {}, "cleanup", timeout=3)
+    assert len(children) == 1
+    with pytest.raises(ChildProcessError):
+        os.waitpid(children[0], os.WNOHANG)
+
+
 def test_helper_archive_identity_notices_and_reproducibility(tmp_path: Path) -> None:
     helper = tmp_path / "helper"
     helper.write_bytes(b"synthetic executable")

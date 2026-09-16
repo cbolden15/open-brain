@@ -17,10 +17,12 @@ from open_brain_engine.storage.migrations import (
 )
 from open_brain_engine.storage.sqlite import (
     DatabaseBusyError,
+    begin_immediate,
     connect_database,
     connect_database_read_only,
     has_private_rollback_journal,
     is_database_busy,
+    restore_busy_timeout,
 )
 
 from .contracts import LocalEngineContext
@@ -30,13 +32,14 @@ from .local_schema_catalog import (
     LIVE_SEARCH_SCHEMA,
     LOCAL_MIGRATIONS,
     MANAGED_WORKSPACE_SCHEMA,
+    RUNTIME_COMPATIBILITY_SCHEMA,
     SEARCH_SCHEMA,
 )
 from .normalization import _MAX_FILE_BYTES, _MAX_TEXT, _utc_now
 from .search_projection import _durable_source_origin, public_search_text
 
 PHASE1_STATE_DATABASE = ".open-brain/state/phase1.sqlite3"
-PHASE1_STATE_SCHEMA_VERSION = 3
+PHASE1_STATE_SCHEMA_VERSION = 4
 
 
 class LocalRecoveryRequiredError(SchemaError):
@@ -86,6 +89,9 @@ def _expected_shape(era: int, nullable: bool, ledger: bool) -> tuple[tuple[str, 
         if era >= 5:
             for statement in MANAGED_WORKSPACE_SCHEMA:
                 connection.execute(statement)
+        if era >= 6:
+            for statement in RUNTIME_COMPATIBILITY_SCHEMA:
+                connection.execute(statement)
         if ledger:
             connection.execute(_SCHEMA_MIGRATIONS_SQL)
         return _shape(connection)
@@ -108,7 +114,7 @@ def classify_local_schema(connection: sqlite3.Connection) -> SchemaState:
             ).fetchall()
             if any(type(row[0]) is int and row[0] > PHASE1_STATE_SCHEMA_VERSION for row in rows):
                 return SchemaState("newer", version)
-            if version not in (1, 2, 3) or len(rows) != version:
+            if version not in (1, 2, 3, 4) or len(rows) != version:
                 return SchemaState("invalid", version)
             for row, migration in zip(rows, LOCAL_MIGRATIONS[:version], strict=True):
                 if tuple(row[:3]) != (migration.version, migration.name, migration.checksum):
@@ -120,14 +126,22 @@ def classify_local_schema(connection: sqlite3.Connection) -> SchemaState:
                 1: _expected_shape(2, True, True),
                 2: _expected_shape(4, False, True),
                 3: _expected_shape(5, False, True),
+                4: _expected_shape(6, False, True),
             }[version]
             if shape == expected:
+                if version == 4:
+                    compatibility = connection.execute(
+                        "SELECT singleton, minimum_runtime_session_version, state_schema_version "
+                        "FROM runtime_compatibility"
+                    ).fetchall()
+                    if [tuple(row) for row in compatibility] != [(1, 1, 4)]:
+                        return SchemaState("invalid", version)
                 return SchemaState(
                     "current" if version == PHASE1_STATE_SCHEMA_VERSION else "supported_old",
                     version,
                 )
         elif version in (0, 1):
-            eras = (2,) if version == 0 else (2, 3, 4, 5)
+            eras = (2,) if version == 0 else (2, 3, 4, 5, 6)
             for era in eras:
                 for nullable in (True,) if era == 2 else (True, False):
                     if shape == _expected_shape(era, nullable, False):
@@ -147,11 +161,18 @@ def _require_supported(state: SchemaState, *, current_only: bool = False) -> Non
         raise SchemaError(f"local state schema is {state.state}")
 
 
-def inspect_phase1_state(profile: LocalEngineContext) -> SchemaState:
+def inspect_phase1_state(
+    profile: LocalEngineContext, *, timeout_seconds: float = 5.0, busy_timeout_ms: int = 5000
+) -> SchemaState:
     if not isinstance(profile, LocalEngineContext):
         raise ValueError("invalid local profile")
     try:
-        connection = open_local_database_read_only(profile, inspect_only=True)
+        connection = open_local_database_read_only(
+            profile,
+            inspect_only=True,
+            timeout_seconds=timeout_seconds,
+            busy_timeout_ms=busy_timeout_ms,
+        )
     except DatabaseBusyError:
         raise
     except SchemaError:
@@ -177,12 +198,19 @@ def inspect_phase1_state(profile: LocalEngineContext) -> SchemaState:
 
 
 def open_local_database_read_only(
-    profile: LocalEngineContext, *, inspect_only: bool = False, allow_old: bool = False
+    profile: LocalEngineContext,
+    *,
+    inspect_only: bool = False,
+    allow_old: bool = False,
+    timeout_seconds: float = 5.0,
+    busy_timeout_ms: int = 5000,
 ) -> sqlite3.Connection:
     connection = connect_database_read_only(
         root=profile.root,
         database_name=PHASE1_STATE_DATABASE,
         expected_root_identity=profile.root_identity,
+        timeout_seconds=timeout_seconds,
+        busy_timeout_ms=busy_timeout_ms,
     )
     if inspect_only:
         return connection
@@ -200,6 +228,16 @@ def _validate_upgrade_data(connection: sqlite3.Connection) -> None:
         raise SchemaError("local state integrity is invalid")
     if connection.execute("PRAGMA foreign_key_check").fetchone() is not None:
         raise SchemaError("local state references are invalid")
+    compatibility_table = connection.execute(
+        "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'runtime_compatibility'"
+    ).fetchone()
+    if compatibility_table is not None:
+        compatibility = connection.execute(
+            "SELECT singleton, minimum_runtime_session_version, state_schema_version "
+            "FROM runtime_compatibility"
+        ).fetchall()
+        if [tuple(row) for row in compatibility] != [(1, 1, 4)]:
+            raise SchemaError("local runtime compatibility floor is invalid")
     if (
         connection.execute(
             """SELECT 1 FROM search_documents AS d LEFT JOIN captures AS c USING (capture_id)
@@ -293,15 +331,17 @@ def _prepare_local_schema(
             connection.execute("BEGIN")
             state = classify_local_schema(connection)
             connection.execute("COMMIT")
+            restore_busy_timeout(connection)
             if state.state == "current":
                 return
-        connection.execute("BEGIN IMMEDIATE")
+        begin_immediate(connection)
         state = classify_local_schema(connection)
         empty = created and state.version == 0 and not _shape(connection)
         if not empty:
             _require_supported(state)
             if state.state == "current":
                 connection.execute("COMMIT")
+                restore_busy_timeout(connection)
                 return
             _validate_upgrade_data(connection)
         connection.create_function("local_public_search_text", 2, _public_text, deterministic=True)
@@ -315,9 +355,12 @@ def _prepare_local_schema(
         _validate_upgrade_data(connection)
         _validate_backfill(connection)
         connection.execute("COMMIT")
+        restore_busy_timeout(connection)
     except BaseException as error:
         with suppress(sqlite3.Error):
             connection.execute("ROLLBACK")
+        with suppress(sqlite3.Error):
+            restore_busy_timeout(connection)
         if is_database_busy(error):
             raise DatabaseBusyError("database busy") from None
         if isinstance(error, SchemaError):
@@ -332,8 +375,11 @@ def _prepare_local_schema(
 def open_local_database(
     profile: LocalEngineContext, *, clock: Callable[[], datetime] = _utc_now
 ) -> sqlite3.Connection:
-    state = inspect_phase1_state(profile)
-    if state.state != "absent":
+    try:
+        state = inspect_phase1_state(profile, timeout_seconds=0.05, busy_timeout_ms=50)
+    except DatabaseBusyError:
+        state = SchemaState("busy", None)
+    if state.state not in {"absent", "busy"}:
         _require_supported(state)
     return connect_database(
         root=profile.root,
