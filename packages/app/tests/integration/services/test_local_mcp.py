@@ -285,7 +285,7 @@ def test_review_quotas_validate_before_charging_and_separate_operation_groups() 
 
 def test_review_response_budget_includes_request_id_and_reserves_before_write() -> None:
     calls = 0
-    result = {"status": "shown", "markdown": ('雪😀\\"\n\t\x00' * 1000)}
+    result: dict[str, object] = {"status": "shown", "markdown": ('雪😀\\"\n\t\x00' * 1000)}
 
     def operation(_arguments: Mapping[str, object]) -> dict[str, object]:
         nonlocal calls
