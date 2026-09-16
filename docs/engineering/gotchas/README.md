@@ -1710,3 +1710,17 @@ and malformed metadata, then exercise actual client tool calls against the exact
 See the [MCP metadata contract](https://modelcontextprotocol.io/specification/2025-11-25/basic#_meta).
 
 Discovered: 2026-09-14, desktop D1 actual Claude Code acceptance.
+
+### DOCUMENT-001: PDF extraction can invoke an ambient image decoder
+
+Symptom: A malformed PDF content stream can select pypdf's JBIG2 filter, which discovers
+and invokes a host-installed decoder even when the caller only requested text.
+
+Cause: Text extraction parses content streams through the shared PDF filter machinery.
+Avoiding the public image API does not disable every decoder.
+
+Fix: Explicitly set `jbig2dec_binary=None` in the parser's configuration, bound each
+decompression family, and run parsing in a timed child with a minimal environment.
+Keep parser dependencies out of the default app and native runtime.
+
+Discovered: 2026-09-15, D5.1 selected-file extraction.

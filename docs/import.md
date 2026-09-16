@@ -488,3 +488,89 @@ and unverified provenance. This runs after the unchanged timed five-minute accep
 NFS, FUSE, synchronized source trees, and hostile same-user mutation have no stronger guarantee in
 the first release. Supporting them as trusted snapshots would require a separate filesystem
 conformance design.
+
+## Selected PDF and DOCX files (optional connectors package)
+
+The optional `open-brain-connectors` package adds an explicit file workflow. The default
+`open-brain import` command above continues to import Markdown directories.
+
+From a checkout, install the development environment with `uv sync --frozen`. Preview one file:
+
+```sh
+uv run --frozen open-brain-source local-document preview \
+  --file /absolute/path/report.pdf --title "Quarterly report"
+```
+
+This command returns JSON containing `extracted_text`, an opaque document identity, a byte
+`revision_id`, and a `preview_id`. Read the extracted text before importing. Preview is the
+explicit exception to the source CLI's metadata-only output rule. Other commands and failures
+do not echo document bodies or file paths. Supply a title suitable for search; the filename
+is never used as a title.
+
+Import into an existing Brain, using the returned preview ID:
+
+```sh
+uv run --frozen open-brain-source local-document import \
+  --file /absolute/path/report.pdf --title "Quarterly report" \
+  --preview-id <preview_id> --brain-root /absolute/path/to/brain
+```
+
+Use the same file, title and optional `--connection-id` (default `account:local-documents`)
+for both commands. Import reads and extracts the file again, then checks the preview binding
+before opening the Brain. Changed bytes, title, connection, path, or extracted text require
+a new preview. The immutable bytes read for that invocation determine what gets imported;
+later edits to the original file do not change that capture.
+
+The title and extracted text go through the existing local-document redaction checks. A
+document containing a redaction finding is rejected before capture. Imports have local-only
+personal privacy, third-party provenance, and capture-only authority. Source text cannot
+publish canonical content or change owner configuration. A fresh agent attached to the same
+Brain can search the imported text through its ordinary retrieval tools.
+
+The source reference is `https://local.openbrain.invalid/documents/<opaque-id>`. It is an
+identity, not a clickable local file link. The ID hashes the selected canonical path; the
+absolute path is not stored in the capture or exported. Moving a file produces a new source.
+Keep a consistent connection ID to avoid separate captures for the same selected path.
+
+Repeating the same import returns `unchanged` and creates no capture. Changed bytes replace
+the source's active search result through the engine's existing public-source revision flow.
+The response uses `imported` for both the first capture and a replacement. Prior immutable
+captures remain in Portable export. Importing an older revision again activates a new capture
+of those bytes; it does not erase history. A generated `Document SHA-256` header in the raw
+capture preserves the original file's byte revision, including changes that leave extracted
+text unchanged. Preview reports that digest separately from the extracted text.
+
+Only extracted text and revision provenance are captured. The original PDF/DOCX binary,
+images, attachments, document layout, and filename are not archived. Deleting the selected
+file does not delete its captured history or remove its current search result.
+
+### Parser bounds and unsupported content
+
+PDF extraction uses pinned [pypdf](https://pypdf.readthedocs.io/en/stable/modules/PdfReader.html).
+DOCX extraction reads main-document paragraphs and table text from its ZIP/XML package.
+External relationships, macros, embedded files and external PDF image decoders are not executed.
+The child receives file bytes over stdin and a minimal environment, with no source path,
+Brain capability, or inherited credential environment.
+
+Limits are 20 MiB per selected file, 100 PDF pages, 1,024 DOCX ZIP entries, 32 MiB aggregate
+declared expanded ZIP content, and 4 MiB per document XML/PDF content stream. The capture,
+including its 84-character digest header, is limited to 65,536 characters. Extraction accepts
+at most 65,452 characters, reserving that header space before preview. Oversized output is rejected,
+not truncated.
+
+A parser child has a 15-second wall deadline and a 10-second CPU limit. Linux also enforces a
+512 MiB address-space limit. On macOS the parent checks resident memory every 50 milliseconds
+and kills a child observed above 512 MiB; brief allocation peaks can exceed that threshold.
+This is a resource guard, not an OS security sandbox. Parser errors are reduced to closed
+codes without forwarding parser diagnostics.
+
+Encrypted PDFs, encrypted or legacy Office containers, malformed files, DTD-bearing XML,
+image-only documents, unsupported formats, symlink leaves, hardlinks and special files are
+rejected. Intentional parent aliases such as macOS `/tmp` are canonicalized. PDF image text,
+including image regions in otherwise text-bearing PDFs, needs OCR and is not extracted.
+Strict Open XML namespaces are currently unsupported. There is no OCR, folder traversal,
+watcher, browsing-history collection, or scheduled import in this slice.
+
+The prior `select-file`, `preview-file` and `checkpoint` commands remain the host-mediated
+normalized JSON interface. They do not read PDF/DOCX bytes. Browser-to-local clipping,
+desktop picker wiring, and native owner acceptance are separate D5.1 checks.
