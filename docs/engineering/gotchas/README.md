@@ -595,6 +595,22 @@ contract, isolated wheel help, and a clean installed-wheel journey.
 
 Discovered: 2026-09-04.
 
+### PACKAGING-004: Requires-Python must match the current source grammar
+
+Symptom: A source package advertises Python 3.12 compatibility, but that interpreter rejects
+unparenthesized multi-exception handlers before the application can start.
+
+Cause: Package metadata retained `>=3.12` for historical replay while the workspace, formatter,
+native build and CI targeted Python 3.14. PEP 758 intentionally permits the syntax in 3.14 and
+catches every listed type; it does not restore Python 2 exception-name binding.
+
+Fix: Require `>=3.14,<3.15` in all active distributions and regenerate the workspace lock.
+Check the built wheels through the installer on supported and rejected interpreters. Historical
+replay belongs to the original revision, not the current distribution's compatibility promise.
+Homebrew executables bundle the supported runtime.
+
+Discovered: 2026-09-16, new-laptop source installation report.
+
 ### TESTING-001: An inner fixed interpreter can falsify a CI version matrix
 
 Symptom: Python 3.13 and 3.14 jobs pass even though their wheel-isolation subprocesses run on

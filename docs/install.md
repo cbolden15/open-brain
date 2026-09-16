@@ -119,6 +119,23 @@ a separate explicit action; do not delete it unless a verified export or another
 
 ## Build from source
 
+Source packages require Python 3.14. The Homebrew executables bundle their runtime, so end users
+do not need to install Python separately. Python 3.12 and 3.13 cannot run the current source tree.
+
+From a clone, let uv select the supported interpreter before running source commands:
+
+```sh
+uv sync --frozen --python 3.14 --group dev --group native-build
+uv run --frozen --python 3.14 python --version
+uv run --frozen --python 3.14 open-brain --help
+```
+
+If an older interpreter reports `SyntaxError: multiple exception types must be parenthesized`,
+check the interpreter used by that command. Python 3.14 allows `except ValueError, OSError:` and
+catches either type without rebinding their names, as specified by
+[PEP 758](https://peps.python.org/pep-0758/). Use the supported runtime instead of rewriting the
+handlers or overriding the package's Python requirement.
+
 ### Dedicated desktop companion
 
 The optional desktop companion in `packages/desktop` is a contributor build with local capture,
