@@ -1727,6 +1727,21 @@ hardlink mode. An already modified private cache must be replaced before retryin
 
 Discovered: 2026-09-16, repeated Linux native builds in the desktop contributor check.
 
+### INTEGRATION-041: A cleanup permission error must not skip child reaping
+
+Symptom: The Graphify build supervisor raises `PermissionError` during group cleanup
+instead of reporting a bounded build failure, leaving its pipe close and child wait unrun.
+
+Cause: Its cleanup handler only catches a missing process group. macOS CI also returned
+a permission error when signaling a group whose short-lived leader was exiting.
+
+Fix: Treat denied cleanup as a build failure, then close the owned pipe and wait for the
+direct child with the existing timeout. Never report success when group cleanup is
+unverified. A real subprocess regression injects signal denial and confirms the child
+has been reaped while the operation still fails.
+
+Discovered: 2026-09-16, macOS Graphify build-supervisor overflow test.
+
 ### DOCUMENT-001: PDF extraction can invoke an ambient image decoder
 
 Symptom: A malformed PDF content stream can select pypdf's JBIG2 filter, which discovers
@@ -1883,8 +1898,8 @@ Discovered: 2026-09-16, Linux contributor CI for the desktop and priority captur
 
 ### SOURCE-LIVE-009: A generic HTTP test client can initialize TLS on loopback
 
-Symptom: The first synthetic OAuth callback exceeds its three-second deadline on
-macOS CI, while later callbacks and local checks pass.
+Symptom: A synthetic HTTP-only OAuth callback can spend its deadline initializing
+the system TLS certificate context before sending its local request.
 
 Cause: Python's first `urllib.request.urlopen` builds an HTTPS handler and loads its
 default certificate context even for an HTTP-only callback. A controlled slow-context
@@ -1896,3 +1911,19 @@ rejection, PKCE assertions, and existing timeout limits. The controlled probe th
 without creating a TLS context. Production provider HTTPS transport is unchanged.
 
 Discovered: 2026-09-16, macOS contributor CI for the desktop and priority capture PR.
+
+### SOURCE-LIVE-010: HTTPServer resolves a hostname while binding numeric loopback
+
+Symptom: The first Calendar OAuth callback times out before its listener loop can
+process a request, even when the callback client performs no TLS setup.
+
+Cause: `HTTPServer.server_bind` calls `socket.getfqdn` after binding. The authorization
+deadline already exists, so a slow reverse lookup for `127.0.0.1` can consume it. A delayed-
+lookup probe reproduced the timeout with the direct HTTP callback fixture.
+
+Fix: Bind the numeric loopback socket through `TCPServer.server_bind` and retain its
+numeric server name and port. Reject reverse-DNS calls in the successful authorization
+test. The same delayed-lookup probe then completes without changing timeout, PKCE,
+state, Host-header, or provider HTTPS checks.
+
+Discovered: 2026-09-16, repeated macOS Calendar OAuth acceptance-test failure.

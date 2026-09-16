@@ -178,6 +178,10 @@ def test_connect_uses_pkce_loopback_and_persists_private_credentials(
         lambda: pytest.fail("HTTP loopback fixture must not initialize TLS"),
     )
     monkeypatch.setattr(
+        socket, "getfqdn",
+        lambda _host: pytest.fail("Numeric loopback listener must not perform reverse DNS"),
+    )
+    monkeypatch.setattr(
         "open_brain_connectors.runtime.google_calendar_auth.time.time",
         lambda: 1_000_000.0,
     )

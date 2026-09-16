@@ -14,7 +14,6 @@ import subprocess
 import sys
 import tarfile
 import time
-from contextlib import suppress
 from pathlib import Path
 
 from tools.open_brain_dev import artifact_audit, base_native
@@ -72,8 +71,13 @@ def run(
                     break
     finally:
         # Kill the owned group even if its leader exited while a descendant kept a pipe open.
-        with suppress(ProcessLookupError):
+        try:
             os.killpg(child.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+        except PermissionError:
+            # Cleanup is unverified, but still close the pipe and reap the child.
+            failed = True
         child.stdout.close()
         child.wait(timeout=2)
     if failed or child.returncode:

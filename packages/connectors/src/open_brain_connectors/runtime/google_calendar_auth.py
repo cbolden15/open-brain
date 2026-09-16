@@ -18,7 +18,7 @@ from contextlib import suppress
 from dataclasses import dataclass, field
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
-from socketserver import ThreadingMixIn
+from socketserver import TCPServer, ThreadingMixIn
 from typing import ClassVar, cast
 from urllib.error import HTTPError, URLError
 from urllib.parse import parse_qs, urlencode, urlsplit
@@ -94,6 +94,11 @@ class _CallbackServer(ThreadingMixIn, HTTPServer):
     request_timeout: float
     active_requests: set[socket.socket]
     active_lock: threading.Lock
+
+    def server_bind(self) -> None:
+        # The numeric loopback listener does not need reverse DNS during authorization.
+        TCPServer.server_bind(self)
+        self.server_name, self.server_port = cast(tuple[str, int], self.server_address)
 
     def get_request(self) -> tuple[socket.socket, tuple[str, int]]:
         request, address = super().get_request()
