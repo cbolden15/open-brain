@@ -1786,3 +1786,33 @@ exchange and refresh request bodies, and retain it only with refresh material in
 Test both Google sources, process restart, and exclusion from URLs and account metadata.
 
 Discovered: 2026-09-16, actual Google development-account sign-in.
+
+### SOURCE-LIVE-004: Codex exec can cancel an asynchronous Stop capture hook
+
+Symptom: A successful native Codex turn leaves no Open Brain queue event.
+
+Cause: Codex cancels unfinished background hooks when the session ends. In a bounded
+Codex CLI 0.154.0 check, the asynchronous Stop hook lost its event after `codex exec`
+returned. Running the same enqueue synchronously produced the event before exit.
+
+Fix: Generate a synchronous Stop command with a two-second host timeout for both clients.
+Only metadata enqueue runs in the hook; parsing and import remain in the collector.
+Reapplying setup upgrades the owned Codex entry while preserving unrelated hooks.
+Exercise the generated command in a subprocess and verify a fresh native Codex turn.
+
+Discovered: 2026-09-16, isolated native Codex automatic-capture acceptance.
+
+### SOURCE-LIVE-005: Codex user-role records can contain generated context
+
+Symptom: A synthetic native turn is quarantined because plugin identifiers in a user-role
+record match credential-shaped strings. That record was never a user's message.
+
+Cause: Codex CLI 0.154.0 puts plugin recommendations, injected instructions and environment
+context in user-role `response_item` records. Per-part `content_item_kinds` metadata distinguishes
+that context from `user.text`; checking only the role and `input_text` type is insufficient.
+
+Fix: Select only `user.text` parts when the metadata is present and reject malformed alignment.
+Keep the credential scan on the selected conversation text. Cover mixed context/user records,
+unknown kinds and actual user secrets in both transcript and extractive-summary tests.
+
+Discovered: 2026-09-16, isolated native Codex transcript import.

@@ -30,8 +30,9 @@ containers, a daemon, or another background service. The enabled plugin owns one
 
 The separately packaged Tauri companion in `packages/desktop` follows
 `docs/architecture/decisions/0017-desktop-companion-boundary.md`. D1 provides local capture/search
-and shared CLI/desktop agent setup against the same Brain. Priority Gmail, Drive, Slack and selected
+and shared CLI/desktop agent setup against the same Brain. Priority Gmail, Drive and selected
 Claude Code/Codex capture share `packages/collector/src/open_brain_collector/live_manager.py`.
+The existing Slack implementation is deferred from the active priority milestone.
 The optional collector owns scheduling, credential references, private Unix control IPC, and service
 permissions. Source enablement and background service installation are separate opt-ins. The
 priority source plan and live acceptance remain in `docs/plans/2026-09-16-priority-capture.md`.

@@ -23,10 +23,13 @@ preimage-bound lifecycle:
    `uninstall(preview)`.
 
 Claude Code receives one owned synchronous, two-second-bounded `Stop` command in the
-selected project's `.claude/settings.local.json`. This is deliberate: Claude print mode
-can exit before a background Stop command writes its receipt. Codex receives one owned
-asynchronous `Stop` command in the selected project's `.codex/hooks.json`. Existing
-hooks and other settings remain in place. These are project-local files only; the
+selected project's `.claude/settings.local.json`. Codex receives the same bounded
+synchronous enqueue in `.codex/hooks.json`. Both foreground clients can exit before a
+background Stop command persists its event; Codex cancels unfinished background hooks
+when its session ends. The hook waits only for the local metadata enqueue. Transcript
+parsing and Brain capture remain collector work. Reapply the project capture setup to
+replace an older asynchronous Codex hook. Existing hooks and other settings remain in
+place. These are project-local files only; the
 integration never changes `~/.claude` or `~/.codex` configuration.
 
 The installed command is equivalent to:
@@ -38,7 +41,8 @@ python -m open_brain_connectors.runtime.agent_session_hooks enqueue \
 ```
 
 It reads the lifecycle JSON from standard input and always exits successfully. A capture
-failure therefore cannot delay or fail the client turn.
+failure therefore cannot fail the client turn, and the host bounds the enqueue wait to
+two seconds.
 
 ## Queue and parsing
 
@@ -90,6 +94,12 @@ Tool calls, tool results, thinking or reasoning blocks, and unrecognized record 
 are excluded. A trailing partial JSONL line is tolerated. Metadata mismatch or a path
 swap fails closed with a stable session notice.
 
+Codex 0.154.0 can place generated context in user-role records. When a user record
+includes `internal_chat_message_metadata_passthrough.content_item_kinds`, capture accepts
+only content parts marked `user.text`. Plugin recommendations, injected instructions,
+environment context and unknown kinds are excluded. Misaligned metadata fails closed.
+Older supported records without that metadata retain the role/content-type checks.
+
 Before any extracted text enters an intake, Open Brain rejects supported credential
 patterns, private-key headers, and credential URLs. The event remains queued and fetch
 returns the metadata-only `session_quarantined_secret` notice; use `discard` after review.
@@ -103,7 +113,7 @@ documents `Stop` as running after the main agent responds and supplies `session_
 project-local `.codex/hooks.json`, the same core path/session fields, and warns that its
 transcript wire format is not a stable hook interface.
 
-References checked on 2026-09-15:
+References checked on 2026-09-16:
 
 - [Claude Code hooks](https://code.claude.com/docs/en/hooks)
 - [Codex hooks](https://developers.openai.com/codex/hooks/)

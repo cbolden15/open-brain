@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import shlex
+import subprocess
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
@@ -76,6 +78,64 @@ def test_preimage_prevents_overwriting_changed_codex_config(tmp_path: Path) -> N
 
     with pytest.raises(HookConfigError, match="changed since preview"):
         manager.apply(preview)
+
+
+@pytest.mark.parametrize("client", ["claude_code", "codex"])
+def test_generated_stop_command_persists_event_before_foreground_exit(
+    tmp_path: Path, client: str
+) -> None:
+    project = tmp_path / "selected project"
+    project.mkdir()
+    transcript = tmp_path / "fresh session.jsonl"
+    transcript.write_text("{}\n", encoding="utf-8")
+    queue = tmp_path / "queue"
+    manager = AgentSessionHookManager(queue)
+    preview = manager.preview_apply(client, project)  # type: ignore[arg-type]
+    manager.apply(preview)
+    configured = json.loads(preview.config_path.read_text(encoding="utf-8"))
+    handler = configured["hooks"]["Stop"][0]["hooks"][0]
+    # Foreground clients cancel unfinished async hooks as the session exits.
+    assert "async" not in handler
+    assert handler["timeout"] == 2
+    completed = subprocess.run(
+        shlex.split(handler["command"]),
+        input=json.dumps(_hook_payload(project, transcript)),
+        text=True,
+        capture_output=True,
+        cwd=project,
+        timeout=handler["timeout"],
+        check=True,
+    )
+    assert completed.stdout == completed.stderr == ""
+    events = queued_events(queue)
+    assert len(events) == 1
+    assert events[0].client == client
+    assert events[0].project_path == str(project.resolve())
+    assert events[0].transcript_path == str(transcript.resolve())
+
+
+def test_reapply_replaces_async_codex_hook_and_preserves_unrelated_stop(tmp_path: Path) -> None:
+    project = tmp_path / "project"
+    project.mkdir()
+    manager = AgentSessionHookManager(tmp_path / "queue")
+    preview = manager.preview_apply("codex", project)
+    manager.apply(preview)
+    config = json.loads(preview.config_path.read_text(encoding="utf-8"))
+    old_handler = config["hooks"]["Stop"][0]["hooks"][0]
+    old_handler.update({"async": True, "timeout": 3})
+    unrelated = {"hooks": [{"type": "command", "command": "keep-unrelated-hook"}]}
+    config["hooks"]["Stop"].append(unrelated)
+    preview.config_path.write_text(json.dumps(config), encoding="utf-8")
+
+    upgrade = manager.preview_apply("codex", project)
+    assert upgrade.changed
+    manager.apply(upgrade)
+    upgraded = json.loads(upgrade.config_path.read_text(encoding="utf-8"))
+    entries = upgraded["hooks"]["Stop"]
+    assert entries[0] == unrelated
+    assert len(entries) == 2
+    assert "async" not in entries[1]["hooks"][0]
+    assert entries[1]["hooks"][0]["timeout"] == 2
 
 
 def test_enqueue_records_metadata_only_and_discard_is_explicit(tmp_path: Path) -> None:

@@ -428,7 +428,21 @@ def _codex_message(value: object) -> _Message | None:
     role = payload.get("role")
     if role not in {"user", "assistant"}:
         return None
-    text = _content_text(payload.get("content"), client="codex", role=cast(str, role))
+    content = payload.get("content")
+    metadata = payload.get("internal_chat_message_metadata_passthrough")
+    if role == "user" and metadata is not None:
+        # Native Codex also uses user records for injected instructions, plugin
+        # recommendations and environment context. Only authored text is input.
+        kinds = metadata.get("content_item_kinds") if isinstance(metadata, dict) else None
+        if (
+            not isinstance(content, list)
+            or not isinstance(kinds, list)
+            or len(kinds) != len(content)
+            or any(type(kind) is not str for kind in kinds)
+        ):
+            raise _SessionFormatError("session_unsupported_format")
+        content = [item for item, kind in zip(content, kinds, strict=True) if kind == "user.text"]
+    text = _content_text(content, client="codex", role=cast(str, role))
     return None if text is None else _Message(cast(Literal["user", "assistant"], role), text)
 
 

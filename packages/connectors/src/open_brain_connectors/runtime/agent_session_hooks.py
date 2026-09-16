@@ -471,12 +471,9 @@ def _owned_hook_entry(
             "open-brain-agent-session",
         )
     )
-    handler: dict[str, object] = {"type": "command", "command": command}
-    if client == "claude_code":
-        handler["timeout"] = 2
-    else:
-        handler["async"] = True
-        handler["timeout"] = 3
+    # Both foreground clients can exit before a background Stop hook persists
+    # its event. Wait only for the bounded metadata enqueue, never for import.
+    handler: dict[str, object] = {"type": "command", "command": command, "timeout": 2}
     return {"hooks": [handler]}
 
 

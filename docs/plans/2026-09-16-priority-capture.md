@@ -1,18 +1,20 @@
-# Complete the five priority capture sources
+# Complete the four priority capture sources
 
-Status: active implementation plan for the owner's current priority. All other unfinished
-integrations wait. Outlook email/Calendar and the previously excluded Microsoft sources remain
-excluded. This plan does not claim that existing fixture adapters are live integrations.
+Status: active implementation plan for Gmail, Google Drive, Claude Code and Codex. Slack was
+removed from the active scope on 2026-09-16. Its existing implementation and design notes remain
+deferred; Slack setup and acceptance do not gate this milestone. All other unfinished integrations
+wait. Outlook email/Calendar and the previously excluded Microsoft sources remain excluded.
+This plan does not claim that existing fixture adapters are live integrations.
 
 ## Outcome and acceptance
 
-An owner can connect Gmail, Google Drive, and Slack; select bounded resources; preview and import
+An owner can connect Gmail and Google Drive; select bounded resources; preview and import
 them; retrieve their content through a fresh client; and explicitly enable recurring collection.
 The same configuration and source operations serve the headless CLI and desktop. Selected Claude
 Code and Codex projects automatically produce captures after turns, with summaries and transcripts
 separate opt-ins. Existing explicit saves continue to work.
 
-Each of the five sources has a separate acceptance row. Completion requires actual provider/client
+Each of the four active sources has a separate acceptance row. Completion requires actual provider/client
 evidence, updates without duplicate active results, retry after capture failure, restart/pause/resume,
 lost access/revocation or opt-out, preserved provenance/history in export, and passed project checks.
 Synthetic tests establish implementation correctness, not live-source acceptance. Public OAuth app
@@ -68,8 +70,9 @@ Google grants are separate: Gmail requests `openid` plus
 `https://www.googleapis.com/auth/drive.readonly`. Gmail labels and Drive file selections constrain
 Open Brain's capture operations, not the credential's provider permissions. The connection screen
 must disclose account-wide read grants; selected capture does not turn them into per-resource tokens.
-Slack uses user scopes `channels:read`, `channels:history`, `groups:read`, `groups:history`. Its token
-can read channels the authorizing user may access; channel selection is enforced by Open Brain.
+The deferred Slack implementation uses user scopes `channels:read`, `channels:history`,
+`groups:read`, `groups:history`. Its token can read channels the authorizing user may access;
+channel selection is enforced by Open Brain.
 All clients reject unselected IDs even when an authorized API response contains them.
 
 Imported provider/session content stays third-party and unverified through capture, search and export.
@@ -82,7 +85,8 @@ malicious HTML, unsafe links and instruction-like content through the real captu
 
 ### 1. Provider modules
 
-Three independent writers own new modules and their focused tests; the coordinator owns shared
+The original implementation used three independent writers for new modules and focused tests;
+Slack work is now deferred. The coordinator owns shared
 interfaces, CLI, collector, engine-boundary integration and all shared files. Workers do not commit,
 push, alter account/OS settings, scan personal data, or launch nested workers.
 
@@ -94,7 +98,7 @@ individually selected text-like files and exports supported Workspace documents;
 mirroring. Preserve original links, changes, removal/access-loss status and body limits. Unsupported
 binary formats and incomplete pagination fail visibly rather than claiming full capture.
 
-Slack writer: new `slack_live.py`, `slack_auth.py`, focused tests and setup documentation. Use the
+Deferred Slack design: `slack_live.py`, `slack_auth.py`, focused tests and setup documentation. Use the
 current public-client PKCE flow with read-only user scopes for selected public/private channels;
 do not request bot, posting, DM, or administration scopes. Support bounded channel discovery,
 history and thread replies, edits, observed deletions, retention/access changes, pagination and
@@ -115,8 +119,9 @@ URLs); reject matched events with metadata-only quarantine notices and a queue-d
 Scanning is best-effort and cannot detect every secret in arbitrary prose; disclose this limitation.
 Test representative secrets, false positives and feedback-loop prevention.
 Do not invent model-generated summaries. An extractive summary must be labeled and contain only
-permitted user/assistant text. Background hooks must not fail or delay the host client if capture is
-unavailable; queued work is bounded and later drainable.
+permitted user/assistant text. Hook failures must not fail the host turn. A synchronous metadata
+enqueue has a two-second host timeout so foreground clients can persist their event before exit;
+transcript parsing and capture remain collector work. Queued work is bounded and later drainable.
 
 ### 2. Shared state and headless commands
 
@@ -159,7 +164,7 @@ proof. Independent read-only reviews cover authentication, source/Brain binding 
 Resolve P0-P2 findings before integration. The coordinator commits verified units and serially
 integrates with the preserved Mac mini branch; never relax the worker sandbox to make Git writes work.
 
-The source matrix names exact commit, command, result and redacted receipt for all five sources.
+The source matrix names exact commit, command, result and redacted receipt for all four active sources.
 Live checks use a disposable Brain and small chosen resources. Do not publish real message bodies,
 transcripts, tokens or account identities in evidence. Real Claude/Codex tests use a fresh designated
 test project with synthetic conversations; prove automatic capture, search, restart, opt-out and no

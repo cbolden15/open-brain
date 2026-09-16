@@ -195,6 +195,98 @@ def test_codex_format_has_a_distinct_client_identity(tmp_path: Path) -> None:
     assert "must not capture" not in batch.intakes[0].text
 
 
+@pytest.mark.parametrize("user_secret", [False, True])
+def test_native_codex_content_kinds_exclude_injected_context_and_keep_secret_checks(
+    tmp_path: Path, user_secret: bool
+) -> None:
+    project = tmp_path / "project"
+    project.mkdir()
+    transcript = tmp_path / "native-codex.jsonl"
+    user_text = "token=synthetic-private-value" if user_secret else "Please inspect the queue."
+    records = [
+        {"type": "session_meta", "payload": {"id": "native-session", "cwd": str(project)}},
+        {
+            "type": "response_item",
+            "payload": {
+                "type": "message",
+                "role": "user",
+                "internal_chat_message_metadata_passthrough": {
+                    "content_item_kinds": [
+                        "plugins.recommendations",
+                        "agents_md.instructions",
+                        "environments.environment_context",
+                        "unknown",
+                        "user.text",
+                    ]
+                },
+                "content": [
+                    {"type": "input_text", "text": "plugin_id=" + "a" * 36},
+                    {"type": "input_text", "text": "Do not capture injected instructions."},
+                    {"type": "input_text", "text": "token=synthetic-environment-value"},
+                    {"type": "input_text", "text": "Do not capture unknown context."},
+                    {"type": "input_text", "text": user_text},
+                ],
+            },
+        },
+        {
+            "type": "response_item",
+            "payload": {
+                "type": "message",
+                "role": "assistant",
+                "internal_chat_message_metadata_passthrough": {"content_item_kinds": ["unknown"]},
+                "content": [{"type": "output_text", "text": "The queue is ready."}],
+            },
+        },
+    ]
+    transcript.write_text("\n".join(json.dumps(row) for row in records) + "\n", encoding="utf-8")
+    root = tmp_path / "queue"
+    _enqueue(root, project, transcript, client="codex", session_id="native-session")
+    source = AgentSessionLiveSource(root)
+    batch = source.fetch(
+        source.selection(client="codex", project_path=project), _options("codex", project), None
+    )
+    if user_secret:
+        assert batch.intakes == ()
+        assert batch.notices == ("session_quarantined_secret",)
+    else:
+        assert len(batch.intakes) == 2
+        assert batch.notices == ()
+        for intake in batch.intakes:
+            assert user_text in intake.text and "The queue is ready." in intake.text
+            assert "plugin_id" not in intake.text
+            assert "Do not capture" not in intake.text
+            assert "synthetic-environment-value" not in intake.text
+
+
+@pytest.mark.parametrize("kinds", [None, [], ["user.text", "user.text"], [7]])
+def test_codex_misaligned_content_kinds_fail_closed(tmp_path: Path, kinds: object) -> None:
+    project = tmp_path / "project"
+    project.mkdir()
+    transcript = tmp_path / "codex.jsonl"
+    rows = [
+        {"type": "session_meta", "payload": {"id": "session-codex", "cwd": str(project)}},
+        {
+            "type": "response_item",
+            "payload": {
+                "type": "message",
+                "role": "user",
+                "internal_chat_message_metadata_passthrough": {"content_item_kinds": kinds},
+                "content": [{"type": "input_text", "text": "Ambiguous input"}],
+            },
+        },
+    ]
+    transcript.write_text("\n".join(json.dumps(row) for row in rows) + "\n", encoding="utf-8")
+    root = tmp_path / "queue"
+    _enqueue(root, project, transcript, client="codex", session_id="session-codex")
+    source = AgentSessionLiveSource(root)
+    batch = source.fetch(
+        source.selection(client="codex", project_path=project), _options("codex", project), None
+    )
+    assert batch.intakes == ()
+    assert batch.notices == ("session_unsupported_format",)
+    assert len(queued_events(root)) == 1
+
+
 def test_explicitly_disabled_choices_do_not_read_or_capture_queue(tmp_path: Path) -> None:
     project = tmp_path / "project"
     project.mkdir()
