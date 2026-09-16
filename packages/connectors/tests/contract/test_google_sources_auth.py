@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import time
+from collections.abc import Callable
 from pathlib import Path
 from typing import cast
 
@@ -172,3 +173,84 @@ def test_refresh_preserves_account_binding_and_rejects_extra_scope(
     credentials.values[reference]["expires_at_epoch"] = int(time.time()) - 1
     with pytest.raises(LiveSourceError, match="google_scope_mismatch"):
         auth.access_token(account.connection_id)
+
+
+@pytest.mark.parametrize("provider", ["gmail", "google_drive"])
+def test_desktop_client_credential_used_for_exchange_and_refresh_only(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, provider: str
+) -> None:
+    marker = "synthetic-desktop-client-value"
+    config = _config(tmp_path)
+    document = json.loads(config.read_text())
+    document["installed"]["client_secret"] = marker
+    config.write_text(json.dumps(document))
+    config.chmod(0o600)
+    credentials = _Credentials()
+    auth_urls: list[str] = []
+
+    def authorize(build_url: Callable[[str, str, str], str], **_options: object) -> OAuthCode:
+        auth_urls.append(build_url("http://127.0.0.1/callback", "state", "challenge"))
+        return OAuthCode("code", "verifier", "http://127.0.0.1/callback")
+
+    monkeypatch.setattr(google_sources_auth, "authorize_loopback", authorize)
+    auth = GoogleSourcesAuth(provider, tmp_path / "state", credentials=credentials)
+    scope = " ".join(auth.scopes)
+    http = _Http(
+        [
+            _json(
+                200,
+                {
+                    "access_token": "initial-token",
+                    "refresh_token": "refresh-token",
+                    "expires_in": 3_600,
+                    "token_type": "Bearer",
+                    "scope": scope,
+                },
+            ),
+            _json(200, {"sub": "subject-123"}),
+            _json(
+                200,
+                {
+                    "access_token": "renewed-token",
+                    "expires_in": 3_600,
+                    "token_type": "Bearer",
+                    "scope": scope,
+                },
+            ),
+            _json(200, {"sub": "subject-123"}),
+        ]
+    )
+    auth = GoogleSourcesAuth(provider, tmp_path / "state", credentials=credentials, http=http)
+    account = auth.connect(config)
+    assert http.forms[0] is not None and http.forms[0]["client_secret"] == marker
+    assert marker not in auth_urls[0]
+    assert "client_secret" not in auth_urls[0]
+    assert marker not in json.dumps(account.to_dict())
+    assert all(marker not in p.read_text() for p in (tmp_path / "state").rglob("*.json"))
+    reference = next(iter(credentials.values))
+    assert credentials.values[reference]["client_secret"] == marker
+    credentials.values[reference]["expires_at_epoch"] = int(time.time()) - 1
+
+    restarted = GoogleSourcesAuth(provider, tmp_path / "state", credentials=credentials, http=http)
+    assert restarted.access_token(account.connection_id) == "renewed-token"
+    assert http.forms[2] is not None and http.forms[2]["client_secret"] == marker
+    assert credentials.values[reference]["client_secret"] == marker
+    assert all(marker not in p.read_text() for p in (tmp_path / "state").rglob("*.json"))
+
+
+@pytest.mark.parametrize("value", ["", 123, "invalid\nvalue"])
+def test_invalid_desktop_client_credential_rejected_before_browser(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, value: object
+) -> None:
+    config = _config(tmp_path)
+    document = json.loads(config.read_text())
+    document["installed"]["client_secret"] = value
+    config.write_text(json.dumps(document))
+
+    def forbidden(*_args: object, **_kwargs: object) -> OAuthCode:
+        pytest.fail("invalid configuration opened a browser")
+
+    monkeypatch.setattr(google_sources_auth, "authorize_loopback", forbidden)
+    auth = GoogleSourcesAuth("gmail", tmp_path / "state", credentials=_Credentials())
+    with pytest.raises(LiveSourceError, match="google_auth_failed"):
+        auth.connect(config)

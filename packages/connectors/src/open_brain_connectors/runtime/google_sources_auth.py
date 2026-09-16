@@ -66,7 +66,7 @@ class GoogleSourcesAuth:
         return ("openid", _GMAIL_SCOPE if self.provider == "gmail" else _DRIVE_SCOPE)
 
     def connect(self, client_config: Path, **loopback_options: object) -> LiveAccount:
-        client_id = _load_client_id(client_config)
+        client = _load_client_config(client_config)
 
         def build_url(redirect_uri: str, state: str, challenge: str) -> str:
             return (
@@ -75,7 +75,7 @@ class GoogleSourcesAuth:
                 + urlencode(
                     {
                         "access_type": "offline",
-                        "client_id": client_id,
+                        "client_id": client["client_id"],
                         "code_challenge": challenge,
                         "code_challenge_method": "S256",
                         "prompt": "consent",
@@ -92,7 +92,7 @@ class GoogleSourcesAuth:
             raise LiveSourceError("google_auth_failed")
         token = self._token_response(
             {
-                "client_id": client_id,
+                **client,
                 "code": code.code,
                 "code_verifier": code.verifier,
                 "grant_type": "authorization_code",
@@ -121,7 +121,7 @@ class GoogleSourcesAuth:
                 reference,
                 {
                     "access_token": access_token,
-                    "client_id": client_id,
+                    **client,
                     "expires_at_epoch": expires_at,
                     "refresh_token": refresh_token,
                     "scopes": list(scopes),
@@ -156,9 +156,10 @@ class GoogleSourcesAuth:
             expires_at = _expires_at_epoch(credential.get("expires_at_epoch"))
             if expires_at > int(time.time()) + _REFRESH_SKEW_SECONDS:
                 return access_token
+            client = _client_credentials(credential)
             refreshed = self._token_response(
                 {
-                    "client_id": _client_id(credential.get("client_id")),
+                    **client,
                     "grant_type": "refresh_token",
                     "refresh_token": _secret(credential.get("refresh_token")),
                 },
@@ -187,7 +188,7 @@ class GoogleSourcesAuth:
                 reference,
                 {
                     "access_token": refreshed_access,
-                    "client_id": _client_id(credential.get("client_id")),
+                    **client,
                     "expires_at_epoch": refreshed_expiry,
                     "refresh_token": refresh_token,
                     "scopes": list(scopes),
@@ -264,7 +265,7 @@ class GoogleSourcesAuth:
         return subject, _bounded_text(display_name, maximum=200)
 
 
-def _load_client_id(path: Path) -> str:
+def _load_client_config(path: Path) -> dict[str, str]:
     if not isinstance(path, Path) or not path.is_absolute() or path.is_symlink():
         raise LiveSourceError("google_invalid_client_config")
     try:
@@ -282,7 +283,14 @@ def _load_client_id(path: Path) -> str:
     installed = decoded.get("installed")
     if not isinstance(installed, Mapping):
         raise LiveSourceError("google_invalid_client_config")
-    return _client_id(installed.get("client_id"))
+    return _client_credentials(installed)
+
+
+def _client_credentials(value: Mapping[str, object]) -> dict[str, str]:
+    client = {"client_id": _client_id(value.get("client_id"))}
+    if "client_secret" in value:
+        client["client_secret"] = _secret(value["client_secret"])
+    return client
 
 
 def _account_name(connection_id: str) -> str:

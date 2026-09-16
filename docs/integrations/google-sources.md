@@ -30,6 +30,11 @@ PKCE S256 and validates the callback state. Google desktop clients cannot keep a
 client secret, so a downloaded configuration is developer setup rather than proof of public
 onboarding.
 
+When the downloaded Desktop configuration includes `client_secret`, Open Brain sends it in
+the token exchange and refresh request bodies. Google can require this field even with PKCE.
+It is retained with the refresh material in the OS credential store, never in authorization
+URLs, account metadata or logs. Refresh therefore does not require rereading the downloaded file.
+
 ## Gmail
 
 Gmail requests exactly:

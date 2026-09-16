@@ -1771,3 +1771,18 @@ deadline exhaustion, then exercise concurrent fresh queues. The repaired diagnos
 all 960 events across 30 independent queues.
 
 Discovered: 2026-09-16, final priority-source verification on macOS.
+
+### SOURCE-LIVE-003: Google Desktop token exchange can require the client secret
+
+Symptom: Browser consent completes, but connecting the account fails at Google's token endpoint.
+
+Cause: The downloaded Desktop client included `client_secret`, while Open Brain read and sent
+only its client ID. PKCE does not remove this client's requirement. A bounded diagnostic using
+an intentionally invalid grant returned `invalid_request` for the missing field; including the
+configured field changed the response to the expected `invalid_grant`.
+
+Fix: Preserve the optional Desktop credential from the local configuration, send it in token
+exchange and refresh request bodies, and retain it only with refresh material in the OS store.
+Test both Google sources, process restart, and exclusion from URLs and account metadata.
+
+Discovered: 2026-09-16, actual Google development-account sign-in.
