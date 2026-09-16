@@ -2,8 +2,8 @@
 
 The optional connector can sign in to Google, list calendars, preview a selected date
 range, and import that preview into an existing Brain. It runs in the foreground.
-It does not schedule collection or add a listener to the core runtime. Outlook Calendar
-and the desktop configuration screen are separate work.
+It does not schedule collection or add a listener to the core runtime. The desktop
+configuration screen remains separate work.
 
 Install the optional connector package, or use `uv run --frozen open-brain-source` from
 a contributor checkout. The commands below assume `open-brain-source` is on your PATH.
@@ -148,8 +148,9 @@ accepted, use a designated test calendar and Brain to verify:
 5. Revoke access, confirm a closed authentication/access error, and inspect the Portable
    export for provenance and retained history.
 
-Public OAuth rollout, Outlook Calendar, recurring collector wiring, desktop UI, and
-live-source evidence remain separate acceptance gates.
+Public OAuth rollout, recurring collector wiring, desktop UI, and live-source evidence
+remain separate acceptance gates. Outlook Calendar and Outlook/Microsoft 365 email
+were removed from scope at the owner's request on 2026-09-15.
 
 References: [Google desktop OAuth](https://developers.google.com/identity/protocols/oauth2/native-app),
 [Calendar sync](https://developers.google.com/workspace/calendar/api/guides/sync), and
