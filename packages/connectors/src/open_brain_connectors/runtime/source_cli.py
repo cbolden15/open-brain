@@ -18,6 +18,7 @@ from urllib.request import Request, urlopen
 
 from open_brain_engine.engine import PrivacyDecision
 
+from open_brain_connectors.runtime import google_calendar_cli
 from open_brain_connectors.runtime.agent_session import (
     AgentSessionCheckpointStore,
     AgentSessionSourceAdapter,
@@ -112,6 +113,10 @@ def _parser() -> argparse.ArgumentParser:
     )
     subparsers = parser.add_subparsers(dest="command", metavar="COMMAND")
     subparsers.add_parser("catalog", help="List available source connector descriptors.")
+
+    google_calendar_cli.configure_parser(subparsers.add_parser(
+        "google-calendar", help="Read-only Google Calendar connection and selected-range import.",
+    ))
 
     github = subparsers.add_parser("github", help="GitHub source onboarding and preview.")
     github_subparsers = github.add_subparsers(dest="github_command", required=True)
@@ -369,6 +374,8 @@ def _add_workspace_content_args(parser: argparse.ArgumentParser) -> None:
 
 
 def _run(parsed: argparse.Namespace) -> dict[str, object]:
+    if parsed.command == "google-calendar":
+        return google_calendar_cli.run(parsed)
     if parsed.command == "catalog":
         catalog = SourceCatalog(
             (

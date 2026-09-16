@@ -1724,3 +1724,21 @@ decompression family, and run parsing in a timed child with a minimal environmen
 Keep parser dependencies out of the default app and native runtime.
 
 Discovered: 2026-09-15, D5.1 selected-file extraction.
+
+### CALENDAR-001: Incremental sync cannot repeat the initial time-range filter
+
+Symptom: Calendar updates fail with an invalid request, leave moved events searchable,
+or retain an old description after cancellation.
+
+Cause: Google disallows `timeMin` and `timeMax` with `syncToken`. Incremental responses
+can include changes outside the originally selected range. A cancellation may contain
+only the event ID, and the engine needs the original source URL to replace the active
+capture.
+
+Fix: Preserve the fixed selection in private state, omit incompatible request filters,
+and apply the range locally. Remember accepted event identities and their first source
+links so cancellations and moved events can produce status-only replacement captures.
+On an expired token, finish a bounded full snapshot before reconciling missing events.
+Advance the checkpoint only after every capture succeeds; retain immutable history.
+
+Discovered: 2026-09-15, Google Calendar provider and engine integration.
