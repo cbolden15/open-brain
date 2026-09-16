@@ -27,6 +27,8 @@ from open_brain_connectors.runtime.calendar import (
     CalendarSourceAdapter,
 )
 from open_brain_connectors.runtime.connectors import ConnectorContractError
+from open_brain_connectors.runtime.document_files import extract_selected_document
+from open_brain_connectors.runtime.document_import import document_preview, import_document
 from open_brain_connectors.runtime.github import (
     GitHubDeviceAuthSession,
     GitHubRepositoryCheckpointStore,
@@ -82,7 +84,7 @@ class _ArgumentParser(argparse.ArgumentParser):
 
 
 def run_cli(argv: tuple[str, ...] | list[str] | None = None) -> int:
-    """Run one bounded connector command and print metadata-only JSON."""
+    """Run a connector command; only explicit document preview returns body text."""
 
     arguments = tuple(sys.argv[1:] if argv is None else argv)
     try:
@@ -220,6 +222,17 @@ def _parser() -> argparse.ArgumentParser:
     document_checkpoint = document_subparsers.add_parser("checkpoint")
     _add_local_document_args(document_checkpoint)
     document_checkpoint.add_argument("--checkpoint-dir", required=True)
+
+    for verb in ("preview", "import"):
+        file_command = document_subparsers.add_parser(
+            verb, help="Read one selected PDF/DOCX; preview explicitly returns extracted text.",
+        )
+        file_command.add_argument("--file", required=True)
+        file_command.add_argument("--title", required=True)
+        file_command.add_argument("--connection-id", default="account:local-documents")
+        if verb == "import":
+            file_command.add_argument("--preview-id", required=True)
+            file_command.add_argument("--brain-root", required=True)
 
     web_clip = subparsers.add_parser(
         "web-clip",
@@ -600,6 +613,18 @@ def _run_agent_session(parsed: argparse.Namespace) -> dict[str, object]:
 def _run_local_document(parsed: argparse.Namespace) -> dict[str, object]:
     adapter = LocalDocumentSourceAdapter()
     command = cast(str, parsed.local_document_command)
+    if command in {"preview", "import"}:
+        connection_id = cast(str, parsed.connection_id)
+        document = extract_selected_document(
+            Path(cast(str, parsed.file)), title=cast(str, parsed.title),
+            connection_id=connection_id,
+        )
+        if command == "preview":
+            return document_preview(document, connection_id)
+        return import_document(
+            document, connection_id=connection_id, preview_id=cast(str, parsed.preview_id),
+            brain_root=Path(cast(str, parsed.brain_root)),
+        )
     if command == "select-file":
         selection = adapter.file_selection(
             connection_id=cast(str, parsed.connection_id),

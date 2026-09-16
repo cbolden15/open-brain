@@ -20,6 +20,7 @@ dev = [
     { name = "jsonschema", specifier = ">=4.26.0,<5" },
     { name = "mypy", specifier = ">=2.3.1,<3" },
     { name = "open-brain", editable = "packages/app" },
+    { name = "open-brain-connectors", editable = "packages/connectors" },
     { name = "open-brain-engine", editable = "packages/engine" },
     { name = "pytest", specifier = ">=9.1.1,<10" },
     { name = "ruff", specifier = ">=0.16.6,<1" },
@@ -334,10 +335,14 @@ version = "0.1.0"
 source = { editable = "packages/connectors" }
 dependencies = [
     { name = "open-brain-engine" },
+    { name = "pypdf" },
 ]
 
 [package.metadata]
-requires-dist = [{ name = "open-brain-engine", editable = "packages/engine" }]
+requires-dist = [
+    { name = "open-brain-engine", editable = "packages/engine" },
+    { name = "pypdf", specifier = "==6.18.1" },
+]
 
 [[package]]
 name = "open-brain-engine"
@@ -433,6 +438,15 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/26/60/d881fa1ba8c160c18d8e6f782bb16ec4640c08bc08fc50f704c368ad4f9e/pyinstaller_hooks_contrib-2026.7.tar.gz", hash = "sha256:5fbcaacb22c4f4aac869a127dce283f67a4b4cfcc37d496f2446603e6d68aefa", size = 175992, upload-time = "2026-08-24T21:26:58.713Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/0a/67/350377af7b50416344ab8792756d414eef7629c618a73e9a0b13bb1552d9/pyinstaller_hooks_contrib-2026.7-py3-none-any.whl", hash = "sha256:24257a04c7a5a7a034cf28e39dcee20fbeeb9f043076729480f2e1b69904408a", size = 459445, upload-time = "2026-08-24T21:26:57.274Z" },
+]
+
+[[package]]
+name = "pypdf"
+version = "6.18.1"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/4f/c2/e537e78a8282b51ed47031566be118debbc34c04782a9afd8739672eb07d/pypdf-6.18.1.tar.gz", hash = "sha256:2441fc839053745638d9b9ddb38ed66beed8d611f47a3036c9838fc4e3074dea", size = 7027577, upload-time = "2026-09-11T10:10:07.616Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/58/13/645df3995075112cb3cce15e8797c205f0f88fb50acc11012b84b071bc22/pypdf-6.18.1-py3-none-any.whl", hash = "sha256:ee93a2665670ecf57ee81d197a4ca548f3dc15f9cefc56e59b8140866aaa3de5", size = 394327, upload-time = "2026-09-11T10:10:06.103Z" },
 ]
 
 [[package]]

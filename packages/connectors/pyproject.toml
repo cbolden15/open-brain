@@ -19,6 +19,7 @@ classifiers = [
 ]
 dependencies = [
   "open-brain-engine==0.1.0",
+  "pypdf==6.18.1",
 ]
 
 [project.urls]
