@@ -33,12 +33,14 @@ from open_brain_connectors.runtime.source_registry import (
 )
 
 __all__ = [
+    "WorkspaceAuthProfile",
     "WorkspaceContentCheckpoint",
     "WorkspaceContentCheckpointStore",
     "WorkspaceContentPage",
     "WorkspaceContentPageStatus",
     "WorkspaceContentRecord",
     "WorkspaceContentSourceAdapter",
+    "workspace_auth_profiles",
 ]
 
 _ACCOUNT = re.compile(r"account:[A-Za-z0-9][A-Za-z0-9._:-]{0,120}")
@@ -46,6 +48,8 @@ _CONNECTOR = re.compile(r"(notion|confluence)")
 _CONTENT_ID = re.compile(r"(?:notion|confluence):[A-Za-z0-9][A-Za-z0-9._:@/-]{0,180}")
 _CURSOR = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:/#?=&%@,+~|-]{0,511}")
 _MAX_PREVIEW_RECORDS = 25
+_ARCHITECTURE = re.compile(r"[a-z][a-z0-9_]{0,63}")
+_SCOPE = re.compile(r"[A-Za-z0-9][A-Za-z0-9 ._:/-]{0,180}")
 _RESOURCE_TYPES = {
     D5_CONFLUENCE_SOURCE: {"cloud_page", "cloud_space"},
     D5_NOTION_SOURCE: {"data_source", "page"},
@@ -58,6 +62,122 @@ _PROVIDER_HOSTS = {
     D5_CONFLUENCE_SOURCE: "confluence.local.openbrain.invalid",
     D5_NOTION_SOURCE: "notion.local.openbrain.invalid",
 }
+
+
+@dataclass(frozen=True, slots=True)
+class WorkspaceAuthProfile:
+    """Reviewed D5.3 provider auth architecture without credentials or live tokens."""
+
+    schema_version: int
+    connector_name: str
+    deployment: str
+    oauth_architecture: str
+    requested_scopes: tuple[str, ...]
+    token_exchange_location: str
+    client_secret_in_desktop_bundle: bool
+    hosted_relay_authorized: bool
+    owner_setup_required: bool
+    public_onboarding_status: str
+
+    def __post_init__(self) -> None:
+        connector_name = _required_connector(self.connector_name)
+        if (
+            type(self.schema_version) is not int
+            or self.schema_version != 1
+            or type(self.deployment) is not str
+            or not self.deployment
+            or len(self.deployment) > 120
+            or type(self.oauth_architecture) is not str
+            or _ARCHITECTURE.fullmatch(self.oauth_architecture) is None
+            or not isinstance(self.requested_scopes, tuple)
+            or not self.requested_scopes
+            or len(self.requested_scopes) > 8
+            or any(
+                type(scope) is not str or _SCOPE.fullmatch(scope) is None
+                for scope in self.requested_scopes
+            )
+            or type(self.token_exchange_location) is not str
+            or not self.token_exchange_location
+            or len(self.token_exchange_location) > 160
+            or type(self.client_secret_in_desktop_bundle) is not bool
+            or type(self.hosted_relay_authorized) is not bool
+            or type(self.owner_setup_required) is not bool
+            or not self.owner_setup_required
+            or type(self.public_onboarding_status) is not str
+            or not self.public_onboarding_status
+            or len(self.public_onboarding_status) > 200
+        ):
+            raise ConnectorContractError("invalid workspace auth profile")
+        if connector_name == D5_NOTION_SOURCE and (
+            self.oauth_architecture != "confidential_authorization_code"
+            or self.client_secret_in_desktop_bundle
+            or self.hosted_relay_authorized
+        ):
+            raise ConnectorContractError("invalid workspace auth profile")
+        if connector_name == D5_CONFLUENCE_SOURCE and (
+            self.oauth_architecture != "authorization_code_pkce"
+            or self.client_secret_in_desktop_bundle
+            or self.hosted_relay_authorized
+        ):
+            raise ConnectorContractError("invalid workspace auth profile")
+        object.__setattr__(self, "connector_name", connector_name)
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "client_secret_in_desktop_bundle": self.client_secret_in_desktop_bundle,
+            "connector_name": self.connector_name,
+            "deployment": self.deployment,
+            "hosted_relay_authorized": self.hosted_relay_authorized,
+            "oauth_architecture": self.oauth_architecture,
+            "owner_setup_required": self.owner_setup_required,
+            "public_onboarding_status": self.public_onboarding_status,
+            "requested_scopes": list(self.requested_scopes),
+            "schema_version": self.schema_version,
+            "token_exchange_location": self.token_exchange_location,
+        }
+
+
+def workspace_auth_profiles() -> tuple[WorkspaceAuthProfile, ...]:
+    """Return the explicit supported D5.3 provider auth architecture."""
+
+    return (
+        WorkspaceAuthProfile(
+            schema_version=1,
+            connector_name=D5_NOTION_SOURCE,
+            deployment="Notion public integration for selected pages and data sources",
+            oauth_architecture="confidential_authorization_code",
+            requested_scopes=("read_content", "read_user_without_email"),
+            token_exchange_location=(
+                "owner-authorized confidential component outside the desktop bundle"
+            ),
+            client_secret_in_desktop_bundle=False,
+            hosted_relay_authorized=False,
+            owner_setup_required=True,
+            public_onboarding_status=(
+                "architecture documented; live public OAuth is blocked until owner authorizes "
+                "a confidential exchange component"
+            ),
+        ),
+        WorkspaceAuthProfile(
+            schema_version=1,
+            connector_name=D5_CONFLUENCE_SOURCE,
+            deployment="Atlassian Confluence Cloud OAuth 2.0 for selected spaces and pages",
+            oauth_architecture="authorization_code_pkce",
+            requested_scopes=(
+                "read:content:confluence",
+                "read:comment:confluence",
+                "read:space:confluence",
+            ),
+            token_exchange_location="foreground local connector callback with PKCE",
+            client_secret_in_desktop_bundle=False,
+            hosted_relay_authorized=False,
+            owner_setup_required=True,
+            public_onboarding_status=(
+                "cloud architecture ready for selected test-site consent; Confluence Data "
+                "Center is out of this adapter"
+            ),
+        ),
+    )
 
 
 class _CheckpointParts(TypedDict):

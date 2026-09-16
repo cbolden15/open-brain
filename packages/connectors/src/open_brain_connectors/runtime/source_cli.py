@@ -73,6 +73,7 @@ from open_brain_connectors.runtime.web_clip import (
 from open_brain_connectors.runtime.workspace_content import (
     WorkspaceContentCheckpointStore,
     WorkspaceContentSourceAdapter,
+    workspace_auth_profiles,
 )
 
 __all__ = ["run_cli"]
@@ -354,6 +355,8 @@ def _parser() -> argparse.ArgumentParser:
     workspace_checkpoint = workspace_subparsers.add_parser("checkpoint")
     _add_workspace_content_args(workspace_checkpoint)
     workspace_checkpoint.add_argument("--checkpoint-dir", required=True)
+
+    workspace_subparsers.add_parser("auth-architecture")
     return parser
 
 
@@ -916,6 +919,12 @@ def _run_meeting_transcript(parsed: argparse.Namespace) -> dict[str, object]:
 def _run_workspace_content(parsed: argparse.Namespace) -> dict[str, object]:
     adapter = WorkspaceContentSourceAdapter()
     command = cast(str, parsed.workspace_content_command)
+    if command == "auth-architecture":
+        return {
+            "profiles": [profile.to_dict() for profile in workspace_auth_profiles()],
+            "schema_version": 1,
+            "status": "ok",
+        }
     if command == "select-resource":
         selection = adapter.resource_selection(
             connector_name=cast(str, parsed.connector),

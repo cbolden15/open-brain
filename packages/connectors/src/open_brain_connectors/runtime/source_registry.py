@@ -75,6 +75,8 @@ D5_MEETING_TRANSCRIPT_SOURCE = "meeting_transcript"
 class SourceAuthMode(StrEnum):
     """Public onboarding modes surfaced before provider-specific auth starts."""
 
+    AUTH_CODE_PKCE = "auth_code_pkce"
+    CONFIDENTIAL_OAUTH = "confidential_oauth"
     DEVICE_FLOW = "device_flow"
     SESSION_ONLY = "session_only"
 
@@ -498,7 +500,7 @@ def confluence_source_descriptor() -> SourceConnectorDescriptor:
         schema_version=1,
         connector_name=D5_CONFLUENCE_SOURCE,
         display_name="Confluence",
-        auth_mode=SourceAuthMode.DEVICE_FLOW,
+        auth_mode=SourceAuthMode.AUTH_CODE_PKCE,
         resource_types=("cloud_page", "cloud_space"),
         content_types=("comment", "page"),
         preview_limit=25,
@@ -513,7 +515,7 @@ def notion_source_descriptor() -> SourceConnectorDescriptor:
         schema_version=1,
         connector_name=D5_NOTION_SOURCE,
         display_name="Notion",
-        auth_mode=SourceAuthMode.DEVICE_FLOW,
+        auth_mode=SourceAuthMode.CONFIDENTIAL_OAUTH,
         resource_types=("data_source", "page"),
         content_types=("block", "comment", "page"),
         preview_limit=25,

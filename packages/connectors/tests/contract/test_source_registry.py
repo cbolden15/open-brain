@@ -194,14 +194,14 @@ def test_d5_3_descriptors_declare_selected_workspace_scope() -> None:
 
     assert notion.connector_name == "notion"
     assert notion.display_name == "Notion"
-    assert notion.auth_mode is SourceAuthMode.DEVICE_FLOW
+    assert notion.auth_mode is SourceAuthMode.CONFIDENTIAL_OAUTH
     assert notion.resource_types == ("data_source", "page")
     assert notion.content_types == ("block", "comment", "page")
     assert notion.public_onboarding is True
 
     assert confluence.connector_name == "confluence"
     assert confluence.display_name == "Confluence"
-    assert confluence.auth_mode is SourceAuthMode.DEVICE_FLOW
+    assert confluence.auth_mode is SourceAuthMode.AUTH_CODE_PKCE
     assert confluence.resource_types == ("cloud_page", "cloud_space")
     assert confluence.content_types == ("comment", "page")
     assert confluence.public_onboarding is True

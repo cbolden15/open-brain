@@ -10,11 +10,13 @@ from open_brain_connectors.runtime.connectors import (
     ConnectorOutcome,
 )
 from open_brain_connectors.runtime.workspace_content import (
+    WorkspaceAuthProfile,
     WorkspaceContentCheckpoint,
     WorkspaceContentCheckpointStore,
     WorkspaceContentPage,
     WorkspaceContentPageStatus,
     WorkspaceContentSourceAdapter,
+    workspace_auth_profiles,
 )
 
 from .test_agent_session_source_adapter import _capture_sink
@@ -23,6 +25,80 @@ from .test_source_intake import _privacy
 _NOTION_PAGE_ID = "notion:page/weekly-plan"
 _NOTION_DATA_SOURCE_ID = "notion:data-source/roadmap"
 _CONFLUENCE_SPACE_ID = "confluence:space/ENG"
+
+
+def test_workspace_auth_profiles_separate_notion_confidential_exchange() -> None:
+    profiles = {profile.connector_name: profile for profile in workspace_auth_profiles()}
+
+    assert set(profiles) == {"confluence", "notion"}
+    assert profiles["notion"].schema_version == 1
+    assert profiles["notion"].oauth_architecture == "confidential_authorization_code"
+    assert profiles["notion"].client_secret_in_desktop_bundle is False
+    assert profiles["notion"].hosted_relay_authorized is False
+    assert profiles["notion"].owner_setup_required is True
+    assert "confidential" in profiles["notion"].token_exchange_location
+    assert profiles["confluence"].oauth_architecture == "authorization_code_pkce"
+    assert profiles["confluence"].client_secret_in_desktop_bundle is False
+    assert profiles["confluence"].hosted_relay_authorized is False
+    assert "Data Center" in profiles["confluence"].public_onboarding_status
+
+
+def test_workspace_auth_profile_rejects_desktop_secret_for_notion() -> None:
+    with pytest.raises(ConnectorContractError, match="invalid workspace auth profile"):
+        WorkspaceAuthProfile(
+            schema_version=1,
+            connector_name="notion",
+            deployment="Notion public integration",
+            oauth_architecture="confidential_authorization_code",
+            requested_scopes=("read_content",),
+            token_exchange_location="desktop bundle",
+            client_secret_in_desktop_bundle=True,
+            hosted_relay_authorized=False,
+            owner_setup_required=True,
+            public_onboarding_status="blocked",
+        )
+
+
+def test_workspace_auth_profile_rejects_unreviewed_confluence_hosted_relay() -> None:
+    with pytest.raises(ConnectorContractError, match="invalid workspace auth profile"):
+        WorkspaceAuthProfile(
+            schema_version=1,
+            connector_name="confluence",
+            deployment="Confluence Cloud OAuth",
+            oauth_architecture="authorization_code_pkce",
+            requested_scopes=("read:content:confluence",),
+            token_exchange_location="foreground local connector callback with PKCE",
+            client_secret_in_desktop_bundle=False,
+            hosted_relay_authorized=True,
+            owner_setup_required=True,
+            public_onboarding_status="owner setup required",
+        )
+
+
+@pytest.mark.parametrize("connector_name", ("confluence", "notion"))
+def test_workspace_auth_profile_rejects_missing_owner_setup(
+    connector_name: str,
+) -> None:
+    is_notion = connector_name == "notion"
+    with pytest.raises(ConnectorContractError, match="invalid workspace auth profile"):
+        WorkspaceAuthProfile(
+            schema_version=1,
+            connector_name=connector_name,
+            deployment="Notion public integration" if is_notion else "Confluence Cloud OAuth",
+            oauth_architecture=(
+                "confidential_authorization_code" if is_notion else "authorization_code_pkce"
+            ),
+            requested_scopes=("read_content",)
+            if is_notion
+            else ("read:content:confluence",),
+            token_exchange_location="owner-authorized confidential component"
+            if is_notion
+            else "foreground local connector callback with PKCE",
+            client_secret_in_desktop_bundle=False,
+            hosted_relay_authorized=False,
+            owner_setup_required=False,
+            public_onboarding_status="owner setup required",
+        )
 
 
 def test_workspace_content_preview_is_metadata_only_for_selected_notion_page() -> None:

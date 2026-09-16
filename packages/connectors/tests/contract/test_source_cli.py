@@ -45,7 +45,7 @@ def test_source_cli_catalog_exposes_registered_public_onboarding(
             "schema_version": 1,
         },
         {
-            "auth_mode": "device_flow",
+            "auth_mode": "auth_code_pkce",
             "connector_name": "confluence",
             "content_types": ["comment", "page"],
             "display_name": "Confluence",
@@ -145,7 +145,7 @@ def test_source_cli_catalog_exposes_registered_public_onboarding(
             "schema_version": 1,
         },
         {
-            "auth_mode": "device_flow",
+            "auth_mode": "confidential_oauth",
             "connector_name": "notion",
             "content_types": ["block", "comment", "page"],
             "display_name": "Notion",
@@ -763,6 +763,44 @@ def test_source_cli_reports_workspace_content_checkpoint_without_payload(
     assert payload["committed_delivery_ids"] == []
     assert payload["committed_revision_identities"] == []
     assert payload["observed_page_cursors"] == []
+
+
+def test_source_cli_reports_workspace_auth_architecture(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    assert run_cli(("workspace-content", "auth-architecture")) == 0
+    payload = _json(capsys)
+
+    profiles = {
+        cast(str, profile["connector_name"]): profile
+        for profile in cast(list[dict[str, object]], payload["profiles"])
+    }
+    assert payload["status"] == "ok"
+    assert profiles["notion"]["schema_version"] == 1
+    assert profiles["notion"]["oauth_architecture"] == "confidential_authorization_code"
+    assert profiles["notion"]["client_secret_in_desktop_bundle"] is False
+    assert profiles["notion"]["hosted_relay_authorized"] is False
+    assert profiles["notion"]["owner_setup_required"] is True
+    assert "read_content" in cast(list[str], profiles["notion"]["requested_scopes"])
+    assert "outside the desktop bundle" in cast(
+        str,
+        profiles["notion"]["token_exchange_location"],
+    )
+    assert set(profiles["notion"]) == {
+        "client_secret_in_desktop_bundle",
+        "connector_name",
+        "deployment",
+        "hosted_relay_authorized",
+        "oauth_architecture",
+        "owner_setup_required",
+        "public_onboarding_status",
+        "requested_scopes",
+        "schema_version",
+        "token_exchange_location",
+    }
+    assert profiles["confluence"]["oauth_architecture"] == "authorization_code_pkce"
+    assert profiles["confluence"]["client_secret_in_desktop_bundle"] is False
+    assert profiles["confluence"]["owner_setup_required"] is True
 
 
 def test_source_cli_previews_calendar_events_without_payload_bodies(
