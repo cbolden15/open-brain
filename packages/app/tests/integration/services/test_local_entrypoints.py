@@ -54,6 +54,7 @@ def test_local_help_and_version_are_root_free(
         "capture",
         "import",
         "search",
+        "review",
         "obsidian-plugin",
         "export",
         "status",
@@ -62,6 +63,29 @@ def test_local_help_and_version_are_root_free(
         assert command in help_output
     assert run_cli(("--version",), environment={}) == 0
     assert capsys.readouterr().out == "open-brain 0.1.0\n"
+
+
+def test_review_help_explains_the_complete_root_free_workflow(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    assert run_cli(("review", "--help"), environment={}) == 0
+    output = " ".join(capsys.readouterr().out.split())
+    for phrase in (
+        "explicit capture IDs",
+        "routing alone does not publish",
+        "review token",
+        "target page ID",
+        "idempotency key",
+        "fresh inspection",
+        "Privacy projection",
+        "untrusted data",
+        "Owner CLI commands need no MCP grants",
+        "32 cumulative sources",
+        "64 KiB",
+        "Homebrew release",
+        "three-note example",
+    ):
+        assert phrase in output
 
 
 def test_headless_agent_setup_previews_then_applies_the_matching_id(
@@ -114,6 +138,168 @@ def test_headless_agent_setup_previews_then_applies_the_matching_id(
 
 
 @pytest.mark.parametrize(
+    "arguments",
+    (
+        ("review", "show", "proposal_invalid"),
+        ("review", "list", "--limit", "101"),
+        (
+            "review",
+            "approve",
+            "proposal_8d87546c-3008-42ee-8632-0f2401904b35",
+            "--review-token",
+            "short",
+        ),
+    ),
+)
+def test_invalid_review_arguments_do_not_create_a_brain(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    arguments: tuple[str, ...],
+) -> None:
+    home = _private_home(tmp_path)
+    brain = home / "absent-brain"
+    assert (
+        run_cli(
+            (*arguments, "--data-dir", str(brain), "--json"),
+            environment={"HOME": str(home)},
+            platform_name="darwin",
+        )
+        == 2
+    )
+    assert json.loads(capsys.readouterr().out)["status"] == "failed"
+    assert not brain.exists()
+
+
+@pytest.mark.parametrize("platform_name", ["darwin", "linux"])
+def test_owner_review_cli_runs_all_operations_without_mcp_grants(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], platform_name: str
+) -> None:
+    home = _private_home(tmp_path)
+    brain = home / "brain"
+    tasks = open_local_engine(compile_single_user_local(brain))
+    space = tasks.spaces.create_space("Projects", delivery_id="review.cli.space")
+    sources = [
+        tasks.capture.accept(
+            TextPayload(text),
+            delivery_id=f"review.cli.capture.{index}",
+            space_id=space.space_id,
+        ).capture_id
+        for index, text in enumerate(("First CLI source", "Second CLI source"))
+    ]
+    draft = home / "draft.md"
+    draft_body = "CLI combined body\n\n- first item\n\tindented code\n"
+    draft.write_text(draft_body, encoding="utf-8")
+
+    def run(*arguments: str) -> dict[str, object]:
+        assert (
+            run_cli(
+                (*arguments, "--data-dir", str(brain), "--json"),
+                environment={"HOME": str(home)},
+                platform_name=platform_name,
+                filesystem_type_probe=_filesystem,
+            )
+            == 0
+        )
+        return cast(dict[str, object], json.loads(capsys.readouterr().out))
+
+    proposed = run(
+        "review",
+        "propose",
+        "--capture-id",
+        sources[0],
+        "--capture-id",
+        sources[1],
+        "--title",
+        "CLI combined",
+        "--markdown-file",
+        str(draft),
+        "--idempotency-key",
+        "cli-proposal",
+    )
+    shown = run("review", "show", cast(str, proposed["proposal_id"]))
+    assert shown["markdown"] == draft_body.removesuffix("\n")
+    assert (
+        run_cli(
+            ("review", "show", str(proposed["proposal_id"]), "--data-dir", str(brain)),
+            environment={"HOME": str(home)},
+            platform_name=platform_name,
+            filesystem_type_probe=_filesystem,
+        )
+        == 0
+    )
+    assert draft_body.removesuffix("\n") in capsys.readouterr().out
+    approved = run(
+        "review",
+        "approve",
+        cast(str, proposed["proposal_id"]),
+        "--review-token",
+        cast(str, shown["review_token"]),
+        "--idempotency-key",
+        "cli-approve",
+    )
+    assert approved["status"] == "approved"
+    assert approved["page_id"] == proposed["page_id"]
+    listed = run("review", "list", "--status", "approved")
+    assert [row["proposal_id"] for row in cast(list[dict[str, object]], listed["proposals"])] == [
+        proposed["proposal_id"]
+    ]
+
+    rejected_source = tasks.capture.accept(
+        TextPayload("Rejected CLI source"),
+        delivery_id="review.cli.capture.rejected",
+        space_id=space.space_id,
+    ).capture_id
+    rejected_proposal = run(
+        "review",
+        "propose",
+        "--capture-id",
+        rejected_source,
+        "--title",
+        "Rejected",
+        "--markdown-file",
+        str(draft),
+    )
+    rejected_show = run("review", "show", cast(str, rejected_proposal["proposal_id"]))
+    rejected = run(
+        "review",
+        "reject",
+        cast(str, rejected_proposal["proposal_id"]),
+        "--review-token",
+        cast(str, rejected_show["review_token"]),
+    )
+    assert rejected["status"] == "rejected" and rejected["publication_id"] is None
+
+    edited_source = tasks.capture.accept(
+        TextPayload("Edited CLI source"),
+        delivery_id="review.cli.capture.edited",
+        space_id=space.space_id,
+    ).capture_id
+    edited_proposal = run(
+        "review",
+        "propose",
+        "--capture-id",
+        edited_source,
+        "--title",
+        "Edited",
+        "--markdown-file",
+        str(draft),
+    )
+    edited_show = run("review", "show", cast(str, edited_proposal["proposal_id"]))
+    revised = home / "revised.md"
+    revised.write_text("Explicit CLI edit\n", encoding="utf-8")
+    edited = run(
+        "review",
+        "edit-and-approve",
+        cast(str, edited_proposal["proposal_id"]),
+        "--review-token",
+        cast(str, edited_show["review_token"]),
+        "--markdown-file",
+        str(revised),
+    )
+    assert edited["status"] == "edited" and edited["publication_id"] is not None
+
+
+@pytest.mark.parametrize(
     ("platform_name", "expected_relative"),
     (
         ("darwin", "Library/Application Support/open-brain/brain"),
@@ -154,7 +340,7 @@ def test_local_init_creates_exact_default_once_without_daemon_or_environment_roo
         "brain_count": 1,
         "daemon_running": False,
         "profile": "local",
-        "state_schema_version": 4,
+        "state_schema_version": 5,
         "status": "initialized",
         "storage": "sqlite",
     }
@@ -223,6 +409,7 @@ def test_obsidian_plugin_cli_installs_reports_and_removes_owned_assets(
         "discover_obsidian_plugin_assets",
         lambda: assets,
     )
+
     def call(arguments: tuple[str, ...]) -> int:
         return run_cli(
             arguments,
@@ -233,24 +420,15 @@ def test_obsidian_plugin_cli_installs_reports_and_removes_owned_assets(
 
     assert call(("workspace", "setup", "--data-dir", str(root), "--json")) == 0
     capsys.readouterr()
-    assert (
-        call(("obsidian-plugin", "install", "--data-dir", str(root), "--json"))
-        == 0
-    )
+    assert call(("obsidian-plugin", "install", "--data-dir", str(root), "--json")) == 0
     assert json.loads(capsys.readouterr().out)["status"] == "installed"
 
-    assert (
-        call(("obsidian-plugin", "status", "--data-dir", str(root), "--json"))
-        == 0
-    )
+    assert call(("obsidian-plugin", "status", "--data-dir", str(root), "--json")) == 0
     assert json.loads(capsys.readouterr().out)["status"] == "current"
 
     workspace = home / "Open Brain Vault"
     assert not (workspace / ".obsidian/community-plugins.json").exists()
-    assert (
-        call(("obsidian-plugin", "remove", "--data-dir", str(root), "--json"))
-        == 0
-    )
+    assert call(("obsidian-plugin", "remove", "--data-dir", str(root), "--json")) == 0
     assert json.loads(capsys.readouterr().out)["status"] == "removed"
 
 
@@ -665,10 +843,7 @@ def test_local_search_renders_owner_and_unknown_automation_labels_in_both_format
     json_output = capsys.readouterr().out
     payload = cast(dict[str, object], json.loads(json_output))
     results = cast(list[dict[str, object]], payload["results"])
-    labels = {
-        cast(str, result["source_origin"]): cast(str, result["trust"])
-        for result in results
-    }
+    labels = {cast(str, result["source_origin"]): cast(str, result["trust"]) for result in results}
 
     assert labels == {"owner_authored": "owner", "unknown": "unverified"}
     assert source_reference not in json_output
@@ -728,10 +903,6 @@ def test_local_search_human_output_removes_terminal_and_bidi_controls(
         and unicodedata.category(character) != "Cf"
         for character in output.rstrip("\n")
     )
-
-
-
-
 
 
 @pytest.mark.parametrize(

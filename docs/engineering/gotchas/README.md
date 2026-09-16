@@ -4,6 +4,34 @@ Non-obvious behaviors, sharp edges, and lessons learned belong here.
 
 ## Registry
 
+### REVIEW-004: Restore causal identities, not incidental row order
+
+Symptom: An imported pending review rejects a valid route, accepts a stale route, or finishes a
+decision without creating its intended page. Reindexing can also mistake every provenance source
+for a canonical page owner.
+
+Cause: Materialization order is not route order, pending pages have no current file to locate,
+and membership in a page's provenance does not mean a capture owns that page.
+
+Fix: Find the route with no successor. Rebuild pending destinations from validated frozen page and
+space identities. Restore capture-owned pages separately from reviewed publication heads. Verify
+import followed by approval and live reindex, in addition to comparing exported bytes.
+
+Discovered: 2026-09-16, independent review of CLI/MCP review and publication.
+
+### REVIEW-005: Project full evidence before taking its preview
+
+Symptom: A protected reference longer than an evidence preview appears as an unredacted prefix.
+
+Cause: Truncation removes the full literal needed by privacy projection. A later projection cannot
+recognize the prefix as the original protected reference.
+
+Fix: Project the complete evidence candidate against every contributing reference, then take the
+bounded excerpt. Keep source bytes and their binding hashes unchanged and disclose projection.
+Exercise both new bound proposals and historical single-source inspection.
+
+Discovered: 2026-09-16, independent review and long-reference regression.
+
 ### PRIVACY-001: A redaction receipt does not authorize a sink
 
 Symptom: Redacted content appears safe but still carries a `secret`, `unknown`, classification-failure, explicit-local-only, or unconfirmed `personal` privacy decision.

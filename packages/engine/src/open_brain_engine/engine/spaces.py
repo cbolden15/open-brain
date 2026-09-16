@@ -188,16 +188,16 @@ class SpaceOperations(_LocalEngineOperations):
             slug=cast(str, row["slug"]),
         )
 
-    def _list_spaces(
-        self, *, limit: int | None = None, offset: int = 0
-    ) -> tuple[SpaceRecord, ...]:
+    def _list_spaces(self, *, limit: int | None = None, offset: int = 0) -> tuple[SpaceRecord, ...]:
         _validate_page(limit, offset)
         connection = self._store.connect()
         try:
-            rows = tuple(connection.execute(
-                "SELECT * FROM spaces ORDER BY name, space_id LIMIT ? OFFSET ?",
-                (-1 if limit is None else limit, offset),
-            ))
+            rows = tuple(
+                connection.execute(
+                    "SELECT * FROM spaces ORDER BY name, space_id LIMIT ? OFFSET ?",
+                    (-1 if limit is None else limit, offset),
+                )
+            )
         finally:
             connection.close()
         return tuple(
@@ -236,6 +236,15 @@ class SpaceOperations(_LocalEngineOperations):
                 if capture is None or _space_row(connection, space_id) is None:
                     raise ValueError("unknown route target")
                 if cast(str, capture["action"]) == CaptureAction.CANONICAL_NOTE.value:
+                    raise ValueError("published capture cannot be rerouted")
+                if (
+                    connection.execute(
+                        "SELECT 1 FROM review_sources s JOIN decisions d USING (proposal_id) "
+                        "WHERE s.capture_id = ? AND d.outcome IN ('approved', 'edited') LIMIT 1",
+                        (capture_id,),
+                    ).fetchone()
+                    is not None
+                ):
                     raise ValueError("published capture cannot be rerouted")
                 now = _timestamp(self._clock())
                 previous = connection.execute(
@@ -368,9 +377,7 @@ class InboxSpaceTasks:
     def list(
         self, *, unassigned_only: bool = False, limit: int | None = None, offset: int = 0
     ) -> tuple[InboxItem, ...]:
-        return self._engine._list_inbox(
-            unassigned_only=unassigned_only, limit=limit, offset=offset
-        )
+        return self._engine._list_inbox(unassigned_only=unassigned_only, limit=limit, offset=offset)
 
     def spaces(self, *, limit: int | None = None, offset: int = 0) -> tuple[SpaceRecord, ...]:
         return tuple(

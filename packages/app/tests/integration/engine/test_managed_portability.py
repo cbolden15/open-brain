@@ -10,9 +10,11 @@ from open_brain_engine.core.ids import portable_canonical_json_bytes
 from open_brain_engine.engine import (
     BrainEngine,
     CaptureAction,
+    DecisionOutcome,
     ManagedAccessMode,
     ManagedProvider,
     ManagedWorkspaceFailure,
+    ProposalDraft,
     TextPayload,
 )
 from open_brain_engine.portable import PortableValidationError, validate_portable_root
@@ -237,6 +239,54 @@ def test_managed_v2_rejects_unknown_typed_fields_and_unsettled_export(
             tenant_id=cast(str, record["tenant_id"]),
             page_ids=set(note_ids),
         )
+
+
+def test_managed_workspace_and_review_bindings_round_trip_as_v3(tmp_path: Path) -> None:
+    root = tmp_path / "brain"
+    workspace = tmp_path / "workspace"
+    engine = _engine(root)
+    source = engine.capture.accept(
+        TextPayload("Managed Portable v3 review source"),
+        delivery_id="managed.portable.v3.source",
+        space_id=engine.inbox.spaces()[0].space_id,
+    )
+    proposal = engine.review.propose(
+        (source.capture_id,),
+        (ProposalDraft("Managed v3 page", "Managed Portable v3 review body"),),
+        delivery_id="managed.portable.v3.propose",
+    )[0]
+    engine.review.decide(
+        proposal.proposal_id,
+        DecisionOutcome.APPROVED,
+        delivery_id="managed.portable.v3.approve",
+        expected_review_digest=proposal.review_digest,
+    )
+    workspace_id, _ = _setup_two(engine, workspace)
+
+    exported = tmp_path / "exported-v3"
+    engine.portability.export(
+        exported,
+        export_id="export_00000000-0000-4000-8000-000000000207",
+    )
+    manifest = validate_portable_root(exported)
+    imported_root = tmp_path / "imported-v3"
+    engine.portability.import_clean(
+        exported,
+        imported_root,
+        import_id="import_00000000-0000-4000-8000-000000000208",
+    )
+    imported = _engine(imported_root)
+
+    assert manifest["schema_version"] == 3
+    assert any(
+        cast(str, entry["path"]).startswith("history/managed-workspace/")
+        for entry in cast(list[dict[str, object]], manifest["files"])
+    )
+    assert imported.review.show(proposal.proposal_id).page_id == proposal.page_id
+    assert _database_rows(
+        imported_root,
+        "SELECT workspace_id FROM managed_workspaces WHERE root_path IS NULL",
+    )[0]["workspace_id"] == workspace_id
 
 
 def _database_rows(root: Path, query: str) -> list[sqlite3.Row]:

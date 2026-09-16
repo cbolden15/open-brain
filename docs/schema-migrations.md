@@ -1,6 +1,31 @@
 # Local SQLite migration contract
 
-Status: W5 implemented and locally verified; owner safety audits and exact-head CI remain pending.
+## Current catalog
+
+The current local schema is **5**, with runtime session version **1**. The frozen catalog is
+`packages/engine/src/open_brain_engine/engine/local_schema_catalog.py`; its checksum fixture is
+`tests/fixtures/local-schema/catalog-checksums.json`. Migrations 1 through 4 remain unchanged.
+Migration 5 adds source-bound review contexts, ordered proposal membership, and the current
+publication for each stable page identity. It updates the exact runtime compatibility marker to 5.
+
+An existing populated schema 4 upgrades in the same guarded transaction as other supported
+predecessors. Its captures, routes, pending and terminal proposals, decision identities, and immutable
+files stay intact. Historical single-source proposals retain their original decision contract.
+New proposals use the bindings documented in [Portable Brain v3](portable-brain-v3.md). Read-only
+access refuses an older schema without upgrading it; older runtimes refuse schema 5.
+
+`test_review_schema.py` restores an independent schema-4 fixture from the prior source tree and
+checks populated migration and rollback. The existing migration suite continues to cover all earlier
+supported layouts, invalid/newer refusal, writer contention, concurrent upgrades, and interrupted
+transactions. Back up through verified Portable export and restore into a clean root, rather than
+copying a live SQLite file. Use the matching older runtime for a pre-upgrade export.
+
+## Historical W5 design
+
+The remaining sections record the original schema-2 migration design. Version numbers and the
+two-entry catalog below describe that historical milestone, not the current catalog above.
+
+Historical status: W5 implemented and locally verified.
 Base: `5a51797`, the merged W4 commit on `goal/open-brain-five-minute-install`.
 Authority: [OB1 product completion plan](plans/2026-09-08-ob1-product-completion.md),
 “Schema sequencing” and “OB1-W5”.

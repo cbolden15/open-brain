@@ -19,6 +19,14 @@ from open_brain_engine.portable import (
     portable_canonical_json_bytes,
     validate_portable_file_set,
 )
+from open_brain_engine.portable.managed_v2 import (
+    PORTABLE_V2_SCHEMA_CATALOG_DIGEST,
+    validate_portable_file_set_v2,
+)
+from open_brain_engine.portable.v3 import (
+    PORTABLE_V3_SCHEMA_CATALOG_DIGEST,
+    validate_portable_file_set_v3,
+)
 from open_brain_engine.storage.markdown import MarkdownFormatError, parse_markdown
 
 from .limits import PORTABLE_BLOB_STAGING_BYTES
@@ -435,6 +443,34 @@ class SharedAttachment:
 
 
 @dataclass(frozen=True, slots=True)
+class SharedExtension:
+    """Exact bytes for a validated versioned Portable history extension."""
+
+    path: str
+    sha256: str
+    data: bytes
+
+    def __post_init__(self) -> None:
+        validate_portable_path(self.path)
+        _validate_digest(self.sha256, "extension digest")
+        if (
+            not self.path.startswith(
+                ("history/managed-workspace/", "history/review-bindings/")
+            )
+            or not self.path.endswith(".json")
+            or not isinstance(self.data, bytes)
+            or sha256(self.data).hexdigest() != self.sha256
+        ):
+            raise PortabilityMappingError("Portable extension binding is invalid")
+        try:
+            value = json.loads(self.data)
+        except (UnicodeDecodeError, json.JSONDecodeError):
+            raise PortabilityMappingError("Portable extension is invalid JSON") from None
+        if portable_canonical_json_bytes(value) != self.data:
+            raise PortabilityMappingError("Portable extension is not canonical JSON")
+
+
+@dataclass(frozen=True, slots=True)
 class SharedImportEvidence:
     manifest_bytes: bytes
     manifest_sha256: str
@@ -493,12 +529,23 @@ class SharedImportEvidence:
                 (entry.get("path"), entry.get("sha256"))
                 for entry in cast(list[dict[str, object]], manifest_files)
             )
+        version = manifest.get("schema_version")
+        expected_catalog = {
+            1: PORTABLE_V1_SCHEMA_CATALOG_DIGEST,
+            2: PORTABLE_V2_SCHEMA_CATALOG_DIGEST,
+            3: PORTABLE_V3_SCHEMA_CATALOG_DIGEST,
+        }.get(version) if type(version) is int else None
         if (
             set(manifest) != expected_keys
-            or manifest.get("contract_version") != "1"
-            or manifest.get("layout_version") != 1
-            or manifest.get("schema_version") != 1
-            or manifest.get("schema_catalog_digest") != PORTABLE_V1_SCHEMA_CATALOG_DIGEST
+            or version not in {1, 2, 3}
+            or manifest.get("contract_version") != str(version)
+            or manifest.get("layout_version") != version
+            or manifest.get("compatibility")
+            != {
+                "maximum_contract_version": str(version),
+                "minimum_contract_version": "1",
+            }
+            or manifest.get("schema_catalog_digest") != expected_catalog
             or manifest.get("export_id") != self.export_id
             or projected != declared
         ):
@@ -512,6 +559,11 @@ class SharedImportEvidence:
         value = cast(dict[str, object], json.loads(self.manifest_bytes))
         return cast(str, value["tenant_id"])
 
+    @property
+    def schema_version(self) -> int:
+        value = cast(dict[str, object], json.loads(self.manifest_bytes))
+        return cast(int, value["schema_version"])
+
 
 @dataclass(frozen=True, slots=True)
 class SharedBrain:
@@ -521,6 +573,7 @@ class SharedBrain:
     records: tuple[SharedRecord, ...]
     blobs: tuple[SharedBlob, ...] = ()
     attachments: tuple[SharedAttachment, ...] = ()
+    extensions: tuple[SharedExtension, ...] = ()
 
     def __post_init__(self) -> None:
         validate_portable_identifier(self.source_brain_id, "tenant")
@@ -533,10 +586,12 @@ class SharedBrain:
         records = tuple(replace(record) for record in self.records)
         blobs = tuple(replace(blob) for blob in self.blobs)
         attachments = tuple(replace(attachment) for attachment in self.attachments)
+        extensions = tuple(replace(extension) for extension in self.extensions)
         object.__setattr__(self, "evidence", evidence)
         object.__setattr__(self, "records", records)
         object.__setattr__(self, "blobs", blobs)
         object.__setattr__(self, "attachments", attachments)
+        object.__setattr__(self, "extensions", extensions)
 
         identities = [record.semantic_id for record in records]
         if len(identities) != len(set(identities)):
@@ -606,6 +661,10 @@ class SharedBrain:
             if attachment.path in direct:
                 raise PortabilityMappingError("shared attachment path is ambiguous")
             direct[attachment.path] = attachment.data
+        for extension in self.extensions:
+            if extension.path in direct:
+                raise PortabilityMappingError("shared extension path is ambiguous")
+            direct[extension.path] = extension.data
 
         declared = dict(self.evidence.declared_files)
         if tuple(sorted(direct)) != tuple(declared):
@@ -614,7 +673,12 @@ class SharedBrain:
             if sha256(payload).hexdigest() != declared[path]:
                 raise PortabilityMappingError("manifest digest and shared payload differ")
         try:
-            validate_portable_file_set(direct, tenant_id=self.source_brain_id)
+            if self.evidence.schema_version == 1:
+                validate_portable_file_set(direct, tenant_id=self.source_brain_id)
+            elif self.evidence.schema_version == 2:
+                validate_portable_file_set_v2(direct, tenant_id=self.source_brain_id)
+            else:
+                validate_portable_file_set_v3(direct, tenant_id=self.source_brain_id)
         except ValueError as error:
             raise PortabilityMappingError("reconstructed Portable file set is invalid") from error
         return dict(sorted(direct.items()))
@@ -631,6 +695,7 @@ __all__ = [
     "SharedAttachment",
     "SharedBlob",
     "SharedBrain",
+    "SharedExtension",
     "SharedFamily",
     "SharedImportEvidence",
     "SharedRecord",

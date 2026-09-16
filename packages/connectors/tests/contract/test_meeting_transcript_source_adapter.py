@@ -815,7 +815,9 @@ def test_meeting_transcript_adapter_rejects_secret_feedback_and_invalid_provider
         )
 
 
-def test_meeting_transcript_adapter_models_permission_and_availability_statuses() -> None:
+def test_meeting_transcript_adapter_models_permission_and_availability_statuses(
+    tmp_path: Path,
+) -> None:
     adapter = MeetingTranscriptSourceAdapter()
     checkpoint = MeetingTranscriptCheckpoint.initial(
         adapter.meeting_selection(
@@ -840,7 +842,7 @@ def test_meeting_transcript_adapter_models_permission_and_availability_statuses(
             checkpoint,
             adapter.not_allowed_page(),
             (),
-            _capture_sink(Path.cwd()),
+            _capture_sink(tmp_path),
         )[1].failure_code
         is ConnectorFailureCode.NOT_ALLOWED
     )
@@ -849,7 +851,7 @@ def test_meeting_transcript_adapter_models_permission_and_availability_statuses(
             checkpoint,
             adapter.transcript_unavailable_page(),
             (),
-            _capture_sink(Path.cwd()),
+            _capture_sink(tmp_path),
         )[1].failure_code
         is ConnectorFailureCode.NOT_ALLOWED
     )
@@ -858,7 +860,7 @@ def test_meeting_transcript_adapter_models_permission_and_availability_statuses(
             checkpoint,
             adapter.token_invalidated_page(),
             (),
-            _capture_sink(Path.cwd()),
+            _capture_sink(tmp_path),
         )[1].failure_code
         is ConnectorFailureCode.NOT_ALLOWED
     )
@@ -867,7 +869,7 @@ def test_meeting_transcript_adapter_models_permission_and_availability_statuses(
             checkpoint,
             adapter.unsupported_provider_page(),
             (),
-            _capture_sink(Path.cwd()),
+            _capture_sink(tmp_path),
         )[1].failure_code
         is ConnectorFailureCode.UNSUPPORTED_CAPABILITY
     )

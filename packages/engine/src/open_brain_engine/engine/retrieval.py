@@ -19,6 +19,7 @@ from .contracts import (
 from .local_store import rebuild_live_search_fts
 from .normalization import _portable_id, _text
 from .search_projection import (
+    canonical_source_rows,
     public_search_text,
     public_source_origin,
     source_search_title,
@@ -284,15 +285,18 @@ class RetrievalOperations(_LocalEngineOperations):
             return None
         title, body = document
         protected_source_reference = cast(str, row["protected_source_reference"])
+        _capture_ids, additional_references, _origin = self._document_sources(row)
         return PageResult(
             page_id=cast(str, row["result_id"]),
             title=public_search_text(
                 title,
                 protected_source_reference=protected_source_reference,
+                additional_source_references=additional_references,
             ),
             markdown=public_search_text(
                 body,
                 protected_source_reference=protected_source_reference,
+                additional_source_references=additional_references,
             ),
             trust=cast(str, row["trust"]),
         )
@@ -334,6 +338,47 @@ class RetrievalOperations(_LocalEngineOperations):
             connection.close()
         return cast(sqlite3.Row | None, row)
 
+    def _document_sources(self, row: sqlite3.Row) -> tuple[tuple[str, ...], tuple[str, ...], str]:
+        capture_id = cast(str, row["capture_id"])
+        if row["record_type"] != "canonical":
+            origin = public_source_origin(
+                {
+                    "provenance_json": row["capture_provenance_json"],
+                    "source_origin": row["capture_source_origin"],
+                    "source_reference": row["protected_source_reference"],
+                }
+            )
+            return (capture_id,), (), origin
+        connection = self._store.connect()
+        try:
+            sources = canonical_source_rows(
+                connection, result_id=cast(str, row["result_id"]), capture_id=capture_id
+            )
+            # A committed decision may be between its page write and index stage.
+            # Protect its references too, even while the old head remains current.
+            references = tuple(
+                str(item[0])
+                for item in connection.execute(
+                    "SELECT DISTINCT c.source_reference FROM review_sources s "
+                    "JOIN captures c USING (capture_id) "
+                    "JOIN decisions d USING (proposal_id) "
+                    "WHERE d.page_id = ? AND d.outcome IN ('approved', 'edited')",
+                    (row["result_id"],),
+                )
+            )
+        finally:
+            connection.close()
+        origins = {public_source_origin(source) for source in sources}
+        return (
+            tuple(str(source["capture_id"]) for source in sources),
+            tuple(
+                dict.fromkeys(
+                    (*references, *(str(source["source_reference"]) for source in sources))
+                )
+            ),
+            next(iter(origins)) if len(origins) == 1 else "mixed",
+        )
+
     def _retrieval_result(
         self,
         row: sqlite3.Row,
@@ -344,19 +389,20 @@ class RetrievalOperations(_LocalEngineOperations):
     ) -> RetrievalResult | None:
         capture_id = cast(str, row["capture_id"])
         protected_source_reference = cast(str, row["protected_source_reference"])
+        capture_ids, additional_references, source_origin = self._document_sources(row)
         raw_title = cast(str, row["title"])
         raw_body = cast(str, row["body"])
         public_title = public_search_text(
             raw_title,
             protected_source_reference=protected_source_reference,
+            additional_source_references=additional_references,
         )
         public_body = public_search_text(
             raw_body,
             protected_source_reference=protected_source_reference,
+            additional_source_references=additional_references,
         )
-        if require_current_projection and (
-            public_title != raw_title or public_body != raw_body
-        ):
+        if require_current_projection and (public_title != raw_title or public_body != raw_body):
             return None
         public_excerpt = (
             " ".join(public_body.split()) or "(empty)"
@@ -364,24 +410,19 @@ class RetrievalOperations(_LocalEngineOperations):
             else public_search_text(
                 excerpt,
                 protected_source_reference=protected_source_reference,
+                additional_source_references=additional_references,
             )
         )[:500]
         public_explanation = public_search_text(
             explanation,
             protected_source_reference=protected_source_reference,
-        )
-        source_origin = public_source_origin(
-            {
-                "provenance_json": row["capture_provenance_json"],
-                "source_origin": row["capture_source_origin"],
-                "source_reference": row["protected_source_reference"],
-            }
+            additional_source_references=additional_references,
         )
         trust = cast(str, row["trust"])
-        if (
-            trust not in {"owner", "third_party", "reviewed", "unverified"}
-            or source_origin in {"mixed", "unknown"}
-        ):
+        if trust not in {"owner", "third_party", "reviewed", "unverified"} or source_origin in {
+            "mixed",
+            "unknown",
+        }:
             trust = "unverified"
         return RetrievalResult(
             result_id=cast(str, row["result_id"]),
@@ -395,6 +436,7 @@ class RetrievalOperations(_LocalEngineOperations):
             provenance=PublicProvenance(
                 capture_id=capture_id,
                 source_origin=source_origin,
+                capture_ids=capture_ids,
             ),
             explanation=public_explanation,
         )
@@ -415,7 +457,7 @@ class RetrievalOperations(_LocalEngineOperations):
         try:
             parsed = parse_markdown(payload)
             return cast(str, parsed.fields["title"]), parsed.body
-        except (KeyError, MarkdownFormatError, TypeError):
+        except KeyError, MarkdownFormatError, TypeError:
             return None
 
     def _rebuild_live_search_index(self) -> None:
@@ -430,9 +472,7 @@ class RetrievalOperations(_LocalEngineOperations):
 def _compile_query(value: str) -> _CompiledQuery:
     normalized = _text(value, field="query", maximum=500)
     chunks = tuple(
-        chunk
-        for chunk in normalized.split()
-        if any(character.isalnum() for character in chunk)
+        chunk for chunk in normalized.split() if any(character.isalnum() for character in chunk)
     )
     if not chunks:
         raise ValueError("invalid query")

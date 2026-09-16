@@ -8,10 +8,12 @@ from .v1 import (
     export_portable_tree,
     validate_portable_file_set,
 )
+from .v3 import PORTABLE_V3_SCHEMA_CATALOG_DIGEST
 from .versioned import validate_portable_root
 
 __all__ = [
     "PORTABLE_V1_SCHEMA_CATALOG_DIGEST",
+    "PORTABLE_V3_SCHEMA_CATALOG_DIGEST",
     "PortableValidationError",
     "export_portable_tree",
     "portable_canonical_json_bytes",

@@ -17,6 +17,7 @@ from .model import (
     SharedAttachment,
     SharedBlob,
     SharedBrain,
+    SharedExtension,
     SharedFamily,
     SharedImportEvidence,
     SharedRecord,
@@ -209,6 +210,7 @@ def _decode_snapshot(snapshot: PortableSnapshot) -> SharedBrain:
     ]
     blobs: list[SharedBlob] = []
     attachments: list[SharedAttachment] = []
+    extensions: list[SharedExtension] = []
 
     for path, declared_digest in declared:
         if path == "brain.toml":
@@ -279,6 +281,13 @@ def _decode_snapshot(snapshot: PortableSnapshot) -> SharedBrain:
                     )
                 )
             continue
+        if path.startswith(
+            ("history/managed-workspace/", "history/review-bindings/")
+        ) and path.endswith(".json"):
+            extensions.append(
+                SharedExtension(path=path, sha256=declared_digest, data=payload)
+            )
+            continue
         matched = next(
             (
                 (family, identity_field)
@@ -298,6 +307,7 @@ def _decode_snapshot(snapshot: PortableSnapshot) -> SharedBrain:
         records=tuple(records),
         blobs=tuple(blobs),
         attachments=tuple(attachments),
+        extensions=tuple(extensions),
     )
 
 

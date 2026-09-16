@@ -6,6 +6,7 @@ from .model import (
     SharedAttachment,
     SharedBlob,
     SharedBrain,
+    SharedExtension,
     SharedImportEvidence,
     SharedRecord,
 )
@@ -18,6 +19,7 @@ __all__ = [
     "SharedAttachment",
     "SharedBlob",
     "SharedBrain",
+    "SharedExtension",
     "SharedImportEvidence",
     "SharedRecord",
     "load_conformance_cases",

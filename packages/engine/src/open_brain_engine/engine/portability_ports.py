@@ -14,6 +14,7 @@ from pathlib import Path, PurePosixPath
 from typing import Protocol, cast
 
 from open_brain_engine.core.ids import portable_canonical_json_bytes
+from open_brain_engine.portable.review_binding import validate_review_binding
 from open_brain_engine.portable.v1 import validate_portable_write
 from open_brain_engine.storage.filesystem import (
     DuplicateConflictError,
@@ -24,6 +25,7 @@ from open_brain_engine.storage.filesystem import (
     atomic_write_new,
     capture_root_identity,
     open_root_descriptor,
+    read_confined,
 )
 from open_brain_engine.storage.markdown import MarkdownFormatError, parse_markdown, render_markdown
 
@@ -85,6 +87,10 @@ class PortableWritePort(Protocol):
     def put_history(self, family: str, payload: bytes) -> WriteState: ...
 
     def put_page(self, relative: str, payload: bytes) -> WriteState: ...
+
+    def replace_page(
+        self, relative: str, payload: bytes, *, expected_sha256: str
+    ) -> WriteState: ...
 
     def put_space(self, payload: bytes, *, replace: bool) -> WriteState: ...
 
@@ -419,6 +425,7 @@ class LocalPortableHistory(LocalTenantStorage):
             "publication": ("publications", "publication_id", "publication"),
             "action": ("actions", "action_id", "action"),
             "routing": ("routes", "route_id", "route"),
+            "review_binding": ("review-bindings", "proposal_id", "proposal"),
         }
         specification = specifications.get(family)
         if specification is None:
@@ -433,7 +440,12 @@ class LocalPortableHistory(LocalTenantStorage):
             identifier_prefix=identifier_prefix,
             timestamp_key="recorded_at",
         )
-        _validate_write(relative, payload, self.tenant_id)
+        if family == "review_binding":
+            binding = validate_review_binding(_canonical_json_object(payload, family))
+            if binding["tenant_id"] != self.tenant_id:
+                raise ValueError("invalid Portable review binding tenant")
+        else:
+            _validate_write(relative, payload, self.tenant_id)
         return _immutable_put(self.root, self.bound_root_identity, relative, payload, family)
 
 
@@ -502,6 +514,50 @@ class LocalPortableWrites:
         return _immutable_put(
             self.root, self.bound_root_identity, relative, payload, "page"
         )
+
+    def replace_page(
+        self, relative: str, payload: bytes, *, expected_sha256: str
+    ) -> WriteState:
+        _safe_relative(relative)
+        if not isinstance(expected_sha256, str) or re.fullmatch(
+            r"[0-9a-f]{64}", expected_sha256
+        ) is None:
+            raise ValueError("invalid expected page digest")
+        fields = _canonical_markdown(payload, "page")
+        if fields.get("tenant_id") != self.tenant_id:
+            raise ValueError("invalid Portable page tenant")
+        page_id = _identifier(fields.get("page_id"), "page", "page")
+        parts = PurePosixPath(relative).parts
+        if (
+            len(parts) != 5
+            or parts[:2] != ("content", "spaces")
+            or _SLUG.fullmatch(parts[2]) is None
+            or parts[3] != "notes"
+            or parts[4] != f"{page_id}.md"
+        ):
+            raise ValueError("invalid Portable page path")
+        _validate_write(relative, payload, self.tenant_id)
+        current = read_confined(
+            root=self.root,
+            relative=relative,
+            expected_root_identity=self.bound_root_identity,
+        )
+        if current is None:
+            raise ValueError("canonical page revision conflict")
+        if current == payload:
+            return WriteState.ALREADY_EXISTS
+        try:
+            atomic_replace(
+                root=self.root,
+                relative=relative,
+                data=payload,
+                require_existing=True,
+                expected_existing_sha256=expected_sha256,
+                expected_root_identity=self.bound_root_identity,
+            )
+        except DuplicateConflictError as error:
+            raise ValueError("canonical page revision conflict") from error
+        return WriteState.CREATED
 
     def put_space(self, payload: bytes, *, replace: bool) -> WriteState:
         if type(replace) is not bool:

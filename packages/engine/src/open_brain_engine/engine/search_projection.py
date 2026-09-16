@@ -14,12 +14,17 @@ from open_brain_engine.core.models import ContentOrigin, Provenance
 from .contracts import project_public_result_text
 
 
-def public_search_text(value: str, *, protected_source_reference: str) -> str:
+def public_search_text(
+    value: str,
+    *,
+    protected_source_reference: str,
+    additional_source_references: tuple[str, ...] = (),
+) -> str:
     """Normalize and remove protected values before text reaches the live index."""
     normalized = unicodedata.normalize("NFC", value)
     return project_public_result_text(
         normalized,
-        protected_literals=(protected_source_reference,),
+        protected_literals=(protected_source_reference, *additional_source_references),
     )
 
 
@@ -101,6 +106,32 @@ class SearchDocumentProjection:
     provenance_json: str
 
 
+def canonical_source_rows(
+    connection: sqlite3.Connection, *, result_id: str, capture_id: str
+) -> tuple[sqlite3.Row, ...]:
+    """Resolve ordered source membership from the current canonical publication."""
+    head = connection.execute(
+        "SELECT proposal_id, capture_id FROM review_page_heads WHERE page_id = ?", (result_id,)
+    ).fetchone()
+    if head is None:
+        rows = tuple(
+            connection.execute("SELECT * FROM captures WHERE capture_id = ?", (capture_id,))
+        )
+    else:
+        if head["capture_id"] != capture_id:
+            raise ValueError("canonical source identity conflict")
+        rows = tuple(
+            connection.execute(
+                "SELECT c.* FROM review_sources s JOIN captures c USING (capture_id) "
+                "WHERE s.proposal_id = ? ORDER BY s.ordinal",
+                (head["proposal_id"],),
+            )
+        )
+    if not 1 <= len(rows) <= 32 or rows[0]["capture_id"] != capture_id:
+        raise ValueError("canonical source provenance is unavailable")
+    return rows
+
+
 def project_search_document(
     connection: sqlite3.Connection,
     *,
@@ -126,10 +157,16 @@ def project_search_document(
     if not isinstance(source_reference, str) or not source_reference:
         raise ValueError("search projection capture is unavailable")
     origin = _durable_source_origin(capture)
+    captures: tuple[sqlite3.Row, ...] = (capture,)
+    capture_ids: tuple[str, ...] = (capture_id,)
     if record_type == "source":
         trust = source_trust(origin)
         canonical_frontmatter_trust = None
     elif record_type == "canonical":
+        captures = canonical_source_rows(connection, result_id=result_id, capture_id=capture_id)
+        capture_ids = tuple(str(source["capture_id"]) for source in captures)
+        origins = {_durable_source_origin(source) for source in captures}
+        origin = next(iter(origins)) if len(origins) == 1 else ContentOrigin.MIXED.value
         trust, canonical_frontmatter_trust = _canonical_trust(
             connection,
             capture=capture,
@@ -139,12 +176,24 @@ def project_search_document(
         )
     else:
         raise ValueError("invalid search record type")
+    additional_references = tuple(str(source["source_reference"]) for source in captures[1:])
+    provenance: dict[str, object] = {"capture_id": capture_id}
+    if len(capture_ids) > 1:
+        provenance["capture_ids"] = list(capture_ids)
     return SearchDocumentProjection(
-        title=public_search_text(title, protected_source_reference=source_reference),
-        body=public_search_text(body, protected_source_reference=source_reference),
+        title=public_search_text(
+            title,
+            protected_source_reference=source_reference,
+            additional_source_references=additional_references,
+        ),
+        body=public_search_text(
+            body,
+            protected_source_reference=source_reference,
+            additional_source_references=additional_references,
+        ),
         trust=trust,
         canonical_frontmatter_trust=canonical_frontmatter_trust,
-        provenance_json=portable_canonical_json_bytes({"capture_id": capture_id}).decode("utf-8"),
+        provenance_json=portable_canonical_json_bytes(provenance).decode("utf-8"),
     )
 
 
@@ -160,6 +209,10 @@ def _canonical_trust(
         origin == ContentOrigin.OWNER_AUTHORED.value
         and capture["action"] == "canonical_note"
         and capture["canonical_path"] == canonical_path
+        and connection.execute(
+            "SELECT 1 FROM review_page_heads WHERE page_id = ?", (result_id,)
+        ).fetchone()
+        is None
     ):
         return ("owner", "owner")
     reviewed = connection.execute(
@@ -206,11 +259,15 @@ def upsert_search_document(
         (result_id,),
     ).fetchone()
     identity = (capture_id, record_type, payload_family)
-    if existing is not None and (
-        str(existing["capture_id"]),
-        str(existing["record_type"]),
-        str(existing["payload_family"]),
-    ) != identity:
+    if (
+        existing is not None
+        and (
+            str(existing["capture_id"]),
+            str(existing["record_type"]),
+            str(existing["payload_family"]),
+        )
+        != identity
+    ):
         raise ValueError("search result identity conflict")
     projection = project_search_document(
         connection,
