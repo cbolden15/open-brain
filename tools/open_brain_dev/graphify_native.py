@@ -192,6 +192,8 @@ def _install_inputs(source: Path, inputs: Path, root: Path) -> None:
             sys.executable,
             "--target",
             os.fspath(inputs),
+            "--link-mode",
+            "copy",
             "--no-deps",
             "--require-hashes",
             "--only-binary",

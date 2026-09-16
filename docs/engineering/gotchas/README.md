@@ -1711,6 +1711,22 @@ See the [MCP metadata contract](https://modelcontextprotocol.io/specification/20
 
 Discovered: 2026-09-14, desktop D1 actual Claude Code acceptance.
 
+### INTEGRATION-040: Patching hardlinked dependencies can corrupt the build cache
+
+Symptom: The first Graphify native build passes, but the next build rejects the pinned
+upstream source preimage before applying the maintained patch.
+
+Cause: uv can hardlink installed files to its wheel cache. Writing a patch over that
+installed file changes the cached inode as well. A fresh stage then receives patched
+bytes instead of the original pinned wheel contents.
+
+Fix: Both Graphify staging installers use `--link-mode copy` before applying patches.
+Keep the original and candidate digest checks unchanged. Verify two successive installs
+and patch applications against one isolated cache, including when the environment requests
+hardlink mode. An already modified private cache must be replaced before retrying.
+
+Discovered: 2026-09-16, repeated Linux native builds in the desktop contributor check.
+
 ### DOCUMENT-001: PDF extraction can invoke an ambient image decoder
 
 Symptom: A malformed PDF content stream can select pypdf's JBIG2 filter, which discovers
@@ -1864,3 +1880,19 @@ transcript assertions. This verifies rejection of a changed inode without assumi
 deleted inode numbers cannot be reused.
 
 Discovered: 2026-09-16, Linux contributor CI for the desktop and priority capture PR.
+
+### SOURCE-LIVE-009: A generic HTTP test client can initialize TLS on loopback
+
+Symptom: The first synthetic OAuth callback exceeds its three-second deadline on
+macOS CI, while later callbacks and local checks pass.
+
+Cause: Python's first `urllib.request.urlopen` builds an HTTPS handler and loads its
+default certificate context even for an HTTP-only callback. A controlled slow-context
+probe reproduced the same authorization timeout before any callback reached the server.
+
+Fix: Use `HTTPConnection` for the synthetic numeric-loopback callback and reject TLS
+initialization in the successful connection test. Keep the real listener, wrong-state
+rejection, PKCE assertions, and existing timeout limits. The controlled probe then passes
+without creating a TLS context. Production provider HTTPS transport is unchanged.
+
+Discovered: 2026-09-16, macOS contributor CI for the desktop and priority capture PR.

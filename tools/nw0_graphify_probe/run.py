@@ -110,6 +110,8 @@ def prepare(output: Path, environment: dict[str, str]) -> None:
             sys.executable,
             "--target",
             str(inputs),
+            "--link-mode",
+            "copy",
             "--no-deps",
             "--require-hashes",
             "--only-binary",

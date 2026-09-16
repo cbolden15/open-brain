@@ -11,13 +11,12 @@ import sys
 import time
 from collections.abc import Callable
 from email.message import Message
+from http.client import HTTPConnection
 from pathlib import Path
 from types import TracebackType
 from typing import Self
-from urllib.error import HTTPError
 from urllib.parse import parse_qs, urlencode, urlsplit
 from urllib.request import Request
-from urllib.request import urlopen as real_urlopen
 
 import pytest
 
@@ -117,6 +116,21 @@ def _write_client_config(path: Path) -> None:
     )
 
 
+def _callback_status(url: str) -> int:
+    parsed = urlsplit(url)
+    assert parsed.scheme == "http"
+    assert parsed.hostname == "127.0.0.1"
+    assert parsed.port is not None
+    # The synthetic loopback callback needs neither TLS setup nor ambient proxies.
+    connection = HTTPConnection(parsed.hostname, parsed.port, timeout=2)
+    try:
+        connection.request("GET", f"{parsed.path}?{parsed.query}")
+        with connection.getresponse() as response:
+            return response.status
+    finally:
+        connection.close()
+
+
 def _browser_opener(captured: list[dict[str, list[str]]]) -> Callable[[str], object]:
     def open_browser(url: str) -> bool:
         parsed = urlsplit(url)
@@ -130,8 +144,7 @@ def _browser_opener(captured: list[dict[str, list[str]]]) -> Callable[[str], obj
         callback_url = query["redirect_uri"][0] + "?" + urlencode(
             {"code": "synthetic-authorization-code", "state": query["state"][0]}
         )
-        with real_urlopen(callback_url, timeout=2) as response:
-            assert response.status == 200
+        assert _callback_status(callback_url) == 200
         return True
 
     return open_browser
@@ -160,6 +173,10 @@ def test_connect_uses_pkce_loopback_and_persists_private_credentials(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    monkeypatch.setattr(
+        "ssl._create_default_https_context",
+        lambda: pytest.fail("HTTP loopback fixture must not initialize TLS"),
+    )
     monkeypatch.setattr(
         "open_brain_connectors.runtime.google_calendar_auth.time.time",
         lambda: 1_000_000.0,
@@ -415,14 +432,11 @@ def test_loopback_rejects_wrong_state_before_accepting_exact_callback(
         wrong_callback = redirect_uri + "?" + urlencode(
             {"code": "wrong-code", "state": query["state"][0] + "-wrong"}
         )
-        with pytest.raises(HTTPError) as rejected:
-            real_urlopen(wrong_callback, timeout=2)
-        assert rejected.value.code == 400
+        assert _callback_status(wrong_callback) == 400
         exact_callback = redirect_uri + "?" + urlencode(
             {"code": "synthetic-authorization-code", "state": query["state"][0]}
         )
-        with real_urlopen(exact_callback, timeout=2) as response:
-            assert response.status == 200
+        assert _callback_status(exact_callback) == 200
         return True
 
     account = GoogleCalendarAuthStore(tmp_path / "credentials").connect(
