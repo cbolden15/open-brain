@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import ctypes
 import hashlib
 import json
 import os
@@ -20,6 +21,57 @@ from open_brain_connectors.runtime.document_parser import (
     WALL_SECONDS,
 )
 from open_brain_connectors.runtime.local_document import LocalDocumentRecord
+
+_PROC_PIDTASKINFO = 4
+
+
+class _ProcTaskInfo(ctypes.Structure):
+    _fields_ = [
+        ("pti_virtual_size", ctypes.c_uint64),
+        ("pti_resident_size", ctypes.c_uint64),
+        ("pti_total_user", ctypes.c_uint64),
+        ("pti_total_system", ctypes.c_uint64),
+        ("pti_threads_user", ctypes.c_uint64),
+        ("pti_threads_system", ctypes.c_uint64),
+        ("pti_policy", ctypes.c_int32),
+        ("pti_faults", ctypes.c_int32),
+        ("pti_pageins", ctypes.c_int32),
+        ("pti_cow_faults", ctypes.c_int32),
+        ("pti_messages_sent", ctypes.c_int32),
+        ("pti_messages_received", ctypes.c_int32),
+        ("pti_syscalls_mach", ctypes.c_int32),
+        ("pti_syscalls_unix", ctypes.c_int32),
+        ("pti_csw", ctypes.c_int32),
+        ("pti_threadnum", ctypes.c_int32),
+        ("pti_numrunning", ctypes.c_int32),
+        ("pti_priority", ctypes.c_int32),
+    ]
+
+
+def _darwin_resident_bytes(pid: int) -> int | None:
+    try:
+        libproc = ctypes.CDLL("/usr/lib/libproc.dylib")
+        libproc.proc_pidinfo.argtypes = [
+            ctypes.c_int,
+            ctypes.c_int,
+            ctypes.c_uint64,
+            ctypes.c_void_p,
+            ctypes.c_int,
+        ]
+        libproc.proc_pidinfo.restype = ctypes.c_int
+        task_info = _ProcTaskInfo()
+        result = libproc.proc_pidinfo(
+            pid,
+            _PROC_PIDTASKINFO,
+            0,
+            ctypes.byref(task_info),
+            ctypes.sizeof(task_info),
+        )
+    except OSError:
+        return None
+    if result != ctypes.sizeof(_ProcTaskInfo):
+        return None
+    return int(task_info.pti_resident_size)
 
 
 def read_selected_file(path: Path, *, maximum: int = MAX_FILE_BYTES) -> tuple[Path, bytes]:
@@ -72,20 +124,15 @@ def _extract(data: bytes, kind: str) -> str:
     memory_exceeded = threading.Event()
 
     def watch_memory() -> None:
-        # Darwin's RLIMIT_AS is advisory. Bound sustained RSS as well as wall/CPU
-        # time; ps reports KiB. A transient allocation can exceed this threshold.
+        # Darwin's RLIMIT_AS is advisory; use libproc so the guard does not need
+        # process-list permission from /bin/ps in restricted execution lanes.
         while not stopped.wait(0.05):
-            try:
-                result = subprocess.run(
-                    ["/bin/ps", "-o", "rss=", "-p", str(process.pid)],
-                    capture_output=True, timeout=1, check=False,
-                )
-                if int(result.stdout.strip() or b"0") * 1024 > MEMORY_BYTES:
-                    memory_exceeded.set()
-                    process.kill()
-                    return
-            except (OSError, ValueError, subprocess.TimeoutExpired):
+            resident_bytes = _darwin_resident_bytes(process.pid)
+            if resident_bytes is None:
+                continue
+            if resident_bytes > MEMORY_BYTES:
                 process.kill()
+                memory_exceeded.set()
                 return
 
     watcher = threading.Thread(target=watch_memory, daemon=True)

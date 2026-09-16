@@ -18,6 +18,7 @@ from open_brain_connectors.runtime.source_registry import (
     gitlab_source_descriptor,
     gmail_source_descriptor,
     google_drive_source_descriptor,
+    imessage_source_descriptor,
     jira_source_descriptor,
     local_document_source_descriptor,
     meeting_transcript_source_descriptor,
@@ -56,6 +57,7 @@ def test_source_catalog_lists_descriptors_without_import_or_capture_authority() 
             local_document_source_descriptor(),
             google_drive_source_descriptor(),
             gmail_source_descriptor(),
+            imessage_source_descriptor(),
             notion_source_descriptor(),
             slack_source_descriptor(),
             web_clip_source_descriptor(),
@@ -69,6 +71,7 @@ def test_source_catalog_lists_descriptors_without_import_or_capture_authority() 
     assert catalog.require("gitlab").content_types == ("comment", "issue", "merge_request")
     assert catalog.require("gmail").resource_types == ("mail_label",)
     assert catalog.require("google_drive").resource_types == ("drive_file",)
+    assert catalog.require("imessage").resource_types == ("conversation",)
     assert catalog.require("jira").content_types == ("comment", "issue")
     assert catalog.require("confluence").resource_types == ("cloud_page", "cloud_space")
     assert catalog.require("local_document").resource_types == ("docx_file", "text_pdf")
@@ -131,6 +134,17 @@ def test_d4_agent_session_descriptor_declares_local_project_session_scope() -> N
     assert descriptor.auth_mode is SourceAuthMode.SESSION_ONLY
     assert descriptor.resource_types == ("local_project",)
     assert descriptor.content_types == ("session_summary", "session_transcript")
+    assert descriptor.public_onboarding is False
+
+
+def test_d4_imessage_descriptor_declares_selected_conversation_scope() -> None:
+    descriptor = imessage_source_descriptor()
+
+    assert descriptor.connector_name == "imessage"
+    assert descriptor.display_name == "iMessage"
+    assert descriptor.auth_mode is SourceAuthMode.SESSION_ONLY
+    assert descriptor.resource_types == ("conversation",)
+    assert descriptor.content_types == ("message", "message_deleted")
     assert descriptor.public_onboarding is False
 
 

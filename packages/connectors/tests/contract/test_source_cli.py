@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import sqlite3
 import stat
 from http.client import HTTPMessage
 from pathlib import Path
@@ -91,6 +92,16 @@ def test_source_cli_catalog_exposes_registered_public_onboarding(
             "preview_limit": 25,
             "public_onboarding": True,
             "resource_types": ["drive_file"],
+            "schema_version": 1,
+        },
+        {
+            "auth_mode": "session_only",
+            "connector_name": "imessage",
+            "content_types": ["message", "message_deleted"],
+            "display_name": "iMessage",
+            "preview_limit": 25,
+            "public_onboarding": False,
+            "resource_types": ["conversation"],
             "schema_version": 1,
         },
         {
@@ -222,6 +233,142 @@ def test_source_cli_selects_calendar(
         "schema_version": 1,
         "status": "selected",
     }
+
+
+def test_source_cli_selects_imessage_conversation(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    database = _write_imessage_database(tmp_path)
+
+    assert (
+        run_cli(
+            (
+                "imessage",
+                "select-conversation",
+                "--connection-id",
+                "account:imessage-fixture",
+                "--database",
+                str(database),
+                "--conversation-id",
+                "chat-open-brain",
+                "--permission-status",
+                "granted",
+            )
+        )
+        == 0
+    )
+    payload = _json(capsys)
+
+    assert payload == {
+        "connection_id": "account:imessage-fixture",
+        "connector_name": "imessage",
+        "resource_id": "conversation:chat-open-brain",
+        "resource_type": "conversation",
+        "schema_version": 1,
+        "status": "selected",
+    }
+
+
+def test_source_cli_previews_imessage_without_payload_bodies(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    database = _write_imessage_database(tmp_path)
+
+    assert (
+        run_cli(
+            (
+                "imessage",
+                "preview-messages",
+                "--connection-id",
+                "account:imessage-fixture",
+                "--database",
+                str(database),
+                "--conversation-id",
+                "chat-open-brain",
+                "--permission-status",
+                "granted",
+            )
+        )
+        == 0
+    )
+    payload = _json(capsys)
+
+    assert payload["status"] == "ready"
+    assert payload["connector_name"] == "imessage"
+    assert payload["resource_id"] == "conversation:chat-open-brain"
+    records = cast(list[dict[str, object]], payload["records"])
+    assert [record["content_type"] for record in records] == ["message"]
+    assert records[0]["title"] == "iMessage 1 in Open Brain Test"
+    assert "must not print" not in repr(payload)
+
+
+def test_source_cli_round_trips_imessage_preview_cursor(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    database = _write_imessage_database(tmp_path, message_count=26)
+    base_args = (
+        "imessage",
+        "preview-messages",
+        "--connection-id",
+        "account:imessage-fixture",
+        "--database",
+        str(database),
+        "--conversation-id",
+        "chat-open-brain",
+        "--permission-status",
+        "granted",
+    )
+
+    assert run_cli(base_args) == 0
+    first = _json(capsys)
+    assert first["next_cursor"] == "row:25"
+
+    assert run_cli((*base_args, "--next-cursor", first["next_cursor"])) == 0
+    second = _json(capsys)
+
+    assert second["next_cursor"] is None
+    records = cast(list[dict[str, object]], second["records"])
+    assert [record["title"] for record in records] == ["iMessage 26 in Open Brain Test"]
+    assert "must not print" not in repr(second)
+
+
+def test_source_cli_reports_imessage_checkpoint_without_payload(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    database = _write_imessage_database(tmp_path)
+
+    assert (
+        run_cli(
+            (
+                "imessage",
+                "checkpoint",
+                "--connection-id",
+                "account:imessage-fixture",
+                "--database",
+                str(database),
+                "--conversation-id",
+                "chat-open-brain",
+                "--permission-status",
+                "granted",
+                "--checkpoint-dir",
+                str(tmp_path / "checkpoints"),
+            )
+        )
+        == 0
+    )
+    payload = _json(capsys)
+
+    assert payload["status"] == "ok"
+    assert payload["connector_name"] == "imessage"
+    assert payload["resource_id"] == "conversation:chat-open-brain"
+    assert payload["resource_type"] == "conversation"
+    assert payload["committed_delivery_ids"] == []
+    assert payload["committed_revision_identities"] == []
+    assert "must not print" not in repr(payload)
 
 
 def test_source_cli_selects_meeting_transcript(
@@ -2131,6 +2278,59 @@ def test_source_cli_reports_selected_repository_checkpoint_without_payload(
 
 def _json(capsys: pytest.CaptureFixture[str]) -> dict[str, object]:
     return cast(dict[str, object], json.loads(capsys.readouterr().out))
+
+
+def _write_imessage_database(tmp_path: Path, *, message_count: int = 1) -> Path:
+    database = tmp_path / "synthetic-chat.db"
+    with sqlite3.connect(database) as connection:
+        connection.executescript(
+            """
+            CREATE TABLE chat (
+              ROWID INTEGER PRIMARY KEY,
+              guid TEXT NOT NULL UNIQUE,
+              display_name TEXT
+            );
+            CREATE TABLE message (
+              ROWID INTEGER PRIMARY KEY,
+              guid TEXT NOT NULL UNIQUE,
+              text TEXT,
+              date INTEGER,
+              date_edited INTEGER,
+              date_deleted INTEGER,
+              cache_has_attachments INTEGER NOT NULL DEFAULT 0
+            );
+            CREATE TABLE chat_message_join (
+              chat_id INTEGER NOT NULL,
+              message_id INTEGER NOT NULL
+            );
+            """
+        )
+        connection.execute(
+            "INSERT INTO chat (ROWID, guid, display_name) VALUES (?, ?, ?)",
+            (1, "chat-open-brain", "Open Brain Test"),
+        )
+        for rowid in range(1, message_count + 1):
+            connection.execute(
+                """
+                INSERT INTO message
+                  (ROWID, guid, text, date, date_edited, date_deleted, cache_has_attachments)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    rowid,
+                    f"message-{rowid}",
+                    f"Synthetic iMessage body {rowid} must not print.",
+                    1790000000 + rowid,
+                    0,
+                    0,
+                    0,
+                ),
+            )
+            connection.execute(
+                "INSERT INTO chat_message_join (chat_id, message_id) VALUES (?, ?)",
+                (1, rowid),
+            )
+    return database
 
 
 class _TokenResponse:

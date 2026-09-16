@@ -11,7 +11,7 @@ import sys
 from collections.abc import Mapping, Sequence
 from pathlib import Path
 from tempfile import NamedTemporaryFile
-from typing import NoReturn, cast
+from typing import Literal, NoReturn, cast
 from urllib import parse
 from urllib.error import HTTPError
 from urllib.request import Request, urlopen
@@ -35,6 +35,10 @@ from open_brain_connectors.runtime.github import (
     GitHubSourceAdapter,
     GitHubUserTokenStore,
 )
+from open_brain_connectors.runtime.imessage import (
+    ImessageCheckpointStore,
+    ImessageSourceAdapter,
+)
 from open_brain_connectors.runtime.local_document import (
     LocalDocumentCheckpointStore,
     LocalDocumentSourceAdapter,
@@ -52,6 +56,7 @@ from open_brain_connectors.runtime.source_registry import (
     gitlab_source_descriptor,
     gmail_source_descriptor,
     google_drive_source_descriptor,
+    imessage_source_descriptor,
     jira_source_descriptor,
     local_document_source_descriptor,
     meeting_transcript_source_descriptor,
@@ -280,6 +285,27 @@ def _parser() -> argparse.ArgumentParser:
     _add_calendar_args(calendar_checkpoint)
     calendar_checkpoint.add_argument("--checkpoint-dir", required=True)
 
+    imessage = subparsers.add_parser(
+        "imessage",
+        help="Explicit selected-conversation iMessage preview.",
+    )
+    imessage_subparsers = imessage.add_subparsers(
+        dest="imessage_command",
+        required=True,
+    )
+
+    imessage_selection = imessage_subparsers.add_parser("select-conversation")
+    _add_imessage_args(imessage_selection)
+
+    imessage_preview = imessage_subparsers.add_parser("preview-messages")
+    _add_imessage_args(imessage_preview)
+    imessage_preview.add_argument("--next-cursor")
+    imessage_preview.add_argument("--next-rowid", type=int)
+
+    imessage_checkpoint = imessage_subparsers.add_parser("checkpoint")
+    _add_imessage_args(imessage_checkpoint)
+    imessage_checkpoint.add_argument("--checkpoint-dir", required=True)
+
     meeting_transcript = subparsers.add_parser(
         "meeting-transcript",
         help="Selected Zoom or Google Meet transcript selection and preview.",
@@ -355,6 +381,13 @@ def _add_calendar_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--provider", required=True)
 
 
+def _add_imessage_args(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("--connection-id", required=True)
+    parser.add_argument("--database", required=True)
+    parser.add_argument("--conversation-id", required=True)
+    parser.add_argument("--permission-status", required=True)
+
+
 def _add_meeting_transcript_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--connection-id", required=True)
     parser.add_argument("--meeting-id", required=True)
@@ -379,6 +412,7 @@ def _run(parsed: argparse.Namespace) -> dict[str, object]:
                 gitlab_source_descriptor(),
                 gmail_source_descriptor(),
                 google_drive_source_descriptor(),
+                imessage_source_descriptor(),
                 jira_source_descriptor(),
                 local_document_source_descriptor(),
                 meeting_transcript_source_descriptor(),
@@ -401,6 +435,8 @@ def _run(parsed: argparse.Namespace) -> dict[str, object]:
         return _run_web_clip(parsed)
     if parsed.command == "calendar":
         return _run_calendar(parsed)
+    if parsed.command == "imessage":
+        return _run_imessage(parsed)
     if parsed.command == "meeting-transcript":
         return _run_meeting_transcript(parsed)
     if parsed.command == "workspace-content":
@@ -759,6 +795,68 @@ def _run_calendar(parsed: argparse.Namespace) -> dict[str, object]:
         checkpoint = CalendarCheckpointStore(Path(cast(str, parsed.checkpoint_dir))).load(selection)
         return {**checkpoint.to_dict(), "status": "ok"}
     raise _UsageError("invalid command")
+
+
+def _run_imessage(parsed: argparse.Namespace) -> dict[str, object]:
+    adapter = ImessageSourceAdapter()
+    command = cast(str, parsed.imessage_command)
+    selection = adapter.conversation_selection(
+        connection_id=cast(str, parsed.connection_id),
+        database_path=Path(cast(str, parsed.database)),
+        conversation_id=cast(str, parsed.conversation_id),
+        owner_permission_status=cast(
+            Literal["granted", "denied", "not_determined"],
+            parsed.permission_status,
+        ),
+    )
+    if command == "select-conversation":
+        return {
+            "connection_id": selection.connection_id,
+            "connector_name": selection.connector_name,
+            "resource_id": selection.resource_id,
+            "resource_type": selection.resource_type,
+            "schema_version": 1,
+            "status": "selected",
+        }
+    if command == "preview-messages":
+        page = adapter.page_from_sqlite(
+            selection,
+            database_path=Path(cast(str, parsed.database)),
+            privacy=_local_agent_privacy(),
+            after_rowid=_imessage_after_rowid(parsed.next_cursor, parsed.next_rowid),
+        )
+        if page.preview is None:
+            return {
+                "connector_name": selection.connector_name,
+                "resource_id": selection.resource_id,
+                "resource_type": selection.resource_type,
+                "schema_version": 1,
+                "status": page.status.value,
+            }
+        return {**page.preview.to_dict(), "status": page.status.value}
+    if command == "checkpoint":
+        checkpoint = ImessageCheckpointStore(Path(cast(str, parsed.checkpoint_dir))).load(
+            selection
+        )
+        return {**checkpoint.to_dict(), "status": "ok"}
+    raise _UsageError("invalid command")
+
+
+def _imessage_after_rowid(next_cursor: object, next_rowid: object) -> int | None:
+    if next_cursor is not None and next_rowid is not None:
+        raise _UsageError("invalid command")
+    if next_cursor is None:
+        return cast(int | None, next_rowid)
+    cursor = cast(str, next_cursor)
+    if not cursor.startswith("row:"):
+        raise _UsageError("invalid command")
+    try:
+        rowid = int(cursor.removeprefix("row:"))
+    except ValueError as error:
+        raise _UsageError("invalid command") from error
+    if rowid < 0:
+        raise _UsageError("invalid command")
+    return rowid
 
 
 def _run_meeting_transcript(parsed: argparse.Namespace) -> dict[str, object]:

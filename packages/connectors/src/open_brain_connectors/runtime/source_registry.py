@@ -15,6 +15,7 @@ __all__ = [
     "D4_GITLAB_SOURCE",
     "D4_GMAIL_SOURCE",
     "D4_GOOGLE_DRIVE_SOURCE",
+    "D4_IMESSAGE_SOURCE",
     "D4_AGENT_SESSION_SOURCE",
     "D4_JIRA_SOURCE",
     "D4_MICROSOFT_MAIL_SOURCE",
@@ -35,6 +36,7 @@ __all__ = [
     "github_source_descriptor",
     "gmail_source_descriptor",
     "google_drive_source_descriptor",
+    "imessage_source_descriptor",
     "agent_session_source_descriptor",
     "jira_source_descriptor",
     "local_document_source_descriptor",
@@ -57,6 +59,7 @@ D2_GITHUB_SOURCE = "github"
 D4_GITLAB_SOURCE = "gitlab"
 D4_GMAIL_SOURCE = "gmail"
 D4_GOOGLE_DRIVE_SOURCE = "google_drive"
+D4_IMESSAGE_SOURCE = "imessage"
 D4_AGENT_SESSION_SOURCE = "agent_session"
 D4_JIRA_SOURCE = "jira"
 D4_MICROSOFT_MAIL_SOURCE = "microsoft_mail"
@@ -380,6 +383,21 @@ def google_drive_source_descriptor() -> SourceConnectorDescriptor:
         content_types=("drive_file",),
         preview_limit=25,
         public_onboarding=True,
+    )
+
+
+def imessage_source_descriptor() -> SourceConnectorDescriptor:
+    """Return D4's local selected-conversation iMessage capture capability."""
+
+    return SourceConnectorDescriptor(
+        schema_version=1,
+        connector_name=D4_IMESSAGE_SOURCE,
+        display_name="iMessage",
+        auth_mode=SourceAuthMode.SESSION_ONLY,
+        resource_types=("conversation",),
+        content_types=("message", "message_deleted"),
+        preview_limit=25,
+        public_onboarding=False,
     )
 
 
