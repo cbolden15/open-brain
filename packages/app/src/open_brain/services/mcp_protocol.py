@@ -190,6 +190,12 @@ def _call_tool_response(
             "database_busy",
             "session_capture_limit",
             "session_search_limit",
+            "unknown_space",
+            "unknown_route_target",
+            "published_capture",
+            "session_organization_read_limit",
+            "session_organization_write_limit",
+            "session_organization_response_limit",
         }:
             message = "tool call failed"
         return _result_response(

@@ -48,14 +48,15 @@ certificate, or make a key-custody decision.
 
 The supported command families are:
 
-- `init`, `capture`, `import`, `search`, `export`, `doctor`, and `status`;
+- `init`, `capture`, `import`, `search`, `space`, `inbox`, `export`, `doctor`, and `status`;
 - `workspace` for the dedicated managed Markdown vault;
 - `graph` for structural projection, suggestion review, consent, and exclusions;
 - `obsidian-plugin` for owned plugin installation, status, and removal; and
 - `mcp` over explicitly launched stdio with capabilities selected independently.
 
 `agent setup` previews and applies owned Claude Code/Codex configuration at project or user scope.
-It configures explicitly granted capture/search tools without accessing client login credentials.
+It configures explicitly granted capture, search, inbox-read, and organization tools without
+accessing client login credentials.
 
 The runtime uses the platform default directory unless an expert supplies an absolute `--data-dir`:
 
@@ -74,13 +75,15 @@ cryptographic erasure, certified purge, multi-user authorization, or protection 
 process running as the same user.
 
 MCP search grants the connected client whole-Brain read access. MCP capture writes durable,
-unverified content. Workspace reads and graph refresh are absent unless their separate flags are
+unverified content. Inbox reads expose bounded capture previews and space names. Organization
+creates/renames spaces and routes captures without publication or changed trust. These grants are
+independent of capture/search and off by default. Workspace reads and graph refresh are absent unless their separate flags are
 present. MCP cannot accept graph suggestions, resolve workspace conflicts, change provider consent,
 or edit exclusions. The current MCP graph-refresh tool returns `provider_not_configured` because MCP
 has no provider-credential setup operation. Returned note content is untrusted data. A network-backed
 MCP client may send results to its own provider.
 
-Ordinary capture, import, search, workspace, structural graph, export, status, and doctor operations
+Ordinary capture, import, search, space, inbox, workspace, structural graph, export, status, and doctor operations
 perform no network egress. Semantic graph refresh may send selected note content to one configured
 cloud provider only after the owner acknowledges the managed-vault scope and grants current consent.
 The supported direct adapters are OpenAI API, Anthropic API, and Google Gemini API. They use an

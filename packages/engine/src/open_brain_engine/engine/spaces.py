@@ -18,6 +18,7 @@ from .contracts import (
     RoutedCapture,
     SpaceRecord,
     _LocalEngineOperations,
+    project_public_result_text,
     project_public_space,
 )
 from .normalization import (
@@ -38,12 +39,20 @@ if TYPE_CHECKING:
 
 
 class SpaceOperations(_LocalEngineOperations):
-    def _list_inbox(self, *, unassigned_only: bool) -> tuple[InboxItem, ...]:
-        sql = "SELECT * FROM captures WHERE action = ?"
+    def _list_inbox(
+        self, *, unassigned_only: bool, limit: int | None = None, offset: int = 0
+    ) -> tuple[InboxItem, ...]:
+        _validate_page(limit, offset)
+        sql = (
+            "SELECT capture_id, payload_family, space_id, intent, capture_why, "
+            "title, search_text AS preview, source_reference "
+            "FROM captures WHERE action = ?"
+        )
         parameters: list[object] = [CaptureAction.QUICK.value]
         if unassigned_only:
             sql += " AND space_id IS NULL"
-        sql += " ORDER BY accepted_at, capture_id"
+        sql += " ORDER BY accepted_at, capture_id LIMIT ? OFFSET ?"
+        parameters.extend((-1 if limit is None else limit, offset))
         connection = self._store.connect()
         try:
             rows = tuple(connection.execute(sql, parameters))
@@ -55,8 +64,13 @@ class SpaceOperations(_LocalEngineOperations):
                 payload_family=cast(str, row["payload_family"]),
                 state="inbox",
                 space_id=cast(str | None, row["space_id"]),
-                intent=cast(str | None, row["intent"]),
-                capture_why=cast(str | None, row["capture_why"]),
+                intent=_project_optional_text(row, "intent"),
+                capture_why=_project_optional_text(row, "capture_why"),
+                title=_project_optional_text(row, "title", maximum=120),
+                preview=project_public_result_text(
+                    cast(str, row["preview"]),
+                    protected_literals=(cast(str, row["source_reference"]),),
+                )[:320],
             )
             for row in rows
         )
@@ -174,10 +188,16 @@ class SpaceOperations(_LocalEngineOperations):
             slug=cast(str, row["slug"]),
         )
 
-    def _list_spaces(self) -> tuple[SpaceRecord, ...]:
+    def _list_spaces(
+        self, *, limit: int | None = None, offset: int = 0
+    ) -> tuple[SpaceRecord, ...]:
+        _validate_page(limit, offset)
         connection = self._store.connect()
         try:
-            rows = tuple(connection.execute("SELECT * FROM spaces ORDER BY name, space_id"))
+            rows = tuple(connection.execute(
+                "SELECT * FROM spaces ORDER BY name, space_id LIMIT ? OFFSET ?",
+                (-1 if limit is None else limit, offset),
+            ))
         finally:
             connection.close()
         return tuple(
@@ -345,11 +365,17 @@ class InboxSpaceTasks:
     def __init__(self, engine: BrainEngine) -> None:
         self._engine = engine
 
-    def list(self, *, unassigned_only: bool = False) -> tuple[InboxItem, ...]:
-        return self._engine._list_inbox(unassigned_only=unassigned_only)
+    def list(
+        self, *, unassigned_only: bool = False, limit: int | None = None, offset: int = 0
+    ) -> tuple[InboxItem, ...]:
+        return self._engine._list_inbox(
+            unassigned_only=unassigned_only, limit=limit, offset=offset
+        )
 
-    def spaces(self) -> tuple[SpaceRecord, ...]:
-        return tuple(_project_space(space) for space in self._engine._list_spaces())
+    def spaces(self, *, limit: int | None = None, offset: int = 0) -> tuple[SpaceRecord, ...]:
+        return tuple(
+            _project_space(space) for space in self._engine._list_spaces(limit=limit, offset=offset)
+        )
 
     def create_space(self, name: str, *, delivery_id: str) -> SpaceRecord:
         with self._engine._writer_lease.acquire_shared_writer():
@@ -368,3 +394,23 @@ class InboxSpaceTasks:
 
 def _project_space(space: SpaceRecord) -> SpaceRecord:
     return project_public_space(space)
+
+
+def _validate_page(limit: int | None, offset: int) -> None:
+    if (
+        (limit is not None and (type(limit) is not int or not 1 <= limit <= 1000))
+        or type(offset) is not int
+        or not 0 <= offset <= 1_000_000
+    ):
+        raise ValueError("invalid page bounds")
+
+
+def _project_optional_text(
+    row: sqlite3.Row, field: str, *, maximum: int | None = None
+) -> str | None:
+    value = cast(str | None, row[field])
+    if value is None:
+        return None
+    return project_public_result_text(
+        value, protected_literals=(cast(str, row["source_reference"]),)
+    )[:maximum]

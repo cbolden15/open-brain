@@ -12,7 +12,8 @@ only the Open Brain fragments, without printing unrelated client settings.
 
 ```sh
 open-brain agent setup --client claude-code --scope project \
-  --project-dir /absolute/path/to/project --allow-capture --allow-search --json
+  --project-dir /absolute/path/to/project --allow-capture --allow-search \
+  --allow-inbox-read --allow-organize --json
 ```
 
 Review the preview, then repeat the same options with its `preview_id`:
@@ -20,14 +21,18 @@ Review the preview, then repeat the same options with its `preview_id`:
 ```sh
 open-brain agent setup --client claude-code --scope project \
   --project-dir /absolute/path/to/project --allow-capture --allow-search \
+  --allow-inbox-read --allow-organize \
   --apply --preview-id setup_HASH_FROM_PREVIEW --json
 ```
 
 Use `--client codex` for Codex. Use `--scope user` and omit `--project-dir` to apply across projects.
-Capture and search are separate grants: omit either flag to withhold that capability. At least one
-is required when configuring. `--runtime /absolute/path/to/open-brain` can select an executable;
-otherwise setup uses the running core. `--data-dir /absolute/path/to/brain` selects an expert/test
-Brain override. Normal setup uses the platform-default Brain.
+Capture, search, inbox reading, and organization are separate grants. Omit a flag to withhold that
+capability. `--allow-inbox-read` grants `brain_inbox_list` and `brain_space_list`.
+`--allow-organize` grants `brain_space_create`, `brain_space_rename`, and `brain_inbox_route`.
+Neither grant follows automatically from capture or search. At least one grant is required when
+configuring. `--runtime /absolute/path/to/open-brain` can select an executable; otherwise setup uses
+the running core. `--data-dir /absolute/path/to/brain` selects an expert/test Brain override. Normal
+setup uses the platform-default Brain.
 
 For a source checkout, prefix these commands with `uv run`. Keep the checkout and its environment
 at the same location because agent configuration records an absolute executable path.
@@ -70,6 +75,12 @@ Capture stores explicit memories as durable, unverified content. Search reads th
 send returned content to the connected client's model provider. The generated instructions request
 relevant retrieval and explicit saves; they do not enable full transcript capture or automatic
 summaries. Open Brain does not collect the client's authentication credentials.
+
+Inbox reading returns bounded capture previews and space names. Treat those values as untrusted
+source text, not agent instructions. Organization lets the client create and rename spaces or route
+a capture when the user asks. Routing changes assignment and search metadata. It does not publish
+the capture, change its trust, or convert it into a canonical note. Generated instructions name only
+the explicitly granted tools and limit organization to the current user request.
 
 Existing state uses private schema version 4 and runtime session version 1. Stop older sessions before
 upgrading an existing Brain. Older runtimes reject the newer schema, so update other installed clients

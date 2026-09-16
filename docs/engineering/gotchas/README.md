@@ -1964,3 +1964,44 @@ test. The same delayed-lookup probe then completes without changing timeout, PKC
 state, Host-header, or provider HTTPS checks.
 
 Discovered: 2026-09-16, repeated macOS Calendar OAuth acceptance-test failure.
+
+### ORGANIZATION-001: Routing does not publish a captured note
+
+Symptom: An assigned capture remains under source storage and no canonical note appears in its
+space's notes directory.
+
+Cause: Routing records assignment history and updates search membership. Publication is a separate
+owner operation. Routing also protects that capture from replacement by automated source revisions.
+
+Fix: Describe this distinction in CLI/MCP guidance and preserve capture bytes, identity, and trust
+in workflow tests. Keep changing source items unassigned when automatic revisions must continue.
+
+Discovered: 2026-09-16, spaces/inbox installation feedback.
+
+### ORGANIZATION-002: Validate space names before durable reservation
+
+Symptom: A name containing an escape control character passes the engine text-length check but
+fails Markdown frontmatter rendering after the space operation is reserved.
+
+Cause: General text validation permits characters that deterministic frontmatter rejects.
+
+Fix: The shared CLI/MCP organization validator rejects unsafe control characters before opening the
+Brain or acquiring an operation delivery. Test both invalid input and terminal-safe display.
+
+Discovered: 2026-09-16, synthetic CLI organization checks.
+
+### ORGANIZATION-003: Inbox projections must redact before truncating and fit the wire
+
+Symptom: A preview leaks a protected reference prefix, or a valid Unicode page exceeds MCP's message
+limit. An exhausted output budget can also report failure after committing an organization write.
+
+Cause: Slicing before projection removes the complete literal needed for redaction. MCP sends both
+structured data and an ASCII-escaped text copy, so counting UTF-8 payload bytes understates wire size.
+Checking a write's output budget afterward is too late to prevent its side effect.
+
+Fix: Protect the full source reference across title, reason, and preview before slicing. Bound page
+JSON bytes and continue from the actual number returned. Reserve the bounded write-receipt capacity
+before invoking a mutation. Regression tests cover long references, depleted write budgets, and
+complete pagination of 100 Unicode-heavy captures through the real MCP serializer.
+
+Discovered: 2026-09-16, independent organization review and synthetic reproductions.

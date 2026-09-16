@@ -61,6 +61,7 @@ def test_application_package_contains_only_foreground_local_surfaces() -> None:
         "services/obsidian_plugin.py",
         "services/plugin_bridge.py",
         "services/provider_credentials.py",
+        "services/space_inbox.py",
     }
 
 

@@ -103,6 +103,7 @@ def test_native_specs_keep_base_and_graphify_in_separate_executables() -> None:
         "open_brain.services.local_operations",
         "open_brain.services.local_runtime_session",
         "open_brain.services.mcp_protocol",
+        "open_brain.services.space_inbox",
     ):
         assert module in base_native._REQUIRED_MODULES
     for module in ("open_brain.integrations", "open_brain.services.mcp_stdio"):

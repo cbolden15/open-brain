@@ -76,6 +76,11 @@ from open_brain.services.local_operations import (
 from open_brain.services.local_operations import (
     workspace_status as workspace_status_result,
 )
+from open_brain.services.space_inbox import (
+    SpaceInboxError,
+    SpaceInboxService,
+    validate_space_inbox_arguments,
+)
 
 _DOCTOR_CHECKS = (
     "private-data-directory",
@@ -130,6 +135,8 @@ def run_cli(
             or parsed.allow_search
             or parsed.allow_workspace_read
             or parsed.allow_graph_refresh
+            or parsed.allow_inbox_read
+            or parsed.allow_organize
         )
         or json_output
     ):
@@ -137,6 +144,13 @@ def run_cli(
         return 2
     selected_environment = os.environ if environment is None else environment
     json_output = bool(getattr(parsed, "json", False))
+    if parsed.command in {"space", "inbox"}:
+        try:
+            operation, organization_arguments = _space_inbox_arguments(parsed)
+            validate_space_inbox_arguments(operation, organization_arguments)
+        except SpaceInboxError:
+            _write_usage_failure(json_output=json_output)
+            return 2
     if parsed.command != "import":
         return _run_parsed_command(
             parsed,
@@ -238,8 +252,10 @@ def _run_parsed_command(
         return 78
     except AgentSetupFailure as error:
         return _write_agent_setup_failure(error.code, json_output=json_output)
+    except SpaceInboxError as error:
+        return _write_space_inbox_failure(error.code, json_output=json_output)
     except LockBusyError:
-        if parsed.command in {"capture", "search", "mcp"}:
+        if parsed.command in {"capture", "search", "mcp", "space", "inbox"}:
             _write_database_busy(json_output=json_output)
             return 75
         if parsed.command == "import":
@@ -257,7 +273,10 @@ def _run_parsed_command(
         _write_import_failure(error, json_output=json_output)
         return 78
     except Exception as error:
-        if parsed.command in {"capture", "search", "mcp"} and database_is_busy(error):
+        if (
+            parsed.command in {"capture", "search", "mcp", "space", "inbox"}
+            and database_is_busy(error)
+        ):
             _write_database_busy(json_output=json_output)
             return 75
         if parsed.command == "import":
@@ -306,6 +325,7 @@ def _parser() -> argparse.ArgumentParser:
     _add_local_options(search_parser)
     search_parser.add_argument("query", help="Text to find.")
     search_parser.add_argument("--limit", type=int, default=10, help="Return 1 to 100 results.")
+    _add_space_inbox_parsers(subparsers)
     mcp_parser = subparsers.add_parser(
         "mcp", help="Serve explicitly selected local tools over stdio until EOF.",
         description=(
@@ -317,6 +337,7 @@ def _parser() -> argparse.ArgumentParser:
             "Per process: 500 capture calls, 16 MiB UTF-8 capture input, 2,000 search calls, "
             "500 workspace reads with 16 MiB output, and 20 graph refreshes with at most 40 "
             "model attempts and 1 MiB selected input; "
+            "500 organization reads, 500 organization writes and 16 MiB organization output; "
             "valid duplicates and conflicts count. Restarting resets limits. "
             "No actions, connectors, user-managed grants, or Secure Node capabilities."
         ),
@@ -343,6 +364,14 @@ def _parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Allow refresh with the already configured provider and active owner consent.",
     )
+    mcp_parser.add_argument(
+        "--allow-inbox-read", action="store_true",
+        help="Allow space names and inbox previews; clients may send them to their model provider.",
+    )
+    mcp_parser.add_argument(
+        "--allow-organize", action="store_true",
+        help="Allow creating/renaming spaces and routing captures. Routing does not publish notes.",
+    )
     plugin_parser = subparsers.add_parser(
         "plugin",
         help=argparse.SUPPRESS,
@@ -366,6 +395,8 @@ def _parser() -> argparse.ArgumentParser:
     agent_setup_parser.add_argument("--project-dir")
     agent_setup_parser.add_argument("--allow-capture", action="store_true")
     agent_setup_parser.add_argument("--allow-search", action="store_true")
+    agent_setup_parser.add_argument("--allow-inbox-read", action="store_true")
+    agent_setup_parser.add_argument("--allow-organize", action="store_true")
     agent_setup_parser.add_argument(
         "--action", choices=("configure", "remove"), default="configure"
     )
@@ -458,6 +489,106 @@ def _add_local_options(parser: argparse.ArgumentParser) -> None:
     )
 
 
+def _add_space_inbox_parsers(
+    subparsers: argparse._SubParsersAction[_RedactedArgumentParser],
+) -> None:
+    for command, description, actions in (
+        ("space", "Create, list, and rename topic spaces.", ("list", "create", "rename")),
+        ("inbox", "List captures and assign them to spaces.", ("list", "route")),
+    ):
+        parent = subparsers.add_parser(command, help=description)
+        _add_local_options(parent)
+        children = parent.add_subparsers(dest="organization_action", required=True)
+        for action in actions:
+            child = children.add_parser(action)
+            _add_local_options(child)
+            if action == "list":
+                child.add_argument("--limit", type=int, default=50, help="Return 1 to 100 items.")
+                child.add_argument(
+                    "--offset", type=int, default=0, help="Skip up to 1,000,000 items."
+                )
+                if command == "inbox":
+                    child.add_argument("--unassigned", action="store_true")
+            else:
+                if action == "route":
+                    child.add_argument("capture_id")
+                if action in {"rename", "route"}:
+                    child.add_argument("space_id")
+                if action in {"create", "rename"}:
+                    child.add_argument("name", help="Space name, up to 120 characters.")
+                child.add_argument(
+                    "--idempotency-key", help="Reuse this key to retry the same change."
+                )
+
+
+def _space_inbox_arguments(parsed: argparse.Namespace) -> tuple[str, dict[str, object]]:
+    operation = f"{parsed.command}_{parsed.organization_action}"
+    arguments: dict[str, object] = {}
+    for key in ("limit", "offset", "name", "space_id", "capture_id", "idempotency_key"):
+        value = getattr(parsed, key, None)
+        if value is not None:
+            arguments[key] = value
+    if parsed.command == "inbox" and parsed.organization_action == "list":
+        arguments["unassigned_only"] = parsed.unassigned
+    return operation, arguments
+
+
+def _run_space_inbox(
+    parsed: argparse.Namespace, service: SpaceInboxService, *, json_output: bool
+) -> int:
+    operation, arguments = _space_inbox_arguments(parsed)
+    handlers = {
+        "space_list": service.space_list,
+        "space_create": service.space_create,
+        "space_rename": service.space_rename,
+        "inbox_list": service.inbox_list,
+        "inbox_route": service.inbox_route,
+    }
+    result = handlers[operation](arguments)
+    if json_output:
+        _write_json(result)
+    elif operation.endswith("_list"):
+        rows = cast(list[dict[str, object]], result.get("items", result.get("spaces", [])))
+        if not rows:
+            print("No matching captures." if operation == "inbox_list" else "No spaces yet.")
+        for row in rows:
+            if operation == "space_list":
+                print(_terminal_text(f"{row['space_id']}  {row['name']}"))
+            else:
+                label = row.get("title") or row.get("preview") or row["payload_family"]
+                print(_terminal_text(
+                    f"{row['capture_id']}  [{row['space_id'] or 'unassigned'}]  {label}"
+                ))
+        if result["next_offset"] is not None:
+            print(f"More results: repeat with --offset {result['next_offset']}.")
+        if result.get("offset_limit_reached"):
+            print("The listing offset limit was reached; additional records were not listed.")
+    elif operation == "inbox_route":
+        print(f"Routed {result['capture_id']} to {result['space_id']}.")
+    else:
+        space = cast(dict[str, object], result["space"])
+        print(_terminal_text(f"Space {result['status']}: {space['space_id']}  {space['name']}"))
+    return 0
+
+
+def _write_space_inbox_failure(code: str, *, json_output: bool) -> int:
+    if code == "invalid_arguments":
+        _write_usage_failure(json_output=json_output)
+        return 2
+    messages = {
+        "idempotency_conflict": "This retry key belongs to a different change. Use a new key.",
+        "unknown_space": "Space not found. Run open-brain space list.",
+        "unknown_route_target": "Capture or space not found. List the inbox and spaces again.",
+        "published_capture": "Published captures cannot be rerouted.",
+    }
+    message = messages.get(code, "Open Brain could not complete the organization command.")
+    if json_output:
+        _write_json({"status": "failed", "error": {"code": code, "message": message}})
+    else:
+        print(message, file=sys.stderr)
+    return 1
+
+
 def _run_agent_setup(
     parsed: argparse.Namespace,
     *,
@@ -476,6 +607,8 @@ def _run_agent_setup(
         "action": parsed.action,
         "allow_capture": parsed.allow_capture,
         "allow_search": parsed.allow_search,
+        "allow_inbox_read": parsed.allow_inbox_read,
+        "allow_organize": parsed.allow_organize,
         "client": parsed.client,
         "environment": environment,
         "project_dir": parsed.project_dir,
@@ -511,6 +644,8 @@ def _run_local_command(
             json_output=json_output,
         )
     tasks = session.tasks
+    if parsed.command in {"space", "inbox"}:
+        return _run_space_inbox(parsed, SpaceInboxService(tasks.spaces), json_output=json_output)
     if parsed.command == "obsidian-plugin":
         return _run_obsidian_plugin(parsed, session, json_output=json_output)
     if parsed.command == "capture":
@@ -545,9 +680,15 @@ def _run_local_command(
         def search(query: str, limit: int) -> tuple[RetrievalResult, ...]:
             return search_brain(retrieval, reconciliation, query, limit=limit)
 
+        organization = SpaceInboxService(tasks.spaces)
         adapter = LocalMcpAdapter(
             capture=mcp_capture_sink(tasks) if parsed.allow_capture else None,
             search=search if parsed.allow_search else None,
+            inbox_list=organization.inbox_list if parsed.allow_inbox_read else None,
+            space_list=organization.space_list if parsed.allow_inbox_read else None,
+            space_create=organization.space_create if parsed.allow_organize else None,
+            space_rename=organization.space_rename if parsed.allow_organize else None,
+            inbox_route=organization.inbox_route if parsed.allow_organize else None,
             workspace_status=(
                 (lambda: workspace_status_result(tasks))
                 if parsed.allow_workspace_read
