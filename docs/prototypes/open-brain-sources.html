@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-vMxliiNJoM4Wfz+emoyAURt6kQFWKZZ9g7GQ6azgF4w='; style-src 'unsafe-inline'; img-src data:; base-uri 'none'; form-action 'none'"><title>Open Brain source setup concept</title></head><body>
+<style>
+#ob-source-setup{--ob-bg:light-dark(#ffffff,#202421);--ob-fg:light-dark(#242f28,#e5eee7);--ob-muted:light-dark(#5d6c62,#a6b6aa);--ob-line:light-dark(#dae3dc,#3c4a40);--ob-soft:light-dark(#f4f7f3,#2a332c);--ob-accent:light-dark(#27583d,#a2d5b2);--ob-on-accent:light-dark(#ffffff,#163522);font-family:system-ui,sans-serif;color:var(--ob-fg);background:var(--ob-bg);border:1px solid var(--ob-line);border-radius:16px;overflow:hidden;font-size:14px;line-height:1.5;color-scheme:light dark}
+#ob-source-setup *{box-sizing:border-box}
+#ob-source-setup header{padding:16px 22px;border-bottom:1px solid var(--ob-line);display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}
+#ob-source-setup strong,#ob-source-setup h2,#ob-source-setup h3{font-weight:500}
+#ob-source-setup .ob-small{font-size:12px;color:var(--ob-muted)}
+#ob-source-setup main{padding:22px}
+#ob-source-setup h2{font-size:22px;margin:0 0 6px;line-height:1.3}
+#ob-source-setup h3{font-size:16px;margin:0 0 8px}
+#ob-source-setup p{margin:0 0 16px;color:var(--ob-muted)}
+#ob-source-setup .ob-steps{display:flex;gap:16px;flex-wrap:wrap;padding:0;margin:0 0 22px;list-style:none;font-size:12px;color:var(--ob-muted)}
+#ob-source-setup .ob-steps [aria-current=step]{color:var(--ob-accent);font-weight:500}
+#ob-source-setup .ob-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:9px;margin-top:20px}
+#ob-source-setup button{font:inherit;cursor:pointer;color:var(--ob-fg);background:var(--ob-bg);border:1px solid var(--ob-line);border-radius:8px;padding:9px 14px;min-height:42px}
+#ob-source-setup button:focus-visible,#ob-source-setup input:focus-visible,#ob-source-setup select:focus-visible{outline:2px solid var(--ob-accent);outline-offset:3px}
+#ob-source-setup button:hover{background:var(--ob-soft)}
+#ob-source-setup button:disabled{opacity:.45;cursor:not-allowed}
+#ob-source-setup button.ob-primary{background:var(--ob-accent);color:var(--ob-on-accent);border-color:var(--ob-accent)}
+#ob-source-setup .ob-source{text-align:left;padding:14px;display:flex;flex-direction:column;gap:4px}
+#ob-source-setup .ob-source[aria-pressed=true]{outline:2px solid var(--ob-accent);outline-offset:-2px;background:var(--ob-soft)}
+#ob-source-setup .ob-actions{margin-top:24px;display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap}
+#ob-source-setup .ob-panel{background:var(--ob-soft);border-radius:10px;padding:18px;margin-top:18px}
+#ob-source-setup .ob-field{display:block;margin-top:16px}
+#ob-source-setup .ob-field>span{display:block;margin-bottom:7px;font-weight:500}
+#ob-source-setup select{width:100%;font:inherit;padding:9px;border:1px solid var(--ob-line);border-radius:7px;background:var(--ob-bg);color:var(--ob-fg);min-height:42px}
+#ob-source-setup .ob-check{display:flex;gap:10px;align-items:center;min-height:42px;cursor:pointer}
+#ob-source-setup input[type=checkbox]{width:17px;height:17px;accent-color:var(--ob-accent);flex-shrink:0}
+#ob-source-setup .ob-two{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+#ob-source-setup .ob-preview{padding:14px 0;border-bottom:1px solid var(--ob-line)}
+#ob-source-setup .ob-preview:last-child{border-bottom:0}
+#ob-source-setup .ob-preview p{margin:5px 0 0}
+#ob-source-setup dl{display:grid;grid-template-columns:auto 1fr;gap:8px 20px;margin:0}
+#ob-source-setup dt{color:var(--ob-muted)}
+#ob-source-setup dd{margin:0;overflow-wrap:anywhere}
+@media(max-width:500px){#ob-source-setup .ob-grid{grid-template-columns:repeat(2,minmax(0,1fr))}#ob-source-setup .ob-two{grid-template-columns:1fr;gap:0}#ob-source-setup main{padding:18px}#ob-source-setup header{padding:14px 18px}#ob-source-setup .ob-steps{gap:10px}#ob-source-setup dl{grid-template-columns:1fr;gap:3px}#ob-source-setup dd{margin-bottom:8px}}
+</style>
+<div id="ob-source-setup" aria-label="Open Brain source setup concept">
+  <header><strong>Open Brain / Sources</strong><span class="ob-small">Concept preview · sample data</span></header>
+  <main>
+    <ol class="ob-steps" aria-label="Setup progress"></ol>
+    <section id="ob-source-content" aria-live="polite"></section>
+  </main>
+</div>
+<script>
+(()=>{
+const root=document.getElementById('ob-source-setup');
+const content=root.querySelector('#ob-source-content');
+const steps=root.querySelector('.ob-steps');
+const sources=[
+ {name:'Gmail',kind:'Selected label',auth:'Sign in with Google',access:'Read permission covers your mailbox; Open Brain imports only the selected label and date range',scope:'Label',single:true,choices:['Projects','Follow up','Inbox'],type:'Plain-text message bodies',items:['Follow-up from the product review','Notes from the planning session']},
+ {name:'Google Drive',kind:'Selected file',auth:'Sign in with Google',access:'Read permission covers accessible Drive files; Open Brain captures one selected file per source',scope:'File',single:true,choices:['Project brief','Planning notes','Research summary'],type:'Selected document text',items:['Project brief: a smaller first release','Planning notes: capture decisions with context']},
+ {name:'Claude Code',kind:'Selected project sessions',auth:'Preview Claude Code hook setup',access:'Separate summary and transcript opt-ins for selected projects; explicit memory tools have their own setup',scope:'Projects',choices:['website','api','personal-notes'],type:'Permitted conversation text',items:['Use the existing database for the first release','Keep imports repeatable without duplicates']},
+ {name:'Codex',kind:'Selected project sessions',auth:'Preview Codex hook setup',access:'Separate summary and transcript opt-ins for selected projects; explicit memory tools have their own setup',scope:'Projects',choices:['website','api','personal-notes'],type:'Permitted conversation text',items:['The failing test needs a timezone fixture','Prefer source links over copied context']}
+];
+let step=0,selected=0,checked=[true,false,false],history='Last 30 days',cadence='When I click Sync',paused=false,captureSummary=false,captureTranscript=false;
+const design={layout:'Grid'};
+const esc=value=>String(value).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+function actions(left,right){return '<div class="ob-actions">'+left+right+'</div>';}
+function button(id,label,primary=false){return '<button type="button" id="'+id+'"'+(primary?' class="ob-primary"':'')+'>'+label+'</button>';}
+function render(){
+ const s=sources[selected];
+ steps.innerHTML=['Source','Connect','Choose','Preview'].map((label,i)=>'<li'+(i===Math.min(step,3)?' aria-current="step"':'')+'>'+(i+1)+'. '+label+'</li>').join('');
+ if(step===0){
+  content.innerHTML='<h2>What would you like to remember?</h2><p>Four-source setup concept. Other unfinished integrations are deferred; this page uses sample data only.</p><div class="ob-grid"'+(design.layout==='List'?' style="grid-template-columns:1fr"':'')+'>'+sources.map((source,i)=>'<button type="button" class="ob-source" data-source="'+i+'" aria-pressed="'+(i===selected)+'"><strong>'+source.name+'</strong><span class="ob-small">'+source.kind+'</span></button>').join('')+'</div>'+actions('<span class="ob-small">All connections in this preview are simulated.</span>',button('ob-next','Set up '+s.name,true));
+  content.querySelectorAll('[data-source]').forEach(el=>el.addEventListener('click',()=>{selected=Number(el.dataset.source);checked=[true,false,false];captureSummary=false;captureTranscript=false;render();}));
+ }else if(step===1){
+  content.innerHTML='<h2>Connect '+s.name+'</h2><p>'+s.access+'.</p><div class="ob-panel"><h3>'+s.auth+'</h3><span class="ob-small">'+(s.name==='Claude Code'||s.name==='Codex'?'Choose exact projects and separate content opt-ins. The real setup previews reversible hook changes; this demo changes no files.':'The real setup opens the provider’s sign-in screen. Credentials are never entered in agent chat.')+'</span></div>'+actions(button('ob-back','Back'),button('ob-next','Simulate connection',true));
+ }else if(step===2){
+  const agent=s.name==='Claude Code'||s.name==='Codex';
+  content.innerHTML='<h2>Choose what to capture</h2><p>'+s.name+' · '+s.type+'</p><div class="ob-panel"><h3>'+s.scope+'</h3>'+s.choices.map((choice,i)=>'<label class="ob-check"><input type="checkbox" data-choice="'+i+'"'+(checked[i]?' checked':'')+'><span>'+choice+'</span></label>').join('')+'</div>'+(agent?'<div class="ob-panel"><strong>Automatic session capture</strong><label class="ob-check"><input id="ob-summary" type="checkbox"'+(captureSummary?' checked':'')+'><span>Extractive summaries</span></label><label class="ob-check"><input id="ob-transcript" type="checkbox"'+(captureTranscript?' checked':'')+'><span>Permitted user and assistant transcript text</span></label><div class="ob-small">Both modes start off. Tool output and hidden reasoning are excluded. Secret scanning is best effort.</div></div>':'<label class="ob-field"><span>History to import</span><select id="ob-history">'+['From now on','Last 7 days','Last 30 days'].map(x=>'<option'+(x===history?' selected':'')+'>'+x+'</option>').join('')+'</select></label>')+'<label class="ob-field"><span>'+'Check for new content'+'</span><select id="ob-cadence">'+['When I click Sync','Every 15 minutes in the background'].map(x=>'<option'+(x===cadence?' selected':'')+'>'+x+'</option>').join('')+'</select></label>'+actions(button('ob-back','Back'),button('ob-next','Preview capture',true));
+  const next=content.querySelector('#ob-next');const updateNext=()=>{next.disabled=!checked.some(Boolean)||(agent&&!captureSummary&&!captureTranscript);};updateNext();
+  content.querySelectorAll('[data-choice]').forEach(el=>el.addEventListener('change',()=>{if(s.single&&el.checked){checked=checked.map(()=>false);content.querySelectorAll('[data-choice]').forEach(other=>{other.checked=other===el;});}checked[Number(el.dataset.choice)]=el.checked;updateNext();}));
+  if(agent){content.querySelector('#ob-summary').addEventListener('change',event=>{captureSummary=event.target.checked;updateNext();});content.querySelector('#ob-transcript').addEventListener('change',event=>{captureTranscript=event.target.checked;updateNext();});}
+  const historySelect=content.querySelector('#ob-history');if(historySelect)historySelect.addEventListener('change',()=>{history=historySelect.value;});
+  const cadenceSelect=content.querySelector('#ob-cadence');cadenceSelect.addEventListener('change',()=>{cadence=cadenceSelect.value;});
+  {cadenceSelect.insertAdjacentHTML('afterend','<div class="ob-small">Background capture uses the optional collector and requires a separate service opt-in. It pauses while this computer is asleep. This concept does not enable it.</div>');}
+ }else if(step===3){
+  content.innerHTML='<h2>Preview what enters your brain</h2><p>'+s.name+' · two sample records · nothing saved yet</p>'+s.items.map((item,i)=>'<div class="ob-preview"><strong>'+item+'</strong><p class="ob-small">'+esc(s.choices.filter((_,j)=>checked[j])[0])+' · '+s.type+' · example '+(i+1)+'</p></div>').join('')+'<div class="ob-panel"><dl><dt>Scope</dt><dd>'+s.choices.filter((_,i)=>checked[i]).map(esc).join(', ')+'</dd><dt>Capture</dt><dd>'+esc(cadence)+((s.name==='Claude Code'||s.name==='Codex')?' · '+[captureSummary?'extractive summaries':'',captureTranscript?'transcript text':''].filter(Boolean).join(' and '):'')+'</dd><dt>Future imports</dt><dd>Keep source links; skip unchanged items</dd></dl></div>'+actions(button('ob-back','Adjust selection'),button('ob-next','Finish demo setup',true));
+ }else{
+  content.innerHTML='<h2>'+s.name+' setup preview complete</h2><p>Sample connection · '+(paused?'paused':'ready')+' · no account connected</p><div class="ob-panel"><dl><dt>Source</dt><dd>'+s.name+'</dd><dt>Selection</dt><dd>'+s.choices.filter((_,i)=>checked[i]).map(esc).join(', ')+'</dd><dt>Saved records</dt><dd>0 · this is a concept preview</dd></dl></div>'+actions(button('ob-pause',paused?'Resume demo':'Pause demo'),button('ob-another','Explore another source',true));
+  content.querySelector('#ob-pause').addEventListener('click',()=>{paused=!paused;render();});
+  content.querySelector('#ob-another').addEventListener('click',()=>{step=0;paused=false;render();});
+ }
+ const next=content.querySelector('#ob-next');if(next)next.addEventListener('click',()=>{step++;render();});
+ const back=content.querySelector('#ob-back');if(back)back.addEventListener('click',()=>{step--;render();});
+}
+render();
+})();
+</script>
+
+</body></html>
