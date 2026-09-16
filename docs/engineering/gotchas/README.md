@@ -1763,14 +1763,19 @@ Discovered: 2026-09-16, macOS Graphify build-supervisor overflow test.
 Symptom: macOS bridge tests time out before their Python fixtures create a descendant
 or answer a handshake, although the process-cleanup implementation passes locally.
 
-Cause: Cold interpreter startup competes with parallel tests and can exceed a two-second
-fixture budget. The graceful-exit fixture also announced its descendant before that
+Cause: Cold interpreter startup competes with parallel tests and can exceed a two- or
+three-second fixture budget. The graceful-exit fixture also announced its descendant before that
 process installed its signal handler.
 
 Fix: Wait up to ten seconds for a complete, live fixture PID before exercising the
 operation deadline. Have the signal-ignoring descendant publish its own readiness after
 installing its handler. Preserve the 100 ms operation deadline and existing cleanup bounds;
 continue asserting that the descendant is gone after shutdown.
+
+The message-framing fixture also publishes a live PID after its imports. Wait for that
+receipt before the three-second handshake and one-request session-exhaustion assertions.
+A controlled 3.2-second startup delay reproduces the timeout without the readiness wait
+and passes with it; the operation deadline remains three seconds.
 
 Discovered: 2026-09-16, macOS desktop bridge contributor checks.
 
