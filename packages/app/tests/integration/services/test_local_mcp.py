@@ -29,13 +29,23 @@ from open_brain.services.local_mcp import (
     MAX_ORGANIZATION_READ_CALLS,
     MAX_ORGANIZATION_RESPONSE_BYTES,
     MAX_ORGANIZATION_WRITE_CALLS,
+    MAX_REVIEW_DECISION_CALLS,
+    MAX_REVIEW_PROPOSAL_CALLS,
+    MAX_REVIEW_READ_CALLS,
     LocalMcpAdapter,
 )
 from open_brain.services.local_operations import mcp_capture_sink, search_brain
-from open_brain.services.mcp_protocol import McpCallError, serve_stdio_mcp
+from open_brain.services.mcp_protocol import (
+    McpCallError,
+    encoded_tool_response_size,
+    serve_stdio_mcp,
+)
 from open_brain.services.space_inbox import SpaceInboxError, SpaceInboxService
 
 ROOT = Path(__file__).resolve().parents[5]
+REVIEW_CAPTURE = "capture_3e6e8e2c-e638-47c6-8195-4bd6f306d67b"
+REVIEW_PROPOSAL = "proposal_8d87546c-3008-42ee-8632-0f2401904b35"
+REVIEW_DIGEST = "d" * 64
 INITIALIZE = {
     "jsonrpc": "2.0",
     "id": 1,
@@ -185,6 +195,118 @@ def test_organization_capabilities_are_explicitly_injected_with_bounded_schemas(
         write_adapter.call_tool("brain_inbox_list", {})
 
 
+def test_review_capabilities_are_independently_listed_and_enforced() -> None:
+    def listed(_arguments: Mapping[str, object]) -> dict[str, object]:
+        return {"status": "listed", "proposals": [], "offset": 0, "next_offset": None}
+
+    def shown(_arguments: Mapping[str, object]) -> dict[str, object]:
+        return {"status": "shown", "proposal_id": REVIEW_PROPOSAL}
+
+    def proposed(_arguments: Mapping[str, object]) -> dict[str, object]:
+        return {
+            "status": "proposed",
+            "proposal_id": REVIEW_PROPOSAL,
+            "effective_idempotency_key": "retry",
+        }
+
+    def decided(_arguments: Mapping[str, object]) -> dict[str, object]:
+        return {
+            "status": "approved",
+            "proposal_id": REVIEW_PROPOSAL,
+            "effective_idempotency_key": "retry",
+        }
+
+    readers = LocalMcpAdapter(review_list=listed, review_show=shown)
+    proposer = LocalMcpAdapter(review_propose=proposed)
+    decider = LocalMcpAdapter(
+        review_approve=decided,
+        review_reject=decided,
+        review_edit_and_approve=decided,
+    )
+    assert {tool["name"] for tool in readers.list_tools()} == {
+        "brain_review_list",
+        "brain_review_show",
+    }
+    assert {tool["name"] for tool in proposer.list_tools()} == {"brain_review_propose"}
+    assert {tool["name"] for tool in decider.list_tools()} == {
+        "brain_review_approve",
+        "brain_review_reject",
+        "brain_review_edit_and_approve",
+    }
+    for tool in (*readers.list_tools(), *proposer.list_tools(), *decider.list_tools()):
+        assert tool["inputSchema"]["additionalProperties"] is False
+        assert "untrusted" in tool["description"]
+    with pytest.raises(McpCallError, match="^unknown tool$"):
+        readers.call_tool(
+            "brain_review_approve",
+            {"proposal_id": REVIEW_PROPOSAL, "review_token": REVIEW_DIGEST},
+        )
+
+
+def test_review_quotas_validate_before_charging_and_separate_operation_groups() -> None:
+    calls = 0
+
+    def operation(_arguments: Mapping[str, object]) -> dict[str, object]:
+        nonlocal calls
+        calls += 1
+        return {"status": "ok"}
+
+    adapter = LocalMcpAdapter(
+        review_list=operation,
+        review_propose=operation,
+        review_approve=operation,
+    )
+    with pytest.raises(McpCallError, match="^invalid tool arguments$"):
+        adapter.call_tool("brain_review_list", {"limit": True})
+    assert (adapter._review_read_calls, adapter._review_proposal_calls) == (0, 0)
+    adapter._review_read_calls = MAX_REVIEW_READ_CALLS - 1
+    adapter.call_tool("brain_review_list", {})
+    with pytest.raises(McpCallError, match="^session_review_read_limit$"):
+        adapter.call_tool("brain_review_list", {})
+    adapter._review_proposal_calls = MAX_REVIEW_PROPOSAL_CALLS - 1
+    adapter.call_tool(
+        "brain_review_propose",
+        {"capture_ids": [REVIEW_CAPTURE], "title": "Title", "markdown": "Body"},
+    )
+    with pytest.raises(McpCallError, match="^session_review_proposal_limit$"):
+        adapter.call_tool(
+            "brain_review_propose",
+            {"capture_ids": [REVIEW_CAPTURE], "title": "Title", "markdown": "Body"},
+        )
+    adapter._review_decision_calls = MAX_REVIEW_DECISION_CALLS
+    with pytest.raises(McpCallError, match="^session_review_decision_limit$"):
+        adapter.call_tool(
+            "brain_review_approve",
+            {"proposal_id": REVIEW_PROPOSAL, "review_token": REVIEW_DIGEST},
+        )
+    assert calls == 2
+
+
+def test_review_response_budget_includes_request_id_and_reserves_before_write() -> None:
+    calls = 0
+    result = {"status": "listed", "proposals": [], "offset": 0, "next_offset": None}
+
+    def operation(_arguments: Mapping[str, object]) -> dict[str, object]:
+        nonlocal calls
+        calls += 1
+        return result
+
+    request_id = "request-" + "x" * 200
+    reader = LocalMcpAdapter(review_list=operation)
+    assert reader.call_tool("brain_review_list", {}, request_id=request_id) == result
+    assert reader._review_response_bytes == encoded_tool_response_size(request_id, result)
+
+    writer = LocalMcpAdapter(review_propose=operation)
+    with pytest.raises(McpCallError, match="^session_review_response_limit$"):
+        writer.call_tool(
+            "brain_review_propose",
+            {"capture_ids": [REVIEW_CAPTURE], "title": "Title", "markdown": "Body"},
+            request_id=request_id,
+            maximum_response_bytes=1024,
+        )
+    assert calls == 1
+
+
 @pytest.mark.parametrize(
     ("tool", "arguments"),
     [
@@ -295,16 +417,22 @@ def test_organization_response_limit_cannot_commit_a_write(tasks: Any, remaining
 def test_large_unicode_inbox_pages_fit_the_wire_without_losing_items(tasks: Any) -> None:
     capture_ids = set()
     for index in range(100):
-        capture_ids.add(tasks.capture.accept(
-            TextPayload("\U0001f680" * 320), delivery_id=f"unicode.page.{index}",
-            title="\U0001f680" * 120, capture_why="\U0001f680" * 1000,
-        ).capture_id)
+        capture_ids.add(
+            tasks.capture.accept(
+                TextPayload("\U0001f680" * 320),
+                delivery_id=f"unicode.page.{index}",
+                title="\U0001f680" * 120,
+                capture_why="\U0001f680" * 1000,
+            ).capture_id
+        )
     adapter = LocalMcpAdapter(inbox_list=SpaceInboxService(tasks.spaces).inbox_list)
     seen: list[str] = []
     offset: int | None = 0
     while offset is not None:
         responses = _wire(
-            adapter, INITIALIZE, _call("brain_inbox_list", {"limit": 100, "offset": offset}),
+            adapter,
+            INITIALIZE,
+            _call("brain_inbox_list", {"limit": 100, "offset": offset}),
         )
         assert len(json.dumps(responses[-1], ensure_ascii=True).encode()) < MAX_MESSAGE_BYTES
         result = responses[-1]["result"]["structuredContent"]
@@ -365,9 +493,7 @@ def test_organization_service_is_idempotent_path_free_and_preserves_safe_errors(
         assert protected not in rendered
 
     with pytest.raises(McpCallError, match="^idempotency_conflict$"):
-        adapter.call_tool(
-            "brain_space_create", {"name": "Changed", "idempotency_key": "same-key"}
-        )
+        adapter.call_tool("brain_space_create", {"name": "Changed", "idempotency_key": "same-key"})
     with pytest.raises(McpCallError, match="^unknown_space$"):
         adapter.call_tool(
             "brain_space_rename",
@@ -434,8 +560,20 @@ def test_help_discloses_both_choices_without_bootstrap(capsys: pytest.CaptureFix
         "2,000",
         "--allow-capture",
         "--allow-search",
+        "--allow-review-read",
+        "--allow-review-propose",
+        "--allow-review-decide",
     ):
         assert phrase in output
+    compact = " ".join(output.split())
+    for phrase in (
+        "500 review reads",
+        "100 review proposals",
+        "100 review decisions",
+        "16 MiB encoded review output",
+        "independent and off by default",
+    ):
+        assert phrase in compact
 
 
 def test_delivery_is_exact_idempotent_across_sessions_and_namespaced(tasks: Any) -> None:
@@ -717,9 +855,7 @@ def test_live_organization_flags_expose_only_their_tool_group(
     process = _start(tasks.profile.root, flag)
     try:
         assert "result" in _exchange(process, INITIALIZE)
-        tools = _exchange(
-            process, {"jsonrpc": "2.0", "id": 2, "method": "tools/list"}
-        )
+        tools = _exchange(process, {"jsonrpc": "2.0", "id": 2, "method": "tools/list"})
         assert {tool["name"] for tool in tools["result"]["tools"]} == expected
         assert _exchange(process, allowed_call)["result"].get("isError") is not True
 
@@ -744,6 +880,173 @@ def test_live_organization_flags_expose_only_their_tool_group(
             denied = _exchange(process, _call(name, arguments))
             assert denied["result"]["isError"] is True
             assert denied["result"]["content"] == [{"type": "text", "text": "unknown tool"}]
+        assert process.stdin is not None
+        process.stdin.close()
+        assert process.wait(timeout=10) == 0
+        assert process.stderr is not None and process.stderr.read() == ""
+    finally:
+        if process.poll() is None:
+            process.kill()
+            process.wait(timeout=5)
+
+
+def test_live_review_stdio_runs_all_operations_with_explicit_grants(
+    tasks: Any,
+) -> None:
+    space = tasks.spaces.create_space("Review", delivery_id="review.mcp.space")
+    sources = [
+        tasks.capture.accept(
+            TextPayload(text),
+            delivery_id=f"review.mcp.source.{index}",
+            space_id=space.space_id,
+        ).capture_id
+        for index, text in enumerate(("First MCP source", "Second MCP source"))
+    ]
+    process = _start(
+        tasks.profile.root,
+        "--allow-review-read",
+        "--allow-review-propose",
+        "--allow-review-decide",
+    )
+    try:
+        assert "result" in _exchange(process, INITIALIZE)
+        tools = _exchange(process, {"jsonrpc": "2.0", "id": 2, "method": "tools/list"})
+        assert {tool["name"] for tool in tools["result"]["tools"]} == {
+            "brain_review_list",
+            "brain_review_show",
+            "brain_review_propose",
+            "brain_review_approve",
+            "brain_review_reject",
+            "brain_review_edit_and_approve",
+        }
+        proposed_reply = _exchange(
+            process,
+            _call(
+                "brain_review_propose",
+                {
+                    "capture_ids": sources,
+                    "title": "MCP combined",
+                    "markdown": "MCP combined body",
+                    "idempotency_key": "mcp-proposal",
+                },
+                3,
+            ),
+        )
+        proposed = proposed_reply["result"]["structuredContent"]
+        shown_reply = _exchange(
+            process,
+            _call("brain_review_show", {"proposal_id": proposed["proposal_id"]}, 4),
+        )
+        shown = shown_reply["result"]["structuredContent"]
+        assert shown["markdown"] == "MCP combined body"
+        approved_reply = _exchange(
+            process,
+            _call(
+                "brain_review_approve",
+                {
+                    "proposal_id": proposed["proposal_id"],
+                    "review_token": shown["review_token"],
+                    "idempotency_key": "mcp-approve",
+                },
+                5,
+            ),
+        )
+        approved = approved_reply["result"]["structuredContent"]
+        assert approved["status"] == "approved"
+        assert approved["page_id"] == proposed["page_id"]
+        listed = _exchange(
+            process,
+            _call("brain_review_list", {"status": "approved"}, 6),
+        )["result"]["structuredContent"]
+        assert [row["proposal_id"] for row in listed["proposals"]] == [proposed["proposal_id"]]
+
+        terminal_sources = [
+            tasks.capture.accept(
+                TextPayload(text),
+                delivery_id=f"review.mcp.terminal.{index}",
+                space_id=space.space_id,
+            ).capture_id
+            for index, text in enumerate(("Rejected MCP source", "Edited MCP source"))
+        ]
+        proposal_ids: list[str] = []
+        tokens: list[str] = []
+        for index, capture_id in enumerate(terminal_sources, start=7):
+            child = _exchange(
+                process,
+                _call(
+                    "brain_review_propose",
+                    {
+                        "capture_ids": [capture_id],
+                        "title": f"Terminal {index}",
+                        "markdown": "Terminal body",
+                    },
+                    index,
+                ),
+            )["result"]["structuredContent"]
+            proposal_ids.append(child["proposal_id"])
+            tokens.append(
+                _exchange(
+                    process,
+                    _call("brain_review_show", {"proposal_id": child["proposal_id"]}, index + 10),
+                )["result"]["structuredContent"]["review_token"]
+            )
+        rejected = _exchange(
+            process,
+            _call(
+                "brain_review_reject",
+                {"proposal_id": proposal_ids[0], "review_token": tokens[0]},
+                20,
+            ),
+        )["result"]["structuredContent"]
+        edited = _exchange(
+            process,
+            _call(
+                "brain_review_edit_and_approve",
+                {
+                    "proposal_id": proposal_ids[1],
+                    "review_token": tokens[1],
+                    "markdown": "Explicit MCP edit",
+                },
+                21,
+            ),
+        )["result"]["structuredContent"]
+        assert rejected["status"] == "rejected" and rejected["publication_id"] is None
+        assert edited["status"] == "edited" and edited["publication_id"] is not None
+        assert process.stdin is not None
+        process.stdin.close()
+        assert process.wait(timeout=10) == 0
+        assert process.stderr is not None and process.stderr.read() == ""
+    finally:
+        if process.poll() is None:
+            process.kill()
+            process.wait(timeout=5)
+
+
+@pytest.mark.parametrize(
+    ("flag", "expected"),
+    (
+        ("--allow-review-read", {"brain_review_list", "brain_review_show"}),
+        ("--allow-review-propose", {"brain_review_propose"}),
+        (
+            "--allow-review-decide",
+            {
+                "brain_review_approve",
+                "brain_review_reject",
+                "brain_review_edit_and_approve",
+            },
+        ),
+    ),
+)
+def test_live_review_flags_expose_only_their_tool_group(
+    tasks: Any, flag: str, expected: set[str]
+) -> None:
+    process = _start(tasks.profile.root, flag)
+    try:
+        assert "result" in _exchange(process, INITIALIZE)
+        tools = _exchange(process, {"jsonrpc": "2.0", "id": 2, "method": "tools/list"})
+        assert {tool["name"] for tool in tools["result"]["tools"]} == expected
+        denied = _exchange(process, _call("brain_capture", {"text": "denied"}, 3))
+        assert denied["result"]["content"] == [{"type": "text", "text": "unknown tool"}]
         assert process.stdin is not None
         process.stdin.close()
         assert process.wait(timeout=10) == 0

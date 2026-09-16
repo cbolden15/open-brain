@@ -355,7 +355,9 @@ def test_runtime_compatibility_migration_preserves_v3_records_and_blocks_old_rea
     )
     database = root / PHASE1_STATE_DATABASE
     with sqlite3.connect(database) as connection:
-        connection.execute("DELETE FROM schema_migrations WHERE version = 4")
+        connection.execute("DELETE FROM schema_migrations WHERE version >= 4")
+        for table in ("review_page_heads", "review_sources", "review_contexts"):
+            connection.execute(f"DROP TABLE {table}")
         connection.execute("DROP TABLE runtime_compatibility")
         connection.execute("PRAGMA user_version = 3")
         records_before = _rows(connection)
@@ -363,14 +365,16 @@ def test_runtime_compatibility_migration_preserves_v3_records_and_blocks_old_rea
 
     upgraded = open_local_database(profile)
     try:
-        assert _rows(upgraded) == records_before
+        records_after = _rows(upgraded)
+        assert all(records_after[table] == rows for table, rows in records_before.items())
+        assert all(not rows for table, rows in records_after.items() if table not in records_before)
         assert [
             tuple(row)
             for row in upgraded.execute(
                 "SELECT singleton, minimum_runtime_session_version, state_schema_version "
                 "FROM runtime_compatibility"
             )
-        ] == [(1, 1, 4)]
+        ] == [(1, 1, PHASE1_STATE_SCHEMA_VERSION)]
     finally:
         upgraded.close()
     assert open_local_engine(profile).retrieval.fetch(captured.capture_id) is not None
@@ -706,9 +710,9 @@ def test_migration_uses_injected_clock_and_preserves_old_ledger_timestamp(tmp_pa
             for row in connection.execute(
                 "SELECT applied_at FROM schema_migrations ORDER BY version"
             )
-        ] == ["2026-09-09T00:00:00.000000Z"] + [
-            "2026-09-10T01:02:03.000000Z"
-        ] * (len(LOCAL_MIGRATIONS) - 1)
+        ] == ["2026-09-09T00:00:00.000000Z"] + ["2026-09-10T01:02:03.000000Z"] * (
+            len(LOCAL_MIGRATIONS) - 1
+        )
     finally:
         connection.close()
 
@@ -764,6 +768,13 @@ def test_w4_reviewed_import_preserves_portable_bytes_and_search_trust_across_upg
         for result in engine.retrieval.search("nebula")
     ]
     with sqlite3.connect(profile.root / PHASE1_STATE_DATABASE) as connection:
+        from open_brain_engine.engine.local_schema_catalog import RUNTIME_COMPATIBILITY_SCHEMA
+
+        for table in ("review_page_heads", "review_sources", "review_contexts"):
+            connection.execute(f"DROP TABLE {table}")
+        connection.execute("DROP TABLE runtime_compatibility")
+        for statement in RUNTIME_COMPATIBILITY_SCHEMA:
+            connection.execute(statement)
         connection.execute("DROP TABLE schema_migrations")
         connection.execute("PRAGMA user_version=1")
     reopened = BrainEngine.open(profile)

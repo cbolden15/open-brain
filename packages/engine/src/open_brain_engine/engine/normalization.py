@@ -201,6 +201,7 @@ def _decision_record(
     outcome: DecisionOutcome,
     edited_bytes: bytes | None,
     recorded_at: str,
+    expected_state_digest: str | None = None,
 ) -> dict[str, object]:
     proposal_id = cast(str, proposal["proposal_id"])
     edited = (
@@ -211,7 +212,10 @@ def _decision_record(
         if edited_bytes is not None
         else None
     )
-    expected_state_digest = sha256(portable_canonical_json_bytes(dict(proposal))).hexdigest()
+    if expected_state_digest is None:
+        expected_state_digest = sha256(portable_canonical_json_bytes(dict(proposal))).hexdigest()
+    elif not isinstance(expected_state_digest, str) or len(expected_state_digest) != 64:
+        raise ValueError("invalid expected state digest")
     terminal_payload = {
         "decision_id": decision_id,
         "edited_content_sha256": (

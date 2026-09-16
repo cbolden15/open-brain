@@ -183,12 +183,19 @@ def materialize_portable_root(
     proposals = _json_records(files, "history/proposals")
     decisions = _json_records(files, "history/decisions")
     publications = _json_records(files, "history/publications")
+    review_bindings = _json_records(files, "history/review-bindings")
     actions = _json_records(files, "history/actions")
     routes = _json_records(files, "history/routes")
     pages = _page_records(files)
     proposal_by_id = {cast(str, record["proposal_id"]): record for _, record in proposals}
     publication_by_decision = {
         cast(str, record["decision_id"]): record for _, record in publications
+    }
+    publication_entry_by_decision = {
+        cast(str, record["decision_id"]): (path, record) for path, record in publications
+    }
+    binding_by_proposal = {
+        cast(str, record["proposal_id"]): record for _, record in review_bindings
     }
     decision_by_proposal = {cast(str, record["proposal_id"]): record for _, record in decisions}
     page_id_by_proposal: dict[str, str | None] = {}
@@ -208,9 +215,63 @@ def materialize_portable_root(
         for _, record in proposals
         if record.get("supplied_reason") == "explicit canonical-note action"
     }
+    canonical_owner_by_capture: dict[
+        str, tuple[str, str, str, str]
+    ] = {}
+    for proposal_id, proposal in proposal_by_id.items():
+        if proposal.get("supplied_reason") != "explicit canonical-note action":
+            continue
+        decision = decision_by_proposal.get(proposal_id)
+        publication_entry = (
+            None
+            if decision is None
+            else publication_entry_by_decision.get(cast(str, decision["decision_id"]))
+        )
+        if publication_entry is None:
+            continue
+        publication_path, publication = publication_entry
+        canonical_owner_by_capture[cast(list[str], proposal["capture_ids"])[0]] = (
+            cast(str, publication["page_id"]),
+            cast(str, publication["published_path"]),
+            cast(str, publication["publication_id"]),
+            publication_path,
+        )
+    space_slugs = {
+        cast(str, parse_markdown(payload).fields["space_id"]): cast(
+            str, parse_markdown(payload).fields["slug"]
+        )
+        for path, payload in files.items()
+        if path.endswith("/_space.md")
+    }
+    proposal_canonical_paths: dict[str, str | None] = {}
+    for proposal_id, proposal in proposal_by_id.items():
+        page_id = page_id_by_proposal.get(proposal_id)
+        if page_id is None or proposal.get("proposed_kind") != "page_update":
+            proposal_canonical_paths[proposal_id] = None
+            continue
+        current_page = pages.get(page_id)
+        if current_page is not None:
+            proposal_canonical_paths[proposal_id] = current_page[0]
+            continue
+        space_id = proposal.get("space_id")
+        slug = space_slugs.get(space_id) if isinstance(space_id, str) else None
+        content = cast(Mapping[str, object], proposal["proposed_content"])
+        proposed = parse_markdown(
+            base64.b64decode(cast(str, content["bytes_base64"]))
+        )
+        proposal_canonical_paths[proposal_id] = (
+            f"content/spaces/{slug}/notes/{page_id}.md"
+            if slug is not None
+            and proposed.fields.get("page_id") == page_id
+            and proposed.fields.get("space_id") == space_id
+            else None
+        )
     store = _LocalStore(profile)
     with store.transaction() as connection:
         for table in (
+            "review_sources",
+            "review_page_heads",
+            "review_contexts",
             "search_documents",
             "decisions",
             "proposals",
@@ -239,23 +300,20 @@ def materialize_portable_root(
             payload = cast(Mapping[str, object], record["payload"])
             source = cast(Mapping[str, object], record["source"])
             role_claim = cast(Mapping[str, object], record["role_claim"])
-            canonical_path = next(
-                (
-                    page_path
-                    for page_path, fields, _ in pages.values()
-                    if capture_id in cast(list[str], fields["provenance"])
-                ),
-                None,
-            )
+            canonical_owner = canonical_owner_by_capture.get(capture_id)
             connection.execute(
                 """
                 INSERT INTO captures (
                     delivery_id, request_sha256, capture_id, accepted_receipt_id,
                     payload_family, payload_json, search_text, file_bytes, source_origin,
                     source_reference, space_id, intent, capture_why, action, title,
-                    accepted_at, stage, source_path, canonical_path, enrichment_state,
-                    actor_id, role_claim_json, privacy_json, provenance_json, submission_path
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 3, ?, ?, ?, ?, ?, ?, ?, ?)
+                    accepted_at, stage, source_path, canonical_path, page_id,
+                    publication_id, publication_path, enrichment_state, actor_id,
+                    role_claim_json, privacy_json, provenance_json, submission_path
+                ) VALUES (
+                    ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 3,
+                    ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+                )
                 """,
                 (
                     _derived_key("import.capture", capture_id),
@@ -275,7 +333,10 @@ def materialize_portable_root(
                     None,
                     record["accepted_at"],
                     path,
-                    canonical_path,
+                    None if canonical_owner is None else canonical_owner[1],
+                    None if canonical_owner is None else canonical_owner[0],
+                    None if canonical_owner is None else canonical_owner[2],
+                    None if canonical_owner is None else canonical_owner[3],
                     "pending_enrichment",
                     record["actor_id"],
                     portable_canonical_json_bytes(role_claim).decode(),
@@ -358,6 +419,7 @@ def materialize_portable_root(
             title, body = _proposal_text(record)
             content = cast(Mapping[str, object], record["proposed_content"])
             proposed_bytes = base64.b64decode(cast(str, content["bytes_base64"]))
+            canonical_path = proposal_canonical_paths[proposal_id]
             connection.execute(
                 """
                 INSERT INTO proposals (
@@ -378,15 +440,51 @@ def materialize_portable_root(
                     record["space_id"],
                     cast(Mapping[str, object], record["expected_receipt"])["receipt_id"],
                     page_id,
-                    pages[page_id][0] if page_id is not None and page_id in pages else None,
+                    canonical_path,
                 ),
             )
+            binding = binding_by_proposal.get(proposal_id)
+            if binding is not None:
+                proposal_path = next(
+                    path
+                    for path, candidate in proposals
+                    if candidate["proposal_id"] == proposal_id
+                )
+                binding_path = next(
+                    path
+                    for path, candidate in review_bindings
+                    if candidate["proposal_id"] == proposal_id
+                )
+                connection.execute(
+                    """
+                    INSERT INTO review_contexts (proposal_id, binding_json, proposal_json)
+                    VALUES (?, ?, ?)
+                    """,
+                    (proposal_id, files[binding_path], files[proposal_path]),
+                )
+                connection.executemany(
+                    """
+                    INSERT INTO review_sources (proposal_id, capture_id, ordinal)
+                    VALUES (?, ?, ?)
+                    """,
+                    [
+                        (proposal_id, capture_id, ordinal)
+                        for ordinal, capture_id in enumerate(
+                            cast(list[str], binding["provenance"])
+                        )
+                    ],
+                )
         for _, record in decisions:
             decision_id = cast(str, record["decision_id"])
             proposal_id = cast(str, record["proposal_id"])
             proposal = proposal_by_id[proposal_id]
             page_id = page_id_by_proposal.get(proposal_id)
             publication = publication_by_decision.get(decision_id)
+            canonical_path = (
+                None
+                if proposal.get("supplied_reason") == "explicit canonical-note action"
+                else proposal_canonical_paths[proposal_id]
+            )
             connection.execute(
                 """
                 INSERT INTO decisions (
@@ -406,13 +504,48 @@ def materialize_portable_root(
                     record["recorded_at"],
                     page_id,
                     publication["publication_id"] if publication is not None else None,
-                    pages[page_id][0] if page_id is not None and page_id in pages else None,
+                    canonical_path,
                     publication["published_path"] if publication is not None else None,
                 ),
             )
             connection.execute(
                 "UPDATE proposals SET status = ?, terminal_decision_id = ? WHERE proposal_id = ?",
                 (record["outcome"], decision_id, proposal_id),
+            )
+        bound_publications: dict[str, tuple[Mapping[str, object], Mapping[str, object]]] = {}
+        bound_predecessors: set[str] = set()
+        for proposal_id, binding in binding_by_proposal.items():
+            decision = decision_by_proposal.get(proposal_id)
+            if decision is None or decision["outcome"] not in {"approved", "edited"}:
+                continue
+            publication = publication_by_decision.get(cast(str, decision["decision_id"]))
+            if publication is None:
+                continue
+            publication_id = cast(str, publication["publication_id"])
+            bound_publications[publication_id] = (binding, publication)
+            predecessor = binding["expected_publication_id"]
+            if predecessor is not None:
+                bound_predecessors.add(cast(str, predecessor))
+        for publication_id in sorted(set(bound_publications) - bound_predecessors):
+            head_binding, head_publication = bound_publications[publication_id]
+            proposal_id = cast(str, head_binding["proposal_id"])
+            page_id = cast(str, head_binding["page_id"])
+            provenance = cast(list[str], head_binding["provenance"])
+            connection.execute(
+                """
+                INSERT INTO review_page_heads (
+                    page_id, publication_id, proposal_id, capture_id,
+                    canonical_path, published_sha256
+                ) VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    page_id,
+                    publication_id,
+                    proposal_id,
+                    provenance[0],
+                    head_publication["published_path"],
+                    head_publication["published_sha256"],
+                ),
             )
         for page_id, (page_path, fields, body) in pages.items():
             if fields["status"] == "archived":
@@ -459,6 +592,11 @@ def materialize_portable_root(
         batches=batch_count,
         blobs=blob_count,
         history_records=(
-            len(proposals) + len(decisions) + len(publications) + len(actions) + len(routes)
+            len(proposals)
+            + len(decisions)
+            + len(publications)
+            + len(review_bindings)
+            + len(actions)
+            + len(routes)
         ),
     )

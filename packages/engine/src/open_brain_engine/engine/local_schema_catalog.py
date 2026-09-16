@@ -665,9 +665,57 @@ INSERT OR IGNORE INTO runtime_compatibility (
     """.strip(),
 )
 
+REVIEW_SCHEMA = (
+    """
+CREATE TABLE review_contexts (
+    proposal_id TEXT PRIMARY KEY REFERENCES proposals(proposal_id),
+    binding_json BLOB NOT NULL,
+    proposal_json BLOB NOT NULL
+)
+    """.strip(),
+    """
+CREATE TABLE review_sources (
+    proposal_id TEXT NOT NULL REFERENCES proposals(proposal_id),
+    capture_id TEXT NOT NULL REFERENCES captures(capture_id),
+    ordinal INTEGER NOT NULL CHECK (ordinal >= 0 AND ordinal < 32),
+    PRIMARY KEY (proposal_id, capture_id),
+    UNIQUE (proposal_id, ordinal)
+)
+    """.strip(),
+    """
+CREATE INDEX review_sources_capture_idx ON review_sources (capture_id, proposal_id)
+    """.strip(),
+    """
+CREATE TABLE review_page_heads (
+    page_id TEXT PRIMARY KEY,
+    publication_id TEXT NOT NULL UNIQUE,
+    proposal_id TEXT NOT NULL REFERENCES proposals(proposal_id),
+    capture_id TEXT NOT NULL REFERENCES captures(capture_id),
+    canonical_path TEXT NOT NULL UNIQUE,
+    published_sha256 TEXT NOT NULL CHECK (length(published_sha256) = 64)
+)
+    """.strip(),
+    "DROP TABLE runtime_compatibility",
+    """
+CREATE TABLE runtime_compatibility (
+    singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
+    minimum_runtime_session_version INTEGER NOT NULL CHECK (
+        minimum_runtime_session_version = 1
+    ),
+    state_schema_version INTEGER NOT NULL CHECK (state_schema_version = 5)
+)
+    """.strip(),
+    """
+INSERT INTO runtime_compatibility (
+    singleton, minimum_runtime_session_version, state_schema_version
+) VALUES (1, 1, 5)
+    """.strip(),
+)
+
 LOCAL_MIGRATIONS = (
     _migration(1, "local_baseline", BASELINE),
     _migration(2, "local_search_and_import", _MIGRATION_2),
     _migration(3, "managed_workspace", MANAGED_WORKSPACE_SCHEMA),
     _migration(4, "runtime_compatibility", RUNTIME_COMPATIBILITY_SCHEMA),
+    _migration(5, "review_publication", REVIEW_SCHEMA),
 )

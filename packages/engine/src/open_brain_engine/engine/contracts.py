@@ -366,6 +366,44 @@ class ProposalRecord:
     space_id: str | None
     sibling_proposal_ids: tuple[str, ...]
     terminal_decision_id: str | None
+    title: str = ""
+    capture_ids: tuple[str, ...] = ()
+    selected_capture_ids: tuple[str, ...] = ()
+    page_id: str | None = None
+    target_page_id: str | None = None
+    operation: str = "create"
+    review_digest: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class ReviewEvidence:
+    """Projected evidence; its digest covers the displayed excerpt."""
+
+    capture_id: str
+    excerpt: str
+    sha256: str
+    projection_applied: bool
+
+
+@dataclass(frozen=True, slots=True)
+class ReviewProposal:
+    """Public inspection of an immutable proposal and its decision binding."""
+
+    proposal_id: str
+    status: str
+    title: str
+    markdown: str
+    space_id: str | None
+    page_id: str | None
+    target_page_id: str | None
+    operation: str
+    capture_ids: tuple[str, ...]
+    selected_capture_ids: tuple[str, ...]
+    evidence: tuple[ReviewEvidence, ...]
+    review_digest: str
+    expected_page_sha256: str | None
+    expected_publication_id: str | None
+    projection_applied: bool
 
 
 @dataclass(frozen=True, slots=True)
@@ -456,9 +494,7 @@ def project_public_result_text(
         lambda match: _project_public_output_token(match.group(0), protected_values),
         result,
     )
-    result = _PUBLIC_CREDENTIAL_ASSIGNMENT.sub(
-        rf"\1\2{_PUBLIC_CREDENTIAL_MARKER}", result
-    )
+    result = _PUBLIC_CREDENTIAL_ASSIGNMENT.sub(rf"\1\2{_PUBLIC_CREDENTIAL_MARKER}", result)
     result = _PUBLIC_BARE_SHA256.sub(_PUBLIC_LITERAL_MARKER, result)
     result = _PUBLIC_WINDOWS_PATH.sub(_PUBLIC_PATH_MARKER, result)
     return _PUBLIC_POSIX_PATH.sub(_PUBLIC_PATH_MARKER, result)
@@ -546,7 +582,7 @@ class PortabilityReceipt:
         ):
             if type(value) is not int or value < 0:
                 raise ValueError("invalid portability receipt count")
-        if self.schema_version not in {1, 2}:
+        if self.schema_version not in {1, 2, 3}:
             raise ValueError("invalid portability receipt schema version")
         if self.index_generation is not None and (
             type(self.index_generation) is not int or self.index_generation < 1
@@ -1133,15 +1169,27 @@ class LocalEngineContext:
 
 
 @dataclass(frozen=True, slots=True)
-class PublicProvenance(Mapping[str, str]):
+class PublicProvenance(Mapping[str, object]):
     """Metadata-safe provenance returned by public retrieval capabilities."""
 
     capture_id: str
     source_origin: str
     source_record_id: str | None = None
+    capture_ids: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
         _portable_id(self.capture_id, "capture")
+        if not self.capture_ids:
+            object.__setattr__(self, "capture_ids", (self.capture_id,))
+        if (
+            not isinstance(self.capture_ids, tuple)
+            or not 1 <= len(self.capture_ids) <= 32
+            or len(set(self.capture_ids)) != len(self.capture_ids)
+            or self.capture_ids[0] != self.capture_id
+        ):
+            raise ValueError("invalid public source identities")
+        for capture_id in self.capture_ids:
+            _portable_id(capture_id, "capture")
         if self.source_record_id is None:
             object.__setattr__(self, "source_record_id", self.capture_id)
         else:
@@ -1154,24 +1202,27 @@ class PublicProvenance(Mapping[str, str]):
         }:
             raise ValueError("invalid public source origin")
 
-    def as_dict(self) -> dict[str, str]:
+    def as_dict(self) -> dict[str, object]:
         source_record_id = self.source_record_id
         if source_record_id is None:
             raise RuntimeError("public provenance is unavailable")
-        return {
+        result: dict[str, object] = {
             "capture_id": self.capture_id,
             "source_origin": self.source_origin,
             "source_record_id": source_record_id,
         }
+        if len(self.capture_ids) > 1:
+            result["capture_ids"] = list(self.capture_ids)
+        return result
 
-    def __getitem__(self, key: str) -> str:
+    def __getitem__(self, key: str) -> object:
         return self.as_dict()[key]
 
     def __iter__(self) -> Iterator[str]:
         return iter(self.as_dict())
 
     def __len__(self) -> int:
-        return 3
+        return len(self.as_dict())
 
 
 @dataclass(frozen=True, slots=True)
@@ -1553,15 +1604,24 @@ class InboxSpaceTask(Protocol):
 class ReviewTask(Protocol):
     def propose(
         self,
-        capture_id: str,
+        capture_id: str | Sequence[str],
         drafts: Sequence[ProposalDraft],
         *,
         delivery_id: str,
+        target_page_id: str | None = None,
     ) -> tuple[ProposalRecord, ...]: ...
 
     def list(
-        self, *, capture_id: str | None = None, status: str | None = None
+        self,
+        *,
+        capture_id: str | None = None,
+        status: str | None = None,
+        space_id: str | None = None,
+        limit: int | None = None,
+        offset: int = 0,
     ) -> tuple[ProposalRecord, ...]: ...
+
+    def show(self, proposal_id: str) -> ReviewProposal: ...
 
     def decide(
         self,
@@ -1570,6 +1630,7 @@ class ReviewTask(Protocol):
         *,
         delivery_id: str,
         edited_markdown: str | None = None,
+        expected_review_digest: str | None = None,
     ) -> DecisionRecord: ...
 
 

@@ -19,6 +19,7 @@ from open_brain_engine.storage.markdown import MarkdownFormatError, parse_markdo
 from .contracts import ReconciliationReceipt
 from .normalization import _portable_id
 from .search_projection import (
+    canonical_source_rows,
     project_search_document,
     source_search_title,
     upsert_search_document,
@@ -337,12 +338,14 @@ def _projection_inputs(
         )
 
     expected_pages: dict[str, tuple[str, str]] = {}
+    expected_sources: dict[str, list[str]] = {}
     page_ids: set[str] = set()
     for row in connection.execute(
         """
-        SELECT canonical_path, page_id, capture_id
-        FROM captures
-        WHERE canonical_path IS NOT NULL
+        SELECT c.canonical_path, c.page_id, c.capture_id
+        FROM captures AS c
+        WHERE c.canonical_path IS NOT NULL
+          AND NOT EXISTS (SELECT 1 FROM review_page_heads h WHERE h.page_id = c.page_id)
         UNION ALL
         SELECT d.canonical_path, d.page_id, p.capture_id
         FROM decisions AS d
@@ -352,6 +355,14 @@ def _projection_inputs(
           AND d.publication_id IS NOT NULL
           AND d.publication_path IS NOT NULL
           AND d.outcome IN ('approved', 'edited')
+          AND NOT EXISTS (SELECT 1 FROM review_page_heads h WHERE h.page_id = d.page_id)
+        UNION ALL
+        SELECT h.canonical_path, h.page_id, h.capture_id
+        FROM review_page_heads h
+        JOIN decisions d ON d.publication_id = h.publication_id
+          AND d.page_id = h.page_id AND d.proposal_id = h.proposal_id
+          AND d.canonical_path = h.canonical_path
+        WHERE d.stage = 3 AND d.outcome IN ('approved', 'edited')
         """
     ):
         canonical_path = _row_string(row, "canonical_path")
@@ -366,6 +377,12 @@ def _projection_inputs(
         ):
             raise ValueError("canonical page provenance is invalid")
         expected_pages[canonical_path] = (page_id, capture_id)
+        expected_sources[canonical_path] = [
+            str(source["capture_id"])
+            for source in canonical_source_rows(
+                connection, result_id=page_id, capture_id=capture_id
+            )
+        ]
         page_ids.add(page_id)
 
     files = _read_canonical_tree(engine)
@@ -412,7 +429,7 @@ def _projection_inputs(
             or expected[0] != page_id
             or parts[2] != f"{page_id}.md"
             or known_spaces.get(space_id) != parts[0]
-            or fields.get("provenance") != [expected[1]]
+            or fields.get("provenance") != expected_sources[canonical_path]
         ):
             raise ValueError("canonical page provenance is invalid")
         seen_pages.add(canonical_path)

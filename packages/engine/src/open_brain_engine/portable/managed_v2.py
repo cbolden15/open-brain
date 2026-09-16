@@ -57,6 +57,28 @@ def managed_workspace_path(workspace_id: str) -> str:
     return f"history/managed-workspace/{workspace_id}.json"
 
 
+def validate_portable_file_set_v2(
+    files: Mapping[str, bytes], *, tenant_id: str
+) -> None:
+    """Validate exact Portable v2 payload bytes without an export manifest."""
+    managed_paths = [path for path in files if _MANAGED_PATH.fullmatch(path)]
+    if len(managed_paths) != 1:
+        raise PortableValidationError("Portable v2 requires one managed workspace record")
+    base = {path: payload for path, payload in files.items() if path != managed_paths[0]}
+    validate_portable_file_set(base, tenant_id=tenant_id)
+    page_ids = {
+        cast(str, parse_markdown(payload).fields["page_id"])
+        for path, payload in base.items()
+        if path.startswith("content/spaces/") and "/notes/" in path and path.endswith(".md")
+    }
+    record = validate_managed_workspace_record(
+        files[managed_paths[0]], tenant_id=tenant_id, page_ids=page_ids
+    )
+    match = _MANAGED_PATH.fullmatch(managed_paths[0])
+    if match is None or record["workspace_id"] != match.group("workspace"):
+        raise PortableValidationError("managed workspace path is invalid")
+
+
 def validated_portable_snapshot_v2(
     root: Path, *, expected_root_identity: RootIdentity | None = None
 ) -> PortableSnapshot:
@@ -503,5 +525,6 @@ __all__ = [
     "PORTABLE_V2_SCHEMA_CATALOG_DIGEST",
     "managed_workspace_path",
     "validate_managed_workspace_record",
+    "validate_portable_file_set_v2",
     "validated_portable_snapshot_v2",
 ]

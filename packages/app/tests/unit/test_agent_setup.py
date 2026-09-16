@@ -44,6 +44,9 @@ def _preview(
     search: bool = True,
     inbox_read: object = False,
     organize: object = False,
+    review_read: object = False,
+    review_propose: object = False,
+    review_decide: object = False,
     action: str = "configure",
     environment: dict[str, object] | None = None,
 ) -> dict[str, object]:
@@ -56,6 +59,9 @@ def _preview(
         allow_search=search,
         allow_inbox_read=inbox_read,
         allow_organize=organize,
+        allow_review_read=review_read,
+        allow_review_propose=review_propose,
+        allow_review_decide=review_decide,
         action=action,
         runtime_path=runtime,
         environment=environment or {"HOME": str(selection.home)},
@@ -74,6 +80,9 @@ def _apply(
     search: bool = True,
     inbox_read: object = False,
     organize: object = False,
+    review_read: object = False,
+    review_propose: object = False,
+    review_decide: object = False,
     action: str = "configure",
     environment: dict[str, object] | None = None,
     write_file: agent_setup_module.FileWriter | None = None,
@@ -87,6 +96,9 @@ def _apply(
         allow_search=search,
         allow_inbox_read=inbox_read,
         allow_organize=organize,
+        allow_review_read=review_read,
+        allow_review_propose=review_propose,
+        allow_review_decide=review_decide,
         action=action,
         preview_id=preview["preview_id"],
         runtime_path=runtime,
@@ -398,6 +410,141 @@ def test_organization_grants_require_strict_booleans(tmp_path: Path, field: str)
             inbox_read=1 if field == "inbox_read" else False,
             organize=1 if field == "organize" else False,
         )
+
+
+@pytest.mark.parametrize(
+    ("grant", "flag", "tools"),
+    (
+        ("review_read", "--allow-review-read", ("brain_review_list", "brain_review_show")),
+        ("review_propose", "--allow-review-propose", ("brain_review_propose",)),
+        (
+            "review_decide",
+            "--allow-review-decide",
+            (
+                "brain_review_approve",
+                "brain_review_reject",
+                "brain_review_edit_and_approve",
+            ),
+        ),
+    ),
+)
+def test_review_grants_are_independent_preview_bound_and_documented(
+    tmp_path: Path, grant: str, flag: str, tools: tuple[str, ...]
+) -> None:
+    home = tmp_path / "home"
+    project = home / grant
+    project.mkdir(parents=True)
+    runtime = _runtime(tmp_path)
+    selection = _selection(home)
+    review_read = grant == "review_read"
+    review_propose = grant == "review_propose"
+    review_decide = grant == "review_decide"
+    preview = _preview(
+        selection,
+        runtime,
+        client="codex",
+        project=project,
+        capture=False,
+        search=False,
+        review_read=review_read,
+        review_propose=review_propose,
+        review_decide=review_decide,
+    )
+    assert cast(dict[str, bool], preview["permissions"])[grant] is True
+    _apply(
+        selection,
+        runtime,
+        preview,
+        client="codex",
+        project=project,
+        capture=False,
+        search=False,
+        review_read=review_read,
+        review_propose=review_propose,
+        review_decide=review_decide,
+    )
+    parsed = tomllib.loads((project / ".codex/config.toml").read_text(encoding="utf-8"))
+    args = parsed["mcp_servers"]["open-brain"]["args"]
+    assert args[-1] == flag
+    for other in (
+        "--allow-review-read",
+        "--allow-review-propose",
+        "--allow-review-decide",
+    ):
+        assert (other in args) is (other == flag)
+    instructions = (project / "AGENTS.md").read_text(encoding="utf-8")
+    for tool in tools:
+        assert f"`{tool}`" in instructions
+    assert "review token" in instructions
+    assert "untrusted data" in instructions
+
+
+@pytest.mark.parametrize("field", ["review_read", "review_propose", "review_decide"])
+def test_review_grants_require_strict_booleans(tmp_path: Path, field: str) -> None:
+    home = tmp_path / "home"
+    project = home / "project"
+    project.mkdir(parents=True)
+    values: dict[str, object] = {
+        "review_read": False,
+        "review_propose": False,
+        "review_decide": False,
+    }
+    values[field] = 1
+    with pytest.raises(AgentSetupFailure, match="invalid_arguments"):
+        _preview(
+            _selection(home),
+            _runtime(tmp_path),
+            client="claude-code",
+            project=project,
+            review_read=values["review_read"],
+            review_propose=values["review_propose"],
+            review_decide=values["review_decide"],
+        )
+
+
+def test_claude_review_grants_preserve_unrelated_configuration(tmp_path: Path) -> None:
+    home = tmp_path / "home"
+    project = home / "project"
+    project.mkdir(parents=True)
+    config = project / ".mcp.json"
+    config.write_text(
+        json.dumps({"theme": "keep", "mcpServers": {"other": {"command": "/other"}}}),
+        encoding="utf-8",
+    )
+    selection = _selection(home)
+    runtime = _runtime(tmp_path)
+    preview = _preview(
+        selection,
+        runtime,
+        client="claude-code",
+        project=project,
+        capture=False,
+        search=False,
+        review_read=True,
+        review_propose=True,
+        review_decide=True,
+    )
+    _apply(
+        selection,
+        runtime,
+        preview,
+        client="claude-code",
+        project=project,
+        capture=False,
+        search=False,
+        review_read=True,
+        review_propose=True,
+        review_decide=True,
+    )
+    configured = json.loads(config.read_text(encoding="utf-8"))
+    assert configured["theme"] == "keep"
+    assert configured["mcpServers"]["other"] == {"command": "/other"}
+    args = configured["mcpServers"]["open-brain"]["args"]
+    assert args[-3:] == [
+        "--allow-review-read",
+        "--allow-review-propose",
+        "--allow-review-decide",
+    ]
 
 
 @pytest.mark.parametrize(

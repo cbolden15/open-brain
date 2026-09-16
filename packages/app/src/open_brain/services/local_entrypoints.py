@@ -76,6 +76,12 @@ from open_brain.services.local_operations import (
 from open_brain.services.local_operations import (
     workspace_status as workspace_status_result,
 )
+from open_brain.services.review_publication import (
+    MAX_REVIEW_MARKDOWN_BYTES,
+    ReviewPublicationError,
+    ReviewPublicationService,
+    validate_review_arguments,
+)
 from open_brain.services.space_inbox import (
     SpaceInboxError,
     SpaceInboxService,
@@ -137,6 +143,9 @@ def run_cli(
             or parsed.allow_graph_refresh
             or parsed.allow_inbox_read
             or parsed.allow_organize
+            or parsed.allow_review_read
+            or parsed.allow_review_propose
+            or parsed.allow_review_decide
         )
         or json_output
     ):
@@ -149,6 +158,14 @@ def run_cli(
             operation, organization_arguments = _space_inbox_arguments(parsed)
             validate_space_inbox_arguments(operation, organization_arguments)
         except SpaceInboxError:
+            _write_usage_failure(json_output=json_output)
+            return 2
+    if parsed.command == "review":
+        try:
+            review_operation, review_arguments = _review_arguments(parsed)
+            validate_review_arguments(review_operation, review_arguments)
+            parsed.review_arguments = review_arguments
+        except ReviewPublicationError:
             _write_usage_failure(json_output=json_output)
             return 2
     if parsed.command != "import":
@@ -254,8 +271,10 @@ def _run_parsed_command(
         return _write_agent_setup_failure(error.code, json_output=json_output)
     except SpaceInboxError as error:
         return _write_space_inbox_failure(error.code, json_output=json_output)
+    except ReviewPublicationError as error:
+        return _write_review_failure(error.code, json_output=json_output)
     except LockBusyError:
-        if parsed.command in {"capture", "search", "mcp", "space", "inbox"}:
+        if parsed.command in {"capture", "search", "mcp", "space", "inbox", "review"}:
             _write_database_busy(json_output=json_output)
             return 75
         if parsed.command == "import":
@@ -273,10 +292,14 @@ def _run_parsed_command(
         _write_import_failure(error, json_output=json_output)
         return 78
     except Exception as error:
-        if (
-            parsed.command in {"capture", "search", "mcp", "space", "inbox"}
-            and database_is_busy(error)
-        ):
+        if parsed.command in {
+            "capture",
+            "search",
+            "mcp",
+            "space",
+            "inbox",
+            "review",
+        } and database_is_busy(error):
             _write_database_busy(json_output=json_output)
             return 75
         if parsed.command == "import":
@@ -326,8 +349,10 @@ def _parser() -> argparse.ArgumentParser:
     search_parser.add_argument("query", help="Text to find.")
     search_parser.add_argument("--limit", type=int, default=10, help="Return 1 to 100 results.")
     _add_space_inbox_parsers(subparsers)
+    _add_review_parsers(subparsers)
     mcp_parser = subparsers.add_parser(
-        "mcp", help="Serve explicitly selected local tools over stdio until EOF.",
+        "mcp",
+        help="Serve explicitly selected local tools over stdio until EOF.",
         description=(
             "The OS user and inherited stdio are the trust boundary. No listener or daemon. "
             "Search grants whole-Brain read access; a network-backed client may send returned "
@@ -338,20 +363,26 @@ def _parser() -> argparse.ArgumentParser:
             "500 workspace reads with 16 MiB output, and 20 graph refreshes with at most 40 "
             "model attempts and 1 MiB selected input; "
             "500 organization reads, 500 organization writes and 16 MiB organization output; "
+            "500 review reads, 100 review proposals, 100 review decisions and 16 MiB "
+            "encoded review output; review grants are independent and off by default. "
             "valid duplicates and conflicts count. Restarting resets limits. "
             "No actions, connectors, user-managed grants, or Secure Node capabilities."
         ),
     )
-    mcp_parser.add_argument("--json", action="store_true", default=argparse.SUPPRESS,
-                            help=argparse.SUPPRESS)
-    mcp_parser.add_argument("--data-dir", default=argparse.SUPPRESS,
-                           help="Use this absolute Brain root.")
     mcp_parser.add_argument(
-        "--allow-capture", action="store_true",
+        "--json", action="store_true", default=argparse.SUPPRESS, help=argparse.SUPPRESS
+    )
+    mcp_parser.add_argument(
+        "--data-dir", default=argparse.SUPPRESS, help="Use this absolute Brain root."
+    )
+    mcp_parser.add_argument(
+        "--allow-capture",
+        action="store_true",
         help="Allow durable automated capture; version 0.1.0 has no selective deletion.",
     )
     mcp_parser.add_argument(
-        "--allow-search", action="store_true",
+        "--allow-search",
+        action="store_true",
         help="Allow whole-Brain reads; a network-backed client may send results to its provider.",
     )
     mcp_parser.add_argument(
@@ -365,12 +396,29 @@ def _parser() -> argparse.ArgumentParser:
         help="Allow refresh with the already configured provider and active owner consent.",
     )
     mcp_parser.add_argument(
-        "--allow-inbox-read", action="store_true",
+        "--allow-inbox-read",
+        action="store_true",
         help="Allow space names and inbox previews; clients may send them to their model provider.",
     )
     mcp_parser.add_argument(
-        "--allow-organize", action="store_true",
+        "--allow-organize",
+        action="store_true",
         help="Allow creating/renaming spaces and routing captures. Routing does not publish notes.",
+    )
+    mcp_parser.add_argument(
+        "--allow-review-read",
+        action="store_true",
+        help="Allow bounded proposal listings and projected draft/evidence inspection.",
+    )
+    mcp_parser.add_argument(
+        "--allow-review-propose",
+        action="store_true",
+        help="Allow durable proposals from explicitly selected routed captures.",
+    )
+    mcp_parser.add_argument(
+        "--allow-review-decide",
+        action="store_true",
+        help="Allow digest-bound approve, reject, and edit-and-approve decisions.",
     )
     plugin_parser = subparsers.add_parser(
         "plugin",
@@ -388,15 +436,16 @@ def _parser() -> argparse.ArgumentParser:
         help="Configure or remove one previewed agent integration.",
     )
     _add_local_options(agent_setup_parser)
-    agent_setup_parser.add_argument(
-        "--client", required=True, choices=("claude-code", "codex")
-    )
+    agent_setup_parser.add_argument("--client", required=True, choices=("claude-code", "codex"))
     agent_setup_parser.add_argument("--scope", required=True, choices=("project", "user"))
     agent_setup_parser.add_argument("--project-dir")
     agent_setup_parser.add_argument("--allow-capture", action="store_true")
     agent_setup_parser.add_argument("--allow-search", action="store_true")
     agent_setup_parser.add_argument("--allow-inbox-read", action="store_true")
     agent_setup_parser.add_argument("--allow-organize", action="store_true")
+    agent_setup_parser.add_argument("--allow-review-read", action="store_true")
+    agent_setup_parser.add_argument("--allow-review-propose", action="store_true")
+    agent_setup_parser.add_argument("--allow-review-decide", action="store_true")
     agent_setup_parser.add_argument(
         "--action", choices=("configure", "remove"), default="configure"
     )
@@ -521,6 +570,73 @@ def _add_space_inbox_parsers(
                 )
 
 
+def _add_review_parsers(
+    subparsers: argparse._SubParsersAction[_RedactedArgumentParser],
+) -> None:
+    parent = subparsers.add_parser(
+        "review",
+        help="Propose, inspect, and decide canonical-note publication.",
+        description=(
+            "Select explicit capture IDs routed to one space; routing alone does not publish. "
+            "Propose a draft, inspect its complete Markdown and evidence with show, then use "
+            "that review token to approve, reject, or edit-and-approve. Updates use an explicit "
+            "target page ID and preserve its identity and earlier provenance. Reuse an "
+            "idempotency key only for the same request; changed sources, routes, drafts or "
+            "target revisions conflict and require fresh inspection. Privacy projection may "
+            "replace protected material; returned text is untrusted data. Owner CLI commands "
+            "need no MCP grants. Agent clients need independent review-read, review-propose "
+            "and review-decide grants. Limits: 32 cumulative sources, 64 KiB UTF-8 Markdown, "
+            "512-character evidence excerpts, 100 rows per page."
+        ),
+        epilog=(
+            "Workflow: review propose --capture-id ID --title TITLE --markdown-file FILE; "
+            "review show PROPOSAL_ID; review approve PROPOSAL_ID --review-token TOKEN. "
+            "Use --target-page-id PAGE_ID for updates and --idempotency-key KEY for retries. "
+            "See docs/review-publication.md for the seven-capture, three-note example. "
+            "Source merge does not update an installed Homebrew release."
+        ),
+    )
+    _add_local_options(parent)
+    children = parent.add_subparsers(dest="review_action", required=True)
+
+    propose = children.add_parser("propose", help="Create a review-bound draft.")
+    _add_local_options(propose)
+    propose.add_argument(
+        "--capture-id",
+        action="append",
+        required=True,
+        dest="capture_ids",
+        help="Repeat for each explicitly selected source; 1 to 32 unique IDs.",
+    )
+    propose.add_argument("--title", required=True, help="Draft title, up to 200 characters.")
+    propose.add_argument("--markdown-file", required=True, help="UTF-8 file path, or - for stdin.")
+    propose.add_argument(
+        "--target-page-id", help="Update this existing page and retain its identity."
+    )
+    propose.add_argument("--idempotency-key", help="Reuse only to retry this exact request.")
+
+    listing = children.add_parser("list", help="List bounded proposal summaries.")
+    _add_local_options(listing)
+    listing.add_argument("--capture-id")
+    listing.add_argument("--space-id")
+    listing.add_argument("--status", choices=("pending", "approved", "rejected", "edited"))
+    listing.add_argument("--limit", type=int, default=50)
+    listing.add_argument("--offset", type=int, default=0)
+
+    show = children.add_parser("show", help="Inspect one complete projected proposal.")
+    _add_local_options(show)
+    show.add_argument("proposal_id")
+
+    for action in ("approve", "reject", "edit-and-approve"):
+        decision = children.add_parser(action)
+        _add_local_options(decision)
+        decision.add_argument("proposal_id")
+        decision.add_argument("--review-token", required=True)
+        if action == "edit-and-approve":
+            decision.add_argument("--markdown-file", required=True, help="UTF-8 file path, or -.")
+        decision.add_argument("--idempotency-key")
+
+
 def _space_inbox_arguments(parsed: argparse.Namespace) -> tuple[str, dict[str, object]]:
     operation = f"{parsed.command}_{parsed.organization_action}"
     arguments: dict[str, object] = {}
@@ -556,9 +672,11 @@ def _run_space_inbox(
                 print(_terminal_text(f"{row['space_id']}  {row['name']}"))
             else:
                 label = row.get("title") or row.get("preview") or row["payload_family"]
-                print(_terminal_text(
-                    f"{row['capture_id']}  [{row['space_id'] or 'unassigned'}]  {label}"
-                ))
+                print(
+                    _terminal_text(
+                        f"{row['capture_id']}  [{row['space_id'] or 'unassigned'}]  {label}"
+                    )
+                )
         if result["next_offset"] is not None:
             print(f"More results: repeat with --offset {result['next_offset']}.")
         if result.get("offset_limit_reached"):
@@ -589,6 +707,123 @@ def _write_space_inbox_failure(code: str, *, json_output: bool) -> int:
     return 1
 
 
+def _review_arguments(parsed: argparse.Namespace) -> tuple[str, dict[str, object]]:
+    operation = cast(str, parsed.review_action).replace("-", "_")
+    arguments: dict[str, object] = {}
+    if operation == "propose":
+        arguments.update(
+            capture_ids=parsed.capture_ids,
+            title=parsed.title,
+            markdown=_read_review_markdown(parsed.markdown_file),
+        )
+        if parsed.target_page_id is not None:
+            arguments["target_page_id"] = parsed.target_page_id
+    elif operation == "list":
+        for field in ("capture_id", "space_id", "status"):
+            value = getattr(parsed, field)
+            if value is not None:
+                arguments[field] = value
+        arguments.update(limit=parsed.limit, offset=parsed.offset)
+    elif operation == "show":
+        arguments["proposal_id"] = parsed.proposal_id
+    else:
+        arguments.update(proposal_id=parsed.proposal_id, review_token=parsed.review_token)
+        if operation == "edit_and_approve":
+            arguments["markdown"] = _read_review_markdown(parsed.markdown_file)
+    key = getattr(parsed, "idempotency_key", None)
+    if key is not None:
+        arguments["idempotency_key"] = key
+    return operation, arguments
+
+
+def _read_review_markdown(value: object) -> str:
+    if not isinstance(value, str) or not value or "\x00" in value:
+        raise ReviewPublicationError("invalid_arguments")
+    try:
+        if value == "-":
+            payload = sys.stdin.buffer.read(MAX_REVIEW_MARKDOWN_BYTES + 1)
+        else:
+            path = Path(value)
+            if not path.is_file():
+                raise ReviewPublicationError("invalid_arguments")
+            with path.open("rb") as source:
+                payload = source.read(MAX_REVIEW_MARKDOWN_BYTES + 1)
+    except OSError:
+        raise ReviewPublicationError("invalid_arguments") from None
+    if len(payload) > MAX_REVIEW_MARKDOWN_BYTES:
+        raise ReviewPublicationError("invalid_arguments")
+    try:
+        return payload.decode("utf-8")
+    except UnicodeDecodeError:
+        raise ReviewPublicationError("invalid_arguments") from None
+
+
+def _run_review(
+    parsed: argparse.Namespace,
+    service: ReviewPublicationService,
+    *,
+    json_output: bool,
+) -> int:
+    operation = cast(str, parsed.review_action).replace("-", "_")
+    arguments = cast(dict[str, object], parsed.review_arguments)
+    handlers = {
+        "propose": service.propose,
+        "list": service.list,
+        "show": service.show,
+        "approve": service.approve,
+        "reject": service.reject,
+        "edit_and_approve": service.edit_and_approve,
+    }
+    result = handlers[operation](arguments)
+    if json_output:
+        _write_json(result)
+    elif operation == "list":
+        rows = cast(list[dict[str, object]], result["proposals"])
+        if not rows:
+            print("No matching review proposals.")
+        for row in rows:
+            print(
+                _terminal_text(
+                    f"{row['proposal_id']}  [{row['status']}]  {row['operation']}  {row['title']}"
+                )
+            )
+        if result["next_offset"] is not None:
+            print(f"More results: repeat with --offset {result['next_offset']}.")
+    elif operation == "show":
+        print(_terminal_text(f"Proposal {result['proposal_id']} [{result['proposal_status']}]"))
+        print(_terminal_text(f"Review token: {result['review_token']}"))
+        if result.get("projection_applied"):
+            print("Privacy projection replaced protected material.")
+        print(_terminal_markdown(cast(str, result["markdown"])))
+    else:
+        print(_terminal_text(json.dumps(result, ensure_ascii=False, sort_keys=True)))
+    return 0
+
+
+def _write_review_failure(code: str, *, json_output: bool) -> int:
+    if code == "invalid_arguments":
+        _write_usage_failure(json_output=json_output)
+        return 2
+    messages = {
+        "idempotency_conflict": "This retry key belongs to a different review operation.",
+        "unknown_proposal": "Review proposal not found. List proposals again.",
+        "unknown_capture": "One or more selected captures were not found.",
+        "unknown_page": "The target canonical page was not found.",
+        "duplicate_source": "Each selected capture ID must be unique.",
+        "mixed_source_spaces": "All selected captures must be routed to the same space.",
+        "source_unrouted": "Every selected capture must be routed before proposing publication.",
+        "terminal_decision": "This proposal already has a terminal decision.",
+        "review_conflict": "The reviewed source, route, draft, or target changed. Inspect again.",
+        "response_too_large": "The complete projected proposal exceeds the inspection limit.",
+    }
+    message = messages.get(code, "Open Brain could not complete the review command.")
+    if json_output:
+        _write_json({"status": "failed", "error": {"code": code, "message": message}})
+    else:
+        print(message, file=sys.stderr)
+    return 1
+
+
 def _run_agent_setup(
     parsed: argparse.Namespace,
     *,
@@ -609,6 +844,9 @@ def _run_agent_setup(
         "allow_search": parsed.allow_search,
         "allow_inbox_read": parsed.allow_inbox_read,
         "allow_organize": parsed.allow_organize,
+        "allow_review_read": parsed.allow_review_read,
+        "allow_review_propose": parsed.allow_review_propose,
+        "allow_review_decide": parsed.allow_review_decide,
         "client": parsed.client,
         "environment": environment,
         "project_dir": parsed.project_dir,
@@ -646,11 +884,14 @@ def _run_local_command(
     tasks = session.tasks
     if parsed.command in {"space", "inbox"}:
         return _run_space_inbox(parsed, SpaceInboxService(tasks.spaces), json_output=json_output)
+    if parsed.command == "review":
+        return _run_review(parsed, ReviewPublicationService(tasks.review), json_output=json_output)
     if parsed.command == "obsidian-plugin":
         return _run_obsidian_plugin(parsed, session, json_output=json_output)
     if parsed.command == "capture":
         capture_receipt = capture_text(
-            tasks.capture, cast(str, parsed.text),
+            tasks.capture,
+            cast(str, parsed.text),
             delivery_id="delivery." + str(uuid.uuid4()),
         )
         _write_capture(capture_receipt, json_output=json_output)
@@ -666,7 +907,9 @@ def _run_local_command(
         )
     if parsed.command == "search":
         results = search_brain(
-            tasks.retrieval, tasks.reconciliation, cast(str, parsed.query),
+            tasks.retrieval,
+            tasks.reconciliation,
+            cast(str, parsed.query),
             limit=cast(int, parsed.limit),
         )
         _write_search(results, json_output=json_output)
@@ -681,6 +924,7 @@ def _run_local_command(
             return search_brain(retrieval, reconciliation, query, limit=limit)
 
         organization = SpaceInboxService(tasks.spaces)
+        review = ReviewPublicationService(tasks.review)
         adapter = LocalMcpAdapter(
             capture=mcp_capture_sink(tasks) if parsed.allow_capture else None,
             search=search if parsed.allow_search else None,
@@ -689,20 +933,22 @@ def _run_local_command(
             space_create=organization.space_create if parsed.allow_organize else None,
             space_rename=organization.space_rename if parsed.allow_organize else None,
             inbox_route=organization.inbox_route if parsed.allow_organize else None,
+            review_list=review.list if parsed.allow_review_read else None,
+            review_show=review.show if parsed.allow_review_read else None,
+            review_propose=review.propose if parsed.allow_review_propose else None,
+            review_approve=review.approve if parsed.allow_review_decide else None,
+            review_reject=review.reject if parsed.allow_review_decide else None,
+            review_edit_and_approve=(
+                review.edit_and_approve if parsed.allow_review_decide else None
+            ),
             workspace_status=(
-                (lambda: workspace_status_result(tasks))
-                if parsed.allow_workspace_read
-                else None
+                (lambda: workspace_status_result(tasks)) if parsed.allow_workspace_read else None
             ),
             graph_suggestions=(
-                (lambda: graph_suggestions(tasks))
-                if parsed.allow_workspace_read
-                else None
+                (lambda: graph_suggestions(tasks)) if parsed.allow_workspace_read else None
             ),
             graph_projection=(
-                (lambda: graph_projection(tasks))
-                if parsed.allow_workspace_read
-                else None
+                (lambda: graph_projection(tasks)) if parsed.allow_workspace_read else None
             ),
             graph_refresh=(
                 (
@@ -717,7 +963,9 @@ def _run_local_command(
             ),
         )
         serve_stdio_mcp(
-            adapter, input_stream=sys.stdin.buffer, output_stream=sys.stdout.buffer,
+            adapter,
+            input_stream=sys.stdin.buffer,
+            output_stream=sys.stdout.buffer,
             maximum_message_bytes=MAX_MESSAGE_BYTES,
         )
         return 0
@@ -824,9 +1072,7 @@ def _run_workspace(
         )
         return 0
     if action == "refresh":
-        receipt = tasks.managed_workspace.refresh(
-            status.workspace_id, operation_id=operation_id
-        )
+        receipt = tasks.managed_workspace.refresh(status.workspace_id, operation_id=operation_id)
         _write_managed(_workspace_receipt(receipt), json_output=json_output)
         return 0
     note_id = getattr(parsed, "note_id", None)
@@ -870,9 +1116,7 @@ def _run_workspace(
     return 0
 
 
-def _run_graph(
-    parsed: argparse.Namespace, tasks: EngineTaskSet, *, json_output: bool
-) -> int:
+def _run_graph(parsed: argparse.Namespace, tasks: EngineTaskSet, *, json_output: bool) -> int:
     action = cast(str, parsed.action)
     if action == "canvas":
         _write_managed(graph_canvas(tasks), json_output=json_output)
@@ -1318,6 +1562,20 @@ def _human_trust(result: RetrievalResult) -> str:
     return "unverified"
 
 
+def _terminal_markdown(value: str) -> str:
+    return "".join(
+        character
+        if character in {"\n", "\t"}
+        or (
+            ord(character) >= 32
+            and not 0x7F <= ord(character) <= 0x9F
+            and unicodedata.category(character) != "Cf"
+        )
+        else " "
+        for character in value
+    )
+
+
 def _terminal_text(value: str) -> str:
     safe = "".join(
         " "
@@ -1357,9 +1615,9 @@ def _record_verified_export(
     try:
         manifest_value = json.loads(manifest)
         manifest_version = cast(dict[str, object], manifest_value)["schema_version"]
-    except (UnicodeDecodeError, json.JSONDecodeError, KeyError, TypeError):
+    except UnicodeDecodeError, json.JSONDecodeError, KeyError, TypeError:
         raise ValueError("Portable export manifest is unavailable") from None
-    if type(manifest_version) is not int or manifest_version not in {1, 2}:
+    if type(manifest_version) is not int or manifest_version not in {1, 2, 3}:
         raise ValueError("Portable export manifest is unavailable")
     session.prepared.revalidate()
     atomic_replace(
@@ -1398,7 +1656,7 @@ def _verified_export_state(session: LocalBrainSession) -> str:
                 "manifest_digest_sha256",
                 "schema_version",
             }
-            or value["schema_version"] not in {1, 2}
+            or value["schema_version"] not in {1, 2, 3}
             or canonical_json_bytes(value) != payload
             or not isinstance(value["created_at"], str)
             or not isinstance(value["export_id"], str)

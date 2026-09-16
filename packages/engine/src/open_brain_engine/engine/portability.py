@@ -12,7 +12,10 @@ from typing import TYPE_CHECKING, cast
 
 from open_brain_engine.core.ids import portable_canonical_json_bytes
 from open_brain_engine.core.locks import LockScope
-from open_brain_engine.portable import PORTABLE_V1_SCHEMA_CATALOG_DIGEST
+from open_brain_engine.portable import (
+    PORTABLE_V1_SCHEMA_CATALOG_DIGEST,
+    PORTABLE_V3_SCHEMA_CATALOG_DIGEST,
+)
 from open_brain_engine.portable.managed_v2 import PORTABLE_V2_SCHEMA_CATALOG_DIGEST
 from open_brain_engine.portable.v1 import PortableSnapshot
 from open_brain_engine.portable.versioned import validate_portable_root, validated_portable_snapshot
@@ -58,6 +61,7 @@ def _receipt(
     if type(manifest.get("schema_version")) is not int or manifest["schema_version"] not in {
         1,
         2,
+        3,
     }:
         raise ValueError("unsupported Portable Brain schema")
     entries = cast(list[dict[str, object]], manifest["files"])
@@ -83,7 +87,7 @@ def _manifest(
     tenant_id: str,
     version: int = 1,
 ) -> dict[str, object]:
-    if version not in {1, 2}:
+    if version not in {1, 2, 3}:
         raise ValueError("unsupported Portable Brain schema")
     return {
         "compatibility": {
@@ -97,11 +101,11 @@ def _manifest(
             {"path": relative, "sha256": sha256(payload).hexdigest()} for relative, payload in files
         ],
         "layout_version": version,
-        "schema_catalog_digest": (
-            PORTABLE_V1_SCHEMA_CATALOG_DIGEST
-            if version == 1
-            else PORTABLE_V2_SCHEMA_CATALOG_DIGEST
-        ),
+        "schema_catalog_digest": {
+            1: PORTABLE_V1_SCHEMA_CATALOG_DIGEST,
+            2: PORTABLE_V2_SCHEMA_CATALOG_DIGEST,
+            3: PORTABLE_V3_SCHEMA_CATALOG_DIGEST,
+        }[version],
         "schema_version": version,
         "tenant_id": tenant_id,
     }
@@ -447,12 +451,15 @@ class PortabilityTasks:
         if managed is not None:
             files.append(managed)
         files.sort(key=lambda item: item[0])
+        has_review_bindings = any(
+            relative.startswith("history/review-bindings/") for relative, _ in files
+        )
         manifest = _manifest(
             files,
             export_id=export_id,
             created_at=_timestamp(self._engine._clock()),
             tenant_id=self._engine.profile.tenant_id,
-            version=2 if managed is not None else 1,
+            version=3 if has_review_bindings else 2 if managed is not None else 1,
         )
         try:
             with sibling_stage(
@@ -597,25 +604,28 @@ class PortabilityTasks:
                     snapshot=stage_snapshot,
                     expected_root_identity=stage_identity,
                 )
-                if manifest["schema_version"] == 2:
+                if manifest["schema_version"] in {2, 3}:
                     managed_paths = [
                         path
                         for path in stage_snapshot.files
                         if path.startswith("history/managed-workspace/")
                     ]
-                    if len(managed_paths) != 1:
+                    if manifest["schema_version"] == 2 and len(managed_paths) != 1:
                         raise ValueError("Portable v2 managed state is unavailable")
-                    from .local import BrainEngine
+                    if managed_paths:
+                        if len(managed_paths) != 1:
+                            raise ValueError("Portable managed state is invalid")
+                        from .local import BrainEngine
 
-                    staged_engine = BrainEngine.open(materialization.profile)
-                    import_managed_workspace_state(
-                        staged_engine,
-                        stage_snapshot.files[managed_paths[0]],
-                    )
-                    materialization = replace(
-                        materialization,
-                        history_records=materialization.history_records + 1,
-                    )
+                        staged_engine = BrainEngine.open(materialization.profile)
+                        import_managed_workspace_state(
+                            staged_engine,
+                            stage_snapshot.files[managed_paths[0]],
+                        )
+                        materialization = replace(
+                            materialization,
+                            history_records=materialization.history_records + 1,
+                        )
                 stage.assert_identity()
                 self._engine._fault(PortabilityFault.AFTER_MATERIALIZATION)
                 index = rebuild_portable_index(materialization.profile)
@@ -695,5 +705,13 @@ class PortabilityTasks:
             export_id="export_00000000-0000-4000-8000-000000000000",
             created_at="1970-01-01T00:00:00Z",
             tenant_id=self._engine.profile.tenant_id,
+            version=(
+                3
+                if any(
+                    relative.startswith("history/review-bindings/")
+                    for relative, _ in files
+                )
+                else 1
+            ),
         )
         return _receipt(manifest, status="rebuilt", index_generation=index.generation)

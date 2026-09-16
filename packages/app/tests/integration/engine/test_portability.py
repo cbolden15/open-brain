@@ -16,6 +16,7 @@ import pytest
 from open_brain_engine.core.ids import portable_canonical_json_bytes
 from open_brain_engine.engine import (
     BrainEngine,
+    CaptureAction,
     DecisionOutcome,
     EventPayload,
     InjectedFault,
@@ -300,6 +301,310 @@ def test_populated_live_root_round_trips_with_stable_identity_bytes_and_results(
     assert (imported / ".open-brain" / "indexes" / "search.sqlite3").is_file()
     public = asdict(import_receipt)
     assert not any("path" in key or "digest" in key or "content" in key for key in public)
+
+
+def test_bound_page_three_revision_v3_round_trip_is_byte_and_identity_stable(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "bound-source"
+    engine = _engine(source)
+    space_id = engine.inbox.create_space(
+        "Portable Bound", delivery_id="delivery.bound.portable.space"
+    ).space_id
+    captures = tuple(
+        engine.capture.accept(
+            TextPayload(f"Portable bound source {index}"),
+            delivery_id=f"delivery.bound.portable.source.{index}",
+            space_id=space_id,
+        ).capture_id
+        for index in range(3)
+    )
+    created = engine.review.propose(
+        (captures[0],),
+        (ProposalDraft("Stable portable page", "Portable revision one"),),
+        delivery_id="delivery.bound.portable.create",
+    )[0]
+    engine.review.decide(
+        created.proposal_id,
+        DecisionOutcome.APPROVED,
+        delivery_id="delivery.bound.portable.create.approve",
+        expected_review_digest=created.review_digest,
+    )
+    current = created
+    for ordinal, capture_id in enumerate(captures[1:], start=2):
+        reopened = _engine(source)
+        current = reopened.review.propose(
+            (capture_id,),
+            (
+                ProposalDraft(
+                    "Stable portable page", f"Portable revision {ordinal} final phrase"
+                ),
+            ),
+            delivery_id=f"delivery.bound.portable.update.{ordinal}",
+            target_page_id=created.page_id,
+        )[0]
+        reopened.review.decide(
+            current.proposal_id,
+            DecisionOutcome.APPROVED,
+            delivery_id=f"delivery.bound.portable.update.{ordinal}.approve",
+            expected_review_digest=current.review_digest,
+        )
+
+    reopened = _engine(source)
+    rebuilt = reopened.tasks.portability.rebuild_index()
+    results = reopened.retrieval.search(
+        "Portable revision 3 final phrase", record_type="canonical"
+    )
+    exported = tmp_path / "bound-exported"
+    reopened.tasks.portability.export(
+        exported,
+        export_id="export_123e4567-e89b-42d3-a456-4266141740e1",
+    )
+    imported = tmp_path / "bound-imported"
+    reopened.tasks.portability.import_clean(
+        exported,
+        imported,
+        import_id="import_123e4567-e89b-42d3-a456-4266141740e2",
+    )
+    reexported = tmp_path / "bound-reexported"
+    imported_engine = _engine(imported)
+    imported_engine._rederive_live_search_projection()
+    imported_rebuild = imported_engine.tasks.portability.rebuild_index()
+    imported_engine.tasks.portability.export(
+        reexported,
+        export_id="export_123e4567-e89b-42d3-a456-4266141740e3",
+    )
+
+    assert rebuilt.index_generation is not None
+    assert imported_rebuild.index_generation is not None
+    assert [result.result_id for result in results] == [created.page_id]
+    assert validate_portable_root(exported)["schema_version"] == 3
+    assert _portable_bytes(exported) == _portable_bytes(imported)
+    assert _portable_bytes(exported) == _portable_bytes(reexported)
+    assert len(tuple(exported.glob("history/review-bindings/*/*/*.json"))) == 3
+    publications = tuple(exported.glob("history/publications/*/*/*.json"))
+    assert len(
+        [
+            path
+            for path in publications
+            if json.loads(path.read_bytes()).get("page_id") == created.page_id
+        ]
+    ) == 3
+    imported_results = imported_engine.retrieval.search(
+        "Portable revision 3 final phrase", record_type="canonical"
+    )
+    assert [result.result_id for result in imported_results] == [created.page_id]
+    shown = imported_engine.review.show(current.proposal_id)
+    assert shown.capture_ids == captures
+    reroute_target = imported_engine.inbox.create_space(
+        "Blocked Reroute", delivery_id="delivery.bound.portable.reroute-space"
+    )
+    with pytest.raises(ValueError, match="published capture cannot be rerouted"):
+        imported_engine.inbox.route(
+            captures[1],
+            reroute_target.space_id,
+            delivery_id="delivery.bound.portable.reroute",
+        )
+
+
+def test_imported_legacy_canonical_capture_remains_the_page_owner(tmp_path: Path) -> None:
+    source = tmp_path / "legacy-owner-source"
+    engine = _engine(source)
+    space = engine.inbox.create_space(
+        "Legacy Owner", delivery_id="delivery.legacy.owner.space"
+    )
+    capture = engine.capture.accept(
+        TextPayload("Imported legacy owner phrase"),
+        delivery_id="delivery.legacy.owner.capture",
+        action=CaptureAction.CANONICAL_NOTE,
+        space_id=space.space_id,
+    )
+    expected = engine.retrieval.search(
+        "Imported legacy owner phrase", record_type="canonical"
+    )[0]
+    exported = tmp_path / "legacy-owner-export"
+    engine.portability.export(
+        exported,
+        export_id="export_123e4567-e89b-42d3-a456-4266141740e8",
+    )
+    imported = tmp_path / "legacy-owner-import"
+    engine.portability.import_clean(
+        exported,
+        imported,
+        import_id="import_123e4567-e89b-42d3-a456-4266141740e9",
+    )
+    reopened = _engine(imported)
+
+    reopened._rederive_live_search_projection()
+    results = reopened.retrieval.search(
+        "Imported legacy owner phrase", record_type="canonical"
+    )
+
+    assert [(result.result_id, result.capture_id) for result in results] == [
+        (expected.result_id, capture.capture_id)
+    ]
+
+
+def test_imported_pending_bound_create_can_be_approved(tmp_path: Path) -> None:
+    engine, _ = _import_fixture(tmp_path)
+    source = engine.capture.accept(
+        TextPayload("Imported pending bound phrase"),
+        delivery_id="delivery.pending.bound.source",
+        space_id=engine.inbox.spaces()[0].space_id,
+    )
+    proposal = engine.review.propose(
+        (source.capture_id,),
+        (ProposalDraft("Imported pending bound", "Imported pending bound body"),),
+        delivery_id="delivery.pending.bound.propose",
+    )[0]
+    exported = tmp_path / "pending-bound-export"
+    engine.portability.export(
+        exported,
+        export_id="export_123e4567-e89b-42d3-a456-4266141740e4",
+    )
+    imported = tmp_path / "pending-bound-import"
+    engine.portability.import_clean(
+        exported,
+        imported,
+        import_id="import_123e4567-e89b-42d3-a456-4266141740e5",
+    )
+    reopened = _engine(imported)
+
+    reopened.review.decide(
+        proposal.proposal_id,
+        DecisionOutcome.APPROVED,
+        delivery_id="delivery.pending.bound.approve",
+        expected_review_digest=proposal.review_digest,
+    )
+
+    assert [
+        result.result_id
+        for result in reopened.retrieval.search(
+            "Imported pending bound body", record_type="canonical"
+        )
+    ] == [proposal.page_id]
+    assert tuple(imported.rglob(f"{proposal.page_id}.md"))
+    assert len(tuple(imported.glob("history/publications/*/*/*.json"))) >= 2
+
+
+def test_imported_pending_legacy_page_create_can_be_approved(tmp_path: Path) -> None:
+    engine, _ = _import_fixture(tmp_path)
+    source = engine.capture.accept(
+        TextPayload("Imported pending legacy phrase"),
+        delivery_id="delivery.pending.legacy.source",
+        space_id=engine.inbox.spaces()[0].space_id,
+    )
+    proposal = engine.review.propose(
+        source.capture_id,
+        (ProposalDraft("Imported pending legacy", "Imported pending legacy body"),),
+        delivery_id="delivery.pending.legacy.propose",
+    )[0]
+    exported = tmp_path / "pending-legacy-export"
+    engine.portability.export(
+        exported,
+        export_id="export_123e4567-e89b-42d3-a456-4266141740e6",
+    )
+    imported = tmp_path / "pending-legacy-import"
+    engine.portability.import_clean(
+        exported,
+        imported,
+        import_id="import_123e4567-e89b-42d3-a456-4266141740e7",
+    )
+    reopened = _engine(imported)
+
+    reopened.review.decide(
+        proposal.proposal_id,
+        DecisionOutcome.APPROVED,
+        delivery_id="delivery.pending.legacy.approve",
+    )
+
+    assert [
+        result.result_id
+        for result in reopened.retrieval.search(
+            "Imported pending legacy body", record_type="canonical"
+        )
+    ] == [proposal.page_id]
+    assert tuple(imported.rglob(f"{proposal.page_id}.md"))
+
+
+def test_v3_rejects_recomputed_edited_publication_provenance_tamper(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "edited-tamper-source"
+    engine = _engine(root)
+    space = engine.inbox.create_space(
+        "Edited Tamper", delivery_id="delivery.edited.tamper.space"
+    )
+    captures = tuple(
+        engine.capture.accept(
+            TextPayload(f"Edited tamper source {index}"),
+            delivery_id=f"delivery.edited.tamper.source.{index}",
+            space_id=space.space_id,
+        ).capture_id
+        for index in range(2)
+    )
+    proposal = engine.review.propose(
+        captures,
+        (ProposalDraft("Edited tamper", "Original reviewed body"),),
+        delivery_id="delivery.edited.tamper.propose",
+    )[0]
+    engine.review.decide(
+        proposal.proposal_id,
+        DecisionOutcome.EDITED,
+        delivery_id="delivery.edited.tamper.approve",
+        edited_markdown="Legitimate edited body",
+        expected_review_digest=proposal.review_digest,
+    )
+    exported = tmp_path / "edited-tamper-export"
+    engine.portability.export(
+        exported,
+        export_id="export_123e4567-e89b-42d3-a456-4266141740ea",
+    )
+    assert validate_portable_root(exported)["schema_version"] == 3
+
+    decision_path = next(
+        path
+        for path in (exported / "history/decisions").rglob("*.json")
+        if json.loads(path.read_bytes())["proposal_id"] == proposal.proposal_id
+    )
+    decision = cast(dict[str, object], json.loads(decision_path.read_bytes()))
+    publication_path = next(
+        path
+        for path in (exported / "history/publications").rglob("*.json")
+        if json.loads(path.read_bytes())["decision_id"] == decision["decision_id"]
+    )
+    publication = cast(dict[str, object], json.loads(publication_path.read_bytes()))
+    page_path = exported / cast(str, publication["published_path"])
+    page = parse_markdown(page_path.read_bytes())
+    tampered = render_markdown(
+        fields={**page.fields, "provenance": [captures[0]]},
+        body=page.body,
+    ).encode()
+    tampered_digest = sha256(tampered).hexdigest()
+    decision["edited_content"] = {
+        "bytes_base64": base64.b64encode(tampered).decode("ascii"),
+        "sha256": tampered_digest,
+    }
+    decision["terminal_digest"] = sha256(
+        portable_canonical_json_bytes(
+            {
+                "decision_id": decision["decision_id"],
+                "edited_content_sha256": tampered_digest,
+                "expected_state_digest": decision["expected_state_digest"],
+                "outcome": decision["outcome"],
+                "proposal_id": decision["proposal_id"],
+            }
+        )
+    ).hexdigest()
+    publication["published_bytes_base64"] = base64.b64encode(tampered).decode("ascii")
+    publication["published_sha256"] = tampered_digest
+    decision_path.write_bytes(portable_canonical_json_bytes(decision))
+    publication_path.write_bytes(portable_canonical_json_bytes(publication))
+    page_path.write_bytes(tampered)
+    _rewrite_manifest(exported)
+
+    with pytest.raises(PortableValidationError, match="published page binding"):
+        validate_portable_root(exported)
 
 
 def test_null_event_and_measurement_occurrence_round_trip_without_fabrication(

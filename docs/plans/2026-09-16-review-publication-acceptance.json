@@ -1,0 +1,150 @@
+{
+  "schema_version": 1,
+  "acceptance": {
+    "A1": {
+      "pytest": [
+        "packages/app/tests/integration/services/test_local_entrypoints.py::test_owner_review_cli_runs_all_operations_without_mcp_grants",
+        "packages/app/tests/integration/services/test_local_mcp.py::test_live_review_stdio_runs_all_operations_with_explicit_grants"
+      ],
+      "native": [
+        "A1_cli_review_workflow",
+        "A1_all_operations_all_transports"
+      ]
+    },
+    "A2": {
+      "pytest": [
+        "tests/release/test_review_publish_acceptance.py::test_source_executable_passes_required_review_publication_checks"
+      ],
+      "native": [
+        "A2_explicit_consolidation_2_3_2",
+        "exact_portable_artifacts"
+      ]
+    },
+    "A3": {
+      "pytest": [
+        "packages/app/tests/integration/engine/test_review_publication_engine.py::test_bound_update_preserves_identity_path_and_cumulative_provenance",
+        "packages/app/tests/integration/engine/test_review_publication_engine.py::test_bound_update_refuses_manual_target_divergence",
+        "packages/app/tests/integration/engine/test_review_publication_engine.py::test_manual_exact_proposed_page_cannot_bypass_predecessor_check",
+        "packages/app/tests/integration/engine/test_review_publication_engine.py::test_first_bound_update_can_anchor_a_legacy_publication"
+      ],
+      "native": [
+        "A3_stable_page_update",
+        "A1_all_operations_all_transports",
+        "exact_portable_artifacts"
+      ]
+    },
+    "A4": {
+      "pytest": [
+        "packages/app/tests/integration/engine/test_review_publication_engine.py::test_bound_decision_requires_exact_review_digest",
+        "packages/app/tests/integration/engine/test_review_publication_engine.py::test_bound_proposal_refuses_invalid_source_sets",
+        "packages/app/tests/integration/engine/test_review_publication_engine.py::test_bound_decision_refuses_corrupted_immutable_source_bytes",
+        "packages/app/tests/integration/engine/test_review_publication_engine.py::test_approved_bound_reservation_prevents_rerouting",
+        "packages/app/tests/integration/engine/test_review_publication_engine.py::test_cumulative_source_and_markdown_byte_boundaries",
+        "packages/app/tests/integration/engine/test_review_publication_engine.py::test_bound_edit_enforces_utf8_byte_limit_before_reservation",
+        "packages/app/tests/integration/engine/test_review_publication_engine.py::test_legacy_update_refuses_symlink_before_decision_reservation",
+        "packages/app/tests/integration/engine/test_review_publication_engine.py::test_review_rejects_symlinked_source_or_legacy_history",
+        "packages/app/tests/integration/engine/test_review_routing.py::test_imported_review_binds_causal_route_head_not_import_order"
+      ],
+      "native": [
+        "A1_cli_review_workflow"
+      ]
+    },
+    "A5": {
+      "pytest": [
+        "packages/app/tests/integration/engine/test_review_publication_engine.py::test_competing_updates_allow_only_one_successor_and_terminal_outcome",
+        "packages/app/tests/integration/engine/test_review_publication_engine.py::test_retry_identity_binds_sources_draft_target_outcome_and_token",
+        "packages/app/tests/integration/engine/test_review_publication_engine.py::test_terminal_bound_decision_does_not_claim_an_unreserved_retry_key",
+        "packages/app/tests/integration/engine/test_review_publication_engine.py::test_bound_review_replays_early_fault_boundaries",
+        "packages/app/tests/integration/engine/test_review_publication_engine.py::test_new_bound_mutation_drains_interrupted_update_before_reservation",
+        "packages/app/tests/integration/engine/test_review_publication_engine.py::test_older_update_replay_cannot_overwrite_newer_revision"
+      ],
+      "native": [
+        "A1_all_operations_all_transports"
+      ]
+    },
+    "A6": {
+      "pytest": [
+        "packages/app/tests/integration/engine/test_review_schema.py::test_v4_pending_and_terminal_reviews_survive_upgrade",
+        "packages/app/tests/integration/engine/test_review_schema.py::test_review_migration_failure_keeps_historical_schema",
+        "packages/app/tests/integration/engine/test_local_schema.py::test_historical_layouts_converge_without_losing_records",
+        "packages/app/tests/integration/engine/test_local_schema.py::test_invalid_or_newer_input_is_refused_before_mutation",
+        "packages/app/tests/integration/engine/test_local_schema.py::test_catalog_checksums_are_frozen",
+        "packages/app/tests/integration/engine/test_local_schema.py::test_concurrent_upgraders_observe_one_committed_ledger",
+        "packages/app/tests/integration/engine/test_local_schema.py::test_upgrade_writer_contention_is_bounded_and_retry_safe",
+        "packages/app/tests/integration/engine/test_local_schema.py::test_interrupted_wal_upgrade_reopens_old_state_then_retries"
+      ],
+      "native": [
+        "A10_candidate_executable"
+      ]
+    },
+    "A7": {
+      "pytest": [
+        "packages/app/tests/integration/engine/test_portability.py::test_bound_page_three_revision_v3_round_trip_is_byte_and_identity_stable",
+        "packages/app/tests/integration/engine/test_portability.py::test_imported_pending_bound_create_can_be_approved",
+        "packages/app/tests/integration/engine/test_portability.py::test_imported_pending_legacy_page_create_can_be_approved",
+        "packages/app/tests/integration/engine/test_portability.py::test_imported_legacy_canonical_capture_remains_the_page_owner",
+        "packages/app/tests/integration/engine/test_portability.py::test_populated_live_root_round_trips_with_stable_identity_bytes_and_results",
+        "packages/app/tests/integration/engine/test_review_search.py::test_search_and_reindex_preserve_all_sources_and_redact_secondary_reference",
+        "packages/engine/tests/contract/test_portable_brain_v3.py::test_v3_rejects_edited_publication_that_drops_bound_provenance"
+      ],
+      "native": [
+        "exact_portable_artifacts"
+      ]
+    },
+    "A8": {
+      "pytest": [
+        "packages/app/tests/integration/services/test_local_mcp.py::test_review_capabilities_are_independently_listed_and_enforced",
+        "packages/app/tests/integration/services/test_local_mcp.py::test_live_review_flags_expose_only_their_tool_group",
+        "packages/app/tests/unit/test_agent_setup.py::test_review_grants_are_independent_preview_bound_and_documented",
+        "packages/app/tests/unit/test_agent_setup.py::test_claude_review_grants_preserve_unrelated_configuration",
+        "packages/app/tests/unit/test_agent_setup.py::test_removal_preserves_exact_outside_instruction_bytes"
+      ],
+      "native": [
+        "A8_generated_agent_configs",
+        "A1_all_operations_all_transports"
+      ]
+    },
+    "A9": {
+      "pytest": [
+        "packages/app/tests/integration/engine/test_review_publication_engine.py::test_long_protected_reference_is_projected_before_evidence_truncation",
+        "packages/app/tests/integration/engine/test_review_publication_engine.py::test_show_projects_hostile_secondary_evidence_without_losing_unicode",
+        "packages/app/tests/integration/engine/test_review_publication_engine.py::test_review_list_projects_title_against_all_source_references",
+        "packages/app/tests/integration/engine/test_review_publication_engine.py::test_review_list_filters_source_space_and_pages",
+        "packages/app/tests/integration/services/test_review_publication.py::test_proposal_receipt_fits_four_kib_at_unicode_and_source_limits",
+        "packages/app/tests/integration/services/test_review_publication.py::test_validator_rejects_invalid_or_oversized_requests",
+        "packages/app/tests/integration/services/test_review_publication.py::test_list_is_bounded_and_has_a_continuation_cursor",
+        "packages/app/tests/integration/services/test_local_mcp.py::test_review_quotas_validate_before_charging_and_separate_operation_groups",
+        "packages/app/tests/integration/services/test_local_mcp.py::test_review_response_budget_includes_request_id_and_reserves_before_write"
+      ],
+      "native": [
+        "A1_all_operations_all_transports"
+      ]
+    },
+    "A10": {
+      "pytest": [
+        "tests/release/test_review_publish_acceptance.py::test_source_executable_passes_required_review_publication_checks",
+        "tests/release/test_review_publish_acceptance.py::test_candidate_failure_is_reported_and_returns_nonzero"
+      ],
+      "native": [
+        "A10_candidate_executable",
+        "A1_all_operations_all_transports",
+        "A8_generated_agent_configs",
+        "A2_explicit_consolidation_2_3_2",
+        "A3_stable_page_update",
+        "exact_portable_artifacts"
+      ]
+    },
+    "A11": {
+      "pytest": [
+        "packages/app/tests/integration/services/test_local_entrypoints.py::test_review_help_explains_the_complete_root_free_workflow",
+        "packages/app/tests/integration/services/test_local_entrypoints.py::test_owner_review_cli_runs_all_operations_without_mcp_grants",
+        "packages/app/tests/integration/services/test_local_mcp.py::test_help_discloses_both_choices_without_bootstrap",
+        "packages/app/tests/unit/test_agent_setup.py::test_review_grants_are_independent_preview_bound_and_documented"
+      ],
+      "native": [
+        "A1_all_operations_all_transports",
+        "A2_explicit_consolidation_2_3_2"
+      ]
+    }
+  }
+}

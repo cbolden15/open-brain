@@ -26,13 +26,20 @@ open-brain agent setup --client claude-code --scope project \
 ```
 
 Use `--client codex` for Codex. Use `--scope user` and omit `--project-dir` to apply across projects.
-Capture, search, inbox reading, and organization are separate grants. Omit a flag to withhold that
+Capture, search, inbox reading, organization, review reading, proposal creation, and review decisions
+are separate grants. Omit a flag to withhold that
 capability. `--allow-inbox-read` grants `brain_inbox_list` and `brain_space_list`.
 `--allow-organize` grants `brain_space_create`, `brain_space_rename`, and `brain_inbox_route`.
 Neither grant follows automatically from capture or search. At least one grant is required when
 configuring. `--runtime /absolute/path/to/open-brain` can select an executable; otherwise setup uses
 the running core. `--data-dir /absolute/path/to/brain` selects an expert/test Brain override. Normal
 setup uses the platform-default Brain.
+
+For the full review workflow, add `--allow-review-read --allow-review-propose --allow-review-decide`
+to both preview and apply. Review reading exposes list/show, proposing creates a draft from explicit
+source IDs, and deciding permits approve/reject/edit-and-approve. None follows from capture, search,
+or organize. Use [review and publication](review-publication.md) for the complete CLI/MCP workflow,
+including stable page updates. Direct owner CLI review commands need no MCP grants.
 
 For a source checkout, prefix these commands with `uv run`. Keep the checkout and its environment
 at the same location because agent configuration records an absolute executable path.
@@ -82,7 +89,7 @@ a capture when the user asks. Routing changes assignment and search metadata. It
 the capture, change its trust, or convert it into a canonical note. Generated instructions name only
 the explicitly granted tools and limit organization to the current user request.
 
-Existing state uses private schema version 4 and runtime session version 1. Stop older sessions before
+Existing state uses private schema version 5 and runtime session version 1. Stop older sessions before
 upgrading an existing Brain. Older runtimes reject the newer schema, so update other installed clients
 before using them on that Brain. After moving the app or upgrading a CLI whose versioned path changes, preview setup again.
 

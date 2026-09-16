@@ -30,7 +30,14 @@ class StdioMcpAdapter(Protocol):
 
     def list_tools(self) -> tuple[McpToolDefinition, ...]: ...
 
-    def call_tool(self, name: str, arguments: Mapping[str, object]) -> dict[str, object]: ...
+    def call_tool(
+        self,
+        name: str,
+        arguments: Mapping[str, object],
+        *,
+        request_id: object = 0,
+        maximum_response_bytes: int = 1_048_576,
+    ) -> dict[str, object]: ...
 
 
 MCP_PROTOCOL_VERSION = "2025-03-26"
@@ -73,7 +80,9 @@ def serve_stdio_mcp(
             ):
                 return
             continue
-        response, initialized = _handle_message(line, adapter, initialized)
+        response, initialized = _handle_message(
+            line, adapter, initialized, maximum_response_bytes=maximum_message_bytes
+        )
         if response is not None and not _write_response(
             output_stream, response, maximum_message_bytes
         ):
@@ -91,6 +100,8 @@ def _handle_message(
     line: bytes,
     adapter: StdioMcpAdapter,
     initialized: bool,
+    *,
+    maximum_response_bytes: int,
 ) -> tuple[dict[str, object] | None, bool]:
     try:
         decoded = json.loads(line.decode("utf-8"))
@@ -136,7 +147,15 @@ def _handle_message(
             return _error_response(request_id, -32602, "invalid params"), initialized
         return _result_response(request_id, {"tools": list(adapter.list_tools())}), initialized
     if method == "tools/call":
-        return _call_tool_response(request_id, params, adapter), initialized
+        return (
+            _call_tool_response(
+                request_id,
+                params,
+                adapter,
+                maximum_response_bytes=maximum_response_bytes,
+            ),
+            initialized,
+        )
     return _error_response(request_id, -32601, "method not found"), initialized
 
 
@@ -172,6 +191,8 @@ def _call_tool_response(
     request_id: object,
     params: Mapping[str, object],
     adapter: StdioMcpAdapter,
+    *,
+    maximum_response_bytes: int,
 ) -> dict[str, object]:
     if set(params) != {"name", "arguments"}:
         return _error_response(request_id, -32602, "invalid params")
@@ -180,7 +201,12 @@ def _call_tool_response(
     if not isinstance(name, str) or not isinstance(arguments, dict):
         return _error_response(request_id, -32602, "invalid params")
     try:
-        result = adapter.call_tool(name, arguments)
+        result = adapter.call_tool(
+            name,
+            arguments,
+            request_id=request_id,
+            maximum_response_bytes=maximum_response_bytes,
+        )
     except McpCallError as exc:
         message = str(exc)
         if message not in {
@@ -196,19 +222,41 @@ def _call_tool_response(
             "session_organization_read_limit",
             "session_organization_write_limit",
             "session_organization_response_limit",
+            "unknown_proposal",
+            "unknown_capture",
+            "unknown_page",
+            "duplicate_source",
+            "mixed_source_spaces",
+            "source_unrouted",
+            "terminal_decision",
+            "review_conflict",
+            "response_too_large",
+            "session_review_read_limit",
+            "session_review_proposal_limit",
+            "session_review_decision_limit",
+            "session_review_response_limit",
         }:
             message = "tool call failed"
         return _result_response(
             request_id,
             {"content": [{"type": "text", "text": message}], "isError": True},
         )
+    return _tool_result_response(request_id, result)
+
+
+def encoded_tool_response_size(request_id: object, result: Mapping[str, object]) -> int:
+    """Return the exact JSON byte size emitted for one successful tool result."""
+    response = _tool_result_response(request_id, result)
+    return len(json.dumps(response, separators=(",", ":"), ensure_ascii=True).encode("utf-8"))
+
+
+def _tool_result_response(
+    request_id: object, result: Mapping[str, object]
+) -> dict[str, object]:
     content = json.dumps(result, separators=(",", ":"), ensure_ascii=True)
     return _result_response(
         request_id,
-        {
-            "content": [{"type": "text", "text": content}],
-            "structuredContent": result,
-        },
+        {"content": [{"type": "text", "text": content}], "structuredContent": result},
     )
 
 
