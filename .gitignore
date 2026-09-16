@@ -8,13 +8,13 @@ private-denylist.txt
 *.credentials
 
 # Private content and runtime state
-content/
-state/
-runtime/
-captures/
-transcripts/
-media/
-vault/
+/content/
+/state/
+/runtime/
+/captures/
+/transcripts/
+/media/
+/vault/
 *.db
 *.sqlite
 *.sqlite3

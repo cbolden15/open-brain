@@ -82,6 +82,7 @@ def test_native_specs_keep_base_and_graphify_in_separate_executables() -> None:
         "open_brain_engine.portability.secure_node",
         "open_brain_engine.ledger",
         "open_brain_engine.protocol",
+        "open_brain_collector",
         "http.server",
         "docker",
         "prctl",
@@ -95,10 +96,12 @@ def test_native_specs_keep_base_and_graphify_in_separate_executables() -> None:
     assert "open_brain_engine.engine.local_schema_catalog" in base_native._REQUIRED_MODULES
     assert "open_brain_engine.storage.migrations" in base_native._REQUIRED_MODULES
     for module in (
+        "open_brain.services.agent_setup",
         "open_brain.services.graph_projection_store",
         "open_brain.services.graphify_projection",
         "open_brain.services.local_mcp",
         "open_brain.services.local_operations",
+        "open_brain.services.local_runtime_session",
         "open_brain.services.mcp_protocol",
     ):
         assert module in base_native._REQUIRED_MODULES
@@ -319,11 +322,13 @@ def test_local_homebrew_smoke_uses_a_temporary_tap() -> None:
     assert target.splitlines() == [
         "\t$(MAKE) verify",
         "\t$(MAKE) native-integration-smoke",
+        "\t$(MAKE) desktop-native",
     ]
     native_smoke = makefile.split("native-integration-smoke:", 1)[1].split("\n\n", 1)[0]
     assert native_smoke == " homebrew-smoke"
     verify = makefile.split("verify:", 1)[1].split("\n\n", 1)[0]
     assert "plugin-test" in verify
+    assert "desktop-test" in verify
     assert "contributor-check" in makefile.splitlines()[0]
 
 

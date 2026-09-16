@@ -3,6 +3,7 @@ from __future__ import annotations
 import ctypes
 import json
 import resource
+import subprocess
 import sys
 from pathlib import Path
 
@@ -31,6 +32,24 @@ def _runner(tmp_path: Path) -> BoundedMediaRunner:
 
 def _command(script: str, *, limits: MediaLimits = DEFAULT_MEDIA_LIMITS) -> MediaCommand:
     return MediaCommand(argv=(sys.executable, "-c", script), limits=limits)
+
+
+def _skip_if_sandbox_apply_denied() -> None:
+    probe = subprocess.run(
+        (
+            "/usr/bin/sandbox-exec",
+            "-p",
+            "(version 1)(deny default)(allow process-exec)",
+            "/usr/bin/true",
+        ),
+        capture_output=True,
+        check=False,
+    )
+    if (
+        probe.returncode == 71
+        and b"sandbox-exec: sandbox_apply: Operation not permitted" in probe.stderr
+    ):
+        pytest.skip("sandbox-exec sandbox_apply denied by the execution environment")
 
 
 def _enable_synthetic_process_boundary(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -303,7 +322,12 @@ def test_unallowlisted_executable_fails_closed_without_starting_or_staging(tmp_p
 def test_macos_runner_uses_sandbox_and_parent_memory_monitor(
     tmp_path: Path,
 ) -> None:
-    result = _runner(tmp_path).run(_command("print('synthetic')"))
+    _skip_if_sandbox_apply_denied()
+    runner = BoundedMediaRunner(
+        allowed_executables=("/usr/bin/printf",),
+        staging_parent=tmp_path,
+    )
+    result = runner.run(MediaCommand(argv=("/usr/bin/printf", "synthetic\n")))
 
     assert result.failure is None
     assert result.stdout == b"synthetic\n"

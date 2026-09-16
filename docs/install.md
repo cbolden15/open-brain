@@ -10,7 +10,7 @@ Install Homebrew first and make sure this succeeds:
 brew --version
 ```
 
-Open Brain supports macOS on Apple Silicon and Linux on x86_64. There is no curl installer, Docker
+The core CLI supports macOS on Apple Silicon and Linux on x86_64. There is no curl installer, Docker
 image, Python runtime requirement, or manual database setup for end users.
 
 ## Install
@@ -118,6 +118,31 @@ Homebrew removes the executable. The Brain data directory survives by default. R
 a separate explicit action; do not delete it unless a verified export or another retained copy exists.
 
 ## Build from source
+
+### Dedicated desktop companion
+
+The optional desktop companion in `packages/desktop` is a contributor build with local capture,
+search, and agent setup. Homebrew installs the core and Obsidian assets separately. Source
+connections and background collection are not implemented.
+
+Claude Code and Codex can also be configured through the [headless CLI](agent-setup.md).
+
+On macOS arm64, build the `.app` and run its isolated proof from the repository root:
+
+```sh
+make desktop-native
+make desktop-native-proof
+```
+
+The application is written to
+`packages/desktop/src-tauri/target/release/bundle/macos/Open Brain Desktop.app`.
+
+Desktop contributors need the Rust and platform webview prerequisites in addition to the core
+toolchain. The desktop package and [ADR 0017](architecture/decisions/0017-desktop-companion-boundary.md)
+define the native build and acceptance boundary. Local macOS app compilation is not a public
+desktop release, and Linux desktop support still requires its own clean-host native proof.
+
+### Core contributor checks
 
 End users should use Homebrew. Contributors can follow [`../CONTRIBUTING.md`](../CONTRIBUTING.md) and
 run `make contributor-check` from a checkout. The command-line check does not replace the separate

@@ -19,6 +19,7 @@ classifiers = [
 ]
 dependencies = [
   "open-brain-engine==0.1.0",
+  "pypdf==6.18.1",
 ]
 
 [project.urls]
@@ -30,6 +31,9 @@ Changelog = "https://github.com/cbolden15/open-brain/blob/main/CHANGELOG.md"
 
 [project.entry-points."open_brain.connectors.v1"]
 youtube = "open_brain_connectors.conformance:connector"
+
+[project.scripts]
+open-brain-source = "open_brain_connectors.runtime.source_cli:run_cli"
 
 [tool.uv.sources]
 open-brain-engine = { workspace = true }

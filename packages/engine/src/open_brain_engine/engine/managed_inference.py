@@ -56,6 +56,11 @@ class ManagedInferenceTasks:
         self._engine = engine
         self._workspace_tasks = workspace
 
+    def recover_abandoned_sessions(self) -> int:
+        """End abandoned or final-client authority under serialized session control."""
+        with self._engine._writer_lease.acquire_shared_writer():
+            return self._recover_startup_locked()
+
     def suggestions(self, workspace_id: str) -> tuple[ManagedSuggestion, ...]:
         _portable_id(workspace_id, "workspace")
         connection = self._engine._store.connect()

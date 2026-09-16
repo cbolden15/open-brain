@@ -1755,6 +1755,8 @@ class ManagedInferenceTask(Protocol):
         self, workspace_id: str, suggestion_id: str, *, operation_id: str
     ) -> ManagedInferenceReceipt: ...
 
+    def recover_abandoned_sessions(self) -> int: ...
+
 
 @dataclass(frozen=True, slots=True)
 class EngineTaskSet:

@@ -1,7 +1,7 @@
 # Open Brain
 
 **GitHub:** `cbolden15/open-brain`
-**Stack:** Python 3.14, uv workspace packages, SQLite, Markdown, PyInstaller, Homebrew
+**Stack:** Python 3.14, uv workspace packages, SQLite, Markdown, PyInstaller, Homebrew; Tauri/Rust and React/TypeScript for the separate desktop
 
 ## Quick reference
 
@@ -13,19 +13,33 @@
 | Native distribution audit | `make native-audit` |
 | Native integration smoke | `make native-integration-smoke` |
 | Complete contributor check | `make contributor-check` |
+| Desktop native proof (macOS) | `make desktop-native-proof`, then a separate native UI check |
 | Product authority | `docs/product-family.md` |
 | Acceptance | `docs/acceptance/five-minute-install.md` |
 
-No release or tap is published yet.
+Use `docs/install.md` for the core release and tap instructions. The desktop contributor build is not a public desktop release.
 
 ## Product boundary
 
-Open Brain is one unprivileged, foreground-only local runtime. It gives one operating-system user
+The Open Brain core is one unprivileged, foreground-only local runtime. It gives one operating-system user
 one automatically selected Brain, direct SQLite-backed capture and search, Markdown import, a
 managed sibling vault, a desktop Obsidian plugin, graph projections, and a full Portable Brain
 export. Open Brain never requires root, operating-system capabilities, namespaces, launchd, systemd,
 containers, a daemon, or another background service. The enabled plugin owns one foreground
 `open-brain plugin` child over inherited stdio and stops it on unload.
+
+The separately packaged Tauri companion in `packages/desktop` follows
+`docs/architecture/decisions/0017-desktop-companion-boundary.md`. D1 provides local capture/search
+and shared CLI/desktop agent setup against the same Brain. Priority Gmail, Drive and selected
+Claude Code/Codex capture share `packages/collector/src/open_brain_collector/live_manager.py`.
+The existing Slack implementation is deferred from the active priority milestone.
+The optional collector owns scheduling, credential references, private Unix control IPC, and service
+permissions. Source enablement and background service installation are separate opt-ins. The
+priority source plan and live acceptance remain in `docs/plans/2026-09-16-priority-capture.md`.
+Installing the core
+does not install a desktop app, collector, scheduler, network listener, or service manager
+dependency in the core. Do not add those dependencies or a listener to the core, and do not restore
+archived modules.
 
 Secure Node is not an extra, profile, entry point, or dependency of the Open Brain distribution.
 The first Secure Node implementation is quarantined under `archive/open-brain-secure-node` as
@@ -45,7 +59,9 @@ engine. Never migrate between products by copying or reinterpreting live SQLite 
 | `packages/app/src/open_brain/services/plugin_bridge.py` | Bounded `open-brain-client` protocol version 1 server and plugin-session lifecycle |
 | `packages/app/src/open_brain/services/managed_providers.py` | Consent-gated, bounded OpenAI, Anthropic, and Gemini direct adapters |
 | `packages/obsidian-plugin` | Desktop-only Obsidian source, bounded stdio client, and compiled plugin checks |
+| `packages/desktop` | Optional Tauri/React UI, native stdio bridge, local capture/search, and agent setup |
 | `packages/connectors` | Optional connector distribution; not a default dependency |
+| `packages/collector` | Optional collector distribution; not a default or native base dependency |
 | `archive/open-brain-secure-node` | Historical Secure Node implementation; excluded from builds and tests |
 | `archive/legacy` | Historical predecessor; excluded from the workspace, builds, imports, and tests |
 | `tools/open_brain_dev/base_native.py` | Paired native build, module audit, component manifest, and formula renderer |
@@ -65,7 +81,7 @@ version to both platforms, both resource roles, archive and executable SHA-256 v
 and install destinations. The executable starts only when the user invokes it and exits when that
 foreground command, stdio MCP session, or desktop plugin session ends.
 
-Semantic refresh is the only active product network-egress path. It requires current owner consent,
+Semantic refresh is the core's only active product network-egress path. It requires current owner consent,
 eligible note revisions, exclusions, redaction, and one explicit direct API-key provider. Never use
 ambient provider credentials or cross-provider fallback. Claude subscription remains closed with
 `subscription_isolation_unproven`; do not introduce root staging, namespaces, capabilities, fixture
@@ -91,8 +107,8 @@ make native-integration-smoke
 make contributor-check
 ```
 
-`make contributor-check` runs `make verify` followed by `make native-integration-smoke`. It covers
-the real plugin build/test suite and platform-native Homebrew command-line integration. GUI timing
+`make contributor-check` runs `make verify`, `make native-integration-smoke`, and `make desktop-native`.
+It covers the plugin and desktop test suites, native desktop compilation, and Homebrew integration. GUI timing
 and real-provider evidence remain separate exact-candidate checks. Private release audits remain
 separate owner checks.
 
@@ -104,9 +120,15 @@ The local runtime needs no configuration. macOS data lives under
 expert and test use. `OPEN_BRAIN_ROOT` is a historical compatibility setting and is not consumed by
 the active package.
 
+Agent setup uses `agent setup` in the CLI and named plugin operations. Capture and search grants
+are separate and off by default. Preview IDs bind configuration preimages; only owned fragments may
+be changed. Use synthetic client profiles for tests. Existing Brain state requires schema 4 and
+runtime session version 1; never weaken the compatibility checks to admit an older client.
+
 ## Safety and verification
 
-Use synthetic fixtures only. Never commit private notes, captures, transcripts, credentials,
+Automated tests use synthetic fixtures. Real-source checks require owner-authorized selections
+and private receipts; they do not replace the automated suite. Never commit private notes, captures, transcripts, credentials,
 hostnames, infrastructure addresses, logs, databases, or generated private configuration.
 
 After code changes, run `make verify`. After native or packaging changes, also run

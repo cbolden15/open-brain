@@ -50,6 +50,7 @@ def test_local_help_and_version_are_root_free(
     help_output = capsys.readouterr().out
     assert "daemonless" in help_output
     for command in (
+        "agent",
         "capture",
         "import",
         "search",
@@ -61,6 +62,55 @@ def test_local_help_and_version_are_root_free(
         assert command in help_output
     assert run_cli(("--version",), environment={}) == 0
     assert capsys.readouterr().out == "open-brain 0.1.0\n"
+
+
+def test_headless_agent_setup_previews_then_applies_the_matching_id(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    home = _private_home(tmp_path)
+    project = home / "project"
+    project.mkdir()
+    runtime = home / "runtime/open-brain"
+    runtime.parent.mkdir()
+    runtime.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+    runtime.chmod(0o700)
+    brain = home / "selected-brain"
+    base = (
+        "agent",
+        "setup",
+        "--client",
+        "codex",
+        "--scope",
+        "project",
+        "--project-dir",
+        str(project),
+        "--allow-search",
+        "--runtime",
+        str(runtime),
+        "--data-dir",
+        str(brain),
+        "--json",
+    )
+
+    assert run_cli(base, environment={"HOME": str(home)}, platform_name="darwin") == 0
+    preview = cast(dict[str, object], json.loads(capsys.readouterr().out))
+    assert preview["status"] == "preview"
+    assert not brain.exists()
+
+    assert (
+        run_cli(
+            base + ("--apply", "--preview-id", cast(str, preview["preview_id"])),
+            environment={"HOME": str(home)},
+            platform_name="darwin",
+        )
+        == 0
+    )
+    applied = cast(dict[str, object], json.loads(capsys.readouterr().out))
+    assert applied["status"] == "configured"
+    assert (project / ".codex/config.toml").is_file()
+    assert (project / "AGENTS.md").is_file()
+    assert not brain.exists()
 
 
 @pytest.mark.parametrize(
@@ -104,7 +154,7 @@ def test_local_init_creates_exact_default_once_without_daemon_or_environment_roo
         "brain_count": 1,
         "daemon_running": False,
         "profile": "local",
-            "state_schema_version": 3,
+        "state_schema_version": 4,
         "status": "initialized",
         "storage": "sqlite",
     }
@@ -268,8 +318,9 @@ def test_sqlite_revalidation_runs_at_engine_write_boundary(
     root = home / "brain"
 
     def open_after_replacement(
-        _profile: object, *, validate_before_write: object
+        _profile: object, *, validate_before_write: object, recover_abandoned_sessions: bool
     ) -> object:
+        assert recover_abandoned_sessions is False
         root.rename(home / "pinned")
         root.mkdir(mode=0o700)
         assert callable(validate_before_write)

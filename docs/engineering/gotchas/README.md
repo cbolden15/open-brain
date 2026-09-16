@@ -1646,3 +1646,205 @@ pinned build tool to a supported version, align the declared Node engine with th
 verify a clean install, type check, production bundle, and test run together.
 
 Discovered: 2026-09-13, Obsidian plugin Vitest 5 dependency review.
+
+### INTEGRATION-036: Engine opening is not evidence that another client crashed
+
+Symptom: Starting a second foreground client revokes consent and invalidates inference belonging
+to a healthy client. A first attempt at a session registry can also lose crash evidence by deleting
+a marker before recovery commits.
+
+Cause: Startup recovery treated every engine opener as the start of a new exclusive lifetime.
+Separating the liveness check from recovery then admitted competing clients during that transition.
+
+Fix: Register participating client lifetimes with lock-held markers, serialize admission and recovery,
+and preserve a durable marker until recovery succeeds. Test delayed admission, partial metadata
+writes, and process death during final shutdown. Older clients that lack this protocol require an
+explicit compatibility gate; a shared product-version string does not make them participants.
+
+Discovered: 2026-09-14, [desktop D0 verification](../../audits/2026-09-14-desktop-d0.md).
+
+### INTEGRATION-037: A native wrapper needs its own startup and process-group proof
+
+Symptom: A compiled desktop window reports a handshake timeout, cannot discover its bundled helper,
+or leaves a descendant alive after the immediate child exits.
+
+Cause: The measured frozen-core startup took 5.457 seconds, exceeding a three-second handshake
+deadline. Side-by-side executables did not match the core's `bin`/`libexec` helper layout. Waiting
+only for the immediate child missed surviving process-group members.
+
+Fix: Give cold startup a separate bounded allowance, preserve the runtime's expected packaged
+layout, and exercise the actual helper. Reap and terminate the whole process group, close child
+admission before app shutdown, and verify the result in the native app. Keep writable test data
+outside the app bundle and canonicalize temporary paths before strict core path validation.
+Use a permanent page ID for the helper fixture's reference; an unresolved title reference can
+produce a valid helper response with zero links and must not pass the integration proof.
+
+Discovered: 2026-09-14, [desktop D0 verification](../../audits/2026-09-14-desktop-d0.md).
+
+### INTEGRATION-038: Owned setup blocks must own their separators
+
+Symptom: Removing a generated agent instruction block trims unrelated blank lines, or an atomic
+replacement overwrites an edit made while its temporary file was being prepared.
+
+Cause: Cleanup normalizes the surrounding document, and a preview-time preimage check does not cover
+file preparation. Opening a FIFO before checking its type can also block setup indefinitely.
+
+Fix: Include the leading separator in the owned block and preserve all outside bytes. Check the
+expected preimage immediately before replacement, condition rollback on the current contents, and
+open candidate files nonblocking before validating regular-file ownership. Test exact trailing bytes,
+concurrent edits, partial setup recovery, and a FIFO with a bounded subprocess.
+
+Discovered: 2026-09-14, desktop D1 setup verification.
+
+### INTEGRATION-039: MCP discovery does not prove current-client tool calls
+
+Symptom: Claude Code lists Open Brain tools, but every search and capture returns `invalid params`.
+
+Cause: The client sends `params._meta` with `claudecode/toolUseId` and `progressToken`. The original
+transport required exactly `name` and `arguments`, rejecting valid MCP metadata. Handwritten smoke
+requests did not contain it.
+
+Fix: Accept object-valued request metadata as transport context and never pass it to the adapter as
+tool input or authority. Keep argument validation and capability checks unchanged. Test both valid
+and malformed metadata, then exercise actual client tool calls against the exact native candidate.
+See the [MCP metadata contract](https://modelcontextprotocol.io/specification/2025-11-25/basic#_meta).
+
+Discovered: 2026-09-14, desktop D1 actual Claude Code acceptance.
+
+### DOCUMENT-001: PDF extraction can invoke an ambient image decoder
+
+Symptom: A malformed PDF content stream can select pypdf's JBIG2 filter, which discovers
+and invokes a host-installed decoder even when the caller only requested text.
+
+Cause: Text extraction parses content streams through the shared PDF filter machinery.
+Avoiding the public image API does not disable every decoder.
+
+Fix: Explicitly set `jbig2dec_binary=None` in the parser's configuration, bound each
+decompression family, and run parsing in a timed child with a minimal environment.
+Keep parser dependencies out of the default app and native runtime.
+
+Discovered: 2026-09-15, D5.1 selected-file extraction.
+
+### CALENDAR-001: Incremental sync cannot repeat the initial time-range filter
+
+Symptom: Calendar updates fail with an invalid request, leave moved events searchable,
+or retain an old description after cancellation.
+
+Cause: Google disallows `timeMin` and `timeMax` with `syncToken`. Incremental responses
+can include changes outside the originally selected range. A cancellation may contain
+only the event ID, and the engine needs the original source URL to replace the active
+capture.
+
+Fix: Preserve the fixed selection in private state, omit incompatible request filters,
+and apply the range locally. Remember accepted event identities and their first source
+links so cancellations and moved events can produce status-only replacement captures.
+On an expired token, finish a bounded full snapshot before reconciling missing events.
+Advance the checkpoint only after every capture succeeds; retain immutable history.
+
+Discovered: 2026-09-15, Google Calendar provider and engine integration.
+
+### SOURCE-LIVE-001: Keychain CLI success does not prove an intact token document
+
+Symptom: A Keychain command exits successfully but stores an empty value, or an interactive
+`security` command truncates a larger JSON document.
+
+Cause: The `security` command's password and interactive input modes do not provide a reliable
+bounded stdin channel for arbitrary credential JSON. Putting the value in argv exposes it.
+
+Fix: Use Security.framework inside a bounded helper and send credential JSON through stdin.
+Verify a synthetic large document by reading it back exactly, replacing it, and deleting only
+the test entry. Keep both credentials and helper diagnostics out of public output.
+
+Discovered: 2026-09-16, priority-source native Keychain acceptance.
+
+### SOURCE-LIVE-002: Concurrent first queue opens can lose a hook event
+
+Symptom: One of 32 simultaneous session events returns false before writing its metadata.
+
+Cause: On the tested macOS filesystem, concurrent `openat` calls for the new queue lock
+occasionally returned `ENOENT` despite `O_CREAT` and a held parent directory descriptor.
+The hook's best-effort error boundary hid that failure from the native client.
+
+Fix: Retry only this transient lock-open failure within the existing acquisition deadline.
+Keep no-follow, nonblocking opens and owner/mode checks. Test both a raced first open and
+deadline exhaustion, then exercise concurrent fresh queues. The repaired diagnostic retained
+all 960 events across 30 independent queues.
+
+Discovered: 2026-09-16, final priority-source verification on macOS.
+
+### SOURCE-LIVE-003: Google Desktop token exchange can require the client secret
+
+Symptom: Browser consent completes, but connecting the account fails at Google's token endpoint.
+
+Cause: The downloaded Desktop client included `client_secret`, while Open Brain read and sent
+only its client ID. PKCE does not remove this client's requirement. A bounded diagnostic using
+an intentionally invalid grant returned `invalid_request` for the missing field; including the
+configured field changed the response to the expected `invalid_grant`.
+
+Fix: Preserve the optional Desktop credential from the local configuration, send it in token
+exchange and refresh request bodies, and retain it only with refresh material in the OS store.
+Test both Google sources, process restart, and exclusion from URLs and account metadata.
+
+Discovered: 2026-09-16, actual Google development-account sign-in.
+
+### SOURCE-LIVE-004: Codex exec can cancel an asynchronous Stop capture hook
+
+Symptom: A successful native Codex turn leaves no Open Brain queue event.
+
+Cause: Codex cancels unfinished background hooks when the session ends. In a bounded
+Codex CLI 0.154.0 check, the asynchronous Stop hook lost its event after `codex exec`
+returned. Running the same enqueue synchronously produced the event before exit.
+
+Fix: Generate a synchronous Stop command with a two-second host timeout for both clients.
+Only metadata enqueue runs in the hook; parsing and import remain in the collector.
+Reapplying setup upgrades the owned Codex entry while preserving unrelated hooks.
+Exercise the generated command in a subprocess and verify a fresh native Codex turn.
+
+Discovered: 2026-09-16, isolated native Codex automatic-capture acceptance.
+
+### SOURCE-LIVE-005: Codex user-role records can contain generated context
+
+Symptom: A synthetic native turn is quarantined because plugin identifiers in a user-role
+record match credential-shaped strings. That record was never a user's message.
+
+Cause: Codex CLI 0.154.0 puts plugin recommendations, injected instructions and environment
+context in user-role `response_item` records. Per-part `content_item_kinds` metadata distinguishes
+that context from `user.text`; checking only the role and `input_text` type is insufficient.
+
+Fix: Select only `user.text` parts when the metadata is present and reject malformed alignment.
+Keep the credential scan on the selected conversation text. Cover mixed context/user records,
+unknown kinds and actual user secrets in both transcript and extractive-summary tests.
+
+Discovered: 2026-09-16, isolated native Codex transcript import.
+
+### SOURCE-LIVE-006: Search polling can overlap a collector write
+
+Symptom: A live acceptance harness fails a search while the background collector successfully
+captures the new session revision. A later search returns the expected single active result.
+
+Cause: The CLI reports contention as exit code 75 with `error.code: database_busy`. The
+harness treated that retryable response as a permanent failure and discarded its error code.
+
+Fix: Preserve private failure diagnostics and retry only that exit-code/error-code pair within
+a bounded deadline. Continue to fail on other errors or deadline exhaustion. Verify the final
+capture identity and drained queue; a busy response alone does not establish successful capture.
+The native harness uses a five-second retry budget, and the existing cross-process CLI/MCP
+contention test checks this contract and SQLite integrity after the writer releases its lock.
+
+Discovered: 2026-09-16, native Claude Code background capture acceptance.
+
+### SOURCE-LIVE-007: A disposable Brain does not isolate Google grant revocation
+
+Symptom: Revoking a grant used by a disposable acceptance Brain also requires the owner's Gmail
+and Drive connections to sign in again.
+
+Cause: Keychain references isolate local storage, but copied refresh material still represents
+the same upstream grant. Google's revocation applies across scopes and clients in that project.
+Deleting a local Open Brain connection and revoking the Google grant are different operations.
+
+Fix: Use an owner-authorized development project, record which existing connections will be
+affected, and restore their equivalent read-only grants after the check. Verify fresh-process
+reads and refresh requests before removing test credentials. A browser callback error page alone
+does not establish failure; check the completed connect operation and a real provider read.
+
+Discovered: 2026-09-16, live Google edit/removal/revocation acceptance.

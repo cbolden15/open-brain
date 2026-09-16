@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import base64
 import json
 from dataclasses import FrozenInstanceError, replace
 from hashlib import sha256
 from pathlib import Path
+from typing import cast
 from uuid import uuid4
 
 import pytest
@@ -24,6 +26,7 @@ from open_brain_engine.engine import (
     EngineTaskSet,
     PublicJobCaptureContext,
     PublicProvenance,
+    ReferencePayload,
     ScopedRetrieval,
     TextPayload,
     open_local_engine,
@@ -35,6 +38,7 @@ from open_brain_engine.engine.local import (
     RetrievalTasks,
     ReviewTasks,
 )
+from open_brain_engine.portable import validate_portable_root
 
 from open_brain.profile import compile_single_user_local
 
@@ -112,6 +116,232 @@ def test_capture_submission_is_immutable_and_replays_the_existing_request_finger
 
     assert replay.capture_id == accepted.capture_id
     assert replay.duplicate is True
+
+
+def test_public_job_third_party_revision_replaces_active_source_result(tmp_path: Path) -> None:
+    tasks = open_local_engine(compile_single_user_local(tmp_path / "brain"))
+    context = _public_job_context(tasks)
+    source_reference = "https://example.test/github/issues/1"
+    first = CaptureSubmission.for_public_job(
+        context=context,
+        payload=ReferencePayload(source_reference, "Synthetic alphaonly upstream revision"),
+        delivery_id="connector.github.synthetic-active-item",
+        source_origin=ContentOrigin.THIRD_PARTY,
+        source_reference=source_reference,
+        provenance=Provenance.create(
+            source_ref=source_reference,
+            content_origin=ContentOrigin.THIRD_PARTY,
+            owner_context=CaptureWhyOrigin.AUTOMATION_ABSENT,
+        ),
+        privacy=_local_privacy(),
+        intent=Intent.REFERENCE,
+        title="Synthetic issue",
+    )
+    changed = CaptureSubmission.for_public_job(
+        context=context,
+        payload=ReferencePayload(source_reference, "Synthetic betaonly upstream revision"),
+        delivery_id=first.delivery_id,
+        source_origin=ContentOrigin.THIRD_PARTY,
+        source_reference=source_reference,
+        provenance=first.provenance,
+        privacy=first.privacy,
+        intent=Intent.REFERENCE,
+        title="Synthetic issue",
+    )
+
+    accepted = tasks.capture.submit(first)
+    replaced = tasks.capture.submit(changed)
+    replay = tasks.capture.submit(changed)
+
+    assert replaced.capture_id != accepted.capture_id
+    assert replaced.duplicate is False
+    assert replay.capture_id == replaced.capture_id
+    assert replay.duplicate is True
+    results = tasks.retrieval.search("betaonly")
+    assert len(results) == 1
+    assert results[0].result_id == replaced.capture_id
+    assert tasks.retrieval.search("alphaonly") == ()
+
+
+def test_public_job_third_party_revision_preserves_superseded_source_in_export(
+    tmp_path: Path,
+) -> None:
+    tasks = open_local_engine(compile_single_user_local(tmp_path / "brain"))
+    context = _public_job_context(tasks)
+    source_reference = "https://example.test/github/issues/1"
+    first = CaptureSubmission.for_public_job(
+        context=context,
+        payload=ReferencePayload(source_reference, "Synthetic alphaonly upstream revision"),
+        delivery_id="connector.github.synthetic-export-item",
+        source_origin=ContentOrigin.THIRD_PARTY,
+        source_reference=source_reference,
+        provenance=Provenance.create(
+            source_ref=source_reference,
+            content_origin=ContentOrigin.THIRD_PARTY,
+            owner_context=CaptureWhyOrigin.AUTOMATION_ABSENT,
+        ),
+        privacy=_local_privacy(),
+        intent=Intent.REFERENCE,
+        title="Synthetic issue",
+    )
+    changed = CaptureSubmission.for_public_job(
+        context=context,
+        payload=ReferencePayload(source_reference, "Synthetic betaonly upstream revision"),
+        delivery_id=first.delivery_id,
+        source_origin=ContentOrigin.THIRD_PARTY,
+        source_reference=source_reference,
+        provenance=first.provenance,
+        privacy=first.privacy,
+        intent=Intent.REFERENCE,
+        title="Synthetic issue",
+    )
+
+    accepted = tasks.capture.submit(first)
+    replaced = tasks.capture.submit(changed)
+    export = tmp_path / "export"
+    receipt = tasks.portability.export(
+        export,
+        export_id="export_00000000-0000-4000-8000-000000000701",
+    )
+    manifest = validate_portable_root(export)
+    manifest_files = cast(list[dict[str, object]], manifest["files"])
+    capture_paths = [
+        entry["path"]
+        for entry in manifest_files
+        if str(entry["path"]).startswith("sources/captures/")
+    ]
+    exported = {
+        capture["capture_id"]: capture
+        for capture in (
+            json.loads((export / str(path)).read_text(encoding="utf-8"))
+            for path in capture_paths
+        )
+    }
+
+    assert receipt.captures == 2
+    assert set(exported) == {accepted.capture_id, replaced.capture_id}
+    assert _exported_reference_text(exported[accepted.capture_id]) == (
+        "Synthetic alphaonly upstream revision"
+    )
+    assert _exported_reference_text(exported[replaced.capture_id]) == (
+        "Synthetic betaonly upstream revision"
+    )
+    assert exported[accepted.capture_id]["source"] == {
+        "origin": "third_party",
+        "reference": source_reference,
+    }
+    assert exported[replaced.capture_id]["source"] == exported[accepted.capture_id]["source"]
+    assert exported[accepted.capture_id]["provenance"]["source_ref"] == source_reference
+    assert exported[replaced.capture_id]["provenance"]["source_ref"] == source_reference
+
+
+def test_public_job_third_party_revision_cannot_retarget_source_identity(
+    tmp_path: Path,
+) -> None:
+    tasks = open_local_engine(compile_single_user_local(tmp_path / "brain"))
+    context = _public_job_context(tasks)
+    first_reference = "https://example.test/github/issues/1"
+    changed_reference = "https://example.test/github/issues/2"
+    first = CaptureSubmission.for_public_job(
+        context=context,
+        payload=ReferencePayload(first_reference, "Synthetic alphaonly upstream revision"),
+        delivery_id="connector.github.synthetic-retarget-item",
+        source_origin=ContentOrigin.THIRD_PARTY,
+        source_reference=first_reference,
+        provenance=Provenance.create(
+            source_ref=first_reference,
+            content_origin=ContentOrigin.THIRD_PARTY,
+            owner_context=CaptureWhyOrigin.AUTOMATION_ABSENT,
+        ),
+        privacy=_local_privacy(),
+        intent=Intent.REFERENCE,
+        title="Synthetic issue",
+    )
+    retargeted = CaptureSubmission.for_public_job(
+        context=context,
+        payload=ReferencePayload(changed_reference, "Synthetic betaonly upstream revision"),
+        delivery_id=first.delivery_id,
+        source_origin=ContentOrigin.THIRD_PARTY,
+        source_reference=changed_reference,
+        provenance=Provenance.create(
+            source_ref=changed_reference,
+            content_origin=ContentOrigin.THIRD_PARTY,
+            owner_context=CaptureWhyOrigin.AUTOMATION_ABSENT,
+        ),
+        privacy=first.privacy,
+        intent=Intent.REFERENCE,
+        title="Synthetic issue",
+    )
+
+    accepted = tasks.capture.submit(first)
+    with pytest.raises(ValueError, match="conflicting delivery"):
+        tasks.capture.submit(retargeted)
+
+    assert tasks.retrieval.search("betaonly") == ()
+    assert tasks.retrieval.search("alphaonly")[0].result_id == accepted.capture_id
+
+
+def test_public_job_third_party_revision_cannot_replace_routed_capture(
+    tmp_path: Path,
+) -> None:
+    tasks = open_local_engine(compile_single_user_local(tmp_path / "brain"))
+    context = _public_job_context(tasks)
+    source_reference = "https://example.test/github/issues/1"
+    first = CaptureSubmission.for_public_job(
+        context=context,
+        payload=ReferencePayload(source_reference, "Synthetic alphaonly upstream revision"),
+        delivery_id="connector.github.synthetic-routed-item",
+        source_origin=ContentOrigin.THIRD_PARTY,
+        source_reference=source_reference,
+        provenance=Provenance.create(
+            source_ref=source_reference,
+            content_origin=ContentOrigin.THIRD_PARTY,
+            owner_context=CaptureWhyOrigin.AUTOMATION_ABSENT,
+        ),
+        privacy=_local_privacy(),
+        intent=Intent.REFERENCE,
+        title="Synthetic issue",
+    )
+    changed = CaptureSubmission.for_public_job(
+        context=context,
+        payload=ReferencePayload(source_reference, "Synthetic betaonly upstream revision"),
+        delivery_id=first.delivery_id,
+        source_origin=ContentOrigin.THIRD_PARTY,
+        source_reference=source_reference,
+        provenance=first.provenance,
+        privacy=first.privacy,
+        intent=Intent.REFERENCE,
+        title="Synthetic issue",
+    )
+
+    accepted = tasks.capture.submit(first)
+    space = tasks.inbox.create_space("Synthetic routed source", delivery_id="delivery.space.routed")
+    tasks.inbox.route(
+        accepted.capture_id,
+        space.space_id,
+        delivery_id="delivery.route.routed-source",
+    )
+
+    with pytest.raises(ValueError, match="conflicting delivery"):
+        tasks.capture.submit(changed)
+
+    results = tasks.retrieval.search("alphaonly")
+    assert len(results) == 1
+    assert results[0].result_id == accepted.capture_id
+    assert results[0].space_id == space.space_id
+    assert tasks.retrieval.search("betaonly") == ()
+
+
+def _exported_reference_text(capture: dict[str, object]) -> str:
+    original_payload = capture["original_payload"]
+    assert isinstance(original_payload, dict)
+    encoded = original_payload["bytes_base64"]
+    assert isinstance(encoded, str)
+    payload = json.loads(base64.b64decode(encoded).decode("utf-8"))
+    assert isinstance(payload, dict)
+    text = payload["supplied_text"]
+    assert isinstance(text, str)
+    return text
 
 
 def test_capture_submission_validates_delivery_occurrence_and_bound_profile(tmp_path: Path) -> None:

@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from open_brain_engine.engine import TextPayload, open_local_engine
 from open_brain_engine.engine.contracts import LocalEngineContext
 from open_brain_engine.engine.local_schema import (
     PHASE1_STATE_DATABASE,
@@ -22,9 +23,11 @@ from open_brain_engine.engine.local_schema import (
 )
 from open_brain_engine.engine.local_schema_catalog import LOCAL_MIGRATIONS
 from open_brain_engine.storage import sqlite as storage_sqlite
+from open_brain_engine.storage.migrations import NewerSchemaError, apply_migrations
 from open_brain_engine.storage.sqlite import DatabaseBusyError, SchemaError
 
 from open_brain.profile import compile_single_user_local
+from tests.unit.storage._factories import FixedClock
 
 FIXTURES = Path(__file__).parents[5] / "tests/fixtures/local-schema"
 ERAS = ("legacy", "w2", "w3", "w4", "ledger-v1")
@@ -53,7 +56,7 @@ def _rows(connection: sqlite3.Connection) -> dict[str, list[tuple[Any, ...]]]:
         row[0]
         for row in connection.execute(
             "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'search_%' "
-            "AND name != 'schema_migrations' ORDER BY name"
+            "AND name NOT IN ('runtime_compatibility', 'schema_migrations') ORDER BY name"
         )
     ]
     return {
@@ -324,7 +327,9 @@ def test_version_two_database_upgrades_without_changing_existing_rows(tmp_path: 
         after = _rows(upgraded)
         assert all(after[table] == rows for table, rows in before.items())
         assert all(not rows for table, rows in after.items() if table not in before)
-        assert upgraded.execute("PRAGMA user_version").fetchone()[0] == 3
+        assert upgraded.execute("PRAGMA user_version").fetchone()[0] == (
+            PHASE1_STATE_SCHEMA_VERSION
+        )
         assert [
             tuple(row)
             for row in upgraded.execute(
@@ -336,6 +341,54 @@ def test_version_two_database_upgrades_without_changing_existing_rows(tmp_path: 
         ]
     finally:
         upgraded.close()
+
+
+def test_runtime_compatibility_migration_preserves_v3_records_and_blocks_old_reader(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "brain"
+    profile = compile_single_user_local(root, starter_spaces=())
+    tasks = open_local_engine(profile)
+    captured = tasks.capture.accept(
+        TextPayload("Synthetic v3 compatibility record"),
+        delivery_id="compatibility.v3.capture",
+    )
+    database = root / PHASE1_STATE_DATABASE
+    with sqlite3.connect(database) as connection:
+        connection.execute("DELETE FROM schema_migrations WHERE version = 4")
+        connection.execute("DROP TABLE runtime_compatibility")
+        connection.execute("PRAGMA user_version = 3")
+        records_before = _rows(connection)
+    assert inspect_phase1_state(profile).state == "supported_old"
+
+    upgraded = open_local_database(profile)
+    try:
+        assert _rows(upgraded) == records_before
+        assert [
+            tuple(row)
+            for row in upgraded.execute(
+                "SELECT singleton, minimum_runtime_session_version, state_schema_version "
+                "FROM runtime_compatibility"
+            )
+        ] == [(1, 1, 4)]
+    finally:
+        upgraded.close()
+    assert open_local_engine(profile).retrieval.fetch(captured.capture_id) is not None
+
+    logical_before: list[str]
+    with sqlite3.connect(database) as old_reader:
+        old_reader.row_factory = sqlite3.Row
+        logical_before = list(old_reader.iterdump())
+        old_reader.execute("BEGIN IMMEDIATE")
+        with pytest.raises(NewerSchemaError, match="newer than supported"):
+            apply_migrations(
+                old_reader,
+                clock=FixedClock(),
+                migrations=LOCAL_MIGRATIONS[:3],
+                schema_version=3,
+            )
+        old_reader.execute("ROLLBACK")
+        assert list(old_reader.iterdump()) == logical_before
 
 
 def test_managed_workspace_schema_enforces_revision_and_budget_links(tmp_path: Path) -> None:

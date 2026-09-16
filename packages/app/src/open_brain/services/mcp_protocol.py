@@ -116,6 +116,12 @@ def _handle_message(
             initialized,
         )
 
+    if "_meta" in params:
+        if not isinstance(params["_meta"], dict):
+            return _error_response(request_id, -32602, "invalid params"), initialized
+        # MCP request metadata is transport context, never tool arguments or authority.
+        params = {key: value for key, value in params.items() if key != "_meta"}
+
     if method.startswith("notifications/"):
         return None, initialized
     if not has_response:
