@@ -4,23 +4,21 @@ from __future__ import annotations
 
 import hmac
 import re
-import stat
-import tomllib
 from pathlib import Path
 
 from open_brain_engine.engine import (
     LocalEngineContext,
     PrivacyDecision,
-    ProviderMode,
     PublicJobCaptureContext,
     ReferencePayload,
     open_local_engine,
 )
 
 from open_brain_connectors.runtime.connectors import ConnectorContractError
-from open_brain_connectors.runtime.document_files import SelectedDocument, read_selected_file
+from open_brain_connectors.runtime.document_files import SelectedDocument
 from open_brain_connectors.runtime.document_parser import MAX_CAPTURE_TEXT, REVISION_HEADER_PREFIX
 from open_brain_connectors.runtime.local_document import LocalDocumentSourceAdapter
+from open_brain_connectors.runtime.source_host import existing_source_profile
 
 
 def document_privacy() -> PrivacyDecision:
@@ -60,43 +58,9 @@ def _revision_payload(revision_id: str, text: str, source_reference: str) -> Ref
 
 
 def _existing_profile(root: Path) -> LocalEngineContext:
-    # The optional package does not depend on the app's profile compiler. Read
-    # the same Portable Brain identity; never create a new identity implicitly.
     try:
-        if not root.is_absolute() or root.is_symlink():
-            raise ValueError
-        canonical = root.resolve(strict=True)
-        metadata = canonical.stat()
-        if not stat.S_ISDIR(metadata.st_mode):
-            raise ValueError
-        _, payload = read_selected_file(canonical / "brain.toml", maximum=16_384)
-        value = tomllib.loads(payload.decode("utf-8"))
-        capabilities = ["canonical.publish", "capture.accept", "space.write"]
-        if (value.get("layout_version") != 1 or value.get("profile") != "single-user-local"
-                or value.get("owner_capabilities") != capabilities):
-            raise ValueError
-
-        def identifier(key: str, prefix: str) -> str:
-            item = value.get(key)
-            if not isinstance(item, str) or re.fullmatch(
-                prefix + r"_[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}", item,
-            ) is None:
-                raise ValueError
-            return item
-
-        tenant = identifier("tenant_id", "tenant")
-        actor = identifier("owner_actor_id", "actor")
-        return LocalEngineContext(
-            root=canonical, root_identity=(metadata.st_dev, metadata.st_ino),
-            tenant_id=tenant, owner_actor_id=actor,
-            owner_role_claim={
-                "actor_id": actor, "tenant_id": tenant, "capabilities": tuple(capabilities),
-                "role_id": identifier("owner_role_id", "role"),
-                "role_claim_id": identifier("owner_role_claim_id", "role_claim"),
-            },
-            provider_mode=ProviderMode.NONE, starter_spaces=(),
-        )
-    except (OSError, ValueError) as error:
+        return existing_source_profile(root)
+    except ConnectorContractError as error:
         raise ConnectorContractError("document_brain_unavailable") from error
 
 
