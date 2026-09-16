@@ -44,6 +44,11 @@ termination. Do not run concurrent Homebrew smoke checks against the same Homebr
 
 Common failures:
 
+- A Python version rejection or `SyntaxError: multiple exception types must be parenthesized`:
+  the source tree requires Python 3.14. Run
+  `uv sync --frozen --python 3.14 --group dev --group native-build`, then check
+  `uv run --frozen --python 3.14 python --version`. Do not use an older system interpreter
+  directly or override `Requires-Python`. See [source installation](docs/install.md#build-from-source).
 - `uv: command not found`, `make: command not found`, or `Homebrew is required for contributor-check`:
   install the missing prerequisite and open a shell with it on `PATH`.
 - `unsupported native build platform`: use macOS arm64 or Linux x86_64.

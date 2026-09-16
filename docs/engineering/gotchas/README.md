@@ -595,6 +595,22 @@ contract, isolated wheel help, and a clean installed-wheel journey.
 
 Discovered: 2026-09-04.
 
+### PACKAGING-004: Requires-Python must match the current source grammar
+
+Symptom: A source package advertises Python 3.12 compatibility, but that interpreter rejects
+unparenthesized multi-exception handlers before the application can start.
+
+Cause: Package metadata retained `>=3.12` for historical replay while the workspace, formatter,
+native build and CI targeted Python 3.14. PEP 758 intentionally permits the syntax in 3.14 and
+catches every listed type; it does not restore Python 2 exception-name binding.
+
+Fix: Require `>=3.14,<3.15` in all active distributions and regenerate the workspace lock.
+Check the built wheels through the installer on supported and rejected interpreters. Historical
+replay belongs to the original revision, not the current distribution's compatibility promise.
+Homebrew executables bundle the supported runtime.
+
+Discovered: 2026-09-16, new-laptop source installation report.
+
 ### TESTING-001: An inner fixed interpreter can falsify a CI version matrix
 
 Symptom: Python 3.13 and 3.14 jobs pass even though their wheel-isolation subprocesses run on
@@ -1747,14 +1763,19 @@ Discovered: 2026-09-16, macOS Graphify build-supervisor overflow test.
 Symptom: macOS bridge tests time out before their Python fixtures create a descendant
 or answer a handshake, although the process-cleanup implementation passes locally.
 
-Cause: Cold interpreter startup competes with parallel tests and can exceed a two-second
-fixture budget. The graceful-exit fixture also announced its descendant before that
+Cause: Cold interpreter startup competes with parallel tests and can exceed a two- or
+three-second fixture budget. The graceful-exit fixture also announced its descendant before that
 process installed its signal handler.
 
 Fix: Wait up to ten seconds for a complete, live fixture PID before exercising the
 operation deadline. Have the signal-ignoring descendant publish its own readiness after
 installing its handler. Preserve the 100 ms operation deadline and existing cleanup bounds;
 continue asserting that the descendant is gone after shutdown.
+
+The message-framing fixture also publishes a live PID after its imports. Wait for that
+receipt before the three-second handshake and one-request session-exhaustion assertions.
+A controlled 3.2-second startup delay reproduces the timeout without the readiness wait
+and passes with it; the operation deadline remains three seconds.
 
 Discovered: 2026-09-16, macOS desktop bridge contributor checks.
 

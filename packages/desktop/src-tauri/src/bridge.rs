@@ -658,7 +658,8 @@ mod tests {
     fn success_server(directory: &TempDir) -> PathBuf {
         script(
             directory,
-            r#"import json, sys
+            r#"import json, os, pathlib, sys
+pathlib.Path(__file__).with_suffix(".ready").write_text(str(os.getpid()))
 for line in sys.stdin:
     request = json.loads(line)
     print(json.dumps({"ok": True, "protocol": "open-brain-client", "protocol_version": 1, "request_id": request["request_id"], "result": {"operation": request["operation"]}}), flush=True)"#,
@@ -711,6 +712,7 @@ time.sleep(30)"#,
         let directory = TempDir::new().unwrap();
         let executable = success_server(&directory);
         let mut bridge = Bridge::spawn_with_limit(&executable, directory.path(), 1).unwrap();
+        wait_for_pid(&executable.with_extension("ready"));
         let result = bridge
             .invoke("system.handshake", json!({}), None, Duration::from_secs(3))
             .unwrap();
