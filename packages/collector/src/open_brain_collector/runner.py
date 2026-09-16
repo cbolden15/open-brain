@@ -63,6 +63,18 @@ class CollectorProcessRunner:
     runtime: CollectorSourceRuntime
     owner: str = "open-brain-collector"
     clock: Callable[[], int] = lambda: int(time.time())
+    control_enabled: bool = False
+    background: bool = False
+
+    @contextmanager
+    def _control(self) -> Iterator[None]:
+        if not self.control_enabled:
+            yield
+            return
+        from open_brain_collector.control import control_server
+
+        with control_server(self.state_path, self.brain_root, background=self.background):
+            yield
 
     def run_once(
         self,
@@ -103,7 +115,7 @@ class CollectorProcessRunner:
         last: dict[str, object] = {"outcome": "empty", "failure_code": None, "results": []}
         with _collector_stop_signal() as stop:
             try:
-                with CollectorLease(self.lease_path).acquire(owner=self.owner):
+                with CollectorLease(self.lease_path).acquire(owner=self.owner), self._control():
                     controller = CollectorController(
                         CollectorStateStore(self.state_path),
                         clock=self.clock,
@@ -182,12 +194,12 @@ class CollectorProcessRunner:
                     entry["next_run_epoch"] = self.clock()
             store.save(state)
         if not source_ids:
-            return []
+            return self._sync_live() if source_id is None else []
         capture_sink = EngineCaptureSink(collector_capture_sink(self.brain_root))
         credential_status = (
             self.runtime if isinstance(self.runtime, CredentialStatusProvider) else None
         )
-        return [
+        results = [
             controller.sync_due(
                 source_id=selected_id,
                 runtime=self.runtime,
@@ -196,6 +208,17 @@ class CollectorProcessRunner:
             ).to_dict()
             for selected_id in source_ids
         ]
+        return results + (self._sync_live() if source_id is None else [])
+
+    def _sync_live(self) -> list[dict[str, object]]:
+        root = self.state_path.parent / "live"
+        if not (root / "capture" / "brain.json").exists():
+            return []
+        from open_brain_collector.live_manager import LiveSourceManager
+
+        manager = LiveSourceManager(root, self.brain_root, background=self.background)
+        manager.capture._clock = self.clock
+        return manager.capture.sync_due()
 
 
 class FixtureSourceRuntime(CollectorSourceRuntime):
@@ -463,9 +486,7 @@ def _open_existing_collector_profile(root: Path) -> LocalEngineContext:
         metadata = absolute_root.stat()
         if not stat.S_ISDIR(metadata.st_mode):
             raise CollectorProfileError("Brain root is unavailable")
-        identity = _collector_identity_from_brain_toml(
-            (absolute_root / "brain.toml").read_bytes()
-        )
+        identity = _collector_identity_from_brain_toml((absolute_root / "brain.toml").read_bytes())
     except (OSError, tomllib.TOMLDecodeError, UnicodeDecodeError) as error:
         raise CollectorProfileError("portable identity is unavailable") from error
     return LocalEngineContext(
@@ -560,7 +581,7 @@ def _local_runtime_page_exists(
         return False
     try:
         payload = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
+    except OSError, json.JSONDecodeError:
         return False
     return isinstance(payload, Mapping) and payload.get("cursor") == cursor
 

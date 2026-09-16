@@ -76,3 +76,30 @@ def test_collector_cli_reports_boundary_without_starting_collection() -> None:
     assert '"package": "open-brain-collector"' in completed.stdout
     assert '"service_install_enabled": true' in completed.stdout
     assert '"unattended_enabled_by_default": false' in completed.stdout
+
+
+def test_optional_control_uses_only_private_unix_transport() -> None:
+    source = ROOT / "packages/collector/src/open_brain_collector/control.py"
+    tree = ast.parse(source.read_text(), filename=str(source))
+    socket_calls = []
+    server_types = set()
+    for node in ast.walk(tree):
+        if (
+            isinstance(node, ast.Attribute)
+            and isinstance(node.value, ast.Name)
+            and node.value.id == "socketserver"
+        ):
+            server_types.add(node.attr)
+        if (
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Attribute)
+            and isinstance(node.func.value, ast.Name)
+            and node.func.value.id == "socket"
+            and node.func.attr == "socket"
+        ):
+            socket_calls.append(node)
+    assert server_types == {"ThreadingMixIn", "UnixStreamServer", "BaseRequestHandler"}
+    assert socket_calls
+    for call in socket_calls:
+        assert ast.unparse(call.args[0]) == "socket.AF_UNIX"
+        assert ast.unparse(call.args[1]) == "socket.SOCK_STREAM"

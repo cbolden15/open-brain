@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import sys
 from collections.abc import Sequence
 from pathlib import Path
 from time import time
@@ -23,11 +24,17 @@ from open_brain_collector.runner import (
 from open_brain_collector.service import CollectorLaunchdServiceManager, CollectorServiceError
 from open_brain_connectors.runtime.connectors import ConnectorContractError
 from open_brain_connectors.runtime.github import GitHubSourceAdapter
+from open_brain_connectors.runtime.live_common import LiveSourceError
 
 __all__ = ["main", "run_cli"]
 
 
 def main(argv: Sequence[str] | None = None) -> int:
+    selected_argv = list(sys.argv[1:] if argv is None else argv)
+    if selected_argv and selected_argv[0] == "sources":
+        from open_brain_collector.sources_cli import main as sources_main
+
+        return sources_main(selected_argv[1:])
     parser = argparse.ArgumentParser(prog="open-brain-collector")
     parser.add_argument(
         "--boundary-json",
@@ -53,6 +60,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     run_loop.add_argument("--credential-dir")
     run_loop.add_argument("--poll-seconds", type=float, default=60.0)
     run_loop.add_argument("--max-iterations", type=int)
+    run_loop.add_argument("--control", action="store_true")
+    run_loop.add_argument("--background", action="store_true")
     lifecycle = subparsers.add_parser("source", help="manage explicit collector source state")
     lifecycle.add_argument("--state", required=True)
     lifecycle_subparsers = lifecycle.add_subparsers(dest="source_command", required=True)
@@ -171,6 +180,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             brain_root=Path(cast(str, args.brain_root)),
             lease_path=Path(cast(str, args.lease)),
             runtime=runtime,
+            control_enabled=bool(getattr(args, "control", False)),
+            background=bool(getattr(args, "background", False)),
         )
         try:
             if args.command == "run-once":
@@ -183,7 +194,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                     interval_seconds=cast(float, args.poll_seconds),
                     max_iterations=cast(int | None, args.max_iterations),
                 )
-        except (CollectorStorageError, ConnectorContractError) as error:
+        except (CollectorStorageError, ConnectorContractError, LiveSourceError) as error:
             print(
                 json.dumps(
                     {
@@ -243,6 +254,7 @@ def main(argv: Sequence[str] | None = None) -> int:
 
 def run_cli() -> None:
     raise SystemExit(main())
+
 
 if __name__ == "__main__":
     run_cli()

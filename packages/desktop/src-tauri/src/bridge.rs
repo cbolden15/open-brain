@@ -523,6 +523,10 @@ fn owned_process_groups() -> &'static Mutex<OwnedProcessGroups> {
     OWNED_PROCESS_GROUPS.get_or_init(|| Mutex::new(OwnedProcessGroups::default()))
 }
 
+pub(crate) fn spawn_owned_command(command: &mut Command) -> Result<(Child, i32), BridgeError> {
+    spawn_owned(command, owned_process_groups())
+}
+
 fn spawn_owned(
     command: &mut Command,
     owner: &Mutex<OwnedProcessGroups>,
@@ -557,7 +561,7 @@ fn process_group_gone(group: i32) -> bool {
     result == -1 && std::io::Error::last_os_error().raw_os_error() == Some(libc::ESRCH)
 }
 
-fn stop_owned_child(child: &mut Child, group: i32) -> bool {
+pub(crate) fn stop_owned_child(child: &mut Child, group: i32) -> bool {
     let graceful_deadline = Instant::now() + GRACEFUL_EXIT;
     while !process_group_gone(group) && Instant::now() < graceful_deadline {
         let _ = child.try_wait();

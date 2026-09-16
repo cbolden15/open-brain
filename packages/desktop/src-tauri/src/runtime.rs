@@ -1,4 +1,5 @@
 use crate::bridge::{Bridge, BridgeError, PROTOCOL, PROTOCOL_VERSION};
+use crate::collector::{CollectorConnection, OPERATIONS as SOURCE_OPERATIONS};
 use crate::proof::validate_runtime_pair;
 use serde_json::{Value, json};
 use std::path::{Path, PathBuf};
@@ -27,6 +28,7 @@ const COLLECTOR_OPERATIONS: &[&str] = &[
 #[derive(Default)]
 pub(crate) struct DesktopState {
     session: Arc<Mutex<Option<Bridge>>>,
+    collector: Arc<Mutex<CollectorConnection>>,
     data_dir: Option<PathBuf>,
 }
 
@@ -34,6 +36,7 @@ impl DesktopState {
     pub fn new(data_dir: Option<PathBuf>) -> Self {
         Self {
             session: Arc::default(),
+            collector: Arc::default(),
             data_dir,
         }
     }
@@ -48,14 +51,41 @@ pub(crate) async fn desktop_request(
     request_id: Option<String>,
 ) -> Result<Value, String> {
     if !(BASE_OPERATIONS.contains(&operation.as_str())
-        || COLLECTOR_OPERATIONS.contains(&operation.as_str()))
+        || COLLECTOR_OPERATIONS.contains(&operation.as_str())
+        || SOURCE_OPERATIONS.contains(&operation.as_str()))
         || !arguments.is_object()
     {
         return Err("invalid_request".to_owned());
     }
     let session = Arc::clone(&state.session);
+    let collector = Arc::clone(&state.collector);
     let data_dir = state.data_dir.clone();
     tauri::async_runtime::spawn_blocking(move || {
+        if SOURCE_OPERATIONS.contains(&operation.as_str()) {
+            let brain = {
+                let mut guard = session
+                    .try_lock()
+                    .map_err(|_| "operation_in_progress".to_owned())?;
+                if guard.is_none() {
+                    *guard = Some(connect(&app, data_dir.as_deref())?);
+                }
+                let status = guard
+                    .as_mut()
+                    .ok_or("bridge_closed")?
+                    .invoke("system.status", json!({}), None, Duration::from_secs(10))
+                    .map_err(|error| error.code())?;
+                PathBuf::from(
+                    status
+                        .get("brain_root")
+                        .and_then(Value::as_str)
+                        .ok_or("source_brain_unavailable")?,
+                )
+            };
+            return collector
+                .try_lock()
+                .map_err(|_| "operation_in_progress".to_owned())?
+                .request(&brain, &operation, arguments);
+        }
         let mut guard = session
             .try_lock()
             .map_err(|_| "operation_in_progress".to_owned())?;

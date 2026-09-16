@@ -1,4 +1,5 @@
 mod bridge;
+mod collector;
 mod proof;
 mod runtime;
 

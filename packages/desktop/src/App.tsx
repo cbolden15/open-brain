@@ -1,6 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 import { errorMessage, request, saveMayHaveCompleted, setupReady, type BrainStatus, type CollectorEnableInput, type CollectorStatus, type SearchHit, type SetupInput, type SetupPreview, type SetupResult } from "./client";
+import { SourceCapturePanel } from "./SourceCapturePanel";
 
 const destinations = ["Search", "Capture", "Sources", "Activity", "Settings"] as const;
 type Destination = typeof destinations[number];
@@ -286,9 +287,7 @@ export function App() {
             <div><h3>{client === "claude-code" ? "Claude Code" : "Codex"}</h3><p>Explicit memory saves and search through MCP.</p></div>
             <button type="button" className="secondary" disabled={busy} onClick={() => { updateSetup({ client, action: "configure" }); setPage("Settings"); }}>Set up {client === "claude-code" ? "Claude Code" : "Codex"}</button>
           </div>)}</div>
-          <h2 className="section-heading upcoming-heading">Account imports</h2>
-          <p className="helper-text">Account imports are not available in this build. GitHub issues and pull requests are the next planned source.</p>
-          <div className="planned-sources">{["GitHub", "Jira", "Email", "Google Drive", "iMessage", "Slack", "GitLab"].map(source => <span key={source}>{source}<small>Planned</small></span>)}</div>
+          <SourceCapturePanel disabled={connecting || !brain} />
           <h2 className="section-heading upcoming-heading">Unattended collector</h2>
           <div className="collector-panel">
             <div><h3>Background imports</h3><p>Optional collection stays disabled until a source is explicitly enabled.</p></div>
@@ -313,7 +312,7 @@ export function App() {
               <button type="button" disabled={busy || source.status !== "enabled"} onClick={() => void collectorCommand("collector.sync_now", source.source_id)}>Sync now</button>
             </div>
           </div>) : <div className="empty-state compact-empty"><h2>No enabled collector sources.</h2><p>Use the collector CLI or provider setup flow to opt in a source first.</p></div>}</div> : null}
-          <div className="subtle-note"><strong>You control capture and search separately.</strong><p>Connecting an agent does not import its conversation history. Background collection is not enabled.</p></div>
+          <div className="subtle-note"><strong>You control capture and search separately.</strong><p>Explicit memory tools and automatic project capture have separate permissions.</p></div>
         </section> : null}
 
         {page === "Activity" ? <section aria-labelledby="activity-title">

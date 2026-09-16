@@ -30,9 +30,12 @@ containers, a daemon, or another background service. The enabled plugin owns one
 
 The separately packaged Tauri companion in `packages/desktop` follows
 `docs/architecture/decisions/0017-desktop-companion-boundary.md`. D1 provides local capture/search
-and shared CLI/desktop agent setup against the same Brain. Source capture remains a later milestone.
-The future optional collector
-owns its own scheduling, credential references, control IPC, and service permissions. Installing it
+and shared CLI/desktop agent setup against the same Brain. Priority Gmail, Drive, Slack and selected
+Claude Code/Codex capture share `packages/collector/src/open_brain_collector/live_manager.py`.
+The optional collector owns scheduling, credential references, private Unix control IPC, and service
+permissions. Source enablement and background service installation are separate opt-ins. The
+priority source plan and live acceptance remain in `docs/plans/2026-09-16-priority-capture.md`.
+Installing the core
 does not install a desktop app, collector, scheduler, network listener, or service manager
 dependency in the core. Do not add those dependencies or a listener to the core, and do not restore
 archived modules.
@@ -77,7 +80,7 @@ version to both platforms, both resource roles, archive and executable SHA-256 v
 and install destinations. The executable starts only when the user invokes it and exits when that
 foreground command, stdio MCP session, or desktop plugin session ends.
 
-Semantic refresh is the only active product network-egress path. It requires current owner consent,
+Semantic refresh is the core's only active product network-egress path. It requires current owner consent,
 eligible note revisions, exclusions, redaction, and one explicit direct API-key provider. Never use
 ambient provider credentials or cross-provider fallback. Claude subscription remains closed with
 `subscription_isolation_unproven`; do not introduce root staging, namespaces, capabilities, fixture
@@ -123,7 +126,8 @@ runtime session version 1; never weaken the compatibility checks to admit an old
 
 ## Safety and verification
 
-Use synthetic fixtures only. Never commit private notes, captures, transcripts, credentials,
+Automated tests use synthetic fixtures. Real-source checks require owner-authorized selections
+and private receipts; they do not replace the automated suite. Never commit private notes, captures, transcripts, credentials,
 hostnames, infrastructure addresses, logs, databases, or generated private configuration.
 
 After code changes, run `make verify`. After native or packaging changes, also run

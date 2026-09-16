@@ -1742,3 +1742,32 @@ On an expired token, finish a bounded full snapshot before reconciling missing e
 Advance the checkpoint only after every capture succeeds; retain immutable history.
 
 Discovered: 2026-09-15, Google Calendar provider and engine integration.
+
+### SOURCE-LIVE-001: Keychain CLI success does not prove an intact token document
+
+Symptom: A Keychain command exits successfully but stores an empty value, or an interactive
+`security` command truncates a larger JSON document.
+
+Cause: The `security` command's password and interactive input modes do not provide a reliable
+bounded stdin channel for arbitrary credential JSON. Putting the value in argv exposes it.
+
+Fix: Use Security.framework inside a bounded helper and send credential JSON through stdin.
+Verify a synthetic large document by reading it back exactly, replacing it, and deleting only
+the test entry. Keep both credentials and helper diagnostics out of public output.
+
+Discovered: 2026-09-16, priority-source native Keychain acceptance.
+
+### SOURCE-LIVE-002: Concurrent first queue opens can lose a hook event
+
+Symptom: One of 32 simultaneous session events returns false before writing its metadata.
+
+Cause: On the tested macOS filesystem, concurrent `openat` calls for the new queue lock
+occasionally returned `ENOENT` despite `O_CREAT` and a held parent directory descriptor.
+The hook's best-effort error boundary hid that failure from the native client.
+
+Fix: Retry only this transient lock-open failure within the existing acquisition deadline.
+Keep no-follow, nonblocking opens and owner/mode checks. Test both a raced first open and
+deadline exhaustion, then exercise concurrent fresh queues. The repaired diagnostic retained
+all 960 events across 30 independent queues.
+
+Discovered: 2026-09-16, final priority-source verification on macOS.

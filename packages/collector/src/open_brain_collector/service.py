@@ -147,6 +147,7 @@ class CollectorLaunchdServiceManager:
         label: str,
         owner_token: str,
         command: tuple[str, ...],
+        keep_alive: bool = False,
     ) -> dict[str, object]:
         _validate(label, owner_token)
         if not command or any(type(item) is not str or not item for item in command):
@@ -166,7 +167,7 @@ class CollectorLaunchdServiceManager:
                     "EnvironmentVariables": {
                         "OPEN_BRAIN_COLLECTOR_OWNER": owner_token,
                     },
-                    "KeepAlive": False,
+                    "KeepAlive": keep_alive,
                     "Label": label,
                     "ProgramArguments": list(command),
                     "RunAtLoad": True,
@@ -238,8 +239,7 @@ class CollectorLaunchdServiceManager:
             not isinstance(payload, dict)
             or payload.get("Label") != label
             or not isinstance(payload.get("EnvironmentVariables"), dict)
-            or payload["EnvironmentVariables"].get("OPEN_BRAIN_COLLECTOR_OWNER")
-            != owner_token
+            or payload["EnvironmentVariables"].get("OPEN_BRAIN_COLLECTOR_OWNER") != owner_token
         ):
             raise CollectorServiceError("collector_service_not_owned")
 
@@ -256,4 +256,4 @@ def _validate_label(label: str) -> None:
 
 
 def _run_launchctl(command: Sequence[str]) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(command, text=True, capture_output=True, check=False)
+    return subprocess.run(command, text=True, capture_output=True, check=False, timeout=10)

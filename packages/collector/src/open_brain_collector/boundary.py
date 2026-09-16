@@ -14,12 +14,16 @@ __all__ = [
 
 
 class CollectorBoundaryError(RuntimeError):
-    """The optional collector package crossed its initial D3 boundary."""
+    """The optional collector package crossed its product boundary."""
 
 
 @dataclass(frozen=True, slots=True)
 class CollectorBoundary:
-    """Static contract for the opt-in D3 collector package boundary."""
+    """Static contract for the opt-in collector package boundary.
+
+    Private Unix control is permitted by ADR 0017. The core distribution still
+    excludes this entire package; installing the collector starts no listener.
+    """
 
     package_name: str
     module_name: str
@@ -64,7 +68,6 @@ COLLECTOR_BOUNDARY = CollectorBoundary(
         "open_brain",
         "podman",
         "prctl",
-        "socketserver",
         "sqlcipher3",
         "starlette",
         "systemd",
