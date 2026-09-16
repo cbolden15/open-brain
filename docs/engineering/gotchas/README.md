@@ -1848,3 +1848,19 @@ reads and refresh requests before removing test credentials. A browser callback 
 does not establish failure; check the completed connect operation and a real provider read.
 
 Discovered: 2026-09-16, live Google edit/removal/revocation acceptance.
+
+### SOURCE-LIVE-008: Unlink and recreate does not guarantee a different inode
+
+Symptom: The transcript inode-swap contract test passes on macOS but imports the
+replacement on Linux instead of reporting `session_transcript_changed`.
+
+Cause: The fixture deletes the original before creating its replacement. A filesystem
+may immediately reuse the freed inode, so the fixture does not reliably exercise the
+device/inode mismatch check.
+
+Fix: Create the replacement while the original still exists, assert their inode numbers
+differ, and atomically replace the original path. Keep both the empty-intake and changed-
+transcript assertions. This verifies rejection of a changed inode without assuming
+deleted inode numbers cannot be reused.
+
+Discovered: 2026-09-16, Linux contributor CI for the desktop and priority capture PR.

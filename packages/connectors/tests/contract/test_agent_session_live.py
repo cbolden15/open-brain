@@ -349,8 +349,11 @@ def test_rejects_transcript_identity_mismatch_and_inode_swap(tmp_path: Path) -> 
     assert mismatched.intakes == ()
     assert mismatched.notices == ("session_identity_mismatch",)
 
-    transcript.unlink()
-    transcript.write_text(_claude_transcript(project, "session-123"), encoding="utf-8")
+    # Allocate while the original exists: unlink/recreate may reuse its inode.
+    replacement = tmp_path / "replacement.jsonl"
+    replacement.write_text(_claude_transcript(project, "session-123"), encoding="utf-8")
+    assert replacement.stat().st_ino != transcript.stat().st_ino
+    replacement.replace(transcript)
     swapped = source.fetch(selection, _options("claude_code", project), None)
     assert swapped.intakes == ()
     assert swapped.notices == ("session_transcript_changed",)
