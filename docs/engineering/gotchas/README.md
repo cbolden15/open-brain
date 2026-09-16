@@ -1816,3 +1816,19 @@ Keep the credential scan on the selected conversation text. Cover mixed context/
 unknown kinds and actual user secrets in both transcript and extractive-summary tests.
 
 Discovered: 2026-09-16, isolated native Codex transcript import.
+
+### SOURCE-LIVE-006: Search polling can overlap a collector write
+
+Symptom: A live acceptance harness fails a search while the background collector successfully
+captures the new session revision. A later search returns the expected single active result.
+
+Cause: The CLI reports contention as exit code 75 with `error.code: database_busy`. The
+harness treated that retryable response as a permanent failure and discarded its error code.
+
+Fix: Preserve private failure diagnostics and retry only that exit-code/error-code pair within
+a bounded deadline. Continue to fail on other errors or deadline exhaustion. Verify the final
+capture identity and drained queue; a busy response alone does not establish successful capture.
+The native harness uses a five-second retry budget, and the existing cross-process CLI/MCP
+contention test checks this contract and SQLite integrity after the writer releases its lock.
+
+Discovered: 2026-09-16, native Claude Code background capture acceptance.

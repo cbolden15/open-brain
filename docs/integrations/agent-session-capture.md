@@ -107,7 +107,7 @@ This scan is best effort. It cannot find every secret embedded in ordinary prose
 
 ## Client evidence and limits
 
-The tested client versions are Claude Code 2.1.271 and Codex CLI 0.154.0. Claude Code
+The tested client versions are Claude Code 2.1.273 and Codex CLI 0.154.0. Claude Code
 documents `Stop` as running after the main agent responds and supplies `session_id`,
 `cwd`, `transcript_path`, and the event name to command hooks. Codex documents `Stop`,
 project-local `.codex/hooks.json`, the same core path/session fields, and warns that its
@@ -118,7 +118,15 @@ References checked on 2026-09-16:
 - [Claude Code hooks](https://code.claude.com/docs/en/hooks)
 - [Codex hooks](https://developers.openai.com/codex/hooks/)
 
-Synthetic transcript tests prove the supported shapes and hook configuration behavior.
-They are not live client acceptance evidence. A final owner-run proof needs a fresh test
-project for each client, one enabled content choice, one completed turn, a collector
-drain, a restart, and explicit uninstall/opt-out confirmation.
+Bounded native acceptance passed for both clients on 2026-09-16 against implementation
+commit `11d0fe4`. Each used a fresh selected project, synthetic conversations and a disposable
+Brain with transcript capture enabled. The checks covered generated Stop hooks, import and
+fresh-process search, capture retry and replay, a resumed-session update through the background
+collector, pause/restart/resume, opt-out followed by a real uncaptured turn, and a verified export
+retaining both session revisions. Each updated session had one active search result. Temporary
+hooks and services were removed; normal user projects were not enabled by these checks.
+
+These checks cover the named client versions and transcript opt-in. Extractive summaries,
+malformed records and credential quarantine have automated test coverage. Repeat native
+acceptance after client-format or integration changes; synthetic transcript tests alone do not
+establish native compatibility. Keep transcripts and detailed acceptance receipts private.
