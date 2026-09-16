@@ -256,7 +256,7 @@ with desktop, Obsidian, CLI, and MCP on each supported platform.
 | Source | First supported scope | Release gate |
 |---|---|---|
 | GitLab and Jira | Selected projects, issues, discussions/comments, merge requests where applicable | Cloud/instance identity, pagination, changed records, and the supported auth topology |
-| Email and Google Drive | Gmail/Microsoft 365 selected labels/folders; individually selected Drive files | Provider verification requirements, body extraction, OAuth-scope disclosure, and attachment exclusions |
+| Gmail and Google Drive | Selected Gmail labels; individually selected Drive files | Provider verification requirements, body extraction, OAuth-scope disclosure, and attachment exclusions |
 | Slack | Selected accessible channels and thread context | Workspace approval, rate-limit-aware history import, retention/access changes, and token revocation |
 | Claude Code and Codex session capture | Explicitly selected local projects, with summaries/transcripts separately chosen | Versioned supported events or a tested transcript adapter; bounded queues, secret exclusions, opt-out, and no feedback loop from Brain results into new captures |
 | iMessage | Selected conversations on a supported Mac | Documented permission experience, repeatable access/format proof, edits/deletions, attachments policy, and graceful OS-version incompatibility |
@@ -281,11 +281,13 @@ Deliver these four groups in the proposed order. Each file format, browser, and 
 separate acceptance unit; a group label does not mean one adapter implements everything in the row.
 D5.4 (Teams conversations, OneDrive, and SharePoint) and Teams meeting transcripts were removed at
 the owner's request. Keep the remaining stage IDs stable; D5.5 covers Zoom and Google Meet only.
+On 2026-09-15, the owner also removed Outlook/Microsoft 365 email from D4 and Outlook Calendar
+from D5.2. Neither provider requires further implementation, sign-in, or acceptance for this plan.
 
 | Stage | Additional sources | First scope and user value | Specific release gate |
 |---|---|---|---|
 | D5.1 | Local documents and saved web pages | Selected text PDFs and DOCX files alongside existing Markdown/text import; explicit Save to Brain for the current page or selected passage. Makes reports and research searchable without requiring a particular SaaS account. | Preview extracted text; preserve file/page provenance and revision identity; bound parser resources; report unsupported scans/encrypted files; prove browser-to-local delivery. Start with explicit capture, not browsing-history collection or OCR. |
-| D5.2 | Google Calendar and Outlook Calendar | Selected calendars and date ranges; event descriptions, attendees, meeting links, and recurrence. Supplies who/when context alongside saved notes. | Read-only scopes, account identity, time zones, recurring-event exceptions, cancellations, and invalidated sync checkpoints. Calendar access does not enable email or meeting-transcript capture. |
+| D5.2 | Google Calendar | Selected calendars and date ranges; event descriptions, attendees, meeting links, and recurrence. Supplies who/when context alongside saved notes. | Read-only scopes, account identity, time zones, recurring-event exceptions, cancellations, and invalidated sync checkpoints. Calendar access does not enable email or meeting-transcript capture. |
 | D5.3 | Notion and Confluence Cloud | Selected Notion pages/data sources and Confluence spaces/pages, with comments and original links. Recalls project notes, specifications, and team decisions. | Nested content traversal, permission inheritance/loss, revisions, pagination, and a proven public authentication architecture. Confluence Data Center remains a separate adapter. |
 | D5.5 | Zoom and Google Meet transcripts | Existing transcripts from selected accessible meetings, with speaker/timestamp attribution when provided. Retrieves what was discussed and connects it to its meeting. | Eligible account/license and permissions, transcript availability/retention, source links, and artifact identity when a transcript also arrives through document import. No meeting bot, recording, or live audio capture in this scope. |
 
@@ -299,7 +301,6 @@ clip flow, not credential or cookie extraction.
 Feasibility evidence and unresolved gates:
 
 - Calendar synchronization has a documented [Google incremental-sync mechanism](https://developers.google.com/workspace/calendar/api/guides/sync).
-  Outlook Calendar is exposed through [Microsoft Graph](https://learn.microsoft.com/en-us/graph/overview).
   Calendar scopes and consent must be verified separately from the D4 email integration.
 - Notion offers page selection during authorization, but its documented [public OAuth exchange](https://developers.notion.com/guides/get-started/authorization)
   requires a client secret. Public desktop sign-in is pending an approved confidential-client design;
