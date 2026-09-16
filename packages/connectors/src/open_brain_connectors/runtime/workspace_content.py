@@ -12,6 +12,7 @@ from hashlib import sha256
 from pathlib import Path
 from tempfile import NamedTemporaryFile
 from typing import TypedDict
+from urllib import parse
 
 from open_brain_engine.capture.redaction import has_redaction_finding
 from open_brain_engine.engine import PrivacyDecision
@@ -445,16 +446,74 @@ class WorkspaceContentSourceAdapter:
         next_cursor: str | None = None,
     ) -> WorkspaceContentPage:
         selected_ids = _required_selected_content(selection, selected_content_ids)
+        all_records = tuple(self.record_from_item(value) for value in _require_values(values))
+        selected_resource_children = tuple(
+            record.content_id
+            for record in all_records
+            if (
+                record.parent_id == selection.resource_id
+                or record.content_id == selection.resource_id
+            )
+        )
         records = tuple(
-            self.record_from_item(value)
-            for value in _require_values(values)
-            if _matches_selected_content(selection, value, selected_ids)
+            record
+            for record in all_records
+            if _matches_selected_record(
+                selection,
+                record,
+                selected_ids,
+                selected_resource_children=selected_resource_children,
+            )
         )
         if not records:
             raise ConnectorContractError("invalid workspace contents")
         return WorkspaceContentPage(
             status=WorkspaceContentPageStatus.READY,
-            preview=self.preview(selection, records, privacy=privacy, next_cursor=next_cursor),
+            preview=self._preview(
+                selection,
+                records,
+                privacy=privacy,
+                next_cursor=next_cursor,
+                selected_resource_children=selected_resource_children,
+            ),
+        )
+
+    def page_from_notion_response(
+        self,
+        selection: SourceResourceSelection,
+        response: Mapping[str, object],
+        *,
+        privacy: PrivacyDecision,
+        selected_content_ids: Sequence[str],
+    ) -> WorkspaceContentPage:
+        """Normalize one Notion API list response into selected workspace records."""
+
+        _require_response_connector(selection, D5_NOTION_SOURCE)
+        return self.page_from_items(
+            selection,
+            _notion_items(response),
+            privacy=privacy,
+            selected_content_ids=selected_content_ids,
+            next_cursor=_notion_next_cursor(response),
+        )
+
+    def page_from_confluence_response(
+        self,
+        selection: SourceResourceSelection,
+        response: Mapping[str, object],
+        *,
+        privacy: PrivacyDecision,
+        selected_content_ids: Sequence[str],
+    ) -> WorkspaceContentPage:
+        """Normalize one Confluence Cloud REST v2 page into selected workspace records."""
+
+        _require_response_connector(selection, D5_CONFLUENCE_SOURCE)
+        return self.page_from_items(
+            selection,
+            _confluence_items(response),
+            privacy=privacy,
+            selected_content_ids=selected_content_ids,
+            next_cursor=_confluence_next_cursor(response),
         )
 
     def preview(
@@ -465,10 +524,35 @@ class WorkspaceContentSourceAdapter:
         privacy: PrivacyDecision,
         next_cursor: str | None = None,
     ) -> SourcePreviewPage:
+        return self._preview(
+            selection,
+            records,
+            privacy=privacy,
+            next_cursor=next_cursor,
+            selected_resource_children=(),
+        )
+
+    def _preview(
+        self,
+        selection: SourceResourceSelection,
+        records: Sequence[WorkspaceContentRecord],
+        *,
+        privacy: PrivacyDecision,
+        next_cursor: str | None,
+        selected_resource_children: tuple[str, ...],
+    ) -> SourcePreviewPage:
         _selection_connector(selection)
         if not isinstance(records, Sequence) or isinstance(records, str):
             raise ConnectorContractError("invalid workspace contents")
-        intakes = tuple(self.intake(selection, record, privacy=privacy) for record in records)
+        intakes = tuple(
+            self._intake(
+                selection,
+                record,
+                privacy=privacy,
+                selected_resource_children=selected_resource_children,
+            )
+            for record in records
+        )
         if len(intakes) > _MAX_PREVIEW_RECORDS:
             raise ConnectorContractError("invalid workspace contents")
         return SourcePreviewPage(
@@ -654,9 +738,23 @@ class WorkspaceContentSourceAdapter:
         *,
         privacy: PrivacyDecision,
     ) -> SourceRecordIntake:
+        return self._intake(selection, record, privacy=privacy, selected_resource_children=())
+
+    def _intake(
+        self,
+        selection: SourceResourceSelection,
+        record: WorkspaceContentRecord,
+        *,
+        privacy: PrivacyDecision,
+        selected_resource_children: tuple[str, ...],
+    ) -> SourceRecordIntake:
         if type(record) is not WorkspaceContentRecord:
             raise ConnectorContractError("invalid workspace content")
-        _require_record_matches_selection(selection, record)
+        _require_record_matches_selection(
+            selection,
+            record,
+            selected_resource_children=selected_resource_children,
+        )
         return SourceRecordIntake(
             key=SourceRecordKey(
                 connector_name=selection.connector_name,
@@ -745,6 +843,11 @@ def _require_values(values: Sequence[Mapping[str, object]]) -> Sequence[Mapping[
     return values
 
 
+def _require_response_connector(selection: SourceResourceSelection, connector_name: str) -> None:
+    if _selection_connector(selection) != connector_name:
+        raise ConnectorContractError("invalid workspace content source selection")
+
+
 def _selection_connector(selection: SourceResourceSelection) -> str:
     if type(selection) is not SourceResourceSelection:
         raise ConnectorContractError("invalid workspace content source selection")
@@ -806,6 +909,247 @@ def _typed_str(value: object) -> str:
     return value
 
 
+def _value_str(value: object) -> str | None:
+    if type(value) is str and value.strip():
+        return value.strip()
+    return None
+
+
+def _mapping(value: object) -> Mapping[str, object]:
+    if not isinstance(value, Mapping):
+        raise ConnectorContractError("invalid workspace content")
+    return value
+
+
+def _sequence(value: object) -> Sequence[object]:
+    if not isinstance(value, Sequence) or isinstance(value, str):
+        raise ConnectorContractError("invalid workspace content")
+    return value
+
+
+def _notion_items(response: Mapping[str, object]) -> tuple[dict[str, object], ...]:
+    values = response.get("results")
+    if values is None and _value_str(response.get("object")) in {"page", "block", "comment"}:
+        values = [response]
+    return tuple(_notion_item(_mapping(value)) for value in _sequence(values))
+
+
+def _notion_item(value: Mapping[str, object]) -> dict[str, object]:
+    object_type = _value_str(value.get("object"))
+    if object_type == "page":
+        content_id = f"notion:page/{_required_raw_id(value.get('id'))}"
+        parent_id = _notion_parent_id(value.get("parent"))
+        content_type = "page"
+        title = _notion_page_title(value)
+        body = _notion_page_body(value)
+    elif object_type == "block":
+        content_id = f"notion:block/{_required_raw_id(value.get('id'))}"
+        parent_id = _notion_parent_id(value.get("parent"))
+        content_type = "block"
+        title = _notion_block_title(value)
+        body = _notion_block_body(value)
+    elif object_type == "comment":
+        content_id = f"notion:comment/{_required_raw_id(value.get('id'))}"
+        parent_id = _notion_parent_id(value.get("parent"))
+        content_type = "comment"
+        body = _rich_text(value.get("rich_text")) or "Notion comment"
+        title = "Notion comment"
+    else:
+        raise ConnectorContractError("invalid workspace content")
+    edited = _value_str(value.get("last_edited_time"))
+    revision = edited or _value_str(value.get("created_time")) or _required_raw_id(value.get("id"))
+    return {
+        "body": body,
+        "connector_name": D5_NOTION_SOURCE,
+        "content_id": content_id,
+        "content_secret_scan": "clean",
+        "content_type": content_type,
+        "parent_id": parent_id,
+        "revision_id": revision,
+        "source_kind": D5_NOTION_SOURCE,
+        "source_link": _value_str(value.get("url")),
+        "title": title,
+    }
+
+
+def _notion_next_cursor(response: Mapping[str, object]) -> str | None:
+    if response.get("has_more") is True:
+        return _value_str(response.get("next_cursor"))
+    return None
+
+
+def _notion_parent_id(value: object) -> str | None:
+    if value is None:
+        return None
+    parent = _mapping(value)
+    parent_type = _value_str(parent.get("type"))
+    if parent_type == "page_id":
+        return f"notion:page/{_required_raw_id(parent.get('page_id'))}"
+    if parent_type == "block_id":
+        return f"notion:block/{_required_raw_id(parent.get('block_id'))}"
+    if parent_type in {"database_id", "data_source_id"}:
+        raw = parent.get(parent_type)
+        return f"notion:data-source/{_required_raw_id(raw)}"
+    return None
+
+
+def _notion_page_title(value: Mapping[str, object]) -> str:
+    properties = value.get("properties")
+    if isinstance(properties, Mapping):
+        for raw_property in properties.values():
+            if isinstance(raw_property, Mapping):
+                title = _rich_text(raw_property.get("title"))
+                if title:
+                    return title
+    return "Notion page"
+
+
+def _notion_page_body(value: Mapping[str, object]) -> str:
+    lines: list[str] = []
+    properties = value.get("properties")
+    if isinstance(properties, Mapping):
+        for raw_name, raw_property in properties.items():
+            if not isinstance(raw_name, str) or not isinstance(raw_property, Mapping):
+                continue
+            text = _notion_property_text(raw_property)
+            if text:
+                lines.append(f"{raw_name}: {text}")
+    return "\n".join(lines) if lines else _notion_page_title(value)
+
+
+def _notion_property_text(value: Mapping[str, object]) -> str | None:
+    property_type = _value_str(value.get("type"))
+    if property_type in {"title", "rich_text"}:
+        return _rich_text(value.get(property_type))
+    if property_type in {"select", "status"} and isinstance(value.get(property_type), Mapping):
+        return _value_str(_mapping(value[property_type]).get("name"))
+    if property_type in {"url", "email", "phone_number", "number"}:
+        raw = value.get(property_type)
+        return str(raw) if raw not in (None, "") else None
+    return None
+
+
+def _notion_block_title(value: Mapping[str, object]) -> str:
+    block_type = _value_str(value.get("type")) or "block"
+    return f"Notion {block_type.replace('_', ' ')}"
+
+
+def _notion_block_body(value: Mapping[str, object]) -> str:
+    block_type = _value_str(value.get("type"))
+    if block_type is not None and isinstance(value.get(block_type), Mapping):
+        text = _rich_text(_mapping(value[block_type]).get("rich_text"))
+        if text:
+            return text
+    return _notion_block_title(value)
+
+
+def _rich_text(value: object) -> str | None:
+    if not isinstance(value, Sequence) or isinstance(value, str):
+        return None
+    text = "".join(
+        fragment
+        for item in value
+        if isinstance(item, Mapping)
+        for fragment in [_value_str(item.get("plain_text")) or ""]
+    ).strip()
+    return text or None
+
+
+def _confluence_items(response: Mapping[str, object]) -> tuple[dict[str, object], ...]:
+    values = response.get("results")
+    if values is None and (_value_str(response.get("id")) is not None):
+        values = [response]
+    return tuple(_confluence_item(_mapping(value), response) for value in _sequence(values))
+
+
+def _confluence_item(
+    value: Mapping[str, object], response: Mapping[str, object]
+) -> dict[str, object]:
+    raw_id = _required_raw_id(value.get("id"))
+    raw_kind = _value_str(value.get("type")) or _value_str(value.get("subtype"))
+    content_type = "comment" if raw_kind == "comment" else "page"
+    content_id = f"confluence:{content_type}/{raw_id}"
+    parent = _value_str(value.get("parentId")) or _value_str(value.get("pageId"))
+    parent_id = f"confluence:page/{parent}" if parent and content_type == "comment" else None
+    if content_type == "page":
+        space = value.get("spaceId")
+        parent_id = f"confluence:space/{_required_raw_id(space)}" if space is not None else None
+    version = value.get("version")
+    revision = (
+        str(_mapping(version).get("number"))
+        if isinstance(version, Mapping) and _mapping(version).get("number") is not None
+        else _value_str(value.get("versionNumber")) or _required_raw_id(value.get("id"))
+    )
+    return {
+        "body": _confluence_body(value),
+        "connector_name": D5_CONFLUENCE_SOURCE,
+        "content_id": content_id,
+        "content_secret_scan": "clean",
+        "content_type": content_type,
+        "parent_id": parent_id,
+        "revision_id": revision,
+        "source_kind": D5_CONFLUENCE_SOURCE,
+        "source_link": _confluence_link(value, response),
+        "title": _value_str(value.get("title")) or "Confluence comment",
+    }
+
+
+def _confluence_body(value: Mapping[str, object]) -> str:
+    body = value.get("body")
+    if isinstance(body, Mapping):
+        for key in ("storage", "view", "atlas_doc_format"):
+            rendered = body.get(key)
+            if isinstance(rendered, Mapping):
+                text = _value_str(rendered.get("value"))
+                if text:
+                    return text
+    return _value_str(value.get("title")) or "Confluence content"
+
+
+def _confluence_link(
+    value: Mapping[str, object], response: Mapping[str, object]
+) -> str | None:
+    links = value.get("_links")
+    response_links = response.get("_links")
+    if not isinstance(links, Mapping):
+        return None
+    webui = _value_str(links.get("webui"))
+    if webui is None:
+        return None
+    base = (
+        _value_str(links.get("base"))
+        or (_value_str(response_links.get("base")) if isinstance(response_links, Mapping) else None)
+    )
+    if webui.startswith("https://"):
+        return webui
+    if base is not None and base.startswith("https://"):
+        return parse.urljoin(base, webui)
+    return None
+
+
+def _confluence_next_cursor(response: Mapping[str, object]) -> str | None:
+    links = response.get("_links")
+    if not isinstance(links, Mapping):
+        return None
+    next_link = _value_str(links.get("next"))
+    if next_link is None:
+        return None
+    parsed = parse.urlparse(next_link)
+    query = parse.parse_qs(parsed.query)
+    cursor = query.get("cursor", [None])[0]
+    return _value_str(cursor)
+
+
+def _required_raw_id(value: object) -> str:
+    raw = _value_str(value)
+    if raw is None:
+        raise ConnectorContractError("invalid workspace content")
+    cleaned = raw.strip().strip("{}")
+    if not cleaned or any(character.isspace() for character in cleaned):
+        raise ConnectorContractError("invalid workspace content")
+    return cleaned
+
+
 def _body_or_fallback(value: object, fallback: str) -> str:
     if type(value) is str:
         stripped = value.strip()
@@ -850,28 +1194,49 @@ def _required_selected_content(
     return selected
 
 
-def _matches_selected_content(
+def _matches_selected_record(
     selection: SourceResourceSelection,
-    value: Mapping[str, object],
+    record: WorkspaceContentRecord,
     selected_content_ids: tuple[str, ...],
+    *,
+    selected_resource_children: tuple[str, ...],
 ) -> bool:
     connector_name = _selection_connector(selection)
-    content_id = value.get("content_id")
-    parent_id = value.get("parent_id")
+    if record.connector_name != connector_name:
+        return False
+    if record.content_id in selected_content_ids:
+        return _record_within_selection(selection, record, selected_resource_children)
+    if record.parent_id in selected_content_ids:
+        return _record_within_selection(selection, record, selected_resource_children)
     return (
-        value.get("connector_name") == connector_name
-        and (
-            content_id in selected_content_ids
-            or (
-                selection.resource_type in {"page", "cloud_page"}
-                and parent_id in selected_content_ids
-            )
+        record.parent_id == selection.resource_id
+        or (
+            selection.resource_type in {"page", "cloud_page"}
+            and record.parent_id in selected_content_ids
         )
     )
 
 
+def _record_within_selection(
+    selection: SourceResourceSelection,
+    record: WorkspaceContentRecord,
+    selected_resource_children: tuple[str, ...],
+) -> bool:
+    if selection.resource_type in {"page", "cloud_page"}:
+        return (
+            record.content_id == selection.resource_id
+            or record.parent_id == selection.resource_id
+        )
+    if record.content_id == selection.resource_id or record.parent_id == selection.resource_id:
+        return True
+    return record.content_type == "comment" and record.parent_id in selected_resource_children
+
+
 def _require_record_matches_selection(
-    selection: SourceResourceSelection, record: WorkspaceContentRecord
+    selection: SourceResourceSelection,
+    record: WorkspaceContentRecord,
+    *,
+    selected_resource_children: tuple[str, ...],
 ) -> None:
     connector_name = _selection_connector(selection)
     if (
@@ -886,6 +1251,10 @@ def _require_record_matches_selection(
             selection.resource_type in {"data_source", "cloud_space"}
             and record.parent_id != selection.resource_id
             and record.content_id != selection.resource_id
+            and (
+                record.content_type != "comment"
+                or record.parent_id not in selected_resource_children
+            )
         )
     ):
         raise ConnectorContractError("invalid workspace content")

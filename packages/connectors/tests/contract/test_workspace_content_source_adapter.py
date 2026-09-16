@@ -270,6 +270,208 @@ def test_workspace_content_selected_page_allows_child_blocks_and_comments_withou
     assert "user-authored-reply" not in confluence_page.preview.records[0].source_reference
 
 
+def test_workspace_content_normalizes_notion_api_page_blocks_comments_and_cursor() -> None:
+    adapter = WorkspaceContentSourceAdapter()
+    selection = adapter.resource_selection(
+        connector_name="notion",
+        connection_id="account:notion-fixture",
+        resource_id=_NOTION_PAGE_ID,
+        resource_type="page",
+    )
+
+    page = adapter.page_from_notion_response(
+        selection,
+        {
+            "has_more": True,
+            "next_cursor": "notion-cursor-2",
+            "object": "list",
+            "results": [
+                {
+                    "id": "weekly-plan",
+                    "last_edited_time": "2026-09-16T14:00:00Z",
+                    "object": "page",
+                    "parent": {"type": "data_source_id", "data_source_id": "roadmap"},
+                    "properties": {
+                        "Name": {
+                            "type": "title",
+                            "title": [{"plain_text": "Weekly Plan"}],
+                        },
+                        "Status": {"type": "status", "status": {"name": "Active"}},
+                    },
+                    "url": "https://www.notion.so/workspace/weekly-plan",
+                },
+                {
+                    "id": "decision-heading",
+                    "last_edited_time": "2026-09-16T14:01:00Z",
+                    "object": "block",
+                    "parent": {"type": "page_id", "page_id": "weekly-plan"},
+                    "type": "heading_2",
+                    "heading_2": {"rich_text": [{"plain_text": "Synthetic nested heading."}]},
+                },
+                {
+                    "id": "comment-1",
+                    "created_time": "2026-09-16T14:02:00Z",
+                    "object": "comment",
+                    "parent": {"type": "page_id", "page_id": "weekly-plan"},
+                    "rich_text": [{"plain_text": "Synthetic reviewed comment."}],
+                },
+            ],
+        },
+        privacy=_privacy(),
+        selected_content_ids=(_NOTION_PAGE_ID,),
+    )
+
+    assert page.preview is not None
+    assert page.preview.next_cursor == "notion-cursor-2"
+    assert [record.content_type for record in page.preview.records] == [
+        "page",
+        "block",
+        "comment",
+    ]
+    assert [record.title for record in page.preview.records] == [
+        "Weekly Plan",
+        "Notion heading 2",
+        "Notion comment",
+    ]
+    assert "Synthetic nested heading" not in repr(page.preview.to_dict())
+
+
+def test_workspace_content_normalizes_confluence_cloud_v2_page_comment_link_and_cursor() -> None:
+    adapter = WorkspaceContentSourceAdapter()
+    selection = adapter.resource_selection(
+        connector_name="confluence",
+        connection_id="account:confluence-fixture",
+        resource_id=_CONFLUENCE_SPACE_ID,
+        resource_type="cloud_space",
+    )
+
+    page = adapter.page_from_confluence_response(
+        selection,
+        {
+            "_links": {
+                "base": "https://example.atlassian.net/wiki",
+                "next": "/wiki/api/v2/pages?limit=2&cursor=cloud-cursor-2",
+            },
+            "results": [
+                {
+                    "_links": {"webui": "/spaces/ENG/pages/123/Runbook"},
+                    "body": {"storage": {"value": "<p>Synthetic runbook body.</p>"}},
+                    "id": "123",
+                    "spaceId": "ENG",
+                    "title": "Runbook",
+                    "type": "page",
+                    "version": {"number": 7},
+                },
+                {
+                    "_links": {"webui": "/spaces/ENG/pages/123?focusedCommentId=456"},
+                    "body": {"storage": {"value": "<p>Synthetic review comment.</p>"}},
+                    "id": "456",
+                    "pageId": "123",
+                    "title": "",
+                    "type": "comment",
+                    "version": {"number": 2},
+                },
+            ],
+        },
+        privacy=_privacy(),
+        selected_content_ids=(_CONFLUENCE_SPACE_ID, "confluence:page/123"),
+    )
+
+    assert page.preview is not None
+    assert page.preview.next_cursor == "cloud-cursor-2"
+    assert [record.content_type for record in page.preview.records] == ["page", "comment"]
+    assert page.preview.records[0].title == "Runbook"
+    assert page.preview.records[0].source_reference.startswith(
+        "https://confluence.local.openbrain.invalid/"
+    )
+    assert "Synthetic review comment" not in repr(page.preview.to_dict())
+
+
+def test_workspace_content_rejects_broad_selection_comment_outside_selected_resource() -> None:
+    adapter = WorkspaceContentSourceAdapter()
+    selection = adapter.resource_selection(
+        connector_name="confluence",
+        connection_id="account:confluence-fixture",
+        resource_id=_CONFLUENCE_SPACE_ID,
+        resource_type="cloud_space",
+    )
+
+    with pytest.raises(ConnectorContractError, match="invalid workspace contents"):
+        adapter.page_from_confluence_response(
+            selection,
+            {
+                "results": [
+                    {
+                        "body": {"storage": {"value": "<p>Synthetic outside comment.</p>"}},
+                        "id": "456",
+                        "pageId": "outside-space",
+                        "type": "comment",
+                        "version": {"number": 2},
+                    }
+                ],
+            },
+            privacy=_privacy(),
+            selected_content_ids=(_CONFLUENCE_SPACE_ID, "confluence:page/outside-space"),
+        )
+
+
+def test_workspace_content_direct_preview_rejects_broad_comment_without_parent_context() -> None:
+    adapter = WorkspaceContentSourceAdapter()
+    selection = adapter.resource_selection(
+        connector_name="confluence",
+        connection_id="account:confluence-fixture",
+        resource_id=_CONFLUENCE_SPACE_ID,
+        resource_type="cloud_space",
+    )
+    comment = adapter.record_from_item(
+        _item(
+            connector_name="confluence",
+            content_id="confluence:comment/reply",
+            content_type="comment",
+            parent_id="confluence:page/runbook",
+            title="Review Comment",
+        )
+    )
+
+    with pytest.raises(ConnectorContractError, match="invalid workspace content"):
+        adapter.preview(selection, (comment,), privacy=_privacy())
+
+
+def test_workspace_content_ignores_confluence_next_link_without_cursor() -> None:
+    adapter = WorkspaceContentSourceAdapter()
+    selection = adapter.resource_selection(
+        connector_name="confluence",
+        connection_id="account:confluence-fixture",
+        resource_id=_CONFLUENCE_SPACE_ID,
+        resource_type="cloud_space",
+    )
+
+    page = adapter.page_from_confluence_response(
+        selection,
+        {
+            "_links": {
+                "base": "https://example.atlassian.net/wiki",
+                "next": "/wiki/api/v2/pages?limit=2&expand=body.storage",
+            },
+            "results": [
+                {
+                    "body": {"storage": {"value": "<p>Synthetic runbook body.</p>"}},
+                    "id": "123",
+                    "spaceId": "ENG",
+                    "title": "Runbook",
+                    "type": "page",
+                    "version": {"number": 7},
+                }
+            ],
+        },
+        privacy=_privacy(),
+        selected_content_ids=(_CONFLUENCE_SPACE_ID,),
+    )
+
+    assert page.preview is not None
+    assert page.preview.next_cursor is None
+
+
 def test_workspace_content_checkpoint_retains_prior_pages_without_resubmitting(
     tmp_path: Path,
 ) -> None:

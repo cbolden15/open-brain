@@ -679,6 +679,77 @@ def test_source_cli_previews_workspace_content_without_payload_bodies(
     assert "must not print" not in repr(payload)
 
 
+def test_source_cli_previews_workspace_content_from_provider_response(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    source = tmp_path / "notion-response.json"
+    source.write_text(
+        json.dumps(
+            {
+                "has_more": True,
+                "next_cursor": "notion-cursor-2",
+                "results": [
+                    {
+                        "id": "weekly-plan",
+                        "last_edited_time": "2026-09-16T14:00:00Z",
+                        "object": "page",
+                        "properties": {
+                            "Name": {
+                                "type": "title",
+                                "title": [{"plain_text": "Weekly Plan"}],
+                            }
+                        },
+                        "url": "https://www.notion.so/workspace/weekly-plan",
+                    },
+                    {
+                        "id": "decision-heading",
+                        "last_edited_time": "2026-09-16T14:01:00Z",
+                        "object": "block",
+                        "parent": {"type": "page_id", "page_id": "weekly-plan"},
+                        "type": "paragraph",
+                        "paragraph": {
+                            "rich_text": [{"plain_text": "Synthetic provider body."}]
+                        },
+                    },
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    assert (
+        run_cli(
+            (
+                "workspace-content",
+                "preview-content",
+                "--connection-id",
+                "account:notion-fixture",
+                "--connector",
+                "notion",
+                "--resource-id",
+                "notion:page/weekly-plan",
+                "--resource-type",
+                "page",
+                "--input",
+                str(source),
+                "--provider-format",
+                "notion-api",
+                "--selected-content-id",
+                "notion:page/weekly-plan",
+            )
+        )
+        == 0
+    )
+    payload = _json(capsys)
+
+    assert payload["status"] == "ready"
+    assert payload["next_cursor"] == "notion-cursor-2"
+    records = cast(list[dict[str, object]], payload["records"])
+    assert [record["content_type"] for record in records] == ["page", "block"]
+    assert "Synthetic provider body" not in repr(payload)
+
+
 def test_source_cli_rejects_unselected_workspace_content_preview(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],

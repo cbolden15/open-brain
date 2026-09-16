@@ -350,6 +350,7 @@ def _parser() -> argparse.ArgumentParser:
     _add_workspace_content_args(workspace_preview)
     workspace_preview.add_argument("--input", required=True)
     workspace_preview.add_argument("--next-cursor")
+    workspace_preview.add_argument("--provider-format")
     workspace_preview.add_argument("--selected-content-id", action="append", required=True)
 
     workspace_checkpoint = workspace_subparsers.add_parser("checkpoint")
@@ -947,14 +948,37 @@ def _run_workspace_content(parsed: argparse.Namespace) -> dict[str, object]:
             resource_id=cast(str, parsed.resource_id),
             resource_type=cast(str, parsed.resource_type),
         )
-        contents = _read_json_list(Path(cast(str, parsed.input)))
-        page = adapter.page_from_items(
-            selection,
-            contents,
-            privacy=_local_agent_privacy(),
-            selected_content_ids=tuple(cast(list[str], parsed.selected_content_id)),
-            next_cursor=parsed.next_cursor,
-        )
+        selected_content_ids = tuple(cast(list[str], parsed.selected_content_id))
+        provider_format = cast(str | None, parsed.provider_format)
+        if provider_format is None:
+            contents = _read_json_list(Path(cast(str, parsed.input)))
+            page = adapter.page_from_items(
+                selection,
+                contents,
+                privacy=_local_agent_privacy(),
+                selected_content_ids=selected_content_ids,
+                next_cursor=parsed.next_cursor,
+            )
+        else:
+            response = _read_json_object(Path(cast(str, parsed.input)))
+            if parsed.next_cursor is not None:
+                raise _UsageError("invalid command")
+            if provider_format == "notion-api":
+                page = adapter.page_from_notion_response(
+                    selection,
+                    response,
+                    privacy=_local_agent_privacy(),
+                    selected_content_ids=selected_content_ids,
+                )
+            elif provider_format == "confluence-cloud-v2":
+                page = adapter.page_from_confluence_response(
+                    selection,
+                    response,
+                    privacy=_local_agent_privacy(),
+                    selected_content_ids=selected_content_ids,
+                )
+            else:
+                raise _UsageError("invalid command")
         if page.preview is None:
             raise ConnectorContractError("invalid workspace content page")
         return {**page.preview.to_dict(), "status": page.status.value}
@@ -991,6 +1015,13 @@ def _read_json_list(path: Path) -> Sequence[Mapping[str, object]]:
     if not isinstance(value, list) or any(not isinstance(item, Mapping) for item in value):
         raise ConnectorContractError("invalid source input")
     return cast(Sequence[Mapping[str, object]], value)
+
+
+def _read_json_object(path: Path) -> Mapping[str, object]:
+    value = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(value, Mapping):
+        raise ConnectorContractError("invalid source input")
+    return cast(Mapping[str, object], value)
 
 
 def _start_github_device_flow(

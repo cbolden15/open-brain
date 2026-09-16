@@ -54,12 +54,44 @@ open-brain-source workspace-content preview-content \
   --selected-content-id 'notion:page/weekly-plan'
 ```
 
+Provider transport code can also pass one bounded provider response page through the
+same preview boundary:
+
+```sh
+open-brain-source workspace-content preview-content \
+  --connection-id 'account:notion-fixture' \
+  --connector notion \
+  --resource-id 'notion:page/weekly-plan' \
+  --resource-type page \
+  --provider-format notion-api \
+  --input /absolute/path/to/notion-list-response.json \
+  --selected-content-id 'notion:page/weekly-plan'
+
+open-brain-source workspace-content preview-content \
+  --connection-id 'account:confluence-fixture' \
+  --connector confluence \
+  --resource-id 'confluence:space/ENG' \
+  --resource-type cloud_space \
+  --provider-format confluence-cloud-v2 \
+  --input /absolute/path/to/confluence-v2-page.json \
+  --selected-content-id 'confluence:space/ENG' \
+  --selected-content-id 'confluence:page/123'
+```
+
 The input shape is an array of normalized records with `connector_name`,
 `content_id`, `revision_id`, `content_type`, `title`, `body`, `source_kind`, and
 `content_secret_scan: "clean"`. `parent_id` and `source_link` are optional.
 Nested Notion blocks and Confluence comments are included only when their parent is
 the selected page. Data-source and space selections include selected child pages
 whose parent is the selected resource.
+
+`--provider-format notion-api` accepts a single Notion API list response and derives
+page, block and comment records from `results`, `last_edited_time`/`created_time`,
+`url`, rich text and `next_cursor`. `--provider-format confluence-cloud-v2` accepts
+a Confluence Cloud REST v2 paginated response and derives page/comment records from
+`results`, `version.number`, body representations, `_links.webui`, `_links.base`,
+and `_links.next` cursor URLs. These commands do not make network calls, exchange
+tokens or prove live provider consent.
 
 ## Acceptance still open
 
