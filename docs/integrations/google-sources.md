@@ -87,9 +87,30 @@ Drive downloads use a bounded response size. Google Workspace exports are also b
 Google's 10 MB export limit. Open Brain does not fetch attachments, images, PDFs, videos, or
 other binary content as text.
 
+## Live acceptance and limits
+
+Bounded live acceptance passed on 2026-09-16 using a development OAuth client and a disposable
+Brain. The final edge checks ran at `9f22849`: Gmail selected-label removal/restoration, Drive
+body edit/trash/restoration, replacement of active search results, and a verified export retaining
+all seven captured transitions. Revoking the Google project grant made manual, fresh-process and
+scheduled reads fail with `google_auth_required`, without advancing checkpoints or adding captures.
+Both owner connections were subsequently restored with the same read-only scopes. Fresh-process
+resource reads and real refresh requests passed; disposable Keychain entries were removed.
+
+Earlier live checks covered bounded import, retry/replay and the actual background collector's
+pause/restart/resume lifecycle. The [integration audit](../audits/2026-09-16-priority-capture-audit.md)
+maps each check to its candidate and private receipt. Per-file Drive permission loss has automated
+coverage; the live unavailable-state checks used trash/restoration and account-grant revocation.
+Public OAuth verification and long-duration authorization remain separate release checks.
+
+Google project-grant revocation affects other connections using that project, including another
+local Brain holding a copy of the grant. Removing one Open Brain connection only clears its local
+credential reference. Plan equivalent reconnection before testing upstream revocation.
+
 ## References
 
 - [Google OAuth 2.0 for installed applications](https://developers.google.com/identity/protocols/oauth2/native-app): system-browser loopback redirects, state, and PKCE.
+- [Google token revocation](https://developers.google.com/identity/protocols/oauth2/web-server#tokenrevoke): revocation removes the project's granted scopes and invalidates its affected tokens.
 - [Gmail incremental synchronization](https://developers.google.com/workspace/gmail/api/guides/sync): `history.list` uses `startHistoryId`; an unavailable history range returns HTTP 404 and requires a full sync.
 - [Gmail `users.messages.get`](https://developers.google.com/workspace/gmail/api/reference/rest/v1/users.messages/get): `gmail.readonly` authorizes message reads.
 - [Drive download and export](https://developers.google.com/workspace/drive/api/guides/manage-downloads): blobs use `files.get?alt=media`; Workspace documents use `files.export`; exports are limited to 10 MB.

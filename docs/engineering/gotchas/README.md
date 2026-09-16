@@ -1832,3 +1832,19 @@ The native harness uses a five-second retry budget, and the existing cross-proce
 contention test checks this contract and SQLite integrity after the writer releases its lock.
 
 Discovered: 2026-09-16, native Claude Code background capture acceptance.
+
+### SOURCE-LIVE-007: A disposable Brain does not isolate Google grant revocation
+
+Symptom: Revoking a grant used by a disposable acceptance Brain also requires the owner's Gmail
+and Drive connections to sign in again.
+
+Cause: Keychain references isolate local storage, but copied refresh material still represents
+the same upstream grant. Google's revocation applies across scopes and clients in that project.
+Deleting a local Open Brain connection and revoking the Google grant are different operations.
+
+Fix: Use an owner-authorized development project, record which existing connections will be
+affected, and restore their equivalent read-only grants after the check. Verify fresh-process
+reads and refresh requests before removing test credentials. A browser callback error page alone
+does not establish failure; check the completed connect operation and a real provider read.
+
+Discovered: 2026-09-16, live Google edit/removal/revocation acceptance.

@@ -1,6 +1,9 @@
 # Complete the four priority capture sources
 
-Status: active implementation plan for Gmail, Google Drive, Claude Code and Codex. Slack was
+Status: implementation and bounded live acceptance passed for Gmail, Google Drive, Claude Code
+and Codex. Independent integration review is READY as of 2026-09-16; see the
+[final audit](../audits/2026-09-16-priority-capture-audit.md) for exact candidates, commands,
+evidence limits and remaining release gates. Mac mini integration remains a separate step. Slack was
 removed from the active scope on 2026-09-16. Its existing implementation and design notes remain
 deferred; Slack setup and acceptance do not gate this milestone. All other unfinished integrations
 wait. Outlook email/Calendar and the previously excluded Microsoft sources remain excluded.
