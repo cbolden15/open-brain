@@ -440,6 +440,184 @@ def test_source_cli_reports_meeting_transcript_checkpoint_without_payload(
     assert payload["committed_revision_identities"] == []
 
 
+def test_source_cli_selects_workspace_content_resource(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    assert (
+        run_cli(
+            (
+                "workspace-content",
+                "select-resource",
+                "--connection-id",
+                "account:notion-fixture",
+                "--connector",
+                "notion",
+                "--resource-id",
+                "notion:data-source/roadmap",
+                "--resource-type",
+                "data_source",
+            )
+        )
+        == 0
+    )
+    payload = _json(capsys)
+
+    assert payload == {
+        "connection_id": "account:notion-fixture",
+        "connector_name": "notion",
+        "resource_id": "notion:data-source/roadmap",
+        "resource_type": "data_source",
+        "schema_version": 1,
+        "status": "selected",
+    }
+
+
+def test_source_cli_previews_workspace_content_without_payload_bodies(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    source = tmp_path / "workspace-content.json"
+    source.write_text(
+        json.dumps(
+            [
+                {
+                    "body": "Synthetic Notion body must not print.",
+                    "connector_name": "notion",
+                    "content_id": "notion:block/decision-heading",
+                    "content_secret_scan": "clean",
+                    "content_type": "block",
+                    "parent_id": "notion:page/weekly-plan",
+                    "revision_id": "rev-1",
+                    "source_kind": "notion",
+                    "source_link": "https://notion.example.invalid/source/item",
+                    "title": "Decision Heading",
+                }
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    assert (
+        run_cli(
+            (
+                "workspace-content",
+                "preview-content",
+                "--connection-id",
+                "account:notion-fixture",
+                "--connector",
+                "notion",
+                "--resource-id",
+                "notion:page/weekly-plan",
+                "--resource-type",
+                "page",
+                "--input",
+                str(source),
+                "--next-cursor",
+                "cursor:notion2",
+                "--selected-content-id",
+                "notion:page/weekly-plan",
+            )
+        )
+        == 0
+    )
+    payload = _json(capsys)
+
+    assert payload["status"] == "ready"
+    assert payload["next_cursor"] == "cursor:notion2"
+    assert payload["connector_name"] == "notion"
+    assert payload["resource_id"] == "notion:page/weekly-plan"
+    records = cast(list[dict[str, object]], payload["records"])
+    assert [record["content_type"] for record in records] == ["block"]
+    assert records[0]["title"] == "Decision Heading"
+    assert "must not print" not in repr(payload)
+
+
+def test_source_cli_rejects_unselected_workspace_content_preview(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    source = tmp_path / "workspace-content.json"
+    source.write_text(
+        json.dumps(
+            [
+                {
+                    "body": "Synthetic Confluence body must not print.",
+                    "connector_name": "confluence",
+                    "content_id": "confluence:page/other",
+                    "content_secret_scan": "clean",
+                    "content_type": "page",
+                    "parent_id": "confluence:space/ENG",
+                    "revision_id": "rev-1",
+                    "source_kind": "confluence",
+                    "source_link": "https://confluence.example.invalid/source/item",
+                    "title": "Other Page",
+                }
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    assert (
+        run_cli(
+            (
+                "workspace-content",
+                "preview-content",
+                "--connection-id",
+                "account:confluence-fixture",
+                "--connector",
+                "confluence",
+                "--resource-id",
+                "confluence:page/runbook",
+                "--resource-type",
+                "cloud_page",
+                "--input",
+                str(source),
+                "--selected-content-id",
+                "confluence:page/runbook",
+            )
+        )
+        == 78
+    )
+    payload = _json(capsys)
+
+    assert payload == {"error": {"code": "invalid workspace contents"}, "status": "failed"}
+    assert "must not print" not in repr(payload)
+
+
+def test_source_cli_reports_workspace_content_checkpoint_without_payload(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    assert (
+        run_cli(
+            (
+                "workspace-content",
+                "checkpoint",
+                "--connection-id",
+                "account:confluence-fixture",
+                "--connector",
+                "confluence",
+                "--resource-id",
+                "confluence:space/ENG",
+                "--resource-type",
+                "cloud_space",
+                "--checkpoint-dir",
+                str(tmp_path / "checkpoints"),
+            )
+        )
+        == 0
+    )
+    payload = _json(capsys)
+
+    assert payload["status"] == "ok"
+    assert payload["connector_name"] == "confluence"
+    assert payload["resource_id"] == "confluence:space/ENG"
+    assert payload["resource_type"] == "cloud_space"
+    assert payload["committed_delivery_ids"] == []
+    assert payload["committed_revision_identities"] == []
+    assert payload["observed_page_cursors"] == []
+
+
 def test_source_cli_previews_calendar_events_without_payload_bodies(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],

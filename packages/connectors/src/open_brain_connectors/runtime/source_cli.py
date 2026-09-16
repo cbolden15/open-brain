@@ -62,6 +62,10 @@ from open_brain_connectors.runtime.web_clip import (
     WebClipCheckpointStore,
     WebClipSourceAdapter,
 )
+from open_brain_connectors.runtime.workspace_content import (
+    WorkspaceContentCheckpointStore,
+    WorkspaceContentSourceAdapter,
+)
 
 __all__ = ["run_cli"]
 
@@ -284,6 +288,28 @@ def _parser() -> argparse.ArgumentParser:
     meeting_checkpoint = meeting_subparsers.add_parser("checkpoint")
     _add_meeting_transcript_args(meeting_checkpoint)
     meeting_checkpoint.add_argument("--checkpoint-dir", required=True)
+
+    workspace_content = subparsers.add_parser(
+        "workspace-content",
+        help="Selected Notion or Confluence page/data-source/space preview.",
+    )
+    workspace_subparsers = workspace_content.add_subparsers(
+        dest="workspace_content_command",
+        required=True,
+    )
+
+    workspace_selection = workspace_subparsers.add_parser("select-resource")
+    _add_workspace_content_args(workspace_selection)
+
+    workspace_preview = workspace_subparsers.add_parser("preview-content")
+    _add_workspace_content_args(workspace_preview)
+    workspace_preview.add_argument("--input", required=True)
+    workspace_preview.add_argument("--next-cursor")
+    workspace_preview.add_argument("--selected-content-id", action="append", required=True)
+
+    workspace_checkpoint = workspace_subparsers.add_parser("checkpoint")
+    _add_workspace_content_args(workspace_checkpoint)
+    workspace_checkpoint.add_argument("--checkpoint-dir", required=True)
     return parser
 
 
@@ -322,6 +348,13 @@ def _add_meeting_transcript_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--provider", required=True)
 
 
+def _add_workspace_content_args(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("--connection-id", required=True)
+    parser.add_argument("--connector", required=True)
+    parser.add_argument("--resource-id", required=True)
+    parser.add_argument("--resource-type", required=True)
+
+
 def _run(parsed: argparse.Namespace) -> dict[str, object]:
     if parsed.command == "catalog":
         catalog = SourceCatalog(
@@ -357,6 +390,8 @@ def _run(parsed: argparse.Namespace) -> dict[str, object]:
         return _run_calendar(parsed)
     if parsed.command == "meeting-transcript":
         return _run_meeting_transcript(parsed)
+    if parsed.command == "workspace-content":
+        return _run_workspace_content(parsed)
     if parsed.command != "github":
         raise _UsageError("invalid command")
     adapter = GitHubSourceAdapter()
@@ -744,6 +779,56 @@ def _run_meeting_transcript(parsed: argparse.Namespace) -> dict[str, object]:
         checkpoint = MeetingTranscriptCheckpointStore(Path(cast(str, parsed.checkpoint_dir))).load(
             selection
         )
+        return {**checkpoint.to_dict(), "status": "ok"}
+    raise _UsageError("invalid command")
+
+
+def _run_workspace_content(parsed: argparse.Namespace) -> dict[str, object]:
+    adapter = WorkspaceContentSourceAdapter()
+    command = cast(str, parsed.workspace_content_command)
+    if command == "select-resource":
+        selection = adapter.resource_selection(
+            connector_name=cast(str, parsed.connector),
+            connection_id=cast(str, parsed.connection_id),
+            resource_id=cast(str, parsed.resource_id),
+            resource_type=cast(str, parsed.resource_type),
+        )
+        return {
+            "connection_id": selection.connection_id,
+            "connector_name": selection.connector_name,
+            "resource_id": selection.resource_id,
+            "resource_type": selection.resource_type,
+            "schema_version": 1,
+            "status": "selected",
+        }
+    if command == "preview-content":
+        selection = adapter.resource_selection(
+            connector_name=cast(str, parsed.connector),
+            connection_id=cast(str, parsed.connection_id),
+            resource_id=cast(str, parsed.resource_id),
+            resource_type=cast(str, parsed.resource_type),
+        )
+        contents = _read_json_list(Path(cast(str, parsed.input)))
+        page = adapter.page_from_items(
+            selection,
+            contents,
+            privacy=_local_agent_privacy(),
+            selected_content_ids=tuple(cast(list[str], parsed.selected_content_id)),
+            next_cursor=parsed.next_cursor,
+        )
+        if page.preview is None:
+            raise ConnectorContractError("invalid workspace content page")
+        return {**page.preview.to_dict(), "status": page.status.value}
+    if command == "checkpoint":
+        selection = adapter.resource_selection(
+            connector_name=cast(str, parsed.connector),
+            connection_id=cast(str, parsed.connection_id),
+            resource_id=cast(str, parsed.resource_id),
+            resource_type=cast(str, parsed.resource_type),
+        )
+        checkpoint = WorkspaceContentCheckpointStore(
+            Path(cast(str, parsed.checkpoint_dir))
+        ).load(selection)
         return {**checkpoint.to_dict(), "status": "ok"}
     raise _UsageError("invalid command")
 
