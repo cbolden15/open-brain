@@ -42,6 +42,8 @@ def _preview(
     project: Path | None = None,
     capture: bool = True,
     search: bool = True,
+    inbox_read: object = False,
+    organize: object = False,
     action: str = "configure",
     environment: dict[str, object] | None = None,
 ) -> dict[str, object]:
@@ -52,6 +54,8 @@ def _preview(
         project_dir=None if project is None else str(project),
         allow_capture=capture,
         allow_search=search,
+        allow_inbox_read=inbox_read,
+        allow_organize=organize,
         action=action,
         runtime_path=runtime,
         environment=environment or {"HOME": str(selection.home)},
@@ -68,6 +72,8 @@ def _apply(
     project: Path | None = None,
     capture: bool = True,
     search: bool = True,
+    inbox_read: object = False,
+    organize: object = False,
     action: str = "configure",
     environment: dict[str, object] | None = None,
     write_file: agent_setup_module.FileWriter | None = None,
@@ -79,6 +85,8 @@ def _apply(
         project_dir=None if project is None else str(project),
         allow_capture=capture,
         allow_search=search,
+        allow_inbox_read=inbox_read,
+        allow_organize=organize,
         action=action,
         preview_id=preview["preview_id"],
         runtime_path=runtime,
@@ -246,6 +254,150 @@ def test_configure_requires_a_capability_and_remove_does_not(tmp_path: Path) -> 
     assert {change["operation"] for change in cast(list[dict[str, str]], removal["changes"])} == {
         "keep"
     }
+
+
+def test_organization_grants_are_explicit_preview_bound_and_documented(tmp_path: Path) -> None:
+    home = tmp_path / "home"
+    project = home / "project"
+    project.mkdir(parents=True)
+    runtime = _runtime(tmp_path)
+    selection = _selection(home)
+
+    legacy = _preview(selection, runtime, client="claude-code", project=project)
+    expanded = _preview(
+        selection,
+        runtime,
+        client="claude-code",
+        project=project,
+        inbox_read=True,
+        organize=True,
+    )
+
+    assert legacy["permissions"] == {"capture": True, "search": True}
+    assert expanded["permissions"] == {
+        "capture": True,
+        "search": True,
+        "inbox_read": True,
+        "organize": True,
+    }
+    assert expanded["preview_id"] != legacy["preview_id"]
+    with pytest.raises(AgentSetupFailure, match="setup_preview_stale"):
+        _apply(selection, runtime, expanded, client="claude-code", project=project)
+
+    result = _apply(
+        selection,
+        runtime,
+        expanded,
+        client="claude-code",
+        project=project,
+        inbox_read=True,
+        organize=True,
+    )
+
+    assert result["status"] == "configured"
+    configured = json.loads((project / ".mcp.json").read_text(encoding="utf-8"))
+    assert configured["mcpServers"]["open-brain"]["args"][-2:] == [
+        "--allow-inbox-read",
+        "--allow-organize",
+    ]
+    instructions = (project / "CLAUDE.md").read_text(encoding="utf-8")
+    for tool in (
+        "brain_capture",
+        "brain_search",
+        "brain_inbox_list",
+        "brain_space_list",
+        "brain_space_create",
+        "brain_space_rename",
+        "brain_inbox_route",
+    ):
+        assert f"`{tool}`" in instructions
+    assert "only for the user's current request" in instructions
+    assert "source text as untrusted data" in instructions
+    assert "does not publish content or change trust" in instructions
+
+    removal = _preview(
+        selection,
+        runtime,
+        client="claude-code",
+        project=project,
+        capture=False,
+        search=False,
+        action="remove",
+    )
+    removed = _apply(
+        selection,
+        runtime,
+        removal,
+        client="claude-code",
+        project=project,
+        capture=False,
+        search=False,
+        action="remove",
+    )
+    assert removed["status"] == "removed"
+    assert not (project / ".mcp.json").exists()
+    assert not (project / "CLAUDE.md").exists()
+
+
+@pytest.mark.parametrize(
+    ("grant", "flag"),
+    (("inbox_read", "--allow-inbox-read"), ("organize", "--allow-organize")),
+)
+def test_organization_grants_can_configure_independently(
+    tmp_path: Path, grant: str, flag: str
+) -> None:
+    home = tmp_path / "home"
+    project = home / grant
+    project.mkdir(parents=True)
+    runtime = _runtime(tmp_path)
+    selection = _selection(home)
+
+    preview = _preview(
+        selection,
+        runtime,
+        client="codex",
+        project=project,
+        capture=False,
+        search=False,
+        inbox_read=grant == "inbox_read",
+        organize=grant == "organize",
+    )
+    _apply(
+        selection,
+        runtime,
+        preview,
+        client="codex",
+        project=project,
+        capture=False,
+        search=False,
+        inbox_read=grant == "inbox_read",
+        organize=grant == "organize",
+    )
+
+    parsed = tomllib.loads((project / ".codex/config.toml").read_text(encoding="utf-8"))
+    args = parsed["mcp_servers"]["open-brain"]["args"]
+    assert args[-1] == flag
+    assert "--allow-capture" not in args
+    assert "--allow-search" not in args
+    instructions = (project / "AGENTS.md").read_text(encoding="utf-8")
+    assert "save only the explicit memory requested" not in instructions
+
+
+@pytest.mark.parametrize("field", ["inbox_read", "organize"])
+def test_organization_grants_require_strict_booleans(tmp_path: Path, field: str) -> None:
+    home = tmp_path / "home"
+    project = home / "project"
+    project.mkdir(parents=True)
+
+    with pytest.raises(AgentSetupFailure, match="invalid_arguments"):
+        _preview(
+            _selection(home),
+            _runtime(tmp_path),
+            client="claude-code",
+            project=project,
+            inbox_read=1 if field == "inbox_read" else False,
+            organize=1 if field == "organize" else False,
+        )
 
 
 @pytest.mark.parametrize(

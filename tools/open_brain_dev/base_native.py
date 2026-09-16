@@ -52,6 +52,7 @@ _REQUIRED_MODULES: Final = frozenset(
         "open_brain.services.plugin_bridge",
         "open_brain.services.provider_credentials",
         "open_brain.services.local_mcp",
+        "open_brain.services.space_inbox",
         "open_brain.services.mcp_protocol",
         "open_brain_engine.engine.capture",
         "open_brain_engine.engine.local",
@@ -902,7 +903,9 @@ def _smoke_local_mcp(executable: Path, home: Path, environment: Mapping[str, str
         "params": {"protocolVersion": "2025-03-26", "capabilities": {}, "clientInfo": {}},
     }
 
-    def exchange(flag: str, name: str, arguments: dict[str, object]) -> dict[str, object]:
+    def exchange(
+        flag: str, name: str, arguments: dict[str, object], *, tools: set[str] | None = None
+    ) -> dict[str, object]:
         requests = [
             initialize,
             {"jsonrpc": "2.0", "id": 2, "method": "tools/list"},
@@ -928,7 +931,7 @@ def _smoke_local_mcp(executable: Path, home: Path, environment: Mapping[str, str
                 process.stderr
                 or len(responses) != 3
                 or responses[0]["result"]["capabilities"] != {"tools": {}}
-                or [tool["name"] for tool in responses[1]["result"]["tools"]] != [name]
+                or {tool["name"] for tool in responses[1]["result"]["tools"]} != (tools or {name})
                 or responses[2]["result"].get("isError")
             ):
                 raise BaseNativeError("native MCP exchange failed")
@@ -967,6 +970,53 @@ def _smoke_local_mcp(executable: Path, home: Path, environment: Mapping[str, str
         or results[0].get("source_origin") != "unknown"
     ):
         raise BaseNativeError("native MCP search failed")
+    organization_tools = {"brain_space_create", "brain_space_rename", "brain_inbox_route"}
+    read_tools = {"brain_space_list", "brain_inbox_list"}
+    created = exchange(
+        "--allow-organize", "brain_space_create",
+        {"name": "Installed organization", "idempotency_key": "installed-space"},
+        tools=organization_tools,
+    )
+    repeated_space = json.loads(_run(
+        (os.fspath(executable), "space", "create", "Installed organization",
+         "--idempotency-key", "installed-space", "--json"), environment,
+    ).stdout)
+    if repeated_space != created:
+        raise BaseNativeError("native organization replay failed")
+    space_id = cast(dict[str, str], created["space"])["space_id"]
+    renamed = json.loads(_run(
+        (os.fspath(executable), "space", "rename", space_id, "Installed renamed", "--json"),
+        environment,
+    ).stdout)
+    spaces = exchange("--allow-inbox-read", "brain_space_list", {}, tools=read_tools)
+    if renamed["space"] not in cast(list[dict[str, object]], spaces["spaces"]):
+        raise BaseNativeError("native organization rename failed")
+    route_arguments = {
+        "capture_id": capture["capture_id"], "space_id": space_id,
+        "idempotency_key": "installed-route",
+    }
+    routed = exchange(
+        "--allow-organize", "brain_inbox_route", route_arguments, tools=organization_tools,
+    )
+    repeated_route = json.loads(_run(
+        (os.fspath(executable), "inbox", "route", cast(str, capture["capture_id"]), space_id,
+         "--idempotency-key", "installed-route", "--json"), environment,
+    ).stdout)
+    inbox = exchange(
+        "--allow-inbox-read", "brain_inbox_list", {"unassigned_only": True}, tools=read_tools,
+    )
+    assigned = json.loads(_run(
+        (os.fspath(executable), "inbox", "list", "--json"), environment,
+    ).stdout)
+    if (
+        routed != repeated_route
+        or any(item["capture_id"] == capture["capture_id"]
+               for item in cast(list[dict[str, object]], inbox["items"]))
+        or not any(item["capture_id"] == capture["capture_id"] and item["space_id"] == space_id
+                   for item in assigned["items"])
+        or exchange("--allow-search", "brain_search", {"query": token}) != search
+    ):
+        raise BaseNativeError("native organization routing failed")
     run_root = _brain_root(home) / ".open-brain/run"
     if run_root.is_dir() and any(run_root.iterdir()):
         raise BaseNativeError("native MCP left a runtime artifact")

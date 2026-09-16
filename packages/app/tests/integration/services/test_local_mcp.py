@@ -8,7 +8,7 @@ import sqlite3
 import subprocess
 import sys
 import time
-from collections.abc import Buffer
+from collections.abc import Buffer, Mapping
 from pathlib import Path
 from typing import Any, cast
 
@@ -24,9 +24,16 @@ from open_brain_engine.storage.operational import FileLease
 
 from open_brain.profile import compile_single_user_local
 from open_brain.services.local_entrypoints import run_cli
-from open_brain.services.local_mcp import MAX_MESSAGE_BYTES, LocalMcpAdapter
+from open_brain.services.local_mcp import (
+    MAX_MESSAGE_BYTES,
+    MAX_ORGANIZATION_READ_CALLS,
+    MAX_ORGANIZATION_RESPONSE_BYTES,
+    MAX_ORGANIZATION_WRITE_CALLS,
+    LocalMcpAdapter,
+)
 from open_brain.services.local_operations import mcp_capture_sink, search_brain
 from open_brain.services.mcp_protocol import McpCallError, serve_stdio_mcp
+from open_brain.services.space_inbox import SpaceInboxError, SpaceInboxService
 
 ROOT = Path(__file__).resolve().parents[5]
 INITIALIZE = {
@@ -125,6 +132,274 @@ def test_capabilities_are_independently_listed_and_enforced(
         result = responses[3]["result"]["structuredContent"]["results"][0]
         assert result["trust"] == "unverified"
         assert result["source_origin"] == "unknown"
+
+
+def test_organization_capabilities_are_explicitly_injected_with_bounded_schemas() -> None:
+    listed = {"status": "listed", "items": [], "offset": 0, "next_offset": None}
+    read_adapter = LocalMcpAdapter(
+        inbox_list=lambda _arguments: listed,
+        space_list=lambda _arguments: {
+            "status": "listed",
+            "spaces": [],
+            "offset": 0,
+            "next_offset": None,
+        },
+    )
+    write_adapter = LocalMcpAdapter(
+        space_create=lambda _arguments: {"status": "created", "space": {}},
+        space_rename=lambda _arguments: {"status": "renamed", "space": {}},
+        inbox_route=lambda _arguments: {
+            "status": "routed",
+            "capture_id": "capture_3e6e8e2c-e638-47c6-8195-4bd6f306d67b",
+            "space_id": "space_a877b476-b57b-4b77-840d-7cd38c3a12da",
+        },
+    )
+    assert {tool["name"] for tool in read_adapter.list_tools()} == {
+        "brain_inbox_list",
+        "brain_space_list",
+    }
+    assert {tool["name"] for tool in write_adapter.list_tools()} == {
+        "brain_space_create",
+        "brain_space_rename",
+        "brain_inbox_route",
+    }
+    for tool in (*read_adapter.list_tools(), *write_adapter.list_tools()):
+        assert tool["inputSchema"]["additionalProperties"] is False
+        assert "untrusted" in tool["description"]
+        assert "network-backed" in tool["description"]
+    inbox_schema = read_adapter.list_tools()[0]["inputSchema"]
+    assert inbox_schema["properties"]["limit"] == {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 100,
+    }
+    assert inbox_schema["properties"]["offset"] == {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 1_000_000,
+    }
+    assert inbox_schema["properties"]["unassigned_only"] == {"type": "boolean"}
+    with pytest.raises(McpCallError, match="^unknown tool$"):
+        read_adapter.call_tool("brain_space_create", {"name": "Denied"})
+    with pytest.raises(McpCallError, match="^unknown tool$"):
+        write_adapter.call_tool("brain_inbox_list", {})
+
+
+@pytest.mark.parametrize(
+    ("tool", "arguments"),
+    [
+        ("brain_inbox_list", {"limit": True}),
+        ("brain_inbox_list", {"unassigned_only": None}),
+        ("brain_space_list", {"offset": -1}),
+        ("brain_space_list", {"limit": 101}),
+        ("brain_space_create", {"name": " "}),
+        ("brain_space_create", {"name": "Valid", "idempotency_key": None}),
+        ("brain_space_rename", {"space_id": "space_not-a-uuid", "name": "Valid"}),
+        (
+            "brain_inbox_route",
+            {
+                "capture_id": "capture_3e6e8e2c-e638-47c6-8195-4bd6f306d67b",
+                "space_id": "space_a877b476-b57b-4b77-840d-7cd38c3a12da",
+                "publish": True,
+            },
+        ),
+    ],
+)
+def test_invalid_organization_arguments_do_not_consume_quota(
+    tool: str, arguments: dict[str, object]
+) -> None:
+    calls = 0
+
+    def operation(_arguments: Mapping[str, object]) -> dict[str, object]:
+        nonlocal calls
+        calls += 1
+        return {"status": "unused"}
+
+    adapter = LocalMcpAdapter(
+        inbox_list=operation,
+        space_list=operation,
+        space_create=operation,
+        space_rename=operation,
+        inbox_route=operation,
+    )
+    with pytest.raises(McpCallError, match="^invalid tool arguments$"):
+        adapter.call_tool(tool, arguments)
+    assert calls == 0
+    assert (
+        adapter._organization_read_calls,
+        adapter._organization_write_calls,
+        adapter._organization_response_bytes,
+    ) == (0, 0, 0)
+
+
+def test_organization_quotas_include_duplicates_conflicts_and_share_response_bytes() -> None:
+    listed = {"status": "listed", "items": [], "offset": 0, "next_offset": None}
+    read_calls = 0
+
+    def read(_arguments: Mapping[str, object]) -> dict[str, object]:
+        nonlocal read_calls
+        read_calls += 1
+        return listed
+
+    adapter = LocalMcpAdapter(inbox_list=read)
+    adapter._organization_read_calls = MAX_ORGANIZATION_READ_CALLS - 1
+    adapter.call_tool("brain_inbox_list", {})
+    with pytest.raises(McpCallError, match="^session_organization_read_limit$"):
+        adapter.call_tool("brain_inbox_list", {})
+    assert read_calls == 1
+
+    write_calls = 0
+
+    def duplicate(_arguments: Mapping[str, object]) -> dict[str, object]:
+        nonlocal write_calls
+        write_calls += 1
+        return {"status": "created", "space": {}}
+
+    writer = LocalMcpAdapter(space_create=duplicate)
+    writer._organization_write_calls = MAX_ORGANIZATION_WRITE_CALLS - 1
+    writer.call_tool("brain_space_create", {"name": "Duplicate"})
+    with pytest.raises(McpCallError, match="^session_organization_write_limit$"):
+        writer.call_tool("brain_space_create", {"name": "Denied"})
+    assert write_calls == 1
+
+    def conflict(_arguments: Mapping[str, object]) -> dict[str, object]:
+        raise SpaceInboxError("idempotency_conflict")
+
+    conflicting = LocalMcpAdapter(space_create=conflict)
+    conflicting._organization_write_calls = MAX_ORGANIZATION_WRITE_CALLS - 1
+    with pytest.raises(McpCallError, match="^idempotency_conflict$"):
+        conflicting.call_tool("brain_space_create", {"name": "Conflict"})
+    assert conflicting._organization_write_calls == MAX_ORGANIZATION_WRITE_CALLS
+    with pytest.raises(McpCallError, match="^session_organization_write_limit$"):
+        conflicting.call_tool("brain_space_create", {"name": "Denied"})
+
+    shared = LocalMcpAdapter(inbox_list=read, space_create=duplicate)
+    listed_size = len(json.dumps(listed, sort_keys=True, separators=(",", ":")).encode())
+    shared._organization_response_bytes = MAX_ORGANIZATION_RESPONSE_BYTES - listed_size
+    shared.call_tool("brain_inbox_list", {})
+    with pytest.raises(McpCallError, match="^session_organization_response_limit$"):
+        shared.call_tool("brain_space_create", {"name": "Over response limit"})
+    assert shared._organization_write_calls == 1
+
+
+@pytest.mark.parametrize("remaining", [0, 1])
+def test_organization_response_limit_cannot_commit_a_write(tasks: Any, remaining: int) -> None:
+    service = SpaceInboxService(tasks.spaces)
+    adapter = LocalMcpAdapter(space_create=service.space_create)
+    adapter._organization_response_bytes = MAX_ORGANIZATION_RESPONSE_BYTES - remaining
+    with pytest.raises(McpCallError, match="session_organization_response_limit"):
+        adapter.call_tool("brain_space_create", {"name": "Must not be created"})
+    assert tasks.spaces.spaces() == ()
+
+
+def test_large_unicode_inbox_pages_fit_the_wire_without_losing_items(tasks: Any) -> None:
+    capture_ids = set()
+    for index in range(100):
+        capture_ids.add(tasks.capture.accept(
+            TextPayload("\U0001f680" * 320), delivery_id=f"unicode.page.{index}",
+            title="\U0001f680" * 120, capture_why="\U0001f680" * 1000,
+        ).capture_id)
+    adapter = LocalMcpAdapter(inbox_list=SpaceInboxService(tasks.spaces).inbox_list)
+    seen: list[str] = []
+    offset: int | None = 0
+    while offset is not None:
+        responses = _wire(
+            adapter, INITIALIZE, _call("brain_inbox_list", {"limit": 100, "offset": offset}),
+        )
+        assert len(json.dumps(responses[-1], ensure_ascii=True).encode()) < MAX_MESSAGE_BYTES
+        result = responses[-1]["result"]["structuredContent"]
+        seen.extend(item["capture_id"] for item in result["items"])
+        next_offset = result["next_offset"]
+        assert next_offset is None or next_offset > offset
+        offset = next_offset
+    assert len(seen) == len(capture_ids) and set(seen) == capture_ids
+
+
+def test_organization_service_is_idempotent_path_free_and_preserves_safe_errors(
+    tasks: Any,
+) -> None:
+    service = SpaceInboxService(tasks.inbox)
+    adapter = LocalMcpAdapter(
+        inbox_list=service.inbox_list,
+        space_list=service.space_list,
+        space_create=service.space_create,
+        space_rename=service.space_rename,
+        inbox_route=service.inbox_route,
+    )
+    capture = tasks.capture.accept(TextPayload("Synthetic inbox preview"), delivery_id="mcp.test")
+    created = adapter.call_tool(
+        "brain_space_create", {"name": "Cafe\u0301\r\nNotes", "idempotency_key": "same-key"}
+    )
+    duplicate = adapter.call_tool(
+        "brain_space_create", {"name": "Cafe\u0301\r\nNotes", "idempotency_key": "same-key"}
+    )
+    assert duplicate == created
+    space = cast(dict[str, object], created["space"])
+    assert space["name"] == "Café\nNotes"
+    renamed = adapter.call_tool(
+        "brain_space_rename",
+        {"space_id": space["space_id"], "name": "Renamed", "idempotency_key": "same-key"},
+    )
+    assert cast(dict[str, object], renamed["space"])["name"] == "Renamed"
+    routed = adapter.call_tool(
+        "brain_inbox_route",
+        {
+            "capture_id": capture.capture_id,
+            "space_id": space["space_id"],
+            "idempotency_key": "same-key",
+        },
+    )
+    assert routed == {
+        "status": "routed",
+        "capture_id": capture.capture_id,
+        "space_id": space["space_id"],
+    }
+    inbox = adapter.call_tool("brain_inbox_list", {"unassigned_only": False})
+    assert cast(list[dict[str, object]], inbox["items"])[0]["preview"] == (
+        "Synthetic inbox preview"
+    )
+    rendered = json.dumps(
+        [created, renamed, routed, inbox, adapter.call_tool("brain_space_list", {})]
+    )
+    for protected in (str(tasks.profile.root), "source_reference", "delivery_id", "mcp.test"):
+        assert protected not in rendered
+
+    with pytest.raises(McpCallError, match="^idempotency_conflict$"):
+        adapter.call_tool(
+            "brain_space_create", {"name": "Changed", "idempotency_key": "same-key"}
+        )
+    with pytest.raises(McpCallError, match="^unknown_space$"):
+        adapter.call_tool(
+            "brain_space_rename",
+            {
+                "space_id": "space_3e6e8e2c-e638-47c6-8195-4bd6f306d67b",
+                "name": "Missing",
+            },
+        )
+
+
+@pytest.mark.parametrize(
+    "code",
+    ["idempotency_conflict", "unknown_space", "unknown_route_target", "published_capture"],
+)
+def test_organization_safe_errors_survive_mcp_transport(code: str) -> None:
+    def fail(_arguments: Mapping[str, object]) -> dict[str, object]:
+        raise SpaceInboxError(code)
+
+    adapter = LocalMcpAdapter(space_rename=fail)
+    reply = _wire(
+        adapter,
+        INITIALIZE,
+        _call(
+            "brain_space_rename",
+            {
+                "space_id": "space_3e6e8e2c-e638-47c6-8195-4bd6f306d67b",
+                "name": "Synthetic",
+            },
+        ),
+    )[1]
+    assert reply["result"]["isError"] is True
+    assert reply["result"]["content"] == [{"type": "text", "text": code}]
 
 
 def test_neither_flag_and_json_fail_before_bootstrap(
@@ -416,6 +691,67 @@ def _exchange(process: subprocess.Popen[str], message: dict[str, object]) -> Any
     process.stdin.flush()
     assert select.select([process.stdout], [], [], 15)[0], "MCP response timeout"
     return json.loads(process.stdout.readline())
+
+
+@pytest.mark.parametrize(
+    ("flag", "expected", "allowed_call"),
+    [
+        (
+            "--allow-inbox-read",
+            {"brain_inbox_list", "brain_space_list"},
+            _call("brain_inbox_list", {}),
+        ),
+        (
+            "--allow-organize",
+            {"brain_space_create", "brain_space_rename", "brain_inbox_route"},
+            _call("brain_space_create", {"name": "Stdio space"}),
+        ),
+    ],
+)
+def test_live_organization_flags_expose_only_their_tool_group(
+    tasks: Any,
+    flag: str,
+    expected: set[str],
+    allowed_call: dict[str, object],
+) -> None:
+    process = _start(tasks.profile.root, flag)
+    try:
+        assert "result" in _exchange(process, INITIALIZE)
+        tools = _exchange(
+            process, {"jsonrpc": "2.0", "id": 2, "method": "tools/list"}
+        )
+        assert {tool["name"] for tool in tools["result"]["tools"]} == expected
+        assert _exchange(process, allowed_call)["result"].get("isError") is not True
+
+        denied_calls: dict[str, dict[str, object]] = {
+            "brain_capture": {"text": "denied"},
+            "brain_search": {"query": "denied"},
+            "brain_inbox_list": {},
+            "brain_space_list": {},
+            "brain_space_create": {"name": "Denied"},
+            "brain_space_rename": {
+                "space_id": "space_3e6e8e2c-e638-47c6-8195-4bd6f306d67b",
+                "name": "Denied",
+            },
+            "brain_inbox_route": {
+                "capture_id": "capture_3e6e8e2c-e638-47c6-8195-4bd6f306d67b",
+                "space_id": "space_a877b476-b57b-4b77-840d-7cd38c3a12da",
+            },
+        }
+        for name, arguments in denied_calls.items():
+            if name in expected:
+                continue
+            denied = _exchange(process, _call(name, arguments))
+            assert denied["result"]["isError"] is True
+            assert denied["result"]["content"] == [{"type": "text", "text": "unknown tool"}]
+        assert process.stdin is not None
+        process.stdin.close()
+        assert process.wait(timeout=10) == 0
+        assert process.stderr is not None and process.stderr.read() == ""
+    finally:
+        if process.poll() is None:
+            process.kill()
+            process.wait(timeout=5)
 
 
 def test_live_cli_and_mcp_share_brain_and_bound_contention(

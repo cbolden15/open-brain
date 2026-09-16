@@ -286,6 +286,8 @@ class InboxItem:
     space_id: str | None
     intent: str | None
     capture_why: str | None
+    title: str | None = None
+    preview: str = ""
 
 
 @dataclass(frozen=True, slots=True)
@@ -1535,9 +1537,11 @@ class PublicJobCaptureSink:
 
 
 class InboxSpaceTask(Protocol):
-    def list(self, *, unassigned_only: bool = False) -> tuple[InboxItem, ...]: ...
+    def list(
+        self, *, unassigned_only: bool = False, limit: int | None = None, offset: int = 0
+    ) -> tuple[InboxItem, ...]: ...
 
-    def spaces(self) -> tuple[SpaceRecord, ...]: ...
+    def spaces(self, *, limit: int | None = None, offset: int = 0) -> tuple[SpaceRecord, ...]: ...
 
     def create_space(self, name: str, *, delivery_id: str) -> SpaceRecord: ...
 

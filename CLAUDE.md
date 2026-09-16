@@ -120,8 +120,11 @@ The local runtime needs no configuration. macOS data lives under
 expert and test use. `OPEN_BRAIN_ROOT` is a historical compatibility setting and is not consumed by
 the active package.
 
-Agent setup uses `agent setup` in the CLI and named plugin operations. Capture and search grants
-are separate and off by default. Preview IDs bind configuration preimages; only owned fragments may
+Agent setup uses `agent setup` in the CLI and named plugin operations. The CLI supports separate
+capture, search, inbox-read, and organize grants, all off by default; desktop/plugin setup currently
+exposes capture/search. `space` and `inbox` commands share `services/space_inbox.py` with explicitly
+injected MCP callbacks. Routing changes assignment/search metadata, not publication or source trust.
+Preview IDs bind configuration preimages and grants; only owned fragments may
 be changed. Use synthetic client profiles for tests. Existing Brain state requires schema 4 and
 runtime session version 1; never weaken the compatibility checks to admit an older client.
 

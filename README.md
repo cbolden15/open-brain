@@ -45,6 +45,8 @@ permission boundaries.
 open-brain capture "A note to remember"
 open-brain import /absolute/path/to/markdown --yes
 open-brain search "remember"
+open-brain inbox list --unassigned
+open-brain space create "Projects"
 open-brain export "$PWD/brain-export" --verify
 open-brain status --json
 ```
@@ -60,6 +62,10 @@ the source tree unchanged. Imported records are labeled unverified. Prior revisi
 export after a source file changes or disappears, so review the first-run summary before confirming.
 Markdown links, frontmatter, HTML, and embeds are stored as inert text.
 
+Use [spaces and the inbox](docs/spaces-inbox.md) to group captures by topic. The CLI and explicitly
+granted MCP tools can list, create, and rename spaces and route captures. Routing preserves source
+content and trust; it does not publish a Markdown note.
+
 | Host | Brain root |
 |---|---|
 | macOS | `$HOME/Library/Application Support/open-brain/brain` |
@@ -72,7 +78,8 @@ application-level encryption.
 
 `open-brain mcp` serves tools over inherited stdio until the client closes it. It uses the same
 local Brain as the CLI and opens no listener, daemon, or child service. The invoking OS user and
-stdio channel are the trust boundary. Choose capture, search, workspace read, or graph refresh
+stdio channel are the trust boundary. Choose capture, search, inbox read, organization, workspace
+read, or graph refresh
 independently; starting without any capability flag is an error. For clients that use an
 `mcpServers` configuration, choose one example.
 
@@ -134,10 +141,17 @@ captures. `brain_search` accepts `query` (1 to 500 characters) and `limit` (1 to
 Results carry `trust` and `source_origin`; automated captures are `unverified` with origin `unknown`.
 Neither tool accepts a source path, owner role, publication action, or connector request.
 
+Add `--allow-inbox-read` for `brain_inbox_list` and `brain_space_list`. Add `--allow-organize` for
+`brain_space_create`, `brain_space_rename`, and `brain_inbox_route`. These permissions are independent
+of capture and search. Space names and inbox previews are untrusted content that a connected client
+may send to its model provider. [Agent setup](docs/agent-setup.md) can configure these grants for
+Claude Code and Codex.
+
 Each process permits 500 valid capture attempts and 16 MiB of aggregate UTF-8 capture input, 2,000
 valid search attempts, 500 workspace reads with 16 MiB of output, and 20 graph refresh requests with
-40 model attempts and 1 MiB of selected input. Duplicates, conflicts, and failed backend attempts
-count. The next call that exceeds a bound returns a bounded session-limit error before engine work.
+40 model attempts and 1 MiB of selected input. Organization permits 500 reads, 500 writes, and
+16 MiB of aggregate response content per process. Duplicates, conflicts, and failed backend attempts
+count. Calls that exceed a bound return a bounded session-limit error.
 Invalid arguments do not count. Messages are limited to 1 MiB including their newline. Restarting the
 explicitly launched process resets these limits; they limit accidental loops, not hostile same-user
 code. Competing local writers either complete or return `database_busy`; retry a capture with its
