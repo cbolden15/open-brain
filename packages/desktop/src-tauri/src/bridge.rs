@@ -633,6 +633,21 @@ mod tests {
 
     static ENV_LOCK: Mutex<()> = Mutex::new(());
 
+    fn wait_for_pid(receipt: &Path) -> i32 {
+        let deadline = Instant::now() + Duration::from_secs(10);
+        loop {
+            if let Ok(text) = fs::read_to_string(receipt)
+                && let Ok(pid) = text.parse::<i32>()
+                && pid > 0
+            {
+                assert_eq!(unsafe { libc::kill(pid, 0) }, 0);
+                return pid;
+            }
+            assert!(Instant::now() < deadline, "fixture did not become ready");
+            thread::sleep(Duration::from_millis(20));
+        }
+    }
+
     fn script(directory: &TempDir, body: &str) -> PathBuf {
         let path = directory.path().join(format!("server-{}", Uuid::new_v4()));
         fs::write(&path, format!("#!/usr/bin/python3\n{body}\n")).unwrap();
@@ -811,11 +826,7 @@ print(json.dumps({"ok": True, "protocol": "open-brain-client", "protocol_version
         );
         let executable = script(&directory, &body);
         let mut bridge = Bridge::spawn(&executable, directory.path()).unwrap();
-        let receipt_deadline = Instant::now() + Duration::from_secs(2);
-        while !receipt.exists() && Instant::now() < receipt_deadline {
-            thread::sleep(Duration::from_millis(20));
-        }
-        assert!(receipt.exists());
+        let pid = wait_for_pid(&receipt);
         assert_eq!(
             bridge.invoke(
                 "system.handshake",
@@ -825,7 +836,6 @@ print(json.dumps({"ok": True, "protocol": "open-brain-client", "protocol_version
             ),
             Err(BridgeError::DeadlineExceeded)
         );
-        let pid: i32 = fs::read_to_string(receipt).unwrap().parse().unwrap();
         let deadline = Instant::now() + Duration::from_secs(2);
         while unsafe { libc::kill(pid, 0) } == 0 && Instant::now() < deadline {
             thread::sleep(Duration::from_millis(20));
@@ -855,16 +865,18 @@ print(json.dumps({"ok": True, "protocol": "open-brain-client", "protocol_version
     fn graceful_leader_exit_still_cleans_up_its_descendant() {
         let directory = TempDir::new().unwrap();
         let receipt = directory.path().join("descendant-pid");
+        let descendant_body = format!(
+            "import os, pathlib, signal, time\nsignal.signal(signal.SIGTERM, signal.SIG_IGN)\npathlib.Path({receipt:?}).write_text(str(os.getpid()))\ntime.sleep(30)"
+        );
         let body = format!(
-            "import json, pathlib, signal, subprocess, sys\nchild = subprocess.Popen(['/usr/bin/python3', '-c', 'import signal,time; signal.signal(signal.SIGTERM, signal.SIG_IGN); time.sleep(30)'])\npathlib.Path({receipt:?}).write_text(str(child.pid))\nrequest = json.loads(sys.stdin.readline())\nprint(json.dumps({{'ok': True, 'protocol': 'open-brain-client', 'protocol_version': 1, 'request_id': request['request_id'], 'result': {{}}}}), flush=True)\nsys.stdin.read()"
+            "import json, subprocess, sys\nsubprocess.Popen([sys.executable, '-c', {descendant_body:?}])\nrequest = json.loads(sys.stdin.readline())\nprint(json.dumps({{'ok': True, 'protocol': 'open-brain-client', 'protocol_version': 1, 'request_id': request['request_id'], 'result': {{}}}}), flush=True)\nsys.stdin.read()"
         );
         let executable = script(&directory, &body);
         let mut bridge = Bridge::spawn(&executable, directory.path()).unwrap();
+        let descendant = wait_for_pid(&receipt);
         bridge
             .invoke("system.handshake", json!({}), None, Duration::from_secs(2))
             .unwrap();
-        let descendant: i32 = fs::read_to_string(receipt).unwrap().parse().unwrap();
-
         assert!(bridge.shutdown());
         assert_eq!(unsafe { libc::kill(descendant, 0) }, -1);
     }

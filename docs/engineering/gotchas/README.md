@@ -1742,6 +1742,22 @@ has been reaped while the operation still fails.
 
 Discovered: 2026-09-16, macOS Graphify build-supervisor overflow test.
 
+### INTEGRATION-042: Fixture startup is not the bridge deadline under test
+
+Symptom: macOS bridge tests time out before their Python fixtures create a descendant
+or answer a handshake, although the process-cleanup implementation passes locally.
+
+Cause: Cold interpreter startup competes with parallel tests and can exceed a two-second
+fixture budget. The graceful-exit fixture also announced its descendant before that
+process installed its signal handler.
+
+Fix: Wait up to ten seconds for a complete, live fixture PID before exercising the
+operation deadline. Have the signal-ignoring descendant publish its own readiness after
+installing its handler. Preserve the 100 ms operation deadline and existing cleanup bounds;
+continue asserting that the descendant is gone after shutdown.
+
+Discovered: 2026-09-16, macOS desktop bridge contributor checks.
+
 ### DOCUMENT-001: PDF extraction can invoke an ambient image decoder
 
 Symptom: A malformed PDF content stream can select pypdf's JBIG2 filter, which discovers
