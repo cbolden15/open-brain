@@ -1,0 +1,45 @@
+{
+  "status": "VERIFIED_FOR_PUBLICATION",
+  "base": "3376a7674ec27c88862f4e2f6ebed4b17620a675",
+  "source": "b4029e89ff1698077438fe958861a0d015b1a86b",
+  "source_integration_commit": "8b0a5d55f49b568527d7f37ac2596d1b4daa5784",
+  "source_tree": "d6b5edec7c1e84211f43eb71bf7974251936f657",
+  "source_tree_equals_reviewed_source": true,
+  "combined_tested_head": "2f353b9921c5f8b8d82f23541fc5e1461ad5d562",
+  "native_reviewed_head": "8176a195cfbdb17ab86056e6f3ed78ed7e446744",
+  "local_checks": {
+    "make_verify": {
+      "status": "PASS",
+      "python_passed": 1930,
+      "python_skipped": 5,
+      "plugin_passed": 23,
+      "desktop_frontend_passed": 13,
+      "desktop_python_passed": 1,
+      "rust_passed": 17
+    },
+    "native_audit": "PASS",
+    "homebrew_smoke": "PASS",
+    "packaged_recovery": "PASS",
+    "desktop_native_proof": "PASS at runtime-identical8176a19; later M1 delta is test-support only"
+  },
+  "independent_review": {
+    "checkpoint_c": "24 targeted checks; two P2 findings, subsequently fixed",
+    "followup": "18 reproduction checks and3 regressions pass; both findings resolved",
+    "M1_final": "READY;28 targeted cases passed"
+  },
+  "limits": [
+    "Five existing macOS filesystem skips",
+    "No claim of real-provider or native GUI interaction",
+    "CI must independently verify the published head",
+    "Schema6 has no down migration; code rollback does not revert state"
+  ],
+  "secrets_scan": {
+    "new_line_count": 8376,
+    "high_signal_pattern_matches": [],
+    "scope": "high-signal added-line scan plus synthetic-only source/review scope; normal contribution, not private release audit"
+  },
+  "new_model_workers": 0,
+  "push_authorized": true,
+  "pr_authorized": true,
+  "merge_authorized": false
+}
