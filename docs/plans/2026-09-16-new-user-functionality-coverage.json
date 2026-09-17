@@ -1,0 +1,289 @@
+{
+  "schema_version": 1,
+  "status": "planned_not_implemented",
+  "baseline_commit": "5cf081aa3d591e14b89245db290d4a186ff8156a",
+  "assessment": "docs/audits/2026-09-16-new-user-functional-assessment.md",
+  "plan": "docs/plans/2026-09-16-new-user-functionality.md",
+  "accepted_decisions": {
+    "optional_local_embedding_download": true,
+    "default_capture_and_search_offline": true
+  },
+  "active": [
+    {
+      "id": "R1",
+      "finding": "Released capture-to-canonical-vault journey",
+      "tasks": [
+        "T01",
+        "T02",
+        "T06",
+        "T07",
+        "T19",
+        "T20",
+        "T21",
+        "T23"
+      ],
+      "acceptance": [
+        "A01",
+        "A05",
+        "A14",
+        "A15",
+        "A16",
+        "A17"
+      ],
+      "status": "planned",
+      "evidence": []
+    },
+    {
+      "id": "F1",
+      "finding": "Multi-source publication blocks public search",
+      "tasks": [
+        "T01",
+        "T02"
+      ],
+      "acceptance": [
+        "A01"
+      ],
+      "status": "planned",
+      "evidence": []
+    },
+    {
+      "id": "F2a",
+      "finding": "Complete projected read by stable ID",
+      "tasks": [
+        "T03",
+        "T05",
+        "T06",
+        "T07"
+      ],
+      "acceptance": [
+        "A02",
+        "A04",
+        "A05"
+      ],
+      "status": "planned",
+      "evidence": []
+    },
+    {
+      "id": "F2b",
+      "finding": "Public search filters",
+      "tasks": [
+        "T05",
+        "T06",
+        "T07"
+      ],
+      "acceptance": [
+        "A04",
+        "A05"
+      ],
+      "status": "planned",
+      "evidence": []
+    },
+    {
+      "id": "F2c",
+      "finding": "Stable bounded result continuation",
+      "tasks": [
+        "T03",
+        "T05",
+        "T06",
+        "T07"
+      ],
+      "acceptance": [
+        "A02",
+        "A04",
+        "A05"
+      ],
+      "status": "planned",
+      "evidence": []
+    },
+    {
+      "id": "F4a",
+      "finding": "Routing must not freeze source freshness",
+      "tasks": [
+        "T03",
+        "T04",
+        "T10"
+      ],
+      "acceptance": [
+        "A02",
+        "A03",
+        "A06"
+      ],
+      "status": "planned",
+      "evidence": []
+    },
+    {
+      "id": "F4b",
+      "finding": "One item must not stall unrelated batch progress",
+      "tasks": [
+        "T09",
+        "T10"
+      ],
+      "acceptance": [
+        "A06"
+      ],
+      "status": "planned",
+      "evidence": []
+    },
+    {
+      "id": "F5",
+      "finding": "Selective owner retirement/correction/forgetting",
+      "tasks": [
+        "T11",
+        "T12",
+        "T18"
+      ],
+      "acceptance": [
+        "A08",
+        "A09",
+        "A13"
+      ],
+      "status": "planned",
+      "evidence": []
+    },
+    {
+      "id": "W1",
+      "finding": "Optional local meaning-based recall",
+      "tasks": [
+        "T16",
+        "T17",
+        "T18"
+      ],
+      "acceptance": [
+        "A13"
+      ],
+      "status": "planned",
+      "evidence": []
+    },
+    {
+      "id": "W2a",
+      "finding": "Readable history and append-only corrections",
+      "tasks": [
+        "T04",
+        "T08",
+        "T11"
+      ],
+      "acceptance": [
+        "A03",
+        "A07",
+        "A08"
+      ],
+      "status": "planned",
+      "evidence": []
+    },
+    {
+      "id": "W2b",
+      "finding": "Explicit duplicates/supersession/contradiction relationships",
+      "tasks": [
+        "T08",
+        "T11"
+      ],
+      "acceptance": [
+        "A07",
+        "A08"
+      ],
+      "status": "planned",
+      "evidence": []
+    },
+    {
+      "id": "W3",
+      "finding": "Safe Markdown import-root rebind",
+      "tasks": [
+        "T13"
+      ],
+      "acceptance": [
+        "A10"
+      ],
+      "status": "planned",
+      "evidence": []
+    },
+    {
+      "id": "W4",
+      "finding": "Optional PDF/DOCX distribution and source continuity",
+      "tasks": [
+        "T14",
+        "T19",
+        "T20",
+        "T23"
+      ],
+      "acceptance": [
+        "A11",
+        "A14",
+        "A15",
+        "A17"
+      ],
+      "status": "planned",
+      "evidence": []
+    },
+    {
+      "id": "W5",
+      "finding": "Optional Linux background collector lifecycle",
+      "tasks": [
+        "T15",
+        "T20",
+        "T23"
+      ],
+      "acceptance": [
+        "A12",
+        "A15",
+        "A17"
+      ],
+      "status": "planned",
+      "evidence": []
+    },
+    {
+      "id": "W6",
+      "finding": "Truthful joined source capability/readiness catalog",
+      "tasks": [
+        "T19",
+        "T21"
+      ],
+      "acceptance": [
+        "A14",
+        "A16"
+      ],
+      "status": "planned",
+      "evidence": []
+    },
+    {
+      "id": "W7",
+      "finding": "Versioned release/onboarding/doctor documentation parity",
+      "tasks": [
+        "T20",
+        "T21",
+        "T23"
+      ],
+      "acceptance": [
+        "A15",
+        "A16",
+        "A17"
+      ],
+      "status": "planned",
+      "evidence": []
+    },
+    {
+      "id": "W8",
+      "finding": "Public OAuth and exact native acceptance",
+      "tasks": [
+        "T20",
+        "T22",
+        "T23"
+      ],
+      "acceptance": [
+        "A15",
+        "A17"
+      ],
+      "status": "planned",
+      "evidence": []
+    }
+  ],
+  "excluded": [
+    {
+      "id": "F3",
+      "finding": "New Portable backup/restore and new revision restore/revert",
+      "reason": "User explicitly excluded backup/restore from this program",
+      "follow_up": "docs/plans/2026-09-16-backup-restore-follow-up.md",
+      "status": "deferred_by_user"
+    }
+  ],
+  "completion_rule": "All active findings require passing exact-candidate receipts; blocked external/proof gates remain open. Only explicit user-approved scope changes can remove active findings."
+}

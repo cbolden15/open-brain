@@ -1,0 +1,15 @@
+# recall-research session
+
+Preferred model: `gpt-5.6-sol`; reasoning: high. Confirm this model is available on the Mac mini before launching. Do not silently substitute or inherit an unknown default.
+
+# Phase task
+
+Objective: Perform the preliminary read-only portion of T16: optional local-model/runtime feasibility and design a synthetic relevance fixture. Do not install or integrate a model yet.
+Source of truth and precedence: Read this first: docs/ai/kickoffs/mac-mini-new-user/README.md, then docs/plans/2026-09-16-new-user-functionality.md and its coverage JSON. Ground actual repository root, branch, HEAD, dirty state and CLAUDE.md. Resolve historical laptop absolute paths by their repository-relative suffix in your own checkout; do not use old /tmp paths or treat an old handoff SHA as current. Use official primary sources and actual macOS arm64/Linux x86_64 artifact evidence, plus plan quality/resource targets. Confirm which model/runtime claims are untested. Default capture/search remains offline and dependency-minimal.
+Allowed write scope: Read-only product exploration. Write only coordinator-named research/evaluation documents, disjoint synthetic fixture design files and your generated workstream report. Do not edit engine, packaging, dependency manifests, lockfiles, master coverage or contract-worker fixtures.
+Verification: Document exact candidate licenses, revisions/digests when available, tokenizer/truncation behavior, native ABI/platform gates and any unknowns. Design at least 40 independently specified query cases before model tuning. No benchmark is marked passed without execution; no Linux result inferred from the mini. Git diff --check and source/fixture reference validation. No full test suite or downloads in this initial assignment.
+Stop condition: Stop after an evidence-backed local report/fixture-design commit. Wait for the frozen T03 boundary and an explicit bounded spike assignment before model download, native builds or benchmarking. No push, PR, merge or additional agents.
+Sensitive-data policy: Synthetic Brain roots only; never use the default live Brain or copy databases, credentials, private captures, transcripts, source configuration or laptop environment folders. Backup/restore development is excluded. Optional local model downloads are permitted only in the later explicit bounded spike, not this initial research assignment. No service/OAuth/provider/release actions. Do not change security settings or use sandbox bypass.
+Output contract: Write your own workstream STATE/HANDOFF using workflow-governance and report STATUS: DONE|DONE_WITH_CONCERNS|BLOCKED|sandbox-blocked; role and task IDs; base/HEAD; files changed; exact tests and results; commit SHA; risks; next action. Verify every artifact exists. Commit only owned changes using a message file and git commit -F. Never claim integrated or verified globally from a worker return.
+
+Read relevant sources first. Work in small steps. Keep edits within scope. Report evidence, blockers, and next action. Stop on authority conflict, missing verification, scope conflict, or the stated stop condition.
