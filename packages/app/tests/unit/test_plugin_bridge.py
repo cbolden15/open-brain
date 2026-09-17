@@ -125,9 +125,20 @@ def test_contract_discovery_omits_unimplemented_negotiated_tasks(tmp_path: Path)
 
 def test_bridge_uses_shared_organization_and_publication_services(tmp_path: Path) -> None:
     selection = _selection(tmp_path)
+    fixture = json.loads(
+        (Path(__file__).resolve().parents[1] / "fixtures/t06-client-api.json").read_bytes()
+    )
+    examples = {example["operation"]: example for example in fixture["examples"]}
+
+    def assert_fixture_shape(operation: str, result: dict[str, object]) -> None:
+        expected = cast(dict[str, object], examples[operation]["response"])
+        assert set(result) == set(expected)
+
     assert _call(selection, "brain.initialize")["ok"] is True
     setup = cast(dict[str, object], _call(selection, "workspace.setup")["result"])
     status = cast(dict[str, object], _call(selection, "workspace.status")["result"])
+    assert_fixture_shape("workspace.setup", setup)
+    assert_fixture_shape("workspace.status", status)
     assert setup["status"] == "setup"
     assert status["status"] == "ok"
     assert status["vault_path"] == setup["vault_path"]
@@ -135,22 +146,55 @@ def test_bridge_uses_shared_organization_and_publication_services(tmp_path: Path
         denied = _call(selection, "space.create", invalid)
         assert denied["ok"] is False
         assert cast(dict[str, object], denied["error"])["code"] == "invalid_arguments"
-    capture = cast(
+    captures = [
+        cast(
+            dict[str, object],
+            _call(selection, "capture.create", {"text": text})["result"],
+        )
+        for text in ("Synthetic first source", "Synthetic second source")
+    ]
+    inbox = cast(
         dict[str, object],
-        _call(selection, "capture.create", {"text": "Synthetic publication source"})["result"],
+        _call(
+            selection,
+            "inbox.list",
+            {"dto_version": 1, "unassigned_only": True, "limit": 50, "offset": 0},
+        )["result"],
     )
+    assert_fixture_shape("inbox.list", inbox)
+    assert [row["capture_id"] for row in cast(list[dict[str, object]], inbox["items"])] == [
+        capture["capture_id"] for capture in captures
+    ]
     space = cast(
         dict[str, object],
         _call(
             selection, "space.create", {"dto_version": 1, "name": "Synthetic space"}
         )["result"],
     )
+    assert_fixture_shape("space.create", space)
     space_id = cast(dict[str, object], space["space"])["space_id"]
-    assert _call(
-        selection,
-        "inbox.route",
-        {"dto_version": 1, "capture_id": capture["capture_id"], "space_id": space_id},
-    )["ok"] is True
+    spaces = cast(
+        dict[str, object],
+        _call(selection, "space.list", {"dto_version": 1, "limit": 50, "offset": 0})[
+            "result"
+        ],
+    )
+    assert_fixture_shape("space.list", spaces)
+    for index, capture in enumerate(captures):
+        routed = cast(
+            dict[str, object],
+            _call(
+                selection,
+                "inbox.route",
+                {
+                    "dto_version": 1,
+                    "capture_id": capture["capture_id"],
+                    "space_id": space_id,
+                    "idempotency_key": f"synthetic-route-{index}",
+                },
+            )["result"],
+        )
+        assert_fixture_shape("inbox.route", routed)
     proposed = cast(
         dict[str, object],
         _call(
@@ -158,12 +202,13 @@ def test_bridge_uses_shared_organization_and_publication_services(tmp_path: Path
             "publication.propose",
             {
                 "dto_version": 1,
-                "capture_ids": [capture["capture_id"]],
+                "capture_ids": [capture["capture_id"] for capture in captures],
                 "title": "Synthetic publication",
                 "markdown": "Complete synthetic body",
             },
         )["result"],
     )
+    assert_fixture_shape("publication.propose", proposed)
     shown = cast(
         dict[str, object],
         _call(
@@ -172,6 +217,7 @@ def test_bridge_uses_shared_organization_and_publication_services(tmp_path: Path
             {"dto_version": 1, "proposal_id": proposed["proposal_id"]},
         )["result"],
     )
+    assert_fixture_shape("publication.show", shown)
     approved = cast(
         dict[str, object],
         _call(
@@ -184,11 +230,13 @@ def test_bridge_uses_shared_organization_and_publication_services(tmp_path: Path
             },
         )["result"],
     )
+    assert_fixture_shape("publication.approve", approved)
 
     assert shown["markdown"] == "Complete synthetic body"
     assert approved["status"] == "approved"
     assert approved["page_id"] == proposed["page_id"]
     refreshed = cast(dict[str, object], _call(selection, "workspace.refresh")["result"])
+    assert_fixture_shape("workspace.refresh", refreshed)
     note = next(
         row
         for row in cast(list[dict[str, object]], refreshed["notes"])
@@ -198,6 +246,7 @@ def test_bridge_uses_shared_organization_and_publication_services(tmp_path: Path
     materialized = note_path.read_text(encoding="utf-8")
     assert materialized.endswith("\nComplete synthetic body\n")
     assert f'page_id: "{approved["page_id"]}"' in materialized
+    assert len(cast(list[dict[str, object]], shown["evidence"])) == 2
     stale = _call(
         selection,
         "publication.reject",
