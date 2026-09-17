@@ -53,6 +53,21 @@ process.stdin.on("data", (chunk) => {
     expect(second.operation).toBe("workspace.status");
   });
 
+  it("T03 rejects duplicate nested keys before response construction", async () => {
+    const executable = await fakeExecutable(`
+process.stdin.once("data", (chunk) => {
+  const request = JSON.parse(chunk);
+  const raw = JSON.stringify({ok:true, protocol:"open-brain-client", protocol_version:1, request_id:request.request_id, result:{role:1}});
+  process.stdout.write(raw.replace('"role":1', '"role":1,"role":2') + "\\n");
+});
+`);
+    const bridge = new OpenBrainBridge(executable);
+    bridges.push(bridge);
+    await expect(bridge.invoke("system.handshake", {})).rejects.toEqual(
+      expect.objectContaining<Partial<BridgeError>>({code:"protocol_error"}),
+    );
+  });
+
   it("kills the owned session when a request exceeds its deadline", async () => {
     const executable = await fakeExecutable(`process.stdin.resume();`);
     const bridge = new OpenBrainBridge(executable);

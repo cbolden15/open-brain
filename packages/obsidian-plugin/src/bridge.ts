@@ -1,3 +1,4 @@
+import { parseStrictJson } from "./strict-json";
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { realpath, stat } from "node:fs/promises";
@@ -152,7 +153,7 @@ export class OpenBrainBridge {
   #handleLine(line: Buffer): void {
     let response: Record<string, unknown>;
     try {
-      response = record(JSON.parse(line.toString("utf8")));
+      response = record(parseStrictJson(line));
     } catch {
       this.#failAll("protocol_error");
       this.#terminate();

@@ -1154,7 +1154,7 @@ def _read_request(payload: bytes) -> dict[str, object]:
 
     try:
         decoded = json.loads(
-            payload,
+            payload.decode("utf-8"),
             object_pairs_hook=unique,
             parse_constant=lambda _value: _reject_request(),
         )

@@ -156,7 +156,7 @@ pub fn run_graphify_probe(
         return Err(BridgeError::TransportFailed);
     }
     let value: Value =
-        serde_json::from_slice(&response).map_err(|_| BridgeError::MalformedResponse)?;
+        crate::strict_json::from_slice(&response).map_err(|_| BridgeError::MalformedResponse)?;
     if value.get("protocol").and_then(Value::as_str) != Some("open-brain-graphify-helper-v1")
         || value.get("status").and_then(Value::as_str) != Some("ok")
         || value.get("pages").and_then(Value::as_array).map(Vec::len) != Some(2)
@@ -319,7 +319,7 @@ impl Bridge {
     }
 
     fn decode_response(&mut self, line: &[u8], request_id: &str) -> Result<Value, BridgeError> {
-        let response: Value = serde_json::from_slice(line).map_err(|_| {
+        let response: Value = crate::strict_json::from_slice(line).map_err(|_| {
             self.terminate_now();
             BridgeError::MalformedResponse
         })?;
@@ -683,6 +683,25 @@ for line in sys.stdin:
         child.wait().unwrap();
         assert_eq!(shutting_down, vec![group]);
         assert!(refused);
+    }
+
+    #[test]
+    fn t03_nested_duplicates_close_the_actual_bridge() {
+        let directory = TempDir::new().unwrap();
+        let executable = script(
+            &directory,
+            r#"import json, sys, time
+request = json.loads(sys.stdin.readline())
+raw = json.dumps({"ok": True, "protocol": "open-brain-client", "protocol_version": 1, "request_id": request["request_id"], "result": {"role": 1}})
+print(raw.replace('"role": 1', '"role": 1, "role": 2'), flush=True)
+time.sleep(30)"#,
+        );
+        let mut bridge = Bridge::spawn(&executable, directory.path()).unwrap();
+        assert_eq!(
+            bridge.invoke("system.handshake", json!({}), None, Duration::from_secs(2)),
+            Err(BridgeError::MalformedResponse)
+        );
+        assert!(bridge.process_group_gone());
     }
 
     #[test]

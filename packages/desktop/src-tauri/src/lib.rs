@@ -1,3 +1,4 @@
+mod strict_json;
 mod bridge;
 mod collector;
 mod proof;

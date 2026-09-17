@@ -221,4 +221,31 @@ mod tests {
         relative["brain_root"] = json!("brain");
         assert!(validate_handshake(&relative).is_err());
     }
+    #[test]
+    fn t03_old_desktop_refuses_new_runtime_before_dispatch() {
+        let fixture: Value = serde_json::from_str(include_str!(
+            "../../../../tests/fixtures/new-user-t03/compatibility.json"
+        ))
+        .unwrap();
+        let mut current = handshake();
+        current["state_schema_version"] = fixture["versions"]["current"]["storage"].clone();
+        assert!(validate_handshake(&current).is_ok());
+        let mut next = current.clone();
+        next["state_schema_version"] = fixture["versions"]["proposed"]["storage"].clone();
+        next["runtime_session_version"] =
+            fixture["versions"]["proposed"]["runtime_session"].clone();
+        assert_eq!(
+            validate_handshake(&next),
+            Err("incompatible_runtime".to_owned())
+        );
+        let raw = serde_json::to_string(&current).unwrap().replace(
+            "\"runtime_session_version\":1",
+            "\"runtime_session_version\":1.0",
+        );
+        let fractional = crate::strict_json::from_slice(raw.as_bytes()).unwrap();
+        assert!(validate_handshake(&fractional).is_err());
+        let mut historical = current.clone();
+        historical["state_schema_version"] = fixture["versions"]["baseline"]["storage"].clone();
+        assert!(validate_handshake(&historical).is_err());
+    }
 }

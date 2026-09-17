@@ -1,0 +1,850 @@
+{
+  "fixture_format": "t03-specification-v1",
+  "status": "proposed_not_frozen",
+  "synthetic_only": true,
+  "baseline_commit": "3376a7674ec27c88862f4e2f6ebed4b17620a675",
+  "kind": "compatibility",
+  "execution_note": "Baseline validator cases can execute; proposed cases are specifications requiring future implementations, not passing product evidence.",
+  "versions": {
+    "baseline": {
+      "storage": 5,
+      "runtime_session": 1,
+      "bridge": 1,
+      "portable": [
+        1,
+        2,
+        3
+      ]
+    },
+    "proposed": {
+      "storage": 7,
+      "runtime_session": 2,
+      "bridge": 1,
+      "task": "t03.v1",
+      "portable": 4
+    },
+    "current": {
+      "storage": 6,
+      "runtime_session": 1,
+      "bridge": 1,
+      "portable": [
+        1,
+        2,
+        3
+      ]
+    }
+  },
+  "baseline_bridge_cases": [
+    {
+      "id": "C01",
+      "request": {
+        "arguments": {
+          "query": "synthetic launch",
+          "limit": 10
+        },
+        "operation": "search.query",
+        "protocol": "open-brain-client",
+        "protocol_version": 1,
+        "request_id": "plugin_123e4567-e89b-42d3-a456-426614174001"
+      },
+      "expected": "accept"
+    },
+    {
+      "id": "C02",
+      "request": {
+        "arguments": {
+          "query": "synthetic launch",
+          "limit": 10
+        },
+        "operation": "search.query",
+        "protocol": "open-brain-client",
+        "protocol_version": 2,
+        "request_id": "plugin_123e4567-e89b-42d3-a456-426614174001"
+      },
+      "expected": "incompatible_protocol"
+    },
+    {
+      "id": "C03",
+      "request": {
+        "arguments": {
+          "query": "synthetic launch",
+          "limit": 10
+        },
+        "operation": "search.query",
+        "protocol": "open-brain-client",
+        "protocol_version": 1,
+        "request_id": "plugin_123e4567-e89b-42d3-a456-426614174001",
+        "capabilities": []
+      },
+      "expected": "invalid_request"
+    },
+    {
+      "id": "C04",
+      "request": {
+        "arguments": {
+          "query": "synthetic launch",
+          "limit": 10
+        },
+        "operation": "record.read",
+        "protocol": "open-brain-client",
+        "protocol_version": 1,
+        "request_id": "plugin_123e4567-e89b-42d3-a456-426614174001"
+      },
+      "expected": "unknown_operation"
+    },
+    {
+      "id": "C05",
+      "raw_request": "{\"arguments\":{},\"arguments\":{}}",
+      "expected": "invalid_request"
+    },
+    {
+      "id": "C06",
+      "request": {
+        "arguments": {
+          "query": "synthetic launch",
+          "limit": 10
+        },
+        "operation": "search.query",
+        "protocol": "open-brain-client",
+        "protocol_version": true,
+        "request_id": "plugin_123e4567-e89b-42d3-a456-426614174001"
+      },
+      "expected": "incompatible_protocol"
+    }
+  ],
+  "baseline_mcp_cases": [
+    {
+      "id": "C07",
+      "tool": "brain_search",
+      "arguments": {
+        "query": "synthetic launch"
+      },
+      "expected": "accept"
+    },
+    {
+      "id": "C08",
+      "tool": "brain_search",
+      "arguments": {
+        "query": "synthetic launch",
+        "cursor": "fake"
+      },
+      "expected": "invalid tool arguments"
+    },
+    {
+      "id": "C09",
+      "tool": "brain_search",
+      "arguments": {
+        "query": "synthetic launch",
+        "limit": 11
+      },
+      "expected": "invalid tool arguments"
+    },
+    {
+      "id": "C10",
+      "tool": "brain_search",
+      "arguments": {
+        "query": "synthetic launch",
+        "limit": true
+      },
+      "expected": "invalid tool arguments"
+    },
+    {
+      "id": "C11",
+      "tool": "brain_read",
+      "arguments": {
+        "record_id": "unknown"
+      },
+      "expected": "unknown tool"
+    }
+  ],
+  "baseline_provenance_cases": [
+    {
+      "id": "C12",
+      "capture_id": "capture_123e4567-e89b-42d3-a456-426614174100",
+      "capture_ids": [
+        "capture_123e4567-e89b-42d3-a456-426614174100"
+      ],
+      "expected": "accept"
+    },
+    {
+      "id": "C13",
+      "capture_id": "capture_123e4567-e89b-42d3-a456-426614174100",
+      "capture_ids": [
+        "capture_123e4567-e89b-42d3-a456-426614174100",
+        "capture_123e4567-e89b-42d3-a456-426614174101",
+        "capture_123e4567-e89b-42d3-a456-426614174102"
+      ],
+      "expected": "accept"
+    },
+    {
+      "id": "C14",
+      "capture_id": "capture_123e4567-e89b-42d3-a456-426614174100",
+      "capture_ids": [
+        "capture_123e4567-e89b-42d3-a456-426614174101",
+        "capture_123e4567-e89b-42d3-a456-426614174100"
+      ],
+      "expected": "reject"
+    },
+    {
+      "id": "C15",
+      "capture_id": "capture_123e4567-e89b-42d3-a456-426614174100",
+      "capture_ids": [
+        "capture_123e4567-e89b-42d3-a456-426614174100",
+        "capture_123e4567-e89b-42d3-a456-426614174100"
+      ],
+      "expected": "reject"
+    },
+    {
+      "id": "C16",
+      "capture_id": "capture_123e4567-e89b-42d3-a456-426614174100",
+      "capture_ids": [
+        "capture_123e4567-e89b-42d3-a456-426614174100",
+        "malformed"
+      ],
+      "expected": "reject"
+    }
+  ],
+  "baseline_search_serialization": {
+    "id": "C17",
+    "input": {
+      "result_id": "capture_123e4567-e89b-42d3-a456-426614174100",
+      "capture_id": "capture_123e4567-e89b-42d3-a456-426614174100",
+      "record_type": "source",
+      "payload_family": "text",
+      "space_id": null,
+      "title": "Synthetic title",
+      "excerpt": "Synthetic excerpt",
+      "trust": "third_party",
+      "explanation": "synthetic lexical match"
+    },
+    "expected": {
+      "status": "ok",
+      "results": [
+        {
+          "capture_id": "capture_123e4567-e89b-42d3-a456-426614174100",
+          "excerpt": "Synthetic excerpt",
+          "payload_family": "text",
+          "record_type": "source",
+          "result_id": "capture_123e4567-e89b-42d3-a456-426614174100",
+          "source_origin": "third_party",
+          "title": "Synthetic title",
+          "trust": "third_party",
+          "explanation": "synthetic lexical match"
+        }
+      ]
+    }
+  },
+  "baseline_portable_cases": [
+    {
+      "id": "C18",
+      "relative_path": "sources/captures/2026/08/capture_123e4567-e89b-42d3-a456-426614174100.json",
+      "record": {
+        "accepted_at": "2026-08-30T12:00:00Z",
+        "actor_id": "actor_123e4567-e89b-42d3-a456-426614174001",
+        "capture_id": "capture_123e4567-e89b-42d3-a456-426614174100",
+        "capture_why": "synthetic fixture",
+        "intent": "idea",
+        "original_payload": {
+          "bytes_base64": "eyJmYW1pbHkiOiJ0ZXh0IiwidGV4dCI6IlBvcnRhYmxlIEJyYWluIHN5bnRoZXRpYyB0ZXh0LiJ9",
+          "kind": "inline",
+          "sha256": "3a7ba46feaf034aa0ccc2abb6961d527b09a8ab50dd57e6b0cd8bba14127b1ef"
+        },
+        "payload": {
+          "family": "text",
+          "text": "Portable Brain synthetic text."
+        },
+        "payload_binding": {
+          "kind": "inline",
+          "payload_sha256": "3a7ba46feaf034aa0ccc2abb6961d527b09a8ab50dd57e6b0cd8bba14127b1ef"
+        },
+        "payload_schema_version": 1,
+        "privacy": {
+          "authority": {
+            "cloud": false,
+            "external_egress": false
+          },
+          "confirmation_ref": null,
+          "policy_version": "privacy-v1",
+          "reason": "personal_local_only",
+          "tier": "personal"
+        },
+        "provenance": {
+          "content_origin": "owner_authored",
+          "owner_context": "owner_authored",
+          "source_ref": "urn:example.invalid:portable-fixture",
+          "transformation_receipts": []
+        },
+        "receipt_refs": [
+          {
+            "kind": "capture_accepted",
+            "payload": {
+              "capture_id": "capture_123e4567-e89b-42d3-a456-426614174100",
+              "original_payload_sha256": "3a7ba46feaf034aa0ccc2abb6961d527b09a8ab50dd57e6b0cd8bba14127b1ef",
+              "payload_sha256": "3a7ba46feaf034aa0ccc2abb6961d527b09a8ab50dd57e6b0cd8bba14127b1ef"
+            },
+            "receipt_id": "receipt_123e4567-e89b-42d3-a456-426614174110",
+            "recorded_at": "2026-08-30T12:00:00Z",
+            "sha256": "ad79839271b3067f74cc49eee03d4a8e1a3bf0d24a08d3fe97cfde30faeb1352",
+            "subject_id": "capture_123e4567-e89b-42d3-a456-426614174100"
+          }
+        ],
+        "role_claim": {
+          "actor_id": "actor_123e4567-e89b-42d3-a456-426614174001",
+          "capabilities": [
+            "capture.accept",
+            "space.write"
+          ],
+          "role_claim_id": "role_claim_123e4567-e89b-42d3-a456-426614174003",
+          "role_id": "role_123e4567-e89b-42d3-a456-426614174002",
+          "tenant_id": "tenant_123e4567-e89b-42d3-a456-426614174000"
+        },
+        "schema_version": 1,
+        "source": {
+          "origin": "owner",
+          "reference": "urn:example.invalid:portable-fixture"
+        },
+        "space_id": "space_123e4567-e89b-42d3-a456-426614174004",
+        "tenant_id": "tenant_123e4567-e89b-42d3-a456-426614174000",
+        "trust": {
+          "assessed_at": "2026-08-30T12:00:00Z",
+          "assessor_actor_id": "actor_123e4567-e89b-42d3-a456-426614174001",
+          "label": "owner",
+          "reason": "owner supplied synthetic fixture"
+        }
+      },
+      "expected": "accept"
+    },
+    {
+      "id": "C19",
+      "relative_path": "sources/captures/2026/08/capture_123e4567-e89b-42d3-a456-426614174100.json",
+      "record": {
+        "accepted_at": "2026-08-30T12:00:00Z",
+        "actor_id": "actor_123e4567-e89b-42d3-a456-426614174001",
+        "capture_id": "capture_123e4567-e89b-42d3-a456-426614174100",
+        "capture_why": "synthetic fixture",
+        "intent": "idea",
+        "original_payload": {
+          "bytes_base64": "eyJmYW1pbHkiOiJ0ZXh0IiwidGV4dCI6IlBvcnRhYmxlIEJyYWluIHN5bnRoZXRpYyB0ZXh0LiJ9",
+          "kind": "inline",
+          "sha256": "3a7ba46feaf034aa0ccc2abb6961d527b09a8ab50dd57e6b0cd8bba14127b1ef"
+        },
+        "payload": {
+          "family": "text",
+          "text": "Portable Brain synthetic text."
+        },
+        "payload_binding": {
+          "kind": "inline",
+          "payload_sha256": "3a7ba46feaf034aa0ccc2abb6961d527b09a8ab50dd57e6b0cd8bba14127b1ef"
+        },
+        "payload_schema_version": 1,
+        "privacy": {
+          "authority": {
+            "cloud": false,
+            "external_egress": false
+          },
+          "confirmation_ref": null,
+          "policy_version": "privacy-v1",
+          "reason": "personal_local_only",
+          "tier": "personal"
+        },
+        "provenance": {
+          "content_origin": "owner_authored",
+          "owner_context": "owner_authored",
+          "source_ref": "urn:example.invalid:portable-fixture",
+          "transformation_receipts": []
+        },
+        "receipt_refs": [
+          {
+            "kind": "capture_accepted",
+            "payload": {
+              "capture_id": "capture_123e4567-e89b-42d3-a456-426614174100",
+              "original_payload_sha256": "3a7ba46feaf034aa0ccc2abb6961d527b09a8ab50dd57e6b0cd8bba14127b1ef",
+              "payload_sha256": "3a7ba46feaf034aa0ccc2abb6961d527b09a8ab50dd57e6b0cd8bba14127b1ef"
+            },
+            "receipt_id": "receipt_123e4567-e89b-42d3-a456-426614174110",
+            "recorded_at": "2026-08-30T12:00:00Z",
+            "sha256": "ad79839271b3067f74cc49eee03d4a8e1a3bf0d24a08d3fe97cfde30faeb1352",
+            "subject_id": "capture_123e4567-e89b-42d3-a456-426614174100"
+          }
+        ],
+        "role_claim": {
+          "actor_id": "actor_123e4567-e89b-42d3-a456-426614174001",
+          "capabilities": [
+            "capture.accept",
+            "space.write"
+          ],
+          "role_claim_id": "role_claim_123e4567-e89b-42d3-a456-426614174003",
+          "role_id": "role_123e4567-e89b-42d3-a456-426614174002",
+          "tenant_id": "tenant_123e4567-e89b-42d3-a456-426614174000"
+        },
+        "schema_version": 1,
+        "source": {
+          "origin": "owner",
+          "reference": "urn:example.invalid:portable-fixture"
+        },
+        "space_id": "space_123e4567-e89b-42d3-a456-426614174004",
+        "tenant_id": "tenant_123e4567-e89b-42d3-a456-426614174000",
+        "trust": {
+          "assessed_at": "2026-08-30T12:00:00Z",
+          "assessor_actor_id": "actor_123e4567-e89b-42d3-a456-426614174001",
+          "label": "owner",
+          "reason": "owner supplied synthetic fixture"
+        },
+        "source_id": "source_synthetic"
+      },
+      "expected": "reject"
+    },
+    {
+      "id": "C20",
+      "relative_path": "sources/captures/2026/08/capture_123e4567-e89b-42d3-a456-426614174100.json",
+      "record": {
+        "accepted_at": "2026-08-30T12:00:00Z",
+        "actor_id": "actor_123e4567-e89b-42d3-a456-426614174001",
+        "capture_id": "capture_123e4567-e89b-42d3-a456-426614174100",
+        "capture_why": "synthetic fixture",
+        "intent": "idea",
+        "original_payload": {
+          "bytes_base64": "eyJmYW1pbHkiOiJ0ZXh0IiwidGV4dCI6IlBvcnRhYmxlIEJyYWluIHN5bnRoZXRpYyB0ZXh0LiJ9",
+          "kind": "inline",
+          "sha256": "3a7ba46feaf034aa0ccc2abb6961d527b09a8ab50dd57e6b0cd8bba14127b1ef"
+        },
+        "payload": {
+          "family": "text",
+          "text": "Portable Brain synthetic text."
+        },
+        "payload_binding": {
+          "kind": "inline",
+          "payload_sha256": "3a7ba46feaf034aa0ccc2abb6961d527b09a8ab50dd57e6b0cd8bba14127b1ef"
+        },
+        "payload_schema_version": 1,
+        "privacy": {
+          "authority": {
+            "cloud": false,
+            "external_egress": false
+          },
+          "confirmation_ref": null,
+          "policy_version": "privacy-v1",
+          "reason": "personal_local_only",
+          "tier": "personal"
+        },
+        "provenance": {
+          "content_origin": "owner_authored",
+          "owner_context": "owner_authored",
+          "source_ref": "urn:example.invalid:portable-fixture",
+          "transformation_receipts": []
+        },
+        "receipt_refs": [
+          {
+            "kind": "capture_accepted",
+            "payload": {
+              "capture_id": "capture_123e4567-e89b-42d3-a456-426614174100",
+              "original_payload_sha256": "3a7ba46feaf034aa0ccc2abb6961d527b09a8ab50dd57e6b0cd8bba14127b1ef",
+              "payload_sha256": "3a7ba46feaf034aa0ccc2abb6961d527b09a8ab50dd57e6b0cd8bba14127b1ef"
+            },
+            "receipt_id": "receipt_123e4567-e89b-42d3-a456-426614174110",
+            "recorded_at": "2026-08-30T12:00:00Z",
+            "sha256": "ad79839271b3067f74cc49eee03d4a8e1a3bf0d24a08d3fe97cfde30faeb1352",
+            "subject_id": "capture_123e4567-e89b-42d3-a456-426614174100"
+          }
+        ],
+        "role_claim": {
+          "actor_id": "actor_123e4567-e89b-42d3-a456-426614174001",
+          "capabilities": [
+            "capture.accept",
+            "space.write"
+          ],
+          "role_claim_id": "role_claim_123e4567-e89b-42d3-a456-426614174003",
+          "role_id": "role_123e4567-e89b-42d3-a456-426614174002",
+          "tenant_id": "tenant_123e4567-e89b-42d3-a456-426614174000"
+        },
+        "schema_version": 6,
+        "source": {
+          "origin": "owner",
+          "reference": "urn:example.invalid:portable-fixture"
+        },
+        "space_id": "space_123e4567-e89b-42d3-a456-426614174004",
+        "tenant_id": "tenant_123e4567-e89b-42d3-a456-426614174000",
+        "trust": {
+          "assessed_at": "2026-08-30T12:00:00Z",
+          "assessor_actor_id": "actor_123e4567-e89b-42d3-a456-426614174001",
+          "label": "owner",
+          "reason": "owner supplied synthetic fixture"
+        }
+      },
+      "expected": "reject"
+    }
+  ],
+  "proposed_cases": [
+    {
+      "id": "C21",
+      "scenario": "old desktop against new handshake",
+      "input": "runtime=2 schema=7 product=0.1.0",
+      "expected": "incompatible_runtime before any writer callback",
+      "execution_status": "not_run_requires_future_implementation"
+    },
+    {
+      "id": "C22",
+      "scenario": "new client against baseline server",
+      "input": "no contract.describe or read capability",
+      "expected": "legacy first-page search only; complete read unsupported",
+      "execution_status": "not_run_requires_future_implementation"
+    },
+    {
+      "id": "C23",
+      "scenario": "existing search-only MCP agent",
+      "input": "content/history grants absent",
+      "expected": "brain_read/history tools absent and calls denied",
+      "execution_status": "not_run_requires_future_implementation"
+    },
+    {
+      "id": "C24",
+      "scenario": "explicit content-read without history-read",
+      "input": "read current then history.show",
+      "expected": "current projected text allowed; history denied",
+      "execution_status": "not_run_requires_future_implementation"
+    },
+    {
+      "id": "C25",
+      "scenario": "explicit history-read without content-read",
+      "input": "show retained old revision",
+      "expected": "historical projected text allowed; current read operation denied",
+      "execution_status": "not_run_requires_future_implementation"
+    },
+    {
+      "id": "C26",
+      "scenario": "new DTO strict producer/consumer",
+      "input": "extra keys, wrong version, duplicate keys, nonfinite numbers",
+      "expected": "invalid_arguments before execution",
+      "execution_status": "not_run_requires_future_implementation"
+    },
+    {
+      "id": "C27",
+      "scenario": "old writer already running",
+      "input": "migration requests exclusive admission",
+      "expected": "cutover blocked until old session exits",
+      "execution_status": "not_run_requires_future_implementation"
+    },
+    {
+      "id": "C28",
+      "scenario": "old writer after cutover",
+      "input": "CLI, MCP, plugin, collector, importer entry",
+      "expected": "schema/runtime refusal before any durable write",
+      "execution_status": "not_run_requires_future_implementation"
+    },
+    {
+      "id": "C29",
+      "scenario": "paged deterministic search",
+      "input": "201 matching IDs; same score ties; page limits 1,10,100",
+      "expected": "all 201 exactly once, complete iff next_cursor null",
+      "execution_status": "not_run_requires_future_implementation"
+    },
+    {
+      "id": "C30",
+      "scenario": "filter/authority intersection",
+      "input": "two spaces, all families, source/canonical; narrower allowed scope",
+      "expected": "no excluded result/count/title leakage",
+      "execution_status": "not_run_requires_future_implementation"
+    },
+    {
+      "id": "C31",
+      "scenario": "full Unicode read",
+      "input": "long text recipe in security-boundaries; target 32768",
+      "expected": "exact projected UTF-8 reconstruction including middle/end",
+      "execution_status": "not_run_requires_future_implementation"
+    },
+    {
+      "id": "C32",
+      "scenario": "hybrid mode negotiation",
+      "input": "optional helper absent or projection stale",
+      "expected": "preferred warns lexical; required returns typed error; no auto-download",
+      "execution_status": "not_run_requires_future_implementation"
+    },
+    {
+      "id": "C33",
+      "scenario": "legacy search on compatible updated client",
+      "input": "query and limit only",
+      "expected": "same nine result keys and legacy limits; no paging/full-content extras",
+      "execution_status": "not_run_requires_future_implementation"
+    },
+    {
+      "id": "C34",
+      "scenario": "error adapter parity",
+      "input": "each new code from design section 9",
+      "expected": "safe code survives CLI/MCP/bridge; no private exception text",
+      "execution_status": "not_run_requires_future_implementation"
+    },
+    {
+      "id": "C35",
+      "scenario": "new Portable v4 export",
+      "input": "retained v1-v3 payloads plus v4 metadata",
+      "expected": "new validator accepts; old reader rejects; no lossy downgrade",
+      "execution_status": "not_run_requires_future_implementation"
+    },
+    {
+      "id": "C36",
+      "scenario": "explicit approval workflow",
+      "input": "route/propose/inspect/approve/workspace refresh via negotiated bridge",
+      "expected": "no approval without exact inspection/evidence binding",
+      "execution_status": "not_run_requires_future_implementation"
+    }
+  ],
+  "consumer_acceptance": [
+    {
+      "consumer": "engine",
+      "status": "pending"
+    },
+    {
+      "consumer": "app CLI/MCP/bridge",
+      "status": "pending"
+    },
+    {
+      "consumer": "collector",
+      "status": "pending"
+    },
+    {
+      "consumer": "connectors",
+      "status": "pending"
+    },
+    {
+      "consumer": "Obsidian TypeScript",
+      "status": "pending"
+    },
+    {
+      "consumer": "desktop Rust/frontend",
+      "status": "pending"
+    },
+    {
+      "consumer": "Portable v4 reader",
+      "status": "pending"
+    }
+  ],
+  "proposed_dto_examples": [
+    {
+      "id": "C37",
+      "operation": "search.page",
+      "request": {
+        "dto_version": 1,
+        "query": "synthetic launch",
+        "filters": {
+          "space_ids": [],
+          "payload_families": [
+            "text"
+          ],
+          "record_types": [
+            "source"
+          ]
+        },
+        "mode": "lexical",
+        "limit": 10,
+        "cursor": null
+      },
+      "response": {
+        "status": "ok",
+        "dto_version": 1,
+        "results": [
+          {
+            "record_id": "capture_123e4567-e89b-42d3-a456-426614174100",
+            "record_type": "source",
+            "revision_id": "capture_123e4567-e89b-42d3-a456-426614174100",
+            "source_id": "source_123e4567-e89b-42d3-a456-426614174200",
+            "payload_family": "text",
+            "space_id": null,
+            "title": "Synthetic title",
+            "excerpt": "Synthetic excerpt",
+            "trust": "third_party",
+            "provenance": {
+              "representative_capture_id": "capture_123e4567-e89b-42d3-a456-426614174100",
+              "capture_ids": [
+                "capture_123e4567-e89b-42d3-a456-426614174100"
+              ],
+              "source_origin": "third_party"
+            },
+            "source_update_available": false
+          }
+        ],
+        "next_cursor": null,
+        "complete": true,
+        "mode_used": "lexical",
+        "warnings": []
+      },
+      "expected": "Future producer and every negotiated consumer accept exact shape; old serializer unchanged",
+      "execution_status": "not_run_requires_future_implementation"
+    },
+    {
+      "id": "C38",
+      "operation": "record.read",
+      "request": {
+        "dto_version": 1,
+        "record_id": "capture_123e4567-e89b-42d3-a456-426614174100",
+        "expected_revision_id": "capture_123e4567-e89b-42d3-a456-426614174100",
+        "target_bytes": 32768,
+        "cursor": null
+      },
+      "response": {
+        "status": "ok",
+        "dto_version": 1,
+        "record": {
+          "record_id": "capture_123e4567-e89b-42d3-a456-426614174100",
+          "record_type": "source",
+          "revision_id": "capture_123e4567-e89b-42d3-a456-426614174100",
+          "source_id": "source_123e4567-e89b-42d3-a456-426614174200",
+          "payload_family": "text",
+          "space_id": null,
+          "title": "Synthetic title",
+          "excerpt": "Synthetic excerpt",
+          "trust": "third_party",
+          "provenance": {
+            "representative_capture_id": "capture_123e4567-e89b-42d3-a456-426614174100",
+            "capture_ids": [
+              "capture_123e4567-e89b-42d3-a456-426614174100"
+            ],
+            "source_origin": "third_party"
+          },
+          "source_update_available": false
+        },
+        "content": {
+          "kind": "untrusted_text",
+          "text": "Synthetic content.\n"
+        },
+        "start_byte": 0,
+        "end_byte": 19,
+        "next_cursor": null,
+        "complete": true
+      },
+      "expected": "Exact UTF-8 reconstruction and typed untrusted text; content-read required",
+      "execution_status": "not_run_requires_future_implementation"
+    },
+    {
+      "id": "C39",
+      "operation": "history.list",
+      "request": {
+        "dto_version": 1,
+        "record_id": "capture_123e4567-e89b-42d3-a456-426614174100",
+        "limit": 10,
+        "cursor": null
+      },
+      "response": {
+        "status": "ok",
+        "dto_version": 1,
+        "entries": [
+          {
+            "revision_id": "capture_123e4567-e89b-42d3-a456-426614174100",
+            "predecessor_revision_id": null,
+            "recorded_at": "2026-09-17T00:00:00Z",
+            "reason": "Synthetic initial capture",
+            "lifecycle": "active",
+            "availability": "available",
+            "is_current": true,
+            "provenance": {
+              "representative_capture_id": "capture_123e4567-e89b-42d3-a456-426614174100",
+              "capture_ids": [
+                "capture_123e4567-e89b-42d3-a456-426614174100"
+              ],
+              "source_origin": "third_party"
+            }
+          }
+        ],
+        "next_cursor": null,
+        "complete": true
+      },
+      "expected": "History-read independently required; reason is untrusted projected data",
+      "execution_status": "not_run_requires_future_implementation"
+    }
+  ],
+  "proposed_strict_mutations": [
+    {
+      "id": "C40",
+      "apply_to": [
+        "C37",
+        "C38",
+        "C39"
+      ],
+      "mutation": "Add unknown top-level request or response field",
+      "expected": "request rejected before execution; consumer rejects response",
+      "execution_status": "not_run_requires_future_implementation"
+    },
+    {
+      "id": "C41",
+      "apply_to": [
+        "C37",
+        "C38",
+        "C39"
+      ],
+      "mutation": "Set dto_version to 2 or boolean true",
+      "expected": "unsupported version/invalid_arguments, never coerced to 1",
+      "execution_status": "not_run_requires_future_implementation"
+    },
+    {
+      "id": "C42",
+      "apply_to": [
+        "C37",
+        "C38",
+        "C39"
+      ],
+      "mutation": "Use a duplicated JSON key at any depth",
+      "expected": "parser rejects before DTO construction",
+      "execution_status": "not_run_requires_future_implementation"
+    },
+    {
+      "id": "C43",
+      "apply_to": [
+        "C37",
+        "C38",
+        "C39"
+      ],
+      "mutation": "Set complete=true with nonnull next_cursor",
+      "expected": "consumer rejects contradictory completion",
+      "execution_status": "not_run_requires_future_implementation"
+    },
+    {
+      "id": "C44",
+      "apply_to": [
+        "C37",
+        "C38",
+        "C39"
+      ],
+      "mutation": "Set response provenance representative to a different first member",
+      "expected": "consumer/engine rejects provenance mismatch",
+      "execution_status": "not_run_requires_future_implementation"
+    },
+    {
+      "id": "C45",
+      "apply_to": [
+        "C37",
+        "C38",
+        "C39"
+      ],
+      "mutation": "Set source_id to raw connector URL or filesystem path",
+      "expected": "reject invalid opaque identity; do not reflect raw value in error",
+      "execution_status": "not_run_requires_future_implementation"
+    },
+    {
+      "id": "C46",
+      "apply_to": [
+        "C37",
+        "C38",
+        "C39"
+      ],
+      "mutation": "Drop content.kind or use role=system in content object",
+      "expected": "read consumer rejects; no privileged message promotion",
+      "execution_status": "not_run_requires_future_implementation"
+    }
+  ],
+  "proposed_error_codes": [
+    "not_found",
+    "cursor_invalid",
+    "cursor_stale",
+    "revision_changed",
+    "preview_stale",
+    "operation_pending",
+    "source_revision_conflict",
+    "model_unavailable",
+    "projection_stale",
+    "invalid_arguments",
+    "unsupported_capability",
+    "incompatible_runtime",
+    "response_too_large"
+  ],
+  "reconciled_source_commit": "33a7472f06516753c5c66d76eac8e60538c2660f",
+  "preparatory_commit": "fff6c3f3183d352f9c02244541fd339adb4b0a18"
+}
