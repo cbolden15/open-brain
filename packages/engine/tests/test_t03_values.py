@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from uuid import UUID
 
 import pytest
 from open_brain_engine.engine.t03_contracts import (
@@ -104,3 +105,16 @@ def test_authority_rejects_mutable_or_invalid_values(field: str, value: object) 
     arguments[field] = value
     with pytest.raises(ValueError):
         EffectiveAuthority(**arguments)
+
+
+@pytest.mark.parametrize("count", [101, 256, 257])
+def test_effective_scope_uses_authority_bound(count: int) -> None:
+    spaces = frozenset("space_" + str(UUID(int=i)) for i in range(count))
+    if count > 256:
+        with pytest.raises(ValueError):
+            EffectiveAuthority("synthetic", "session", frozenset({"search"}), spaces)
+    else:
+        assert (
+            EffectiveAuthority("synthetic", "session", frozenset({"search"}), spaces).space_ids
+            == spaces
+        )

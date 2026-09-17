@@ -69,17 +69,19 @@ class EffectiveAuthority:
             for capability in self.capabilities
         ):
             raise ValueError("invalid effective authority")
-        if self.space_ids is not None:
-            validate_wire(
-                "filters",
-                {
-                    "space_ids": sorted(self.space_ids)
-                    if all(type(x) is str for x in self.space_ids)
-                    else list(self.space_ids),
-                    "payload_families": [],
-                    "record_types": [],
-                },
+        if self.space_ids is not None and (
+            len(self.space_ids) > 256
+            or any(
+                type(space_id) is not str
+                or re.fullmatch(
+                    r"space_[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}",
+                    space_id,
+                )
+                is None
+                for space_id in self.space_ids
             )
+        ):
+            raise ValueError("invalid effective authority")
 
     def require(self, capability: str) -> None:
         if not self.owner and capability not in self.capabilities:
