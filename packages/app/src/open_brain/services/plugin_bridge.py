@@ -106,8 +106,6 @@ _BASE_OPERATIONS = (
     "provider.configure",
     "provider.remove",
     "provider.status",
-    "history.list",
-    "history.show",
     "inbox.list",
     "inbox.route",
     "publication.approve",
@@ -116,10 +114,7 @@ _BASE_OPERATIONS = (
     "publication.propose",
     "publication.reject",
     "publication.show",
-    "record.read",
     "search.query",
-    "search.page",
-    "source.route",
     "space.create",
     "space.list",
     "space.rename",
@@ -133,6 +128,13 @@ _BASE_OPERATIONS = (
     "workspace.setup",
     "workspace.status",
 )
+_NEGOTIATED_OPERATIONS = (
+    "history.list",
+    "history.show",
+    "record.read",
+    "search.page",
+    "source.route",
+)
 _COLLECTOR_OPERATIONS = (
     "collector.enable",
     "collector.schedule",
@@ -142,7 +144,7 @@ _COLLECTOR_OPERATIONS = (
     "collector.status",
     "collector.sync_now",
 )
-_OPERATIONS = _BASE_OPERATIONS + _COLLECTOR_OPERATIONS
+_OPERATIONS = _BASE_OPERATIONS + _NEGOTIATED_OPERATIONS + _COLLECTOR_OPERATIONS
 
 _DIRECT_PROVIDERS = (
     ManagedProvider.OPENAI_API,

@@ -106,6 +106,8 @@ def test_handshake_is_bounded_and_does_not_initialize_the_brain(tmp_path: Path) 
     assert "graph.review" in cast(list[str], result["operations"])
     assert "system.status" in cast(list[str], result["operations"])
     assert "agent.setup.preview" in cast(list[str], result["operations"])
+    assert "contract.describe" in cast(list[str], result["operations"])
+    assert "record.read" not in cast(list[str], result["operations"])
     assert not selection.brain_root.exists()
 
 
