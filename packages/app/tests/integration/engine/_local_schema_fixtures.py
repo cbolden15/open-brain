@@ -23,6 +23,8 @@ def rematerialize_w2(connection: sqlite3.Connection, *, version: int = 1) -> Non
     ).fetchall():
         connection.execute(f'DROP TRIGGER "{name}"')
     for table in (
+        "managed_recovery_decisions",
+        "managed_write_authority",
         "review_page_heads",
         "review_sources",
         "review_contexts",

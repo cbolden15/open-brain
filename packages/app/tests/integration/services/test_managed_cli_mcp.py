@@ -165,7 +165,13 @@ def test_mcp_workspace_capabilities_are_opt_in_bounded_and_non_owner() -> None:
     assert adapter._graph_refresh_calls == 1
     assert adapter._graph_model_attempts == 2
     assert adapter._graph_input_bytes == 1024
-    for forbidden in ("brain_graph_accept", "brain_workspace_resolve", "brain_consent_grant"):
+    for forbidden in (
+        "brain_graph_accept",
+        "brain_workspace_resolve",
+        "brain_consent_grant",
+        "brain_workspace_recover",
+        "brain_workspace_abandon",
+    ):
         with pytest.raises(McpCallError, match="unknown tool"):
             adapter.call_tool(forbidden, {})
 

@@ -31,6 +31,7 @@ from .local_schema_catalog import (
     IMPORT_SCHEMA,
     LIVE_SEARCH_SCHEMA,
     LOCAL_MIGRATIONS,
+    MANAGED_RECOVERY_SCHEMA,
     MANAGED_WORKSPACE_SCHEMA,
     REVIEW_SCHEMA,
     RUNTIME_COMPATIBILITY_SCHEMA,
@@ -40,11 +41,15 @@ from .normalization import _MAX_FILE_BYTES, _MAX_TEXT, _utc_now
 from .search_projection import _durable_source_origin, public_search_text
 
 PHASE1_STATE_DATABASE = ".open-brain/state/phase1.sqlite3"
-PHASE1_STATE_SCHEMA_VERSION = 5
+PHASE1_STATE_SCHEMA_VERSION = 6
 
 
 class LocalRecoveryRequiredError(SchemaError):
     """A read-only observer cannot roll back an interrupted SQLite transaction."""
+
+
+class LocalSchemaUpgradeCommittedError(SchemaError):
+    """A schema upgrade committed before the guarded opener failed."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -96,6 +101,9 @@ def _expected_shape(era: int, nullable: bool, ledger: bool) -> tuple[tuple[str, 
         if era >= 7:
             for statement in REVIEW_SCHEMA:
                 connection.execute(statement)
+        if era >= 8:
+            for statement in MANAGED_RECOVERY_SCHEMA:
+                connection.execute(statement)
         if ledger:
             connection.execute(_SCHEMA_MIGRATIONS_SQL)
         return _shape(connection)
@@ -118,7 +126,7 @@ def classify_local_schema(connection: sqlite3.Connection) -> SchemaState:
             ).fetchall()
             if any(type(row[0]) is int and row[0] > PHASE1_STATE_SCHEMA_VERSION for row in rows):
                 return SchemaState("newer", version)
-            if version not in (1, 2, 3, 4, 5) or len(rows) != version:
+            if version not in (1, 2, 3, 4, 5, 6) or len(rows) != version:
                 return SchemaState("invalid", version)
             for row, migration in zip(rows, LOCAL_MIGRATIONS[:version], strict=True):
                 if tuple(row[:3]) != (migration.version, migration.name, migration.checksum):
@@ -132,6 +140,7 @@ def classify_local_schema(connection: sqlite3.Connection) -> SchemaState:
                 3: _expected_shape(5, False, True),
                 4: _expected_shape(6, False, True),
                 5: _expected_shape(7, False, True),
+                6: _expected_shape(8, False, True),
             }[version]
             if shape == expected:
                 if version >= 4:
@@ -242,7 +251,7 @@ def _validate_upgrade_data(connection: sqlite3.Connection) -> None:
             "FROM runtime_compatibility"
         ).fetchall()
         state_version = connection.execute("PRAGMA user_version").fetchone()[0]
-        compatibility_version = 5 if state_version == 5 else 4
+        compatibility_version = state_version if state_version in (5, 6) else 4
         if [tuple(row) for row in compatibility] != [(1, 1, compatibility_version)]:
             raise SchemaError("local runtime compatibility floor is invalid")
     if (
@@ -332,6 +341,7 @@ def _prepare_local_schema(
     setup_required: bool,
     *,
     clock: Callable[[], datetime] = _utc_now,
+    on_upgrade_committed: Callable[[], None] | None = None,
 ) -> None:
     try:
         if not setup_required:
@@ -362,6 +372,8 @@ def _prepare_local_schema(
         _validate_upgrade_data(connection)
         _validate_backfill(connection)
         connection.execute("COMMIT")
+        if not empty and on_upgrade_committed is not None:
+            on_upgrade_committed()
         restore_busy_timeout(connection)
     except BaseException as error:
         with suppress(sqlite3.Error):
@@ -388,12 +400,25 @@ def open_local_database(
         state = SchemaState("busy", None)
     if state.state not in {"absent", "busy"}:
         _require_supported(state)
-    return connect_database(
-        root=profile.root,
-        database_name=PHASE1_STATE_DATABASE,
-        expected_root_identity=profile.root_identity,
-        prepare=partial(_prepare_local_schema, clock=clock),
-    )
+    upgrade_committed = False
+
+    def record_upgrade() -> None:
+        nonlocal upgrade_committed
+        upgrade_committed = True
+
+    try:
+        return connect_database(
+            root=profile.root,
+            database_name=PHASE1_STATE_DATABASE,
+            expected_root_identity=profile.root_identity,
+            prepare=partial(
+                _prepare_local_schema, clock=clock, on_upgrade_committed=record_upgrade
+            ),
+        )
+    except Exception as error:
+        if upgrade_committed:
+            raise LocalSchemaUpgradeCommittedError(str(error)) from None
+        raise
 
 
 def live_search_schema_is_available(connection: sqlite3.Connection) -> bool:

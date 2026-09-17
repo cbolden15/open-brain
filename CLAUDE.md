@@ -128,8 +128,10 @@ injected MCP callbacks. Routing changes assignment/search metadata, not publicat
 Preview IDs bind configuration preimages and grants; only owned fragments may
 be changed. Review CLI/MCP operations share `services/review_publication.py`; the engine owns
 source-bound proposals and stable page revisions. See `docs/review-publication.md` and
-`docs/portable-brain-v3.md`. Use synthetic client profiles for tests. Existing Brain state requires schema 5 and
-runtime session version 1; never weaken the compatibility checks to admit an older client.
+`docs/portable-brain-v3.md`. Use synthetic client profiles for tests. Existing Brain state requires schema 6 and
+runtime session version 1; never weaken the compatibility checks to admit an older client. Owner-only legacy write
+recovery is documented in `docs/managed-workspace-recovery.md`. Its read-only preview precedes
+ordinary bootstrap; abandonment requires exclusive admission and never exposes general engine tasks.
 
 ## Safety and verification
 

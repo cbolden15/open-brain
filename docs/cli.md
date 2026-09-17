@@ -28,7 +28,13 @@ Commands that support machine output accept `--json`. The shared `--data-dir` op
 absolute path. Without it, the CLI uses the platform data directory. `OPEN_BRAIN_ROOT` is ignored.
 
 `workspace setup` creates or reopens the dedicated `Open Brain Vault` sibling beside the private
-Brain directory. `workspace refresh` adds newly accepted canonical pages. Observation, acceptance,
+Brain directory. Explicit `workspace refresh` adds newly accepted canonical pages and advances
+eligible existing notes to the current approved publication, keeping their registered paths.
+Unchanged publications do not rewrite bodies; representative-capture metadata changes can create
+an identical-body revision without a file write. Owner edits and links are retained; divergence
+requires explicit conflict resolution and materialization. Missing, inactive, excluded, and already
+conflicted notes are not overwritten. Retrying a refresh request finishes only its original bound
+work. Observation, acceptance,
 materialization, deactivation, restoration, conflict resolution, consent, exclusions, and suggested
 link acceptance are explicit owner operations. State-only actions do not rewrite Markdown.
 

@@ -1,0 +1,20 @@
+{
+  "packet_version": 1,
+  "status": "in_progress",
+  "workstream": "20260917-open-brain-public-m1-publication-1f7912",
+  "milestone": "m1-pr-publication",
+  "branch": "ob-new-user/m1-reviewed",
+  "head": "refs/heads/ob-new-user/m1-reviewed",
+  "last_verified": {
+    "command": "M1 tree equality; inherited make verify/native/review receipts; git diff --check; actionlint",
+    "result": "PASS; same reviewed source and tested Git tree; only publication evidence added"
+  },
+  "changes": [
+    "M1 publication branch prepared from reviewed integration",
+    "Independent M1 and recovery reviews retained",
+    "User authorized push and PR; merge remains outside scope"
+  ],
+  "blocker": null,
+  "next_action": "Push this branch and open its PR, then verify exact head and CI.",
+  "safe_to_start_new_thread": false
+}

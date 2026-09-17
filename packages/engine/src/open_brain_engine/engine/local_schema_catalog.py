@@ -712,10 +712,83 @@ INSERT INTO runtime_compatibility (
     """.strip(),
 )
 
+MANAGED_RECOVERY_SCHEMA = (
+    """
+CREATE TABLE managed_write_authority (
+    operation_id TEXT PRIMARY KEY REFERENCES managed_operations(operation_id),
+    authority_version INTEGER NOT NULL CHECK (authority_version IN (0, 1)),
+    descriptor_json TEXT,
+    descriptor_sha256 TEXT,
+    CHECK (
+        (authority_version = 0 AND descriptor_json IS NULL AND descriptor_sha256 IS NULL)
+        OR
+        (authority_version = 1
+         AND typeof(descriptor_json) = 'text'
+         AND CASE
+             WHEN json_valid(descriptor_json) THEN json_type(descriptor_json) = 'object'
+             ELSE 0
+         END
+         AND typeof(descriptor_sha256) = 'text'
+         AND length(descriptor_sha256) = 64)
+    )
+)
+    """.strip(),
+    """
+INSERT INTO managed_write_authority (
+    operation_id, authority_version, descriptor_json, descriptor_sha256
+)
+SELECT operation_id, 0, NULL, NULL
+FROM managed_operations
+WHERE kind IN ('setup', 'materialize')
+    """.strip(),
+    """
+CREATE TABLE managed_recovery_decisions (
+    recovery_request_id TEXT PRIMARY KEY,
+    target_operation_id TEXT NOT NULL UNIQUE REFERENCES managed_operations(operation_id),
+    actor_id TEXT NOT NULL,
+    workspace_id TEXT NOT NULL REFERENCES managed_workspaces(workspace_id),
+    preview_sha256 TEXT NOT NULL CHECK (
+        typeof(preview_sha256) = 'text' AND length(preview_sha256) = 64
+    ),
+    request_sha256 TEXT NOT NULL CHECK (
+        typeof(request_sha256) = 'text' AND length(request_sha256) = 64
+    ),
+    snapshot_json TEXT NOT NULL CHECK (
+        typeof(snapshot_json) = 'text'
+        AND length(CAST(snapshot_json AS BLOB)) <= 16384
+        AND CASE
+            WHEN json_valid(snapshot_json) THEN json_type(snapshot_json) = 'object'
+            ELSE 0
+        END
+    ),
+    decision TEXT NOT NULL CHECK (
+        decision = 'owner_abandon_unverifiable_legacy_write'
+    ),
+    completed_at TEXT NOT NULL
+)
+    """.strip(),
+    "DROP TABLE runtime_compatibility",
+    """
+CREATE TABLE runtime_compatibility (
+    singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
+    minimum_runtime_session_version INTEGER NOT NULL CHECK (
+        minimum_runtime_session_version = 1
+    ),
+    state_schema_version INTEGER NOT NULL CHECK (state_schema_version = 6)
+)
+    """.strip(),
+    """
+INSERT INTO runtime_compatibility (
+    singleton, minimum_runtime_session_version, state_schema_version
+) VALUES (1, 1, 6)
+    """.strip(),
+)
+
 LOCAL_MIGRATIONS = (
     _migration(1, "local_baseline", BASELINE),
     _migration(2, "local_search_and_import", _MIGRATION_2),
     _migration(3, "managed_workspace", MANAGED_WORKSPACE_SCHEMA),
     _migration(4, "runtime_compatibility", RUNTIME_COMPATIBILITY_SCHEMA),
     _migration(5, "review_publication", REVIEW_SCHEMA),
+    _migration(6, "managed_recovery_authority", MANAGED_RECOVERY_SCHEMA),
 )

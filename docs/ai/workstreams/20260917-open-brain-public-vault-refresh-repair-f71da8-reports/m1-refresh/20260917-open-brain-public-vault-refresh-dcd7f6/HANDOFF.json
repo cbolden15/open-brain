@@ -1,0 +1,36 @@
+{
+  "packet_version": 1,
+  "status": "complete",
+  "workstream": "20260917-open-brain-public-vault-refresh-dcd7f6",
+  "milestone": "m1-vault-refresh-repair",
+  "branch": "ob-new-user/m1-search",
+  "head": "8601e8dfbb0c0a990471a374d9f7d48568b662d5",
+  "last_verified": {
+    "command": "Assignment scoped pytest; ruff check .; mypy; plugin test, typecheck, build; actionlint; git diff --check",
+    "result": "PASS: 103 Python tests; 23 plugin tests; 297 mypy files; all other listed checks exit 0. Full make verify pending."
+  },
+  "changes": [
+    "packages/engine/src/open_brain_engine/engine/managed_workspace.py",
+    "packages/app/tests/integration/engine/test_managed_workspace.py",
+    "packages/app/tests/unit/test_m1_bridge_search.py",
+    "packages/obsidian-plugin/src/main.ts",
+    "packages/obsidian-plugin/src/capture.ts",
+    "packages/obsidian-plugin/tests/capture.test.ts",
+    "docs/cli.md"
+  ],
+  "blocker": null,
+  "next_action": "Coordinator independent repair review, then reserved full make verify before integration; no push authorized.",
+  "safe_to_start_new_thread": true,
+  "result_status": "DONE_WITH_CONCERNS",
+  "base": "33b38aa9305618b5db0b6d185791a11c21bc9840",
+  "head_semantics": "Exact verified implementation commit; the following report-only commit is identified in the final return.",
+  "pending_gates": [
+    "independent repair review",
+    "coordinator full make verify",
+    "integration",
+    "contract freeze"
+  ],
+  "risks": [
+    "Existing filesystem check-to-rename external-editor race remains; imported lineage without local operation authority fails closed."
+  ]
+}

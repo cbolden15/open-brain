@@ -7,7 +7,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tauri::{AppHandle, Manager, State, path::BaseDirectory};
 
-const MINIMUM_STATE_SCHEMA: u64 = 5;
+const MINIMUM_STATE_SCHEMA: u64 = 6;
 const BASE_OPERATIONS: &[&str] = &[
     "system.status",
     "capture.create",
@@ -156,7 +156,7 @@ fn connect(app: &AppHandle, data_dir: Option<&Path>) -> Result<Bridge, String> {
     Ok(bridge)
 }
 
-fn validate_handshake(value: &Value) -> Result<(), String> {
+pub(crate) fn validate_handshake(value: &Value) -> Result<(), String> {
     let operations = value.get("operations").and_then(Value::as_array);
     if value.get("protocol").and_then(Value::as_str) != Some(PROTOCOL)
         || value.get("protocol_version").and_then(Value::as_u64) != Some(PROTOCOL_VERSION)
@@ -187,7 +187,7 @@ mod tests {
             "protocol_version": PROTOCOL_VERSION,
             "product_version": "0.1.0",
             "runtime_session_version": 1,
-            "state_schema_version": 5,
+            "state_schema_version": 6,
             "brain_root": "/synthetic/brain",
             "operations": BASE_OPERATIONS,
         })
@@ -212,7 +212,7 @@ mod tests {
 
     #[test]
     fn unknown_schema_and_relative_brain_are_rejected() {
-        for unsupported in [4, 6] {
+        for unsupported in [4, 5, 7] {
             let mut wrong_version = handshake();
             wrong_version["state_schema_version"] = json!(unsupported);
             assert!(validate_handshake(&wrong_version).is_err());

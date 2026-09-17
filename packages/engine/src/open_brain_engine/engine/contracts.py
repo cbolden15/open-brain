@@ -632,6 +632,7 @@ class ManagedWorkspaceFailure(RuntimeError):
             "unknown_request",
             "unknown_suggestion",
             "unknown_workspace",
+            "workspace_recovery_required",
         }:
             raise ValueError("invalid managed-workspace failure")
         self.code = code

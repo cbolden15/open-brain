@@ -131,11 +131,7 @@ pub fn run_with_paths(
         .filter(|value| *value == manifest.core_version)
         .ok_or(ProofError::NativeProofFailed)?
         .to_owned();
-    if handshake.get("protocol").and_then(Value::as_str) != Some(PROTOCOL)
-        || handshake.get("protocol_version").and_then(Value::as_u64) != Some(PROTOCOL_VERSION)
-    {
-        return Err(ProofError::NativeProofFailed);
-    }
+    crate::runtime::validate_handshake(&handshake).map_err(|_| ProofError::NativeProofFailed)?;
     let phrase = format!("synthetic desktop proof {}", Uuid::new_v4());
     let capture = bridge.invoke(
         "capture.create",

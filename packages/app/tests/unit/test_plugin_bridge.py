@@ -102,7 +102,7 @@ def test_handshake_is_bounded_and_does_not_initialize_the_brain(tmp_path: Path) 
     assert result["desktop_only"] is True
     assert result["brain_root"] == str(selection.brain_root)
     assert result["runtime_session_version"] == 1
-    assert result["state_schema_version"] == 5
+    assert result["state_schema_version"] == 6
     assert "graph.review" in cast(list[str], result["operations"])
     assert "system.status" in cast(list[str], result["operations"])
     assert "agent.setup.preview" in cast(list[str], result["operations"])
@@ -120,7 +120,7 @@ def test_status_is_non_mutating_for_empty_state_and_reports_initialized_state(
         "brain_root": str(selection.brain_root),
         "initialized": False,
         "runtime_session_version": 1,
-        "state_schema_version": 5,
+        "state_schema_version": 6,
         "status": "ok",
     }
     assert not selection.brain_root.exists()
@@ -128,7 +128,7 @@ def test_status_is_non_mutating_for_empty_state_and_reports_initialized_state(
     assert _call(selection, "brain.initialize")["ok"] is True
     initialized = cast(dict[str, object], _call(selection, "system.status")["result"])
     assert initialized["initialized"] is True
-    assert initialized["state_schema_version"] == 5
+    assert initialized["state_schema_version"] == 6
 
 
 def test_plugin_bridge_exposes_durable_collector_controls(
@@ -595,7 +595,10 @@ def test_v3_migration_waits_until_an_older_registered_runtime_exits(tmp_path: Pa
     database = selection.brain_root / ".open-brain/state/phase1.sqlite3"
     with sqlite3.connect(database) as connection:
         connection.execute("DELETE FROM schema_migrations WHERE version >= 4")
-        for table in ("review_page_heads", "review_sources", "review_contexts"):
+        for table in (
+            "managed_recovery_decisions", "managed_write_authority",
+            "review_page_heads", "review_sources", "review_contexts",
+        ):
             connection.execute(f"DROP TABLE {table}")
         connection.execute("DROP TABLE runtime_compatibility")
         connection.execute("PRAGMA user_version = 3")
@@ -606,7 +609,10 @@ def test_v3_migration_waits_until_an_older_registered_runtime_exits(tmp_path: Pa
         )
     with sqlite3.connect(database) as connection:
         connection.execute("DELETE FROM schema_migrations WHERE version >= 4")
-        for table in ("review_page_heads", "review_sources", "review_contexts"):
+        for table in (
+            "managed_recovery_decisions", "managed_write_authority",
+            "review_page_heads", "review_sources", "review_contexts",
+        ):
             connection.execute(f"DROP TABLE {table}")
         connection.execute("DROP TABLE runtime_compatibility")
         connection.execute("PRAGMA user_version = 3")
@@ -627,7 +633,7 @@ def test_v3_migration_waits_until_an_older_registered_runtime_exits(tmp_path: Pa
 
     with open_local_brain(selection, filesystem_type_probe=_filesystem) as reopened:
         assert reopened.tasks.retrieval.search("compatibility")[0].title
-    assert sqlite3.connect(database).execute("PRAGMA user_version").fetchone() == (5,)
+    assert sqlite3.connect(database).execute("PRAGMA user_version").fetchone() == (6,)
 
 
 def test_bridge_rejects_wrong_or_missing_protocol_versions(tmp_path: Path) -> None:

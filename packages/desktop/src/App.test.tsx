@@ -6,7 +6,7 @@ import { App } from "./App";
 
 vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
 const mockedInvoke = vi.mocked(invoke);
-const status = { status: "ok", brain_root: "/synthetic/brain", initialized: false, state_schema_version: 4, runtime_session_version: 1 };
+const status = { status: "ok", brain_root: "/synthetic/brain", initialized: false, state_schema_version: 6, runtime_session_version: 1 };
 const preview = {
   status: "preview", preview_id: "setup_synthetic", client: "claude-code", scope: "project",
   action: "configure", brain_root: "/synthetic/brain", runtime_path: "/synthetic/open-brain",

@@ -4,6 +4,10 @@ from __future__ import annotations
 
 import json
 import sqlite3
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager, suppress
+from datetime import datetime
+from hashlib import sha256
 from typing import TYPE_CHECKING, cast
 
 from open_brain_engine.capture.redaction import has_redaction_finding
@@ -16,14 +20,17 @@ from open_brain_engine.core.models import (
     ValidationError,
 )
 from open_brain_engine.storage.filesystem import read_confined
+from open_brain_engine.storage.locks import FileLease
 from open_brain_engine.storage.markdown import (
     MarkdownFormatError,
     ParsedMarkdown,
     parse_markdown,
     render_markdown,
 )
+from open_brain_engine.storage.sqlite import SchemaError, begin_immediate, restore_busy_timeout
 
 from .contracts import (
+    LocalEngineContext,
     ManagedAccessMode,
     ManagedInferenceReceipt,
     ManagedInferenceRequest,
@@ -32,11 +39,17 @@ from .contracts import (
     ManagedSuggestion,
     ManagedWorkspaceFailure,
 )
+from .local_schema import (
+    classify_local_schema,
+    inspect_phase1_state,
+    open_local_database,
+    open_local_database_read_only,
+)
 from .managed_policy import _advance_policy, _provider_access
 from .managed_selection import managed_note_is_excluded
 from .managed_workspace import _digest, _request_sha256, _timestamp
 from .markdown_import_fs import MAX_FILE_BYTES
-from .normalization import _delivery_id, _new_id, _portable_id
+from .normalization import _delivery_id, _new_id, _portable_id, _utc_now
 
 if TYPE_CHECKING:
     from .local import BrainEngine
@@ -47,6 +60,163 @@ MAX_INFERENCE_OUTPUT_BYTES = 16 * 1024
 MAX_INFERENCE_SECONDS = 60
 PROVIDER_REQUEST_LIMIT = 16
 PROVIDER_BYTE_LIMIT = PROVIDER_REQUEST_LIMIT * MAX_INFERENCE_INPUT_BYTES
+
+
+def recover_inference_sessions(
+    profile: LocalEngineContext,
+    *,
+    validate_before_write: Callable[[], None],
+) -> int:
+    """Settle only current-schema inference journals without opening the engine."""
+    if not isinstance(profile, LocalEngineContext) or not callable(validate_before_write):
+        raise ValueError("invalid inference recovery request")
+    if inspect_phase1_state(profile).state != "current":
+        raise SchemaError("local state schema is not current")
+    clock = _utc_now
+    lease_identity = "engine-" + sha256(profile.owner_actor_id.encode("utf-8")).hexdigest()[:32]
+    lease = FileLease(
+        profile.root / ".open-brain",
+        lease_identity,
+        clock=clock,
+        validate_acquire=validate_before_write,
+        parent_root_identity=profile.root_identity,
+    )
+    with lease.acquire_shared_writer():
+        if inspect_phase1_state(profile).state != "current":
+            raise SchemaError("local state schema is not current")
+        connection = open_local_database_read_only(profile)
+        try:
+            workspace_ids = _inference_recovery_workspace_ids(connection)
+        finally:
+            connection.close()
+        recovered = 0
+        for workspace_id in workspace_ids:
+            validate_before_write()
+            with _current_inference_transaction(profile, clock=clock) as transaction:
+                recovered += _recover_inference_workspace_locked(
+                    transaction,
+                    workspace_id,
+                    now=_timestamp(clock()),
+                )
+        return recovered
+
+
+@contextmanager
+def _current_inference_transaction(
+    profile: LocalEngineContext, *, clock: Callable[[], datetime]
+) -> Iterator[sqlite3.Connection]:
+    """Open a write transaction only after a current-schema preflight under the lease."""
+    connection = open_local_database(profile, clock=clock)
+    try:
+        begin_immediate(connection)
+        if classify_local_schema(connection).state != "current":
+            raise SchemaError("local state schema changed before inference recovery")
+        yield connection
+        connection.execute("COMMIT")
+        restore_busy_timeout(connection)
+    except BaseException:
+        with suppress(sqlite3.Error):
+            connection.execute("ROLLBACK")
+        with suppress(sqlite3.Error):
+            restore_busy_timeout(connection)
+        raise
+    finally:
+        connection.close()
+
+
+def _inference_recovery_workspace_ids(
+    connection: sqlite3.Connection,
+) -> tuple[str, ...]:
+    return tuple(
+        cast(str, row[0])
+        for row in connection.execute(
+            """SELECT DISTINCT workspace_id FROM managed_consents WHERE active = 1
+            UNION SELECT DISTINCT workspace_id FROM managed_inference_requests
+            WHERE status IN ('reserved', 'dispatching')"""
+        )
+    )
+
+
+def _cancel_inference_locked(
+    connection: sqlite3.Connection, row: sqlite3.Row, *, now: str
+) -> None:
+    if row["status"] != "reserved":
+        raise ManagedWorkspaceFailure("stale_request")
+    connection.execute(
+        """UPDATE managed_inference_budgets
+        SET reserved_requests = reserved_requests - 1,
+            reserved_bytes = reserved_bytes - ?, updated_at = ?
+        WHERE workspace_id = ? AND provider = ? AND window_key = 'release-v1'""",
+        (row["input_bytes"], now, row["workspace_id"], row["provider"]),
+    )
+    connection.execute(
+        """UPDATE managed_inference_requests
+        SET status = 'cancelled', completed_at = ? WHERE request_id = ?""",
+        (now, row["request_id"]),
+    )
+
+
+def _recover_inference_workspace_locked(
+    connection: sqlite3.Connection, workspace_id: str, *, now: str
+) -> int:
+    reserved = tuple(
+        connection.execute(
+            """SELECT * FROM managed_inference_requests
+            WHERE workspace_id = ? AND status = 'reserved'""",
+            (workspace_id,),
+        )
+    )
+    dispatching = tuple(
+        connection.execute(
+            """SELECT * FROM managed_inference_requests
+            WHERE workspace_id = ? AND status = 'dispatching'""",
+            (workspace_id,),
+        )
+    )
+    for row in reserved:
+        _cancel_inference_locked(connection, row, now=now)
+    for row in dispatching:
+        connection.execute(
+            """UPDATE managed_inference_budgets
+            SET reserved_requests = reserved_requests - 1,
+                reserved_bytes = reserved_bytes - ?,
+                uncertain_requests = uncertain_requests + 1,
+                uncertain_bytes = uncertain_bytes + ?, updated_at = ?
+            WHERE workspace_id = ? AND provider = ? AND window_key = 'release-v1'""",
+            (
+                row["input_bytes"],
+                row["input_bytes"],
+                now,
+                workspace_id,
+                row["provider"],
+            ),
+        )
+        connection.execute(
+            """UPDATE managed_inference_requests
+            SET status = 'uncertain', completed_at = ? WHERE request_id = ?""",
+            (now, row["request_id"]),
+        )
+    active = connection.execute(
+        "SELECT 1 FROM managed_consents WHERE workspace_id = ? AND active = 1",
+        (workspace_id,),
+    ).fetchone()
+    if active is not None:
+        connection.execute(
+            """UPDATE managed_consents SET active = 0, revoked_at = ?
+            WHERE workspace_id = ? AND active = 1""",
+            (now, workspace_id),
+        )
+        connection.execute(
+            """UPDATE managed_workspaces
+            SET policy_generation = policy_generation + 1 WHERE workspace_id = ?""",
+            (workspace_id,),
+        )
+        connection.execute(
+            """UPDATE managed_suggestions SET status = 'invalidated'
+            WHERE workspace_id = ? AND status = 'pending'""",
+            (workspace_id,),
+        )
+    return len(reserved) + len(dispatching) + int(active is not None)
 
 
 class ManagedInferenceTasks:
@@ -579,6 +749,7 @@ class ManagedInferenceTasks:
             if current != payload:
                 raise ManagedWorkspaceFailure("ineligible_source")
             parsed = self._parsed_revision(revision)
+            self._require_retained_source_eligibility(connection, revision, consent_id=consent_id)
             privacy = self._effective_privacy(
                 cast(str, revision["privacy_json"]), consent_id=consent_id
             )
@@ -599,6 +770,49 @@ class ManagedInferenceTasks:
         if len(prompt.encode("utf-8")) > MAX_INFERENCE_INPUT_BYTES or has_redaction_finding(prompt):
             raise ManagedWorkspaceFailure("ineligible_source")
         return tuple(sources), prompt, effective
+
+    def _require_retained_source_eligibility(
+        self, connection: sqlite3.Connection, revision: sqlite3.Row, *, consent_id: str,
+    ) -> None:
+        """Check retained membership without changing representative metadata.
+
+        Owner edits and conflict resolution can change frontmatter. Their retained
+        ancestry cannot silently lose a source restriction when that happens.
+        Portable histories carry these same bodies; write journals are not needed.
+        """
+        note_id = revision["note_id"]
+        visited: set[str] = set()
+        checked: set[str] = set()
+        while True:
+            if (
+                revision["revision_id"] in visited
+                or revision["note_id"] != note_id
+                or _digest(revision["body_bytes"]) != revision["body_sha256"]
+            ):
+                raise ManagedWorkspaceFailure("ineligible_source")
+            visited.add(revision["revision_id"])
+            members = self._parsed_revision(revision).fields.get("provenance")
+            if not isinstance(members, list) or not members:
+                raise ManagedWorkspaceFailure("ineligible_source")
+            for member in members:
+                try:
+                    _portable_id(member, "capture")
+                except TypeError, ValueError:
+                    raise ManagedWorkspaceFailure("ineligible_source") from None
+                if member in checked:
+                    continue
+                capture = connection.execute(
+                    "SELECT privacy_json FROM captures WHERE capture_id = ?",
+                    (member,),
+                ).fetchone()
+                if capture is None:
+                    raise ManagedWorkspaceFailure("ineligible_source")
+                self._effective_privacy(capture["privacy_json"], consent_id=consent_id)
+                checked.add(member)
+            parent = revision["parent_revision_id"]
+            if parent is None:
+                return
+            revision = self._revision(connection, parent)
 
     def _source_bodies(
         self, connection: sqlite3.Connection, sources: tuple[ManagedInferenceSource, ...]
@@ -734,18 +948,7 @@ class ManagedInferenceTasks:
         if row["status"] != "reserved":
             raise ManagedWorkspaceFailure("stale_request")
         now = _timestamp(self._engine._clock())
-        connection.execute(
-            """UPDATE managed_inference_budgets
-            SET reserved_requests = reserved_requests - 1,
-                reserved_bytes = reserved_bytes - ?, updated_at = ?
-            WHERE workspace_id = ? AND provider = ? AND window_key = 'release-v1'""",
-            (row["input_bytes"], now, row["workspace_id"], row["provider"]),
-        )
-        connection.execute(
-            """UPDATE managed_inference_requests
-            SET status = 'cancelled', completed_at = ? WHERE request_id = ?""",
-            (now, row["request_id"]),
-        )
+        _cancel_inference_locked(connection, row, now=now)
 
     def _settle_locked(
         self,
@@ -785,78 +988,17 @@ class ManagedInferenceTasks:
     def _recover_startup_locked(self) -> int:
         connection = self._engine._store.connect()
         try:
-            workspace_ids = tuple(
-                cast(str, row[0])
-                for row in connection.execute(
-                    """SELECT DISTINCT workspace_id FROM managed_consents WHERE active = 1
-                    UNION SELECT DISTINCT workspace_id FROM managed_inference_requests
-                    WHERE status IN ('reserved', 'dispatching')"""
-                )
-            )
+            workspace_ids = _inference_recovery_workspace_ids(connection)
         finally:
             connection.close()
         recovered = 0
         for workspace_id in workspace_ids:
             with self._engine._store.transaction() as transaction:
-                now = _timestamp(self._engine._clock())
-                reserved = tuple(
-                    transaction.execute(
-                        """SELECT * FROM managed_inference_requests
-                        WHERE workspace_id = ? AND status = 'reserved'""",
-                        (workspace_id,),
-                    )
+                recovered += _recover_inference_workspace_locked(
+                    transaction,
+                    workspace_id,
+                    now=_timestamp(self._engine._clock()),
                 )
-                dispatching = tuple(
-                    transaction.execute(
-                        """SELECT * FROM managed_inference_requests
-                        WHERE workspace_id = ? AND status = 'dispatching'""",
-                        (workspace_id,),
-                    )
-                )
-                for row in reserved:
-                    self._cancel_locked(transaction, row)
-                for row in dispatching:
-                    transaction.execute(
-                        """UPDATE managed_inference_budgets
-                        SET reserved_requests = reserved_requests - 1,
-                            reserved_bytes = reserved_bytes - ?,
-                            uncertain_requests = uncertain_requests + 1,
-                            uncertain_bytes = uncertain_bytes + ?, updated_at = ?
-                        WHERE workspace_id = ? AND provider = ? AND window_key = 'release-v1'""",
-                        (
-                            row["input_bytes"],
-                            row["input_bytes"],
-                            now,
-                            workspace_id,
-                            row["provider"],
-                        ),
-                    )
-                    transaction.execute(
-                        """UPDATE managed_inference_requests
-                        SET status = 'uncertain', completed_at = ? WHERE request_id = ?""",
-                        (now, row["request_id"]),
-                    )
-                active = transaction.execute(
-                    "SELECT 1 FROM managed_consents WHERE workspace_id = ? AND active = 1",
-                    (workspace_id,),
-                ).fetchone()
-                if active is not None:
-                    transaction.execute(
-                        """UPDATE managed_consents SET active = 0, revoked_at = ?
-                        WHERE workspace_id = ? AND active = 1""",
-                        (now, workspace_id),
-                    )
-                    transaction.execute(
-                        """UPDATE managed_workspaces
-                        SET policy_generation = policy_generation + 1 WHERE workspace_id = ?""",
-                        (workspace_id,),
-                    )
-                    transaction.execute(
-                        """UPDATE managed_suggestions SET status = 'invalidated'
-                        WHERE workspace_id = ? AND status = 'pending'""",
-                        (workspace_id,),
-                    )
-                recovered += len(reserved) + len(dispatching) + int(active is not None)
         return recovered
 
     @staticmethod

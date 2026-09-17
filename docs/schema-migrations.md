@@ -2,20 +2,33 @@
 
 ## Current catalog
 
-The current local schema is **5**, with runtime session version **1**. The frozen catalog is
+The current local schema is **6**, with runtime session version **1**. The frozen catalog is
 `packages/engine/src/open_brain_engine/engine/local_schema_catalog.py`; its checksum fixture is
-`tests/fixtures/local-schema/catalog-checksums.json`. Migrations 1 through 4 remain unchanged.
-Migration 5 adds source-bound review contexts, ordered proposal membership, and the current
-publication for each stable page identity. It updates the exact runtime compatibility marker to 5.
+`tests/fixtures/local-schema/catalog-checksums.json`. Migrations 1 through 5 remain unchanged.
+Migration 6 adds versioned managed-write authority and owner-recovery decision records. It marks
+every preexisting setup or materialize operation as version 0 without fabricating a descriptor,
+and updates the exact runtime compatibility marker to 6 while retaining session version 1.
 
-An existing populated schema 4 upgrades in the same guarded transaction as other supported
+An existing populated schema 5 upgrades in the same guarded transaction as other supported
 predecessors. Its captures, routes, pending and terminal proposals, decision identities, and immutable
-files stay intact. Historical single-source proposals retain their original decision contract.
-New proposals use the bindings documented in [Portable Brain v3](portable-brain-v3.md). Read-only
-access refuses an older schema without upgrading it; older runtimes refuse schema 5.
+files stay intact. Historical setup and materialize operations receive null-descriptor version-0
+markers, including terminal operations; all other operation rows remain unchanged. The recovery
+decision table is empty after migration. Ordinary read-only access refuses an older schema without
+upgrading it; older runtimes refuse schema 6. The dedicated owner-recovery preview is a narrow
+exception: it inspects recognized schema 5 or 6 read-only and treats old writes as virtual version-0
+markers. It never initializes, migrates, or performs application recovery.
 
-`test_review_schema.py` restores an independent schema-4 fixture from the prior source tree and
-checks populated migration and rollback. The existing migration suite continues to cover all earlier
+Owner abandonment validates the selected request and preview before guarded migration, then
+revalidates inside the decision transaction. The preview representation is stable across insertion
+of the version-0 marker. Its audit decision and terminal cancellation commit together; a separately
+committed schema upgrade is reported with `schema_upgraded` even when later recovery fails.
+The hot-journal refusal and guarded SQLite recovery boundary remains unchanged. See
+[managed workspace recovery](managed-workspace-recovery.md) for the operator flow.
+
+`test_managed_recovery_schema.py` restores an independent schema-5 fixture from source commit
+`a67f65d6c9931843df89edc2e9ce46b5b67726c8` and checks populated migration, rollback,
+interruption, constraints, no-op reopen, and refusal. `test_review_schema.py` retains its independent
+schema-4 coverage. The existing migration suite continues to cover all earlier
 supported layouts, invalid/newer refusal, writer contention, concurrent upgrades, and interrupted
 transactions. Back up through verified Portable export and restore into a clean root, rather than
 copying a live SQLite file. Use the matching older runtime for a pre-upgrade export.
