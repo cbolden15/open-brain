@@ -1,8 +1,8 @@
-mod strict_json;
 mod bridge;
 mod collector;
 mod proof;
 mod runtime;
+mod strict_json;
 
 pub use proof::run_with_paths;
 
