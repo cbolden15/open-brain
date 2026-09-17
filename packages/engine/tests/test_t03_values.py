@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from typing import Any, cast
 from uuid import UUID
 
 import pytest
@@ -60,7 +61,7 @@ def test_request_defaults_and_no_wire_authority() -> None:
 
 
 def test_requests_detach_and_freeze_nested_input() -> None:
-    arguments = {
+    arguments: dict[str, Any] = {
         "dto_version": 1,
         "query": "hello",
         "filters": {
@@ -74,9 +75,9 @@ def test_requests_detach_and_freeze_nested_input() -> None:
     assert request.to_wire()["filters"]["payload_families"] == ["text"]
     assert isinstance(request, SearchPageRequest)
     with pytest.raises(TypeError):
-        request.filters["payload_families"] = ["event"]
+        cast(Any, request.filters)["payload_families"] = ["event"]
     with pytest.raises(AttributeError):
-        request.filters["payload_families"].append("event")
+        cast(Any, request.filters["payload_families"]).append("event")
     emitted = request.to_wire()
     emitted["filters"]["payload_families"].append("event")
     assert request.to_wire()["filters"]["payload_families"] == ["text"]
@@ -96,7 +97,7 @@ def test_requests_detach_and_freeze_nested_input() -> None:
     ],
 )
 def test_authority_rejects_mutable_or_invalid_values(field: str, value: object) -> None:
-    arguments = {
+    arguments: dict[str, Any] = {
         "principal_id": "synthetic",
         "session_id": "session",
         "capabilities": frozenset({"search"}),
