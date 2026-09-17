@@ -3,7 +3,10 @@
 from __future__ import annotations
 
 import json
-from dataclasses import asdict, dataclass, field
+import re
+from collections.abc import Mapping
+from dataclasses import dataclass, field, fields
+from types import MappingProxyType
 from typing import Any, ClassVar, cast
 
 from .t03_validation import CONTRACT, parse, validate
@@ -47,8 +50,12 @@ class EffectiveAuthority:
 
     def __post_init__(self) -> None:
         if (
-            not self.principal_id
-            or not self.session_id
+            any(
+                type(value) is not str
+                or not 1 <= len(value) <= 256
+                or any(ord(c) < 32 or 0xD800 <= ord(c) <= 0xDFFF for c in value)
+                for value in (self.principal_id, self.session_id)
+            )
             or type(self.capabilities) is not frozenset
             or self.space_ids is not None
             and type(self.space_ids) is not frozenset
@@ -57,6 +64,22 @@ class EffectiveAuthority:
             or type(self.owner) is not bool
         ):
             raise ValueError("invalid effective authority")
+        if any(
+            type(capability) is not str or re.fullmatch(r"[a-z][a-z-]{0,63}", capability) is None
+            for capability in self.capabilities
+        ):
+            raise ValueError("invalid effective authority")
+        if self.space_ids is not None:
+            validate_wire(
+                "filters",
+                {
+                    "space_ids": sorted(self.space_ids)
+                    if all(type(x) is str for x in self.space_ids)
+                    else list(self.space_ids),
+                    "payload_families": [],
+                    "record_types": [],
+                },
+            )
 
     def require(self, capability: str) -> None:
         if not self.owner and capability not in self.capabilities:
@@ -72,14 +95,35 @@ class _Request:
     operation: ClassVar[str]
 
     def __post_init__(self) -> None:
-        validate_wire(self.operation + ".request", asdict(self))
+        validate_wire(self.operation + ".request", self.to_wire())
+        for item in fields(self):
+            object.__setattr__(self, item.name, _freeze(getattr(self, item.name)))
+
+    def to_wire(self) -> dict[str, Any]:
+        return {item.name: _thaw(getattr(self, item.name)) for item in fields(self)}
+
+
+def _freeze(value: Any) -> Any:
+    if isinstance(value, Mapping):
+        return MappingProxyType({key: _freeze(child) for key, child in value.items()})
+    if isinstance(value, (list, tuple)):
+        return tuple(_freeze(child) for child in value)
+    return value
+
+
+def _thaw(value: Any) -> Any:
+    if isinstance(value, Mapping):
+        return {key: _thaw(child) for key, child in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_thaw(child) for child in value]
+    return value
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class SearchPageRequest(_Request):
     operation: ClassVar[str] = "search.page"
     query: str
-    filters: dict[str, list[str]] = field(
+    filters: Mapping[str, tuple[str, ...] | list[str]] = field(
         default_factory=lambda: {
             "space_ids": [],
             "payload_families": [],
@@ -121,8 +165,8 @@ class SourceRouteRequest(_Request):
 @dataclass(frozen=True, slots=True, kw_only=True)
 class RelationshipDecideRequest(_Request):
     operation: ClassVar[str] = "relationship.decide"
-    left: dict[str, str]
-    right: dict[str, str]
+    left: Mapping[str, str]
+    right: Mapping[str, str]
     kind: str
     decision: str
     expected_relationship_version: int

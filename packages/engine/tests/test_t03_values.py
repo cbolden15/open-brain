@@ -56,3 +56,51 @@ def test_request_defaults_and_no_wire_authority() -> None:
     assert not authority.permits_space(None)
     with pytest.raises(T03Error):
         authority.require("content-read")
+
+
+def test_requests_detach_and_freeze_nested_input() -> None:
+    arguments = {
+        "dto_version": 1,
+        "query": "hello",
+        "filters": {
+            "space_ids": [],
+            "payload_families": ["text"],
+            "record_types": [],
+        },
+    }
+    request = request_from_wire("search.page", arguments)
+    arguments["filters"]["payload_families"].append("event")
+    assert request.to_wire()["filters"]["payload_families"] == ["text"]
+    assert isinstance(request, SearchPageRequest)
+    with pytest.raises(TypeError):
+        request.filters["payload_families"] = ["event"]
+    with pytest.raises(AttributeError):
+        request.filters["payload_families"].append("event")
+    emitted = request.to_wire()
+    emitted["filters"]["payload_families"].append("event")
+    assert request.to_wire()["filters"]["payload_families"] == ["text"]
+
+
+@pytest.mark.parametrize(
+    "field,value",
+    [
+        ("principal_id", ["mutable"]),
+        ("session_id", ["mutable"]),
+        ("principal_id", "\0"),
+        ("session_id", "x" * 257),
+        ("capabilities", frozenset({1})),
+        ("capabilities", frozenset({"invalid grant"})),
+        ("space_ids", frozenset({"malformed-space"})),
+        ("space_ids", frozenset({1})),
+    ],
+)
+def test_authority_rejects_mutable_or_invalid_values(field: str, value: object) -> None:
+    arguments = {
+        "principal_id": "synthetic",
+        "session_id": "session",
+        "capabilities": frozenset({"search"}),
+        "space_ids": None,
+    }
+    arguments[field] = value
+    with pytest.raises(ValueError):
+        EffectiveAuthority(**arguments)
