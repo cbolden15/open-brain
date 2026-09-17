@@ -19,6 +19,7 @@ import {
   discoverOpenBrainExecutable,
 } from "./bridge";
 import { openCanvasFile } from "./canvas";
+import { captureText } from "./capture";
 import {
   type ConflictReview,
   type ConflictSummary,
@@ -323,12 +324,11 @@ export default class OpenBrainPlugin extends Plugin {
     if (text === null) return;
     try {
       const bridge = await this.#bridgeClient();
-      await bridge.invoke("capture.create", { text }, 30_000);
-      const status = parseWorkspaceStatus(await bridge.invoke("workspace.status", {}));
-      if (status !== null && (await this.#sameVault(status.vault_path))) {
-        await bridge.invoke("workspace.refresh", {}, 30_000);
-        await this.#scheduler?.manual();
-      }
+      await captureText(
+        bridge, text,
+        (path) => this.#sameVault(path),
+        async () => this.#scheduler?.manual(),
+      );
       new Notice("Captured to Open Brain.");
     } catch (error) {
       this.#noticeError(error);

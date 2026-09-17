@@ -114,12 +114,12 @@ def test_v4_pending_and_terminal_reviews_survive_upgrade(tmp_path: Path) -> None
     started = time.monotonic()
     upgraded = open_local_database(profile)
     try:
-        assert upgraded.execute("PRAGMA user_version").fetchone()[0] == 5
+        assert upgraded.execute("PRAGMA user_version").fetchone()[0] == 6
         assert classify_local_schema(upgraded).state == "current"
         assert upgraded.execute("SELECT count(*) FROM proposals").fetchone()[0] == 4
         assert upgraded.execute("SELECT count(*) FROM decisions").fetchone()[0] == 3
         assert [tuple(row) for row in upgraded.execute("SELECT * FROM runtime_compatibility")] == [
-            (1, 1, 5)
+            (1, 1, 6)
         ]
     finally:
         upgraded.close()
@@ -181,7 +181,7 @@ def test_review_migration_failure_keeps_historical_schema(
     monkeypatch.setattr(storage_sqlite, "_connect_from_parent", original)
     retried = open_local_database(profile)
     try:
-        assert retried.execute("PRAGMA user_version").fetchone()[0] == 5
+        assert retried.execute("PRAGMA user_version").fetchone()[0] == 6
         assert classify_local_schema(retried).state == "current"
     finally:
         retried.close()

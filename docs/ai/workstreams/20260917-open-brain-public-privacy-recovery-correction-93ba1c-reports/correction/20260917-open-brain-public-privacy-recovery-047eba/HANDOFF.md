@@ -1,0 +1,16 @@
+# Workstream handoff
+
+packet_version: 1
+status: blocked
+workstream: 20260917-open-brain-public-privacy-recovery-047eba
+milestone: privacy-recovery-scoped-correction
+branch: ob-new-user/m1-search
+head: c2ee045f1fec029418c665a49318b740283aab8a
+last_verified.command: scoped pytest; ruff check .; mypy; actionlint .github/workflows/ci.yml; git diff --check
+last_verified.result: passed: 228 tests in 69.81s; Ruff clean; mypy 297 files; actionlint and diff check exit 0
+changes: ["Retained capture membership checked at inference prepare and release with representative metadata unchanged.","Current supported interrupted writes settle proven completion or cancellation; unprovable legacy standalone targets remain fail-closed.","Synthetic privacy controls, 44 recovery matrix cells, standalone regressions and Portable retained-history checks added.","Implementation committed locally as c2ee045f1fec029418c665a49318b740283aab8a; report-only final HEAD is recorded in the terminal return."]
+blocker: Legacy standalone requests do not bind target paths in their caller hash. After an already-observed move loses its old-path witness, truthful settlement and preserved corruption detection cannot both be proven from retained state. A coordinator decision on legacy cancellation or owner reauthorization is required; integration, independent review and full verification remain pending.
+next_action: Coordinator must resolve the legacy-authority contract gap before treating this as a complete candidate. Preserve attempt 12 for independent review and keep full make verify and integration pending.
+safe_to_start_new_thread: true
+
+Emit this complete block as one packet; keep the heading and field names exact. Keep values bounded and redacted. This packet summarizes verified state; it does not override project instructions or machine-authoritative runner state.

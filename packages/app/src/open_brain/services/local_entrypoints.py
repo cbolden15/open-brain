@@ -40,6 +40,7 @@ from open_brain_engine.engine import (
     live_search_is_healthy,
     read_maintenance_snapshot,
 )
+from open_brain_engine.engine.contracts import ManagedWorkspaceFailure
 from open_brain_engine.storage.locks import LockBusyError
 from open_brain_engine.storage.operational import (
     StorageError,
@@ -75,6 +76,11 @@ from open_brain.services.local_operations import (
 )
 from open_brain.services.local_operations import (
     workspace_status as workspace_status_result,
+)
+from open_brain.services.local_runtime_session import LocalRuntimeCompatibilityError
+from open_brain.services.managed_recovery import (
+    ManagedRecoveryCommandFailure,
+    run_managed_recovery,
 )
 from open_brain.services.review_publication import (
     MAX_REVIEW_MARKDOWN_BYTES,
@@ -135,6 +141,12 @@ def run_cli(
     if parsed.command is None:
         _write_usage_failure(json_output=json_output)
         return 2
+    if parsed.command == "workspace":
+        try:
+            _validate_workspace_recovery_arguments(parsed)
+        except ValueError:
+            _write_usage_failure(json_output=json_output)
+            return 2
     if parsed.command == "mcp" and (
         not (
             parsed.allow_capture
@@ -221,6 +233,12 @@ def _run_parsed_command(
             platform_name=platform_name,
         )
     except LocalDataError:
+        if _is_workspace_recovery(parsed):
+            return _write_managed_recovery_failure(
+                "private_data_unavailable",
+                schema_upgraded=False,
+                json_output=json_output,
+            )
         _write_private_data_failure(json_output=json_output)
         return 78
     try:
@@ -254,6 +272,19 @@ def _run_parsed_command(
                 environment=environment,
                 json_output=json_output,
             )
+        if _is_workspace_recovery(parsed):
+            payload = run_managed_recovery(
+                selection,
+                operation_id=getattr(parsed, "operation_id", None),
+                after=getattr(parsed, "after", None),
+                limit=getattr(parsed, "limit", None) or 100,
+                abandon=bool(getattr(parsed, "abandon", False)),
+                expected_digest=getattr(parsed, "expected_digest", None),
+                request_id=getattr(parsed, "request_id", None),
+                filesystem_type_probe=filesystem_type_probe,
+            )
+            _write_managed(payload, json_output=json_output)
+            return 0
         with open_local_brain(
             selection,
             filesystem_type_probe=filesystem_type_probe,
@@ -264,7 +295,38 @@ def _run_parsed_command(
                 json_output=json_output,
                 import_interrupted=import_interrupted,
             )
+    except ManagedWorkspaceFailure as error:
+        if error.code == "workspace_recovery_required":
+            message = "A legacy workspace request needs owner recovery. Use workspace recover."
+            if json_output:
+                _write_json({"error": {"code": error.code, "message": message}})
+            else:
+                print(f"{error.code}: {message}", file=sys.stderr)
+            return 78
+        _write_operation_failure(json_output=json_output)
+        return 78
+    except ManagedRecoveryCommandFailure as error:
+        return _write_managed_recovery_failure(
+            error.code,
+            schema_upgraded=error.schema_upgraded,
+            json_output=json_output,
+        )
+    except LocalRuntimeCompatibilityError:
+        if _is_workspace_recovery(parsed):
+            return _write_managed_recovery_failure(
+                "runtime_in_use",
+                schema_upgraded=False,
+                json_output=json_output,
+            )
+        _write_operation_failure(json_output=json_output)
+        return 78
     except LocalDataError, ProfileError:
+        if _is_workspace_recovery(parsed):
+            return _write_managed_recovery_failure(
+                "private_data_unavailable",
+                schema_upgraded=False,
+                json_output=json_output,
+            )
         _write_private_data_failure(json_output=json_output)
         return 78
     except AgentSetupFailure as error:
@@ -274,6 +336,12 @@ def _run_parsed_command(
     except ReviewPublicationError as error:
         return _write_review_failure(error.code, json_output=json_output)
     except LockBusyError:
+        if _is_workspace_recovery(parsed):
+            return _write_managed_recovery_failure(
+                "database_busy",
+                schema_upgraded=False,
+                json_output=json_output,
+            )
         if parsed.command in {"capture", "search", "mcp", "space", "inbox", "review"}:
             _write_database_busy(json_output=json_output)
             return 75
@@ -292,6 +360,12 @@ def _run_parsed_command(
         _write_import_failure(error, json_output=json_output)
         return 78
     except Exception as error:
+        if _is_workspace_recovery(parsed):
+            return _write_managed_recovery_failure(
+                "managed_recovery_failed",
+                schema_upgraded=False,
+                json_output=json_output,
+            )
         if parsed.command in {
             "capture",
             "search",
@@ -479,11 +553,18 @@ def _parser() -> argparse.ArgumentParser:
             "deactivate",
             "restore",
             "resolve",
+            "recover",
         ),
     )
     workspace_parser.add_argument("note_id", nargs="?")
     workspace_parser.add_argument("--generation", type=int)
     workspace_parser.add_argument("--choice", choices=("accepted", "candidate"))
+    workspace_parser.add_argument("--operation-id")
+    workspace_parser.add_argument("--after")
+    workspace_parser.add_argument("--limit", type=int)
+    workspace_parser.add_argument("--abandon", action="store_true")
+    workspace_parser.add_argument("--expected-digest")
+    workspace_parser.add_argument("--request-id")
     graph_parser = subparsers.add_parser(
         "graph", help="Review graph suggestions and configure semantic consent."
     )
@@ -536,6 +617,53 @@ def _add_local_options(parser: argparse.ArgumentParser) -> None:
         default=argparse.SUPPRESS,
         help="Use this absolute Brain root instead of the platform-local default.",
     )
+
+
+def _is_workspace_recovery(parsed: argparse.Namespace) -> bool:
+    return parsed.command == "workspace" and getattr(parsed, "action", None) == "recover"
+
+
+def _validate_workspace_recovery_arguments(parsed: argparse.Namespace) -> None:
+    action = getattr(parsed, "action", None)
+    operation_id = getattr(parsed, "operation_id", None)
+    after = getattr(parsed, "after", None)
+    limit = getattr(parsed, "limit", None)
+    abandon = bool(getattr(parsed, "abandon", False))
+    expected_digest = getattr(parsed, "expected_digest", None)
+    request_id = getattr(parsed, "request_id", None)
+    recovery_flag_used = (
+        operation_id is not None
+        or after is not None
+        or limit is not None
+        or abandon
+        or expected_digest is not None
+        or request_id is not None
+    )
+    if action != "recover":
+        if recovery_flag_used:
+            raise ValueError("recovery flags require workspace recover")
+        return
+    if (
+        getattr(parsed, "note_id", None) is not None
+        or getattr(parsed, "generation", None) is not None
+        or getattr(parsed, "choice", None) is not None
+        or limit is not None
+        and (type(limit) is not int or not 1 <= limit <= 100)
+        or operation_id is not None
+        and (after is not None or limit is not None)
+    ):
+        raise ValueError("invalid workspace recovery arguments")
+    if abandon:
+        if (
+            operation_id is None
+            or expected_digest is None
+            or request_id is None
+            or after is not None
+            or limit is not None
+        ):
+            raise ValueError("incomplete workspace abandonment")
+    elif expected_digest is not None or request_id is not None:
+        raise ValueError("owner decision arguments require abandonment")
 
 
 def _add_space_inbox_parsers(
@@ -1750,6 +1878,21 @@ def _write_database_busy(*, json_output: bool) -> None:
         _write_json({"error": {"code": "database_busy", "message": message}, "status": "failed"})
     else:
         print("database_busy: " + message, file=sys.stderr)
+
+
+def _write_managed_recovery_failure(code: str, *, schema_upgraded: bool, json_output: bool) -> int:
+    message = "Managed recovery could not complete safely."
+    if json_output:
+        _write_json(
+            {
+                "error": {"code": code, "message": message},
+                "schema_upgraded": schema_upgraded,
+                "status": "failed",
+            }
+        )
+    else:
+        print(f"{code}: {message}", file=sys.stderr)
+    return 75 if code in {"database_busy", "runtime_in_use"} else 78
 
 
 def _write_operation_failure(*, json_output: bool) -> None:

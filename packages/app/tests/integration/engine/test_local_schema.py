@@ -356,7 +356,13 @@ def test_runtime_compatibility_migration_preserves_v3_records_and_blocks_old_rea
     database = root / PHASE1_STATE_DATABASE
     with sqlite3.connect(database) as connection:
         connection.execute("DELETE FROM schema_migrations WHERE version >= 4")
-        for table in ("review_page_heads", "review_sources", "review_contexts"):
+        for table in (
+            "managed_recovery_decisions",
+            "managed_write_authority",
+            "review_page_heads",
+            "review_sources",
+            "review_contexts",
+        ):
             connection.execute(f"DROP TABLE {table}")
         connection.execute("DROP TABLE runtime_compatibility")
         connection.execute("PRAGMA user_version = 3")
@@ -770,7 +776,13 @@ def test_w4_reviewed_import_preserves_portable_bytes_and_search_trust_across_upg
     with sqlite3.connect(profile.root / PHASE1_STATE_DATABASE) as connection:
         from open_brain_engine.engine.local_schema_catalog import RUNTIME_COMPATIBILITY_SCHEMA
 
-        for table in ("review_page_heads", "review_sources", "review_contexts"):
+        for table in (
+            "managed_recovery_decisions",
+            "managed_write_authority",
+            "review_page_heads",
+            "review_sources",
+            "review_contexts",
+        ):
             connection.execute(f"DROP TABLE {table}")
         connection.execute("DROP TABLE runtime_compatibility")
         for statement in RUNTIME_COMPATIBILITY_SCHEMA:

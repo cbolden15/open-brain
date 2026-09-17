@@ -72,8 +72,12 @@ class ReconciliationTasks:
 
     def reconcile(self) -> ReconciliationReceipt:
         self._engine._assert_root()
-        with self._engine._writer_lease.acquire_shared_writer():
-            scanned_files, space_updates, page_updates = self._scan()
+        # Bind source membership, trust, and the resulting writes to one snapshot.
+        with (
+            self._engine._writer_lease.acquire_shared_writer(),
+            self._engine._store.transaction() as connection,
+        ):
+            scanned_files, space_updates, page_updates = self._scan(connection)
             if not space_updates and not page_updates:
                 return ReconciliationReceipt(
                     status="noop",
@@ -81,24 +85,23 @@ class ReconciliationTasks:
                     page_updates=0,
                     space_updates=0,
                 )
-            with self._engine._store.transaction() as connection:
-                for space_update in space_updates:
-                    connection.execute(
-                        "UPDATE spaces SET name = ? WHERE space_id = ?",
-                        (space_update.name, space_update.space_id),
-                    )
-                for page_update in page_updates:
-                    self._engine._upsert_canonical_search(
-                        connection,
-                        result_id=page_update.page_id,
-                        capture_id=page_update.capture_id,
-                        payload_family=page_update.payload_family,
-                        space_id=page_update.space_id,
-                        title=page_update.title,
-                        body=page_update.body,
-                        canonical_path=page_update.canonical_path,
-                        updated_at=page_update.updated_at,
-                    )
+            for space_update in space_updates:
+                connection.execute(
+                    "UPDATE spaces SET name = ? WHERE space_id = ?",
+                    (space_update.name, space_update.space_id),
+                )
+            for page_update in page_updates:
+                self._engine._upsert_canonical_search(
+                    connection,
+                    result_id=page_update.page_id,
+                    capture_id=page_update.capture_id,
+                    payload_family=page_update.payload_family,
+                    space_id=page_update.space_id,
+                    title=page_update.title,
+                    body=page_update.body,
+                    canonical_path=page_update.canonical_path,
+                    updated_at=page_update.updated_at,
+                )
             return ReconciliationReceipt(
                 status="reconciled",
                 scanned_files=scanned_files,
@@ -106,26 +109,24 @@ class ReconciliationTasks:
                 space_updates=len(space_updates),
             )
 
-    def _scan(self) -> tuple[int, tuple[_SpaceUpdate, ...], tuple[_PageUpdate, ...]]:
-        connection = self._engine._store.connect()
-        try:
-            known_spaces = {
-                cast(str, row["space_id"]): (cast(str, row["name"]), cast(str, row["slug"]))
-                for row in connection.execute("SELECT space_id, name, slug FROM spaces")
-            }
-            canonical_rows = {
-                cast(str, row["canonical_path"]): row
-                for row in connection.execute(
-                    """
-                    SELECT result_id, capture_id, payload_family, space_id, title, body, trust,
-                           updated_at, canonical_path
-                    FROM search_documents
-                    WHERE record_type = 'canonical'
-                    """
-                )
-            }
-        finally:
-            connection.close()
+    def _scan(
+        self, connection: sqlite3.Connection
+    ) -> tuple[int, tuple[_SpaceUpdate, ...], tuple[_PageUpdate, ...]]:
+        known_spaces = {
+            cast(str, row["space_id"]): (cast(str, row["name"]), cast(str, row["slug"]))
+            for row in connection.execute("SELECT space_id, name, slug FROM spaces")
+        }
+        canonical_rows = {
+            cast(str, row["canonical_path"]): row
+            for row in connection.execute(
+                """
+                SELECT result_id, capture_id, payload_family, space_id, title, body, trust,
+                       updated_at, canonical_path
+                FROM search_documents
+                WHERE record_type = 'canonical'
+                """
+            )
+        }
         try:
             files = read_confined_tree(
                 root=self._engine.profile.root,
@@ -180,10 +181,16 @@ class ReconciliationTasks:
             space_id = _required_string(fields, "space_id")
             capture_id = cast(str, row["capture_id"])
             provenance = fields.get("provenance")
+            expected_sources = [
+                str(source["capture_id"])
+                for source in canonical_source_rows(
+                    connection, result_id=page_id, capture_id=capture_id
+                )
+            ]
             if (
                 space_id != cast(str, row["space_id"])
                 or space_id not in seen_spaces
-                or provenance != [capture_id]
+                or provenance != expected_sources
             ):
                 raise ValueError("canonical page provenance changed")
             seen_pages.add(canonical_path)
@@ -191,19 +198,15 @@ class ReconciliationTasks:
             title = _required_string(fields, "title")
             trust = _required_string(fields, "trust")
             updated_at = _required_string(fields, "modified_at")
-            projection_connection = self._engine._store.connect()
-            try:
-                projection = project_search_document(
-                    projection_connection,
-                    result_id=page_id,
-                    capture_id=capture_id,
-                    record_type="canonical",
-                    title=title,
-                    body=parsed.body,
-                    canonical_path=canonical_path,
-                )
-            finally:
-                projection_connection.close()
+            projection = project_search_document(
+                connection,
+                result_id=page_id,
+                capture_id=capture_id,
+                record_type="canonical",
+                title=title,
+                body=parsed.body,
+                canonical_path=canonical_path,
+            )
             if trust != projection.canonical_frontmatter_trust:
                 raise ValueError("canonical page trust changed")
             if (

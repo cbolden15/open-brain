@@ -50,8 +50,8 @@ setup again because the configuration contains an absolute executable path.
 
 The renderer has only named native operations, no general shell or database interface. The host
 verifies the exact packaged core/Graphify pair before launch and checks protocol version 1, runtime
-session version 1, and state schema version 4. Existing state migrates through the core; incompatible
-older readers reject the newer private schema. Stop older sessions before upgrading existing state.
+session version 1, and state schema version 6. The native proof uses the same handshake validator.
+Existing state migrates through the core; incompatible older readers reject the newer private schema. Stop older sessions before upgrading existing state.
 
 Cold startup has a 15-second handshake deadline; interactive requests have a 10-second deadline.
 Malformed replies, lost transport, deadlines, and the 2,000-request session limit close the bridge.

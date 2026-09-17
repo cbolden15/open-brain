@@ -13,6 +13,8 @@ from open_brain_engine.storage.filesystem import capture_root_identity
 
 import open_brain.services.local_runtime_session as runtime_session_module
 from open_brain.services.local_runtime_session import (
+    LocalRuntimeCompatibilityError,
+    LocalRuntimeSession,
     LocalRuntimeSessionError,
     hold_local_runtime_session,
 )
@@ -157,6 +159,88 @@ def test_recovery_finishes_before_a_concurrent_client_is_admitted(tmp_path: Path
     time.sleep(0.05)
     assert not second_admitted.is_set()
     recovery_resume.set()
+    first_thread.join(2)
+    second_thread.join(2)
+    assert not first_thread.is_alive()
+    assert not second_thread.is_alive()
+    assert second_admitted.is_set()
+
+
+def test_compatibility_rejection_preserves_stale_evidence(tmp_path: Path) -> None:
+    root = _root(tmp_path)
+    identity = capture_root_identity(root)
+    recoveries: list[str] = []
+
+    with hold_local_runtime_session(
+        root,
+        identity,
+        legacy_state_exists=False,
+        recover_abandoned_sessions=lambda: recoveries.append("recovered"),
+    ):
+        stale = root / f".open-brain/runtime-sessions/session-{'e' * 32}.lock"
+        stale.touch(mode=0o600)
+
+        def reject_live_peer(session: LocalRuntimeSession) -> None:
+            assert session.live_peer_count == 1
+            raise LocalRuntimeCompatibilityError("exclusive admission required")
+
+        with (
+            pytest.raises(LocalRuntimeCompatibilityError, match="exclusive admission"),
+            hold_local_runtime_session(
+                root,
+                identity,
+                legacy_state_exists=True,
+                recover_abandoned_sessions=lambda: recoveries.append("unexpected"),
+                admit_session=reject_live_peer,
+            ),
+        ):
+            pass
+
+        assert stale.exists()
+        assert recoveries == []
+
+    assert recoveries == ["recovered"]
+    assert not stale.exists()
+
+
+def test_admission_callback_holds_registry_lock(tmp_path: Path) -> None:
+    root = _root(tmp_path)
+    identity = capture_root_identity(root)
+    admission_entered = threading.Event()
+    admission_resume = threading.Event()
+    second_admitted = threading.Event()
+
+    def delayed_admission(_session: object) -> None:
+        admission_entered.set()
+        assert admission_resume.wait(2)
+
+    def first_client() -> None:
+        with hold_local_runtime_session(
+            root,
+            identity,
+            legacy_state_exists=False,
+            recover_abandoned_sessions=lambda: None,
+            admit_session=delayed_admission,
+        ):
+            pass
+
+    def second_client() -> None:
+        with hold_local_runtime_session(
+            root,
+            identity,
+            legacy_state_exists=False,
+            recover_abandoned_sessions=lambda: None,
+        ):
+            second_admitted.set()
+
+    first_thread = threading.Thread(target=first_client)
+    second_thread = threading.Thread(target=second_client)
+    first_thread.start()
+    assert admission_entered.wait(2)
+    second_thread.start()
+    time.sleep(0.05)
+    assert not second_admitted.is_set()
+    admission_resume.set()
     first_thread.join(2)
     second_thread.join(2)
     assert not first_thread.is_alive()
@@ -312,3 +396,31 @@ def test_malformed_registry_entry_fails_closed(tmp_path: Path) -> None:
         ),
     ):
         pass
+
+
+def test_peer_that_crashes_after_cleanup_keeps_its_marker(tmp_path: Path) -> None:
+    root = _root(tmp_path)
+    registry = root / ".open-brain/runtime-sessions"
+    registry.mkdir(mode=0o700)
+    peer = registry / f"session-{'f' * 32}.lock"
+    peer.touch(mode=0o600)
+    calls: list[int] = []
+    with peer.open("r+b") as peer_lock:
+        fcntl.flock(peer_lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+
+        def cleanup() -> None:
+            calls.append(1)
+            if len(calls) == 1:
+                # The peer dies after this pass has settled its journal snapshot.
+                fcntl.flock(peer_lock, fcntl.LOCK_UN)
+
+        with hold_local_runtime_session(
+            root,
+            capture_root_identity(root),
+            legacy_state_exists=True,
+            recover_abandoned_sessions=cleanup,
+        ):
+            assert peer.exists()
+            assert len(calls) == 1
+    assert len(calls) == 2
+    assert not peer.exists()

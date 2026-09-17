@@ -89,23 +89,25 @@ def hold_local_runtime_session(
         )
         session_created = True
         os.fsync(directory_fd)
-        live_sessions, stale_sessions = _clean_stale_sessions(directory_fd)
+        live_sessions, stale_sessions = _scan_sessions(directory_fd)
         live_peers = live_sessions - 1
-        if not registry_initialized:
-            _create_registry_version(directory_fd)
-        os.fsync(directory_fd)
-        crash_recovery_required = stale_sessions > 0 or (
+        crash_recovery_required = bool(stale_sessions) or (
             legacy_state_exists and not registry_initialized
         )
         runtime_session = LocalRuntimeSession(
             crash_recovery_required=crash_recovery_required,
             live_peer_count=live_peers,
-            stale_session_count=stale_sessions,
+            stale_session_count=len(stale_sessions),
         )
         if admit_session is not None:
             admit_session(runtime_session)
-        if crash_recovery_required:
+        _, stale_after_admission = _scan_sessions(directory_fd)
+        if crash_recovery_required or stale_after_admission:
             recover_abandoned_sessions()
+            _remove_stale_sessions(directory_fd, stale_sessions | stale_after_admission)
+        if not registry_initialized:
+            _create_registry_version(directory_fd)
+        os.fsync(directory_fd)
         fcntl.flock(registry_fd, fcntl.LOCK_UN)
         registry_locked = False
         body_entered = True
@@ -123,7 +125,7 @@ def hold_local_runtime_session(
         raise
     except LocalRuntimeSessionError:
         raise
-    except (RootConfinementError, DurabilityError):
+    except RootConfinementError, DurabilityError:
         raise LocalRuntimeSessionError("runtime session registry is unavailable") from None
     except OSError:
         raise LocalRuntimeSessionError("runtime session registry operation failed") from None
@@ -137,9 +139,10 @@ def hold_local_runtime_session(
                 held = os.fstat(session_fd)
                 if (metadata.st_dev, metadata.st_ino) != (held.st_dev, held.st_ino):
                     raise LocalRuntimeSessionError("runtime session marker was replaced")
-                live_peers, stale_sessions = _clean_stale_sessions(directory_fd)
-                if stale_sessions > 0 or live_peers == 1:
+                live_peers, stale_sessions = _scan_sessions(directory_fd)
+                if stale_sessions or live_peers == 1:
                     recover_abandoned_sessions()
+                    _remove_stale_sessions(directory_fd, stale_sessions)
                 os.unlink(session_name, dir_fd=directory_fd)
                 os.fsync(directory_fd)
         finally:
@@ -185,7 +188,7 @@ def _create_registry_version(directory_fd: int) -> None:
     os.fsync(directory_fd)
 
 
-def _clean_stale_sessions(directory_fd: int) -> tuple[int, int]:
+def _scan_sessions(directory_fd: int) -> tuple[int, dict[str, tuple[int, int]]]:
     try:
         names = tuple(sorted(os.listdir(directory_fd)))
     except OSError:
@@ -196,7 +199,8 @@ def _clean_stale_sessions(directory_fd: int) -> tuple[int, int]:
     ]
     if unexpected:
         raise LocalRuntimeSessionError("runtime session registry contains an invalid entry")
-    live = stale = 0
+    live = 0
+    stale: dict[str, tuple[int, int]] = {}
     for name in names:
         if _SESSION_FILE.fullmatch(name) is None:
             continue
@@ -209,13 +213,27 @@ def _clean_stale_sessions(directory_fd: int) -> tuple[int, int]:
                     raise
                 live += 1
                 continue
+            metadata = os.fstat(file_fd)
+            stale[name] = (metadata.st_dev, metadata.st_ino)
+        finally:
+            os.close(file_fd)
+    return live, stale
+
+
+def _remove_stale_sessions(directory_fd: int, stale: dict[str, tuple[int, int]]) -> None:
+    # A peer can die after journal cleanup. Remove only the earlier snapshot.
+    for name, identity in stale.items():
+        file_fd, _ = _open_private_file(directory_fd, name, create=False)
+        try:
+            metadata = os.fstat(file_fd)
+            if (metadata.st_dev, metadata.st_ino) != identity:
+                raise LocalRuntimeSessionError("stale runtime session marker was replaced")
+            fcntl.flock(file_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
             os.unlink(name, dir_fd=directory_fd)
-            stale += 1
         finally:
             os.close(file_fd)
     if stale:
         os.fsync(directory_fd)
-    return live, stale
 
 
 def _acquire_registry_lock(file_fd: int) -> None:

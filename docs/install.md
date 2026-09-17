@@ -101,6 +101,13 @@ To remove the staged plugin files without deleting the managed vault or its sett
 open-brain obsidian-plugin remove
 ```
 
+## Interrupted legacy workspace writes
+
+A matching runtime that reports `workspace_recovery_required` provides owner inspection and explicit
+abandonment through `workspace recover`. Start with its read-only preview and follow the
+[managed workspace recovery guide](managed-workspace-recovery.md). Abandonment requires other
+clients to stop and affects only the selected pending write; it does not rewrite note bytes.
+
 ## Privacy
 
 Open Brain relies on the operating-system user account, disk encryption, backups, and physical

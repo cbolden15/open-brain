@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import sqlite3
 from pathlib import Path
+from typing import Never
 
 import pytest
 from open_brain_engine.engine import (
@@ -14,6 +15,9 @@ from open_brain_engine.engine import (
     ManagedWorkspaceFailure,
     TextPayload,
 )
+from open_brain_engine.engine.managed_inference import recover_inference_sessions
+from open_brain_engine.storage.locks import LockBusyError
+from open_brain_engine.storage.sqlite import SchemaError
 
 from open_brain.profile import compile_single_user_local
 
@@ -344,6 +348,74 @@ def test_restart_cancels_reserved_marks_dispatch_uncertain_and_deactivates_conse
         )
 
 
+def test_journal_only_recovery_cancels_reserved_and_marks_dispatch_uncertain(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "brain"
+    engine = _engine(root)
+    workspace_id, note_ids = _setup(
+        engine,
+        tmp_path / "workspace",
+        "First direct cleanup source.",
+        "Second direct cleanup source.",
+    )
+    _grant(engine, workspace_id)
+    reserved_id = "request_00000000-0000-4000-8000-000000000111"
+    dispatch_id = "request_00000000-0000-4000-8000-000000000112"
+    _prepare(engine, workspace_id, note_ids, reserved_id)
+    _prepare(engine, workspace_id, note_ids, dispatch_id)
+    engine.managed_inference.release(dispatch_id)
+    validations: list[str] = []
+
+    recovered = recover_inference_sessions(
+        engine.profile,
+        validate_before_write=lambda: validations.append("validated"),
+    )
+
+    assert recovered == 3
+    assert len(validations) >= 2
+    with sqlite3.connect(root / ".open-brain/state/phase1.sqlite3") as connection:
+        statuses = dict(
+            connection.execute(
+                "SELECT request_id, status FROM managed_inference_requests ORDER BY request_id"
+            )
+        )
+        budget = connection.execute(
+            """SELECT reserved_requests, used_requests, uncertain_requests
+            FROM managed_inference_budgets WHERE workspace_id = ?""",
+            (workspace_id,),
+        ).fetchone()
+        consent = connection.execute(
+            "SELECT active FROM managed_consents WHERE workspace_id = ?", (workspace_id,)
+        ).fetchone()
+    assert statuses == {reserved_id: "cancelled", dispatch_id: "uncertain"}
+    assert budget == (0, 0, 1)
+    assert consent == (0,)
+
+
+def test_journal_only_recovery_does_not_initialize_absent_state(tmp_path: Path) -> None:
+    root = tmp_path / "brain"
+    profile = compile_single_user_local(root)
+
+    with pytest.raises(SchemaError, match="schema|state"):
+        recover_inference_sessions(profile, validate_before_write=lambda: None)
+
+    assert not (root / ".open-brain/state/phase1.sqlite3").exists()
+
+
+def test_journal_only_recovery_uses_the_engine_writer_lease(tmp_path: Path) -> None:
+    engine = _engine(tmp_path / "brain")
+
+    with (
+        engine._writer_lease.acquire_shared_writer(),
+        pytest.raises(LockBusyError, match="already held"),
+    ):
+        recover_inference_sessions(
+            engine.profile,
+            validate_before_write=lambda: None,
+        )
+
+
 def test_shared_budget_rejects_before_a_request_is_reserved(tmp_path: Path) -> None:
     root = tmp_path / "brain"
     engine = _engine(root)
@@ -375,3 +447,265 @@ def test_shared_budget_rejects_before_a_request_is_reserved(tmp_path: Path) -> N
         assert connection.execute(
             "SELECT count(*) FROM managed_inference_requests"
         ).fetchone() == (1,)
+
+
+def _public_member(engine: BrainEngine, note_id: str | None, *, restricted: bool) -> str:
+    from open_brain_engine.core.models import (
+        Authority,
+        CaptureWhyOrigin,
+        ContentOrigin,
+        PrivacyDecision,
+        PrivacyReason,
+        PrivacyTier,
+        Provenance,
+    )
+    from open_brain_engine.engine import DecisionOutcome, ProposalDraft, PublicJobCaptureContext
+
+    from open_brain.services.space_inbox import SpaceInboxService
+
+    actor = "actor_00000000-0000-4000-8000-000000000951"
+    context = PublicJobCaptureContext.create(
+        profile=engine.profile,
+        actor_id=actor,
+        role_claim={
+            "actor_id": actor,
+            "capabilities": ["capture.accept"],
+            "role_claim_id": "role_claim_00000000-0000-4000-8000-000000000952",
+            "role_id": "role_00000000-0000-4000-8000-000000000953",
+            "tenant_id": engine.profile.tenant_id,
+        },
+    )
+    reference = "urn:synthetic:retained-member"
+    capture = engine.capture.public_job_sink(context).submit(
+        TextPayload("Synthetic coral member evidence"),
+        delivery_id="privacy.member",
+        source_origin=ContentOrigin.UNKNOWN,
+        source_reference=reference,
+        provenance=Provenance.create(
+            source_ref=reference,
+            content_origin=ContentOrigin.UNKNOWN,
+            owner_context=CaptureWhyOrigin.AUTOMATION_ABSENT,
+        ),
+        privacy=PrivacyDecision.create(
+            tier=PrivacyTier.PERSONAL,
+            reason=PrivacyReason.EXPLICIT_LOCAL_ONLY
+            if restricted
+            else PrivacyReason.PERSONAL_LOCAL_ONLY,
+            policy_version="privacy-v1",
+            authority=Authority(cloud=False, external_egress=False),
+        ),
+    )
+    SpaceInboxService(engine.inbox).inbox_route(
+        {
+            "capture_id": capture.capture_id,
+            "space_id": engine.inbox.spaces()[0].space_id,
+        }
+    )
+    proposal = engine.review.propose(
+        (capture.capture_id,),
+        (ProposalDraft("Reviewed page", "Synthetic coral member evidence"),),
+        delivery_id="privacy.proposal",
+        target_page_id=note_id,
+    )[0]
+    engine.review.decide(
+        proposal.proposal_id,
+        DecisionOutcome.APPROVED,
+        delivery_id="privacy.approve",
+        expected_review_digest=proposal.review_digest,
+    )
+    return engine.retrieval.search("coral", record_type="canonical")[0].result_id
+
+
+@pytest.mark.parametrize("primary", [False, True])
+@pytest.mark.parametrize("restricted", [False, True])
+def test_retained_public_job_privacy_gates_provider_callback(
+    tmp_path: Path,
+    primary: bool,
+    restricted: bool,
+) -> None:
+    from open_brain.services.local_operations import refresh_graph
+
+    engine = _engine(tmp_path / "brain")
+    if primary:
+        note_id = _public_member(engine, None, restricted=restricted)
+        vault = tmp_path / "workspace"
+        vault.mkdir(mode=0o700)
+        workspace = engine.managed_workspace.setup(
+            str(vault), operation_id="privacy.setup"
+        ).workspace_id
+    else:
+        workspace, notes = _setup(engine, tmp_path / "workspace", "Ordinary primary evidence")
+        note_id = _public_member(engine, notes[0], restricted=restricted)
+        engine.managed_workspace.refresh(workspace, operation_id="privacy.refresh")
+    _grant(engine, workspace)
+    calls: list[str] = []
+
+    def invoke(prompt: str, maximum: int, timeout: int) -> Never:
+        calls.append(prompt)
+        raise RuntimeError("synthetic callback reached")
+
+    if restricted:
+        with pytest.raises(ManagedWorkspaceFailure, match="^ineligible_source$"):
+            refresh_graph(
+                engine.tasks,
+                provider=ManagedProvider.OPENAI_API,
+                access_mode=ManagedAccessMode.API_KEY,
+                adapter_identity="openai_api:synthetic-v1",
+                request_id="request_00000000-0000-4000-8000-000000000955",
+                invoke=invoke,
+                remaining_attempts=1,
+                remaining_input_bytes=16384,
+            )
+        assert calls == []
+    else:
+        request = _prepare(
+            engine, workspace, (note_id,), "request_00000000-0000-4000-8000-000000000955"
+        )
+        assert (
+            "Synthetic coral member evidence"
+            in engine.managed_inference.release(request.request_id).prompt
+        )
+
+
+@pytest.mark.parametrize(
+    "membership",
+    [None, [], ["urn:unsupported:member"], ["capture_00000000-0000-4000-8000-000000000999"]],
+)
+def test_accepted_unverifiable_membership_fails_closed(tmp_path: Path, membership: object) -> None:
+    from open_brain_engine.storage.markdown import parse_markdown, render_markdown
+
+    engine = _engine(tmp_path / "brain")
+    workspace, notes = _setup(engine, tmp_path / "workspace", "Ordinary evidence")
+    page = next((tmp_path / "workspace").rglob("*.md"))
+    parsed = parse_markdown(page.read_bytes())
+    fields = dict(parsed.fields)
+    fields["provenance"] = membership
+    page.write_text(render_markdown(fields=fields, body=parsed.body))
+    observation = engine.managed_workspace.observe(workspace)
+    engine.managed_workspace.accept_observed(
+        workspace,
+        notes[0],
+        generation=observation.generation,
+        operation_id="privacy.accept-membership",
+    )
+    _grant(engine, workspace)
+    with pytest.raises(ManagedWorkspaceFailure, match="^ineligible_source$"):
+        _prepare(engine, workspace, notes, "request_00000000-0000-4000-8000-000000000956")
+
+
+def test_retained_membership_release_revalidates_supported_refresh(tmp_path: Path) -> None:
+    engine = _engine(tmp_path / "brain")
+    workspace, notes = _setup(engine, tmp_path / "workspace", "Ordinary primary evidence")
+    _grant(engine, workspace)
+    request = _prepare(engine, workspace, notes, "request_00000000-0000-4000-8000-000000000957")
+    _public_member(engine, notes[0], restricted=True)
+    engine.managed_workspace.refresh(workspace, operation_id="privacy.intervening-refresh")
+    with pytest.raises(ManagedWorkspaceFailure, match="^(ineligible_source|stale_request)$"):
+        engine.managed_inference.release(request.request_id)
+    with engine._store.transaction() as connection:
+        assert (
+            connection.execute(
+                "SELECT status FROM managed_inference_requests WHERE request_id=?",
+                (request.request_id,),
+            ).fetchone()[0]
+            == "cancelled"
+        )
+
+
+def test_accepted_edit_cannot_drop_retained_restricted_member(tmp_path: Path) -> None:
+    from open_brain_engine.storage.markdown import parse_markdown, render_markdown
+
+    engine = _engine(tmp_path / "brain")
+    workspace, notes = _setup(engine, tmp_path / "workspace", "Ordinary primary evidence")
+    _public_member(engine, notes[0], restricted=True)
+    engine.managed_workspace.refresh(workspace, operation_id="privacy.refresh")
+    page = next((tmp_path / "workspace").rglob("*.md"))
+    parsed = parse_markdown(page.read_bytes())
+    fields = dict(parsed.fields)
+    members = fields["provenance"]
+    assert isinstance(members, list) and len(members) == 2
+    fields["provenance"] = members[:1]
+    page.write_text(render_markdown(fields=fields, body=parsed.body))
+    observed = engine.managed_workspace.observe(workspace)
+    engine.managed_workspace.accept_observed(
+        workspace, notes[0], generation=observed.generation, operation_id="privacy.remove-member"
+    )
+    _grant(engine, workspace)
+    with pytest.raises(ManagedWorkspaceFailure, match="^ineligible_source$"):
+        _prepare(engine, workspace, notes, "request_00000000-0000-4000-8000-000000000960")
+
+
+@pytest.mark.parametrize("raw", ["{}", "null", "not-json"])
+def test_corrupt_retained_privacy_is_rejected_at_release(tmp_path: Path, raw: str) -> None:
+    """Integrity negative only: inject malformed immutable source metadata."""
+    engine = _engine(tmp_path / "brain")
+    workspace, notes = _setup(engine, tmp_path / "workspace", "Ordinary primary evidence")
+    _public_member(engine, notes[0], restricted=False)
+    engine.managed_workspace.refresh(workspace, operation_id="privacy.refresh")
+    _grant(engine, workspace)
+    request = _prepare(engine, workspace, notes, "request_00000000-0000-4000-8000-000000000961")
+    with engine._store.transaction() as connection:
+        connection.execute(
+            "UPDATE captures SET privacy_json=? WHERE delivery_id='privacy.member'", (raw,)
+        )
+    with pytest.raises(ManagedWorkspaceFailure, match="^ineligible_source$"):
+        engine.managed_inference.release(request.request_id)
+    with engine._store.transaction() as connection:
+        assert (
+            connection.execute(
+                "SELECT status FROM managed_inference_requests WHERE request_id=?",
+                (request.request_id,),
+            ).fetchone()[0]
+            == "cancelled"
+        )
+
+
+@pytest.mark.parametrize("stage", ["after_target_write", "after_operation_promoted"])
+def test_standalone_link_materialization_identical_acceptance(tmp_path: Path, stage: str) -> None:
+    from open_brain_engine.engine import InjectedFault, ManagedWorkspaceFault
+
+    engine = _engine(tmp_path / "brain")
+    workspace, notes = _setup(engine, tmp_path / "workspace", "Alpha evidence", "Beta evidence")
+    _grant(engine, workspace)
+    request = _prepare(engine, workspace, notes, "request_00000000-0000-4000-8000-000000000962")
+    engine.managed_inference.release(request.request_id)
+    suggestion = engine.managed_inference.record_suggestion(
+        request.request_id,
+        source_note_id=notes[0],
+        target_note_id=notes[1],
+        source_quote="Alpha",
+        target_quote="Beta",
+        model="synthetic-v1",
+    )
+    engine.managed_inference.accept_suggestion(
+        workspace, suggestion.suggestion_id, operation_id="standalone.link"
+    )
+    engine._faults.add(ManagedWorkspaceFault(stage))
+    with pytest.raises(InjectedFault):
+        engine.managed_workspace.materialize(workspace, notes[0], operation_id="standalone.pending")
+    observation = engine.managed_workspace.observe(workspace)
+    receipt = engine.managed_workspace.accept_observed(
+        workspace,
+        notes[0],
+        generation=observation.generation,
+        operation_id="standalone.same-head",
+    )
+    assert receipt.duplicate
+    page = next((tmp_path / "workspace").rglob(f"{notes[0]}.md"))
+    body = page.read_bytes()
+    stat = page.stat()
+    for _ in range(2):
+        engine = _engine(engine.profile.root)
+        assert engine.managed_workspace.materialize(
+            workspace, notes[0], operation_id="standalone.pending"
+        ).duplicate
+        assert engine.managed_workspace.recover() == 0
+        assert page.read_bytes() == body
+        assert page.stat().st_mtime_ns == stat.st_mtime_ns
+        with engine._store.transaction() as connection:
+            assert (
+                connection.execute(
+                    "SELECT count(*) FROM managed_note_revisions WHERE note_id=?", (notes[0],)
+                ).fetchone()[0]
+                == 2
+            )

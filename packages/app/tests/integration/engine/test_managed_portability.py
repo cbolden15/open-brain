@@ -138,6 +138,9 @@ def test_managed_workspace_v2_round_trip_is_path_free_detached_and_reattachable(
     assert str(root).encode() not in payload
     assert str(workspace).encode() not in payload
     assert b"relative_path" not in payload
+    assert b"descriptor_json" not in payload
+    assert b"managed_write_authority" not in payload
+    assert b"managed_recovery_decisions" not in payload
     assert all(
         budget["reserved_requests"] == 0
         for budget in _database_rows(
@@ -157,6 +160,8 @@ def test_managed_workspace_v2_round_trip_is_path_free_detached_and_reattachable(
         import_id="import_00000000-0000-4000-8000-000000000203",
     )
     imported = _engine(imported_root)
+    for table in ("managed_write_authority", "managed_recovery_decisions"):
+        assert not _database_rows(imported_root, f"SELECT * FROM {table}")
     database = imported_root / ".open-brain/state/phase1.sqlite3"
     with sqlite3.connect(database) as connection:
         detached = connection.execute(
@@ -189,6 +194,12 @@ def test_managed_workspace_v2_round_trip_is_path_free_detached_and_reattachable(
     assert "Alpha owner edit" in restored_source.read_text(encoding="utf-8")
     assert f"[[{note_ids[1]}]]" in restored_source.read_text(encoding="utf-8")
     assert not tuple(restored_workspace.rglob(f"{note_ids[1]}.md"))
+    authorities = _database_rows(imported_root, "SELECT * FROM managed_write_authority")
+    assert len(authorities) == 1
+    assert authorities[0]["authority_version"] == 1
+    descriptor = json.loads(authorities[0]["descriptor_json"])
+    assert descriptor["root_path"] == str(restored_workspace)
+    assert descriptor["note_id"] == note_ids[0]
 
 
 def test_managed_v2_rejects_unknown_typed_fields_and_unsettled_export(
@@ -276,6 +287,8 @@ def test_managed_workspace_and_review_bindings_round_trip_as_v3(tmp_path: Path) 
         import_id="import_00000000-0000-4000-8000-000000000208",
     )
     imported = _engine(imported_root)
+    for table in ("managed_write_authority", "managed_recovery_decisions"):
+        assert not _database_rows(imported_root, f"SELECT * FROM {table}")
 
     assert manifest["schema_version"] == 3
     assert any(
