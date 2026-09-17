@@ -158,6 +158,8 @@ def run_cli(
         not (
             parsed.allow_capture
             or parsed.allow_search
+            or parsed.allow_content_read
+            or parsed.allow_history_read
             or parsed.allow_workspace_read
             or parsed.allow_graph_refresh
             or parsed.allow_inbox_read

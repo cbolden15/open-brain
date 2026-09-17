@@ -42,6 +42,7 @@ from open_brain.services.mcp_protocol import (
     serve_stdio_mcp,
 )
 from open_brain.services.space_inbox import SpaceInboxError, SpaceInboxService
+from open_brain.services.t03_adapters import T03AppAdapter
 
 ROOT = Path(__file__).resolve().parents[5]
 REVIEW_CAPTURE = "capture_3e6e8e2c-e638-47c6-8195-4bd6f306d67b"
@@ -858,6 +859,44 @@ def _exchange(process: subprocess.Popen[str], message: dict[str, object]) -> Any
     process.stdin.flush()
     assert select.select([process.stdout], [], [], 15)[0], "MCP response timeout"
     return json.loads(process.stdout.readline())
+
+
+@pytest.mark.parametrize(
+    ("flag", "operation", "tool_name"),
+    (
+        ("--allow-content-read", "record.read", "brain_read"),
+        ("--allow-history-read", "history.list", "brain_history_list"),
+    ),
+)
+def test_entrypoint_admits_standalone_negotiated_read_grants(
+    tasks: Any,
+    monkeypatch: pytest.MonkeyPatch,
+    flag: str,
+    operation: str,
+    tool_name: str,
+) -> None:
+    observed: dict[str, LocalMcpAdapter] = {}
+
+    def available(_adapter: T03AppAdapter) -> tuple[str, ...]:
+        return (operation,)
+
+    def serve(adapter: LocalMcpAdapter, **_kwargs: object) -> None:
+        observed["adapter"] = adapter
+
+    monkeypatch.setattr(T03AppAdapter, "available_operations", available)
+    monkeypatch.setattr("open_brain.services.mcp_protocol.serve_stdio_mcp", serve)
+
+    assert (
+        run_cli(
+            ("mcp", "--data-dir", str(tasks.profile.root), flag),
+            environment={"HOME": str(tasks.profile.root.parent)},
+        )
+        == 0
+    )
+    assert {tool["name"] for tool in observed["adapter"].list_tools()} == {
+        "brain_contract_describe",
+        tool_name,
+    }
 
 
 @pytest.mark.parametrize(
