@@ -164,6 +164,8 @@ def migrate_sources(
     checkpoint: Callable[[str], None] = lambda _: None,
 ) -> None:
     admission.validate(profile)
+    if admission.live_peer_count:
+        raise T03Error("operation_pending")
     lease = FileLease(
         profile.root / ".open-brain",
         "source-migration",

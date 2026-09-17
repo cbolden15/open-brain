@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import fcntl
 import os
+from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
@@ -10,6 +11,7 @@ from open_brain_engine.engine.runtime_admission import (
     exclusive_runtime_admission,
     hold_runtime_registry,
 )
+from open_brain_engine.engine.source_migration import JOURNAL, migrate_sources
 from open_brain_engine.engine.t03_contracts import T03Error
 
 from open_brain.profile import compile_single_user_local
@@ -80,6 +82,9 @@ def test_another_descriptor_and_live_peer_cannot_attest_admission(tmp_path: Path
         fcntl.flock(first, fcntl.LOCK_UN)
         with hold_runtime_registry(profile, directory, second) as proof:
             assert proof.live_peer_count == 1
+            with pytest.raises(T03Error):
+                migrate_sources(profile, admission=proof, clock=lambda: datetime.now(UTC))
+            assert not (profile.root / JOURNAL).exists()
             with pytest.raises(T03Error), exclusive_runtime_admission(profile):
                 pytest.fail("live peer admitted")
     finally:
