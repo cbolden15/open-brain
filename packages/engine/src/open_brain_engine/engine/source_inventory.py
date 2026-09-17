@@ -94,6 +94,26 @@ def inventory_sources(
                 or row["actor_id"] != record["actor_id"]
             ):
                 raise ValueError("capture evidence conflicts")
+            for column, field in (
+                ("privacy_json", "privacy"),
+                ("provenance_json", "provenance"),
+                ("role_claim_json", "role_claim"),
+            ):
+                stored = json.loads(row[column])
+                if column == "provenance_json":
+                    stored = dict(stored)
+                    stored.setdefault("transformation_receipts", [])
+                if column == "provenance_json" and row["submission_path"] == "owner":
+                    expected_context = (
+                        "owner_authored" if row["capture_why"] is not None else "automation_absent"
+                    )
+                    if stored.get("owner_context") != expected_context:
+                        raise ValueError("capture authority evidence conflicts")
+                    stored = dict(stored, owner_context=record[field]["owner_context"])
+                if stored != record[field]:
+                    raise ValueError("capture authority evidence conflicts")
+            if row["intent"] != record["intent"] or row["capture_why"] != record["capture_why"]:
+                raise ValueError("capture annotation evidence conflicts")
             current[capture_id] = dict(row)
             aliases[str(row["delivery_id"])] = capture_id
         for row in connection.execute("SELECT capture_id FROM search_documents"):
@@ -103,6 +123,27 @@ def inventory_sources(
             for row in connection.execute(f"SELECT capture_id FROM {table}"):
                 if row[0] not in captures:
                     raise ValueError("referenced capture evidence missing")
+        bindings = {
+            record["proposal_id"]: record
+            for path, payload in portable.items()
+            if path.startswith("history/review-bindings/")
+            for record in [json.loads(payload)]
+        }
+        sql_proposals = {
+            row[0] for row in connection.execute("SELECT proposal_id FROM review_contexts")
+        }
+        if sql_proposals != set(bindings):
+            raise ValueError("review binding evidence conflicts")
+        for proposal_id, binding in bindings.items():
+            sql_members = list(
+                connection.execute(
+                    "SELECT ordinal,capture_id FROM review_sources "
+                    "WHERE proposal_id=? ORDER BY ordinal",
+                    (proposal_id,),
+                )
+            )
+            if [tuple(row) for row in sql_members] != list(enumerate(binding["provenance"])):
+                raise ValueError("review membership evidence conflicts")
         # The public source record is immutable. Routes may legitimately differ in SQL.
         memberships: list[tuple[str, str, str, int, str]] = []
         for path, payload in sorted(portable.items()):
@@ -127,6 +168,17 @@ def inventory_sources(
                         capture_id,
                     )
                 )
+        publication_members: dict[tuple[str, str], list[tuple[int, str]]] = {}
+        for _, page_id, publication_id, ordinal, capture_id in memberships:
+            publication_members.setdefault((page_id, publication_id), []).append(
+                (ordinal, capture_id)
+            )
+        for head in connection.execute("SELECT * FROM review_page_heads"):
+            expected = list(enumerate(bindings[head["proposal_id"]]["provenance"]))
+            if publication_members.get((head["page_id"], head["publication_id"])) != expected:
+                raise ValueError("publication membership evidence conflicts")
+            if expected[0][1] != head["capture_id"]:
+                raise ValueError("publication representative evidence conflicts")
         return DurableSourceInventory(files, captures, current, aliases, tuple(memberships))
     except ValueError, TypeError, KeyError, sqlite3.Error, OSError:
         raise T03Error("operation_pending") from None

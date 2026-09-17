@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 from open_brain_engine.engine import ReferencePayload, TextPayload, open_local_engine
-from open_brain_engine.engine.local_schema import open_local_database_read_only
+from open_brain_engine.engine.local_schema import open_local_database, open_local_database_read_only
 from open_brain_engine.engine.source_inventory import inventory_sources
 from open_brain_engine.engine.t03_contracts import T03Error
 
@@ -58,3 +58,14 @@ def test_inventory_blocks_damaged_history_before_writes(tmp_path: Path, damage: 
         with pytest.raises(T03Error):
             inventory_sources(profile, connection)
         assert connection.execute("PRAGMA user_version").fetchone()[0] == before
+
+
+@pytest.mark.parametrize("column", ["privacy_json", "provenance_json", "role_claim_json"])
+def test_inventory_refuses_sql_authority_metadata_disagreement(tmp_path: Path, column: str) -> None:
+    profile = compile_single_user_local(tmp_path / "brain")
+    tasks = open_local_engine(profile)
+    tasks.capture.submit(_public_submission(tasks))
+    with open_local_database(profile) as connection:
+        connection.execute(f"UPDATE captures SET {column} = '{{}}'")
+    with open_local_database_read_only(profile) as connection, pytest.raises(T03Error):
+        inventory_sources(profile, connection)
