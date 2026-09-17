@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
-  "status": "planned_not_implemented",
-  "baseline_commit": "5cf081aa3d591e14b89245db290d4a186ff8156a",
+  "status": "m1_merged_m2_in_progress",
+  "baseline_commit": "33a7472f06516753c5c66d76eac8e60538c2660f",
   "assessment": "docs/audits/2026-09-16-new-user-functional-assessment.md",
   "plan": "docs/plans/2026-09-16-new-user-functionality.md",
   "accepted_decisions": {
@@ -43,8 +43,10 @@
       "acceptance": [
         "A01"
       ],
-      "status": "planned",
-      "evidence": []
+      "status": "implemented_merged",
+      "evidence": [
+        "docs/ai/workstreams/20260917-open-brain-public-m1-publication-1f7912/EVIDENCE.json"
+      ]
     },
     {
       "id": "F2a",
@@ -285,5 +287,31 @@
       "status": "deferred_by_user"
     }
   ],
-  "completion_rule": "All active findings require passing exact-candidate receipts; blocked external/proof gates remain open. Only explicit user-approved scope changes can remove active findings."
+  "completion_rule": "All active findings require passing exact-candidate receipts; blocked external/proof gates remain open. Only explicit user-approved scope changes can remove active findings.",
+  "assessment_baseline_commit": "5cf081aa3d591e14b89245db290d4a186ff8156a",
+  "implementation_state": {
+    "M1": {
+      "tasks": [
+        "T01",
+        "T02"
+      ],
+      "status": "merged",
+      "evidence": [
+        "docs/ai/workstreams/20260917-open-brain-public-m1-publication-1f7912/EVIDENCE.json"
+      ],
+      "acceptance_limit": "M1 correctness checks retained; all A01 and release acceptance are not claimed complete."
+    },
+    "M2": {
+      "tasks": [
+        "T03",
+        "T04",
+        "T05",
+        "T06",
+        "T07",
+        "T08"
+      ],
+      "status": "in_progress",
+      "verified_tasks": []
+    }
+  }
 }
