@@ -311,7 +311,13 @@
         "T08"
       ],
       "status": "in_progress",
-      "verified_tasks": []
+      "verified_tasks": [
+        "T03"
+      ],
+      "evidence": [
+        "docs/ai/workstreams/20260917-open-brain-public-m2-0fd6e9/T03-FREEZE.json"
+      ],
+      "acceptance_limit": "Contract portion verified; schema/writer migration, retrieval, adapters, clients and history remain open."
     }
   }
 }

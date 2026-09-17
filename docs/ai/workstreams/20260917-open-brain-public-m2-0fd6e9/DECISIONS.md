@@ -6,4 +6,4 @@
 - Full verification and native/package checks run through the supervising parent's serialized check requests. Candidate HEAD must match each receipt.
 - M2 completion is local only. Publication, live data, later lifecycle operations and optional model research remain outside this milestone.
 
-No M2 task is verified yet. Exact frozen hashes and submilestone checks will be recorded as each gate completes.
+T03 is verified as a contract submilestone. The exact frozen artifact bundle is `868d3cd2ad6ce1fa7f375151df3a5cf7553ba3165c3fefa409fe95cb6258c37c`; [T03-FREEZE.json](T03-FREEZE.json) records version allocations, review and parent check receipts. T04–T08 remain pending. An external read-only T07 audit confirms clients must wait for T06 APIs; reuse its source map without treating it as implementation evidence.
