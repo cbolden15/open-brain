@@ -415,7 +415,7 @@ def dispatch_plugin_request(
         organization_service = SpaceInboxService(tasks.spaces)
         handler = getattr(organization_service, organization_handlers[operation])
         try:
-            return cast(dict[str, object], handler(arguments))
+            return cast(dict[str, object], handler(_legacy_versioned_arguments(arguments)))
         except SpaceInboxError as error:
             raise PluginBridgeFailure(error.code) from None
     publication_handlers = {
@@ -430,7 +430,7 @@ def dispatch_plugin_request(
         publication_service = ReviewPublicationService(tasks.review)
         handler = getattr(publication_service, publication_handlers[operation])
         try:
-            return cast(dict[str, object], handler(arguments))
+            return cast(dict[str, object], handler(_legacy_versioned_arguments(arguments)))
         except ReviewPublicationError as error:
             raise PluginBridgeFailure(error.code) from None
     if operation.startswith("collector."):
@@ -1514,6 +1514,12 @@ def _workspace_receipt(receipt: ManagedWorkspaceReceipt, *, vault_path: Path) ->
 def _require_keys(arguments: Mapping[str, object], expected: frozenset[str]) -> None:
     if set(arguments) != expected:
         raise PluginBridgeFailure("invalid_arguments")
+
+
+def _legacy_versioned_arguments(arguments: Mapping[str, object]) -> dict[str, object]:
+    if arguments.get("dto_version") != 1 or type(arguments.get("dto_version")) is not int:
+        raise PluginBridgeFailure("invalid_arguments")
+    return {key: value for key, value in arguments.items() if key != "dto_version"}
 
 
 def _bounded_text(value: object, *, maximum_bytes: int) -> str:

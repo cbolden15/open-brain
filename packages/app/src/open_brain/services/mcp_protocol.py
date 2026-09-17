@@ -104,7 +104,11 @@ def _handle_message(
     maximum_response_bytes: int,
 ) -> tuple[dict[str, object] | None, bool]:
     try:
-        decoded = json.loads(line.decode("utf-8"))
+        decoded = json.loads(
+            line.decode("utf-8"),
+            object_pairs_hook=_strict_json_object,
+            parse_constant=_reject_nonfinite,
+        )
     except UnicodeDecodeError, ValueError, RecursionError:
         return _error_response(None, -32700, "parse error"), initialized
     if not isinstance(decoded, dict):
@@ -157,6 +161,19 @@ def _handle_message(
             initialized,
         )
     return _error_response(request_id, -32601, "method not found"), initialized
+
+
+def _strict_json_object(pairs: list[tuple[str, object]]) -> dict[str, object]:
+    value: dict[str, object] = {}
+    for key, item in pairs:
+        if key in value:
+            raise ValueError("duplicate JSON key")
+        value[key] = item
+    return value
+
+
+def _reject_nonfinite(_value: str) -> object:
+    raise ValueError("nonfinite JSON number")
 
 
 def _is_request_id(value: object, has_response: bool) -> bool:

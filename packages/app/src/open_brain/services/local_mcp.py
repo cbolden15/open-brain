@@ -532,6 +532,7 @@ class LocalMcpAdapter:
                                 "uniqueItems": True,
                             },
                         },
+                        "required": ["space_ids", "payload_families", "record_types"],
                     },
                     "mode": {
                         "type": "string",

@@ -1259,6 +1259,38 @@ def test_transport_parser_failures_are_bounded_and_recover(payload: bytes) -> No
     assert "result" in replies[1]
 
 
+@pytest.mark.parametrize(
+    "raw_call",
+    (
+        b'{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"brain_search","arguments":{"query":"first","query":"second"}}}',
+        b'{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"brain_search","arguments":{"query":"synthetic","limit":NaN}}}',
+    ),
+    ids=("duplicate-nested-query", "nonfinite-limit"),
+)
+def test_raw_transport_rejects_ambiguous_json_before_tool_callback(raw_call: bytes) -> None:
+    calls = 0
+
+    def search(_query: str, _limit: int) -> tuple[Any, ...]:
+        nonlocal calls
+        calls += 1
+        return ()
+
+    output = io.BytesIO()
+    serve_stdio_mcp(
+        LocalMcpAdapter(search=search),
+        input_stream=io.BytesIO(json.dumps(INITIALIZE).encode() + b"\n" + raw_call + b"\n"),
+        output_stream=output,
+    )
+    replies = [json.loads(line) for line in output.getvalue().splitlines()]
+    assert "result" in replies[0]
+    assert replies[1] == {
+        "jsonrpc": "2.0",
+        "id": None,
+        "error": {"code": -32700, "message": "parse error"},
+    }
+    assert calls == 0
+
+
 def test_client_request_metadata_is_accepted_without_becoming_tool_input(tasks: Any) -> None:
     metadata = {
         "claudecode/toolUseId": "synthetic-tool-id",

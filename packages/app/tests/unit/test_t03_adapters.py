@@ -91,7 +91,8 @@ def test_discovery_intersects_implementation_and_independent_grants() -> None:
     content = T03AppAdapter(tasks, _authority("content-read"), frozenset({"content-read"}))
 
     assert search.available_operations() == ("search.page",)
-    assert [row["name"] for row in search.describe({})["operations"]] == ["search.page"]
+    operations = cast(list[dict[str, object]], search.describe({})["operations"])
+    assert [row["name"] for row in operations] == ["search.page"]
     assert content.available_operations() == ("record.read",)
     with pytest.raises(T03AppError, match="^unsupported_capability$"):
         search.invoke(
@@ -174,13 +175,20 @@ def test_mcp_registry_lists_only_negotiated_tools_and_keeps_content_typed() -> N
         "brain_search_page",
         "brain_read",
     }
+    search_tool = next(
+        tool for tool in adapter.list_tools() if tool["name"] == "brain_search_page"
+    )
+    properties = search_tool["inputSchema"]["properties"]
+    filters = cast(dict[str, object], properties["filters"])
+    assert filters["required"] == ["space_ids", "payload_families", "record_types"]
     described = adapter.call_tool("brain_contract_describe", {})
-    assert [row["name"] for row in described["operations"]] == ["search.page", "record.read"]
+    operations = cast(list[dict[str, object]], described["operations"])
+    assert [row["name"] for row in operations] == ["search.page", "record.read"]
     read = adapter.call_tool(
         "brain_read",
         {"dto_version": 1, "record_id": CAPTURE_ID, "expected_revision_id": CAPTURE_ID},
     )
-    assert read["content"]["kind"] == "untrusted_text"
+    assert cast(dict[str, object], read["content"])["kind"] == "untrusted_text"
 
 
 def test_t06_client_fixture_reuses_frozen_wire_grammar_and_grant_names() -> None:
@@ -193,6 +201,12 @@ def test_t06_client_fixture_reuses_frozen_wire_grammar_and_grant_names() -> None
             validate_wire(example["request_schema"], example["request"])
         if "response_schema" in example:
             validate_wire(example["response_schema"], example["response"])
+        operation = cast(str, example["operation"])
+        request = cast(dict[str, object], example["request"])
+        if operation.startswith(("inbox.", "space.", "publication.")):
+            assert request["dto_version"] == 1
+        if operation.startswith("workspace."):
+            assert "dto_version" not in request
     assert fixture["operations"]["record.read"] == "content-read"
     assert fixture["operations"]["history.show"] == "history-read"
     assert fixture["operations"]["source.route"] == "organize"

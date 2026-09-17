@@ -126,19 +126,30 @@ def test_contract_discovery_omits_unimplemented_negotiated_tasks(tmp_path: Path)
 def test_bridge_uses_shared_organization_and_publication_services(tmp_path: Path) -> None:
     selection = _selection(tmp_path)
     assert _call(selection, "brain.initialize")["ok"] is True
+    setup = cast(dict[str, object], _call(selection, "workspace.setup")["result"])
+    status = cast(dict[str, object], _call(selection, "workspace.status")["result"])
+    assert setup["status"] == "setup"
+    assert status["status"] == "ok"
+    assert status["vault_path"] == setup["vault_path"]
+    for invalid in ({"name": "Unversioned"}, {"dto_version": True, "name": "Boolean"}):
+        denied = _call(selection, "space.create", invalid)
+        assert denied["ok"] is False
+        assert cast(dict[str, object], denied["error"])["code"] == "invalid_arguments"
     capture = cast(
         dict[str, object],
         _call(selection, "capture.create", {"text": "Synthetic publication source"})["result"],
     )
     space = cast(
         dict[str, object],
-        _call(selection, "space.create", {"name": "Synthetic space"})["result"],
+        _call(
+            selection, "space.create", {"dto_version": 1, "name": "Synthetic space"}
+        )["result"],
     )
     space_id = cast(dict[str, object], space["space"])["space_id"]
     assert _call(
         selection,
         "inbox.route",
-        {"capture_id": capture["capture_id"], "space_id": space_id},
+        {"dto_version": 1, "capture_id": capture["capture_id"], "space_id": space_id},
     )["ok"] is True
     proposed = cast(
         dict[str, object],
@@ -146,6 +157,7 @@ def test_bridge_uses_shared_organization_and_publication_services(tmp_path: Path
             selection,
             "publication.propose",
             {
+                "dto_version": 1,
                 "capture_ids": [capture["capture_id"]],
                 "title": "Synthetic publication",
                 "markdown": "Complete synthetic body",
@@ -157,7 +169,7 @@ def test_bridge_uses_shared_organization_and_publication_services(tmp_path: Path
         _call(
             selection,
             "publication.show",
-            {"proposal_id": proposed["proposal_id"]},
+            {"dto_version": 1, "proposal_id": proposed["proposal_id"]},
         )["result"],
     )
     approved = cast(
@@ -166,6 +178,7 @@ def test_bridge_uses_shared_organization_and_publication_services(tmp_path: Path
             selection,
             "publication.approve",
             {
+                "dto_version": 1,
                 "proposal_id": proposed["proposal_id"],
                 "review_token": shown["review_token"],
             },
@@ -175,10 +188,21 @@ def test_bridge_uses_shared_organization_and_publication_services(tmp_path: Path
     assert shown["markdown"] == "Complete synthetic body"
     assert approved["status"] == "approved"
     assert approved["page_id"] == proposed["page_id"]
+    refreshed = cast(dict[str, object], _call(selection, "workspace.refresh")["result"])
+    note = next(
+        row
+        for row in cast(list[dict[str, object]], refreshed["notes"])
+        if row["note_id"] == approved["page_id"]
+    )
+    note_path = Path(cast(str, refreshed["vault_path"])) / cast(str, note["relative_path"])
+    materialized = note_path.read_text(encoding="utf-8")
+    assert materialized.endswith("\nComplete synthetic body\n")
+    assert f'page_id: "{approved["page_id"]}"' in materialized
     stale = _call(
         selection,
         "publication.reject",
         {
+            "dto_version": 1,
             "proposal_id": proposed["proposal_id"],
             "review_token": shown["review_token"],
         },
