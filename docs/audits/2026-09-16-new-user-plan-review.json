@@ -1,0 +1,87 @@
+{
+  "reviewed_draft_sha256": "2ca20432eed1bf80a1fcddbe44755bf32b5d0dc15fe5e0fd1fffb41bf4abdd8e",
+  "runs": [
+    {
+      "report": "Nothing survived to report across 2 lenses (feasibility, security): 3 finding(s) were filed and every one was killed by review checks. Partial review: coherence failed.",
+      "actionable_count": 0,
+      "fyi_count": 0,
+      "promoted_count": 0,
+      "verdict": "fix-first",
+      "lenses": [
+        "coherence",
+        "feasibility",
+        "security"
+      ],
+      "lenses_failed": [
+        "coherence"
+      ],
+      "verified": true,
+      "killed_by_audit": [
+        {
+          "lens": "feasibility",
+          "title": "Strong-worker model is unavailable in this runtime",
+          "why": "evidence not found in the document"
+        },
+        {
+          "lens": "feasibility",
+          "title": "Integrity-protected cursors lack a persistent key lifecycle",
+          "why": "evidence not found in the document"
+        },
+        {
+          "lens": "security",
+          "title": "Agent-facing content has no prompt-injection trust boundary",
+          "why": "evidence not found in the document"
+        }
+      ],
+      "doc": "docs/plans/2026-09-16-new-user-functionality.md"
+    },
+    {
+      "report": "Verdict: ready. 1 actionable finding(s) and 0 FYI item(s) survived.\nIndependent model refutation completed after deterministic evidence lookup.\n\n## Actionable\n\n### P3: Paged-search acceptance disagrees at the 200-result boundary\n- Lenses: coherence\n- Location: M2 work packages / Acceptance ledger\n- Why it matters: A test corpus containing exactly 200 results can pass T05's stated “200+” requirement but fail A04's “>200” requirement. That creates a concrete disagreement over whether the work package has produced sufficient acceptance evidence.\n- Suggested fix: Use one boundary everywhere, preferably “at least 201 results” if the intent is to prove traversal beyond 200.\n\n## FYI\n\nNone.",
+      "actionable_count": 1,
+      "fyi_count": 0,
+      "promoted_count": 0,
+      "verdict": "ready",
+      "lenses": [
+        "coherence"
+      ],
+      "lenses_failed": [],
+      "verified": true,
+      "killed_by_audit": [
+        {
+          "lens": "coherence",
+          "title": "M3 cannot fit the stated worker-attempt budget",
+          "why": "refuted - The quoted budget sentence is immediately qualified in the same paragraph: it is a \"Default milestone budget\" and \"A documented override is required before exceeding the budget,\" plus \"Split at verified milestone boundaries rather than run the entire program in one thread\" — i.e. M3's fifteen-task-pair load can legitimately be split across threads or run under a recorded override. The plan never asserts that M3 must complete inside twelve attempts, so there is no real contradiction; the document already supplies the governed escape path the finding says is needed. (T12 also bundles its independent security reviewer into the same task row, so the 2x-per-task attempt arithmetic is not even a fixed floor.) This is a sizing observation dressed as an inconsistency."
+        },
+        {
+          "lens": "coherence",
+          "title": "Required OAuth-soak and journey-time gates are absent from A17",
+          "why": "refuted - The ledger is deliberately a one-line index and, by the document's consistent convention, never restates numeric thresholds: A13 likewise says only \"frozen-fixture quality/resource thresholds\" while the ≤250 MB / ≤512 MB / p95 ≤500 ms numbers live in the prose section. The soak's dimensions are in fact enumerated in T22's acceptance row (\"exact public-client refresh/restart/expiry/reauthorization/revocation receipts\") and its scope (\"long-duration auth acceptance\"), and journey timing appears in A17 (\"platform-specific timing\") and T23 (\"exact native GUI/plugin/provider timing\"). The section text is normative (\"Require an 8+ day production authorization soak...\", \"Do not silently relabel a failed acceptance gate\", \"Every skipped required gate remains incomplete\"), and the approved-exception path the finding says is missing exists explicitly (\"a documented provider-approved equivalent\"; \"seek an explicit promise change before publication\"). No gate can be closed without them, so the claimed omission is not real."
+        },
+        {
+          "lens": "coherence",
+          "title": "Schema-5 is named ambiguously as both current state and cutover",
+          "why": "refuted - The document and repository both disambiguate. The plan states \"Current durable schema is 5,\" and repository inspection confirms it (packages/engine/src/open_brain_engine/engine/local_schema.py: PHASE1_STATE_SCHEMA_VERSION = 5; CLAUDE.md: \"Existing Brain state requires schema 5\"; docs/schema-migrations.md: \"older runtimes refuse schema 5\"). Since 5 is already the current state, \"cutover to schema 5\" is not a coherent reading. Line 75 settles it further: \"Migration proof must construct schema-5 fixtures through the existing replacement path\" — schema-5 is unambiguously the pre-migration corpus being migrated away from, which is also how A03 reads (\"Schema-5 durable-file migration inventory parity\"). The claimed ambiguity is not real."
+        }
+      ],
+      "doc": "docs/plans/2026-09-16-new-user-functionality.md"
+    }
+  ],
+  "disposition": {
+    "coherence_timeout": "resolved by one installed-runner retry",
+    "accepted_finding": "P3: standardize T05/A04 corpus boundary to at least 201 results",
+    "status": "corrected by coordinator",
+    "implementation": "not started",
+    "model_attempts": {
+      "design": 3,
+      "first_review": 3,
+      "retry_review": 4,
+      "total": 10,
+      "authorized_cap": 15
+    },
+    "limitations": [
+      "Initial feasibility/security findings failed verbatim-evidence checks; do not treat their absence as risk certification.",
+      "Multi-session operating model and explicit T03 cursor-key/untrusted-content proof obligations added by coordinator after reviewed draft.",
+      "No product tests, model downloads, native or provider acceptance performed during planning."
+    ]
+  }
+}
