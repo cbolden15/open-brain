@@ -109,6 +109,82 @@ def test_handshake_is_bounded_and_does_not_initialize_the_brain(tmp_path: Path) 
     assert not selection.brain_root.exists()
 
 
+def test_contract_discovery_omits_unimplemented_negotiated_tasks(tmp_path: Path) -> None:
+    selection = _selection(tmp_path)
+    assert _call(selection, "brain.initialize")["ok"] is True
+
+    response = _call(selection, "contract.describe")
+
+    assert response["ok"] is True
+    result = cast(dict[str, object], response["result"])
+    assert result["contract_version"] == "t03.v1"
+    assert result["operations"] == []
+
+
+def test_bridge_uses_shared_organization_and_publication_services(tmp_path: Path) -> None:
+    selection = _selection(tmp_path)
+    assert _call(selection, "brain.initialize")["ok"] is True
+    capture = cast(
+        dict[str, object],
+        _call(selection, "capture.create", {"text": "Synthetic publication source"})["result"],
+    )
+    space = cast(
+        dict[str, object],
+        _call(selection, "space.create", {"name": "Synthetic space"})["result"],
+    )
+    space_id = cast(dict[str, object], space["space"])["space_id"]
+    assert _call(
+        selection,
+        "inbox.route",
+        {"capture_id": capture["capture_id"], "space_id": space_id},
+    )["ok"] is True
+    proposed = cast(
+        dict[str, object],
+        _call(
+            selection,
+            "publication.propose",
+            {
+                "capture_ids": [capture["capture_id"]],
+                "title": "Synthetic publication",
+                "markdown": "Complete synthetic body",
+            },
+        )["result"],
+    )
+    shown = cast(
+        dict[str, object],
+        _call(
+            selection,
+            "publication.show",
+            {"proposal_id": proposed["proposal_id"]},
+        )["result"],
+    )
+    approved = cast(
+        dict[str, object],
+        _call(
+            selection,
+            "publication.approve",
+            {
+                "proposal_id": proposed["proposal_id"],
+                "review_token": shown["review_token"],
+            },
+        )["result"],
+    )
+
+    assert shown["markdown"] == "Complete synthetic body"
+    assert approved["status"] == "approved"
+    assert approved["page_id"] == proposed["page_id"]
+    stale = _call(
+        selection,
+        "publication.reject",
+        {
+            "proposal_id": proposed["proposal_id"],
+            "review_token": shown["review_token"],
+        },
+    )
+    assert stale["ok"] is False
+    assert cast(dict[str, object], stale["error"])["code"] == "terminal_decision"
+
+
 def test_status_is_non_mutating_for_empty_state_and_reports_initialized_state(
     tmp_path: Path,
 ) -> None:

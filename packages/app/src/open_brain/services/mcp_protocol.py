@@ -235,6 +235,18 @@ def _call_tool_response(
             "session_review_proposal_limit",
             "session_review_decision_limit",
             "session_review_response_limit",
+            "not_found",
+            "cursor_invalid",
+            "cursor_stale",
+            "revision_changed",
+            "preview_stale",
+            "operation_pending",
+            "source_revision_conflict",
+            "model_unavailable",
+            "projection_stale",
+            "invalid_arguments",
+            "unsupported_capability",
+            "incompatible_runtime",
         }:
             message = "tool call failed"
         return _result_response(

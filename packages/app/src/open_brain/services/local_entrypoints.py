@@ -93,6 +93,13 @@ from open_brain.services.space_inbox import (
     SpaceInboxService,
     validate_space_inbox_arguments,
 )
+from open_brain.services.t03_adapters import (
+    T03AppAdapter,
+    T03AppError,
+    agent_authority,
+    error_result,
+    owner_authority,
+)
 
 _DOCTOR_CHECKS = (
     "private-data-directory",
@@ -335,6 +342,12 @@ def _run_parsed_command(
         return _write_space_inbox_failure(error.code, json_output=json_output)
     except ReviewPublicationError as error:
         return _write_review_failure(error.code, json_output=json_output)
+    except T03AppError as error:
+        if json_output:
+            _write_json(error_result(error.code))
+        else:
+            print(error.code, file=sys.stderr)
+        return 2 if error.code == "invalid_arguments" else 1
     except LockBusyError:
         if _is_workspace_recovery(parsed):
             return _write_managed_recovery_failure(
@@ -422,6 +435,7 @@ def _parser() -> argparse.ArgumentParser:
     _add_local_options(search_parser)
     search_parser.add_argument("query", help="Text to find.")
     search_parser.add_argument("--limit", type=int, default=10, help="Return 1 to 100 results.")
+    _add_t03_parsers(subparsers)
     _add_space_inbox_parsers(subparsers)
     _add_review_parsers(subparsers)
     mcp_parser = subparsers.add_parser(
@@ -458,6 +472,16 @@ def _parser() -> argparse.ArgumentParser:
         "--allow-search",
         action="store_true",
         help="Allow whole-Brain reads; a network-backed client may send results to its provider.",
+    )
+    mcp_parser.add_argument(
+        "--allow-content-read",
+        action="store_true",
+        help="Allow complete projected record reads; returned text is untrusted data.",
+    )
+    mcp_parser.add_argument(
+        "--allow-history-read",
+        action="store_true",
+        help="Allow retained revision listings and reads under current authorization.",
     )
     mcp_parser.add_argument(
         "--allow-workspace-read",
@@ -515,6 +539,8 @@ def _parser() -> argparse.ArgumentParser:
     agent_setup_parser.add_argument("--project-dir")
     agent_setup_parser.add_argument("--allow-capture", action="store_true")
     agent_setup_parser.add_argument("--allow-search", action="store_true")
+    agent_setup_parser.add_argument("--allow-content-read", action="store_true")
+    agent_setup_parser.add_argument("--allow-history-read", action="store_true")
     agent_setup_parser.add_argument("--allow-inbox-read", action="store_true")
     agent_setup_parser.add_argument("--allow-organize", action="store_true")
     agent_setup_parser.add_argument("--allow-review-read", action="store_true")
@@ -664,6 +690,98 @@ def _validate_workspace_recovery_arguments(parsed: argparse.Namespace) -> None:
             raise ValueError("incomplete workspace abandonment")
     elif expected_digest is not None or request_id is not None:
         raise ValueError("owner decision arguments require abandonment")
+
+
+def _add_t03_parsers(
+    subparsers: argparse._SubParsersAction[_RedactedArgumentParser],
+) -> None:
+    search_page = subparsers.add_parser(
+        "search-page", help="Search one filtered, cursor-continuable result page."
+    )
+    _add_local_options(search_page)
+    search_page.add_argument("query")
+    search_page.add_argument("--space-id", action="append", dest="space_ids")
+    search_page.add_argument("--payload-family", action="append", dest="payload_families")
+    search_page.add_argument(
+        "--record-type", action="append", choices=("source", "canonical"), dest="record_types"
+    )
+    search_page.add_argument(
+        "--mode",
+        choices=("lexical", "hybrid_preferred", "hybrid_required"),
+        default="lexical",
+    )
+    search_page.add_argument("--limit", type=int, default=10)
+    search_page.add_argument("--cursor")
+
+    read = subparsers.add_parser("read", help="Read one complete projected record in chunks.")
+    _add_local_options(read)
+    read.add_argument("record_id")
+    read.add_argument("--expected-revision-id", required=True)
+    read.add_argument("--target-bytes", type=int, default=32_768)
+    read.add_argument("--cursor")
+
+    history = subparsers.add_parser("history", help="List or read retained record revisions.")
+    _add_local_options(history)
+    history_children = history.add_subparsers(dest="history_action", required=True)
+    history_list = history_children.add_parser("list")
+    _add_local_options(history_list)
+    history_list.add_argument("record_id")
+    history_list.add_argument("--limit", type=int, default=10)
+    history_list.add_argument("--cursor")
+    history_show = history_children.add_parser("show")
+    _add_local_options(history_show)
+    history_show.add_argument("record_id")
+    history_show.add_argument("--expected-revision-id", required=True)
+    history_show.add_argument("--target-bytes", type=int, default=32_768)
+    history_show.add_argument("--cursor")
+
+    source = subparsers.add_parser("source", help="Route a logical source with head/version CAS.")
+    _add_local_options(source)
+    source_children = source.add_subparsers(dest="source_action", required=True)
+    source_route = source_children.add_parser("route")
+    _add_local_options(source_route)
+    source_route.add_argument("source_id")
+    source_route.add_argument("space_id")
+    source_route.add_argument("--expected-head", required=True)
+    source_route.add_argument("--expected-route-version", required=True, type=int)
+    source_route.add_argument("--operation-id", required=True)
+
+    relationship = subparsers.add_parser(
+        "relationship", help="Owner-only revision-bound relationship decisions and listing."
+    )
+    _add_local_options(relationship)
+    relationship_children = relationship.add_subparsers(
+        dest="relationship_action", required=True
+    )
+    relationship_decide = relationship_children.add_parser("decide")
+    _add_local_options(relationship_decide)
+    for side in ("left", "right"):
+        relationship_decide.add_argument(f"--{side}-record-id", required=True)
+        relationship_decide.add_argument(f"--{side}-revision-id", required=True)
+    relationship_decide.add_argument(
+        "--kind", required=True, choices=("duplicate_of", "supersedes", "contradicts")
+    )
+    relationship_decide.add_argument(
+        "--decision", required=True, choices=("accept", "reject", "remove")
+    )
+    relationship_decide.add_argument(
+        "--expected-relationship-version", required=True, type=int
+    )
+    relationship_decide.add_argument("--operation-id", required=True)
+    relationship_list = relationship_children.add_parser("list")
+    _add_local_options(relationship_list)
+    relationship_list.add_argument("record_id")
+    relationship_list.add_argument("--limit", type=int, default=10)
+    relationship_list.add_argument("--cursor")
+
+    decision = subparsers.add_parser("decision", help="Read owner relationship decision history.")
+    _add_local_options(decision)
+    decision_children = decision.add_subparsers(dest="decision_action", required=True)
+    decision_history = decision_children.add_parser("history")
+    _add_local_options(decision_history)
+    decision_history.add_argument("record_id")
+    decision_history.add_argument("--limit", type=int, default=10)
+    decision_history.add_argument("--cursor")
 
 
 def _add_space_inbox_parsers(
@@ -970,6 +1088,8 @@ def _run_agent_setup(
         "action": parsed.action,
         "allow_capture": parsed.allow_capture,
         "allow_search": parsed.allow_search,
+        "allow_content_read": parsed.allow_content_read,
+        "allow_history_read": parsed.allow_history_read,
         "allow_inbox_read": parsed.allow_inbox_read,
         "allow_organize": parsed.allow_organize,
         "allow_review_read": parsed.allow_review_read,
@@ -993,6 +1113,102 @@ def _run_agent_setup(
     return 0
 
 
+def _t03_cli_request(parsed: argparse.Namespace) -> tuple[str, dict[str, object]]:
+    operation: str
+    arguments: dict[str, object] = {"dto_version": 1}
+    if parsed.command == "search-page":
+        operation = "search.page"
+        arguments.update(
+            query=parsed.query,
+            filters={
+                "space_ids": sorted(set(parsed.space_ids or [])),
+                "payload_families": sorted(set(parsed.payload_families or [])),
+                "record_types": sorted(set(parsed.record_types or [])),
+            },
+            mode=parsed.mode,
+            limit=parsed.limit,
+            cursor=parsed.cursor,
+        )
+    elif parsed.command == "read":
+        operation = "record.read"
+        arguments.update(
+            record_id=parsed.record_id,
+            expected_revision_id=parsed.expected_revision_id,
+            target_bytes=parsed.target_bytes,
+            cursor=parsed.cursor,
+        )
+    elif parsed.command == "history":
+        operation = "history.list" if parsed.history_action == "list" else "history.show"
+        arguments.update(record_id=parsed.record_id, cursor=parsed.cursor)
+        if parsed.history_action == "list":
+            arguments["limit"] = parsed.limit
+        else:
+            arguments.update(
+                expected_revision_id=parsed.expected_revision_id,
+                target_bytes=parsed.target_bytes,
+            )
+    elif parsed.command == "source":
+        operation = "source.route"
+        arguments.update(
+            source_id=parsed.source_id,
+            space_id=parsed.space_id,
+            expected_head=parsed.expected_head,
+            expected_route_version=parsed.expected_route_version,
+            operation_id=parsed.operation_id,
+        )
+    elif parsed.command == "relationship" and parsed.relationship_action == "decide":
+        operation = "relationship.decide"
+        arguments.update(
+            left={
+                "record_id": parsed.left_record_id,
+                "revision_id": parsed.left_revision_id,
+            },
+            right={
+                "record_id": parsed.right_record_id,
+                "revision_id": parsed.right_revision_id,
+            },
+            kind=parsed.kind,
+            decision=parsed.decision,
+            expected_relationship_version=parsed.expected_relationship_version,
+            operation_id=parsed.operation_id,
+        )
+    elif parsed.command == "relationship":
+        operation = "relationship.list"
+        arguments.update(record_id=parsed.record_id, limit=parsed.limit, cursor=parsed.cursor)
+    elif parsed.command == "decision":
+        operation = "decision.history"
+        arguments.update(record_id=parsed.record_id, limit=parsed.limit, cursor=parsed.cursor)
+    else:
+        raise T03AppError("invalid_arguments")
+    return operation, arguments
+
+
+def _run_t03_cli(
+    parsed: argparse.Namespace,
+    tasks: EngineTaskSet,
+    *,
+    json_output: bool,
+) -> int:
+    operation, arguments = _t03_cli_request(parsed)
+    adapter = T03AppAdapter(
+        tasks,
+        owner_authority(tasks, session_id="cli-" + str(uuid.uuid4())),
+        frozenset({"search", "content-read", "history-read", "organize"}),
+        owner=True,
+    )
+    result = adapter.invoke(operation, arguments)
+    if json_output:
+        _write_json(result)
+    elif operation in {"record.read", "history.show"}:
+        content = cast(dict[str, object], result["content"])
+        print(_terminal_markdown(cast(str, content["text"])))
+        if result["next_cursor"] is not None:
+            print(_terminal_text(f"Next cursor: {result['next_cursor']}"))
+    else:
+        print(_terminal_markdown(json.dumps(result, ensure_ascii=False, indent=2, sort_keys=True)))
+    return 0
+
+
 def _run_local_command(
     parsed: argparse.Namespace,
     session: LocalBrainSession,
@@ -1010,6 +1226,15 @@ def _run_local_command(
             json_output=json_output,
         )
     tasks = session.tasks
+    if parsed.command in {
+        "search-page",
+        "read",
+        "history",
+        "source",
+        "relationship",
+        "decision",
+    }:
+        return _run_t03_cli(parsed, tasks, json_output=json_output)
     if parsed.command in {"space", "inbox"}:
         return _run_space_inbox(parsed, SpaceInboxService(tasks.spaces), json_output=json_output)
     if parsed.command == "review":
@@ -1053,6 +1278,35 @@ def _run_local_command(
 
         organization = SpaceInboxService(tasks.spaces)
         review = ReviewPublicationService(tasks.review)
+        negotiated_grants = frozenset(
+            grant
+            for enabled, grant in (
+                (parsed.allow_search, "search"),
+                (parsed.allow_content_read, "content-read"),
+                (parsed.allow_history_read, "history-read"),
+                (parsed.allow_organize, "organize"),
+            )
+            if enabled
+        )
+        negotiated_candidate = (
+            T03AppAdapter(
+                tasks,
+                agent_authority(
+                    principal_id="open-brain-mcp-local",
+                    session_id="mcp-" + str(uuid.uuid4()),
+                    grants=negotiated_grants,
+                ),
+                negotiated_grants,
+            )
+            if negotiated_grants
+            else None
+        )
+        negotiated = (
+            negotiated_candidate
+            if negotiated_candidate is not None
+            and negotiated_candidate.available_operations()
+            else None
+        )
         adapter = LocalMcpAdapter(
             capture=mcp_capture_sink(tasks) if parsed.allow_capture else None,
             search=search if parsed.allow_search else None,
@@ -1069,6 +1323,7 @@ def _run_local_command(
             review_edit_and_approve=(
                 review.edit_and_approve if parsed.allow_review_decide else None
             ),
+            negotiated=negotiated,
             workspace_status=(
                 (lambda: workspace_status_result(tasks)) if parsed.allow_workspace_read else None
             ),

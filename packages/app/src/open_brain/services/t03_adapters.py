@@ -241,6 +241,21 @@ def owner_authority(tasks: object, *, session_id: str) -> object:
     )
 
 
+def agent_authority(
+    *, principal_id: str, session_id: str, grants: frozenset[str]
+) -> object:
+    """Construct one explicitly granted, unscoped local-agent authority."""
+    from open_brain_engine.engine.t03_contracts import EffectiveAuthority
+
+    return EffectiveAuthority(
+        principal_id=principal_id,
+        session_id=session_id,
+        capabilities=grants,
+        space_ids=None,
+        owner=False,
+    )
+
+
 def error_result(code: str) -> dict[str, object]:
     if code not in SAFE_ERROR_CODES:
         raise ValueError("invalid t03 error result")
@@ -255,6 +270,7 @@ __all__ = [
     "T03AppAdapter",
     "T03AppError",
     "T03SessionBudget",
+    "agent_authority",
     "error_result",
     "owner_authority",
 ]

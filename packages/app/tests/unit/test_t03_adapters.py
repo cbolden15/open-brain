@@ -1,12 +1,15 @@
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
+from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, cast
 
 import pytest
-from open_brain_engine.engine.t03_contracts import EffectiveAuthority, T03Error
+from open_brain_engine.engine.t03_contracts import EffectiveAuthority, T03Error, validate_wire
 
+from open_brain.services.local_mcp import LocalMcpAdapter
 from open_brain.services.t03_adapters import (
     MAX_CONTENT_BYTES,
     MAX_CONTENT_CALLS,
@@ -16,6 +19,7 @@ from open_brain.services.t03_adapters import (
 
 CAPTURE_ID = "capture_123e4567-e89b-42d3-a456-426614174100"
 SOURCE_ID = "source_123e4567-e89b-42d3-a456-426614174200"
+FIXTURE = Path(__file__).resolve().parents[1] / "fixtures/t06-client-api.json"
 
 
 def _summary() -> dict[str, object]:
@@ -155,3 +159,41 @@ def test_session_content_budgets_survive_errors_and_restart_with_new_adapter() -
     restarted.budget.content_bytes = MAX_CONTENT_BYTES
     with pytest.raises(T03AppError, match="^response_too_large$"):
         restarted.invoke("search.page", {"dto_version": 1, "query": "synthetic launch"})
+
+
+def test_mcp_registry_lists_only_negotiated_tools_and_keeps_content_typed() -> None:
+    negotiated = T03AppAdapter(
+        SimpleNamespace(retrieval=_Retrieval()),
+        _authority("search", "content-read"),
+        frozenset({"search", "content-read"}),
+    )
+    adapter = LocalMcpAdapter(negotiated=negotiated)
+
+    assert {tool["name"] for tool in adapter.list_tools()} == {
+        "brain_contract_describe",
+        "brain_search_page",
+        "brain_read",
+    }
+    described = adapter.call_tool("brain_contract_describe", {})
+    assert [row["name"] for row in described["operations"]] == ["search.page", "record.read"]
+    read = adapter.call_tool(
+        "brain_read",
+        {"dto_version": 1, "record_id": CAPTURE_ID, "expected_revision_id": CAPTURE_ID},
+    )
+    assert read["content"]["kind"] == "untrusted_text"
+
+
+def test_t06_client_fixture_reuses_frozen_wire_grammar_and_grant_names() -> None:
+    fixture = json.loads(FIXTURE.read_bytes())
+    assert fixture["frozen_contract_sha256"] == (
+        "868d3cd2ad6ce1fa7f375151df3a5cf7553ba3165c3fefa409fe95cb6258c37c"
+    )
+    for example in fixture["examples"]:
+        if "request_schema" in example:
+            validate_wire(example["request_schema"], example["request"])
+        if "response_schema" in example:
+            validate_wire(example["response_schema"], example["response"])
+    assert fixture["operations"]["record.read"] == "content-read"
+    assert fixture["operations"]["history.show"] == "history-read"
+    assert fixture["operations"]["source.route"] == "organize"
+    assert fixture["examples"][1]["response"]["content"]["kind"] == "untrusted_text"
