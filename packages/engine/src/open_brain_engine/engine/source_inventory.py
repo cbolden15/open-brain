@@ -7,21 +7,20 @@ import json
 import sqlite3
 from dataclasses import dataclass
 from hashlib import sha256
+from pathlib import Path
 from typing import Any
-from uuid import NAMESPACE_URL, uuid5
 
 from open_brain_engine.core.ids import portable_canonical_json_bytes
+from open_brain_engine.portable.managed_v2 import validate_portable_file_set_v2
 from open_brain_engine.portable.v1 import validate_portable_file_set
 from open_brain_engine.portable.v3 import validate_portable_file_set_v3
+from open_brain_engine.portable.v4 import canonical_revision_id
+from open_brain_engine.storage.filesystem import capture_root_identity, read_confined
 from open_brain_engine.storage.markdown import parse_markdown
 
 from .contracts import LocalEngineContext
 from .portability_ports import LocalTenantStorage
 from .t03_contracts import T03Error
-
-
-def canonical_revision_id(publication_id: str) -> str:
-    return "revision_" + str(uuid5(NAMESPACE_URL, "open-brain-publication:" + publication_id))
 
 
 @dataclass(frozen=True, slots=True)
@@ -61,11 +60,12 @@ def inventory_sources(
             path: payload
             for path, payload in files.items()
             if (path == "brain.toml" or path.startswith(("content/", "history/", "sources/")))
-            and not path.startswith("history/managed-workspace/")
         }
         validator = (
             validate_portable_file_set_v3
             if any(path.startswith("history/review-bindings/") for path in portable)
+            else validate_portable_file_set_v2
+            if any(path.startswith("history/managed-workspace/") for path in portable)
             else validate_portable_file_set
         )
         validator(portable, tenant_id=profile.tenant_id)
@@ -109,7 +109,14 @@ def inventory_sources(
                     )
                     if stored.get("owner_context") != expected_context:
                         raise ValueError("capture authority evidence conflicts")
-                    stored = dict(stored, owner_context=record[field]["owner_context"])
+                    durable_context = (
+                        "automation_absent"
+                        if row["source_origin"] == "third_party"
+                        else "owner_authored"
+                    )
+                    if record[field]["owner_context"] != durable_context:
+                        raise ValueError("capture authority evidence conflicts")
+                    stored = dict(stored, owner_context=durable_context)
                 if stored != record[field]:
                     raise ValueError("capture authority evidence conflicts")
             if row["intent"] != record["intent"] or row["capture_why"] != record["capture_why"]:
@@ -182,3 +189,73 @@ def inventory_sources(
         return DurableSourceInventory(files, captures, current, aliases, tuple(memberships))
     except ValueError, TypeError, KeyError, sqlite3.Error, OSError:
         raise T03Error("operation_pending") from None
+
+
+def inventory_private_state(connection: sqlite3.Connection) -> dict[str, object]:
+    """Hash all historical SQL, validating private managed bytes and root bindings.
+
+    These operational receipts remain private. They are never source identity evidence
+    and are not serialized into Portable metadata.
+    """
+    if connection.execute("PRAGMA quick_check").fetchone()[0] != "ok":
+        raise T03Error("operation_pending")
+    if connection.execute("PRAGMA foreign_key_check").fetchone() is not None:
+        raise T03Error("operation_pending")
+    tables: dict[str, object] = {}
+    for row in connection.execute(
+        "SELECT name FROM sqlite_master WHERE type='table' ORDER BY name"
+    ):
+        table = str(row[0])
+        if not table.replace("_", "").isalnum():
+            raise T03Error("operation_pending")
+        if table in {"schema_migrations", "runtime_compatibility"}:
+            continue
+        encoded_rows = []
+        for values in connection.execute(f'SELECT * FROM "{table}"'):
+            encoded_rows.append(
+                portable_canonical_json_bytes(
+                    [
+                        {"blob": base64.b64encode(value).decode()}
+                        if isinstance(value, bytes)
+                        else value
+                        for value in values
+                    ]
+                )
+            )
+        digest = sha256(b"\n".join(sorted(encoded_rows))).hexdigest()
+        tables[table] = {"rows": len(encoded_rows), "sha256": digest}
+    for row in connection.execute("SELECT body_bytes,body_sha256 FROM managed_note_revisions"):
+        if sha256(row[0]).hexdigest() != row[1]:
+            raise T03Error("operation_pending")
+    for row in connection.execute(
+        "SELECT candidate_body_bytes,candidate_sha256 FROM managed_conflicts"
+    ):
+        if sha256(row[0]).hexdigest() != row[1]:
+            raise T03Error("operation_pending")
+    managed_files = []
+    for workspace in connection.execute("SELECT * FROM managed_workspaces"):
+        if workspace["root_path"] is None:
+            continue
+        root = Path(workspace["root_path"])
+        identity = (int(workspace["device"]), int(workspace["inode"]))
+        if capture_root_identity(root) != identity:
+            raise T03Error("operation_pending")
+        for row in connection.execute(
+            "SELECT note_id,relative_path FROM managed_notes WHERE workspace_id=? AND active=1",
+            (workspace["workspace_id"],),
+        ):
+            if row["relative_path"] is None:
+                continue
+            payload = read_confined(
+                root=root, relative=row["relative_path"], expected_root_identity=identity
+            )
+            if payload is None:
+                raise T03Error("operation_pending")
+            managed_files.append(
+                {
+                    "note_id": row["note_id"],
+                    "bytes": len(payload),
+                    "sha256": sha256(payload).hexdigest(),
+                }
+            )
+    return {"tables": tables, "managed_files": managed_files}

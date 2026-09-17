@@ -44,15 +44,15 @@ def _private_file(directory: int, name: str, *, create: bool = False) -> int:
     return descriptor
 
 
-@dataclass(slots=True)
+@dataclass(frozen=True, slots=True)
 class HeldRuntimeAdmission:
     profile: LocalEngineContext
     descriptor: int
-    active: bool = True
+    live_peer_count: int = 0
 
     def validate(self, profile: LocalEngineContext) -> None:
         if (
-            not self.active
+            _ACTIVE.get() is not self
             or self.profile.root != profile.root
             or self.profile.root_identity != profile.root_identity
         ):
@@ -68,15 +68,10 @@ class HeldRuntimeAdmission:
             observed = os.fstat(probe)
             if (held.st_dev, held.st_ino) != (observed.st_dev, observed.st_ino):
                 raise T03Error("operation_pending")
-            try:
-                fcntl.flock(probe, fcntl.LOCK_EX | fcntl.LOCK_NB)
-            except OSError as error:
-                if error.errno in {errno.EAGAIN, errno.EACCES}:
-                    return
-                raise
-            # An unlocked or released descriptor is not a capability.
-            fcntl.flock(probe, fcntl.LOCK_UN)
-            raise T03Error("operation_pending")
+            # flock on this descriptor proves/acquires its own ownership, not another holder.
+            fcntl.flock(self.descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except OSError:
+            raise T03Error("operation_pending") from None
         finally:
             for descriptor in (probe, directory, state, root):
                 if descriptor >= 0:
@@ -84,38 +79,38 @@ class HeldRuntimeAdmission:
 
 
 @contextmanager
-def attest_runtime_admission(profile: LocalEngineContext, descriptor: int) -> Iterator[None]:
-    proof = HeldRuntimeAdmission(profile, descriptor)
-    proof.validate(profile)
-    token = _ACTIVE.set(proof)
-    try:
-        yield
-    finally:
-        proof.active = False
-        _ACTIVE.reset(token)
+def hold_runtime_registry(
+    profile: LocalEngineContext,
+    directory: int,
+    descriptor: int,
+) -> Iterator[HeldRuntimeAdmission]:
+    """Acquire the actual descriptor before issuing a lifetime-bound capability.
 
-
-@contextmanager
-def exclusive_runtime_admission(profile: LocalEngineContext) -> Iterator[HeldRuntimeAdmission]:
-    existing = _ACTIVE.get()
-    if existing is not None:
-        existing.validate(profile)
-        yield existing
-        return
-    root = state = directory = registry = -1
+    App callers enter before creating their own session marker. The captured peer count
+    therefore excludes only that future session, never an arbitrary existing marker.
+    """
     locked = False
+    token = None
     try:
-        root = _open_root(profile.root, profile.root_identity)
-        state = _open_child_directory(root, ".open-brain", create=True)
-        directory = _open_child_directory(state, "runtime-sessions", create=True)
-        metadata = os.fstat(directory)
-        if metadata.st_uid != os.getuid() or stat.S_IMODE(metadata.st_mode) != 0o700:
-            raise T03Error("operation_pending")
-        registry = _private_file(directory, "registry.lock", create=True)
+        root = state = expected = -1
+        try:
+            root = _open_root(profile.root, profile.root_identity)
+            state = _open_child_directory(root, ".open-brain", create=False)
+            expected = _open_child_directory(state, "runtime-sessions", create=False)
+            actual_info, expected_info = os.fstat(directory), os.fstat(expected)
+            if (actual_info.st_dev, actual_info.st_ino) != (
+                expected_info.st_dev,
+                expected_info.st_ino,
+            ):
+                raise T03Error("operation_pending")
+        finally:
+            for handle in (expected, state, root):
+                if handle >= 0:
+                    os.close(handle)
         deadline = time.monotonic() + 2
         while True:
             try:
-                fcntl.flock(registry, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
                 locked = True
                 break
             except OSError as error:
@@ -124,6 +119,7 @@ def exclusive_runtime_admission(profile: LocalEngineContext) -> Iterator[HeldRun
                 if time.monotonic() >= deadline:
                     raise T03Error("operation_pending") from None
                 time.sleep(0.01)
+        peers = 0
         for name in os.listdir(directory):
             if name in {"registry.lock", "registry-version", "registry-version.pending"}:
                 continue
@@ -133,20 +129,52 @@ def exclusive_runtime_admission(profile: LocalEngineContext) -> Iterator[HeldRun
             try:
                 try:
                     fcntl.flock(session, fcntl.LOCK_EX | fcntl.LOCK_NB)
-                except OSError:
-                    raise T03Error("operation_pending") from None
-                fcntl.flock(session, fcntl.LOCK_UN)
+                except OSError as error:
+                    if error.errno not in {errno.EAGAIN, errno.EACCES}:
+                        raise
+                    peers += 1
+                else:
+                    fcntl.flock(session, fcntl.LOCK_UN)
             finally:
                 os.close(session)
-        with attest_runtime_admission(profile, registry):
-            proof = _ACTIVE.get()
-            assert proof is not None
+        proof = HeldRuntimeAdmission(profile, descriptor, peers)
+        token = _ACTIVE.set(proof)
+        proof.validate(profile)
+        yield proof
+    except OSError:
+        raise T03Error("operation_pending") from None
+    finally:
+        if token is not None:
+            _ACTIVE.reset(token)
+        if locked:
+            fcntl.flock(descriptor, fcntl.LOCK_UN)
+
+
+@contextmanager
+def exclusive_runtime_admission(profile: LocalEngineContext) -> Iterator[HeldRuntimeAdmission]:
+    existing = _ACTIVE.get()
+    if existing is not None:
+        existing.validate(profile)
+        if existing.live_peer_count:
+            raise T03Error("operation_pending")
+        yield existing
+        return
+    root = state = directory = registry = -1
+    try:
+        root = _open_root(profile.root, profile.root_identity)
+        state = _open_child_directory(root, ".open-brain", create=True)
+        directory = _open_child_directory(state, "runtime-sessions", create=True)
+        metadata = os.fstat(directory)
+        if metadata.st_uid != os.getuid() or stat.S_IMODE(metadata.st_mode) != 0o700:
+            raise T03Error("operation_pending")
+        registry = _private_file(directory, "registry.lock", create=True)
+        with hold_runtime_registry(profile, directory, registry) as proof:
+            if proof.live_peer_count:
+                raise T03Error("operation_pending")
             yield proof
     except OSError:
         raise T03Error("operation_pending") from None
     finally:
-        if locked:
-            fcntl.flock(registry, fcntl.LOCK_UN)
         for descriptor in (registry, directory, state, root):
             if descriptor >= 0:
                 os.close(descriptor)

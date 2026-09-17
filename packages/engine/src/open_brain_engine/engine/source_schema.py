@@ -10,7 +10,8 @@ CREATE TABLE logical_sources (
  head_version INTEGER NOT NULL CHECK(head_version >= 1),
  lifecycle TEXT NOT NULL CHECK(lifecycle IN ('active','retired')),
  availability TEXT NOT NULL CHECK(availability IN ('available','missing','inaccessible','unknown')),
- FOREIGN KEY(head_capture_id) REFERENCES source_revisions(capture_id) DEFERRABLE INITIALLY DEFERRED
+ FOREIGN KEY(source_id,head_capture_id)
+ REFERENCES source_revisions(source_id,capture_id) DEFERRABLE INITIALLY DEFERRED
 )
     """.strip(),
     """
@@ -20,9 +21,17 @@ CREATE TABLE source_revisions (
  sequence INTEGER NOT NULL CHECK(sequence >= 1), predecessor_capture_id TEXT,
  source_path TEXT NOT NULL UNIQUE, source_sha256 TEXT NOT NULL CHECK(length(source_sha256)=64),
  source_bytes BLOB NOT NULL, request_sha256 TEXT, revision_key TEXT,
+ ordering_json TEXT,
  recorded_at TEXT NOT NULL, diagnostic TEXT,
- UNIQUE(source_id,sequence), UNIQUE(source_id,revision_key),
- FOREIGN KEY(predecessor_capture_id) REFERENCES source_revisions(capture_id)
+ UNIQUE(source_id,sequence), UNIQUE(source_id,revision_key), UNIQUE(source_id,capture_id),
+ FOREIGN KEY(source_id,predecessor_capture_id) REFERENCES source_revisions(source_id,capture_id)
+)
+    """.strip(),
+    """
+CREATE TABLE source_namespaces (
+ namespace_sha256 TEXT PRIMARY KEY CHECK(length(namespace_sha256)=64),
+ namespace_json TEXT NOT NULL UNIQUE,
+ source_id TEXT NOT NULL UNIQUE REFERENCES logical_sources(source_id)
 )
     """.strip(),
     """
