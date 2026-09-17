@@ -1,0 +1,1043 @@
+{
+  "format": "t03-closed-schema-v1",
+  "definitions": {
+    "cursor": {
+      "anyOf": [
+        {
+          "type": "null"
+        },
+        {
+          "type": "string",
+          "min": 1,
+          "max": 128
+        }
+      ]
+    },
+    "provenance": {
+      "type": "object",
+      "properties": {
+        "representative_capture_id": {
+          "type": "string",
+          "id_prefixes": [
+            "capture"
+          ]
+        },
+        "capture_ids": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "id_prefixes": [
+              "capture"
+            ]
+          },
+          "min": 1,
+          "max": 32,
+          "unique": true
+        },
+        "source_origin": {
+          "enum": [
+            "owner_authored",
+            "third_party",
+            "mixed",
+            "unknown"
+          ]
+        }
+      },
+      "optional": []
+    },
+    "summary": {
+      "type": "object",
+      "properties": {
+        "record_id": {
+          "type": "string",
+          "id_prefixes": [
+            "capture",
+            "page"
+          ]
+        },
+        "record_type": {
+          "enum": [
+            "source",
+            "canonical"
+          ]
+        },
+        "revision_id": {
+          "type": "string",
+          "id_prefixes": [
+            "capture",
+            "revision"
+          ]
+        },
+        "source_id": {
+          "anyOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "string",
+              "id_prefixes": [
+                "source"
+              ]
+            }
+          ]
+        },
+        "payload_family": {
+          "enum": [
+            "text",
+            "event",
+            "measurement",
+            "reference_or_file"
+          ]
+        },
+        "space_id": {
+          "anyOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "string",
+              "id_prefixes": [
+                "space"
+              ]
+            }
+          ]
+        },
+        "title": {
+          "type": "string"
+        },
+        "excerpt": {
+          "type": "string"
+        },
+        "trust": {
+          "enum": [
+            "owner",
+            "third_party",
+            "reviewed",
+            "unverified"
+          ]
+        },
+        "provenance": {
+          "ref": "provenance"
+        },
+        "source_update_available": {
+          "type": "boolean"
+        }
+      },
+      "optional": []
+    },
+    "filters": {
+      "type": "object",
+      "properties": {
+        "space_ids": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "id_prefixes": [
+              "space"
+            ]
+          },
+          "min": 0,
+          "max": 100,
+          "unique": true
+        },
+        "payload_families": {
+          "type": "array",
+          "items": {
+            "enum": [
+              "text",
+              "event",
+              "measurement",
+              "reference_or_file"
+            ]
+          },
+          "min": 0,
+          "max": 4,
+          "unique": true
+        },
+        "record_types": {
+          "type": "array",
+          "items": {
+            "enum": [
+              "source",
+              "canonical"
+            ]
+          },
+          "min": 0,
+          "max": 2,
+          "unique": true
+        }
+      },
+      "optional": []
+    },
+    "search.page.request": {
+      "type": "object",
+      "properties": {
+        "dto_version": {
+          "enum": [
+            1
+          ]
+        },
+        "query": {
+          "type": "string",
+          "min": 1,
+          "max": 500,
+          "format": "query"
+        },
+        "filters": {
+          "ref": "filters"
+        },
+        "mode": {
+          "enum": [
+            "lexical",
+            "hybrid_preferred",
+            "hybrid_required"
+          ]
+        },
+        "limit": {
+          "type": "integer",
+          "min": 1,
+          "max": 100
+        },
+        "cursor": {
+          "ref": "cursor"
+        }
+      },
+      "optional": [
+        "filters",
+        "mode",
+        "limit",
+        "cursor"
+      ]
+    },
+    "search.page.response": {
+      "type": "object",
+      "properties": {
+        "status": {
+          "enum": [
+            "ok"
+          ]
+        },
+        "dto_version": {
+          "enum": [
+            1
+          ]
+        },
+        "next_cursor": {
+          "ref": "cursor"
+        },
+        "complete": {
+          "type": "boolean"
+        },
+        "results": {
+          "type": "array",
+          "items": {
+            "ref": "summary"
+          },
+          "min": 0,
+          "max": 100,
+          "unique": false
+        },
+        "mode_used": {
+          "enum": [
+            "lexical",
+            "hybrid"
+          ]
+        },
+        "warnings": {
+          "type": "array",
+          "items": {
+            "enum": [
+              "model_unavailable",
+              "projection_stale"
+            ]
+          },
+          "min": 0,
+          "max": 1,
+          "unique": true
+        }
+      },
+      "optional": []
+    },
+    "record.read.request": {
+      "type": "object",
+      "properties": {
+        "dto_version": {
+          "enum": [
+            1
+          ]
+        },
+        "record_id": {
+          "type": "string",
+          "id_prefixes": [
+            "capture",
+            "page"
+          ]
+        },
+        "expected_revision_id": {
+          "type": "string",
+          "id_prefixes": [
+            "capture",
+            "revision"
+          ]
+        },
+        "target_bytes": {
+          "type": "integer",
+          "min": 1,
+          "max": 65536
+        },
+        "cursor": {
+          "ref": "cursor"
+        }
+      },
+      "optional": [
+        "target_bytes",
+        "cursor"
+      ]
+    },
+    "record.read.response": {
+      "type": "object",
+      "properties": {
+        "status": {
+          "enum": [
+            "ok"
+          ]
+        },
+        "dto_version": {
+          "enum": [
+            1
+          ]
+        },
+        "next_cursor": {
+          "ref": "cursor"
+        },
+        "complete": {
+          "type": "boolean"
+        },
+        "record": {
+          "ref": "summary"
+        },
+        "content": {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "enum": [
+                "untrusted_text"
+              ]
+            },
+            "text": {
+              "type": "string"
+            }
+          },
+          "optional": []
+        },
+        "start_byte": {
+          "type": "integer",
+          "min": 0,
+          "max": 9007199254740991
+        },
+        "end_byte": {
+          "type": "integer",
+          "min": 0,
+          "max": 9007199254740991
+        }
+      },
+      "optional": []
+    },
+    "history.list.request": {
+      "type": "object",
+      "properties": {
+        "dto_version": {
+          "enum": [
+            1
+          ]
+        },
+        "record_id": {
+          "type": "string",
+          "id_prefixes": [
+            "capture",
+            "page"
+          ]
+        },
+        "limit": {
+          "type": "integer",
+          "min": 1,
+          "max": 100
+        },
+        "cursor": {
+          "ref": "cursor"
+        }
+      },
+      "optional": [
+        "limit",
+        "cursor"
+      ]
+    },
+    "entry": {
+      "type": "object",
+      "properties": {
+        "revision_id": {
+          "type": "string",
+          "id_prefixes": [
+            "capture",
+            "revision"
+          ]
+        },
+        "predecessor_revision_id": {
+          "anyOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "string",
+              "id_prefixes": [
+                "capture",
+                "revision"
+              ]
+            }
+          ]
+        },
+        "recorded_at": {
+          "type": "string",
+          "format": "timestamp"
+        },
+        "reason": {
+          "type": "string"
+        },
+        "lifecycle": {
+          "enum": [
+            "active",
+            "retired"
+          ]
+        },
+        "availability": {
+          "enum": [
+            "available",
+            "missing",
+            "inaccessible",
+            "unknown"
+          ]
+        },
+        "is_current": {
+          "type": "boolean"
+        },
+        "provenance": {
+          "ref": "provenance"
+        }
+      },
+      "optional": []
+    },
+    "history.list.response": {
+      "type": "object",
+      "properties": {
+        "status": {
+          "enum": [
+            "ok"
+          ]
+        },
+        "dto_version": {
+          "enum": [
+            1
+          ]
+        },
+        "next_cursor": {
+          "ref": "cursor"
+        },
+        "complete": {
+          "type": "boolean"
+        },
+        "entries": {
+          "type": "array",
+          "items": {
+            "ref": "entry"
+          },
+          "min": 0,
+          "max": 100,
+          "unique": false
+        }
+      },
+      "optional": []
+    },
+    "history.show.request": {
+      "type": "object",
+      "properties": {
+        "dto_version": {
+          "enum": [
+            1
+          ]
+        },
+        "record_id": {
+          "type": "string",
+          "id_prefixes": [
+            "capture",
+            "page"
+          ]
+        },
+        "expected_revision_id": {
+          "type": "string",
+          "id_prefixes": [
+            "capture",
+            "revision"
+          ]
+        },
+        "target_bytes": {
+          "type": "integer",
+          "min": 1,
+          "max": 65536
+        },
+        "cursor": {
+          "ref": "cursor"
+        }
+      },
+      "optional": [
+        "target_bytes",
+        "cursor"
+      ]
+    },
+    "history.show.response": {
+      "type": "object",
+      "properties": {
+        "status": {
+          "enum": [
+            "ok"
+          ]
+        },
+        "dto_version": {
+          "enum": [
+            1
+          ]
+        },
+        "next_cursor": {
+          "ref": "cursor"
+        },
+        "complete": {
+          "type": "boolean"
+        },
+        "record": {
+          "ref": "summary"
+        },
+        "content": {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "enum": [
+                "untrusted_text"
+              ]
+            },
+            "text": {
+              "type": "string"
+            }
+          },
+          "optional": []
+        },
+        "start_byte": {
+          "type": "integer",
+          "min": 0,
+          "max": 9007199254740991
+        },
+        "end_byte": {
+          "type": "integer",
+          "min": 0,
+          "max": 9007199254740991
+        }
+      },
+      "optional": []
+    },
+    "error": {
+      "type": "object",
+      "properties": {
+        "status": {
+          "enum": [
+            "error"
+          ]
+        },
+        "error": {
+          "type": "object",
+          "properties": {
+            "code": {
+              "enum": [
+                "not_found",
+                "cursor_invalid",
+                "cursor_stale",
+                "revision_changed",
+                "preview_stale",
+                "operation_pending",
+                "source_revision_conflict",
+                "model_unavailable",
+                "projection_stale",
+                "invalid_arguments",
+                "unsupported_capability",
+                "incompatible_runtime",
+                "response_too_large"
+              ]
+            }
+          },
+          "optional": []
+        }
+      },
+      "optional": []
+    },
+    "contract.describe.request": {
+      "type": "object",
+      "properties": {},
+      "optional": []
+    },
+    "contract.describe.response": {
+      "type": "object",
+      "properties": {
+        "status": {
+          "enum": [
+            "ok"
+          ]
+        },
+        "contract_version": {
+          "enum": [
+            "t03.v1"
+          ]
+        },
+        "operations": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "name": {
+                "enum": [
+                  "search.page",
+                  "record.read",
+                  "history.list",
+                  "history.show",
+                  "source.route"
+                ]
+              },
+              "dto_version": {
+                "enum": [
+                  1
+                ]
+              },
+              "required_grants": {
+                "type": "array",
+                "items": {
+                  "enum": [
+                    "search",
+                    "content-read",
+                    "history-read",
+                    "organize"
+                  ]
+                },
+                "min": 1,
+                "max": 1,
+                "unique": true
+              }
+            },
+            "optional": []
+          },
+          "min": 0,
+          "max": 5,
+          "unique": true
+        },
+        "limits": {
+          "type": "object",
+          "properties": {
+            "request_bytes": {
+              "enum": [
+                65536
+              ]
+            },
+            "response_bytes": {
+              "enum": [
+                1048576
+              ]
+            },
+            "content_calls": {
+              "enum": [
+                500
+              ]
+            },
+            "content_bytes": {
+              "enum": [
+                16777216
+              ]
+            },
+            "history_calls": {
+              "enum": [
+                500
+              ]
+            },
+            "history_bytes": {
+              "enum": [
+                16777216
+              ]
+            }
+          },
+          "optional": []
+        }
+      },
+      "optional": []
+    },
+    "source.route.request": {
+      "type": "object",
+      "properties": {
+        "dto_version": {
+          "enum": [
+            1
+          ]
+        },
+        "source_id": {
+          "type": "string",
+          "id_prefixes": [
+            "source"
+          ]
+        },
+        "space_id": {
+          "type": "string",
+          "id_prefixes": [
+            "space"
+          ]
+        },
+        "expected_head": {
+          "type": "string",
+          "id_prefixes": [
+            "capture"
+          ]
+        },
+        "expected_route_version": {
+          "type": "integer",
+          "min": 0,
+          "max": 9007199254740991
+        },
+        "operation_id": {
+          "type": "string",
+          "id_prefixes": [
+            "operation"
+          ]
+        }
+      },
+      "optional": []
+    },
+    "source.route.response": {
+      "type": "object",
+      "properties": {
+        "status": {
+          "enum": [
+            "ok"
+          ]
+        },
+        "dto_version": {
+          "enum": [
+            1
+          ]
+        },
+        "source_id": {
+          "type": "string",
+          "id_prefixes": [
+            "source"
+          ]
+        },
+        "head": {
+          "type": "string",
+          "id_prefixes": [
+            "capture"
+          ]
+        },
+        "route_version": {
+          "type": "integer",
+          "min": 1,
+          "max": 9007199254740991
+        }
+      },
+      "optional": []
+    },
+    "endpoint": {
+      "type": "object",
+      "properties": {
+        "record_id": {
+          "type": "string",
+          "id_prefixes": [
+            "capture",
+            "page"
+          ]
+        },
+        "revision_id": {
+          "type": "string",
+          "id_prefixes": [
+            "capture",
+            "revision"
+          ]
+        }
+      },
+      "optional": []
+    },
+    "relationship.decide.request": {
+      "type": "object",
+      "properties": {
+        "dto_version": {
+          "enum": [
+            1
+          ]
+        },
+        "left": {
+          "ref": "endpoint"
+        },
+        "right": {
+          "ref": "endpoint"
+        },
+        "kind": {
+          "enum": [
+            "duplicate_of",
+            "supersedes",
+            "contradicts"
+          ]
+        },
+        "decision": {
+          "enum": [
+            "accept",
+            "reject",
+            "remove"
+          ]
+        },
+        "expected_relationship_version": {
+          "type": "integer",
+          "min": 0,
+          "max": 9007199254740991
+        },
+        "operation_id": {
+          "type": "string",
+          "id_prefixes": [
+            "operation"
+          ]
+        }
+      },
+      "optional": []
+    },
+    "relationship.decide.response": {
+      "type": "object",
+      "properties": {
+        "status": {
+          "enum": [
+            "ok"
+          ]
+        },
+        "dto_version": {
+          "enum": [
+            1
+          ]
+        },
+        "relationship_id": {
+          "type": "string",
+          "id_prefixes": [
+            "relationship"
+          ]
+        },
+        "decision_id": {
+          "type": "string",
+          "id_prefixes": [
+            "decision"
+          ]
+        },
+        "version": {
+          "type": "integer",
+          "min": 1,
+          "max": 9007199254740991
+        }
+      },
+      "optional": []
+    },
+    "relationship.entry": {
+      "type": "object",
+      "properties": {
+        "relationship_id": {
+          "type": "string",
+          "id_prefixes": [
+            "relationship"
+          ]
+        },
+        "left": {
+          "ref": "endpoint"
+        },
+        "right": {
+          "ref": "endpoint"
+        },
+        "kind": {
+          "enum": [
+            "duplicate_of",
+            "supersedes",
+            "contradicts"
+          ]
+        },
+        "status": {
+          "enum": [
+            "accepted",
+            "rejected",
+            "removed"
+          ]
+        },
+        "version": {
+          "type": "integer",
+          "min": 1,
+          "max": 9007199254740991
+        }
+      },
+      "optional": []
+    },
+    "decision.entry": {
+      "type": "object",
+      "properties": {
+        "decision_id": {
+          "type": "string",
+          "id_prefixes": [
+            "decision"
+          ]
+        },
+        "relationship_id": {
+          "type": "string",
+          "id_prefixes": [
+            "relationship"
+          ]
+        },
+        "decision": {
+          "enum": [
+            "accept",
+            "reject",
+            "remove"
+          ]
+        },
+        "version": {
+          "type": "integer",
+          "min": 1,
+          "max": 9007199254740991
+        },
+        "recorded_at": {
+          "type": "string",
+          "format": "timestamp"
+        }
+      },
+      "optional": []
+    },
+    "relationship.list.request": {
+      "type": "object",
+      "properties": {
+        "dto_version": {
+          "enum": [
+            1
+          ]
+        },
+        "record_id": {
+          "type": "string",
+          "id_prefixes": [
+            "capture",
+            "page"
+          ]
+        },
+        "limit": {
+          "type": "integer",
+          "min": 1,
+          "max": 100
+        },
+        "cursor": {
+          "ref": "cursor"
+        }
+      },
+      "optional": [
+        "limit",
+        "cursor"
+      ]
+    },
+    "relationship.list.response": {
+      "type": "object",
+      "properties": {
+        "status": {
+          "enum": [
+            "ok"
+          ]
+        },
+        "dto_version": {
+          "enum": [
+            1
+          ]
+        },
+        "entries": {
+          "type": "array",
+          "items": {
+            "ref": "relationship.entry"
+          },
+          "min": 0,
+          "max": 100,
+          "unique": false
+        },
+        "next_cursor": {
+          "ref": "cursor"
+        },
+        "complete": {
+          "type": "boolean"
+        }
+      },
+      "optional": []
+    },
+    "decision.history.request": {
+      "type": "object",
+      "properties": {
+        "dto_version": {
+          "enum": [
+            1
+          ]
+        },
+        "record_id": {
+          "type": "string",
+          "id_prefixes": [
+            "capture",
+            "page"
+          ]
+        },
+        "limit": {
+          "type": "integer",
+          "min": 1,
+          "max": 100
+        },
+        "cursor": {
+          "ref": "cursor"
+        }
+      },
+      "optional": [
+        "limit",
+        "cursor"
+      ]
+    },
+    "decision.history.response": {
+      "type": "object",
+      "properties": {
+        "status": {
+          "enum": [
+            "ok"
+          ]
+        },
+        "dto_version": {
+          "enum": [
+            1
+          ]
+        },
+        "entries": {
+          "type": "array",
+          "items": {
+            "ref": "decision.entry"
+          },
+          "min": 0,
+          "max": 100,
+          "unique": false
+        },
+        "next_cursor": {
+          "ref": "cursor"
+        },
+        "complete": {
+          "type": "boolean"
+        }
+      },
+      "optional": []
+    }
+  },
+  "grants": {
+    "search.page": "search",
+    "record.read": "content-read",
+    "history.list": "history-read",
+    "history.show": "history-read",
+    "source.route": "organize"
+  }
+}
