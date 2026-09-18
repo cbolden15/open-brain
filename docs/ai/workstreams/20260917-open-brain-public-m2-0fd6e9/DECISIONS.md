@@ -20,4 +20,8 @@ M2 implementation and automated/native verification are recorded in [M2-CHECKPOI
 
 Relationship decisions retain exact revision endpoints and append-only decisions in an optional, independently versioned Portable 4 sidecar. A distinct supported catalog digest preserves validation of prior source-only v4 exports. Existing schema 7 DDL and frozen task/bridge artifacts are unchanged. New Portable 4 restore remains excluded.
 
-Verification retains the complete suite at the application checkpoint and reruns affected native gates after the smoke-only compatibility repair. The parent corrected a proof-checker field-name mismatch without changing the product or rebuilding unchanged artifacts. Native GUI acceptance remains an observed manual gate; the ready artifact/profile does not certify that gate.
+Verification retains the complete suite at the application checkpoint and reruns affected native gates after the smoke-only compatibility repair. The parent corrected a proof-checker field-name mismatch without changing the product or rebuilding unchanged artifacts. Obsidian GUI acceptance remains an observed manual gate; the ready artifact/profile does not certify that gate. Desktop GUI acceptance is deferred by the subsequent user decision below.
+
+## Core delivery priority, 2026-09-17
+
+User direction supersedes desktop release/GUI gating: prioritize CLI and MCP, preserve completed desktop work, defer further desktop features and release preparation, and keep shared-engine verification, compatibility checks and Obsidian scope. The plan records desktop-only deferrals across T07, T11–T14, T18–T21 and T23. No M3 implementation or publication is authorized by this change.

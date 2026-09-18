@@ -1,6 +1,6 @@
 # New-user functionality implementation plan
 
-Status: M1 T01–T02 and recovery checkpoints A–C merged in PR41 at `33a7472f06516753c5c66d76eac8e60538c2660f`. M2 T03 contracts and strict consumers are frozen in [T03-FREEZE.json](../ai/workstreams/20260917-open-brain-public-m2-0fd6e9/T03-FREEZE.json); T04 source/migration is locally verified in [T04-CHECKPOINT.json](../ai/workstreams/20260917-open-brain-public-m2-0fd6e9/T04-CHECKPOINT.json); M2 implementation and automated/native checks are recorded in [M2-CHECKPOINT.json](../ai/workstreams/20260917-open-brain-public-m2-0fd6e9/M2-CHECKPOINT.json); native GUI workflow acceptance remains pending. Broader product/release acceptance remains open.
+Status: M1 T01–T02 and recovery checkpoints A–C merged in PR41 at `33a7472f06516753c5c66d76eac8e60538c2660f`. M2 T03 contracts and strict consumers are frozen in [T03-FREEZE.json](../ai/workstreams/20260917-open-brain-public-m2-0fd6e9/T03-FREEZE.json); T04 source/migration is locally verified in [T04-CHECKPOINT.json](../ai/workstreams/20260917-open-brain-public-m2-0fd6e9/T04-CHECKPOINT.json); M2 implementation and automated/native checks are recorded in [M2-CHECKPOINT.json](../ai/workstreams/20260917-open-brain-public-m2-0fd6e9/M2-CHECKPOINT.json); Obsidian GUI acceptance remains pending; desktop GUI/release work is deferred under the core-priority decision below. Broader product/release acceptance remains open.
 
 ## Objective and authority
 
@@ -25,6 +25,22 @@ Companion artifacts:
 F3 Portable restore, scheduled backups, recovery orchestration and new revision restore/revert commands are excluded. Existing export/import/workspace-reactivation behavior and its regression tests remain protected. Read-only history, append-only corrections, source availability, retirement and selective forgetting are active work. Crash recovery for an interrupted migration or purge is internal transactional correctness, not a new user backup/restore feature. Preserving export compatibility is not permission to build a new restore workflow.
 
 Removed Outlook, Teams, OneDrive, SharePoint and deferred Slack adapters are not reinstated. OCR, arbitrary binary archival, automatic semantic merging, hosted inference and multilingual quality claims are not added. PDF/DOCX remain bounded local extraction, with explicit owner-driven continuity operations rather than an unsolicited filesystem watcher.
+
+### Core CLI/MCP priority (user decision, 2026-09-17)
+
+Prioritize core CLI and MCP delivery. Preserve completed desktop code, tests and artifacts; defer further desktop-specific features and release preparation. Shared-engine verification and compatibility checks remain required. Obsidian scope is unchanged. Desktop release readiness and desktop GUI acceptance are not gates for core delivery.
+
+This decision narrows the desktop portions of the tasks and acceptance rows below; it does not mark those deferred portions complete or defer a whole mixed-surface task.
+
+| Tasks | Deferred desktop work | Work retained in scope |
+|---|---|---|
+| T07 / A05 | Further desktop features, UI polish and observed desktop GUI acceptance | Completed desktop work and compatibility checks; core CLI/MCP and Obsidian workflows |
+| T11–T14 / A08–A11 | Desktop lifecycle/forget/rebind screens and document-picker/import UI | Owner CLI, engine security/lifecycle, source continuity, bounded optional document parsing/refresh/rebind and Obsidian |
+| T18–T19 / A13–A14 | Desktop semantic setup/status and catalog screens | CLI/MCP/helper behavior, shared eligibility/privacy, catalog truth and Obsidian integration |
+| T20–T21 / A15–A16 | Desktop installer/release packaging, macOS signing/notarization/stapling/Gatekeeper, Linux desktop AppImage/window readiness and desktop-only launch docs | Core native audit/Homebrew/clean installs, shared compatibility, relevant optional packages and CLI/MCP/Obsidian documentation |
+| T23 / A17 | Desktop native GUI journeys and desktop release timing | Core CLI/MCP and Obsidian acceptance, relevant platform/runtime and provider/auth evidence |
+
+Google OAuth “Desktop client” describes an OAuth application type; CLI/connector authentication work is not deferred by this desktop-product decision. M3 implementation and outward publication still require their separate authorization.
 
 ## Delivery approach
 
@@ -114,9 +130,9 @@ Obsidian adds a bounded Review captures for publication flow: select 1–32 capt
 
 Recommend a new core release identity such as 0.2.0, subject to release-owner selection, rather than materially different artifacts all labelled 0.1.0. Bind core/plugin/Graphify and independently versioned optional desktop/collector/helper artifacts to exact source/digest compatibility manifests. Core native audit continues rejecting connector/collector/parser/service modules. Optional collector packaging provides connector/document commands and licenses through a separate installer/formula. No source checkout or private environment variables are needed for supported user paths.
 
-Catalog v2 separates implementation state, onboarding readiness, package/version, platform/surface, callable operations, one-shot/foreground/scheduled lifecycle and acceptance evidence. Build installed entries from actual registered dispatch capabilities, not every provisional descriptor. Planned entries require explicit inclusion; deferred Slack stays unavailable. Desktop consumes this catalog instead of hard-coded source cards. Public promotion requires artifact and auth receipts, not a boolean edited in a descriptor.
+Catalog v2 separates implementation state, onboarding readiness, package/version, platform/surface, callable operations, one-shot/foreground/scheduled lifecycle and acceptance evidence. Build installed entries from actual registered dispatch capabilities, not every provisional descriptor. Planned entries require explicit inclusion; deferred Slack stays unavailable. Desktop catalog consumption is deferred; when resumed, it consumes this catalog instead of hard-coded source cards. Public promotion requires artifact and auth receipts, not a boolean edited in a descriptor.
 
-Prepare a separate approval-gated release workflow for immutable platform artifacts, manifests, checksums and optional package audits. Deliberately update existing tests that currently assume only the CI workflow exists. Use one version authority rather than hard-coded divergent package/runtime versions. Public macOS desktop needs signing/notarization/stapling and real Gatekeeper launch; Linux desktop needs an exact AppImage/native-window receipt. Preparing workflow code does not authorize publishing a tag, artifact, formula or release.
+Prepare a separate approval-gated release workflow for immutable platform artifacts, manifests, checksums and optional package audits. Deliberately update existing tests that currently assume only the CI workflow exists. Use one version authority rather than hard-coded divergent package/runtime versions. If desktop release work is reauthorized, public macOS desktop needs signing/notarization/stapling and real Gatekeeper launch; Linux desktop needs an exact AppImage/native-window receipt. These desktop receipts do not gate core delivery. Preparing workflow code does not authorize publishing a tag, artifact, formula or release.
 
 ### Public OAuth and native gates
 
@@ -128,13 +144,13 @@ Owner/provider work includes production project/client, verified domain and publ
 
 Require an 8+ day production authorization soak or a documented provider-approved equivalent, including refresh, process reboot, revocation/reconnect, resource removal/reappearance, rate limiting and Workspace-admin restrictions. Use a disposable Brain and small owner-selected resources, only after approval. Retain sanitized receipts, not tokens/content. This is a proposed acceptance window, not evidence already collected.
 
-Each supported platform needs exact core installation plus real Obsidian publication and cleanup, optional Tauri native window, document picker and OS credential prompts where advertised, and Linux user-service behavior. CLI proof flags, hosted CI and screenshots from another commit do not count as native GUI acceptance. Time the documented primary journey; if it exceeds the existing five-minute promise, improve the flow or seek an explicit promise change before publication. Do not silently relabel a failed acceptance gate.
+Each supported platform needs exact core installation plus real Obsidian publication and cleanup, relevant OS credential prompts where advertised, and Linux user-service behavior. Optional Tauri native-window and desktop document-picker acceptance are deferred and do not gate core delivery. CLI proof flags, hosted CI and screenshots from another commit do not count as native GUI acceptance. Time the documented primary journey; if it exceeds the existing five-minute promise, improve the flow or seek an explicit promise change before publication. Do not silently relabel a failed acceptance gate.
 
 ### Owner lifecycle and selective forgetting
 
 Retire removes active retrieval/vector eligibility but retains history and export. Correct appends new evidence and relationships. Forget removes selected content and dependent copies from the live store and future exports. External prior exports, client transcripts, unmanaged user copies, OS snapshots and physical storage remnants are outside the promise; do not claim forensic secure erase.
 
-Owner CLI and desktop use preview/apply, never an implicit destructive MCP grant. Preview freezes Brain identity, target revisions, dependency digest, state generations, affected counts, workspace conflicts, recapture suppression and expiry. Apply requires exact confirmation and revalidates under exclusive mutation authority. Changes invalidate the preview. Source-wide suppression tombstones must contain no forgotten text, title, raw URL or plaintext upstream key.
+Owner CLI uses preview/apply, never an implicit destructive MCP grant. Desktop lifecycle UI is deferred under the core-priority decision. Preview freezes Brain identity, target revisions, dependency digest, state generations, affected counts, workspace conflicts, recapture suppression and expiry. Apply requires exact confirmation and revalidates under exclusive mutation authority. Changes invalidate the preview. Source-wide suppression tombstones must contain no forgotten text, title, raw URL or plaintext upstream key.
 
 Inventory every store before implementing purge: durable source JSON, content/history files, raw blobs, current/historical captures, pending/rejected/approved proposals and evidence, review decisions and publication history, managed notes/revisions/conflict copies, relationships, FTS/text/vector projections, connector staging and collector pending payloads. Delete shared blobs only if no retained record owns them. Preview explains when independent identical captures keep the same bytes and offers an expanded scope, never silently deletes them.
 

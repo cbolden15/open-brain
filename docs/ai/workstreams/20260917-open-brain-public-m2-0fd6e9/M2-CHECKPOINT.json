@@ -1,5 +1,5 @@
 {
-  "status": "LOCAL_AUTOMATED_VERIFIED_GUI_PENDING",
+  "status": "CORE_LOCAL_VERIFIED_OBSIDIAN_GUI_PENDING_DESKTOP_DEFERRED",
   "milestone": "M2",
   "baseline": "33a7472f06516753c5c66d76eac8e60538c2660f",
   "verified_implementation_head": "5b9d9a3af89013cfb4812cdf47cf0ca0778a3512",
@@ -19,7 +19,7 @@
     "T04": "locally_verified",
     "T05": "locally_verified",
     "T06": "locally_verified",
-    "T07": "implemented_automated_and_packaged_verified_gui_pending",
+    "T07": "completed_code_and_compatibility_retained_obsidian_gui_pending_desktop_further_work_deferred",
     "T08": "locally_verified"
   },
   "independent_review": {
@@ -69,14 +69,14 @@
     "Unknown/malformed Portable sidecars, mismatched endpoints, missing decisions and historical supersession cycles refuse."
   ],
   "remaining": [
-    "Observed native Obsidian and desktop GUI workflow acceptance. The independently reviewed artifact, synthetic native profile and manual checklist are ready."
+    "Observed Obsidian GUI workflow acceptance remains pending and in scope."
   ],
   "limits": [
     "No claim of complete broader A01 or released/native-platform acceptance.",
-    "Portable 4 export/validation are supported; new Portable 4 restore/import is excluded, historical 1\u20133 import remains supported.",
+    "Portable 4 export/validation are supported; new Portable 4 restore/import is excluded, historical 1–3 import remains supported.",
     "Legacy changed collector deliveries without ordering/CAS evidence refuse; T09/T10 own collector containment and ordered connector integration.",
     "Retirement/correction/purge, model research and M3 implementation remain outside this milestone.",
-    "No live Brain or laptop edits, push, PR, merge, release or deployment."
+    "No live Brain access, laptop repository edits, push, PR, merge, release or deployment. Parent prepared isolated laptop test artifacts."
   ],
   "artifact_handoff": {
     "status": "ready_for_manual_test",
@@ -114,5 +114,15 @@
         "bytes": 1148
       }
     ]
+  },
+  "delivery_priority": {
+    "primary": [
+      "CLI",
+      "MCP"
+    ],
+    "obsidian_scope": "unchanged",
+    "desktop_work": "preserve completed work; defer further features, GUI acceptance and release preparation",
+    "desktop_release_gates_core": false,
+    "shared_engine_and_compatibility_checks": "required"
   }
 }

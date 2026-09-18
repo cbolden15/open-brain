@@ -1,12 +1,20 @@
 {
   "schema_version": 1,
-  "status": "m1_merged_m2_local_verified_manual_gui_pending",
+  "status": "m1_merged_m2_core_local_verified_obsidian_gui_pending_desktop_deferred",
   "baseline_commit": "33a7472f06516753c5c66d76eac8e60538c2660f",
   "assessment": "docs/audits/2026-09-16-new-user-functional-assessment.md",
   "plan": "docs/plans/2026-09-16-new-user-functionality.md",
   "accepted_decisions": {
     "optional_local_embedding_download": true,
-    "default_capture_and_search_offline": true
+    "default_capture_and_search_offline": true,
+    "core_delivery_priority": [
+      "CLI",
+      "MCP"
+    ],
+    "desktop_further_features_and_release": "deferred; preserve completed work",
+    "desktop_release_gates_core": false,
+    "shared_engine_and_compatibility_checks": "required",
+    "obsidian_scope": "unchanged"
   },
   "active": [
     {
@@ -62,7 +70,7 @@
         "A04",
         "A05"
       ],
-      "status": "implemented_local_manual_gui_pending",
+      "status": "core_local_verified_obsidian_gui_pending_desktop_deferred",
       "evidence": [
         "docs/ai/workstreams/20260917-open-brain-public-m2-0fd6e9/M2-CHECKPOINT.json"
       ]
@@ -79,7 +87,7 @@
         "A04",
         "A05"
       ],
-      "status": "implemented_local_manual_gui_pending",
+      "status": "core_local_verified_obsidian_gui_pending_desktop_deferred",
       "evidence": [
         "docs/ai/workstreams/20260917-open-brain-public-m2-0fd6e9/M2-CHECKPOINT.json"
       ]
@@ -98,7 +106,7 @@
         "A04",
         "A05"
       ],
-      "status": "implemented_local_manual_gui_pending",
+      "status": "core_local_verified_obsidian_gui_pending_desktop_deferred",
       "evidence": [
         "docs/ai/workstreams/20260917-open-brain-public-m2-0fd6e9/M2-CHECKPOINT.json"
       ]
@@ -325,7 +333,7 @@
         "T07",
         "T08"
       ],
-      "status": "local_implementation_verified_manual_gui_pending",
+      "status": "core_local_verified_obsidian_gui_pending_desktop_deferred",
       "verified_tasks": [
         "T03",
         "T04",
@@ -338,7 +346,7 @@
         "docs/ai/workstreams/20260917-open-brain-public-m2-0fd6e9/T04-CHECKPOINT.json",
         "docs/ai/workstreams/20260917-open-brain-public-m2-0fd6e9/M2-CHECKPOINT.json"
       ],
-      "acceptance_limit": "All M2 implementation/reviews and automated/native/package gates passed. T07 native GUI workflows await observed manual acceptance. Broader A01/release acceptance and later milestone dependencies remain open.",
+      "acceptance_limit": "All M2 implementation/reviews and automated/native/package gates passed. Obsidian GUI acceptance remains pending and in scope. Desktop further features/GUI/release preparation are deferred and do not gate core delivery. Broader A01/release acceptance and later milestone dependencies remain open.",
       "implemented_tasks": [
         "T03",
         "T04",
@@ -356,5 +364,24 @@
         "T08"
       ]
     }
+  },
+  "surface_deferrals": {
+    "authority": "User product-priority decision, 2026-09-17; plan Core CLI/MCP priority section",
+    "surface": "optional desktop companion",
+    "tasks": [
+      "T07",
+      "T11",
+      "T12",
+      "T13",
+      "T14",
+      "T18",
+      "T19",
+      "T20",
+      "T21",
+      "T23"
+    ],
+    "scope": "Desktop-only future features, GUI acceptance and release preparation. Completed code/tests/artifacts preserved; core CLI/MCP, shared engine/compatibility, Obsidian and relevant provider/optional package work retained.",
+    "completion_claim": false,
+    "blocks_core_delivery": false
   }
 }
