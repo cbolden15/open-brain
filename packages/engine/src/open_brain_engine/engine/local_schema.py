@@ -226,6 +226,11 @@ def open_local_database_read_only(
     timeout_seconds: float = 5.0,
     busy_timeout_ms: int = 5000,
 ) -> sqlite3.Connection:
+    if not inspect_only:
+        from .source_migration import migration_pending
+
+        if migration_pending(profile):
+            raise SchemaError("source history migration is pending")
     connection = connect_database_read_only(
         root=profile.root,
         database_name=PHASE1_STATE_DATABASE,
@@ -410,6 +415,10 @@ def _prepare_local_schema(
 def open_local_database(
     profile: LocalEngineContext, *, clock: Callable[[], datetime] = _utc_now
 ) -> sqlite3.Connection:
+    from .source_migration import migration_pending
+
+    if migration_pending(profile):
+        raise SchemaError("source history migration is pending")
     try:
         state = inspect_phase1_state(profile, timeout_seconds=0.05, busy_timeout_ms=50)
     except DatabaseBusyError:

@@ -25,7 +25,7 @@ class SourceTasks:
     def fence_intake(self, *, expected_epoch: int, authority: EffectiveAuthority) -> int:
         """Trusted owner coordination hook; collectors must bind their admission separately."""
         if not authority.owner:
-            raise T03Error("permission_denied")
+            raise T03Error("unsupported_capability")
         if type(expected_epoch) is not int or expected_epoch < 0:
             raise T03Error("invalid_arguments")
         with (

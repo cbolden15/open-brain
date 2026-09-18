@@ -8,7 +8,11 @@ from pathlib import Path
 import pytest
 from open_brain_engine.engine import ReferencePayload, TextPayload, local_schema
 from open_brain_engine.engine.local import BrainEngine
-from open_brain_engine.engine.local_schema import PHASE1_STATE_DATABASE
+from open_brain_engine.engine.local_schema import (
+    PHASE1_STATE_DATABASE,
+    open_local_database,
+    open_local_database_read_only,
+)
 from open_brain_engine.engine.local_schema_catalog import LOCAL_MIGRATIONS
 from open_brain_engine.engine.runtime_admission import exclusive_runtime_admission
 from open_brain_engine.engine.source_migration import JOURNAL, migrate_sources
@@ -69,6 +73,10 @@ def test_source_cutover_recovers_without_rewriting_legacy_bytes(
                     clock=lambda: datetime.now(UTC),
                     checkpoint=checkpoint,
                 )
+            with pytest.raises(SchemaError, match="migration is pending"):
+                open_local_database_read_only(profile)
+            with pytest.raises(SchemaError, match="migration is pending"):
+                open_local_database(profile)
             if crash != "journal_durable":
                 with monkeypatch.context() as legacy:
                     legacy.setattr(local_schema, "PHASE1_STATE_SCHEMA_VERSION", 6)
