@@ -2057,3 +2057,17 @@ Fix: Call unref only when the timer provides it. Preserve the delayed force-kill
 Test disposal with a numeric timer handle as well as normal Node timers.
 
 Discovered: 2026-09-18, synthetic Obsidian acceptance and a numeric-timer regression.
+
+### MCP-STARTUP-001: Retrieval tests should admit sessions before comparing cursors
+
+Symptom: A test for cross-session cursor rejection intermittently receives database_busy while
+starting its second MCP child.
+
+Cause: Both children begin bootstrap at once. Initialization can require a write even when each
+session later has only retrieval grants. The startup race obscures the cursor behavior under test.
+
+Fix: Wait for the first child's initialization response before spawning the second. Retain both
+live sessions for cursor isolation and grant checks, and clean up the first if second startup fails.
+Use the dedicated contention tests to exercise retryable startup failures.
+
+Discovered: 2026-09-18, full M2 verification; the isolated retrieval recheck passed.

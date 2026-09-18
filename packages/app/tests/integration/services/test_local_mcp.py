@@ -955,9 +955,11 @@ def test_live_mcp_engine_retrieval_grants_and_cursor_failures(tasks: Any) -> Non
         "--allow-search",
         "--allow-content-read",
     )
-    other = _start(tasks.profile.root, "--allow-search")
+    other: subprocess.Popen[str] | None = None
     try:
         assert "result" in _exchange(process, INITIALIZE)
+        # Cursor isolation needs two sessions, not simultaneous bootstrap writers.
+        other = _start(tasks.profile.root, "--allow-search")
         listed = _exchange(process, {"jsonrpc": "2.0", "id": 2, "method": "tools/list"})
         names = {tool["name"] for tool in listed["result"]["tools"]}
         assert {"brain_contract_describe", "brain_search_page", "brain_read"} <= names
@@ -1041,6 +1043,8 @@ def test_live_mcp_engine_retrieval_grants_and_cursor_failures(tasks: Any) -> Non
         ]
     finally:
         for child in (process, other):
+            if child is None:
+                continue
             if child.stdin is not None and not child.stdin.closed:
                 child.stdin.close()
             if child.poll() is None:
