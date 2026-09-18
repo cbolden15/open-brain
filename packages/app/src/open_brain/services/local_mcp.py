@@ -518,17 +518,37 @@ class LocalMcpAdapter:
                         "properties": {
                             "space_ids": {
                                 "type": "array",
-                                "items": identifier,
+                                "items": {
+                                    "type": "string",
+                                    "pattern": (
+                                        "^space_[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-"
+                                        "[0-9a-f]{4}-[0-9a-f]{12}$"
+                                    ),
+                                },
+                                "minItems": 0,
+                                "maxItems": 100,
                                 "uniqueItems": True,
                             },
                             "payload_families": {
                                 "type": "array",
-                                "items": {"type": "string"},
+                                "items": {
+                                    "type": "string",
+                                    "enum": [
+                                        "text",
+                                        "event",
+                                        "measurement",
+                                        "reference_or_file",
+                                    ],
+                                },
+                                "minItems": 0,
+                                "maxItems": 4,
                                 "uniqueItems": True,
                             },
                             "record_types": {
                                 "type": "array",
                                 "items": {"type": "string", "enum": ["source", "canonical"]},
+                                "minItems": 0,
+                                "maxItems": 2,
                                 "uniqueItems": True,
                             },
                         },

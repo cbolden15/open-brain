@@ -899,6 +899,30 @@ def test_entrypoint_admits_standalone_negotiated_read_grants(
     }
 
 
+@pytest.mark.parametrize("flag", ["--allow-content-read", "--allow-history-read"])
+def test_live_unavailable_negotiated_grant_still_describes_empty_contract(
+    tasks: Any,
+    flag: str,
+) -> None:
+    process = _start(tasks.profile.root, flag)
+    try:
+        assert "result" in _exchange(process, INITIALIZE)
+        tools = _exchange(process, {"jsonrpc": "2.0", "id": 2, "method": "tools/list"})
+        assert [tool["name"] for tool in tools["result"]["tools"]] == [
+            "brain_contract_describe"
+        ]
+        described = _exchange(process, _call("brain_contract_describe", {}, 3))
+        assert described["result"]["structuredContent"]["operations"] == []
+        assert process.stdin is not None
+        process.stdin.close()
+        assert process.wait(timeout=10) == 0
+        assert process.stderr is not None and process.stderr.read() == ""
+    finally:
+        if process.poll() is None:
+            process.kill()
+            process.wait(timeout=5)
+
+
 @pytest.mark.parametrize(
     ("flag", "expected", "allowed_call"),
     [
@@ -909,7 +933,12 @@ def test_entrypoint_admits_standalone_negotiated_read_grants(
         ),
         (
             "--allow-organize",
-            {"brain_space_create", "brain_space_rename", "brain_inbox_route"},
+            {
+                "brain_contract_describe",
+                "brain_space_create",
+                "brain_space_rename",
+                "brain_inbox_route",
+            },
             _call("brain_space_create", {"name": "Stdio space"}),
         ),
     ],

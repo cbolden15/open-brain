@@ -3,6 +3,7 @@ from __future__ import annotations
 import importlib.util
 import json
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
@@ -11,11 +12,13 @@ from open_brain_engine.engine.contracts import (
     RetrievalResult,
     project_public_result_text,
 )
+from open_brain_engine.engine.t03_contracts import EffectiveAuthority
 
 from open_brain.services.local_mcp import LocalMcpAdapter
 from open_brain.services.local_operations import search_result
 from open_brain.services.mcp_protocol import McpCallError
 from open_brain.services.plugin_bridge import PluginBridgeFailure, _read_request
+from open_brain.services.t03_adapters import T03AppAdapter
 
 ROOT = Path(__file__).resolve().parents[4]
 FIXTURES = ROOT / "tests/fixtures/new-user-t03"
@@ -45,6 +48,52 @@ def test_t03_actual_legacy_bridge(case: dict[str, Any]) -> None:
     )
     if case["expected"] == "accept":
         assert _read_request(raw) == case["request"]
+    elif case["id"] == "C04":
+        # The frozen receipt records that the historical bridge did not know this
+        # operation. The current bridge does, but the malformed legacy arguments
+        # still fail typed validation before an engine callback can run.
+        assert case["expected"] == "unknown_operation"
+        assert _read_request(raw) == case["request"]
+        calls = 0
+
+        class Retrieval:
+            def read_record(self, _request: object, *, authority: object) -> object:
+                nonlocal calls
+                calls += 1
+                return {}
+
+        authority = EffectiveAuthority(
+            "compatibility-test",
+            "compatibility-session",
+            frozenset({"content-read"}),
+            None,
+        )
+        granted = LocalMcpAdapter(
+            negotiated=T03AppAdapter(
+                SimpleNamespace(retrieval=Retrieval()),
+                authority,
+                frozenset({"content-read"}),
+            )
+        )
+        with pytest.raises(McpCallError, match="^invalid_arguments$"):
+            granted.call_tool("brain_read", case["request"]["arguments"])
+        assert calls == 0
+
+        denied = LocalMcpAdapter(
+            negotiated=T03AppAdapter(
+                SimpleNamespace(retrieval=Retrieval()), authority, frozenset()
+            )
+        )
+        with pytest.raises(McpCallError, match="^unsupported_capability$"):
+            denied.call_tool(
+                "brain_read",
+                {
+                    "dto_version": 1,
+                    "record_id": "capture_123e4567-e89b-42d3-a456-426614174100",
+                    "expected_revision_id": "capture_123e4567-e89b-42d3-a456-426614174100",
+                },
+            )
+        assert calls == 0
     else:
         with pytest.raises(PluginBridgeFailure, match=str(case["expected"])):
             _read_request(raw)

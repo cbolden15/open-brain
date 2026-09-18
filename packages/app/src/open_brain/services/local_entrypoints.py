@@ -1303,12 +1303,7 @@ def _run_local_command(
             if negotiated_grants
             else None
         )
-        negotiated = (
-            negotiated_candidate
-            if negotiated_candidate is not None
-            and negotiated_candidate.available_operations()
-            else None
-        )
+        negotiated = negotiated_candidate
         adapter = LocalMcpAdapter(
             capture=mcp_capture_sink(tasks) if parsed.allow_capture else None,
             search=search if parsed.allow_search else None,

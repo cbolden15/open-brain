@@ -7,6 +7,7 @@ from types import SimpleNamespace
 from typing import Any, cast
 
 import pytest
+from jsonschema import Draft202012Validator, ValidationError  # type: ignore[import-untyped]
 from open_brain_engine.engine.t03_contracts import EffectiveAuthority, T03Error, validate_wire
 
 from open_brain.services.local_mcp import LocalMcpAdapter
@@ -181,6 +182,52 @@ def test_mcp_registry_lists_only_negotiated_tools_and_keeps_content_typed() -> N
     properties = search_tool["inputSchema"]["properties"]
     filters = cast(dict[str, object], properties["filters"])
     assert filters["required"] == ["space_ids", "payload_families", "record_types"]
+    assert filters["additionalProperties"] is False
+    filter_properties = cast(dict[str, object], filters["properties"])
+    assert filter_properties == {
+        "space_ids": {
+            "type": "array",
+            "items": {
+                "type": "string",
+                "pattern": (
+                    "^space_[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-"
+                    "[0-9a-f]{4}-[0-9a-f]{12}$"
+                ),
+            },
+            "minItems": 0,
+            "maxItems": 100,
+            "uniqueItems": True,
+        },
+        "payload_families": {
+            "type": "array",
+            "items": {
+                "type": "string",
+                "enum": ["text", "event", "measurement", "reference_or_file"],
+            },
+            "minItems": 0,
+            "maxItems": 4,
+            "uniqueItems": True,
+        },
+        "record_types": {
+            "type": "array",
+            "items": {"type": "string", "enum": ["source", "canonical"]},
+            "minItems": 0,
+            "maxItems": 2,
+            "uniqueItems": True,
+        },
+    }
+    with pytest.raises(ValidationError):
+        Draft202012Validator(search_tool["inputSchema"]).validate(
+            {
+                "dto_version": 1,
+                "query": "synthetic launch",
+                "filters": {
+                    "space_ids": [],
+                    "payload_families": ["bogus"],
+                    "record_types": [],
+                },
+            }
+        )
     described = adapter.call_tool("brain_contract_describe", {})
     operations = cast(list[dict[str, object]], described["operations"])
     assert [row["name"] for row in operations] == ["search.page", "record.read"]
