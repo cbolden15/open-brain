@@ -109,6 +109,11 @@ export class OpenBrainBridge {
     this.#terminate();
   }
 
+  /** Cancel in-flight work while keeping this client reusable for a fresh child session. */
+  public cancelPending(): void {
+    if (!this.#disposed) this.#terminate();
+  }
+
   #ensureChild(): ChildProcessWithoutNullStreams {
     if (this.#child !== null && this.#child.exitCode === null) return this.#child;
     const child = this.#spawn(this.#executable, ["plugin"], {

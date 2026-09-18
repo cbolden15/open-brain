@@ -55,6 +55,7 @@ import {
   listInbox,
   listSpaces,
   proposePublication,
+  preparePublicationWorkspace,
   readCompleteRecord,
   refreshAndFindApprovedNote,
   requireCapabilities,
@@ -81,6 +82,12 @@ interface OpenBrainSettings {
   inferencePaused: boolean;
 }
 
+export interface ReviewCommandOverrides {
+  bridge?: OpenBrainBridge;
+  capabilities?: Set<string>;
+  sameVault?: (path: string) => Promise<boolean>;
+}
+
 const DEFAULT_SETTINGS: OpenBrainSettings = {
   executablePath: "",
   inferencePaused: false,
@@ -91,7 +98,6 @@ export default class OpenBrainPlugin extends Plugin {
   #bridge: OpenBrainBridge | null = null;
   #scheduler: RefreshScheduler | null = null;
   #providerSelection: ProviderSelection | null = null;
-  #capabilities: Set<string> | null = null;
   #handshake: Handshake | null = null;
 
   public override async onload(): Promise<void> {
@@ -111,7 +117,6 @@ export default class OpenBrainPlugin extends Plugin {
     this.#bridge?.dispose();
     this.#bridge = null;
     this.#providerSelection = null;
-    this.#capabilities = null;
     this.#handshake = null;
   }
 
@@ -124,7 +129,6 @@ export default class OpenBrainPlugin extends Plugin {
     this.#bridge?.dispose();
     this.#bridge = null;
     this.#providerSelection = null;
-    this.#capabilities = null;
     this.#handshake = null;
   }
 
@@ -259,7 +263,7 @@ export default class OpenBrainPlugin extends Plugin {
       name: "Capture text",
     });
     this.addCommand({
-      callback: () => void this.#reviewCaptures(),
+      callback: () => void this.reviewCaptures(),
       id: "review-captures-for-publication",
       name: "Review captures for publication",
     });
@@ -373,24 +377,30 @@ export default class OpenBrainPlugin extends Plugin {
         "Review inbox captures for publication in the managed vault now?",
         "Review captures",
       ).result();
-      if (review) await this.#reviewCaptures();
+      if (review) await this.reviewCaptures();
     } catch (error) {
       this.#noticeError(error);
     }
   }
 
-  async #reviewCaptures(): Promise<void> {
+  public async reviewCaptures(overrides: ReviewCommandOverrides = {}): Promise<void> {
     try {
-      const bridge = await this.#bridgeClient();
+      const bridge = overrides.bridge ?? await this.#bridgeClient();
       await bridge.invoke("brain.initialize", {});
-      const capabilities = await this.#clientOperations(bridge);
+      const capabilities = overrides.capabilities ?? await this.#clientOperations(bridge);
       requireCapabilities(capabilities, [
         "inbox.list", "inbox.route", "publication.approve", "publication.edit_and_approve",
         "publication.propose", "publication.reject", "publication.show", "space.create",
         "space.list", "workspace.refresh", "workspace.setup", "workspace.status",
       ]);
-      const status = parseWorkspaceStatus(await bridge.invoke("workspace.status", {}));
-      if (status === null) await bridge.invoke("workspace.setup", {}, 30_000);
+      const workspace = await preparePublicationWorkspace(
+        bridge,
+        overrides.sameVault ?? ((path) => this.#sameVault(path)),
+      );
+      if (!workspace.ready) {
+        new Notice(`Open the managed Open Brain vault before reviewing captures: ${workspace.vault_path}`, 12_000);
+        return;
+      }
       const captures = await listInbox(bridge);
       if (captures.length === 0) {
         new Notice("The Open Brain inbox has no captures to review.");
@@ -795,10 +805,8 @@ export default class OpenBrainPlugin extends Plugin {
   }
 
   async #clientOperations(bridge: OpenBrainBridge): Promise<Set<string>> {
-    if (this.#capabilities !== null) return this.#capabilities;
     if (this.#handshake === null) throw new BridgeError("incompatible_binary");
-    this.#capabilities = await clientCapabilities(bridge, this.#handshake);
-    return this.#capabilities;
+    return await clientCapabilities(bridge, this.#handshake);
   }
 
   async #managedBridge(): Promise<OpenBrainBridge> {
@@ -1051,7 +1059,7 @@ class SearchPickerModal extends FuzzySuggestModal<SearchItem> {
   }
 }
 
-class MultiCaptureModal extends Modal {
+export class MultiCaptureModal extends Modal {
   readonly #items: InboxItem[];
   #resolve: ((value: InboxItem[] | null) => void) | null = null;
   #settled = false;
@@ -1098,7 +1106,7 @@ class MultiCaptureModal extends Modal {
 
 type PublicationAction = "approve" | "edit_and_approve" | "reject";
 
-class PublicationReviewModal extends Modal {
+export class PublicationReviewModal extends Modal {
   readonly #inspection: PublicationInspection;
   #resolve: ((value: PublicationAction | null) => void) | null = null;
   #settled = false;
@@ -1142,7 +1150,7 @@ class PublicationReviewModal extends Modal {
   }
 }
 
-class SearchFiltersModal extends Modal {
+export class SearchFiltersModal extends Modal {
   #resolve: ((value: SearchRequest | null) => void) | null = null;
   #settled = false;
 
@@ -1159,7 +1167,7 @@ class SearchFiltersModal extends Modal {
     this.contentEl.createEl("label", { text: "Search mode" });
     const mode = this.contentEl.createEl("select");
     mode.createEl("option", { attr: { value: "lexical" }, text: "Lexical" });
-    mode.createEl("option", { attr: { value: "hybrid" }, text: "Hybrid (when available)" });
+    mode.createEl("option", { attr: { value: "hybrid_preferred" }, text: "Hybrid (when available)" });
     const submit = this.contentEl.createEl("button", { text: "Search" });
     submit.addClass("mod-cta");
     submit.addEventListener("click", () => {
@@ -1173,7 +1181,7 @@ class SearchFiltersModal extends Modal {
       this.#settled = true;
       this.#resolve?.({ cursor: null, filters: { payload_families: splitFilter(payloads.value),
         record_types: recordTypes, space_ids: splitFilter(spaces.value) }, limit: 50,
-        mode: mode.value === "hybrid" ? "hybrid" : "lexical", query: value });
+        mode: mode.value === "hybrid_preferred" ? "hybrid_preferred" : "lexical", query: value });
       this.close();
     });
     query.focus();
@@ -1192,8 +1200,8 @@ class SearchFiltersModal extends Modal {
   }
 }
 
-class PagedRecordSearchModal extends Modal {
-  readonly #bridge: OpenBrainBridge;
+export class PagedRecordSearchModal extends Modal {
+  readonly #bridge: Pick<OpenBrainBridge, "invoke" | "cancelPending">;
   readonly #base: SearchRequest;
   #active = true;
   #cursor: string | null;
@@ -1201,8 +1209,11 @@ class PagedRecordSearchModal extends Modal {
   #results: HTMLElement | null = null;
   #status: HTMLElement | null = null;
   #controls: HTMLElement | null = null;
+  #readButtons = new Set<HTMLButtonElement>();
+  #readEpoch = 0;
+  #reading = false;
 
-  public constructor(app: App, bridge: OpenBrainBridge, request: SearchRequest) {
+  public constructor(app: App, bridge: Pick<OpenBrainBridge, "invoke" | "cancelPending">, request: SearchRequest) {
     super(app);
     this.#bridge = bridge;
     this.#base = request;
@@ -1219,6 +1230,8 @@ class PagedRecordSearchModal extends Modal {
 
   public override onClose(): void {
     this.#active = false;
+    this.#readEpoch += 1;
+    this.#bridge.cancelPending();
     this.contentEl.empty();
   }
 
@@ -1257,12 +1270,24 @@ class PagedRecordSearchModal extends Modal {
     row.createEl("p", { text: `${item.record_type} · revision ${item.revision_id}` });
     row.createEl("blockquote", { text: item.excerpt });
     const read = row.createEl("button", { text: "Read complete record" });
+    this.#readButtons.add(read);
     read.addEventListener("click", () => {
-      read.disabled = true;
-      void readCompleteRecord(this.#bridge, item.record_id, item.revision_id)
+      if (!this.#active || this.#reading) return;
+      this.#reading = true;
+      const epoch = ++this.#readEpoch;
+      for (const button of this.#readButtons) button.disabled = true;
+      void readCompleteRecord(this.#bridge, item.record_id, item.revision_id, () => !this.#active || epoch !== this.#readEpoch)
         .then((content) => { if (this.#active) new FullRecordModal(this.app, item, content).open(); })
-        .catch((error: unknown) => new Notice(`Open Brain read stopped (${error instanceof Error ? error.message : "operation_failed"}).`))
-        .finally(() => { if (this.#active) read.disabled = false; });
+        .catch((error: unknown) => {
+          const code = error instanceof Error ? error.message : "operation_failed";
+          if (this.#active && code !== "cancelled") new Notice(`Open Brain read stopped (${code}).`);
+        })
+        .finally(() => {
+          if (this.#active && epoch === this.#readEpoch) {
+            this.#reading = false;
+            for (const button of this.#readButtons) button.disabled = false;
+          }
+        });
     });
   }
 

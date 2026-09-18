@@ -9,6 +9,7 @@ import {
   inspectPublication,
   listInbox,
   proposePublication,
+  preparePublicationWorkspace,
   readCompleteRecord,
   refreshAndFindApprovedNote,
   routeCaptures,
@@ -29,10 +30,21 @@ function fake(responses: Partial<Record<PluginOperation, unknown | unknown[]>>) 
   return { invoke, bridge: { invoke } as never };
 }
 
+const uuid = (n: number) => `123e4567-e89b-42d3-a456-${n.toString(16).padStart(12, "0")}`;
 const capture = (n: number, space_id: string | null = null): InboxItem => ({
-  capture_id: `capture_123e4567-e89b-42d3-a456-42661417410${n}`,
+  capture_id: `capture_${uuid(n)}`,
   payload_family: "text", preview: `Source ${n} <button onclick=evil()>`, space_id, title: null,
 });
+const summary = (n: number, empty = false) => {
+  const captureId = capture(n).capture_id;
+  return { record_id: captureId, record_type: "source", revision_id: captureId,
+    source_id: `source_${uuid(1000 + n)}`, payload_family: "text", space_id: null,
+    title: empty ? "" : `Title ${n}`, excerpt: empty ? "" : `Excerpt ${n}`, trust: "third_party",
+    provenance: { representative_capture_id: captureId, capture_ids: [captureId], source_origin: "third_party" },
+    source_update_available: false };
+};
+const limits = { request_bytes: 65536, response_bytes: 1048576, content_calls: 500,
+  content_bytes: 16777216, history_calls: 500, history_bytes: 16777216 };
 
 const handshake = (operations: string[]): Handshake => ({
   desktop_only: true, operations, product_version: "0.1.0", protocol: "open-brain-client",
@@ -44,7 +56,7 @@ describe("T07 negotiated clients", () => {
     const { bridge } = fake({
       "contract.describe": { status: "ok", contract_version: "t03.v1", operations: [
         { name: "search.page", dto_version: 1, required_grants: ["search"] },
-      ], limits: {} },
+      ], limits },
     });
     const available = await clientCapabilities(bridge, handshake(["contract.describe", "publication.show"]));
     expect([...available].sort()).toEqual(["publication.show", "search.page"]);
@@ -76,9 +88,7 @@ describe("T07 negotiated clients", () => {
   });
 
   it("reconstructs exact long Unicode chunks and rejects a byte discontinuity", async () => {
-    const record = { record_id: capture(0).capture_id, record_type: "source", revision_id: capture(0).capture_id,
-      source_id: null, payload_family: "text", space_id: null, title: "Hostile <script>", excerpt: "x",
-      trust: "third_party", provenance: {}, source_update_available: false };
+    const record = summary(0);
     const { bridge } = fake({ "record.read": [
       { status: "ok", dto_version: 1, record, content: { kind: "untrusted_text", text: "🙂中" }, start_byte: 0, end_byte: 7, next_cursor: "cursor-2", complete: false },
       { status: "ok", dto_version: 1, record, content: { kind: "untrusted_text", text: "e\u0301" }, start_byte: 7, end_byte: 10, next_cursor: null, complete: true },
@@ -103,16 +113,13 @@ describe("T07 negotiated clients", () => {
     const pages = Array.from({ length: 5 }, (_, page) => ({
       status: "ok", dto_version: 1,
       results: Array.from({ length: page === 4 ? 1 : 50 }, (_, i) => {
-        const id = `capture-${page * 50 + i}`;
-        return { record_id: id, record_type: "source", revision_id: id, source_id: null,
-          payload_family: "text", space_id: "space-filter", title: `Title ${id}`, excerpt: `Excerpt ${id}`,
-          trust: "owner_authored", provenance: {}, source_update_available: false };
+        return summary(page * 50 + i);
       }),
       next_cursor: page === 4 ? null : `cursor-${page + 1}`, complete: page === 4,
       mode_used: "lexical", warnings: [],
     }));
     const { bridge } = fake({ "search.page": pages });
-    const base = { filters: { payload_families: ["text"], record_types: ["source"], space_ids: ["space-filter"] },
+    const base = { filters: { payload_families: ["text"], record_types: ["source"], space_ids: ["space_123e4567-e89b-42d3-a456-000000000500"] },
       limit: 50, mode: "lexical" as const, query: "synthetic" };
     const ids: string[] = [];
     let cursor: string | null = null;
@@ -123,6 +130,37 @@ describe("T07 negotiated clients", () => {
     } while (cursor !== null);
     expect(ids).toHaveLength(201);
     expect(new Set(ids)).toHaveLength(201);
+  });
+
+  it("accepts valid empty display strings and rejects unknown or null provenance fields", async () => {
+    const valid = { status: "ok", dto_version: 1, results: [summary(0, true)], next_cursor: null,
+      complete: true, mode_used: "lexical", warnings: [] };
+    await expect(searchPage(fake({ "search.page": valid }).bridge, {
+      cursor: null, filters: { payload_families: [], record_types: [], space_ids: [] },
+      limit: 10, mode: "lexical", query: "valid",
+    })).resolves.toMatchObject({ results: [{ title: "", excerpt: "" }] });
+    const invalid = { ...valid, unexpected: true, results: [{ ...summary(0), provenance: null, extra: true }] };
+    await expect(searchPage(fake({ "search.page": invalid }).bridge, {
+      cursor: null, filters: { payload_families: [], record_types: [], space_ids: [] },
+      limit: 10, mode: "lexical", query: "valid",
+    })).rejects.toThrow("protocol_error");
+  });
+
+  it("hands off to the managed vault before publication operations when setup differs", async () => {
+    const { bridge, invoke } = fake({
+      "workspace.status": { status: "unconfigured" },
+      "workspace.setup": { status: "setup", vault_path: "/synthetic/managed", duplicate: false,
+        generation: null, note_id: null, workspace_id: "workspace_123e4567-e89b-42d3-a456-000000000700" },
+    });
+    await expect(preparePublicationWorkspace(bridge, async () => false)).resolves.toEqual({
+      ready: false, vault_path: "/synthetic/managed",
+    });
+    expect(invoke.mock.calls.map(([operation]) => operation)).toEqual(["workspace.status", "workspace.setup"]);
+
+    const same = fake({ "workspace.status": { status: "ok", vault_path: "/synthetic/managed" } });
+    await expect(preparePublicationWorkspace(same.bridge, async (path) => path === "/synthetic/managed")).resolves.toEqual({
+      ready: true, vault_path: "/synthetic/managed",
+    });
   });
 
   it("requires inspect-before-decision and opens only the exact approved page note", async () => {

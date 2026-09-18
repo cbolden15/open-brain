@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 
 import { BridgeError, type OpenBrainBridge } from "./bridge";
 import { record, safeRelativePath, type Handshake } from "./contracts";
+import { validateT03Wire } from "./t03-wire";
 
 type Bridge = Pick<OpenBrainBridge, "invoke">;
 
@@ -18,6 +19,11 @@ export interface SpaceItem { name: string; slug: string; space_id: string }
 export interface RecordSummary {
   excerpt: string;
   payload_family: string;
+  provenance: {
+    representative_capture_id: string;
+    capture_ids: string[];
+    source_origin: "owner_authored" | "third_party" | "mixed" | "unknown";
+  };
   record_id: string;
   record_type: "source" | "canonical";
   revision_id: string;
@@ -40,7 +46,7 @@ export interface SearchRequest {
   cursor: string | null;
   filters: { payload_families: string[]; record_types: string[]; space_ids: string[] };
   limit: number;
-  mode: "lexical" | "hybrid";
+  mode: "lexical" | "hybrid_preferred" | "hybrid_required";
   query: string;
 }
 
@@ -59,6 +65,7 @@ export interface PublicationInspection {
 export interface PublicationResult { page_id: string; publication_id: string; proposal_id: string }
 
 export interface WorkspaceNote { note_id: string; relative_path: string; revision_id: string }
+export interface PublicationWorkspace { ready: boolean; vault_path: string }
 
 const PUBLICATION_OPERATIONS = [
   "inbox.list", "inbox.route", "publication.approve", "publication.edit_and_approve",
@@ -71,16 +78,10 @@ export async function clientCapabilities(bridge: Bridge, handshake: Handshake): 
   const supported = new Set<string>();
   for (const operation of PUBLICATION_OPERATIONS) if (advertised.has(operation)) supported.add(operation);
   if (!advertised.has("contract.describe")) return supported;
-  const value = record(await bridge.invoke("contract.describe", {}));
-  if (value.status !== "ok" || value.contract_version !== "t03.v1" || !Array.isArray(value.operations)) {
-    throw new BridgeError("protocol_error");
-  }
-  for (const entry of value.operations) {
-    const operation = record(entry);
-    if (typeof operation.name !== "string" || operation.dto_version !== 1 || !Array.isArray(operation.required_grants)) {
-      throw new BridgeError("protocol_error");
-    }
-    supported.add(operation.name);
+  const value = validateT03Wire("contract.describe.response", await bridge.invoke("contract.describe", {}));
+  for (const entry of value.operations as Record<string, unknown>[]) {
+    const operation = entry;
+    supported.add(operation.name as string);
   }
   return supported;
 }
@@ -89,6 +90,20 @@ export function requireCapabilities(capabilities: Set<string>, operations: reado
   if (operations.some((operation) => !capabilities.has(operation))) {
     throw new BridgeError("unsupported_capability");
   }
+}
+
+export async function preparePublicationWorkspace(
+  bridge: Bridge,
+  sameVault: (path: string) => Promise<boolean>,
+): Promise<PublicationWorkspace> {
+  let value = record(await bridge.invoke("workspace.status", {}));
+  if (value.status === "unconfigured") {
+    value = record(await bridge.invoke("workspace.setup", {}, 30_000));
+    if (value.status !== "setup" || !text(value.vault_path)) throw new BridgeError("protocol_error");
+  } else if (value.status !== "ok" || !text(value.vault_path)) {
+    throw new BridgeError("protocol_error");
+  }
+  return { ready: await sameVault(value.vault_path), vault_path: value.vault_path };
 }
 
 export async function listInbox(bridge: Bridge): Promise<InboxItem[]> {
@@ -161,35 +176,39 @@ export async function routeCaptures(bridge: Bridge, items: InboxItem[], spaceId:
 }
 
 export async function searchPage(bridge: Bridge, request: SearchRequest): Promise<SearchPage> {
-  const value = record(await bridge.invoke("search.page", { dto_version: 1, ...request }, 30_000));
-  if (value.status !== "ok" || value.dto_version !== 1 || !Array.isArray(value.results) || value.results.length > request.limit ||
-      typeof value.complete !== "boolean" || !text(value.mode_used) || !Array.isArray(value.warnings) ||
-      value.warnings.length > 32 || !value.warnings.every(displayText) || (value.next_cursor !== null && !text(value.next_cursor))) {
-    throw new BridgeError("protocol_error");
-  }
-  const results = value.results.map(parseRecord);
-  if (value.complete !== (value.next_cursor === null)) throw new BridgeError("protocol_error");
-  return { complete: value.complete, mode_used: value.mode_used, next_cursor: value.next_cursor as string | null, results, warnings: value.warnings as string[] };
+  const wireRequest = { dto_version: 1, ...request };
+  validateT03Wire("search.page.request", wireRequest);
+  const value = validateT03Wire("search.page.response", await bridge.invoke("search.page", wireRequest, 30_000));
+  const results = (value.results as Record<string, unknown>[]).map(parseRecord);
+  return { complete: value.complete as boolean, mode_used: value.mode_used as string,
+    next_cursor: value.next_cursor as string | null, results, warnings: value.warnings as string[] };
 }
 
-export async function readCompleteRecord(bridge: Bridge, recordId: string, revisionId: string): Promise<string> {
+export async function readCompleteRecord(
+  bridge: Bridge,
+  recordId: string,
+  revisionId: string,
+  cancelled: () => boolean = () => false,
+): Promise<string> {
   let cursor: string | null = null;
   let expectedStart = 0;
   let result = "";
   for (let calls = 0; calls < 500; calls += 1) {
-    const value = record(await bridge.invoke("record.read", {
+    if (cancelled()) throw new BridgeError("cancelled");
+    const wireRequest = {
       cursor, dto_version: 1, expected_revision_id: revisionId, record_id: recordId, target_bytes: 32768,
-    }, 30_000));
+    };
+    validateT03Wire("record.read.request", wireRequest);
+    const value = validateT03Wire("record.read.response", await bridge.invoke("record.read", wireRequest, 30_000));
+    if (cancelled()) throw new BridgeError("cancelled");
     const content = record(value.content);
     const returnedRecord = parseRecord(value.record);
-    if (value.status !== "ok" || value.dto_version !== 1 || content.kind !== "untrusted_text" ||
-        typeof content.text !== "string" || !Number.isInteger(value.start_byte) || value.start_byte !== expectedStart ||
-        !Number.isInteger(value.end_byte) || Number(value.end_byte) < expectedStart || typeof value.complete !== "boolean" ||
-        (value.next_cursor !== null && !text(value.next_cursor))) throw new BridgeError("protocol_error");
+    if (value.start_byte !== expectedStart) throw new BridgeError("protocol_error");
     if (returnedRecord.record_id !== recordId || returnedRecord.revision_id !== revisionId) throw new BridgeError("revision_changed");
-    const bytes = new TextEncoder().encode(content.text).length;
+    const textChunk = content.text as string;
+    const bytes = new TextEncoder().encode(textChunk).length;
     if (Number(value.end_byte) - expectedStart !== bytes) throw new BridgeError("protocol_error");
-    result += content.text;
+    result += textChunk;
     expectedStart = Number(value.end_byte);
     if (value.complete === true) {
       if (value.next_cursor !== null) throw new BridgeError("protocol_error");
@@ -272,13 +291,24 @@ export function deterministicDraft(items: InboxItem[]): { markdown: string; titl
 
 function parseRecord(raw: unknown): RecordSummary {
   const item = record(raw);
-  if (!text(item.record_id) || !["source", "canonical"].includes(String(item.record_type)) || !text(item.revision_id) ||
-      (item.source_id !== null && !text(item.source_id)) || !text(item.payload_family) ||
-      (item.space_id !== null && !text(item.space_id)) || !displayText(item.title) || !displayText(item.excerpt) ||
-      !text(item.trust) || typeof item.source_update_available !== "boolean" || typeof item.provenance !== "object") {
-    throw new BridgeError("protocol_error");
-  }
-  return item as unknown as RecordSummary;
+  const provenance = record(item.provenance);
+  return {
+    excerpt: item.excerpt as string,
+    payload_family: item.payload_family as string,
+    provenance: {
+      representative_capture_id: provenance.representative_capture_id as string,
+      capture_ids: [...(provenance.capture_ids as string[])],
+      source_origin: provenance.source_origin as RecordSummary["provenance"]["source_origin"],
+    },
+    record_id: item.record_id as string,
+    record_type: item.record_type as RecordSummary["record_type"],
+    revision_id: item.revision_id as string,
+    source_id: item.source_id as string | null,
+    source_update_available: item.source_update_available as boolean,
+    space_id: item.space_id as string | null,
+    title: item.title as string,
+    trust: item.trust as string,
+  };
 }
 
 function nextOffset(value: unknown, previous: number): number | null {
