@@ -98,6 +98,27 @@ The `control` actions are `pause`, `resume`, `disable`, `schedule`, and `sync_no
 Use status to inspect the result. A rate limit keeps the checkpoint and schedules the next attempt
 after the provider's requested delay. Manual and recurring imports share the same state.
 
+For Slack, configure discovery and recurring-note routing separately from source enablement. The
+policy is private to the collector state and defaults to proposal opt-out:
+
+```sh
+open-brain-collector sources --state "$CAPTURE_STATE" --brain-root "$CAPTURE_BRAIN" \
+  --foreground slack-policy-setup --connection-id account:REPLACE \
+  --keyword roadmap
+
+open-brain-collector sources --state "$CAPTURE_STATE" --brain-root "$CAPTURE_BRAIN" \
+  --foreground slack-mapping-list --connection-id account:REPLACE
+open-brain-collector sources --state "$CAPTURE_STATE" --brain-root "$CAPTURE_BRAIN" \
+  --foreground slack-suggestions --connection-id account:REPLACE
+```
+
+Use either one or more `--keyword` options or `--continue-without-keywords`; the latter is an
+explicit choice to use activity-only discovery. Approve suggestions with
+`slack-suggestion-approve`, then enable the selected channel source with the normal `control
+--action enable --interval-seconds 14400` flow. Add a page mapping with `slack-mapping-add` only
+after confirming the canonical `page_id`. A scheduled run may queue a patch, but only the owner can
+approve or reject it in the review workflow.
+
 ## Selected agent projects
 
 Create a local arguments file with the exact project path and separate content choices:

@@ -1,7 +1,7 @@
 {
   "id": "2026-09-18-slack-noteworthy-capture-notes",
   "title": "Implementation notes — Slack noteworthy capture and recurring-note patches",
-  "subtitle": "Phase 2 complete · 2026-09-18 17:46 CDT",
+  "subtitle": "Phase 3 complete · 2026-09-18 17:57 CDT",
   "introTitle": "How to use",
   "intro": "<p>Each item is a decision, deviation, or tradeoff made during implementation. <strong>Acknowledge</strong> if fine. <strong>Discuss</strong> to write what should change (free-text). <strong>Revert</strong> to flag for undo.</p>",
   "actions": [
@@ -58,6 +58,20 @@
         "Why": "The collector remains the only component with provider credentials and scheduling state, while users can review and change mappings through supported CLI commands instead of editing JSON by hand.",
         "Risk": "Discovery counts bounded history pages and reads channel metadata but does not create capture intakes for unapproved channels. Focused Ruff, whitespace checks, and 24 Slack tests pass; full verification remains a Phase 4 gate.",
         "Followup": "Phase 3 consumes only approved, mapped Slack captures and creates review proposals without auto-approval."
+      }
+    },
+    {
+      "id": "N3",
+      "group": "phase-3",
+      "title": "Create deterministic review proposals after durable Slack capture",
+      "where": "packages/collector/src/open_brain_collector/slack_patches.py",
+      "default": "acknowledge",
+      "body": {
+        "Spec said": "Group new Slack captures by thread, apply explicit mappings, create one idempotent revision-bound proposal, keep proposal creation default-off, and never auto-approve.",
+        "What I did": "Added an opt-in post-capture proposer that groups available records by Slack thread, selects channel or channel-plus-keyword mappings, renders a bounded source-linked fragment, and calls a typed engine append operation with deterministic delivery identity.",
+        "Why": "The collector can request a safe append without reading canonical paths or constructing page hashes itself. Captures are routed to the target space and the review engine freezes the actual page revision before producing a pending proposal.",
+        "Risk": "No proposal is created until capture receipts are durable. Failed post-processing retries reuse capture IDs and delivery identity; target drift still blocks approval. Focused Ruff, whitespace checks, 15 collector tests, and 2 review-schema tests pass.",
+        "Followup": "Phase 4 documents the commands and approval boundary, runs full verification, and records synthetic acceptance evidence."
       }
     }
   ]

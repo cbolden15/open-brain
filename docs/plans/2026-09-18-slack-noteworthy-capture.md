@@ -163,11 +163,11 @@ invoke review tools. The collector never receives review-decision authority: pro
 <!-- model: haiku -->
 ### Phase 4: documentation and verification
 
-- [ ] Update operator, Slack setup, review/publication, CLI, portability, and privacy documentation
+- [x] Update operator, Slack setup, review/publication, CLI, portability, and privacy documentation
   with synthetic examples and the explicit approval boundary.
-- [ ] Run focused tests, `make verify`, `git diff --check`, and
+- [x] Run focused tests, `make verify`, `git diff --check`, and
   `actionlint .github/workflows/ci.yml`; run native/package checks only if those surfaces changed.
-- [ ] Run disposable-Brain acceptance with synthetic Slack transport. Record real-source acceptance
+- [x] Run disposable-Brain acceptance with synthetic Slack transport. Record real-source acceptance
   as owner-run evidence without committing message bodies, account data, or tokens.
 
 ## Verification
