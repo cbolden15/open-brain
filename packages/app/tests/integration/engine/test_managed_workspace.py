@@ -2005,3 +2005,18 @@ def test_legacy_marker_cancels_only_with_transaction_local_old_path(
             "FROM managed_write_authority WHERE operation_id='legacy.pending'",
         )[0]
     ) == (0, None, None)
+
+
+@pytest.fixture(autouse=True)
+def historical_schema_six_recipes(
+    monkeypatch: pytest.MonkeyPatch, request: pytest.FixtureRequest
+) -> None:
+    from packages.app.tests.integration.engine._local_schema_fixtures import use_schema_six_runtime
+
+    if request.node.name.startswith(
+        (
+            "test_refreshed_and_resolved_revisions_remain_portable_and_import_fails_closed",
+            "test_settled_retained_history_portable_round_trip",
+        )
+    ):
+        use_schema_six_runtime(monkeypatch, globals())

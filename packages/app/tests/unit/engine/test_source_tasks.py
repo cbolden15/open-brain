@@ -289,3 +289,34 @@ def test_schema_seven_imports_legacy_portable_without_changing_evidence(
     with open_local_database_read_only(imported.profile) as connection:
         assert connection.execute("PRAGMA user_version").fetchone()[0] == 7
         assert connection.execute("SELECT count(*) FROM source_revisions").fetchone()[0] > 0
+
+
+def test_schema_seven_owner_recovery_retains_current_writer_floor(tmp_path: Path) -> None:
+    from open_brain_engine.engine.managed_recovery import (
+        abandon_managed_write,
+        inspect_managed_recovery,
+    )
+
+    from packages.app.tests.integration.engine.test_managed_recovery import _legacy_fixture
+
+    engine, _, _, moved = _legacy_fixture(tmp_path)
+    before = moved.read_bytes()
+    entry = inspect_managed_recovery(engine.profile, operation_id="legacy.pending").entries[0]
+    assert entry.preview_digest is not None
+    receipt = abandon_managed_write(
+        engine.profile,
+        operation_id="legacy.pending",
+        expected_digest=entry.preview_digest,
+        request_id="source.history.owner.recovery",
+        validate_before_write=engine._assert_root,
+    )
+    assert not receipt.schema_upgraded
+    assert moved.read_bytes() == before
+    reopened = open_local_engine(engine.profile)
+    with open_local_database_read_only(reopened.profile) as connection:
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 7
+        assert tuple(connection.execute("SELECT * FROM runtime_compatibility").fetchone()) == (
+            1,
+            2,
+            7,
+        )

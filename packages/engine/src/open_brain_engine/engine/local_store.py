@@ -17,22 +17,41 @@ from .normalization import _utc_now
 
 class _LocalStore:
     def __init__(
-        self, profile: LocalEngineContext, *, clock: Callable[[], datetime] = _utc_now
+        self,
+        profile: LocalEngineContext,
+        *,
+        clock: Callable[[], datetime] = _utc_now,
+        schema_version: int | None = None,
     ) -> None:
         self.profile = profile
         self.root = profile.root
         self._clock = clock
-        open_local_database(profile, clock=clock).close()
+        self._schema_version = schema_version
+        open_local_database(profile, clock=clock, schema_version=schema_version).close()
 
     def connect(self) -> sqlite3.Connection:
-        return open_local_database_read_only(self.profile)
+        connection = open_local_database_read_only(
+            self.profile, allow_old=self._schema_version == 6
+        )
+        if (
+            self._schema_version is not None
+            and connection.execute("PRAGMA user_version").fetchone()[0] != self._schema_version
+        ):
+            connection.close()
+            raise SchemaError("local state compatibility target mismatch")
+        return connection
 
     @contextmanager
     def transaction(self) -> Iterator[sqlite3.Connection]:
-        connection = open_local_database(self.profile, clock=self._clock)
+        connection = open_local_database(
+            self.profile, clock=self._clock, schema_version=self._schema_version
+        )
         try:
             begin_immediate(connection)
-            if classify_local_schema(connection).state != "current":
+            state = classify_local_schema(connection)
+            if state.state != "current" and not (
+                self._schema_version == 6 and state.state == "supported_old" and state.version == 6
+            ):
                 raise SchemaError("local state schema changed before write")
             yield connection
             from .source_store import (

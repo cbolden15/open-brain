@@ -27,6 +27,7 @@ from open_brain_engine.storage.migrations import NewerSchemaError, apply_migrati
 from open_brain_engine.storage.sqlite import DatabaseBusyError, SchemaError
 
 from open_brain.profile import compile_single_user_local
+from packages.app.tests.integration.engine._local_schema_fixtures import schema_six_script
 from tests.unit.storage._factories import FixedClock
 
 FIXTURES = Path(__file__).parents[5] / "tests/fixtures/local-schema"
@@ -453,7 +454,7 @@ open_local_database(open_existing_single_user_local(Path(sys.argv[1]))).close()
     environment = {**os.environ, "PYTHONPATH": os.pathsep.join(sys.path)}
     workers = [
         subprocess.Popen(
-            [sys.executable, "-c", script, str(profile.root)],
+            [sys.executable, "-c", schema_six_script(script), str(profile.root)],
             env=environment,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
@@ -598,7 +599,13 @@ storage._connect_from_parent = instrument
 open_local_database(open_existing_single_user_local(Path(sys.argv[1])))
 """
     result = subprocess.run(
-        [sys.executable, "-c", script, str(profile.root), "spill" if spill else "normal"],
+        [
+            sys.executable,
+            "-c",
+            schema_six_script(script),
+            str(profile.root),
+            "spill" if spill else "normal",
+        ],
         env={**os.environ, "PYTHONPATH": os.pathsep.join(sys.path)},
         capture_output=True,
         timeout=20,
@@ -852,3 +859,10 @@ def test_recovery_candidate_checks_are_confined_and_bounded(
     before = database.read_bytes()
     assert not candidate()
     assert database.read_bytes() == before
+
+
+@pytest.fixture(autouse=True)
+def historical_schema_six_contract(monkeypatch: pytest.MonkeyPatch) -> None:
+    from packages.app.tests.integration.engine._local_schema_fixtures import use_schema_six_runtime
+
+    use_schema_six_runtime(monkeypatch, globals())

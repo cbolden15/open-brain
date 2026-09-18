@@ -238,11 +238,9 @@ class SpaceOperations(_LocalEngineOperations):
                     "JOIN logical_sources s USING(source_id) WHERE r.capture_id=?",
                     (capture_id,),
                 ).fetchone()
-                if (
-                    current is None
-                    or current["head_capture_id"] != capture_id
-                    or current["historical_only"]
-                ):
+                if current is None:
+                    raise ValueError("unknown route target")
+                if current["head_capture_id"] != capture_id or current["historical_only"]:
                     from .t03_contracts import T03Error
 
                     raise T03Error("revision_changed")

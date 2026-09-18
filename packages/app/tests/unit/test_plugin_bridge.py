@@ -795,34 +795,48 @@ def test_concurrent_local_clients_preserve_live_consent_and_reserved_state(
             assert second.tasks.managed_inference.fail(prepared.request_id).status == "failed"
 
 
-def test_v3_migration_waits_until_an_older_registered_runtime_exits(tmp_path: Path) -> None:
+def test_v3_migration_waits_until_an_older_registered_runtime_exits(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     selection = _selection(tmp_path)
-    assert _call(selection, "brain.initialize")["ok"] is True
-    database = selection.brain_root / ".open-brain/state/phase1.sqlite3"
-    with sqlite3.connect(database) as connection:
-        connection.execute("DELETE FROM schema_migrations WHERE version >= 4")
-        for table in (
-            "managed_recovery_decisions", "managed_write_authority",
-            "review_page_heads", "review_sources", "review_contexts",
-        ):
-            connection.execute(f"DROP TABLE {table}")
-        connection.execute("DROP TABLE runtime_compatibility")
-        connection.execute("PRAGMA user_version = 3")
-    with open_local_brain(selection, filesystem_type_probe=_filesystem) as migrated:
-        migrated.tasks.capture.accept(
-            TextPayload("Synthetic compatibility record"),
-            delivery_id="desktop.compatibility.capture",
-        )
-    with sqlite3.connect(database) as connection:
-        connection.execute("DELETE FROM schema_migrations WHERE version >= 4")
-        for table in (
-            "managed_recovery_decisions", "managed_write_authority",
-            "review_page_heads", "review_sources", "review_contexts",
-        ):
-            connection.execute(f"DROP TABLE {table}")
-        connection.execute("DROP TABLE runtime_compatibility")
-        connection.execute("PRAGMA user_version = 3")
+    from packages.app.tests.integration.engine._local_schema_fixtures import use_schema_six_runtime
 
+    with monkeypatch.context() as historical:
+        use_schema_six_runtime(historical, {})
+        from open_brain.services import local_bootstrap
+
+        historical.setattr(local_bootstrap, "PHASE1_STATE_SCHEMA_VERSION", 6)
+        assert _call(selection, "brain.initialize")["ok"] is True
+        database = selection.brain_root / ".open-brain/state/phase1.sqlite3"
+        with sqlite3.connect(database) as connection:
+            connection.execute("DELETE FROM schema_migrations WHERE version >= 4")
+            for table in (
+                "managed_recovery_decisions",
+                "managed_write_authority",
+                "review_page_heads",
+                "review_sources",
+                "review_contexts",
+            ):
+                connection.execute(f"DROP TABLE {table}")
+            connection.execute("DROP TABLE runtime_compatibility")
+            connection.execute("PRAGMA user_version = 3")
+        with open_local_brain(selection, filesystem_type_probe=_filesystem) as migrated:
+            migrated.tasks.capture.accept(
+                TextPayload("Synthetic compatibility record"),
+                delivery_id="desktop.compatibility.capture",
+            )
+        with sqlite3.connect(database) as connection:
+            connection.execute("DELETE FROM schema_migrations WHERE version >= 4")
+            for table in (
+                "managed_recovery_decisions",
+                "managed_write_authority",
+                "review_page_heads",
+                "review_sources",
+                "review_contexts",
+            ):
+                connection.execute(f"DROP TABLE {table}")
+            connection.execute("DROP TABLE runtime_compatibility")
+            connection.execute("PRAGMA user_version = 3")
     profile = open_existing_single_user_local(selection.brain_root)
     with hold_local_runtime_session(
         profile.root,
@@ -839,7 +853,7 @@ def test_v3_migration_waits_until_an_older_registered_runtime_exits(tmp_path: Pa
 
     with open_local_brain(selection, filesystem_type_probe=_filesystem) as reopened:
         assert reopened.tasks.retrieval.search("compatibility")[0].title
-    assert sqlite3.connect(database).execute("PRAGMA user_version").fetchone() == (6,)
+    assert sqlite3.connect(database).execute("PRAGMA user_version").fetchone() == (7,)
 
 
 def test_bridge_rejects_wrong_or_missing_protocol_versions(tmp_path: Path) -> None:

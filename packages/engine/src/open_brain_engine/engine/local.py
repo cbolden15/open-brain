@@ -138,13 +138,17 @@ class BrainEngine(CaptureOperations, SpaceOperations, ReviewOperations, Retrieva
             raise ValueError("invalid mutation authority validator")
         assert_root_identity(profile.root, profile.root_identity)
         schema = inspect_phase1_state(profile)
+        from . import local_schema
         from .runtime_admission import exclusive_runtime_admission
         from .source_migration import migrate_sources, migration_pending
 
         pending = migration_pending(profile)
         if schema.state in {"invalid", "newer"} and not pending:
             raise StateSchemaUnavailableError(f"local state schema is {schema.state}")
-        if pending or schema.state == "supported_old":
+        if pending or (
+            schema.state in {"supported_old", "legacy", "pre_ledger"}
+            and local_schema.PHASE1_STATE_SCHEMA_VERSION >= 7
+        ):
             with exclusive_runtime_admission(profile) as admission:
                 migrate_sources(profile, admission=admission, clock=clock)
         self.profile = profile

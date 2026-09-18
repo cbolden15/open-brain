@@ -15,6 +15,7 @@ from open_brain_engine.engine import (
 )
 
 from open_brain.profile import compile_single_user_local, open_existing_single_user_local
+from packages.app.tests.integration.engine._local_schema_fixtures import schema_six_script
 
 
 def _refresh_fixture(tmp_path: Path) -> tuple[BrainEngine, str, str, Path]:
@@ -498,7 +499,7 @@ recovery.abandon_managed_write(
 raise AssertionError("process exit not reached")
 """
     result = subprocess.run(
-        [sys.executable, "-c", script, __file__, str(tmp_path), boundary],
+        [sys.executable, "-c", schema_six_script(script), __file__, str(tmp_path), boundary],
         text=True,
         capture_output=True,
         timeout=25,
@@ -904,3 +905,10 @@ def test_failed_migration_does_not_report_committed_upgrade(
     with sqlite3.connect(_database(engine)) as connection:
         assert connection.execute("PRAGMA user_version").fetchone() == (5,)
         assert list(connection.iterdump()) == before
+
+
+@pytest.fixture(autouse=True)
+def historical_schema_six_contract(monkeypatch: pytest.MonkeyPatch) -> None:
+    from packages.app.tests.integration.engine._local_schema_fixtures import use_schema_six_runtime
+
+    use_schema_six_runtime(monkeypatch, globals())

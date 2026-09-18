@@ -64,3 +64,15 @@ def test_imported_review_binds_causal_route_head_not_import_order(
         )
         assert decision.page_id == proposal.page_id
         assert restored.retrieval.fetch(str(proposal.page_id)) is not None
+
+
+@pytest.fixture(autouse=True)
+def historical_schema_six_recipes(
+    monkeypatch: pytest.MonkeyPatch, request: pytest.FixtureRequest
+) -> None:
+    from packages.app.tests.integration.engine._local_schema_fixtures import use_schema_six_runtime
+
+    if request.node.name.startswith(
+        ("test_imported_review_binds_causal_route_head_not_import_order",)
+    ):
+        use_schema_six_runtime(monkeypatch, globals())

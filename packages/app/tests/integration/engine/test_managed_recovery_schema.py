@@ -21,6 +21,7 @@ from open_brain_engine.storage.migrations import NewerSchemaError, apply_migrati
 from open_brain_engine.storage.sqlite import SchemaError
 
 from open_brain.profile import compile_single_user_local
+from packages.app.tests.integration.engine._local_schema_fixtures import schema_six_script
 from tests.unit.storage._factories import FixedClock
 
 FIXTURE = Path(__file__).parents[5] / "tests/fixtures/local-schema/ledger-v5.sql"
@@ -73,9 +74,7 @@ def _populated_v5(root: Path) -> tuple[LocalEngineContext, list[tuple[object, ..
         _insert_operation(connection, "refresh-pending", kind="refresh")
         before = [
             tuple(row)
-            for row in connection.execute(
-                "SELECT * FROM managed_operations ORDER BY operation_id"
-            )
+            for row in connection.execute("SELECT * FROM managed_operations ORDER BY operation_id")
         ]
     return profile, before
 
@@ -106,13 +105,10 @@ def test_populated_v5_upgrade_marks_every_historical_write_without_descriptors(
         ]
         assert [
             tuple(row)
-            for row in upgraded.execute(
-                "SELECT * FROM managed_operations ORDER BY operation_id"
-            )
+            for row in upgraded.execute("SELECT * FROM managed_operations ORDER BY operation_id")
         ] == operations_before
         assert (
-            upgraded.execute("SELECT count(*) FROM managed_recovery_decisions").fetchone()[0]
-            == 0
+            upgraded.execute("SELECT count(*) FROM managed_recovery_decisions").fetchone()[0] == 0
         )
         snapshot = list(upgraded.iterdump())
         ledger = [tuple(row) for row in upgraded.execute("SELECT * FROM schema_migrations")]
@@ -138,9 +134,7 @@ def test_schema6_table_shapes_and_database_constraints(tmp_path: Path) -> None:
     profile = compile_single_user_local(tmp_path / "brain", starter_spaces=())
     connection = open_local_database(profile)
     try:
-        authority_columns = connection.execute(
-            "PRAGMA table_info(managed_write_authority)"
-        )
+        authority_columns = connection.execute("PRAGMA table_info(managed_write_authority)")
         assert [row[1] for row in authority_columns] == [
             "operation_id",
             "authority_version",
@@ -164,9 +158,7 @@ def test_schema6_table_shapes_and_database_constraints(tmp_path: Path) -> None:
         for operation_id in ("legacy", "bound", "invalid", "decision", "decision-invalid"):
             _insert_operation(connection, operation_id)
 
-        connection.execute(
-            "INSERT INTO managed_write_authority VALUES ('legacy', 0, NULL, NULL)"
-        )
+        connection.execute("INSERT INTO managed_write_authority VALUES ('legacy', 0, NULL, NULL)")
         connection.execute(
             "INSERT INTO managed_write_authority VALUES ('bound', 1, ?, ?)",
             ('{"kind":"materialize"}', "b" * 64),
@@ -212,8 +204,12 @@ def test_schema6_table_shapes_and_database_constraints(tmp_path: Path) -> None:
             ("c" * 64, "short", "{}", "owner_abandon_unverifiable_legacy_write"),
             ("c" * 64, "d" * 64, "[]", "owner_abandon_unverifiable_legacy_write"),
             ("c" * 64, "d" * 64, "not-json", "owner_abandon_unverifiable_legacy_write"),
-            ("c" * 64, "d" * 64, '{"value":"' + "x" * 16_384 + '"}',
-             "owner_abandon_unverifiable_legacy_write"),
+            (
+                "c" * 64,
+                "d" * 64,
+                '{"value":"' + "x" * 16_384 + '"}',
+                "owner_abandon_unverifiable_legacy_write",
+            ),
             ("c" * 64, "d" * 64, "{}", "different"),
         )
         for index, (preview, request, snapshot_json, outcome) in enumerate(invalid_decisions):
@@ -286,7 +282,7 @@ storage._connect_from_parent = instrument
 open_local_database(open_existing_single_user_local(Path(sys.argv[1])))
 """
     result = subprocess.run(
-        [sys.executable, "-c", script, str(profile.root)],
+        [sys.executable, "-c", schema_six_script(script), str(profile.root)],
         env={**os.environ, "PYTHONPATH": os.pathsep.join(sys.path)},
         capture_output=True,
         timeout=20,
@@ -340,3 +336,10 @@ def test_schema6_refuses_old_runtime_and_invalid_or_newer_inputs(tmp_path: Path)
         with pytest.raises(SchemaError, match=expected_state):
             open_local_database(candidate)
         assert candidate_database.read_bytes() == candidate_before
+
+
+@pytest.fixture(autouse=True)
+def historical_schema_six_contract(monkeypatch: pytest.MonkeyPatch) -> None:
+    from packages.app.tests.integration.engine._local_schema_fixtures import use_schema_six_runtime
+
+    use_schema_six_runtime(monkeypatch, globals())

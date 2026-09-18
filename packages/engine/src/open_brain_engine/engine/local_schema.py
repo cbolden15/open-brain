@@ -356,40 +356,48 @@ def _prepare_local_schema(
     *,
     clock: Callable[[], datetime] = _utc_now,
     on_upgrade_committed: Callable[[], None] | None = None,
+    schema_version: int | None = None,
 ) -> None:
+    target_version = PHASE1_STATE_SCHEMA_VERSION if schema_version is None else schema_version
     try:
         if not setup_required:
             connection.execute("BEGIN")
             state = classify_local_schema(connection)
             connection.execute("COMMIT")
             restore_busy_timeout(connection)
-            if state.state == "current":
+            if state.state in {"current", "supported_old"} and state.version == target_version:
                 return
         begin_immediate(connection)
         state = classify_local_schema(connection)
         empty = created and state.version == 0 and not _shape(connection)
         if not empty:
             _require_supported(state)
-            if state.state == "current":
+            if state.version is not None and state.version > target_version:
+                raise SchemaError("local state is newer than requested compatibility target")
+            if state.state in {"current", "supported_old"} and state.version == target_version:
                 connection.execute("COMMIT")
                 restore_busy_timeout(connection)
                 return
             _validate_upgrade_data(connection)
-            raise SchemaError("source history migration requires exclusive admission")
+            if target_version >= 7:
+                raise SchemaError("source history migration requires exclusive admission")
         connection.create_function("local_public_search_text", 2, _public_text, deterministic=True)
         apply_migrations(
             connection,
             clock=_MigrationClock(clock),
-            migrations=LOCAL_MIGRATIONS,
-            schema_version=PHASE1_STATE_SCHEMA_VERSION,
+            migrations=LOCAL_MIGRATIONS[:target_version],
+            schema_version=target_version,
         )
-        if empty and PHASE1_STATE_SCHEMA_VERSION == 7:
+        if empty and target_version == 7:
             from uuid import uuid4
 
             connection.execute(
                 "INSERT INTO engine_generations VALUES(1,?,0,0,1,0,0,0)", (str(uuid4()),)
             )
-        _require_supported(classify_local_schema(connection), current_only=True)
+        final_state = classify_local_schema(connection)
+        _require_supported(final_state)
+        if final_state.version != target_version:
+            raise SchemaError("local state compatibility target mismatch")
         _validate_upgrade_data(connection)
         _validate_backfill(connection)
         connection.execute("COMMIT")
@@ -413,8 +421,15 @@ def _prepare_local_schema(
 
 
 def open_local_database(
-    profile: LocalEngineContext, *, clock: Callable[[], datetime] = _utc_now
+    profile: LocalEngineContext,
+    *,
+    clock: Callable[[], datetime] = _utc_now,
+    schema_version: int | None = None,
 ) -> sqlite3.Connection:
+    if schema_version is not None and (
+        type(schema_version) is not int or schema_version not in {6, PHASE1_STATE_SCHEMA_VERSION}
+    ):
+        raise SchemaError("unsupported compatibility target")
     from .source_migration import migration_pending
 
     if migration_pending(profile):
@@ -437,7 +452,10 @@ def open_local_database(
             database_name=PHASE1_STATE_DATABASE,
             expected_root_identity=profile.root_identity,
             prepare=partial(
-                _prepare_local_schema, clock=clock, on_upgrade_committed=record_upgrade
+                _prepare_local_schema,
+                clock=clock,
+                on_upgrade_committed=record_upgrade,
+                schema_version=schema_version,
             ),
         )
     except Exception as error:

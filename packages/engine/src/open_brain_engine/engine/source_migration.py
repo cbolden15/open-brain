@@ -144,8 +144,7 @@ def _new_plan(
         ),
         "publication_paths": inventory.publication_paths,
         "current_request_digests": {
-            capture_id: row["request_sha256"]
-            for capture_id, row in inventory.current_rows.items()
+            capture_id: row["request_sha256"] for capture_id, row in inventory.current_rows.items()
         },
         "metadata": metadata,
         "manifest": manifest,
@@ -205,6 +204,22 @@ def _migrate_sources(
         raw = _read(profile, JOURNAL)
         if raw is None:
             state = classify_local_schema(connection)
+            if state.state in {"legacy", "pre_ledger"} or (
+                state.state == "supported_old" and state.version is not None and state.version < 5
+            ):
+                # Retain the established atomic pre-source-history upgrade under the same
+                # exclusive admission and writer lease. Its result still must pass the
+                # full durable source preflight before the schema-seven barrier.
+                from .local_schema import open_local_database
+
+                connection.close()
+                open_local_database(profile, clock=clock, schema_version=6).close()
+                connection = connect_database(
+                    root=profile.root,
+                    database_name=PHASE1_STATE_DATABASE,
+                    expected_root_identity=profile.root_identity,
+                )
+                state = classify_local_schema(connection)
             if state.state not in {"current", "supported_old"} or state.version not in {5, 6}:
                 raise T03Error("operation_pending")
             checkpoint("exclusive_preflight")

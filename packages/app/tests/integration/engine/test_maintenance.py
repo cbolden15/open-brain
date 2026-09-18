@@ -223,3 +223,15 @@ def _lock_bytes(lock_directory: Path) -> dict[str, bytes]:
     if not lock_directory.exists():
         return {}
     return {path.name: path.read_bytes() for path in lock_directory.iterdir()}
+
+
+@pytest.fixture(autouse=True)
+def historical_schema_six_recipes(
+    monkeypatch: pytest.MonkeyPatch, request: pytest.FixtureRequest
+) -> None:
+    from packages.app.tests.integration.engine._local_schema_fixtures import use_schema_six_runtime
+
+    if request.node.name.startswith(
+        ("test_mutating_engine_migrates_legacy_schema_without_replacing_content",)
+    ):
+        use_schema_six_runtime(monkeypatch, globals())
