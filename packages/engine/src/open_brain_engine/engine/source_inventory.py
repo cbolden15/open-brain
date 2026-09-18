@@ -170,9 +170,21 @@ def inventory_sources(
                 "SELECT * FROM decisions WHERE decision_id=?",
                 (decision_id,),
             ).fetchone()
-            if decision is None or decision["publication_id"] != publication["publication_id"]:
+            if decision is None:
+                automatic = connection.execute(
+                    "SELECT * FROM captures WHERE auto_decision_id=? AND publication_id=?",
+                    (decision_id, publication["publication_id"]),
+                ).fetchone()
+                if (
+                    automatic is None
+                    or automatic["publication_path"] != path
+                    or automatic["page_id"] != publication["page_id"]
+                    or automatic["action"] != "canonical_note"
+                ):
+                    raise ValueError("publication SQL identity conflicts")
+            elif decision["publication_id"] != publication["publication_id"]:
                 raise ValueError("publication SQL identity conflicts")
-            if decision["publication_path"] != path:
+            elif decision["publication_path"] != path:
                 legacy_key = "import.decision." + sha256(decision_id.encode()).hexdigest()
                 if (
                     decision["delivery_id"] != legacy_key

@@ -234,6 +234,15 @@ class BrainEngine(CaptureOperations, SpaceOperations, ReviewOperations, Retrieva
         rederive_live_search_projection(self)
 
     def _recover(self, *, startup: bool = False) -> int:
+        connection = self._store.connect()
+        try:
+            source_history = connection.execute("PRAGMA user_version").fetchone()[0] >= 7
+        finally:
+            connection.close()
+        if source_history:
+            from .source_intake import quarantine_stale_intakes
+
+            quarantine_stale_intakes(self)
         recovered = 0
         for table, processor in (
             ("space_operations", self._process_space_operation),

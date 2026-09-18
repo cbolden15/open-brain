@@ -11,7 +11,11 @@ from uuid import uuid4
 from open_brain_engine.core.ids import portable_canonical_json_bytes
 
 from .normalization import _timestamp
-from .source_intake import SourceRevisionReceipt, SourceRevisionSubmission
+from .source_intake import (
+    SourceRevisionReceipt,
+    SourceRevisionSubmission,
+    quarantine_stale_intakes,
+)
 from .t03_contracts import EffectiveAuthority, SourceRouteRequest, SourceRouteResponse, T03Error
 
 if TYPE_CHECKING:
@@ -28,14 +32,15 @@ class SourceTasks:
             raise T03Error("unsupported_capability")
         if type(expected_epoch) is not int or expected_epoch < 0:
             raise T03Error("invalid_arguments")
-        with (
-            self._engine._writer_lease.acquire_shared_writer(),
-            self._engine._store.transaction() as connection,
-        ):
-            epoch = connection.execute("SELECT control_epoch FROM engine_generations").fetchone()[0]
-            if epoch != expected_epoch:
-                raise T03Error("revision_changed")
-            connection.execute("UPDATE engine_generations SET control_epoch=control_epoch+1")
+        with self._engine._writer_lease.acquire_shared_writer():
+            with self._engine._store.transaction() as connection:
+                epoch = connection.execute(
+                    "SELECT control_epoch FROM engine_generations"
+                ).fetchone()[0]
+                if epoch != expected_epoch:
+                    raise T03Error("revision_changed")
+                connection.execute("UPDATE engine_generations SET control_epoch=control_epoch+1")
+            quarantine_stale_intakes(self._engine)
             return cast(int, epoch + 1)
 
     def submit_revision(self, submission: SourceRevisionSubmission) -> SourceRevisionReceipt:
@@ -48,6 +53,7 @@ class SourceTasks:
     def _submit_revision_locked(
         self, submission: SourceRevisionSubmission
     ) -> SourceRevisionReceipt:
+        quarantine_stale_intakes(self._engine)
         namespace_json = submission.namespace_bytes().decode("utf-8")
         namespace_sha = sha256(namespace_json.encode("utf-8")).hexdigest()
         conflict = False

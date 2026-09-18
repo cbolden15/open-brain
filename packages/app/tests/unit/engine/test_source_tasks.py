@@ -101,6 +101,7 @@ def test_explicit_revision_order_replay_history_route_and_control(tmp_path: Path
 
     first_request = submit("a1", 1, None, "first")
     first = tasks.sources.submit_revision(first_request)
+    assert first.source_id is not None and first.capture_id is not None
     space = tasks.inbox.create_space("Synthetic", delivery_id="space.one")
     authority = EffectiveAuthority("synthetic", "session", frozenset(), None, owner=True)
     tasks.sources.route(
@@ -115,7 +116,9 @@ def test_explicit_revision_order_replay_history_route_and_control(tmp_path: Path
     )
     newest = tasks.sources.submit_revision(submit("a3", 3, first.capture_id, "newest"))
     late = tasks.sources.submit_revision(submit("a2", 2, newest.capture_id, "late"))
+    assert newest.capture_id is not None and late.capture_id is not None
     assert late.outcome == "history_only"
+    assert [item.capture_id for item in tasks.inbox.list()] == [newest.capture_id]
     assert tasks.sources.submit_revision(first_request) == first
     assert tasks.retrieval.fetch(first.capture_id) is None
     assert tasks.retrieval.fetch(late.capture_id) is None
@@ -133,6 +136,104 @@ def test_explicit_revision_order_replay_history_route_and_control(tmp_path: Path
     assert tasks.sources.fence_intake(expected_epoch=0, authority=authority) == 1
     with pytest.raises(T03Error, match="revision_changed"):
         tasks.sources.submit_revision(held)
+
+
+@pytest.mark.parametrize(
+    "fault_name", ["AFTER_CAPTURE_RESERVATION", "AFTER_SOURCE_WRITE", "AFTER_BLOB_WRITE"]
+)
+def test_fenced_reservation_enters_custody_without_new_source_writes_or_startup_poison(
+    tmp_path: Path,
+    fault_name: str,
+) -> None:
+    from open_brain_engine.engine import CaptureFault, FilePayload, InjectedFault
+
+    profile = compile_single_user_local(tmp_path / "brain")
+    tasks = open_local_engine(profile, faults={CaptureFault[fault_name]})
+    assert tasks.sources is not None
+    capture = _public_submission(tasks)
+    if fault_name == "AFTER_BLOB_WRITE":
+        capture = replace(capture, payload=FilePayload("synthetic.txt", "text/plain", b"synthetic"))
+    request = SourceRevisionSubmission(
+        capture=capture,
+        namespace=dict(
+            connector_name="synthetic", connection_id="one", resource_id="one", external_id="one"
+        ),
+        revision_key="one",
+        canonical_sha256=capture.request_sha256(),
+        expected_head=None,
+        ordering={"kind": "unordered"},
+        expected_control_epoch=0,
+    )
+    with pytest.raises(InjectedFault):
+        tasks.sources.submit_revision(request)
+    before = {
+        p.relative_to(profile.root): p.read_bytes()
+        for p in (profile.root / "sources").rglob("*")
+        if p.is_file() and p.name != "logical-sources.json"
+    }
+    authority = EffectiveAuthority("synthetic", "session", frozenset(), None, owner=True)
+    assert tasks.sources.fence_intake(expected_epoch=0, authority=authority) == 1
+    after = {
+        p.relative_to(profile.root): p.read_bytes()
+        for p in (profile.root / "sources").rglob("*")
+        if p.is_file() and p.name != "logical-sources.json"
+    }
+    assert after == before
+    terminal = tasks.sources.submit_revision(replace(request, expected_control_epoch=1))
+    assert terminal.outcome == "quarantined" and terminal.custody_id is not None
+    reopened = open_local_engine(profile)
+    assert reopened.inbox.list() == ()
+    reopened.capture.accept(TextPayload("unrelated capture"), delivery_id="unrelated")
+    with open_local_database_read_only(profile) as connection:
+        assert connection.execute("SELECT count(*) FROM source_quarantine").fetchone()[0] == 1
+        assert connection.execute("SELECT count(*) FROM captures WHERE stage<3").fetchone()[0] == 0
+    exported = tmp_path / "export"
+    reopened.portability.export(exported, export_id="export_" + str(uuid4()))
+    validated_portable_snapshot(exported)
+
+
+@pytest.mark.parametrize("schema", [5, 6])
+def test_migrated_alias_adoption_and_automatic_publication_preserve_identity(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    schema: int,
+) -> None:
+    from open_brain_engine.engine import CaptureAction
+
+    profile = compile_single_user_local(tmp_path / "brain")
+    with monkeypatch.context() as legacy:
+        legacy.setattr(local_schema, "PHASE1_STATE_SCHEMA_VERSION", schema)
+        legacy.setattr(local_schema, "LOCAL_MIGRATIONS", LOCAL_MIGRATIONS[:schema])
+        old = open_local_engine(profile)
+        capture = _public_submission(old)
+        receipt = old.capture.submit(capture)
+        space = old.inbox.create_space("Synthetic", delivery_id="space")
+        old.capture.accept(
+            TextPayload("Automatic publication"),
+            action=CaptureAction.CANONICAL_NOTE,
+            delivery_id="automatic",
+            space_id=space.space_id,
+        )
+    tasks = open_local_engine(profile)
+    assert tasks.sources is not None
+    adopted = tasks.sources.submit_revision(
+        SourceRevisionSubmission(
+            capture=capture,
+            namespace=dict(
+                connector_name="synthetic",
+                connection_id="one",
+                resource_id="one",
+                external_id="one",
+            ),
+            revision_key="baseline",
+            canonical_sha256=capture.request_sha256(),
+            expected_head=receipt.capture_id,
+            ordering={"kind": "unordered"},
+            expected_control_epoch=0,
+        )
+    )
+    assert adopted.capture_id == receipt.capture_id
+    assert len(tasks.retrieval.search("Automatic publication", record_type="canonical")) == 1
 
 
 @pytest.mark.parametrize("version", [1, 2, 3])

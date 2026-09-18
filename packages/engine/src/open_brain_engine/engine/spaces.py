@@ -55,6 +55,13 @@ class SpaceOperations(_LocalEngineOperations):
         parameters.extend((-1 if limit is None else limit, offset))
         connection = self._store.connect()
         try:
+            if connection.execute("PRAGMA user_version").fetchone()[0] >= 7:
+                sql = sql.replace(
+                    "FROM captures WHERE",
+                    "FROM captures WHERE stage=3 AND EXISTS(SELECT 1 FROM logical_sources s "
+                    "WHERE s.head_capture_id=captures.capture_id AND s.historical_only=0 "
+                    "AND s.lifecycle='active' AND s.availability='available') AND",
+                )
             rows = tuple(connection.execute(sql, parameters))
         finally:
             connection.close()

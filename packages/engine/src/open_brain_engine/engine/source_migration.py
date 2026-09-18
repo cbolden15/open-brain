@@ -143,6 +143,10 @@ def _new_plan(
             connection, publication_paths=inventory.publication_paths
         ),
         "publication_paths": inventory.publication_paths,
+        "current_request_digests": {
+            capture_id: row["request_sha256"]
+            for capture_id, row in inventory.current_rows.items()
+        },
         "metadata": metadata,
         "manifest": manifest,
         "aliases": [
@@ -310,7 +314,7 @@ def _migrate_sources(
                         revision["source_path"],
                         revision["source_sha256"],
                         payload,
-                        None,
+                        plan.get("current_request_digests", {}).get(revision["capture_id"]),
                         None,
                         None,
                         revision["recorded_at"],

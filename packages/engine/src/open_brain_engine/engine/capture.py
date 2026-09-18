@@ -274,6 +274,23 @@ class CaptureOperations(_LocalEngineOperations):
 
     def _process_capture(self, supplied_row: sqlite3.Row) -> None:
         row = self._capture_row(cast(str, supplied_row["capture_id"]))
+        connection = self._store.connect()
+        try:
+            if connection.execute("PRAGMA user_version").fetchone()[0] >= 7:
+                intake = connection.execute(
+                    "SELECT plan_json FROM source_intakes WHERE delivery_id=? "
+                    "AND receipt_json IS NULL",
+                    (row["delivery_id"],),
+                ).fetchone()
+                epoch = connection.execute(
+                    "SELECT control_epoch FROM engine_generations"
+                ).fetchone()[0]
+                if intake is not None and json.loads(intake["plan_json"])["control_epoch"] != epoch:
+                    from .t03_contracts import T03Error
+
+                    raise T03Error("operation_pending")
+        finally:
+            connection.close()
         stage = cast(int, row["stage"])
         if stage < 1:
             if cast(bytes | None, row["file_bytes"]) is not None:
