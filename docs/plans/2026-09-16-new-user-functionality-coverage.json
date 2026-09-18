@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "status": "core_v01_t09_t19_t20_local_verified_delivery_gates_pending",
+  "status": "core_v01_t09_t19_t20_t21_local_verified_t23_acceptance_in_progress",
   "baseline_commit": "33a7472f06516753c5c66d76eac8e60538c2660f",
   "assessment": "docs/audits/2026-09-16-new-user-functional-assessment.md",
   "plan": "docs/plans/2026-09-16-new-user-functionality.md",
@@ -41,7 +41,8 @@
       "acceptance": "Deferred task acceptance remains open; source verification does not establish public artifact or platform readiness.",
       "t09_checkpoint": "docs/ai/workstreams/20260918-open-brain-public-m3-source-continuity-owner-control-c63538/T09-CHECKPOINT.json",
       "t19_checkpoint": "docs/ai/workstreams/20260918-open-brain-public-m3-source-continuity-owner-control-c63538/T19-CHECKPOINT.json",
-      "t20_checkpoint": "docs/ai/workstreams/20260918-open-brain-public-m3-source-continuity-owner-control-c63538/T20-CHECKPOINT.json"
+      "t20_checkpoint": "docs/ai/workstreams/20260918-open-brain-public-m3-source-continuity-owner-control-c63538/T20-CHECKPOINT.json",
+      "t21_checkpoint": "docs/ai/workstreams/20260918-open-brain-public-m3-source-continuity-owner-control-c63538/T21-CHECKPOINT.json"
     }
   },
   "active": [
@@ -448,6 +449,17 @@
         "docs/ai/workstreams/20260918-open-brain-public-m3-source-continuity-owner-control-c63538/T21-CHECKPOINT.json"
       ],
       "acceptance_limit": "Frozen candidate executable examples only. Reference templates and historical developer/provider instructions are not additional as-written artifact receipts. No Linux, GUI, provider, public readiness or T23 acceptance is claimed. Runtime, schema fences, Obsidian scope and completed desktop code remain unchanged."
+    },
+    "T23": {
+      "tasks": [
+        "T23"
+      ],
+      "status": "scoped_macos_acceptance_in_progress",
+      "evidence": [
+        "docs/design/core-v01-t23-acceptance.md",
+        "docs/ai/workstreams/20260918-open-brain-public-m3-source-continuity-owner-control-c63538/T23-RECONCILIATION.json"
+      ],
+      "acceptance_limit": "T23/scoped A17 local macOS acceptance is in progress. Linux, exact Obsidian GUI, production OAuth/provider, live-source and public promotion remain open. Desktop GUI/release and T10-T18/T22 remain deferred. No global A17 or release completion."
     }
   },
   "surface_deferrals": {
