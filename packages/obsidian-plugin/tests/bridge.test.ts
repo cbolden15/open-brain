@@ -1,4 +1,4 @@
-import { chmod, mkdtemp, realpath, writeFile } from "node:fs/promises";
+import { access, chmod, mkdtemp, realpath, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import process from "node:process";
@@ -78,6 +78,40 @@ process.stdin.once("data", (chunk) => {
     );
   });
 
+  it("rejects a response beyond the transport budget", async () => {
+    const executable = await fakeExecutable(`
+process.stdin.once("data", (chunk) => {
+  const request = JSON.parse(chunk);
+  process.stdout.write(JSON.stringify({ok:true, protocol:"open-brain-client", protocol_version:1,
+    request_id:request.request_id, result:{text:"x".repeat(5 * 1024 * 1024)}}) + "\\n");
+});
+`);
+    const bridge = new OpenBrainBridge(executable);
+    bridges.push(bridge);
+    await expect(bridge.invoke("system.handshake", {})).rejects.toEqual(
+      expect.objectContaining<Partial<BridgeError>>({ code: "response_too_large" }),
+    );
+  });
+
+  it("terminates a descendant in the owned process group on unload", async () => {
+    const directory = await mkdtemp(path.join(tmpdir(), "open-brain-plugin-child-test-"));
+    const ready = path.join(directory, "ready");
+    const stopped = path.join(directory, "stopped");
+    const descendant = `process.on("SIGTERM",()=>{require("fs").writeFileSync(${JSON.stringify(stopped)},"stopped");process.exit(0)});require("fs").writeFileSync(${JSON.stringify(ready)},"ready");setInterval(()=>{},1000)`;
+    const executable = await fakeExecutable(`
+require("child_process").spawn(process.execPath, ["-e", ${JSON.stringify(descendant)}], {stdio:"ignore"});
+process.stdin.resume();
+setInterval(()=>{}, 1000);
+`);
+    const bridge = new OpenBrainBridge(executable);
+    const pending = bridge.invoke("system.handshake", {}).catch(() => undefined);
+    await waitForFile(ready);
+    bridge.dispose();
+    await pending;
+    await waitForFile(stopped);
+    await expect(access(stopped)).resolves.toBeUndefined();
+  });
+
   it.each([2, undefined])("rejects a response with protocol version %s", async (version) => {
     const executable = await fakeExecutable(`
 process.stdin.setEncoding("utf8");
@@ -136,4 +170,11 @@ async function fakeExecutable(body: string): Promise<string> {
   await writeFile(executable, `#!${process.execPath}\n${body}\n`, "utf8");
   await chmod(executable, 0o700);
   return executable;
+}
+
+async function waitForFile(file: string): Promise<void> {
+  for (let attempt = 0; attempt < 50; attempt += 1) {
+    try { await access(file); return; } catch { await new Promise((resolve) => setTimeout(resolve, 20)); }
+  }
+  throw new Error(`Timed out waiting for ${file}`);
 }
