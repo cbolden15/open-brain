@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import threading
 from pathlib import Path
 from typing import cast
 
@@ -16,6 +17,8 @@ from open_brain_collector.lifecycle import (
     MemoryCaptureSink,
 )
 from open_brain_collector.live_capture import LiveCaptureService
+from open_brain_collector.live_manager import LiveSourceManager
+from open_brain_connectors.runtime import live_storage as live_storage_module
 from open_brain_connectors.runtime.live_common import (
     LiveBatch,
     LiveSourceError,
@@ -135,6 +138,159 @@ def test_custody_reserves_terminal_metadata_at_exact_byte_quota(
         )
 
 
+@pytest.mark.parametrize(
+    ("seam", "durable"),
+    (("file_fsync", False), ("replace", False), ("directory_fsync", True)),
+)
+def test_custody_atomic_write_failure_seams_are_restart_safe(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    seam: str,
+    durable: bool,
+) -> None:
+    original_fsync = live_storage_module.os.fsync
+    original_replace = live_storage_module.os.replace
+    calls = 0
+
+    def fail_fsync(fd: int) -> None:
+        nonlocal calls
+        calls += 1
+        if seam == "file_fsync" or (seam == "directory_fsync" and calls == 2):
+            raise OSError("synthetic fsync interruption")
+        original_fsync(fd)
+
+    def fail_replace(*args: object, **kwargs: object) -> None:
+        raise OSError("synthetic replace interruption")
+
+    if seam == "replace":
+        monkeypatch.setattr(live_storage_module.os, "replace", fail_replace)
+    else:
+        monkeypatch.setattr(live_storage_module.os, "fsync", fail_fsync)
+    store = CustodyStore(PrivateJsonStore(tmp_path / "custody"))
+    with pytest.raises(LiveSourceError, match="source_storage_unavailable"):
+        store.stage(
+            source_id="source",
+            binding="binding",
+            generation="a" * 64,
+            control_epoch=0,
+            intakes=(_intake("atomic"),),
+        )
+    monkeypatch.setattr(live_storage_module.os, "fsync", original_fsync)
+    monkeypatch.setattr(live_storage_module.os, "replace", original_replace)
+    restarted = CustodyStore(PrivateJsonStore(tmp_path / "custody"))
+    assert restarted.status()["retained_items"] == int(durable)
+
+
+def test_live_manager_custody_status_inspect_and_retry_journey(tmp_path: Path) -> None:
+    from open_brain_engine.engine import DeliveryConflict
+
+    brain = tmp_path / "brain"
+    compile_single_user_local(brain)
+    runtime = _Runtime((_intake("a"),))
+    service = LiveCaptureService(
+        tmp_path / "capture",
+        brain,
+        runtime=runtime,
+        sink=lambda _: (_ for _ in ()).throw(DeliveryConflict()),
+    )
+    service.configure("source", _SELECTION, {})
+    preview = service.preview("source")
+    service.apply("source", cast(str, preview["preview_id"]))
+    manager = LiveSourceManager(tmp_path / "manager", brain)
+    manager.capture = service
+    status = manager.dispatch("sources.custody_status", {"source_id": "source"})
+    receipt_id = cast(list[str], status["receipt_ids"])[0]
+    assert (
+        manager.dispatch("sources.custody_inspect", {"receipt_id": receipt_id})["outcome"]
+        == "quarantined"
+    )
+    service._sink = lambda _: None
+    retried = manager.dispatch("sources.custody_retry", {"receipt_id": receipt_id})
+    assert retried["outcome"] == "captured"
+
+
+def test_concurrent_custody_admission_obeys_one_global_item_quota(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(custody_module, "MAX_RETAINED_ITEMS", 1)
+    stores = [
+        CustodyStore(PrivateJsonStore(tmp_path / "custody")),
+        CustodyStore(PrivateJsonStore(tmp_path / "custody")),
+    ]
+    start = threading.Barrier(2)
+    outcomes: list[str] = []
+
+    def admit(index: int) -> None:
+        start.wait()
+        try:
+            stores[index].stage(
+                source_id=f"source-{index}",
+                binding="binding",
+                generation="a" * 64,
+                control_epoch=0,
+                intakes=(_intake(str(index)),),
+            )
+        except LiveSourceError as error:
+            outcomes.append(error.code)
+        else:
+            outcomes.append("accepted")
+
+    threads = [threading.Thread(target=admit, args=(index,)) for index in range(2)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(2)
+    assert sorted(outcomes) == ["accepted", "collector_custody_quota_exceeded"]
+    assert stores[0].status()["retained_items"] == 1
+
+
+def test_resolved_receipt_retention_is_bounded(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(custody_module, "MAX_RESOLVED_RECEIPTS", 2)
+    store = CustodyStore(PrivateJsonStore(tmp_path / "custody"))
+    for index in range(5):
+        receipt_id = store.stage(
+            source_id="source",
+            binding="binding",
+            generation="a" * 64,
+            control_epoch=0,
+            intakes=(_intake(str(index)),),
+        )[0]
+        store.outcome(receipt_id, "captured")
+        store.release_completed((receipt_id,))
+    assert store.status()["retained_items"] == 0
+    state = cast(dict[str, object], PrivateJsonStore(tmp_path / "custody").read("custody.json"))
+    assert len(cast(dict[str, object], state["receipts"])) == 2
+
+
+def test_resolved_retention_never_prunes_cleanup_protected_receipt(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(custody_module, "MAX_RESOLVED_RECEIPTS", 1)
+    store = CustodyStore(PrivateJsonStore(tmp_path / "custody"))
+    protected = store.stage(
+        source_id="source",
+        binding="binding",
+        generation="a" * 64,
+        control_epoch=0,
+        intakes=(_intake("protected"),),
+    )[0]
+    store.outcome(protected, "captured")
+    store.release_completed((protected,), protected_ids=frozenset({protected}))
+    for item in ("other", "latest"):
+        receipt_id = store.stage(
+            source_id="source",
+            binding="binding",
+            generation="a" * 64,
+            control_epoch=0,
+            intakes=(_intake(item),),
+        )[0]
+        store.outcome(receipt_id, "captured")
+        store.release_completed((receipt_id,), protected_ids=frozenset({protected, receipt_id}))
+    assert store.receipt(protected)["outcome"] == "captured"
+
+
 def test_generic_value_error_is_global_and_does_not_quarantine_or_checkpoint(
     tmp_path: Path,
 ) -> None:
@@ -176,6 +332,38 @@ def test_quarantine_retry_is_fenced_after_disable(tmp_path: Path) -> None:
     with pytest.raises(LiveSourceError, match="collector_custody_stale"):
         service.custody_retry(receipt_id)
     assert service.custody_inspect(receipt_id)["outcome"] == "quarantined"
+
+
+def test_live_retry_release_failure_leaves_durable_cleanup_obligation(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from open_brain_engine.engine import DeliveryConflict
+
+    brain = tmp_path / "brain"
+    compile_single_user_local(brain)
+    runtime = _Runtime((_intake("a"),))
+    service = LiveCaptureService(
+        tmp_path / "state",
+        brain,
+        runtime=runtime,
+        sink=lambda _: (_ for _ in ()).throw(DeliveryConflict()),
+    )
+    service.configure("source", _SELECTION, {})
+    preview = service.preview("source")
+    service.apply("source", cast(str, preview["preview_id"]))
+    receipt_id = cast(list[str], service.custody_status("source")["receipt_ids"])[0]
+    service._sink = lambda _: None
+
+    def fail_release(*args: object, **kwargs: object) -> None:
+        raise OSError("synthetic cleanup interruption")
+
+    monkeypatch.setattr(service._custody, "release_completed", fail_release)
+    with pytest.raises(LiveSourceError, match="source_storage_unavailable"):
+        service.custody_retry(receipt_id)
+    assert service._load("source")["cleanup_receipts"] == [receipt_id]
+    restarted = LiveCaptureService(tmp_path / "state", brain, runtime=runtime, sink=lambda _: None)
+    restarted._drain_cleanup("source")
+    assert restarted.custody_status("source")["retained_items"] == 0
 
 
 def test_receipt_write_failure_keeps_checkpoint_and_ack_unchanged(
@@ -400,3 +588,294 @@ def test_legacy_custody_cli_redacts_unexpected_retry_failure(
     output = capsys.readouterr().out
     assert "source_operation_failed" in output
     assert "private synthetic sink detail" not in output
+
+
+def test_retry_keeps_payload_referenced_by_unfinished_legacy_batch(tmp_path: Path) -> None:
+    from open_brain_engine.engine import DeliveryConflict
+
+    class Runtime:
+        calls = 0
+
+        def fetch_page(
+            self, selection: SourceResourceSelection, cursor: str | None
+        ) -> CollectorRunPage:
+            self.calls += 1
+            return CollectorRunPage(selection, (_intake("a"), _intake("b")), "after")
+
+    class MixedFailure:
+        def submit(self, intake: SourceRecordIntake) -> None:
+            if intake.key.external_id == "a":
+                raise DeliveryConflict()
+            raise RuntimeError("synthetic global failure")
+
+    state = CollectorStateStore(tmp_path / "state.json")
+    controller = CollectorController(state, clock=lambda: 100)
+    controller.enable(source_id="source", selection=_SELECTION, interval_seconds=1)
+    runtime = Runtime()
+    with pytest.raises(RuntimeError, match="synthetic global failure"):
+        controller.sync_due(source_id="source", runtime=runtime, capture_sink=MixedFailure())
+    receipt_id = next(
+        item
+        for item in cast(list[str], controller.custody_status("source")["receipt_ids"])
+        if controller.custody_inspect(item)["outcome"] == "quarantined"
+    )
+    controller.retry(receipt_id, MemoryCaptureSink())
+    assert controller.custody_inspect(receipt_id)["outcome"] == "captured"
+
+    class NoFetch(Runtime):
+        def fetch_page(
+            self, selection: SourceResourceSelection, cursor: str | None
+        ) -> CollectorRunPage:
+            raise AssertionError("provider refetch")
+
+    result = controller.sync_due(
+        source_id="source", runtime=NoFetch(), capture_sink=MemoryCaptureSink()
+    )
+    assert result.duplicate_count == 1 and result.captured_count == 1
+    assert controller.status("source").next_cursor == "after"
+
+
+def test_legacy_retry_release_failure_leaves_durable_cleanup_obligation(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from open_brain_engine.engine import DeliveryConflict
+
+    class Conflict:
+        def submit(self, intake: SourceRecordIntake) -> None:
+            raise DeliveryConflict()
+
+    runtime = type(
+        "Runtime",
+        (),
+        {
+            "fetch_page": lambda self, selection, cursor: CollectorRunPage(
+                selection, (_intake("a"),), "after"
+            )
+        },
+    )()
+    state = CollectorStateStore(tmp_path / "state.json")
+    controller = CollectorController(state, clock=lambda: 100)
+    controller.enable(source_id="source", selection=_SELECTION, interval_seconds=1)
+    controller.sync_due(source_id="source", runtime=runtime, capture_sink=Conflict())
+    receipt_id = cast(list[str], controller.custody_status("source")["receipt_ids"])[0]
+
+    def fail_release(*args: object, **kwargs: object) -> None:
+        raise OSError("synthetic cleanup interruption")
+
+    monkeypatch.setattr(controller._custody, "release_completed", fail_release)
+    with pytest.raises(LiveSourceError, match="source_storage_unavailable"):
+        controller.retry(receipt_id, MemoryCaptureSink())
+    source = cast(dict[str, object], state.load()["sources"])["source"]
+    assert cast(dict[str, object], source)["cleanup_receipts"] == [receipt_id]
+    restarted = CollectorController(state, clock=lambda: 100)
+    restarted._drain_cleanup("source")
+    assert restarted.custody_status("source")["retained_items"] == 0
+
+
+def test_pause_resume_detaches_failed_batch_and_refetches_old_checkpoint(tmp_path: Path) -> None:
+    class Runtime:
+        calls = 0
+
+        def fetch_page(
+            self, selection: SourceResourceSelection, cursor: str | None
+        ) -> CollectorRunPage:
+            assert cursor is None
+            self.calls += 1
+            return CollectorRunPage(selection, (_intake("a"),), "after")
+
+    class Fail:
+        def submit(self, intake: SourceRecordIntake) -> None:
+            raise RuntimeError("synthetic failure")
+
+    state = CollectorStateStore(tmp_path / "state.json")
+    controller = CollectorController(state, clock=lambda: 100)
+    controller.enable(source_id="source", selection=_SELECTION, interval_seconds=1)
+    runtime = Runtime()
+    with pytest.raises(RuntimeError):
+        controller.sync_due(source_id="source", runtime=runtime, capture_sink=Fail())
+    controller.pause("source")
+    controller.resume("source")
+    result = controller.sync_due(
+        source_id="source", runtime=runtime, capture_sink=MemoryCaptureSink()
+    )
+    assert result.captured_count == 1 and runtime.calls == 2
+
+
+def test_repeated_cancelled_batches_do_not_consume_tiny_quota(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(custody_module, "MAX_RETAINED_ITEMS", 1)
+
+    class Runtime:
+        calls = 0
+
+        def fetch_page(
+            self, selection: SourceResourceSelection, cursor: str | None
+        ) -> CollectorRunPage:
+            self.calls += 1
+            return CollectorRunPage(selection, (_intake(str(self.calls)),), "after")
+
+    class Fail:
+        def submit(self, intake: SourceRecordIntake) -> None:
+            raise RuntimeError("synthetic failure")
+
+    state = CollectorStateStore(tmp_path / "state.json")
+    controller = CollectorController(state, clock=lambda: 100)
+    controller.enable(source_id="source", selection=_SELECTION, interval_seconds=1)
+    runtime = Runtime()
+    for _ in range(3):
+        with pytest.raises(RuntimeError, match="synthetic failure"):
+            controller.sync_due(source_id="source", runtime=runtime, capture_sink=Fail())
+        controller.pause("source")
+        assert controller.custody_status("source")["retained_items"] == 0
+        controller.resume("source")
+    assert runtime.calls == 3
+
+
+def test_legacy_stage_crash_marker_discards_orphan_before_refetch(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    class Runtime:
+        calls = 0
+
+        def fetch_page(
+            self, selection: SourceResourceSelection, cursor: str | None
+        ) -> CollectorRunPage:
+            self.calls += 1
+            return CollectorRunPage(selection, (_intake("crash"),), "after")
+
+    state = CollectorStateStore(tmp_path / "state.json")
+    controller = CollectorController(state, clock=lambda: 100)
+    controller.enable(source_id="source", selection=_SELECTION, interval_seconds=1)
+    runtime = Runtime()
+    original = controller._custody.stage
+
+    def crash_after_stage(**kwargs: object) -> tuple[str, ...]:
+        original(**kwargs)  # type: ignore[arg-type]
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(controller._custody, "stage", crash_after_stage)
+    with pytest.raises(KeyboardInterrupt):
+        controller.sync_due(source_id="source", runtime=runtime, capture_sink=MemoryCaptureSink())
+    assert controller.custody_status("source")["retained_items"] == 1
+    restarted = CollectorController(state, clock=lambda: 100)
+    result = restarted.sync_due(
+        source_id="source", runtime=runtime, capture_sink=MemoryCaptureSink()
+    )
+    assert result.captured_count == 1
+    assert runtime.calls == 2
+
+
+def test_live_stage_crash_marker_discards_orphan_before_reapply(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    brain = tmp_path / "brain"
+    compile_single_user_local(brain)
+    runtime = _Runtime((_intake("crash"),))
+    service = LiveCaptureService(tmp_path / "state", brain, runtime=runtime, sink=lambda _: None)
+    service.configure("source", _SELECTION, {})
+    preview = service.preview("source")
+    original = service._custody.stage
+
+    def crash_after_stage(**kwargs: object) -> tuple[str, ...]:
+        original(**kwargs)  # type: ignore[arg-type]
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(service._custody, "stage", crash_after_stage)
+    with pytest.raises(KeyboardInterrupt):
+        service.apply("source", cast(str, preview["preview_id"]))
+    assert service.custody_status("source")["retained_items"] == 1
+    restarted = LiveCaptureService(tmp_path / "state", brain, runtime=runtime, sink=lambda _: None)
+    result = restarted.apply("source", cast(str, preview["preview_id"]))
+    assert result["captured_count"] == 1
+
+
+def test_legacy_brain_binding_is_coherent_and_checks_actual_sink(tmp_path: Path) -> None:
+    from open_brain_collector.lifecycle import EngineCaptureSink
+    from open_brain_collector.runner import collector_capture_sink
+
+    first = tmp_path / "first"
+    other = tmp_path / "other"
+    compile_single_user_local(first)
+    compile_single_user_local(other)
+    state = CollectorStateStore(tmp_path / "state.json")
+    runtime = type(
+        "EmptyRuntime",
+        (),
+        {"fetch_page": lambda self, selection, cursor: CollectorRunPage(selection, (), None)},
+    )()
+    implicit = CollectorController(state, clock=lambda: 100)
+    implicit.enable(source_id="source", selection=_SELECTION, interval_seconds=1)
+    implicit.sync_due(
+        source_id="source",
+        runtime=runtime,
+        capture_sink=EngineCaptureSink(collector_capture_sink(first)),
+    )
+    explicit = CollectorController(state, clock=lambda: 101, brain_root=first)
+    explicit.schedule("source", 1)
+    with pytest.raises(LiveSourceError, match="source_brain_mismatch"):
+        explicit.sync_due(
+            source_id="source",
+            runtime=runtime,
+            capture_sink=EngineCaptureSink(collector_capture_sink(other)),
+        )
+
+
+def test_live_checkpoint_cleanup_obligation_drains_before_new_fetch(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    brain = tmp_path / "brain"
+    compile_single_user_local(brain)
+    runtime = _Runtime((_intake("same"),))
+    service = LiveCaptureService(tmp_path / "live", brain, runtime=runtime, sink=lambda _: None)
+    service.configure("source", _SELECTION, {})
+    preview = service.preview("source")
+
+    def fail_release(*args: object, **kwargs: object) -> None:
+        raise OSError("synthetic cleanup crash")
+
+    monkeypatch.setattr(service._custody, "release_completed", fail_release)
+    with pytest.raises(LiveSourceError, match="source_storage_unavailable"):
+        service.apply("source", cast(str, preview["preview_id"]))
+    assert service._load("source")["cleanup_receipts"]
+    fetches = runtime.intakes
+    restarted = LiveCaptureService(tmp_path / "live", brain, runtime=runtime, sink=lambda _: None)
+    restarted.apply("source", cast(str, preview["preview_id"]))
+    assert restarted._load("source")["cleanup_receipts"] == []
+    assert restarted.custody_status("source")["retained_items"] == 0
+    assert runtime.intakes == fetches
+
+
+def test_legacy_checkpoint_cleanup_obligation_drains_after_restart(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    class Runtime:
+        def __init__(self, intakes: tuple[SourceRecordIntake, ...]) -> None:
+            self.intakes = intakes
+            self.calls = 0
+
+        def fetch_page(
+            self, selection: SourceResourceSelection, cursor: str | None
+        ) -> CollectorRunPage:
+            self.calls += 1
+            return CollectorRunPage(selection, self.intakes, "after")
+
+    state = CollectorStateStore(tmp_path / "state.json")
+    controller = CollectorController(state, clock=lambda: 100)
+    controller.enable(source_id="source", selection=_SELECTION, interval_seconds=1)
+    runtime = Runtime((_intake("same"),))
+
+    def fail_release(*args: object, **kwargs: object) -> None:
+        raise OSError("synthetic cleanup crash")
+
+    monkeypatch.setattr(controller._custody, "release_completed", fail_release)
+    with pytest.raises(LiveSourceError, match="source_storage_unavailable"):
+        controller.sync_due(source_id="source", runtime=runtime, capture_sink=MemoryCaptureSink())
+    persisted = state.load()
+    assert cast(dict[str, object], persisted["sources"])["source"]["cleanup_receipts"]
+    restarted = CollectorController(state, clock=lambda: 100)
+    result = restarted.sync_due(
+        source_id="source", runtime=runtime, capture_sink=MemoryCaptureSink()
+    )
+    assert result.outcome == "deferred"
+    assert restarted.custody_status("source")["retained_items"] == 0

@@ -55,6 +55,14 @@ _FAILURE_CODE = {
 }
 _CREDENTIAL_STATUS = {"available", "locked", "missing"}
 _MAX_INTERVAL = 31_536_000
+_SELECTION_GUARDS_LOCK = threading.Lock()
+_SELECTION_GUARDS: dict[Path, threading.RLock] = {}
+
+
+def _selection_guard(path: Path) -> threading.RLock:
+    resolved = path.resolve()
+    with _SELECTION_GUARDS_LOCK:
+        return _SELECTION_GUARDS.setdefault(resolved, threading.RLock())
 
 
 class CollectorRunOutcome(StrEnum):
@@ -331,10 +339,11 @@ class CollectorController:
             raise ConnectorContractError("invalid collector controller")
         self._store = store
         self._clock = clock
-        self._capture_guard = threading.RLock()
+        self._capture_guard = _selection_guard(store.path.parent / "custody" / "selection")
         self._in_capture = threading.local()
         self._private_store = PrivateJsonStore(store.path.parent.resolve() / "custody")
         self._custody = CustodyStore(self._private_store)
+        self._requested_brain_root = brain_root
         if brain_root is None:
             binding_value: object = ["state", str(store.path.resolve())]
             self._brain_bound = False
@@ -361,9 +370,19 @@ class CollectorController:
                     raise LiveSourceError("source_brain_mismatch")
 
     def _bind_capture_sink(self, capture_sink: _CaptureSink) -> None:
-        if not isinstance(capture_sink, EngineCaptureSink) or self._brain_bound:
+        if not isinstance(capture_sink, EngineCaptureSink):
             return
         binding = capture_sink.brain_binding
+        if not self._brain_bound and self._requested_brain_root is not None:
+            try:
+                profile = existing_source_profile(self._requested_brain_root)
+            except ConnectorContractError, LiveSourceError:
+                raise LiveSourceError("source_brain_unavailable") from None
+            requested = hashlib.sha256(
+                bounded_json([str(profile.root), profile.root_identity, profile.tenant_id])
+            ).hexdigest()
+            if requested != binding:
+                raise LiveSourceError("source_brain_mismatch")
         with self._private_store.lock("selection"):
             marker = self._private_store.read("brain.json")
             expected = {"schema_version": 1, "binding": binding}
@@ -374,8 +393,9 @@ class CollectorController:
                     raise CollectorStorageError("collector_storage_unavailable") from None
             elif marker != expected:
                 raise LiveSourceError("source_brain_mismatch")
-        self._binding = binding
-        self._brain_bound = True
+        if self._brain_bound and self._binding != binding:
+            raise LiveSourceError("source_brain_mismatch")
+        self._binding, self._brain_bound = binding, True
 
     @contextmanager
     def _selection_barrier(self) -> Iterator[None]:
@@ -400,70 +420,110 @@ class CollectorController:
             raise ConnectorContractError("invalid collector schedule")
         if credential_ref is not None:
             _validate_source_id(credential_ref)
-        state = self._store.load()
-        sources = _sources(state)
-        previous = sources.get(source_id)
-        if not isinstance(previous, dict):
-            previous = {}
-        generation = hashlib.sha256(bounded_json(asdict(selection))).hexdigest()
-        old_generation = previous.get("generation")
-        control_epoch = cast(int, previous.get("control_epoch", 0))
-        if old_generation is not None and old_generation != generation:
-            control_epoch += 1
-        sources[source_id] = {
-            "committed_capture_ids": previous.get("committed_capture_ids", {}),
-            "committed_digests": previous.get("committed_digests", {}),
-            "committed_revisions": previous.get("committed_revisions", {}),
-            "active_run": previous.get("active_run") if old_generation == generation else None,
-            "control_epoch": control_epoch,
-            "generation": generation,
-            "connection_id": selection.connection_id,
-            "connector_name": selection.connector_name,
-            "credential_ref": credential_ref,
-            "interval_seconds": interval_seconds,
-            "last_run": previous.get("last_run"),
-            "last_success_epoch": previous.get(
-                "last_success_epoch",
-                _last_success_epoch_from_last_run(previous.get("last_run")),
-            ),
-            "next_cursor": previous.get("next_cursor"),
-            "next_run_epoch": self._clock(),
-            "pause_ack_epoch": None,
-            "resource_id": selection.resource_id,
-            "resource_type": selection.resource_type,
-            "status": "enabled",
-        }
-        self._store.save(state)
+        with self._capture_guard, self._selection_barrier():
+            state = self._store.load()
+            sources = _sources(state)
+            previous = sources.get(source_id)
+            if not isinstance(previous, dict):
+                previous = {}
+            generation = hashlib.sha256(bounded_json(asdict(selection))).hexdigest()
+            old_generation = previous.get("generation")
+            same = old_generation == generation
+            control_epoch = cast(int, previous.get("control_epoch", 0))
+            if old_generation is not None and not same:
+                control_epoch += 1
+            cancel_receipts = cast(list[str], previous.get("cancel_receipts", []))
+            active = previous.get("active_run")
+            if (
+                not same
+                and isinstance(active, dict)
+                and isinstance(active.get("custody_ids"), list)
+            ):
+                cancel_receipts = list(
+                    dict.fromkeys([*cancel_receipts, *cast(list[str], active["custody_ids"])])
+                )
+            sources[source_id] = {
+                "committed_capture_ids": previous.get("committed_capture_ids", {}) if same else {},
+                "committed_digests": previous.get("committed_digests", {}) if same else {},
+                "committed_revisions": previous.get("committed_revisions", {}) if same else {},
+                "active_run": previous.get("active_run") if same else None,
+                "cancel_receipts": cancel_receipts,
+                "cleanup_receipts": previous.get("cleanup_receipts", []),
+                "control_epoch": control_epoch,
+                "generation": generation,
+                "connection_id": selection.connection_id,
+                "connector_name": selection.connector_name,
+                "credential_ref": credential_ref,
+                "interval_seconds": interval_seconds,
+                "last_run": previous.get("last_run") if same else None,
+                "last_success_epoch": previous.get(
+                    "last_success_epoch",
+                    _last_success_epoch_from_last_run(previous.get("last_run")),
+                ),
+                "next_cursor": previous.get("next_cursor") if same else None,
+                "next_run_epoch": self._clock(),
+                "pause_ack_epoch": None,
+                "resource_id": selection.resource_id,
+                "resource_type": selection.resource_type,
+                "status": "enabled",
+            }
+            self._store.save(state)
+        self._drain_cleanup(source_id)
         return self.status(source_id)
 
     def disable(self, source_id: str) -> CollectorCommandResult:
         with self._capture_guard, self._selection_barrier():
             state = self._store.load()
             entry = _source(_sources(state), source_id)
+            active = entry["active_run"]
+            if isinstance(active, dict):
+                entry["cancel_receipts"] = list(
+                    dict.fromkeys(
+                        [
+                            *cast(list[str], entry["cancel_receipts"]),
+                            *cast(list[str], active["custody_ids"]),
+                        ]
+                    )
+                )
             entry["status"] = "disabled"
             entry["control_epoch"] = cast(int, entry["control_epoch"]) + 1
             entry["next_run_epoch"] = None
+            entry["active_run"] = None
             self._store.save(state)
+        self._drain_cleanup(source_id)
         return self.status(source_id)
 
     def pause(self, source_id: str) -> CollectorCommandResult:
         with self._capture_guard, self._selection_barrier():
             state = self._store.load()
             entry = _source(_sources(state), source_id)
+            active = entry["active_run"]
+            if isinstance(active, dict):
+                entry["cancel_receipts"] = list(
+                    dict.fromkeys(
+                        [
+                            *cast(list[str], entry["cancel_receipts"]),
+                            *cast(list[str], active["custody_ids"]),
+                        ]
+                    )
+                )
             now = self._clock()
             entry["status"] = "paused"
             entry["control_epoch"] = cast(int, entry["control_epoch"]) + 1
             entry["pause_ack_epoch"] = now
+            entry["active_run"] = None
             self._store.save(state)
+        self._drain_cleanup(source_id)
         return self.status(source_id)
 
     def resume(self, source_id: str) -> CollectorCommandResult:
-        state = self._store.load()
-        entry = _source(_sources(state), source_id)
-        entry["status"] = "enabled"
-        entry["pause_ack_epoch"] = None
-        entry["next_run_epoch"] = self._clock()
-        self._store.save(state)
+        with self._capture_guard, self._selection_barrier():
+            state = self._store.load()
+            entry = _source(_sources(state), source_id)
+            entry["status"] = "enabled"
+            entry["pause_ack_epoch"] = None
+            entry["next_run_epoch"] = self._clock()
+            self._store.save(state)
         return self.status(source_id)
 
     def status(self, source_id: str) -> CollectorCommandResult:
@@ -493,6 +553,7 @@ class CollectorController:
         )
 
     def retry(self, receipt_id: str, capture_sink: _CaptureSink) -> dict[str, object]:
+        self._bind_capture_sink(capture_sink)
         with self._capture_guard, self._selection_barrier():
             return self._retry_locked(receipt_id, capture_sink)
 
@@ -527,30 +588,76 @@ class CollectorController:
             else "captured",
             capture_id=capture_id,
         )
-        self._custody.release_completed((receipt_id,))
+        active = any(
+            receipt_id in cast(list[str], item.get("active_run", {}).get("custody_ids", []))
+            for item in _sources(state).values()
+            if isinstance(item, dict) and isinstance(item.get("active_run"), dict)
+        )
+        if not active:
+            cleanup = cast(list[str], entry["cleanup_receipts"])
+            entry["cleanup_receipts"] = list(dict.fromkeys([*cleanup, receipt_id]))
+            self._store.save(state)
+            self._custody.release_completed(
+                (receipt_id,),
+                protected_ids=self._cleanup_ids(state),
+            )
+            entry["cleanup_receipts"] = [
+                item for item in cast(list[str], entry["cleanup_receipts"]) if item != receipt_id
+            ]
+            self._store.save(state)
         return self._custody.inspect(receipt_id)
 
     def schedule(self, source_id: str, interval_seconds: int) -> CollectorCommandResult:
         if type(interval_seconds) is not int or not 1 <= interval_seconds <= _MAX_INTERVAL:
             raise ConnectorContractError("invalid collector schedule")
-        state = self._store.load()
-        entry = _source(_sources(state), source_id)
-        entry["interval_seconds"] = interval_seconds
-        if entry["status"] == "enabled":
-            entry["next_run_epoch"] = self._clock()
-        elif entry["status"] == "disabled":
-            entry["next_run_epoch"] = None
-        self._store.save(state)
+        with self._capture_guard, self._selection_barrier():
+            state = self._store.load()
+            entry = _source(_sources(state), source_id)
+            entry["interval_seconds"] = interval_seconds
+            if entry["status"] == "enabled":
+                entry["next_run_epoch"] = self._clock()
+            elif entry["status"] == "disabled":
+                entry["next_run_epoch"] = None
+            self._store.save(state)
         return self.status(source_id)
 
     def sync_now(self, source_id: str) -> CollectorCommandResult:
-        state = self._store.load()
-        entry = _source(_sources(state), source_id)
-        if entry["status"] != "enabled":
-            raise ConnectorContractError("collector source not enabled")
-        entry["next_run_epoch"] = self._clock()
-        self._store.save(state)
+        with self._capture_guard, self._selection_barrier():
+            state = self._store.load()
+            entry = _source(_sources(state), source_id)
+            if entry["status"] != "enabled":
+                raise ConnectorContractError("collector source not enabled")
+            entry["next_run_epoch"] = self._clock()
+            self._store.save(state)
         return self.status(source_id)
+
+    @staticmethod
+    def _cleanup_ids(state: dict[str, object]) -> frozenset[str]:
+        return frozenset(
+            receipt_id
+            for item in _sources(state).values()
+            if isinstance(item, dict) and isinstance(item.get("cleanup_receipts"), list)
+            for receipt_id in cast(list[str], item["cleanup_receipts"])
+        )
+
+    def _drain_cleanup(self, source_id: str) -> None:
+        with self._capture_guard, self._selection_barrier():
+            state = self._store.load()
+            entry = _source(_sources(state), source_id)
+            receipt_ids = tuple(cast(list[str], entry["cleanup_receipts"]))
+            cancel_ids = tuple(cast(list[str], entry["cancel_receipts"]))
+            if not receipt_ids and not cancel_ids:
+                return
+            if receipt_ids:
+                self._custody.release_completed(
+                    receipt_ids,
+                    protected_ids=self._cleanup_ids(state),
+                )
+            if cancel_ids:
+                self._custody.discard_unacknowledged(cancel_ids)
+            entry["cleanup_receipts"] = []
+            entry["cancel_receipts"] = []
+            self._store.save(state)
 
     def sync_due(
         self,
@@ -566,6 +673,7 @@ class CollectorController:
         ):
             raise ConnectorContractError("invalid collector runtime")
         self._bind_capture_sink(capture_sink)
+        self._drain_cleanup(source_id)
         if credential_status is not None and not isinstance(
             credential_status,
             CredentialStatusProvider,
@@ -631,6 +739,13 @@ class CollectorController:
             if page.selection != selection:
                 raise ConnectorContractError("invalid collector page")
             run_id = _run_id(source_id, now, cast(str | None, entry.get("next_cursor")))
+            intended_ids = self._custody.receipt_ids(
+                source_id=source_id,
+                binding=self._binding,
+                generation=cast(str, entry["generation"]),
+                control_epoch=cast(int, entry["control_epoch"]),
+                intakes=page.intakes,
+            )
             with self._capture_guard, self._selection_barrier():
                 latest_state = self._store.load()
                 latest_entry = _source(_sources(latest_state), source_id)
@@ -641,6 +756,9 @@ class CollectorController:
                     or latest_entry["next_cursor"] != entry["next_cursor"]
                 ):
                     raise LiveSourceError("collector_import_cancelled")
+                cancel_ids = cast(list[str], latest_entry["cancel_receipts"])
+                latest_entry["cancel_receipts"] = list(dict.fromkeys([*cancel_ids, *intended_ids]))
+                self._store.save(latest_state)
                 receipt_ids = self._custody.stage(
                     source_id=source_id,
                     binding=self._binding,
@@ -649,6 +767,11 @@ class CollectorController:
                     intakes=page.intakes,
                 )
                 latest_entry["active_run"] = _run_payload(run_id, now, page, receipt_ids)
+                latest_entry["cancel_receipts"] = [
+                    item
+                    for item in cast(list[str], latest_entry["cancel_receipts"])
+                    if item not in intended_ids
+                ]
                 self._store.save(latest_state)
                 entry = latest_entry
         committed = cast(dict[str, str], entry["committed_revisions"])
@@ -783,22 +906,29 @@ class CollectorController:
                 next_cursor=cast(str | None, entry.get("next_cursor")),
                 failure_code="capture_failed",
             )
-            latest_state = self._store.load()
-            latest_entry = _source(_sources(latest_state), source_id)
-            latest_committed = cast(dict[str, str], latest_entry["committed_revisions"])
-            latest_committed.update(committed)
-            cast(dict[str, str], latest_entry["committed_capture_ids"]).update(
-                committed_capture_ids
-            )
-            cast(dict[str, str], latest_entry["committed_digests"]).update(committed_digests)
-            latest_entry["last_run"] = last_run
-            if latest_entry["status"] == "enabled":
-                latest_entry["active_run"] = entry["active_run"]
-            else:
-                latest_entry["active_run"] = None
-            if latest_entry["status"] == "disabled":
-                latest_entry["next_run_epoch"] = None
-            self._store.save(latest_state)
+            with self._capture_guard, self._selection_barrier():
+                latest_state = self._store.load()
+                latest_entry = _source(_sources(latest_state), source_id)
+                if latest_entry["generation"] == entry["generation"]:
+                    latest_entry["last_run"] = last_run
+                if (
+                    latest_entry["generation"] == entry["generation"]
+                    and latest_entry["control_epoch"] == entry["control_epoch"]
+                ):
+                    cast(dict[str, str], latest_entry["committed_revisions"]).update(committed)
+                    cast(dict[str, str], latest_entry["committed_capture_ids"]).update(
+                        committed_capture_ids
+                    )
+                    cast(dict[str, str], latest_entry["committed_digests"]).update(
+                        committed_digests
+                    )
+                    latest_entry["active_run"] = (
+                        entry["active_run"] if latest_entry["status"] == "enabled" else None
+                    )
+                    if latest_entry["status"] == "disabled":
+                        latest_entry["next_run_epoch"] = None
+                if latest_entry["generation"] == entry["generation"]:
+                    self._store.save(latest_state)
             raise
         last_run = _last_run_payload(
             run_id=run_id,
@@ -858,12 +988,13 @@ class CollectorController:
             cast(dict[str, str], latest_entry["committed_digests"]).update(committed_digests)
             latest_entry["next_cursor"] = page.next_cursor
             latest_entry["active_run"] = None
+            latest_entry["cleanup_receipts"] = list(receipt_ids)
             latest_entry["last_run"] = last_run
             latest_entry["last_success_epoch"] = now
             latest_status = latest_entry["status"]
             latest_entry["next_run_epoch"] = now + cast(int, latest_entry["interval_seconds"])
             self._store.save(latest_state)
-        self._custody.release_completed(receipt_ids)
+        self._drain_cleanup(source_id)
         return CollectorCommandResult(
             source_id=source_id,
             status=latest_status,
@@ -890,21 +1021,35 @@ class CollectorController:
         duplicate_count: int,
         failure_code: str | None = None,
     ) -> None:
-        now = self._clock()
-        entry["last_run"] = _last_run_payload(
-            run_id=_run_id(
-                source_id,
-                now,
-                cast(str | None, entry.get("next_cursor")),
-            ),
-            finished_epoch=now,
-            outcome=outcome,
-            captured_count=captured_count,
-            duplicate_count=duplicate_count,
-            next_cursor=cast(str | None, entry.get("next_cursor")),
-            failure_code=failure_code,
-        )
-        self._store.save(state)
+        expected_generation = entry.get("generation")
+        expected_epoch = entry.get("control_epoch")
+        with self._capture_guard, self._selection_barrier():
+            latest_state = self._store.load()
+            latest = _source(_sources(latest_state), source_id)
+            if (
+                latest.get("generation") != expected_generation
+                or latest.get("control_epoch") != expected_epoch
+            ):
+                entry.clear()
+                entry.update(latest)
+                return
+            now = self._clock()
+            latest["last_run"] = _last_run_payload(
+                run_id=_run_id(
+                    source_id,
+                    now,
+                    cast(str | None, latest.get("next_cursor")),
+                ),
+                finished_epoch=now,
+                outcome=outcome,
+                captured_count=captured_count,
+                duplicate_count=duplicate_count,
+                next_cursor=cast(str | None, latest.get("next_cursor")),
+                failure_code=failure_code,
+            )
+            self._store.save(latest_state)
+            entry.clear()
+            entry.update(latest)
 
 
 class MemoryCaptureSink:
@@ -930,7 +1075,10 @@ class EngineCaptureSink:
 
     @property
     def brain_binding(self) -> str:
-        return hashlib.sha256(bounded_json(["tenant", self._sink.context.tenant_id])).hexdigest()
+        binding = self._sink.brain_fingerprint
+        if binding is None:
+            raise LiveSourceError("source_brain_unavailable")
+        return binding
 
     def submit(self, intake: SourceRecordIntake) -> object:
         if type(intake) is not SourceRecordIntake:
@@ -1051,6 +1199,10 @@ def _validate_state(state: Mapping[str, object]) -> None:
             entry["committed_digests"] = {}
         if isinstance(entry, dict) and "committed_capture_ids" not in entry:
             entry["committed_capture_ids"] = {}
+        if isinstance(entry, dict) and "cleanup_receipts" not in entry:
+            entry["cleanup_receipts"] = []
+        if isinstance(entry, dict) and "cancel_receipts" not in entry:
+            entry["cancel_receipts"] = []
         if isinstance(entry, dict) and "generation" not in entry:
             selection = {
                 key: entry.get(key)
@@ -1062,6 +1214,8 @@ def _validate_state(state: Mapping[str, object]) -> None:
             "committed_capture_ids",
             "committed_digests",
             "committed_revisions",
+            "cancel_receipts",
+            "cleanup_receipts",
             "connection_id",
             "connector_name",
             "control_epoch",
@@ -1081,6 +1235,8 @@ def _validate_state(state: Mapping[str, object]) -> None:
         status = entry["status"]
         committed = entry["committed_revisions"]
         committed_capture_ids = entry["committed_capture_ids"]
+        cleanup_receipts = entry["cleanup_receipts"]
+        cancel_receipts = entry["cancel_receipts"]
         committed_digests = entry["committed_digests"]
         interval_seconds = entry["interval_seconds"]
         next_run_epoch = entry["next_run_epoch"]
@@ -1101,6 +1257,16 @@ def _validate_state(state: Mapping[str, object]) -> None:
             or not isinstance(committed, dict)
             or not isinstance(committed_digests, dict)
             or not isinstance(committed_capture_ids, dict)
+            or not isinstance(cleanup_receipts, list)
+            or not isinstance(cancel_receipts, list)
+            or any(
+                type(item) is not str or re.fullmatch(r"custody:[0-9a-f]{64}", item) is None
+                for item in cleanup_receipts
+            )
+            or any(
+                type(item) is not str or re.fullmatch(r"custody:[0-9a-f]{64}", item) is None
+                for item in cancel_receipts
+            )
             or any(
                 type(key) is not str or type(value) is not str for key, value in committed.items()
             )

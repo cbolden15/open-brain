@@ -166,12 +166,21 @@ class LiveCaptureService:
             "checkpoint",
             "committed",
             "committed_receipts",
+            "active_custody",
+            "cancel_receipts",
+            "cleanup_receipts",
             "pending",
             "last_run",
             "pause_ack_epoch",
         }
         if isinstance(value, dict) and "committed_receipts" not in value:
             value["committed_receipts"] = {}
+        if isinstance(value, dict) and "cleanup_receipts" not in value:
+            value["cleanup_receipts"] = []
+        if isinstance(value, dict) and "active_custody" not in value:
+            value["active_custody"] = []
+        if isinstance(value, dict) and "cancel_receipts" not in value:
+            value["cancel_receipts"] = []
         if (
             not isinstance(value, dict)
             or set(value) != keys
@@ -186,6 +195,18 @@ class LiveCaptureService:
             or not isinstance(value["options"], dict)
             or not isinstance(value["committed"], dict)
             or not isinstance(value["committed_receipts"], dict)
+            or not isinstance(value["cleanup_receipts"], list)
+            or not isinstance(value["active_custody"], list)
+            or not isinstance(value["cancel_receipts"], list)
+            or any(
+                type(item) is not str or re.fullmatch(r"custody:[0-9a-f]{64}", item) is None
+                for item in value["cleanup_receipts"]
+            )
+            or any(
+                type(item) is not str or re.fullmatch(r"custody:[0-9a-f]{64}", item) is None
+                for key in ("active_custody", "cancel_receipts")
+                for item in value[key]
+            )
             or any(
                 type(key) is not str or type(item) is not str
                 for key, item in value["committed"].items()
@@ -235,6 +256,7 @@ class LiveCaptureService:
             raise LiveSourceError("source_invalid_options")
         bounded_json(options, 16_384)
         generation = _digest([asdict(selected), options, self._brain_binding])
+        cancelled = False
         with self._store.lock("state"):
             existing = self._store.read(_source_name(source_id))
             epoch = 0
@@ -244,43 +266,84 @@ class LiveCaptureService:
                 if old["generation"] == generation:
                     if disable:
                         old_pending = old["pending"]
+                        old["cancel_receipts"] = list(
+                            dict.fromkeys(
+                                [
+                                    *cast(list[str], old["cancel_receipts"]),
+                                    *cast(list[str], old["active_custody"]),
+                                ]
+                            )
+                        )
                         old.update(
                             status="disabled",
                             next_run_epoch=None,
                             pending=None,
+                            active_custody=[],
                             pause_ack_epoch=None,
                             control_epoch=cast(int, old["control_epoch"]) + 1,
                         )
                         self._save(old)
+                        cancelled = True
                         if isinstance(old_pending, str):
                             self._store.delete(old_pending.replace(":", "-") + ".json")
-                    return self._summary(old)
-                if not reset:
+                    result = self._summary(old)
+                    if not cancelled:
+                        return result
+                    # Cleanup is deliberately outside the state mutation lock.
+                    # Its durable marker makes an interrupted cleanup retryable.
+                    break_result = result
+                else:
+                    break_result = None
+                if break_result is not None:
+                    entry = old
+                elif not reset:
                     raise LiveSourceError("source_selection_reset_required")
-                epoch = cast(int, old["control_epoch"]) + 1
-                old_pending = old["pending"]
-            entry: dict[str, object] = {
-                "schema_version": 1,
-                "source_id": source_id,
-                "binding": self._brain_binding,
-                "selection": asdict(selected),
-                "options": options,
-                "generation": generation,
-                "status": "disabled",
-                "control_epoch": epoch,
-                "interval_seconds": 900,
-                "next_run_epoch": None,
-                "checkpoint": None,
-                "committed": {},
-                "committed_receipts": {},
-                "pending": None,
-                "last_run": None,
-                "pause_ack_epoch": None,
-            }
-            self._save(entry)
-            if isinstance(old_pending, str):
-                self._store.delete(old_pending.replace(":", "-") + ".json")
-            return self._summary(entry)
+                else:
+                    epoch = cast(int, old["control_epoch"]) + 1
+                    old_pending = old["pending"]
+                    cancel_receipts = list(
+                        dict.fromkeys(
+                            [
+                                *cast(list[str], old["cancel_receipts"]),
+                                *cast(list[str], old["active_custody"]),
+                            ]
+                        )
+                    )
+                    cleanup_receipts = list(cast(list[str], old["cleanup_receipts"]))
+            else:
+                break_result = None
+                cancel_receipts = []
+                cleanup_receipts = []
+            if break_result is None:
+                entry = {
+                    "schema_version": 1,
+                    "source_id": source_id,
+                    "binding": self._brain_binding,
+                    "selection": asdict(selected),
+                    "options": options,
+                    "generation": generation,
+                    "status": "disabled",
+                    "control_epoch": epoch,
+                    "interval_seconds": 900,
+                    "next_run_epoch": None,
+                    "checkpoint": None,
+                    "committed": {},
+                    "committed_receipts": {},
+                    "active_custody": [],
+                    "cancel_receipts": cancel_receipts,
+                    "cleanup_receipts": cleanup_receipts,
+                    "pending": None,
+                    "last_run": None,
+                    "pause_ack_epoch": None,
+                }
+                self._save(entry)
+                cancelled = bool(cancel_receipts)
+                if isinstance(old_pending, str):
+                    self._store.delete(old_pending.replace(":", "-") + ".json")
+                result = self._summary(entry)
+        if cancelled:
+            self._drain_cleanup(source_id)
+        return result
 
     def status(self, source_id: str | None = None) -> dict[str, object]:
         self._check_brain()
@@ -327,6 +390,7 @@ class LiveCaptureService:
             type(interval_seconds) is not int or not 1 <= interval_seconds <= 31_536_000
         ):
             raise LiveSourceError("source_invalid_interval")
+        cancelled = False
         with self._store.lock("state"):
             entry = self._load(source_id)
             if action in {"enable", "resume"}:
@@ -346,13 +410,26 @@ class LiveCaptureService:
             # A disable or pause cancels any import already in progress, including manual imports.
             if action in {"disable", "pause"}:
                 entry["control_epoch"] = cast(int, entry["control_epoch"]) + 1
+                entry["cancel_receipts"] = list(
+                    dict.fromkeys(
+                        [
+                            *cast(list[str], entry["cancel_receipts"]),
+                            *cast(list[str], entry["active_custody"]),
+                        ]
+                    )
+                )
+                entry["active_custody"] = []
                 pending = entry["pending"]
                 entry["pending"] = None
                 self._save(entry)
+                cancelled = bool(entry["cancel_receipts"])
                 if isinstance(pending, str):
                     self._store.delete(pending.replace(":", "-") + ".json")
             self._save(entry)
-            return self._summary(entry)
+            result = self._summary(entry)
+        if cancelled:
+            self._drain_cleanup(source_id)
+        return result
 
     def _pending(self, entry: Mapping[str, object]) -> dict[str, object] | None:
         pending = entry["pending"]
@@ -377,6 +454,7 @@ class LiveCaptureService:
 
     def preview(self, source_id: str) -> dict[str, object]:
         with self._store.lock("run-" + _source_name(source_id), timeout_seconds=0):
+            self._drain_cleanup(source_id)
             entry = self._load(source_id)
             pending = self._pending(entry)
             if pending is None:
@@ -437,6 +515,34 @@ class LiveCaptureService:
         if isinstance(checkpoint, dict):
             self._runtime.acknowledge(_selection(entry["selection"]), checkpoint)
 
+    def _cleanup_ids(self) -> frozenset[str]:
+        values: set[str] = set()
+        for name in self._store.names("source-"):
+            raw = self._store.read(name)
+            if isinstance(raw, dict):
+                for key in ("cleanup_receipts", "cancel_receipts"):
+                    if isinstance(raw.get(key), list):
+                        values.update(cast(list[str], raw[key]))
+        return frozenset(values)
+
+    def _drain_cleanup(self, source_id: str) -> None:
+        with self._store.lock("state"):
+            entry = self._load(source_id)
+            receipt_ids = tuple(cast(list[str], entry["cleanup_receipts"]))
+            cancel_ids = tuple(cast(list[str], entry["cancel_receipts"]))
+            if not receipt_ids and not cancel_ids:
+                return
+            if receipt_ids:
+                self._custody.release_completed(
+                    receipt_ids,
+                    protected_ids=self._cleanup_ids(),
+                )
+            if cancel_ids:
+                self._custody.discard_unacknowledged(cancel_ids)
+            entry["cleanup_receipts"] = []
+            entry["cancel_receipts"] = []
+            self._save(entry)
+
     def _submit(self, intake: SourceRecordIntake) -> tuple[str, str | None]:
         if self._sink is not None:
             result = self._sink(intake)
@@ -488,13 +594,29 @@ class LiveCaptureService:
                     return self._custody.inspect(receipt_id)
                 raise
             self._custody.outcome(receipt_id, outcome, capture_id=capture_id)
-            self._custody.release_completed((receipt_id,))
+            if current["pending"] is None and receipt_id not in cast(
+                list[str], current["active_custody"]
+            ):
+                cleanup = cast(list[str], current["cleanup_receipts"])
+                current["cleanup_receipts"] = list(dict.fromkeys([*cleanup, receipt_id]))
+                self._save(current)
+                self._custody.release_completed(
+                    (receipt_id,),
+                    protected_ids=self._cleanup_ids(),
+                )
+                current["cleanup_receipts"] = [
+                    item
+                    for item in cast(list[str], current["cleanup_receipts"])
+                    if item != receipt_id
+                ]
+                self._save(current)
         return self._custody.inspect(receipt_id)
 
     def apply(
         self, source_id: str, preview_id: str, *, automatic: bool = False
     ) -> dict[str, object]:
         with self._store.lock("run-" + _source_name(source_id), timeout_seconds=0):
+            self._drain_cleanup(source_id)
             entry = self._load(source_id)
             last_run = entry["last_run"]
             if (
@@ -511,13 +633,37 @@ class LiveCaptureService:
             intakes = tuple(
                 _intake_from_dict(item) for item in cast(list[object], pending["intakes"])
             )
-            receipt_ids = self._custody.stage(
+            intended_ids = self._custody.receipt_ids(
                 source_id=source_id,
                 binding=self._brain_binding,
                 generation=cast(str, entry["generation"]),
                 control_epoch=cast(int, entry["control_epoch"]),
                 intakes=intakes,
             )
+            with self._store.lock("state"):
+                latest = self._load(source_id)
+                self._require_current(entry, latest, automatic)
+                cancel_ids = cast(list[str], latest["cancel_receipts"])
+                latest["cancel_receipts"] = list(dict.fromkeys([*cancel_ids, *intended_ids]))
+                self._save(latest)
+                receipt_ids = self._custody.stage(
+                    source_id=source_id,
+                    binding=self._brain_binding,
+                    generation=cast(str, entry["generation"]),
+                    control_epoch=cast(int, entry["control_epoch"]),
+                    intakes=intakes,
+                )
+                latest["active_custody"] = list(receipt_ids)
+                latest["cancel_receipts"] = [
+                    item
+                    for item in cast(list[str], latest["cancel_receipts"])
+                    if item not in intended_ids
+                ]
+                try:
+                    self._save(latest)
+                except Exception:
+                    self._custody.discard_unacknowledged(receipt_ids)
+                    raise
             protected = {item.key.delivery_id() for item in intakes}
             captured = duplicates = quarantined = 0
             for intake, receipt_id in zip(intakes, receipt_ids, strict=True):
@@ -595,14 +741,25 @@ class LiveCaptureService:
                     "notices": pending["notices"],
                     "failure_code": None,
                 }
-                latest.update(checkpoint=pending["checkpoint"], pending=None, last_run=last)
+                latest.update(
+                    checkpoint=pending["checkpoint"],
+                    pending=None,
+                    active_custody=[],
+                    last_run=last,
+                )
+                latest["cleanup_receipts"] = list(receipt_ids)
                 if latest["status"] == "enabled":
                     latest["next_run_epoch"] = self._clock() + (
                         1 if pending["has_more"] else cast(int, latest["interval_seconds"])
                     )
                 self._save(latest)
                 self._store.delete(preview_id.replace(":", "-") + ".json")
-                self._custody.release_completed(receipt_ids)
+                self._custody.release_completed(
+                    receipt_ids,
+                    protected_ids=self._cleanup_ids(),
+                )
+                latest["cleanup_receipts"] = []
+                self._save(latest)
                 try:
                     self._acknowledge(latest)
                 except LiveSourceError, OSError:

@@ -1569,16 +1569,31 @@ class CaptureTask(Protocol):
 class PublicJobCaptureSink:
     """A capture-only capability for one validated non-owner public-job identity."""
 
-    def __init__(self, capture: CaptureTask, *, context: PublicJobCaptureContext) -> None:
-        if not isinstance(context, PublicJobCaptureContext):
+    def __init__(
+        self,
+        capture: CaptureTask,
+        *,
+        context: PublicJobCaptureContext,
+        brain_fingerprint: str | None = None,
+    ) -> None:
+        if not isinstance(context, PublicJobCaptureContext) or (
+            brain_fingerprint is not None
+            and re.fullmatch(r"[0-9a-f]{64}", brain_fingerprint) is None
+        ):
             raise ValueError("invalid public-job context")
         self._capture = capture
         self._context = context
+        self._brain_fingerprint = brain_fingerprint
 
     @property
     def context(self) -> PublicJobCaptureContext:
         """Expose only the validated capture actor and role claim bound to this sink."""
         return self._context
+
+    @property
+    def brain_fingerprint(self) -> str | None:
+        """Opaque identity of the exact Brain that created this capability."""
+        return self._brain_fingerprint
 
     def submit(
         self,

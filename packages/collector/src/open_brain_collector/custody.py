@@ -217,6 +217,30 @@ class CustodyStore:
                 raise LiveSourceError("collector_invalid_custody")
         return cast(dict[str, object], value)
 
+    @staticmethod
+    def receipt_ids(
+        *,
+        source_id: str,
+        binding: str,
+        generation: str,
+        control_epoch: int,
+        intakes: tuple[SourceRecordIntake, ...],
+    ) -> tuple[str, ...]:
+        return tuple(
+            _identity(
+                {
+                    "source_id": source_id,
+                    "binding": binding,
+                    "generation": generation,
+                    "control_epoch": control_epoch,
+                    "item_id": intake.key.delivery_id(),
+                    "revision_identity": intake.key.revision_identity(),
+                    "intake_digest": intake_digest(intake),
+                }
+            )
+            for intake in intakes
+        )
+
     def stage(
         self,
         *,
@@ -342,7 +366,12 @@ class CustodyStore:
                 ):
                     raise LiveSourceError("collector_incomplete_custody")
 
-    def release_completed(self, receipt_ids: tuple[str, ...]) -> None:
+    def release_completed(
+        self,
+        receipt_ids: tuple[str, ...],
+        *,
+        protected_ids: frozenset[str] = frozenset(),
+    ) -> None:
         with self._store.lock("custody"):
             state = self._load()
             receipts = cast(dict[str, object], state["receipts"])
@@ -351,10 +380,11 @@ class CustodyStore:
                 if (
                     not isinstance(receipt, dict)
                     or receipt["outcome"] not in _TERMINAL
-                    or receipt["intake"] is None
                     or not self._valid_evidence(receipt)
                 ):
                     raise LiveSourceError("collector_incomplete_custody")
+                if receipt["intake"] is None:
+                    continue
                 if receipt["outcome"] != "quarantined":
                     receipt.update(intake=None, retained_bytes=0)
             resolved = sorted(
@@ -365,8 +395,26 @@ class CustodyStore:
                 ),
                 key=lambda item: cast(int, item["sequence"]),
             )
-            for receipt in resolved[:-MAX_RESOLVED_RECEIPTS]:
+            removable = [
+                receipt for receipt in resolved if receipt["receipt_id"] not in protected_ids
+            ]
+            for receipt in removable[: max(0, len(resolved) - MAX_RESOLVED_RECEIPTS)]:
                 del receipts[cast(str, receipt["receipt_id"])]
+            self._store.write(_FILE, state)
+
+    def discard_unacknowledged(self, receipt_ids: tuple[str, ...]) -> None:
+        """Drop cancelled non-quarantine custody; provider checkpoint did not advance."""
+        with self._store.lock("custody"):
+            state = self._load()
+            receipts = cast(dict[str, object], state["receipts"])
+            for receipt_id in receipt_ids:
+                receipt = receipts.get(receipt_id)
+                if receipt is None:
+                    continue
+                if not isinstance(receipt, dict):
+                    raise LiveSourceError("collector_invalid_custody")
+                if receipt["outcome"] != "quarantined":
+                    del receipts[receipt_id]
             self._store.write(_FILE, state)
 
     def status(self, source_id: str | None = None) -> dict[str, object]:
