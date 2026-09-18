@@ -109,6 +109,32 @@ describe("T07 negotiated clients", () => {
     expect(invoke).toHaveBeenCalledTimes(1);
   });
 
+  it("bounds reconstructed UTF-8 bytes before returning a complete oversized record", async () => {
+    const record = summary(0);
+    const pages = Array.from({ length: 263 }, (_, index) => ({
+      status: "ok", dto_version: 1, record,
+      content: { kind: "untrusted_text", text: "🙂".repeat(16000) },
+      start_byte: index * 64000, end_byte: (index + 1) * 64000,
+      next_cursor: index === 262 ? null : `cursor-${index + 1}`, complete: index === 262,
+    }));
+    const { bridge, invoke } = fake({ "record.read": pages });
+    await expect(readCompleteRecord(bridge, record.record_id, record.revision_id))
+      .rejects.toThrow("response_too_large");
+    expect(invoke.mock.calls.length).toBeLessThanOrEqual(263);
+  });
+
+  it("rejects a response beyond the encoded envelope budget before requesting another", async () => {
+    const record = summary(0);
+    const { bridge, invoke } = fake({ "record.read": {
+      status: "ok", dto_version: 1, record,
+      content: { kind: "untrusted_text", text: "🙂".repeat(300000) },
+      start_byte: 0, end_byte: 1200000, next_cursor: "cursor-2", complete: false,
+    } });
+    await expect(readCompleteRecord(bridge, record.record_id, record.revision_id))
+      .rejects.toThrow("response_too_large");
+    expect(invoke).toHaveBeenCalledOnce();
+  });
+
   it("traverses 201 filtered search results with explicit continuation and no duplicate accumulation", async () => {
     const pages = Array.from({ length: 5 }, (_, page) => ({
       status: "ok", dto_version: 1,

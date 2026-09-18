@@ -16,8 +16,13 @@ import {
 const MAX_REQUEST_BYTES = 64 * 1024;
 const MAX_RESPONSE_BYTES = 5 * 1024 * 1024;
 const MAX_STDERR_BYTES = 16 * 1024;
+const INTEGER_WIRE_OPERATIONS = new Set<string>([
+  "contract.describe", "search.page", "record.read", "history.list", "history.show",
+  "source.route", "relationship.decide", "relationship.list", "decision.history",
+]);
 
 type Pending = {
+  operation: PluginOperation;
   reject: (error: Error) => void;
   resolve: (value: unknown) => void;
   timer: ReturnType<typeof setTimeout>;
@@ -86,6 +91,7 @@ export class OpenBrainBridge {
         this.#terminate();
       }, timeoutMs);
       this.#pending.set(requestId, {
+        operation,
         reject,
         resolve: (value) => resolve(value as T),
         timer,
@@ -188,6 +194,17 @@ export class OpenBrainBridge {
       this.#failAll("protocol_error");
       this.#terminate();
       return;
+    }
+    if (INTEGER_WIRE_OPERATIONS.has(pending.operation)) {
+      try {
+        if (line.length + 1 > 1024 * 1024) throw new Error("response_too_large");
+        // Validate the original lexemes before JSON's number conversion can erase them.
+        parseStrictJson(line, true);
+      } catch {
+        this.#failAll("protocol_error");
+        this.#terminate();
+        return;
+      }
     }
     clearTimeout(pending.timer);
     this.#pending.delete(requestId);

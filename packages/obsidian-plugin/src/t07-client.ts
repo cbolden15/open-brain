@@ -192,6 +192,7 @@ export async function readCompleteRecord(
 ): Promise<string> {
   let cursor: string | null = null;
   let expectedStart = 0;
+  let outputBytes = 0;
   let result = "";
   for (let calls = 0; calls < 500; calls += 1) {
     if (cancelled()) throw new BridgeError("cancelled");
@@ -208,6 +209,12 @@ export async function readCompleteRecord(
     const textChunk = content.text as string;
     const bytes = new TextEncoder().encode(textChunk).length;
     if (Number(value.end_byte) - expectedStart !== bytes) throw new BridgeError("protocol_error");
+    // Reserve more than the fixed bridge envelope, including its request ID.
+    const encodedBytes = new TextEncoder().encode(JSON.stringify(value)).length + 256;
+    outputBytes += encodedBytes;
+    if (encodedBytes > 1024 * 1024 || outputBytes > 16 * 1024 * 1024) {
+      throw new BridgeError("response_too_large");
+    }
     result += textChunk;
     expectedStart = Number(value.end_byte);
     if (value.complete === true) {

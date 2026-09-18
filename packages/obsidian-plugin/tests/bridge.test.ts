@@ -12,6 +12,7 @@ import {
   executableCandidates,
   filteredEnvironment,
 } from "../src/bridge";
+import { searchPage } from "../src/t07-client";
 
 const bridges: OpenBrainBridge[] = [];
 
@@ -76,6 +77,36 @@ process.stdin.once("data", (chunk) => {
     await expect(bridge.invoke("system.handshake", {}, 25)).rejects.toEqual(
       expect.objectContaining<Partial<BridgeError>>({ code: "timeout" }),
     );
+  });
+
+  it.each(["1.0", "1e0"])("rejects negotiated integer lexeme %s from an actual child", async (lexeme) => {
+    const executable = await fakeExecutable(`
+process.stdin.once("data", (chunk) => {
+  const request = JSON.parse(chunk);
+  const raw = JSON.stringify({ok:true, protocol:"open-brain-client", protocol_version:1,
+    request_id:request.request_id, result:{status:"ok", dto_version:1, results:[],
+      next_cursor:null, complete:true, mode_used:"lexical", warnings:[]}});
+  process.stdout.write(raw.replace('"dto_version":1', '"dto_version":${lexeme}') + "\\n");
+});
+`);
+    const bridge = new OpenBrainBridge(executable);
+    bridges.push(bridge);
+    await expect(searchPage(bridge, { cursor: null, filters: {
+      space_ids: [], payload_families: [], record_types: [],
+    }, limit: 50, mode: "lexical", query: "synthetic" })).rejects.toThrow("protocol_error");
+  });
+
+  it("preserves legacy response services with floating point values", async () => {
+    const executable = await fakeExecutable(`
+process.stdin.once("data", (chunk) => {
+  const request = JSON.parse(chunk);
+  process.stdout.write(JSON.stringify({ok:true, protocol:"open-brain-client", protocol_version:1,
+    request_id:request.request_id, result:{score:0.125}}) + "\\n");
+});
+`);
+    const bridge = new OpenBrainBridge(executable);
+    bridges.push(bridge);
+    await expect(bridge.invoke("search.query", {})).resolves.toEqual({ score: 0.125 });
   });
 
   it("keeps a replacement session usable after cancelling pending work", async () => {
