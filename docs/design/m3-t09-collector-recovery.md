@@ -1,6 +1,6 @@
 # T09 collector recovery contract
 
-Status: frozen for bounded T09 implementation; A06 remains open until integration and review.
+Status: T09 locally verified; see [the checkpoint](../ai/workstreams/20260918-open-brain-public-m3-source-continuity-owner-control-c63538/T09-CHECKPOINT.json). Full A06 remains open for deferred T10 continuity.
 Baseline: `3070e33a24ebd1e44a81b51f5d1c9cdb66b46935`. Schema 7/session 2 and T03 v1 stay unchanged.
 
 ## Observed baseline

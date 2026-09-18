@@ -2,22 +2,23 @@
   "packet_version": 1,
   "status": "in_progress",
   "workstream": "20260918-open-brain-public-m3-source-continuity-owner-control-c63538",
-  "milestone": "Core-v0.1-T09-integrated-verification",
+  "milestone": "Core-v0.1-T09-local-verified",
   "branch": "ob-new-user/m3",
-  "head": "33466633d98ad8bb7d83fca608859d0d0d0e3e20",
+  "head": "92f33a1eb95184d86b804b038e4d0dd3d725a8f4",
   "last_verified": {
-    "command": "git diff --check",
-    "result": "PASS for coordinator changes; product verification remains pending"
+    "command": "make verify; git diff --check; actionlint .github/workflows/ci.yml",
+    "result": "PASS: 2392 Python tests,5 existing skips; package/plugin/desktop checks; independent review READY"
   },
   "changes": [
-    "docs/design/m3-t09-collector-recovery.md",
-    "docs/integrations/collector-recovery.md",
-    "docs/integrations/priority-capture-operator.md",
+    "packages/collector",
+    "packages/engine/src/open_brain_engine/engine",
     "packages/app/tests/integration/services/test_m3_collector_recovery.py",
-    "docs/plans/2026-09-16-new-user-functionality.md",
-    "docs/plans/2026-09-16-new-user-functionality-coverage.json"
+    "docs/integrations/collector-recovery.md",
+    "docs/design/m3-t09-collector-recovery.md",
+    "docs/plans/2026-09-16-new-user-functionality.md"
   ],
   "blocker": null,
-  "next_action": "Run make verify and integrated diff/actionlint; record T09 checkpoint before narrowed T19-T21/T23. T10-T18/T22 remain deferred.",
-  "safe_to_start_new_thread": false
+  "next_action": "Begin narrowed T19 catalog truth from verified T09 checkpoint; then T20-T21/T23. T10-T18/T22 remain deferred; external actions remain gated.",
+  "safe_to_start_new_thread": true,
+  "head_policy": "Verified implementation head; private exact-HEAD handoff accounts for subsequent checkpoint-only documentation commits."
 }

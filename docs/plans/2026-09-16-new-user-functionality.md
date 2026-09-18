@@ -44,7 +44,7 @@ Google OAuth “Desktop client” describes an OAuth application type; CLI/conne
 
 ### Core v0.1 delivery scope (user decision, 2026-09-18)
 
-Finish T09 collector recovery, then narrow T19–T21 and T23 to core CLI/MCP,
+T09 collector recovery is [locally verified](../ai/workstreams/20260918-open-brain-public-m3-source-continuity-owner-control-c63538/T09-CHECKPOINT.json). Narrow T19–T21 and T23 to core CLI/MCP,
 the existing Obsidian workflow, truthful core artifacts and documentation, and
 exact-candidate acceptance. T10–T18 and T22 are deferred. Their original task and
 acceptance definitions below remain follow-up requirements, not completed work.

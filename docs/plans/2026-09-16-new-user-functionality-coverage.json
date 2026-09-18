@@ -38,7 +38,8 @@
         "T18",
         "T22"
       ],
-      "acceptance": "Deferred task acceptance remains open; source verification does not establish public artifact or platform readiness."
+      "acceptance": "Deferred task acceptance remains open; source verification does not establish public artifact or platform readiness.",
+      "t09_checkpoint": "docs/ai/workstreams/20260918-open-brain-public-m3-source-continuity-owner-control-c63538/T09-CHECKPOINT.json"
     }
   },
   "active": [
@@ -165,8 +166,11 @@
       "acceptance": [
         "A06"
       ],
-      "status": "planned",
-      "evidence": []
+      "status": "t09_local_verified_t10_deferred",
+      "evidence": [],
+      "partial_implementation_evidence": [
+        "docs/ai/workstreams/20260918-open-brain-public-m3-source-continuity-owner-control-c63538/T09-CHECKPOINT.json"
+      ]
     },
     {
       "id": "F5",
