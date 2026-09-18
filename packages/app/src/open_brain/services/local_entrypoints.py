@@ -172,6 +172,32 @@ def run_cli(
     ):
         _write_usage_failure(json_output=False)
         return 2
+    if parsed.command == "catalog":
+        if not bool(getattr(parsed, "json", False)):
+            _write_usage_failure(json_output=False)
+            return 2
+        from open_brain.services.catalog import build_catalog, cli_registrations
+        from open_brain.services.local_mcp import MCP_REGISTERED_TOOLS
+        from open_brain.services.plugin_bridge import (
+            _BASE_OPERATIONS,
+            _COLLECTOR_OPERATIONS,
+            _NEGOTIATED_OPERATIONS,
+        )
+
+        _write_json(
+            build_catalog(
+                {"schema_version": parsed.schema_version},
+                cli_commands=cli_registrations(_parser()),
+                mcp_registered=MCP_REGISTERED_TOOLS,
+                mcp_authorized=None,
+                mcp_discovery_context="registered_implementation_no_session",
+                bridge_base=_BASE_OPERATIONS,
+                bridge_negotiated=_NEGOTIATED_OPERATIONS,
+                bridge_optional=_COLLECTOR_OPERATIONS,
+                bridge_available=None,
+            )
+        )
+        return 0
     selected_environment = os.environ if environment is None else environment
     json_output = bool(getattr(parsed, "json", False))
     if parsed.command in {"space", "inbox"}:
@@ -437,6 +463,13 @@ def _parser() -> argparse.ArgumentParser:
     _add_local_options(search_parser)
     search_parser.add_argument("query", help="Text to find.")
     search_parser.add_argument("--limit", type=int, default=10, help="Return 1 to 100 results.")
+    catalog_parser = subparsers.add_parser(
+        "catalog", help="Describe public implementation and compatibility metadata."
+    )
+    catalog_parser.add_argument(
+        "--json", action="store_true", default=argparse.SUPPRESS, help="Write JSON output."
+    )
+    catalog_parser.add_argument("--schema-version", type=int, choices=(2,), default=2)
     _add_t03_parsers(subparsers)
     _add_space_inbox_parsers(subparsers)
     _add_review_parsers(subparsers)

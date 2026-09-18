@@ -95,6 +95,7 @@ _BASE_OPERATIONS = (
     "agent.setup.apply",
     "agent.setup.preview",
     "brain.initialize",
+    "catalog.describe",
     "capture.create",
     "contract.describe",
     "graph.accept",
@@ -258,11 +259,7 @@ def serve_plugin_stdio(
 ) -> int:
     """Serve bounded newline-framed requests for the lifetime of one plugin child."""
     selected_environment = os.environ if environment is None else environment
-    runtime = PluginRuntimeState(
-        credential_store
-        if credential_store is not None
-        else discover_credential_store(selection.platform_name, selected_environment)
-    )
+    runtime: PluginRuntimeState | None = None
     with ExitStack() as stack:
         session: LocalBrainSession | None = None
         for _index in range(MAX_PLUGIN_SESSION_REQUESTS):
@@ -293,6 +290,31 @@ def serve_plugin_stdio(
                         "state_schema_version": PHASE1_STATE_SCHEMA_VERSION,
                         "status": "ok",
                     }
+                elif operation == "catalog.describe":
+                    from open_brain.services.catalog import (
+                        CatalogRequestError,
+                        build_catalog,
+                        cli_registrations,
+                    )
+                    from open_brain.services.local_entrypoints import _parser
+                    from open_brain.services.local_mcp import MCP_REGISTERED_TOOLS
+
+                    try:
+                        result = build_catalog(
+                            arguments,
+                            cli_commands=cli_registrations(_parser()),
+                            mcp_registered=MCP_REGISTERED_TOOLS,
+                            mcp_authorized=None,
+                            mcp_discovery_context="registered_implementation_no_mcp_session",
+                            bridge_base=_BASE_OPERATIONS,
+                            bridge_negotiated=_NEGOTIATED_OPERATIONS,
+                            bridge_optional=_COLLECTOR_OPERATIONS,
+                            bridge_available=_available_operations(selected_environment),
+                            base_executable=base_executable,
+                            platform_name=selection.platform_name,
+                        )
+                    except CatalogRequestError:
+                        raise PluginBridgeFailure("invalid_arguments") from None
                 elif operation == "system.status":
                     _require_keys(arguments, frozenset())
                     result = _system_status(selection)
@@ -324,6 +346,14 @@ def serve_plugin_stdio(
                             state_schema_version=PHASE1_STATE_SCHEMA_VERSION,
                         ).to_dict()
                 else:
+                    if runtime is None:
+                        runtime = PluginRuntimeState(
+                            credential_store
+                            if credential_store is not None
+                            else discover_credential_store(
+                                selection.platform_name, selected_environment
+                            )
+                        )
                     if session is None:
                         session = stack.enter_context(
                             open_local_brain(selection, filesystem_type_probe=filesystem_type_probe)

@@ -137,7 +137,9 @@ def test_capabilities_are_independently_listed_and_enforced(
     )
     assert responses[0]["result"]["capabilities"] == {"tools": {}}
     assert {tool["name"] for tool in responses[1]["result"]["tools"]} == (
-        ({"brain_capture"} if capture else set()) | ({"brain_search"} if search else set())
+        {"brain_catalog"}
+        | ({"brain_capture"} if capture else set())
+        | ({"brain_search"} if search else set())
     )
     assert responses[2]["result"].get("isError", False) is not capture
     assert responses[3]["result"].get("isError", False) is not search
@@ -169,15 +171,17 @@ def test_organization_capabilities_are_explicitly_injected_with_bounded_schemas(
         },
     )
     assert {tool["name"] for tool in read_adapter.list_tools()} == {
+        "brain_catalog",
         "brain_inbox_list",
         "brain_space_list",
     }
     assert {tool["name"] for tool in write_adapter.list_tools()} == {
+        "brain_catalog",
         "brain_space_create",
         "brain_space_rename",
         "brain_inbox_route",
     }
-    for tool in (*read_adapter.list_tools(), *write_adapter.list_tools()):
+    for tool in (*read_adapter.list_tools()[:-1], *write_adapter.list_tools()[:-1]):
         assert tool["inputSchema"]["additionalProperties"] is False
         assert "untrusted" in tool["description"]
         assert "network-backed" in tool["description"]
@@ -228,16 +232,25 @@ def test_review_capabilities_are_independently_listed_and_enforced() -> None:
         review_edit_and_approve=decided,
     )
     assert {tool["name"] for tool in readers.list_tools()} == {
+        "brain_catalog",
         "brain_review_list",
         "brain_review_show",
     }
-    assert {tool["name"] for tool in proposer.list_tools()} == {"brain_review_propose"}
+    assert {tool["name"] for tool in proposer.list_tools()} == {
+        "brain_catalog",
+        "brain_review_propose",
+    }
     assert {tool["name"] for tool in decider.list_tools()} == {
+        "brain_catalog",
         "brain_review_approve",
         "brain_review_reject",
         "brain_review_edit_and_approve",
     }
-    for tool in (*readers.list_tools(), *proposer.list_tools(), *decider.list_tools()):
+    for tool in (
+        *readers.list_tools()[:-1],
+        *proposer.list_tools()[:-1],
+        *decider.list_tools()[:-1],
+    ):
         assert tool["inputSchema"]["additionalProperties"] is False
         assert "untrusted" in tool["description"]
     with pytest.raises(McpCallError, match="^unknown tool$"):
@@ -896,6 +909,7 @@ def test_entrypoint_admits_standalone_negotiated_read_grants(
         == 0
     )
     assert {tool["name"] for tool in observed["adapter"].list_tools()} == {
+        "brain_catalog",
         "brain_contract_describe",
         tool_name,
     }
@@ -904,10 +918,15 @@ def test_entrypoint_admits_standalone_negotiated_read_grants(
 @pytest.mark.parametrize(
     ("flag", "expected"),
     [
-        ("--allow-content-read", ["brain_contract_describe", "brain_read"]),
+        ("--allow-content-read", ["brain_contract_describe", "brain_read", "brain_catalog"]),
         (
             "--allow-history-read",
-            ["brain_contract_describe", "brain_history_list", "brain_history_show"],
+            [
+                "brain_contract_describe",
+                "brain_history_list",
+                "brain_history_show",
+                "brain_catalog",
+            ],
         ),
     ],
 )
@@ -1085,6 +1104,7 @@ def test_live_mcp_history_list_show_cursor_and_independent_grant(tasks: Any) -> 
             assert "result" in _exchange(child, INITIALIZE)
         listed = _exchange(process, {"jsonrpc": "2.0", "id": 2, "method": "tools/list"})
         assert {tool["name"] for tool in listed["result"]["tools"]} == {
+            "brain_catalog",
             "brain_contract_describe",
             "brain_history_list",
             "brain_history_show",
@@ -1168,12 +1188,13 @@ def test_live_mcp_history_list_show_cursor_and_independent_grant(tasks: Any) -> 
     [
         (
             "--allow-inbox-read",
-            {"brain_inbox_list", "brain_space_list"},
+            {"brain_catalog", "brain_inbox_list", "brain_space_list"},
             _call("brain_inbox_list", {}),
         ),
         (
             "--allow-organize",
             {
+                "brain_catalog",
                 "brain_contract_describe",
                 "brain_space_create",
                 "brain_space_rename",
@@ -1250,6 +1271,7 @@ def test_live_review_stdio_runs_all_operations_with_explicit_grants(
         assert "result" in _exchange(process, INITIALIZE)
         tools = _exchange(process, {"jsonrpc": "2.0", "id": 2, "method": "tools/list"})
         assert {tool["name"] for tool in tools["result"]["tools"]} == {
+            "brain_catalog",
             "brain_review_list",
             "brain_review_show",
             "brain_review_propose",
@@ -1363,11 +1385,15 @@ def test_live_review_stdio_runs_all_operations_with_explicit_grants(
 @pytest.mark.parametrize(
     ("flag", "expected"),
     (
-        ("--allow-review-read", {"brain_review_list", "brain_review_show"}),
-        ("--allow-review-propose", {"brain_review_propose"}),
+        (
+            "--allow-review-read",
+            {"brain_catalog", "brain_review_list", "brain_review_show"},
+        ),
+        ("--allow-review-propose", {"brain_catalog", "brain_review_propose"}),
         (
             "--allow-review-decide",
             {
+                "brain_catalog",
                 "brain_review_approve",
                 "brain_review_reject",
                 "brain_review_edit_and_approve",

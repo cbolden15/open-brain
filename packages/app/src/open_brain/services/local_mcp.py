@@ -11,6 +11,7 @@ from typing import Literal
 from open_brain_engine.core.ids import portable_canonical_json_bytes
 from open_brain_engine.engine import PublicJobCaptureSink, RetrievalResult, TextPayload
 
+from open_brain.services.catalog import CatalogRequestError
 from open_brain.services.local_operations import (
     capture_result,
     capture_text,
@@ -55,6 +56,41 @@ _UUID4_PATTERN = "[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f
 GraphRefresh = Callable[[int, int], tuple[dict[str, object], int, int]]
 OrganizationOperation = Callable[[Mapping[str, object]], dict[str, object]]
 ReviewOperation = Callable[[Mapping[str, object]], dict[str, object]]
+
+MCP_REGISTERED_TOOLS: tuple[dict[str, object], ...] = (
+    {"name": "brain_catalog", "required_grants": []},
+    {
+        "name": "brain_contract_describe",
+        "required_grants_any_of": ["content-read", "history-read", "organize", "search"],
+    },
+    {"name": "brain_search_page", "required_grants": ["search"]},
+    {"name": "brain_read", "required_grants": ["content-read"]},
+    {"name": "brain_history_list", "required_grants": ["history-read"]},
+    {"name": "brain_history_show", "required_grants": ["history-read"]},
+    {"name": "brain_source_route", "required_grants": ["organize"]},
+    {"name": "brain_capture", "required_grants": ["capture"]},
+    {"name": "brain_search", "required_grants": ["search"]},
+    {"name": "brain_inbox_list", "required_grants": ["inbox-read"]},
+    {"name": "brain_space_list", "required_grants": ["inbox-read"]},
+    {"name": "brain_space_create", "required_grants": ["organize"]},
+    {"name": "brain_space_rename", "required_grants": ["organize"]},
+    {"name": "brain_inbox_route", "required_grants": ["organize"]},
+    {"name": "brain_review_list", "required_grants": ["review-read"]},
+    {"name": "brain_review_show", "required_grants": ["review-read"]},
+    {"name": "brain_review_propose", "required_grants": ["review-propose"]},
+    {"name": "brain_review_approve", "required_grants": ["review-decide"]},
+    {"name": "brain_review_reject", "required_grants": ["review-decide"]},
+    {"name": "brain_review_edit_and_approve", "required_grants": ["review-decide"]},
+    {"name": "brain_workspace_status", "required_grants": ["workspace-read"]},
+    {"name": "brain_graph_suggestions", "required_grants": ["workspace-read"]},
+    {"name": "brain_graph_projection", "required_grants": ["workspace-read"]},
+    {
+        "name": "brain_graph_refresh",
+        "required_grants": ["graph-refresh"],
+        "readiness": "unavailable",
+        "reason": "provider_not_configured",
+    },
+)
 
 
 @dataclass(slots=True)
@@ -441,6 +477,20 @@ class LocalMcpAdapter:
                     "Request a consent-bound graph refresh using the configured provider.",
                 )
             )
+        tools.append(
+            {
+                "name": "brain_catalog",
+                "description": (
+                    "Describe public implementation metadata for this authorized session."
+                ),
+                "inputSchema": {
+                    "type": "object",
+                    "additionalProperties": False,
+                    "properties": {"schema_version": {"type": "integer", "const": 2}},
+                    "required": ["schema_version"],
+                },
+            }
+        )
         return tuple(tools)
 
     @staticmethod
@@ -646,6 +696,32 @@ class LocalMcpAdapter:
         maximum_response_bytes: int = MAX_MESSAGE_BYTES,
     ) -> dict[str, object]:
         try:
+            if name == "brain_catalog":
+                try:
+                    from open_brain.services.catalog import build_catalog, cli_registrations
+                    from open_brain.services.local_entrypoints import _parser
+                    from open_brain.services.plugin_bridge import (
+                        _BASE_OPERATIONS,
+                        _COLLECTOR_OPERATIONS,
+                        _NEGOTIATED_OPERATIONS,
+                    )
+
+                    result = build_catalog(
+                        arguments,
+                        cli_commands=cli_registrations(_parser()),
+                        mcp_registered=MCP_REGISTERED_TOOLS,
+                        mcp_authorized=(tool["name"] for tool in self.list_tools()),
+                        mcp_discovery_context="authorized_session_registry",
+                        bridge_base=_BASE_OPERATIONS,
+                        bridge_negotiated=_NEGOTIATED_OPERATIONS,
+                        bridge_optional=_COLLECTOR_OPERATIONS,
+                        bridge_available=None,
+                    )
+                    if encoded_tool_response_size(request_id, result) > maximum_response_bytes:
+                        raise McpCallError("response_too_large")
+                    return result
+                except CatalogRequestError:
+                    raise McpCallError("invalid tool arguments") from None
             negotiated_names = {
                 "brain_contract_describe": "contract.describe",
                 "brain_search_page": "search.page",
