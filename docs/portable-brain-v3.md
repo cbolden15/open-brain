@@ -1,5 +1,8 @@
 # Portable Brain v3
 
+This describes the historical v3 format. The M2 source build exports
+[Portable v4](portable-brain-v4.md), preserving the review evidence described here.
+
 Portable Brain v3 adds durable review bindings for canonical page creation and updates. Existing
 capture, proposal, decision, publication, page, and managed-workspace bytes keep their established
 record shapes. A Brain exports v3 once it contains a bound review proposal, including a pending or

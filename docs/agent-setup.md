@@ -26,7 +26,7 @@ open-brain agent setup --client claude-code --scope project \
 ```
 
 Use `--client codex` for Codex. Use `--scope user` and omit `--project-dir` to apply across projects.
-Capture, search, inbox reading, organization, review reading, proposal creation, and review decisions
+Capture, search, content reading, history reading, inbox reading, organization, review reading, proposal creation, and review decisions
 are separate grants. Omit a flag to withhold that
 capability. `--allow-inbox-read` grants `brain_inbox_list` and `brain_space_list`.
 `--allow-organize` grants `brain_space_create`, `brain_space_rename`, and `brain_inbox_route`.
@@ -34,6 +34,10 @@ Neither grant follows automatically from capture or search. At least one grant i
 configuring. `--runtime /absolute/path/to/open-brain` can select an executable; otherwise setup uses
 the running core. `--data-dir /absolute/path/to/brain` selects an expert/test Brain override. Normal
 setup uses the platform-default Brain.
+
+For M2 complete current reads, add `--allow-content-read`; retained history requires the separate
+`--allow-history-read` flag. Both are off by default and independent of search. See
+[records and history](records-and-history.md) for paging, read budgets and historical identity.
 
 For the full review workflow, add `--allow-review-read --allow-review-propose --allow-review-decide`
 to both preview and apply. Review reading exposes list/show, proposing creates a draft from explicit
@@ -89,7 +93,7 @@ a capture when the user asks. Routing changes assignment and search metadata. It
 the capture, change its trust, or convert it into a canonical note. Generated instructions name only
 the explicitly granted tools and limit organization to the current user request.
 
-Existing state uses private schema version 5 and runtime session version 1. Stop older sessions before
+The M2 source build uses private schema version 7 and runtime session version 2. Stop older sessions before
 upgrading an existing Brain. Older runtimes reject the newer schema, so update other installed clients
 before using them on that Brain. After moving the app or upgrading a CLI whose versioned path changes, preview setup again.
 

@@ -30,6 +30,10 @@ search, helper, and cleanup check. It does not prove that the window works.
 
 ## Use the companion
 
+The M2 source build adds source routing, draft inspection, publication approval and opening the
+managed vault. Search supports space, payload-family and record-type filters, explicit continuation
+and complete record reads. See [records and history](../../docs/records-and-history.md).
+
 1. Capture a note, then use **Find this note** to verify retrieval.
 2. Open **Settings** and select Claude Code or Codex, project or user scope, and the desired capture
    and search permissions. Both grants start off. Project scope requires an absolute project path.
@@ -50,11 +54,14 @@ setup again because the configuration contains an absolute executable path.
 
 The renderer has only named native operations, no general shell or database interface. The host
 verifies the exact packaged core/Graphify pair before launch and checks protocol version 1, runtime
-session version 1, and state schema version 6. The native proof uses the same handshake validator.
+session version 2, and state schema version 7. The native proof uses the same handshake validator.
 Existing state migrates through the core; incompatible older readers reject the newer private schema. Stop older sessions before upgrading existing state.
 
 Cold startup has a 15-second handshake deadline; interactive requests have a 10-second deadline.
 Malformed replies, lost transport, deadlines, and the 2,000-request session limit close the bridge.
+Negotiated search pages and current reads share a 500-call, 16 MiB encoded-output bucket;
+history listing and reads have a separate bucket with the same limits. Each negotiated response is
+capped at 1 MiB including its envelope. Complete-read clients stop when these limits are reached.
 An uncertain capture retains its text and request ID for an explicit retry. Reconnection does not
 replay mutations or restore provider consent. Native exit stops the owned process group.
 
