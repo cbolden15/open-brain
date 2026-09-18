@@ -32,8 +32,14 @@ vi.mock("obsidian", () => {
     public open(): void { opened.push(this); (this as { onOpen?: () => void }).onOpen?.(); }
   }
   class FuzzySuggestModal<T> extends Modal {
-    public setPlaceholder(): void {}
+    public placeholder = "";
+    public setPlaceholder(value: string): void { this.placeholder = value; }
     public getItems(): T[] { return []; }
+    public selectSuggestion(item: T): void {
+      // Obsidian 1.13.7 closes the modal before invoking the choice callback.
+      this.close();
+      (this as unknown as { onChooseItem(item: T): void }).onChooseItem(item);
+    }
   }
   return {
     __notices: notices, __opened: opened,
@@ -240,6 +246,65 @@ describe("actual T07 modals", () => {
     expect(open).toHaveBeenCalledWith("Approved.md");
     expect(bridge.invoke.mock.calls.map(([operation]) => operation)).toContain("publication.approve");
   });
+  it.each(["existing", "create", "cancel"] as const)(
+    "the actual unrouted review handles Obsidian close-before-choice order: %s",
+    async (choice) => {
+      type ChoiceItem = { label: string; value: unknown };
+      type ChoiceTestModal = { contentEl: TestElement; titleEl: TestElement; placeholder?: string;
+        close(): void; getItems(): ChoiceItem[]; selectSuggestion(item: ChoiceItem): void };
+      const obsidian = await import("obsidian") as unknown as {
+        __opened: ChoiceTestModal[]; __notices: string[];
+      };
+      obsidian.__opened.length = 0;
+      obsidian.__notices.length = 0;
+      const captureId = `capture_${uuid(71)}`;
+      const space = { name: "Synthetic space", slug: "synthetic-space", space_id: `space_${uuid(72)}` };
+      const bridge = { invoke: vi.fn(async (operation: string, args: Record<string, unknown>) => {
+        if (operation === "brain.initialize") return { status: "already_initialized" };
+        if (operation === "workspace.status") return { status: "ok", vault_path: "/synthetic/managed" };
+        if (operation === "inbox.list") return { status: "listed", offset: 0, next_offset: null,
+          items: [{ capture_id: captureId, payload_family: "text", preview: "Synthetic evidence",
+            space_id: null, title: null }] };
+        if (operation === "space.list") return { status: "listed", spaces: [space], next_offset: null };
+        if (operation === "space.create") return { status: "created", space: { ...space, name: args.name } };
+        if (operation === "inbox.route") return { status: "routed", capture_id: captureId, space_id: space.space_id };
+        throw new Error(`unexpected ${operation}`);
+      }) };
+      const plugin = new OpenBrainPlugin({} as never, {} as never);
+      const running = plugin.reviewCaptures({
+        bridge: bridge as never, capabilities: publicationCapabilities(), sameVault: async () => true,
+      });
+      const selection = await openedModal(obsidian.__opened, "Select 1–32 captures for publication");
+      const checkbox = walk(selection.contentEl).find((element) => element.tag === "input")!;
+      (checkbox as unknown as { checked: boolean }).checked = true;
+      checkbox.trigger("change");
+      walk(selection.contentEl).find((element) => element.text === "Create draft")!.trigger("click");
+      await vi.waitFor(() => expect(obsidian.__opened.some((modal) =>
+        modal.placeholder === "Choose one publication space")).toBe(true));
+      const chooser = obsidian.__opened.find((modal) => modal.placeholder === "Choose one publication space")!;
+      if (choice === "cancel") {
+        chooser.close();
+        await running;
+        expect(bridge.invoke.mock.calls.map(([operation]) => operation)).not.toContain("inbox.route");
+      } else {
+        chooser.selectSuggestion(chooser.getItems()[choice === "existing" ? 0 : 1]!);
+        if (choice === "create") {
+          const name = await openedModal(obsidian.__opened, "New space name");
+          walk(name.contentEl).find((element) => element.tag === "input")!.value = "New synthetic space";
+          walk(name.contentEl).find((element) => element.text === "Continue")!.trigger("click");
+        }
+        const title = await openedModal(obsidian.__opened, "Publication title");
+        expect(bridge.invoke).toHaveBeenCalledWith("inbox.route", expect.objectContaining({
+          capture_id: captureId, space_id: space.space_id,
+        }), 30_000);
+        (title as unknown as { close(): void }).close();
+        await running;
+      }
+      expect(bridge.invoke.mock.calls.map(([operation]) => operation)).not.toContain("publication.propose");
+      expect(obsidian.__notices).toEqual([]);
+    },
+  );
+
 });
 
 function publicationCapabilities(): Set<string> {

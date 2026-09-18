@@ -927,12 +927,18 @@ class ChoiceModal<T> extends FuzzySuggestModal<Choice<T>> {
   }
 
   public override onChooseItem(item: Choice<T>): void {
+    if (this.#settled) return;
     this.#settled = true;
     this.#resolve?.(item.value);
   }
 
   public override onClose(): void {
-    if (!this.#settled) this.#resolve?.(null);
+    // Obsidian closes suggestions before calling onChooseItem in the same turn.
+    queueMicrotask(() => {
+      if (this.#settled) return;
+      this.#settled = true;
+      this.#resolve?.(null);
+    });
   }
 }
 
