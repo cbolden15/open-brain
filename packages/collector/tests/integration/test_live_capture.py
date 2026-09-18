@@ -84,7 +84,7 @@ def test_preview_then_unordered_revision_refusal_preserves_source_and_checkpoint
     assert len(open_local_engine(profile).retrieval.search("Originalneedle")) == 1
     assert not open_local_engine(profile).retrieval.search("Revisedneedle")
     custody = service.custody_status("gmail")
-    assert custody["counts"]["quarantined"] == 1
+    assert cast(dict[str, int], custody["counts"])["quarantined"] == 1
     receipt_id = cast(list[str], custody["receipt_ids"])[0]
     assert service.custody_inspect(receipt_id)["reason_code"] == "source_revision_conflict"
     restarted = LiveCaptureService(tmp_path / "state", tmp_path / "brain", runtime=runtime)

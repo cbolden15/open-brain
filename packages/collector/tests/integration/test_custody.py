@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import threading
 from pathlib import Path
 from typing import cast
@@ -18,7 +19,6 @@ from open_brain_collector.lifecycle import (
 )
 from open_brain_collector.live_capture import LiveCaptureService
 from open_brain_collector.live_manager import LiveSourceManager
-from open_brain_connectors.runtime import live_storage as live_storage_module
 from open_brain_connectors.runtime.live_common import (
     LiveBatch,
     LiveSourceError,
@@ -148,8 +148,8 @@ def test_custody_atomic_write_failure_seams_are_restart_safe(
     seam: str,
     durable: bool,
 ) -> None:
-    original_fsync = live_storage_module.os.fsync
-    original_replace = live_storage_module.os.replace
+    original_fsync = os.fsync
+    original_replace = os.replace
     calls = 0
 
     def fail_fsync(fd: int) -> None:
@@ -163,9 +163,9 @@ def test_custody_atomic_write_failure_seams_are_restart_safe(
         raise OSError("synthetic replace interruption")
 
     if seam == "replace":
-        monkeypatch.setattr(live_storage_module.os, "replace", fail_replace)
+        monkeypatch.setattr(os, "replace", fail_replace)
     else:
-        monkeypatch.setattr(live_storage_module.os, "fsync", fail_fsync)
+        monkeypatch.setattr(os, "fsync", fail_fsync)
     store = CustodyStore(PrivateJsonStore(tmp_path / "custody"))
     with pytest.raises(LiveSourceError, match="source_storage_unavailable"):
         store.stage(
@@ -175,8 +175,8 @@ def test_custody_atomic_write_failure_seams_are_restart_safe(
             control_epoch=0,
             intakes=(_intake("atomic"),),
         )
-    monkeypatch.setattr(live_storage_module.os, "fsync", original_fsync)
-    monkeypatch.setattr(live_storage_module.os, "replace", original_replace)
+    monkeypatch.setattr(os, "fsync", original_fsync)
+    monkeypatch.setattr(os, "replace", original_replace)
     restarted = CustodyStore(PrivateJsonStore(tmp_path / "custody"))
     assert restarted.status()["retained_items"] == int(durable)
 
@@ -307,8 +307,8 @@ def test_generic_value_error_is_global_and_does_not_quarantine_or_checkpoint(
     with pytest.raises(ValueError, match="synthetic global failure"):
         service.apply("source", cast(str, preview["preview_id"]))
     status = service.custody_status("source")
-    assert status["counts"]["pending"] == 2
-    assert status["counts"]["quarantined"] == 0
+    assert cast(dict[str, int], status["counts"])["pending"] == 2
+    assert cast(dict[str, int], status["counts"])["quarantined"] == 0
     assert runtime.acknowledged == []
     assert service._load("source")["checkpoint"] is None
 
@@ -610,7 +610,7 @@ def test_mixed_batch_ack_failure_retries_without_recapture(tmp_path: Path) -> No
     service.configure("source", _SELECTION, {})
     preview = service.preview("source")
     result = service.apply("source", cast(str, preview["preview_id"]))
-    assert "source_queue_cleanup_pending" in result["notices"]
+    assert "source_queue_cleanup_pending" in cast(list[str], result["notices"])
     runtime.fail = False
     service.apply("source", cast(str, preview["preview_id"]))
     assert submissions == ["a", "b"]
@@ -1128,7 +1128,7 @@ def test_legacy_checkpoint_cleanup_obligation_drains_after_restart(
     with pytest.raises(LiveSourceError, match="source_storage_unavailable"):
         controller.sync_due(source_id="source", runtime=runtime, capture_sink=MemoryCaptureSink())
     persisted = state.load()
-    assert cast(dict[str, object], persisted["sources"])["source"]["cleanup_receipts"]
+    assert cast(dict[str, dict[str, object]], persisted["sources"])["source"]["cleanup_receipts"]
     restarted = CollectorController(state, clock=lambda: 100)
     result = restarted.sync_due(
         source_id="source", runtime=runtime, capture_sink=MemoryCaptureSink()
