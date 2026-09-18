@@ -142,7 +142,11 @@ def test_bridge_uses_shared_organization_and_publication_services(tmp_path: Path
     assert setup["status"] == "setup"
     assert status["status"] == "ok"
     assert status["vault_path"] == setup["vault_path"]
-    for invalid in ({"name": "Unversioned"}, {"dto_version": True, "name": "Boolean"}):
+    invalid_arguments: tuple[dict[str, object], ...] = (
+        {"name": "Unversioned"},
+        {"dto_version": True, "name": "Boolean"},
+    )
+    for invalid in invalid_arguments:
         denied = _call(selection, "space.create", invalid)
         assert denied["ok"] is False
         assert cast(dict[str, object], denied["error"])["code"] == "invalid_arguments"
