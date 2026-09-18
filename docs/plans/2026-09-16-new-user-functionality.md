@@ -42,6 +42,23 @@ This decision narrows the desktop portions of the tasks and acceptance rows belo
 
 Google OAuth “Desktop client” describes an OAuth application type; CLI/connector authentication work is not deferred by this desktop-product decision. M3 implementation and outward publication still require their separate authorization.
 
+### Core v0.1 delivery scope (user decision, 2026-09-18)
+
+Finish T09 collector recovery, then narrow T19–T21 and T23 to core CLI/MCP,
+the existing Obsidian workflow, truthful core artifacts and documentation, and
+exact-candidate acceptance. T10–T18 and T22 are deferred. Their original task and
+acceptance definitions below remain follow-up requirements, not completed work.
+
+The candidate may describe immutable records and publication, lexical search,
+complete reads, history, and explicit relationships according to verified
+implementation. It must not claim continuously updating connected sources,
+retire/correct/selective forget, Markdown-root rebind, PDF/DOCX, Linux background
+service, semantic recall, desktop release readiness, or Google OAuth/provider
+readiness. Preserve completed desktop compatibility and the foreground-only
+core boundary. Public promotion still requires exact artifact/platform evidence;
+push, PR, merge, release, live data, OAuth registration, real service installation,
+and model downloads remain separately gated.
+
 ## Delivery approach
 
 Use an orchestrator-worker workflow with independent verification. The coordinator owns coverage, shared decisions, integration and evidence. Workers own bounded changes. Shared contracts are frozen before adapters fan out. Immediate F1 remediation does not wait for a schema migration or the model work.

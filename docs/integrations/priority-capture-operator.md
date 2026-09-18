@@ -67,7 +67,9 @@ open-brain-collector sources --state "$CAPTURE_STATE" --brain-root "$CAPTURE_BRA
   --foreground import --source-id REPLACE_FROM_CONFIGURE --preview-id REPLACE_FROM_PREVIEW
 ```
 
-Import consumes the saved preview and advances its checkpoint after acknowledged capture. An
+Import consumes the saved preview and advances its checkpoint after every item is durably captured
+or transferred to quarantine. Provider acknowledgement follows that local commit. See
+[collector recovery](collector-recovery.md) for inspect, status, retry, and backpressure. An
 uncertain response can be retried with the same preview ID. Changed selections require an explicit
 `"reset": true` in the configure arguments. Preview and import do not enable recurring collection.
 The duplicate cache holds at most 2,048 deliveries and protects every delivery in a pending batch.

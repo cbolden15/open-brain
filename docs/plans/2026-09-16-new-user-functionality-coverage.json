@@ -14,7 +14,32 @@
     "desktop_further_features_and_release": "deferred; preserve completed work",
     "desktop_release_gates_core": false,
     "shared_engine_and_compatibility_checks": "required",
-    "obsidian_scope": "unchanged"
+    "obsidian_scope": "unchanged",
+    "core_v01_scope": {
+      "date": "2026-09-18",
+      "finish": [
+        "T09"
+      ],
+      "narrowed": [
+        "T19",
+        "T20",
+        "T21",
+        "T23"
+      ],
+      "deferred": [
+        "T10",
+        "T11",
+        "T12",
+        "T13",
+        "T14",
+        "T15",
+        "T16",
+        "T17",
+        "T18",
+        "T22"
+      ],
+      "acceptance": "Deferred task acceptance remains open; source verification does not establish public artifact or platform readiness."
+    }
   },
   "active": [
     {
