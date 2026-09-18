@@ -1,6 +1,6 @@
 # New-user functionality implementation plan
 
-Status: M1 T01–T02 and recovery checkpoints A–C merged in PR41 at `33a7472f06516753c5c66d76eac8e60538c2660f`. M2 T03 contracts and strict consumers are frozen in [T03-FREEZE.json](../ai/workstreams/20260917-open-brain-public-m2-0fd6e9/T03-FREEZE.json); T04–T08 remain in local implementation. Broader product/release acceptance remains open.
+Status: M1 T01–T02 and recovery checkpoints A–C merged in PR41 at `33a7472f06516753c5c66d76eac8e60538c2660f`. M2 T03 contracts and strict consumers are frozen in [T03-FREEZE.json](../ai/workstreams/20260917-open-brain-public-m2-0fd6e9/T03-FREEZE.json); T04 source/migration is locally verified in [T04-CHECKPOINT.json](../ai/workstreams/20260917-open-brain-public-m2-0fd6e9/T04-CHECKPOINT.json); T05–T08 and final native acceptance remain in progress. Broader product/release acceptance remains open.
 
 ## Objective and authority
 

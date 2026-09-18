@@ -312,12 +312,14 @@
       ],
       "status": "in_progress",
       "verified_tasks": [
-        "T03"
+        "T03",
+        "T04"
       ],
       "evidence": [
-        "docs/ai/workstreams/20260917-open-brain-public-m2-0fd6e9/T03-FREEZE.json"
+        "docs/ai/workstreams/20260917-open-brain-public-m2-0fd6e9/T03-FREEZE.json",
+        "docs/ai/workstreams/20260917-open-brain-public-m2-0fd6e9/T04-CHECKPOINT.json"
       ],
-      "acceptance_limit": "Contract portion verified; schema/writer migration, retrieval, adapters, clients and history remain open."
+      "acceptance_limit": "T03 contracts and T04 local source/migration checkpoint verified. T05/T06/T07/T08 completion and final native/package/GUI acceptance remain open."
     }
   }
 }

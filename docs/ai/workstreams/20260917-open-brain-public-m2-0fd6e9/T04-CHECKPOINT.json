@@ -1,0 +1,58 @@
+{
+  "status": "LOCAL_SOURCE_VERIFIED",
+  "task": "T04",
+  "baseline": "33a7472f06516753c5c66d76eac8e60538c2660f",
+  "verified_head": "c320ff02b6f3bc375045f32e2437deea6343946e",
+  "contract_sha256": "868d3cd2ad6ce1fa7f375151df3a5cf7553ba3165c3fefa409fe95cb6258c37c",
+  "versions": {
+    "durable_schema": 7,
+    "runtime_session": 2,
+    "portable_metadata": 4
+  },
+  "independent_review": {
+    "status": "READY",
+    "scope": [
+      "Source inventory and conservative grouping",
+      "Actual schema7 activation and immutable intake",
+      "Four activation defect repairs",
+      "Historical compatibility and owner recovery"
+    ],
+    "remaining_findings": 0
+  },
+  "verification": {
+    "parent_request": "m2-activation-repaired-03",
+    "make_verify": "passed",
+    "python_passed": 2291,
+    "python_existing_skips": 5,
+    "obsidian_passed": 279,
+    "desktop_typescript_passed": 259,
+    "desktop_python_passed": 1,
+    "rust_passed": 26,
+    "lint_typecheck_package_builds": "passed",
+    "diff_check": "passed",
+    "actionlint": "passed"
+  },
+  "migration_evidence": [
+    "Actual historical schema5 and schema6 writer-produced source/publication/managed-workspace fixtures preserve durable bytes and IDs after migration and re-export.",
+    "Known historical clean-import publication projection is reconstructed only from validated durable evidence; export payloads remain unchanged.",
+    "Pending journal guards and interruption recovery cover schema commit, metadata and validation boundaries.",
+    "Actual preopened historical engine, collector sink and Markdown writers refuse schema7; registered live peers prevent cutover.",
+    "Fenced explicit intake reservations transfer to complete custody before additional public source writes, reopen safely and permit independent captures.",
+    "Validated current request digests preserve alias adoption; automatic capture publication producers migrate without invented review decisions.",
+    "Historical test-only schema6 target remains distinct from current7 activation, recovery and rollback coverage."
+  ],
+  "tests": [
+    "packages/app/tests/unit/engine/test_source_inventory.py",
+    "packages/app/tests/unit/engine/test_source_migration.py",
+    "packages/app/tests/unit/engine/test_source_tasks.py",
+    "packages/app/tests/integration/engine/test_local_schema.py",
+    "packages/app/tests/integration/engine/test_managed_recovery.py",
+    "packages/app/tests/unit/test_plugin_bridge.py"
+  ],
+  "limits": [
+    "T05 retrieval and T08 readable history/relationships remain open.",
+    "Legacy changed connector deliveries lack ordering/CAS evidence and refuse safely; T09/T10 own collector containment and immutable integration.",
+    "Portable4 export/validation are supported; new Portable4 restore remains excluded, legacy1-3 import is preserved.",
+    "Bundled native/package and GUI acceptance remain final milestone gates. No release or broader A01 claim."
+  ]
+}
