@@ -395,3 +395,26 @@ def test_cursor_special_file_refuses_without_blocking(tmp_path: Path) -> None:
         engine.retrieval.search_page(
             replace(request, cursor=first["next_cursor"]), authority=authority()
         )
+
+
+def test_markdown_import_paging_reads_validated_full_blob(tmp_path: Path) -> None:
+    engine = BrainEngine.open(compile_single_user_local(tmp_path / "brain"))
+    vault = tmp_path / "vault"
+    vault.mkdir()
+    original = "# Imported title\n\nFull synthetic launch content 漢字\n"
+    (vault / "one.md").write_text(original)
+    engine.markdown_import.import_directory(str(vault), confirm=lambda _value: True)
+    result = wire(
+        engine.retrieval.search_page(
+            SearchPageRequest(query="synthetic launch"), authority=authority()
+        )
+    )["results"][0]
+    request = RecordReadRequest(
+        record_id=result["record_id"], expected_revision_id=result["revision_id"]
+    )
+    read = wire(engine.retrieval.read_record(request, authority=authority()))
+    assert original in read["content"]["text"]
+    blob = next((engine.profile.root / "sources/blobs").rglob("?" * 64))
+    blob.write_bytes(b"tampered synthetic blob")
+    with pytest.raises(T03Error, match="not_found"):
+        engine.retrieval.read_record(request, authority=authority())

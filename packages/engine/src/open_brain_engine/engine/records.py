@@ -14,7 +14,7 @@ from open_brain_engine.portable.v4 import canonical_revision_id
 from open_brain_engine.storage.filesystem import StorageError, read_confined
 from open_brain_engine.storage.markdown import parse_markdown
 
-from .contracts import LocalEngineContext
+from .contracts import FilePayload, LocalEngineContext
 from .materializer import _payload_search_text
 from .search_projection import public_search_text, public_source_origin, source_search_title
 from .t03_contracts import EffectiveAuthority, T03Error, validate_wire
@@ -80,9 +80,19 @@ class RecordProjector:
             raise T03Error("revision_changed")
         _revision, record = self._capture(head)
         reference = record["source"]["reference"]
-        body = public_search_text(
-            _payload_search_text(record["payload"]), protected_source_reference=reference
-        )
+        payload = record["payload"]
+        text = _payload_search_text(payload)
+        if payload.get("kind") == "file":
+            digest = payload["blob_sha256"]
+            blob = read_confined(
+                root=self.profile.root,
+                relative=f"sources/blobs/sha256/{digest[:2]}/{digest}",
+                expected_root_identity=self.profile.root_identity,
+            )
+            if blob is None or sha256(blob).hexdigest() != digest:
+                raise T03Error("not_found")
+            text = FilePayload(payload["file_name"], payload["media_type"], blob).search_text()
+        body = public_search_text(text, protected_source_reference=reference)
         row = self.connection.execute(
             "SELECT title FROM captures WHERE capture_id=?", (head,)
         ).fetchone()
