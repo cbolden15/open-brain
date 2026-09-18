@@ -460,6 +460,7 @@ export default class OpenBrainPlugin extends Plugin {
   async #searchRecords(): Promise<void> {
     try {
       const bridge = await this.#bridgeClient();
+      await bridge.invoke("brain.initialize", {});
       const capabilities = await this.#clientOperations(bridge);
       requireCapabilities(capabilities, ["search.page", "record.read"]);
       const request = await new SearchFiltersModal(this.app).result();
