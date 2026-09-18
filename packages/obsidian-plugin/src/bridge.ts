@@ -255,7 +255,7 @@ export class OpenBrainBridge {
           }
         }
       }, 1_000);
-      force.unref();
+      (force as { unref?: () => void }).unref?.();
     } else {
       child.kill("SIGTERM");
     }

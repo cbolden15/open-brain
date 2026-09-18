@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import process from "node:process";
 
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   BridgeError,
@@ -17,6 +17,7 @@ import { searchPage } from "../src/t07-client";
 const bridges: OpenBrainBridge[] = [];
 
 afterEach(() => {
+  vi.unstubAllGlobals();
   for (const bridge of bridges) bridge.dispose();
   bridges.length = 0;
 });
@@ -139,6 +140,17 @@ process.stdin.once("data", (chunk) => {
     await expect(bridge.invoke("system.handshake", {})).rejects.toEqual(
       expect.objectContaining<Partial<BridgeError>>({ code: "response_too_large" }),
     );
+  });
+
+  it("does not require Node timer methods when disposed in a renderer", async () => {
+    const executable = await fakeExecutable(`process.stdin.resume(); setInterval(()=>{}, 1000);`);
+    const bridge = new OpenBrainBridge(executable);
+    bridges.push(bridge);
+    const pending = bridge.invoke("system.handshake", {}).catch(() => undefined);
+    vi.stubGlobal("setTimeout", () => 1);
+
+    expect(() => bridge.dispose()).not.toThrow();
+    await pending;
   });
 
   it("terminates a descendant in the owned process group on unload", async () => {

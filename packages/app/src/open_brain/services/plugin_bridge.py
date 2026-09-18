@@ -41,6 +41,7 @@ from open_brain.services.agent_setup import (
 from open_brain.services.graphify_projection import GraphifyFailure
 from open_brain.services.local_bootstrap import (
     LocalBrainSession,
+    LocalInitReceipt,
     initialize_local_brain,
     open_local_brain,
 )
@@ -308,11 +309,20 @@ def serve_plugin_stdio(
                         raise PluginBridgeFailure(error.code) from None
                 elif operation == "brain.initialize":
                     _require_keys(arguments, frozenset())
-                    if session is not None:
-                        raise PluginBridgeFailure("invalid_arguments")
-                    result = initialize_local_brain(
-                        selection, filesystem_type_probe=filesystem_type_probe
-                    ).to_dict()
+                    if session is None:
+                        result = initialize_local_brain(
+                            selection, filesystem_type_probe=filesystem_type_probe
+                        ).to_dict()
+                    else:
+                        result = LocalInitReceipt(
+                            status="already_initialized",
+                            profile="local",
+                            brain_count=1,
+                            storage="sqlite",
+                            daemon_running=False,
+                            application_encryption=False,
+                            state_schema_version=PHASE1_STATE_SCHEMA_VERSION,
+                        ).to_dict()
                 else:
                     if session is None:
                         session = stack.enter_context(

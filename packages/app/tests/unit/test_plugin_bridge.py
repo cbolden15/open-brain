@@ -1045,6 +1045,59 @@ def test_stdio_session_serves_multiple_framed_requests_in_one_engine_lifecycle(
     assert cast(dict[str, object], responses[1]["result"])["status"] == "unconfigured"
 
 
+def test_persistent_stdio_initialize_is_idempotent_after_workspace_status(
+    tmp_path: Path,
+) -> None:
+    selection = _selection(tmp_path)
+    operations = [
+        ("system.handshake", {}),
+        ("workspace.status", {}),
+        ("brain.initialize", {}),
+        ("brain.initialize", {"unexpected": True}),
+        ("brain.initialize", {}),
+        ("workspace.status", {}),
+    ]
+    requests = [
+        {
+            "arguments": arguments,
+            "operation": operation,
+            "protocol": OPEN_BRAIN_CLIENT_PROTOCOL,
+            "protocol_version": OPEN_BRAIN_CLIENT_PROTOCOL_VERSION,
+            "request_id": f"plugin_{uuid.uuid4()}",
+        }
+        for operation, arguments in operations
+    ]
+    output = BytesIO()
+
+    assert (
+        serve_plugin_stdio(
+            selection,
+            input_stream=BytesIO(
+                b"".join(json.dumps(request).encode("utf-8") + b"\n" for request in requests)
+            ),
+            output_stream=output,
+            filesystem_type_probe=_filesystem,
+        )
+        == 0
+    )
+    responses = [json.loads(line) for line in output.getvalue().splitlines()]
+
+    assert [response["ok"] for response in responses] == [
+        True,
+        True,
+        True,
+        False,
+        True,
+        True,
+    ]
+    assert [cast(dict[str, object], responses[index]["result"])["status"] for index in (2, 4)] == [
+        "already_initialized",
+        "already_initialized",
+    ]
+    assert cast(dict[str, object], responses[3]["error"])["code"] == "invalid_arguments"
+    assert cast(dict[str, object], responses[5]["result"])["status"] == "unconfigured"
+
+
 def test_concurrent_local_clients_preserve_live_consent_and_reserved_state(
     tmp_path: Path,
 ) -> None:
