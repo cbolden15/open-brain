@@ -704,8 +704,9 @@ def _smoke_local_journey(
     if (
         exported.get("status") != "exported"
         or exported.get("verification") != "verified"
-        or exported.get("schema_version") != 1
+        or exported.get("schema_version") != 4
         or not (export / "portable-manifest.json").is_file()
+        or not (export / "sources/logical-sources.json").is_file()
         or not any(
             token.encode("utf-8") in path.read_bytes()
             for path in export.rglob("*")
@@ -874,7 +875,8 @@ def _smoke_markdown_import(
     if (
         exported.get("status") != "exported"
         or exported.get("verification") != "verified"
-        or exported.get("schema_version") != 1
+        or exported.get("schema_version") != 4
+        or not (export / "sources/logical-sources.json").is_file()
         or not blob.is_file()
         or blob.read_bytes() != source_bytes
         or len(captures) != 1
@@ -906,6 +908,11 @@ def _smoke_local_mcp(executable: Path, home: Path, environment: Mapping[str, str
     def exchange(
         flag: str, name: str, arguments: dict[str, object], *, tools: set[str] | None = None
     ) -> dict[str, object]:
+        expected_tools = set(tools or {name})
+        if flag == "--allow-search":
+            expected_tools.update({"brain_contract_describe", "brain_search_page"})
+        elif flag == "--allow-organize":
+            expected_tools.update({"brain_contract_describe", "brain_source_route"})
         requests = [
             initialize,
             {"jsonrpc": "2.0", "id": 2, "method": "tools/list"},
@@ -931,7 +938,7 @@ def _smoke_local_mcp(executable: Path, home: Path, environment: Mapping[str, str
                 process.stderr
                 or len(responses) != 3
                 or responses[0]["result"]["capabilities"] != {"tools": {}}
-                or {tool["name"] for tool in responses[1]["result"]["tools"]} != (tools or {name})
+                or {tool["name"] for tool in responses[1]["result"]["tools"]} != expected_tools
                 or responses[2]["result"].get("isError")
             ):
                 raise BaseNativeError("native MCP exchange failed")
@@ -970,6 +977,32 @@ def _smoke_local_mcp(executable: Path, home: Path, environment: Mapping[str, str
         or results[0].get("source_origin") != "unknown"
     ):
         raise BaseNativeError("native MCP search failed")
+    paged = exchange(
+        "--allow-search", "brain_search_page", {"dto_version": 1, "query": token},
+        tools={"brain_search", "brain_search_page", "brain_contract_describe"},
+    )
+    read = exchange(
+        "--allow-content-read", "brain_read",
+        {"dto_version": 1, "record_id": capture["capture_id"],
+         "expected_revision_id": capture["capture_id"]},
+        tools={"brain_read", "brain_contract_describe"},
+    )
+    history = exchange(
+        "--allow-history-read", "brain_history_list",
+        {"dto_version": 1, "record_id": capture["capture_id"]},
+        tools={"brain_history_list", "brain_history_show", "brain_contract_describe"},
+    )
+    paged_results = cast(list[dict[str, object]], paged["results"])
+    history_entries = cast(list[dict[str, object]], history["entries"])
+    if (
+        paged.get("complete") is not True
+        or [item["record_id"] for item in paged_results] != [capture["capture_id"]]
+        or read.get("complete") is not True
+        or read.get("content") != {"kind": "untrusted_text", "text": token}
+        or history.get("complete") is not True
+        or [item["revision_id"] for item in history_entries] != [capture["capture_id"]]
+    ):
+        raise BaseNativeError("native negotiated retrieval failed")
     organization_tools = {"brain_space_create", "brain_space_rename", "brain_inbox_route"}
     read_tools = {"brain_space_list", "brain_inbox_list"}
     created = exchange(
