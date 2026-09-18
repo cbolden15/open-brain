@@ -323,9 +323,24 @@ def test_pdf_parser_disables_external_decoder_and_bounds_streams(
 
 @pytest.mark.skipif(sys.platform != "darwin", reason="Darwin resident-memory watchdog")
 def test_mac_parser_memory_guard_reaps_child(monkeypatch: pytest.MonkeyPatch) -> None:
+    popen = subprocess.Popen
+    children: list[subprocess.Popen[bytes]] = []
+
+    def sleeping_child(*args: Any, **kwargs: Any) -> subprocess.Popen[bytes]:
+        # Keep the parser alive for the real RSS watchdog's first sample. A tiny
+        # malformed PDF can otherwise return document_invalid before that sample.
+        child = popen([sys.executable, "-I", "-c", "import time; time.sleep(30)"], **kwargs)
+        children.append(child)
+        return child
+
+    monkeypatch.setattr(subprocess, "Popen", sleeping_child)
     monkeypatch.setattr(document_files, "MEMORY_BYTES", 1)
     with pytest.raises(ConnectorContractError, match="document_parser_memory_limit"):
-        document_files._extract(b"%PDF-1.7\n", "text_pdf")
+        document_files._extract(b"fixture", "text_pdf")
+    assert len(children) == 1
+    assert children[0].returncode is not None and children[0].returncode < 0
+    with pytest.raises(ChildProcessError):
+        os.waitpid(children[0].pid, os.WNOHANG)
 
 
 def test_cli_errors_do_not_expose_document_or_path(
