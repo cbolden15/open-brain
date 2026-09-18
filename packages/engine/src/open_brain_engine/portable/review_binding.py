@@ -35,12 +35,15 @@ _BINDING_KEYS = {
     "tenant_id",
 }
 _SOURCE_STATE_KEYS = {"capture_id", "route_id", "sha256", "space_id"}
+_PATCH_KEYS = {"base_body", "base_body_sha256", "operations", "target_page_sha256"}
+_PATCH_OPERATION_KEYS = {"start_byte", "end_byte", "replacement"}
 _MAX_SOURCES = 32
+_MAX_PATCH_OPERATIONS = 16
+_MAX_PATCH_REPLACEMENT_BYTES = 16 * 1024
+_MAX_PATCH_TOTAL_BYTES = 64 * 1024
 
 
-def review_binding_digest(
-    proposal: Mapping[str, object], binding: Mapping[str, object]
-) -> str:
+def review_binding_digest(proposal: Mapping[str, object], binding: Mapping[str, object]) -> str:
     """Bind exact proposal bytes to the target and frozen source state."""
     if not isinstance(proposal, Mapping) or not isinstance(binding, Mapping):
         raise ValueError("review binding digest input is invalid")
@@ -59,10 +62,7 @@ def _capture_ids(value: object, label: str) -> list[str]:
     values = _required_list({"value": value}, "value", label)
     if not 1 <= len(values) <= _MAX_SOURCES:
         raise PortableValidationError(f"{label} is malformed")
-    capture_ids = [
-        _identifier(item, "capture", label)
-        for item in values
-    ]
+    capture_ids = [_identifier(item, "capture", label) for item in values]
     if len(capture_ids) != len(set(capture_ids)):
         raise PortableValidationError(f"{label} is malformed")
     return capture_ids
@@ -71,8 +71,10 @@ def _capture_ids(value: object, label: str) -> list[str]:
 def validate_review_binding(binding: object) -> dict[str, object]:
     """Validate one closed, bounded Portable Brain v3 review binding."""
     value = _object(binding, "review binding")
-    _require_exact_keys(value, _BINDING_KEYS, "review binding")
-    if value.get("schema_version") != 3:
+    version = value.get("schema_version")
+    expected_keys = _BINDING_KEYS if version == 3 else _BINDING_KEYS | {"patch"}
+    _require_exact_keys(value, expected_keys, "review binding")
+    if version not in {3, 4}:
         raise PortableValidationError("review binding schema version is malformed")
     tenant_id = _identifier(value.get("tenant_id"), "tenant", "review binding")
     _validate_role_binding(value, tenant_id, "review binding")
@@ -92,6 +94,49 @@ def validate_review_binding(binding: object) -> dict[str, object]:
         _digest(expected_page_sha256, "review binding predecessor")
     else:
         raise PortableValidationError("review binding operation is malformed")
+
+    if version == 4:
+        if operation != "update":
+            raise PortableValidationError("review patch operation is malformed")
+        patch = _object(value.get("patch"), "review patch")
+        _require_exact_keys(patch, _PATCH_KEYS, "review patch")
+        _digest(patch.get("base_body_sha256"), "review patch")
+        base_body = patch.get("base_body")
+        if (
+            not isinstance(base_body, str)
+            or len(base_body.encode("utf-8")) > _MAX_PATCH_TOTAL_BYTES
+            or sha256(base_body.encode("utf-8")).hexdigest() != patch["base_body_sha256"]
+        ):
+            raise PortableValidationError("review patch base is malformed")
+        if patch.get("target_page_sha256") != expected_page_sha256:
+            raise PortableValidationError("review patch target is malformed")
+        operations = _required_list(patch, "operations", "review patch")
+        if not 1 <= len(operations) <= _MAX_PATCH_OPERATIONS:
+            raise PortableValidationError("review patch operations are malformed")
+        prior_end = -1
+        replacement_bytes = 0
+        for raw_operation in operations:
+            operation_value = _object(raw_operation, "review patch operation")
+            _require_exact_keys(operation_value, _PATCH_OPERATION_KEYS, "review patch operation")
+            start = operation_value.get("start_byte")
+            end = operation_value.get("end_byte")
+            replacement = operation_value.get("replacement")
+            if (
+                type(start) is not int
+                or type(end) is not int
+                or not 0 <= start <= end <= _MAX_PATCH_TOTAL_BYTES
+                or start < prior_end
+                or not isinstance(replacement, str)
+                or "\x00" in replacement
+            ):
+                raise PortableValidationError("review patch operation is malformed")
+            size = len(replacement.encode("utf-8"))
+            if size > _MAX_PATCH_REPLACEMENT_BYTES:
+                raise PortableValidationError("review patch operation is malformed")
+            replacement_bytes += size
+            prior_end = end
+        if replacement_bytes > _MAX_PATCH_TOTAL_BYTES:
+            raise PortableValidationError("review patch replacement is malformed")
 
     selected = _capture_ids(value.get("selected_capture_ids"), "selected captures")
     provenance = _capture_ids(value.get("provenance"), "review provenance")

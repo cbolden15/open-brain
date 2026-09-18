@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import base64
+import difflib
 import json
 import sqlite3
 from collections.abc import Sequence
@@ -17,6 +18,7 @@ from .contracts import (
     CaptureFault,
     DecisionOutcome,
     DecisionRecord,
+    PatchDraft,
     ProposalDraft,
     ProposalRecord,
     ReviewEvidence,
@@ -44,6 +46,7 @@ from .review_bound import (
     MAX_REVIEW_MARKDOWN_BYTES,
     bound_edited_bytes,
     load_bound_context,
+    patch_draft_from_binding,
     propose_bound,
     validate_current_binding,
 )
@@ -56,12 +59,16 @@ class ReviewOperations(_LocalEngineOperations):
     def _propose(
         self,
         capture_id: str | Sequence[str],
-        drafts: Sequence[ProposalDraft],
+        drafts: Sequence[ProposalDraft | PatchDraft],
         delivery_id: str,
         *,
         target_page_id: str | None = None,
     ) -> tuple[ProposalRecord, ...]:
-        if not isinstance(capture_id, str) or target_page_id is not None:
+        if (
+            not isinstance(capture_id, str)
+            or target_page_id is not None
+            or any(isinstance(draft, PatchDraft) for draft in drafts)
+        ):
             return cast(
                 tuple[ProposalRecord, ...],
                 propose_bound(
@@ -72,7 +79,7 @@ class ReviewOperations(_LocalEngineOperations):
                     target_page_id=target_page_id,
                 ),
             )
-        return self._propose_legacy(capture_id, drafts, delivery_id)
+        return self._propose_legacy(capture_id, cast(Sequence[ProposalDraft], drafts), delivery_id)
 
     def _propose_legacy(
         self, capture_id: str, drafts: Sequence[ProposalDraft], delivery_id: str
@@ -472,6 +479,7 @@ class ReviewOperations(_LocalEngineOperations):
                 selected_capture_ids = capture_ids
                 operation = "create"
                 target_page_id = None
+                draft_type = "full_page"
                 review_digest = sha256(portable_canonical_json_bytes(proposal_value)).hexdigest()
             else:
                 _, binding = context
@@ -480,6 +488,7 @@ class ReviewOperations(_LocalEngineOperations):
                 operation = cast(str, binding["operation"])
                 target_page_id = cast(str, binding["page_id"]) if operation == "update" else None
                 review_digest = cast(str, binding["review_digest"])
+                draft_type = "patch" if binding.get("patch") is not None else "full_page"
             result.append(
                 ProposalRecord(
                     proposal_id=cast(str, row["proposal_id"]),
@@ -499,6 +508,7 @@ class ReviewOperations(_LocalEngineOperations):
                     target_page_id=target_page_id,
                     operation=operation,
                     review_digest=review_digest,
+                    draft_type=draft_type,
                 )
             )
         return tuple(result)
@@ -559,9 +569,11 @@ class ReviewOperations(_LocalEngineOperations):
             raise ValueError("review proposal exceeds inspection limit")
         if cast(str, proposal["proposed_kind"]) == "page_update":
             parsed = parse_markdown(proposed_bytes)
+            proposed_body = parsed.body
             raw_markdown = parsed.body.removesuffix("\n")
             raw_title = cast(str, parsed.fields["title"])
         else:
+            proposed_body = cast(str, proposal["body"])
             raw_markdown = cast(str, proposal["body"])
             raw_title = cast(str, proposal["title"])
         markdown = project_public_result_text(raw_markdown, protected_literals=references)
@@ -597,6 +609,19 @@ class ReviewOperations(_LocalEngineOperations):
                 )
             )
         operation = "create" if binding is None else cast(str, binding["operation"])
+        patch = None if binding is None else patch_draft_from_binding(binding)
+        patch_diff = None
+        if patch is not None:
+            assert binding is not None
+            patch_value = cast(dict[str, object], binding["patch"])
+            patch_diff = "".join(
+                difflib.unified_diff(
+                    cast(str, patch_value["base_body"]).splitlines(keepends=True),
+                    proposed_body.splitlines(keepends=True),
+                    fromfile="current",
+                    tofile="proposed",
+                )
+            )
         return ReviewProposal(
             proposal_id=proposal_id,
             status=cast(str, proposal["status"]),
@@ -623,6 +648,8 @@ class ReviewOperations(_LocalEngineOperations):
             projection_applied=(
                 markdown != raw_markdown or title != raw_title or evidence_projected
             ),
+            patch=patch,
+            patch_diff=patch_diff,
         )
 
     def _decide(
@@ -1022,7 +1049,7 @@ class ReviewTasks:
     def propose(
         self,
         capture_id: str | Sequence[str],
-        drafts: Sequence[ProposalDraft],
+        drafts: Sequence[ProposalDraft | PatchDraft],
         *,
         delivery_id: str,
         target_page_id: str | None = None,

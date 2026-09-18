@@ -132,9 +132,7 @@ def _legacy_decision_projection(
             portable_canonical_json_bytes(proposal)
         ).hexdigest()
         projected["terminal_digest"] = sha256(
-            portable_canonical_json_bytes(
-                _decision_terminal_payload(projected, edited_digest)
-            )
+            portable_canonical_json_bytes(_decision_terminal_payload(projected, edited_digest))
         ).hexdigest()
         result[path] = portable_canonical_json_bytes(projected)
     return result
@@ -142,6 +140,18 @@ def _legacy_decision_projection(
 
 def _published_bytes(publication: Mapping[str, object]) -> bytes:
     return base64.b64decode(cast(str, publication["published_bytes_base64"]), validate=True)
+
+
+def _apply_patch(body: str, patch: Mapping[str, object]) -> str:
+    result = body.encode("utf-8")
+    for operation in reversed(cast(list[Mapping[str, object]], patch["operations"])):
+        start = cast(int, operation["start_byte"])
+        end = cast(int, operation["end_byte"])
+        result = result[:start] + cast(str, operation["replacement"]).encode("utf-8") + result[end:]
+    try:
+        return result.decode("utf-8")
+    except UnicodeDecodeError:
+        raise PortableValidationError("review patch content mismatch") from None
 
 
 def _recorded_before(value: object, boundary: object) -> bool:
@@ -166,8 +176,7 @@ def _route_matches_frozen_state(
     }
     if chosen_id is None:
         return capture.get("space_id") == state.get("space_id") and not any(
-            _recorded_before(route["recorded_at"], proposed_at)
-            for route in capture_routes.values()
+            _recorded_before(route["recorded_at"], proposed_at) for route in capture_routes.values()
         )
     chosen = capture_routes.get(cast(str, chosen_id))
     if (
@@ -201,9 +210,7 @@ def _validate_binding_semantics(
     publications = _records(files, "history/publications/", "publication")
     captures = _records(files, "sources/captures/", "capture")
     routes = _records(files, "history/routes/", "routing")
-    decisions_by_proposal = {
-        cast(str, value["proposal_id"]): value for value in decisions.values()
-    }
+    decisions_by_proposal = {cast(str, value["proposal_id"]): value for value in decisions.values()}
     publications_by_decision = {
         cast(str, value["decision_id"]): value for value in publications.values()
     }
@@ -262,8 +269,7 @@ def _validate_binding_semantics(
             capture_path = next(
                 path
                 for path in files
-                if path.startswith("sources/captures/")
-                and path.endswith(f"/{capture_id}.json")
+                if path.startswith("sources/captures/") and path.endswith(f"/{capture_id}.json")
             )
             if (
                 state.get("sha256") != sha256(files[capture_path]).hexdigest()
@@ -290,6 +296,13 @@ def _validate_binding_semantics(
                 raise PortableValidationError("review predecessor digest mismatch")
             parent_page = parse_markdown(_published_bytes(parent))
             parent_provenance = cast(list[str], parent_page.fields["provenance"])
+            if binding.get("schema_version") == 4:
+                patch = cast(Mapping[str, object], binding["patch"])
+                base_body = cast(str, patch["base_body"])
+                if parent_page.body != base_body or proposed_page.body != _apply_patch(
+                    base_body, patch
+                ):
+                    raise PortableValidationError("review patch content mismatch")
             expected_provenance = list(parent_provenance)
             expected_provenance.extend(item for item in selected if item not in expected_provenance)
             if provenance != expected_provenance:
@@ -306,14 +319,10 @@ def _validate_binding_semantics(
                 raise PortableValidationError("approved review publication is missing")
             published_page = parse_markdown(_published_bytes(publication))
             expected_fields = {
-                key: value
-                for key, value in proposed_page.fields.items()
-                if key != "modified_at"
+                key: value for key, value in proposed_page.fields.items() if key != "modified_at"
             }
             actual_fields = {
-                key: value
-                for key, value in published_page.fields.items()
-                if key != "modified_at"
+                key: value for key, value in published_page.fields.items() if key != "modified_at"
             }
             if (
                 actual_fields != expected_fields
@@ -359,9 +368,7 @@ def _validate_binding_semantics(
             raise PortableValidationError("current canonical page is not the review chain head")
 
 
-def validate_portable_file_set_v3(
-    files: Mapping[str, bytes], *, tenant_id: str
-) -> None:
+def validate_portable_file_set_v3(files: Mapping[str, bytes], *, tenant_id: str) -> None:
     """Validate exact Portable v3 payload bytes without an export manifest."""
     binding_paths = [path for path in files if _BINDING_PATH.fullmatch(path)]
     managed_paths = [path for path in files if _MANAGED_PATH.fullmatch(path)]
@@ -386,9 +393,7 @@ def validate_portable_file_set_v3(
         for path, payload in files.items()
         if path not in {*binding_paths, *managed_paths}
     }
-    validate_portable_file_set(
-        _legacy_decision_projection(base, bindings), tenant_id=tenant_id
-    )
+    validate_portable_file_set(_legacy_decision_projection(base, bindings), tenant_id=tenant_id)
     _validate_binding_semantics(base, bindings)
     if managed_paths:
         page_ids = {

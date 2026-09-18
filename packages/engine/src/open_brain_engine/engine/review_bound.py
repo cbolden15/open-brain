@@ -17,7 +17,14 @@ from open_brain_engine.portable.review_binding import (
 from open_brain_engine.storage.filesystem import StorageError, read_confined
 from open_brain_engine.storage.markdown import parse_markdown, render_markdown
 
-from .contracts import CaptureFault, ProposalDraft, project_public_result_text
+from .contracts import (
+    MAX_PATCH_TOTAL_BYTES,
+    CaptureFault,
+    PatchDraft,
+    PatchOperation,
+    ProposalDraft,
+    project_public_result_text,
+)
 from .normalization import (
     _delivery_id,
     _new_id,
@@ -55,7 +62,7 @@ def load_bound_context(
 def propose_bound(
     engine: Any,
     capture_ids: Sequence[str],
-    drafts: Sequence[ProposalDraft],
+    drafts: Sequence[ProposalDraft | PatchDraft],
     *,
     delivery_id: str,
     target_page_id: str | None,
@@ -65,18 +72,18 @@ def propose_bound(
     _validate_drafts(drafts)
     if target_page_id is not None:
         _portable_id(target_page_id, "page")
+    patch_targets = {draft.target_page_id for draft in drafts if isinstance(draft, PatchDraft)}
+    if patch_targets and (
+        len(patch_targets) != 1
+        or any(not isinstance(draft, PatchDraft) for draft in drafts)
+        or (target_page_id is not None and target_page_id not in patch_targets)
+    ):
+        raise ValueError("invalid patch proposal set")
+    effective_target_page_id = next(iter(patch_targets), target_page_id)
     request_value = {
         "capture_ids": list(selected),
-        "drafts": [
-            {
-                "markdown": draft.markdown,
-                "proposed_kind": draft.proposed_kind,
-                "supplied_reason": draft.supplied_reason,
-                "title": draft.title,
-            }
-            for draft in drafts
-        ],
-        "target_page_id": target_page_id,
+        "drafts": [_draft_request_value(draft) for draft in drafts],
+        "target_page_id": effective_target_page_id,
     }
     request_sha = sha256(portable_canonical_json_bytes(request_value)).hexdigest()
     conflict: tuple[str, str] | None = None
@@ -90,7 +97,14 @@ def propose_bound(
                 conflict = (cast(str, existing["request_sha256"]), request_sha)
         else:
             captures = _capture_rows(connection, selected)
-            target = _target_state(engine, connection, target_page_id)
+            target = _target_state(engine, connection, effective_target_page_id)
+            patch_draft = drafts[0] if isinstance(drafts[0], PatchDraft) else None
+            if (
+                patch_draft is not None
+                and target is not None
+                and patch_draft.expected_page_sha256 != target["published_sha256"]
+            ):
+                raise ValueError("canonical page revision conflict")
             space_id = _one_space(captures)
             if target is not None and target["space_id"] != space_id:
                 raise ValueError("review sources and target must share a space")
@@ -113,13 +127,26 @@ def propose_bound(
                 (delivery_id, request_sha, selected[0], now),
             )
             for proposal_id, page_id, draft in zip(proposal_ids, page_ids, drafts, strict=True):
+                if isinstance(draft, PatchDraft):
+                    assert target is not None
+                    current = _read_page(engine, cast(str, target["canonical_path"]))
+                    parsed_current = parse_markdown(current)
+                    body = apply_patch_operations(parsed_current.body, draft.operations)
+                    title = cast(str, parsed_current.fields["title"])
+                    patch = patch_snapshot(parsed_current.body, draft)
+                    supplied_reason = None
+                else:
+                    body = draft.markdown
+                    title = draft.title
+                    patch = None
+                    supplied_reason = draft.supplied_reason
                 proposed_bytes = render_bound_page(
                     engine,
                     page_id=page_id,
                     space_id=space_id,
                     provenance=provenance,
-                    title=draft.title,
-                    body=draft.markdown,
+                    title=title,
+                    body=body,
                     modified_at=now,
                 )
                 canonical_path = (
@@ -140,11 +167,11 @@ def propose_bound(
                         proposal_id,
                         delivery_id,
                         provenance[0],
-                        draft.proposed_kind,
-                        draft.title,
-                        draft.markdown,
+                        "page_update" if isinstance(draft, PatchDraft) else draft.proposed_kind,
+                        title,
+                        body,
                         proposed_bytes,
-                        draft.supplied_reason,
+                        supplied_reason,
                         space_id,
                         receipt_id,
                         page_id,
@@ -158,7 +185,7 @@ def propose_bound(
                     receipt_id=receipt_id,
                     proposed_bytes=proposed_bytes,
                     sibling_ids=proposal_ids,
-                    supplied_reason=draft.supplied_reason,
+                    supplied_reason=supplied_reason,
                     recorded_at=now,
                 )
                 binding = binding_snapshot(
@@ -172,6 +199,7 @@ def propose_bound(
                     provenance=provenance,
                     recorded_at=now,
                     target=target,
+                    patch=patch,
                 )
                 proposal_json = portable_canonical_json_bytes(proposal)
                 binding_json = portable_canonical_json_bytes(binding)
@@ -285,6 +313,7 @@ def binding_snapshot(
     provenance: tuple[str, ...],
     recorded_at: str,
     target: dict[str, object] | None,
+    patch: dict[str, object] | None,
 ) -> dict[str, object]:
     states = [
         {
@@ -306,11 +335,13 @@ def binding_snapshot(
         "recorded_at": recorded_at,
         "review_digest": "0" * 64,
         "role_claim": _role_claim(engine.profile),
-        "schema_version": 3,
+        "schema_version": 4 if patch is not None else 3,
         "selected_capture_ids": list(selected),
         "source_states": states,
         "tenant_id": engine.profile.tenant_id,
     }
+    if patch is not None:
+        binding["patch"] = patch
     binding["review_digest"] = review_binding_digest(proposal, binding)
     return validate_review_binding(binding)
 
@@ -342,6 +373,86 @@ def render_bound_page(
         },
         body=body if body.endswith("\n") else body + "\n",
     ).encode("utf-8")
+
+
+def apply_patch_operations(body: str, operations: Sequence[PatchOperation]) -> str:
+    """Apply validated UTF-8 byte edits to one canonical page body."""
+    encoded = body.encode("utf-8")
+    if len(encoded) > MAX_PATCH_TOTAL_BYTES:
+        raise ValueError("patch target exceeds limit")
+    prior_end = -1
+    for operation in operations:
+        if operation.end_byte > len(encoded) or operation.start_byte < prior_end:
+            raise ValueError("invalid patch operation")
+        try:
+            encoded[: operation.start_byte].decode("utf-8")
+            encoded[: operation.end_byte].decode("utf-8")
+        except UnicodeDecodeError:
+            raise ValueError("invalid patch operation") from None
+        prior_end = operation.end_byte
+    result = encoded
+    for operation in reversed(operations):
+        result = (
+            result[: operation.start_byte]
+            + operation.replacement.encode("utf-8")
+            + result[operation.end_byte :]
+        )
+    if len(result) > MAX_REVIEW_MARKDOWN_BYTES:
+        raise ValueError("review markdown limit exceeded")
+    try:
+        return result.decode("utf-8")
+    except UnicodeDecodeError:
+        raise ValueError("invalid patch operation") from None
+
+
+def patch_snapshot(body: str, draft: PatchDraft) -> dict[str, object]:
+    return {
+        "base_body": body,
+        "base_body_sha256": sha256(body.encode("utf-8")).hexdigest(),
+        "operations": [operation.to_dict() for operation in draft.operations],
+        "target_page_sha256": draft.expected_page_sha256,
+    }
+
+
+def patch_draft_from_binding(binding: Mapping[str, object]) -> PatchDraft | None:
+    patch = binding.get("patch")
+    if patch is None:
+        return None
+    if not isinstance(patch, Mapping):
+        raise ValueError("invalid frozen review binding")
+    raw_operations = patch.get("operations")
+    if not isinstance(raw_operations, list):
+        raise ValueError("invalid frozen review binding")
+    try:
+        operations = tuple(
+            PatchOperation(
+                start_byte=entry["start_byte"],
+                end_byte=entry["end_byte"],
+                replacement=entry["replacement"],
+            )
+            for entry in raw_operations
+            if isinstance(entry, Mapping)
+        )
+        if len(operations) != len(raw_operations):
+            raise ValueError
+        return PatchDraft(
+            target_page_id=cast(str, binding["page_id"]),
+            expected_page_sha256=cast(str, patch["target_page_sha256"]),
+            operations=operations,
+        )
+    except KeyError, TypeError, ValueError:
+        raise ValueError("invalid frozen review binding") from None
+
+
+def _draft_request_value(draft: ProposalDraft | PatchDraft) -> dict[str, object]:
+    if isinstance(draft, PatchDraft):
+        return {"patch": draft.to_dict()}
+    return {
+        "markdown": draft.markdown,
+        "proposed_kind": draft.proposed_kind,
+        "supplied_reason": draft.supplied_reason,
+        "title": draft.title,
+    }
 
 
 def validate_current_binding(engine: Any, binding: Mapping[str, object]) -> None:
@@ -503,15 +614,17 @@ def _selected_ids(values: Sequence[str]) -> tuple[str, ...]:
     return selected
 
 
-def _validate_drafts(drafts: Sequence[ProposalDraft]) -> None:
+def _validate_drafts(drafts: Sequence[ProposalDraft | PatchDraft]) -> None:
     if (
         isinstance(drafts, str)
         or not isinstance(drafts, Sequence)
         or not 1 <= len(drafts) <= 8
-        or any(not isinstance(draft, ProposalDraft) for draft in drafts)
+        or any(not isinstance(draft, (ProposalDraft, PatchDraft)) for draft in drafts)
     ):
         raise ValueError("invalid proposal set")
     for draft in drafts:
+        if isinstance(draft, PatchDraft):
+            continue
         if draft.proposed_kind != "page_update":
             raise ValueError("bound review requires page update")
         if len(draft.title) > MAX_REVIEW_TITLE_CHARS:
@@ -594,8 +707,10 @@ def _source_record_bytes(engine: Any, capture: sqlite3.Row) -> bytes:
 
 __all__ = [
     "MAX_REVIEW_MARKDOWN_BYTES",
+    "apply_patch_operations",
     "bound_edited_bytes",
     "load_bound_context",
+    "patch_draft_from_binding",
     "propose_bound",
     "render_bound_page",
     "validate_current_binding",
