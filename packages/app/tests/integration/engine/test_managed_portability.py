@@ -5,6 +5,7 @@ import sqlite3
 from pathlib import Path
 from typing import cast
 
+import open_brain_engine.engine.local_schema as local_schema
 import pytest
 from open_brain_engine.core.ids import portable_canonical_json_bytes
 from open_brain_engine.engine import (
@@ -17,11 +18,19 @@ from open_brain_engine.engine import (
     ProposalDraft,
     TextPayload,
 )
+from open_brain_engine.engine.local_schema_catalog import LOCAL_MIGRATIONS
 from open_brain_engine.portable import PortableValidationError, validate_portable_root
 from open_brain_engine.portable.managed_v2 import validate_managed_workspace_record
 from open_brain_engine.storage.markdown import parse_markdown, render_markdown
 
 from open_brain.profile import compile_single_user_local
+
+
+@pytest.fixture(autouse=True)
+def historical_managed_portable_writer(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Retain the historical v2/v3 managed export and restore contract."""
+    monkeypatch.setattr(local_schema, "PHASE1_STATE_SCHEMA_VERSION", 6)
+    monkeypatch.setattr(local_schema, "LOCAL_MIGRATIONS", LOCAL_MIGRATIONS[:6])
 
 
 def _engine(root: Path) -> BrainEngine:
@@ -44,9 +53,7 @@ def _setup_two(engine: BrainEngine, workspace: Path) -> tuple[str, tuple[str, st
         _capture(engine, "Beta target follows alpha.", "managed.portable.beta"),
     )
     workspace.mkdir(mode=0o700)
-    receipt = engine.managed_workspace.setup(
-        str(workspace), operation_id="managed.portable.setup"
-    )
+    receipt = engine.managed_workspace.setup(str(workspace), operation_id="managed.portable.setup")
     return receipt.workspace_id, note_ids
 
 
@@ -227,9 +234,7 @@ def test_managed_v2_rejects_unknown_typed_fields_and_unsettled_export(
             export_id="export_00000000-0000-4000-8000-000000000205",
         )
 
-    engine.managed_inference.fail(
-        "request_00000000-0000-4000-8000-000000000204"
-    )
+    engine.managed_inference.fail("request_00000000-0000-4000-8000-000000000204")
     exported = tmp_path / "exported"
     engine.portability.export(
         exported,
@@ -296,10 +301,13 @@ def test_managed_workspace_and_review_bindings_round_trip_as_v3(tmp_path: Path) 
         for entry in cast(list[dict[str, object]], manifest["files"])
     )
     assert imported.review.show(proposal.proposal_id).page_id == proposal.page_id
-    assert _database_rows(
-        imported_root,
-        "SELECT workspace_id FROM managed_workspaces WHERE root_path IS NULL",
-    )[0]["workspace_id"] == workspace_id
+    assert (
+        _database_rows(
+            imported_root,
+            "SELECT workspace_id FROM managed_workspaces WHERE root_path IS NULL",
+        )[0]["workspace_id"]
+        == workspace_id
+    )
 
 
 def _database_rows(root: Path, query: str) -> list[sqlite3.Row]:

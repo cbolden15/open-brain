@@ -647,3 +647,10 @@ def test_cli_refuses_broken_materialized_evidence_without_mutation(
     with sqlite3.connect(database) as connection:
         assert list(connection.iterdump()) == before
     assert moved.read_bytes() == protected
+
+
+@pytest.fixture(autouse=True)
+def historical_schema_six_contract(monkeypatch: pytest.MonkeyPatch) -> None:
+    from packages.app.tests.integration.engine._local_schema_fixtures import use_schema_six_runtime
+
+    use_schema_six_runtime(monkeypatch, globals())

@@ -7,6 +7,7 @@ import os
 import re
 import stat
 import time
+import uuid
 from collections.abc import Mapping
 from contextlib import ExitStack
 from pathlib import Path
@@ -40,6 +41,7 @@ from open_brain.services.agent_setup import (
 from open_brain.services.graphify_projection import GraphifyFailure
 from open_brain.services.local_bootstrap import (
     LocalBrainSession,
+    LocalInitReceipt,
     initialize_local_brain,
     open_local_brain,
 )
@@ -69,6 +71,17 @@ from open_brain.services.provider_credentials import (
     discover_credential_store,
     validate_credential,
 )
+from open_brain.services.review_publication import (
+    ReviewPublicationError,
+    ReviewPublicationService,
+)
+from open_brain.services.space_inbox import SpaceInboxError, SpaceInboxService
+from open_brain.services.t03_adapters import MAX_RESPONSE_BYTES as MAX_NEGOTIATED_RESPONSE_BYTES
+from open_brain.services.t03_adapters import (
+    T03AppAdapter,
+    T03AppError,
+    owner_authority,
+)
 
 OPEN_BRAIN_CLIENT_PROTOCOL = "open-brain-client"
 OPEN_BRAIN_CLIENT_PROTOCOL_VERSION = 1
@@ -83,6 +96,7 @@ _BASE_OPERATIONS = (
     "agent.setup.preview",
     "brain.initialize",
     "capture.create",
+    "contract.describe",
     "graph.accept",
     "graph.canvas",
     "graph.refresh_semantic",
@@ -94,7 +108,18 @@ _BASE_OPERATIONS = (
     "provider.configure",
     "provider.remove",
     "provider.status",
+    "inbox.list",
+    "inbox.route",
+    "publication.approve",
+    "publication.edit_and_approve",
+    "publication.list",
+    "publication.propose",
+    "publication.reject",
+    "publication.show",
     "search.query",
+    "space.create",
+    "space.list",
+    "space.rename",
     "system.handshake",
     "system.status",
     "workspace.reconcile",
@@ -105,6 +130,13 @@ _BASE_OPERATIONS = (
     "workspace.setup",
     "workspace.status",
 )
+_NEGOTIATED_OPERATIONS = (
+    "history.list",
+    "history.show",
+    "record.read",
+    "search.page",
+    "source.route",
+)
 _COLLECTOR_OPERATIONS = (
     "collector.enable",
     "collector.schedule",
@@ -114,7 +146,7 @@ _COLLECTOR_OPERATIONS = (
     "collector.status",
     "collector.sync_now",
 )
-_OPERATIONS = _BASE_OPERATIONS + _COLLECTOR_OPERATIONS
+_OPERATIONS = _BASE_OPERATIONS + _NEGOTIATED_OPERATIONS + _COLLECTOR_OPERATIONS
 
 _DIRECT_PROVIDERS = (
     ManagedProvider.OPENAI_API,
@@ -153,6 +185,29 @@ class PluginBridgeFailure(RuntimeError):
             "unsupported_collector_source",
             "unknown_collector_source",
             "unknown_operation",
+            "not_found",
+            "cursor_invalid",
+            "cursor_stale",
+            "revision_changed",
+            "preview_stale",
+            "operation_pending",
+            "source_revision_conflict",
+            "model_unavailable",
+            "projection_stale",
+            "unsupported_capability",
+            "incompatible_runtime",
+            "idempotency_conflict",
+            "unknown_space",
+            "unknown_route_target",
+            "published_capture",
+            "unknown_proposal",
+            "unknown_capture",
+            "unknown_page",
+            "duplicate_source",
+            "mixed_source_spaces",
+            "source_unrouted",
+            "terminal_decision",
+            "review_conflict",
         }:
             raise ValueError("invalid plugin bridge failure")
         self.code = code
@@ -166,18 +221,22 @@ class PluginRuntimeState:
         "credential_store",
         "remaining_attempts",
         "remaining_input_bytes",
+        "session_id",
         "selected_custody",
         "selected_provider",
         "session_credentials",
+        "t03_adapter",
     )
 
     def __init__(self, credential_store: OsCredentialStore | None) -> None:
         self.credential_store = credential_store
         self.remaining_attempts = _MAX_PROVIDER_ATTEMPTS
         self.remaining_input_bytes = _MAX_PROVIDER_INPUT_BYTES
+        self.session_id = "bridge-" + str(uuid.uuid4())
         self.selected_provider: ManagedProvider | None = None
         self.selected_custody: str | None = None
         self.session_credentials: dict[ManagedProvider, str] = {}
+        self.t03_adapter: T03AppAdapter | None = None
 
     def resolve_credential(self, provider: ManagedProvider, custody: str) -> str | None:
         if custody == "session":
@@ -250,11 +309,20 @@ def serve_plugin_stdio(
                         raise PluginBridgeFailure(error.code) from None
                 elif operation == "brain.initialize":
                     _require_keys(arguments, frozenset())
-                    if session is not None:
-                        raise PluginBridgeFailure("invalid_arguments")
-                    result = initialize_local_brain(
-                        selection, filesystem_type_probe=filesystem_type_probe
-                    ).to_dict()
+                    if session is None:
+                        result = initialize_local_brain(
+                            selection, filesystem_type_probe=filesystem_type_probe
+                        ).to_dict()
+                    else:
+                        result = LocalInitReceipt(
+                            status="already_initialized",
+                            profile="local",
+                            brain_count=1,
+                            storage="sqlite",
+                            daemon_running=False,
+                            application_encryption=False,
+                            state_schema_version=PHASE1_STATE_SCHEMA_VERSION,
+                        ).to_dict()
                 else:
                     if session is None:
                         session = stack.enter_context(
@@ -331,6 +399,53 @@ def dispatch_plugin_request(
             search_brain(tasks.retrieval, tasks.reconciliation, query, limit=limit)
         )
         return _with_workspace_paths(tasks, result)
+    if operation in {
+        "contract.describe",
+        "search.page",
+        "record.read",
+        "history.list",
+        "history.show",
+        "source.route",
+    }:
+        adapter = _t03_bridge_adapter(tasks, _runtime(runtime))
+        try:
+            return adapter.invoke(
+                operation,
+                arguments,
+                maximum_response_bytes=MAX_NEGOTIATED_RESPONSE_BYTES,
+                encoded_size=lambda result: _plugin_result_size(request_id, result),
+            )
+        except T03AppError as error:
+            raise PluginBridgeFailure(error.code) from None
+    organization_handlers = {
+        "inbox.list": "inbox_list",
+        "space.list": "space_list",
+        "space.create": "space_create",
+        "space.rename": "space_rename",
+        "inbox.route": "inbox_route",
+    }
+    if operation in organization_handlers:
+        organization_service = SpaceInboxService(tasks.spaces)
+        handler = getattr(organization_service, organization_handlers[operation])
+        try:
+            return cast(dict[str, object], handler(_legacy_versioned_arguments(arguments)))
+        except SpaceInboxError as error:
+            raise PluginBridgeFailure(error.code) from None
+    publication_handlers = {
+        "publication.list": "list",
+        "publication.show": "show",
+        "publication.propose": "propose",
+        "publication.approve": "approve",
+        "publication.reject": "reject",
+        "publication.edit_and_approve": "edit_and_approve",
+    }
+    if operation in publication_handlers:
+        publication_service = ReviewPublicationService(tasks.review)
+        handler = getattr(publication_service, publication_handlers[operation])
+        try:
+            return cast(dict[str, object], handler(_legacy_versioned_arguments(arguments)))
+        except ReviewPublicationError as error:
+            raise PluginBridgeFailure(error.code) from None
     if operation.startswith("collector."):
         return _collector_control(
             session.prepared.selection,
@@ -420,7 +535,17 @@ def dispatch_plugin_request(
         _require_keys(arguments, frozenset())
         status = _configured_status(tasks)
         receipt = tasks.managed_workspace.refresh(status.workspace_id, operation_id=request_id)
-        return _workspace_receipt(receipt, vault_path=_workspace_path(session))
+        result = _workspace_receipt(receipt, vault_path=_workspace_path(session))
+        snapshot = tasks.managed_workspace.graph_snapshot(status.workspace_id)
+        result["notes"] = [
+            {
+                "note_id": source.note_id,
+                "relative_path": source.relative_path,
+                "revision_id": source.revision_id,
+            }
+            for source in snapshot.sources
+        ]
+        return result
     if operation == "provider.status":
         _require_keys(arguments, frozenset())
         return _provider_status(_runtime(runtime))
@@ -929,7 +1054,16 @@ def _agent_setup(
     environment: Mapping[str, object],
 ) -> dict[str, object]:
     required = {"action", "allow_capture", "allow_search", "client", "scope"}
-    optional = {"project_dir"}
+    optional = {
+        "project_dir",
+        "allow_content_read",
+        "allow_history_read",
+        "allow_inbox_read",
+        "allow_organize",
+        "allow_review_read",
+        "allow_review_propose",
+        "allow_review_decide",
+    }
     if operation == "agent.setup.apply":
         required.add("preview_id")
     if not required.issubset(arguments) or not set(arguments).issubset(required | optional):
@@ -941,6 +1075,13 @@ def _agent_setup(
             action=arguments["action"],
             allow_capture=arguments["allow_capture"],
             allow_search=arguments["allow_search"],
+            allow_content_read=arguments.get("allow_content_read", False),
+            allow_history_read=arguments.get("allow_history_read", False),
+            allow_inbox_read=arguments.get("allow_inbox_read", False),
+            allow_organize=arguments.get("allow_organize", False),
+            allow_review_read=arguments.get("allow_review_read", False),
+            allow_review_propose=arguments.get("allow_review_propose", False),
+            allow_review_decide=arguments.get("allow_review_decide", False),
             client=arguments["client"],
             environment=environment,
             project_dir=arguments.get("project_dir"),
@@ -952,6 +1093,13 @@ def _agent_setup(
         action=arguments["action"],
         allow_capture=arguments["allow_capture"],
         allow_search=arguments["allow_search"],
+        allow_content_read=arguments.get("allow_content_read", False),
+        allow_history_read=arguments.get("allow_history_read", False),
+        allow_inbox_read=arguments.get("allow_inbox_read", False),
+        allow_organize=arguments.get("allow_organize", False),
+        allow_review_read=arguments.get("allow_review_read", False),
+        allow_review_propose=arguments.get("allow_review_propose", False),
+        allow_review_decide=arguments.get("allow_review_decide", False),
         client=arguments["client"],
         environment=environment,
         preview_id=arguments["preview_id"],
@@ -1129,6 +1277,35 @@ def _runtime(value: PluginRuntimeState | None) -> PluginRuntimeState:
     return value
 
 
+def _t03_bridge_adapter(
+    tasks: EngineTaskSet,
+    runtime: PluginRuntimeState,
+) -> T03AppAdapter:
+    if runtime.t03_adapter is None:
+        grants = frozenset({"search", "content-read", "history-read", "organize"})
+        runtime.t03_adapter = T03AppAdapter(
+            tasks,
+            owner_authority(tasks, session_id=runtime.session_id),
+            grants,
+            owner=True,
+        )
+    return runtime.t03_adapter
+
+
+def _plugin_result_size(request_id: str, result: Mapping[str, object]) -> int:
+    return len(
+        canonical_json_bytes(
+            {
+                "ok": True,
+                "protocol": OPEN_BRAIN_CLIENT_PROTOCOL,
+                "protocol_version": OPEN_BRAIN_CLIENT_PROTOCOL_VERSION,
+                "request_id": request_id,
+                "result": dict(result),
+            }
+        )
+    ) + 1
+
+
 def _direct_provider(value: object) -> ManagedProvider:
     if not isinstance(value, str):
         raise PluginBridgeFailure("invalid_arguments")
@@ -1154,7 +1331,7 @@ def _read_request(payload: bytes) -> dict[str, object]:
 
     try:
         decoded = json.loads(
-            payload,
+            payload.decode("utf-8"),
             object_pairs_hook=unique,
             parse_constant=lambda _value: _reject_request(),
         )
@@ -1348,6 +1525,12 @@ def _workspace_receipt(receipt: ManagedWorkspaceReceipt, *, vault_path: Path) ->
 def _require_keys(arguments: Mapping[str, object], expected: frozenset[str]) -> None:
     if set(arguments) != expected:
         raise PluginBridgeFailure("invalid_arguments")
+
+
+def _legacy_versioned_arguments(arguments: Mapping[str, object]) -> dict[str, object]:
+    if arguments.get("dto_version") != 1 or type(arguments.get("dto_version")) is not int:
+        raise PluginBridgeFailure("invalid_arguments")
+    return {key: value for key, value in arguments.items() if key != "dto_version"}
 
 
 def _bounded_text(value: object, *, maximum_bytes: int) -> str:

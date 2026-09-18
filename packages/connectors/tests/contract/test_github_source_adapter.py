@@ -362,7 +362,7 @@ def test_github_repository_import_replays_after_crash_before_checkpoint_without_
     )
 
 
-def test_github_repository_import_syncs_changed_revision_after_checkpoint(
+def test_github_repository_import_refuses_unordered_revision_after_checkpoint(
     tmp_path: Path,
 ) -> None:
     adapter = GitHubSourceAdapter()
@@ -425,20 +425,22 @@ def test_github_repository_import_syncs_changed_revision_after_checkpoint(
         privacy=_privacy(),
     )
     changed_intake = adapter.intake(selection, changed_record, privacy=_privacy())
-    changed_checkpoint, changed_receipt = adapter.import_repository_page(
-        checkpoint,
-        GitHubRepositoryPage(status=GitHubPageStatus.READY, preview=changed_page),
-        (changed_intake,),
-        sink,
-    )
+    checkpoint_before = checkpoint.to_dict()
+    source_bytes = {p: p.read_bytes() for p in tmp_path.glob("brain-*/sources/**/*")
+                    if p.is_file()}
+    assert source_bytes
+    # Legacy deliveries lack ordering and head-CAS evidence for revision replacement.
+    with pytest.raises(ValueError, match="^conflicting delivery$"):
+        adapter.import_repository_page(
+            checkpoint,
+            GitHubRepositoryPage(status=GitHubPageStatus.READY, preview=changed_page),
+            (changed_intake,),
+            sink,
+        )
+    assert checkpoint.to_dict() == checkpoint_before
+    assert {p: p.read_bytes() for p in tmp_path.glob("brain-*/sources/**/*")
+            if p.is_file()} == source_bytes
 
-    assert changed_receipt.outcome is ConnectorOutcome.COMPLETED
-    assert changed_receipt.submitted_count == 1
-    assert changed_receipt.created_count == 1
-    assert changed_checkpoint.committed_delivery_ids == checkpoint.committed_delivery_ids
-    assert changed_checkpoint.committed_revision_identities == (
-        changed_intake.key.revision_identity(),
-    )
 
 
 def test_github_repository_import_revalidates_legacy_checkpoint_without_revisions(

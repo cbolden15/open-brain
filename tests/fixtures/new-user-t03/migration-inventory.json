@@ -1,0 +1,277 @@
+{
+  "fixture_format": "t03-specification-v1",
+  "status": "proposed_not_frozen",
+  "synthetic_only": true,
+  "baseline_commit": "3376a7674ec27c88862f4e2f6ebed4b17620a675",
+  "kind": "migration-inventory",
+  "execution_note": "Baseline validator cases can execute; proposed cases are specifications requiring future implementations, not passing product evidence.",
+  "construction": "Future T04 harness uses schema-5 PublicJobCaptureSink and SourceRecordIntake through the existing replacement path in a synthetic temporary root, snapshots after every revision, then invokes the future migration. No schema-6 inserts or live Brain.",
+  "source_records": [
+    {
+      "label": "A1",
+      "key": {
+        "connector_name": "synthetic",
+        "connection_id": "connection-a",
+        "resource_id": "resource-a",
+        "external_id": "item-1",
+        "revision_id": "rev-1"
+      },
+      "url": "https://example.invalid/source/item-1",
+      "text": "SYNTHETIC_A_ORIGINAL",
+      "title": "Original",
+      "utf8_bytes": 20,
+      "text_sha256": "0e3788c4940ebe933c67ca2edddccb67d6e3562e09a4da478598b7184a82c6d9",
+      "expected_delivery_alias": "connector.synthetic.466d5b32a41667474969772c48f4d42a78089691c7a9d023ca9d8497a83ed107",
+      "expected_revision_identity": "51b5bb58f038690d6a40da1da664837ad552fc538b6eff34bbbac2332f7dbef6",
+      "capture_id": "resolve_from_actual_receipt:A1"
+    },
+    {
+      "label": "A2",
+      "key": {
+        "connector_name": "synthetic",
+        "connection_id": "connection-a",
+        "resource_id": "resource-a",
+        "external_id": "item-1",
+        "revision_id": "rev-2"
+      },
+      "url": "https://example.invalid/source/item-1",
+      "text": "SYNTHETIC_A_UPDATED",
+      "title": "Updated",
+      "utf8_bytes": 19,
+      "text_sha256": "c5a7ff34473af6aa261b88a7c594fdf0fb752f02a11d5e3418b04dfc2a7a4105",
+      "expected_delivery_alias": "connector.synthetic.466d5b32a41667474969772c48f4d42a78089691c7a9d023ca9d8497a83ed107",
+      "expected_revision_identity": "1f19e0f66a78996f75f7b91a807073397cc965f6a6b1c05445a08b492760d4ca",
+      "capture_id": "resolve_from_actual_receipt:A2"
+    },
+    {
+      "label": "A3",
+      "key": {
+        "connector_name": "synthetic",
+        "connection_id": "connection-a",
+        "resource_id": "resource-a",
+        "external_id": "item-1",
+        "revision_id": "rev-3"
+      },
+      "url": "https://example.invalid/source/item-1",
+      "text": "SYNTHETIC_A_UPDATED",
+      "title": "Metadata update",
+      "utf8_bytes": 19,
+      "text_sha256": "c5a7ff34473af6aa261b88a7c594fdf0fb752f02a11d5e3418b04dfc2a7a4105",
+      "expected_delivery_alias": "connector.synthetic.466d5b32a41667474969772c48f4d42a78089691c7a9d023ca9d8497a83ed107",
+      "expected_revision_identity": "945c49ffdfce3ec9b4967a95b9d1a7236ac53dae114a3af23b5105f2e61f0f66",
+      "capture_id": "resolve_from_actual_receipt:A3"
+    },
+    {
+      "label": "B1",
+      "key": {
+        "connector_name": "synthetic",
+        "connection_id": "connection-b",
+        "resource_id": "resource-a",
+        "external_id": "item-1",
+        "revision_id": "rev-1"
+      },
+      "url": "https://example.invalid/source/item-1",
+      "text": "SYNTHETIC_B",
+      "title": "Other connection",
+      "utf8_bytes": 11,
+      "text_sha256": "6a7e658f457159146c7da9ac6ea278a4f728df6b9f88c4e147ad8e3f7114f069",
+      "expected_delivery_alias": "connector.synthetic.da024e51963b606f64d2e726648c57d435f96909eb2f02ec37fb0c9a75a60055",
+      "expected_revision_identity": "53acf0e057f5019c106a9d5b25850792962c8640440d665e0257a15ccc8222b0",
+      "capture_id": "resolve_from_actual_receipt:B1"
+    },
+    {
+      "label": "C1",
+      "key": {
+        "connector_name": "synthetic",
+        "connection_id": "connection-a",
+        "resource_id": "resource-b",
+        "external_id": "item-1",
+        "revision_id": "rev-1"
+      },
+      "url": "https://example.invalid/source/item-1",
+      "text": "SYNTHETIC_C",
+      "title": "Other resource",
+      "utf8_bytes": 11,
+      "text_sha256": "dbd318869e374c73654278052a7fe336fd63ad9d9aac7e21107b10ffd1c62813",
+      "expected_delivery_alias": "connector.synthetic.505fae29a8d3fab51cd1ed9cc9e28e08763ad88e8ec68851b848b106c0a31ddc",
+      "expected_revision_identity": "88d193f3d42929c17be3325f40253a6567ebaad07a691da4ccaf32ead88d04e0",
+      "capture_id": "resolve_from_actual_receipt:C1"
+    }
+  ],
+  "steps": [
+    {
+      "id": "M01",
+      "action": "Accept A1 then export/snapshot; accept A2 then export/snapshot; accept A3 with title-only change then export/snapshot.",
+      "expected": "Distinct A capture IDs; A1/A2 durable source files remain when SQL contains A3. Equal A2/A3 text digest does not imply duplicate metadata."
+    },
+    {
+      "id": "M02",
+      "action": "Accept B1 and C1, same external key/URL but distinct namespaces.",
+      "expected": "Three distinct delivery aliases across A/B/C; no source merge."
+    },
+    {
+      "id": "M03",
+      "action": "Create two separate manual deliveries with identical text.",
+      "expected": "Independent capture/logical source identities; bytes may be shared only with retained ownership accounting."
+    },
+    {
+      "id": "M04",
+      "action": "Create separate R1; route it and publish with another independent source; attempt R2 via baseline replacement.",
+      "expected": "Baseline routed update refused; migration preserves R1 route, exact publication order and bytes. After future migration only, R2 can advance source head while R1 remains cited."
+    },
+    {
+      "id": "M05",
+      "action": "Replay A3 and replay same upstream revision key with altered bytes.",
+      "expected": "Baseline exact request replay duplicate; baseline lacks forwarded upstream revision key. Future writer returns original receipt for equal digest, source_revision_conflict for altered digest."
+    },
+    {
+      "id": "M06",
+      "action": "Inventory durable files not represented in current SQL, plus legacy captures without durable namespace evidence.",
+      "expected": "Recover all valid payload IDs/bytes; uncertain history remains ungrouped with diagnostic, never URL/text-based grouping."
+    }
+  ],
+  "inventories": [
+    {
+      "store": "sources/captures/**",
+      "preimage_fields": [
+        "path",
+        "capture_id",
+        "byte_length",
+        "sha256",
+        "original_payload_sha256"
+      ],
+      "parity": "Exact record and original payload bytes for every retained historical/current capture"
+    },
+    {
+      "store": "sources/batches/** and sources/blobs/**",
+      "preimage_fields": [
+        "path",
+        "byte_length",
+        "sha256",
+        "retained_owners"
+      ],
+      "parity": "Preserve batch evidence and blobs while any retained record owns them"
+    },
+    {
+      "store": "history/** and content/**",
+      "preimage_fields": [
+        "path",
+        "byte_length",
+        "sha256",
+        "page_id",
+        "ordered_capture_ids"
+      ],
+      "parity": "Exact evidence/publication membership and historical bytes"
+    },
+    {
+      "store": "SQL capture/delivery/route/head mappings",
+      "preimage_fields": [
+        "delivery_alias",
+        "capture_id",
+        "route_version",
+        "head",
+        "ordered_capture_ids"
+      ],
+      "parity": "Preserve aliases, current head/route and canonical pinning; add immutable history rows"
+    },
+    {
+      "store": "managed/import/collector operational stores",
+      "preimage_fields": [
+        "opaque_store_id",
+        "preimage_digest",
+        "generation"
+      ],
+      "parity": "Internal continuity only; private bindings excluded from public fixtures/Portable"
+    },
+    {
+      "store": "Portable manifest/profile",
+      "preimage_fields": [
+        "version",
+        "tenant_id",
+        "inventory_digest"
+      ],
+      "parity": "Versioned metadata may change; prior retained payload bytes and identities may not"
+    }
+  ],
+  "failure_cases": [
+    {
+      "id": "M07",
+      "injection": "same capture ID in two files with different bytes",
+      "expected": "refuse cutover; preserve originals",
+      "execution_status": "not_run_requires_migration"
+    },
+    {
+      "id": "M08",
+      "injection": "missing referenced capture/blob",
+      "expected": "refuse, no mixed-schema admission",
+      "execution_status": "not_run_requires_migration"
+    },
+    {
+      "id": "M09",
+      "injection": "capture file or ancestor swapped to symlink",
+      "expected": "root confinement refusal, no outside read/write",
+      "execution_status": "not_run_requires_migration"
+    },
+    {
+      "id": "M10",
+      "injection": "unprovable source grouping",
+      "expected": "retain ungrouped IDs/bytes with diagnostic",
+      "execution_status": "not_run_requires_migration"
+    },
+    {
+      "id": "M11",
+      "injection": "failure before journal fsync",
+      "expected": "schema 5 remains authoritative",
+      "execution_status": "not_run_requires_migration"
+    },
+    {
+      "id": "M12",
+      "injection": "failure after sidecar fsync before SQL commit",
+      "expected": "recover from inventory/preimages idempotently; old writer remains fenced if reservation durable",
+      "execution_status": "not_run_requires_migration"
+    },
+    {
+      "id": "M13",
+      "injection": "failure after SQL commit before manifest publication",
+      "expected": "recovery-only admission; finish or refuse, no partial export",
+      "execution_status": "not_run_requires_migration"
+    },
+    {
+      "id": "M14",
+      "injection": "failure after manifest publication before complete",
+      "expected": "validate and finish once; no new IDs",
+      "execution_status": "not_run_requires_migration"
+    },
+    {
+      "id": "M15",
+      "injection": "live old writer at migration admission",
+      "expected": "no cutover until drained",
+      "execution_status": "not_run_requires_migration"
+    },
+    {
+      "id": "M16",
+      "injection": "Portable v4 reader not implemented",
+      "expected": "parity unverified; no claim of passing A03",
+      "execution_status": "not_run_requires_migration"
+    },
+    {
+      "id": "M17",
+      "injection": "late provider token sorts after head lexically",
+      "expected": "no ordering inference or head rollback",
+      "execution_status": "not_run_requires_migration"
+    },
+    {
+      "id": "M18",
+      "injection": "metadata-only change same revision key",
+      "expected": "typed conflict in future writer",
+      "execution_status": "not_run_requires_migration"
+    }
+  ],
+  "parity_oracle": {
+    "byte_comparison": "For every retained baseline inventory entry, compare exact bytes (not just parsed objects) in verified new export; compare capture IDs and ordered memberships; compare payload sizes and SHA-256 as diagnostics.",
+    "manifest_exception": "Only explicitly versioned new manifest/sidecars may change; no rewriting old payload/history bytes.",
+    "baseline_validator": "open_brain_engine.portable.versioned.validated_portable_snapshot",
+    "new_validator": "pending Portable v4 implementation",
+    "execution_status": "not_run_specification_only"
+  }
+}

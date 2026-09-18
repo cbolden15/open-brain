@@ -1,9 +1,9 @@
-import { chmod, mkdtemp, realpath, writeFile } from "node:fs/promises";
+import { access, chmod, mkdtemp, realpath, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import process from "node:process";
 
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   BridgeError,
@@ -12,10 +12,12 @@ import {
   executableCandidates,
   filteredEnvironment,
 } from "../src/bridge";
+import { searchPage } from "../src/t07-client";
 
 const bridges: OpenBrainBridge[] = [];
 
 afterEach(() => {
+  vi.unstubAllGlobals();
   for (const bridge of bridges) bridge.dispose();
   bridges.length = 0;
 });
@@ -53,6 +55,21 @@ process.stdin.on("data", (chunk) => {
     expect(second.operation).toBe("workspace.status");
   });
 
+  it("T03 rejects duplicate nested keys before response construction", async () => {
+    const executable = await fakeExecutable(`
+process.stdin.once("data", (chunk) => {
+  const request = JSON.parse(chunk);
+  const raw = JSON.stringify({ok:true, protocol:"open-brain-client", protocol_version:1, request_id:request.request_id, result:{role:1}});
+  process.stdout.write(raw.replace('"role":1', '"role":1,"role":2') + "\\n");
+});
+`);
+    const bridge = new OpenBrainBridge(executable);
+    bridges.push(bridge);
+    await expect(bridge.invoke("system.handshake", {})).rejects.toEqual(
+      expect.objectContaining<Partial<BridgeError>>({code:"protocol_error"}),
+    );
+  });
+
   it("kills the owned session when a request exceeds its deadline", async () => {
     const executable = await fakeExecutable(`process.stdin.resume();`);
     const bridge = new OpenBrainBridge(executable);
@@ -61,6 +78,98 @@ process.stdin.on("data", (chunk) => {
     await expect(bridge.invoke("system.handshake", {}, 25)).rejects.toEqual(
       expect.objectContaining<Partial<BridgeError>>({ code: "timeout" }),
     );
+  });
+
+  it.each(["1.0", "1e0"])("rejects negotiated integer lexeme %s from an actual child", async (lexeme) => {
+    const executable = await fakeExecutable(`
+process.stdin.once("data", (chunk) => {
+  const request = JSON.parse(chunk);
+  const raw = JSON.stringify({ok:true, protocol:"open-brain-client", protocol_version:1,
+    request_id:request.request_id, result:{status:"ok", dto_version:1, results:[],
+      next_cursor:null, complete:true, mode_used:"lexical", warnings:[]}});
+  process.stdout.write(raw.replace('"dto_version":1', '"dto_version":${lexeme}') + "\\n");
+});
+`);
+    const bridge = new OpenBrainBridge(executable);
+    bridges.push(bridge);
+    await expect(searchPage(bridge, { cursor: null, filters: {
+      space_ids: [], payload_families: [], record_types: [],
+    }, limit: 50, mode: "lexical", query: "synthetic" })).rejects.toThrow("protocol_error");
+  });
+
+  it("preserves legacy response services with floating point values", async () => {
+    const executable = await fakeExecutable(`
+process.stdin.once("data", (chunk) => {
+  const request = JSON.parse(chunk);
+  process.stdout.write(JSON.stringify({ok:true, protocol:"open-brain-client", protocol_version:1,
+    request_id:request.request_id, result:{score:0.125}}) + "\\n");
+});
+`);
+    const bridge = new OpenBrainBridge(executable);
+    bridges.push(bridge);
+    await expect(bridge.invoke("search.query", {})).resolves.toEqual({ score: 0.125 });
+  });
+
+  it("keeps a replacement session usable after cancelling pending work", async () => {
+    const executable = await fakeExecutable(`
+process.stdin.once("data", (chunk) => {
+  const request = JSON.parse(chunk);
+  setTimeout(() => process.stdout.write(JSON.stringify({ok:true, protocol:"open-brain-client", protocol_version:1,
+    request_id:request.request_id, result:{operation:request.operation}}) + "\\n"), 50);
+});
+`);
+    const bridge = new OpenBrainBridge(executable);
+    bridges.push(bridge);
+    const cancelled = bridge.invoke("system.handshake", {}).catch((error: unknown) => error);
+    bridge.cancelPending();
+    const replacement = bridge.invoke<{ operation: string }>("workspace.status", {});
+    await expect(cancelled).resolves.toEqual(expect.objectContaining<Partial<BridgeError>>({ code: "bridge_closed" }));
+    await expect(replacement).resolves.toEqual({ operation: "workspace.status" });
+  });
+
+  it("rejects a response beyond the transport budget", async () => {
+    const executable = await fakeExecutable(`
+process.stdin.once("data", (chunk) => {
+  const request = JSON.parse(chunk);
+  process.stdout.write(JSON.stringify({ok:true, protocol:"open-brain-client", protocol_version:1,
+    request_id:request.request_id, result:{text:"x".repeat(5 * 1024 * 1024)}}) + "\\n");
+});
+`);
+    const bridge = new OpenBrainBridge(executable);
+    bridges.push(bridge);
+    await expect(bridge.invoke("system.handshake", {})).rejects.toEqual(
+      expect.objectContaining<Partial<BridgeError>>({ code: "response_too_large" }),
+    );
+  });
+
+  it("does not require Node timer methods when disposed in a renderer", async () => {
+    const executable = await fakeExecutable(`process.stdin.resume(); setInterval(()=>{}, 1000);`);
+    const bridge = new OpenBrainBridge(executable);
+    bridges.push(bridge);
+    const pending = bridge.invoke("system.handshake", {}).catch(() => undefined);
+    vi.stubGlobal("setTimeout", () => 1);
+
+    expect(() => bridge.dispose()).not.toThrow();
+    await pending;
+  });
+
+  it("terminates a descendant in the owned process group on unload", async () => {
+    const directory = await mkdtemp(path.join(tmpdir(), "open-brain-plugin-child-test-"));
+    const ready = path.join(directory, "ready");
+    const stopped = path.join(directory, "stopped");
+    const descendant = `process.on("SIGTERM",()=>{require("fs").writeFileSync(${JSON.stringify(stopped)},"stopped");process.exit(0)});require("fs").writeFileSync(${JSON.stringify(ready)},"ready");setInterval(()=>{},1000)`;
+    const executable = await fakeExecutable(`
+require("child_process").spawn(process.execPath, ["-e", ${JSON.stringify(descendant)}], {stdio:"ignore"});
+process.stdin.resume();
+setInterval(()=>{}, 1000);
+`);
+    const bridge = new OpenBrainBridge(executable);
+    const pending = bridge.invoke("system.handshake", {}).catch(() => undefined);
+    await waitForFile(ready);
+    bridge.dispose();
+    await pending;
+    await waitForFile(stopped);
+    await expect(access(stopped)).resolves.toBeUndefined();
   });
 
   it.each([2, undefined])("rejects a response with protocol version %s", async (version) => {
@@ -121,4 +230,11 @@ async function fakeExecutable(body: string): Promise<string> {
   await writeFile(executable, `#!${process.execPath}\n${body}\n`, "utf8");
   await chmod(executable, 0o700);
   return executable;
+}
+
+async function waitForFile(file: string): Promise<void> {
+  for (let attempt = 0; attempt < 50; attempt += 1) {
+    try { await access(file); return; } catch { await new Promise((resolve) => setTimeout(resolve, 20)); }
+  }
+  throw new Error(`Timed out waiting for ${file}`);
 }

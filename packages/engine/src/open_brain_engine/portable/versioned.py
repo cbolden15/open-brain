@@ -23,6 +23,7 @@ from .v1 import (
     validated_portable_snapshot as validated_portable_snapshot_v1,
 )
 from .v3 import validated_portable_snapshot_v3
+from .v4 import validated_portable_snapshot_v4
 
 
 def validated_portable_snapshot(
@@ -45,7 +46,7 @@ def validated_portable_snapshot(
         raise PortableValidationError("manifest is missing")
     try:
         value = json.loads(payload)
-    except (UnicodeDecodeError, json.JSONDecodeError):
+    except UnicodeDecodeError, json.JSONDecodeError:
         raise PortableValidationError("manifest is invalid") from None
     if (
         not isinstance(value, dict)
@@ -58,6 +59,8 @@ def validated_portable_snapshot(
         return validated_portable_snapshot_v1(root, expected_root_identity=identity)
     if version == 2:
         return validated_portable_snapshot_v2(root, expected_root_identity=identity)
+    if version == 4:
+        return validated_portable_snapshot_v4(root, expected_root_identity=identity)
     if version == 3:
         return validated_portable_snapshot_v3(root, expected_root_identity=identity)
     raise PortableValidationError("unsupported Portable Brain schema")

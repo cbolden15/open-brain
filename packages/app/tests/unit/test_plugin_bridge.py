@@ -10,9 +10,11 @@ from typing import cast
 import pytest
 from open_brain_engine.engine import (
     CaptureAction,
+    DecisionOutcome,
     ManagedAccessMode,
     ManagedProvider,
     ManagedWorkspaceFailure,
+    ProposalDraft,
     TextPayload,
     canonical_json_bytes,
 )
@@ -101,12 +103,512 @@ def test_handshake_is_bounded_and_does_not_initialize_the_brain(tmp_path: Path) 
     assert result["protocol_version"] == OPEN_BRAIN_CLIENT_PROTOCOL_VERSION
     assert result["desktop_only"] is True
     assert result["brain_root"] == str(selection.brain_root)
-    assert result["runtime_session_version"] == 1
-    assert result["state_schema_version"] == 6
+    assert result["runtime_session_version"] == 2
+    assert result["state_schema_version"] == 7
     assert "graph.review" in cast(list[str], result["operations"])
     assert "system.status" in cast(list[str], result["operations"])
     assert "agent.setup.preview" in cast(list[str], result["operations"])
+    assert "contract.describe" in cast(list[str], result["operations"])
+    assert "record.read" not in cast(list[str], result["operations"])
     assert not selection.brain_root.exists()
+
+
+def test_contract_discovery_exposes_only_implemented_negotiated_tasks(tmp_path: Path) -> None:
+    selection = _selection(tmp_path)
+    assert _call(selection, "brain.initialize")["ok"] is True
+
+    response = _call(selection, "contract.describe")
+
+    assert response["ok"] is True
+    result = cast(dict[str, object], response["result"])
+    assert result["contract_version"] == "t03.v1"
+    assert result["operations"] == [
+        {
+            "dto_version": 1,
+            "name": "search.page",
+            "required_grants": ["search"],
+        },
+        {
+            "dto_version": 1,
+            "name": "record.read",
+            "required_grants": ["content-read"],
+        },
+        {
+            "dto_version": 1,
+            "name": "history.list",
+            "required_grants": ["history-read"],
+        },
+        {
+            "dto_version": 1,
+            "name": "history.show",
+            "required_grants": ["history-read"],
+        },
+        {
+            "dto_version": 1,
+            "name": "source.route",
+            "required_grants": ["organize"],
+        }
+    ]
+
+
+def test_bridge_pages_201_and_reconstructs_frozen_unicode_in_one_real_session(
+    tmp_path: Path,
+) -> None:
+    selection = _selection(tmp_path)
+    assert _call(selection, "brain.initialize")["ok"] is True
+    recipe = json.loads(
+        (
+            Path(__file__).resolve().parents[4]
+            / "tests/fixtures/new-user-t03/security-boundaries.json"
+        ).read_bytes()
+    )["long_text_recipe"]
+    unicode_body = "".join(
+        part["text"] * part["repeat"] for part in recipe["parts"]
+    )
+    with open_local_brain(selection, filesystem_type_probe=_filesystem) as session:
+        expected = [
+            session.tasks.capture.accept(
+                TextPayload("identical synthetic nebula"),
+                delivery_id=f"plugin.retrieval.{index}",
+            ).capture_id
+            for index in range(201)
+        ]
+        unicode_payload = TextPayload(unicode_body)
+        unicode_capture = session.tasks.capture.accept(
+            unicode_payload, delivery_id="plugin.retrieval.unicode"
+        )
+        runtime = PluginRuntimeState(None)
+
+        request: dict[str, object] = {
+            "dto_version": 1,
+            "query": "nebula",
+            "limit": 100,
+        }
+        pages: list[dict[str, object]] = []
+        while True:
+            page = dispatch_plugin_request(
+                session,
+                "search.page",
+                request,
+                request_id=f"plugin_{uuid.uuid4()}",
+                base_executable=None,
+                runtime=runtime,
+            )
+            pages.append(page)
+            if page["complete"]:
+                break
+            request = {**request, "cursor": page["next_cursor"]}
+        found = [
+            result["record_id"]
+            for page in pages
+            for result in cast(list[dict[str, object]], page["results"])
+        ]
+        assert found == sorted(expected)
+        assert len(found) == len(set(found)) == 201
+        assert [len(cast(list[object], page["results"])) for page in pages] == [100, 100, 1]
+
+        read: dict[str, object] = {
+            "dto_version": 1,
+            "record_id": unicode_capture.capture_id,
+            "expected_revision_id": unicode_capture.capture_id,
+            "target_bytes": 32_768,
+        }
+        chunks: list[str] = []
+        offset = 0
+        while True:
+            response = dispatch_plugin_request(
+                session,
+                "record.read",
+                read,
+                request_id=f"plugin_{uuid.uuid4()}",
+                base_executable=None,
+                runtime=runtime,
+            )
+            assert response["start_byte"] == offset
+            text = cast(str, cast(dict[str, object], response["content"])["text"])
+            offset += len(text.encode("utf-8"))
+            assert response["end_byte"] == offset
+            chunks.append(text)
+            if response["complete"]:
+                assert response["next_cursor"] is None
+                break
+            read = {**read, "cursor": response["next_cursor"]}
+        reconstructed = "".join(chunks)
+        assert reconstructed == unicode_payload.text
+        assert "MIDDLE_SYNTHETIC_CANARY" in reconstructed
+        assert chunks[-1].endswith("END_SYNTHETIC\n")
+
+        first_cursor = pages[0]["next_cursor"]
+        with pytest.raises(PluginBridgeFailure, match="^cursor_invalid$"):
+            dispatch_plugin_request(
+                session,
+                "search.page",
+                {"dto_version": 1, "query": "nebula", "limit": 100, "cursor": first_cursor},
+                request_id=f"plugin_{uuid.uuid4()}",
+                base_executable=None,
+                runtime=PluginRuntimeState(None),
+            )
+        session.tasks.capture.accept(
+            TextPayload("generation changed nebula"),
+            delivery_id="plugin.retrieval.changed",
+        )
+        with pytest.raises(PluginBridgeFailure, match="^cursor_stale$"):
+            dispatch_plugin_request(
+                session,
+                "search.page",
+                {"dto_version": 1, "query": "nebula", "limit": 100, "cursor": first_cursor},
+                request_id=f"plugin_{uuid.uuid4()}",
+                base_executable=None,
+                runtime=runtime,
+            )
+
+
+def test_separate_stdio_sessions_reject_cursor_when_first_request_ids_match(
+    tmp_path: Path,
+) -> None:
+    selection = _selection(tmp_path)
+    assert _call(selection, "brain.initialize")["ok"] is True
+    with open_local_brain(selection, filesystem_type_probe=_filesystem) as session:
+        for index in range(3):
+            session.tasks.capture.accept(
+                TextPayload("bridge session collision nebula"),
+                delivery_id=f"bridge.session.{index}",
+            )
+
+    request_id = "plugin_11111111-1111-4111-8111-111111111111"
+    arguments: dict[str, object] = {"dto_version": 1, "query": "nebula", "limit": 2}
+    first = _call(selection, "search.page", arguments, request_id=request_id)
+    first_result = cast(dict[str, object], first["result"])
+    cursor = cast(str, first_result["next_cursor"])
+
+    second = _call(
+        selection,
+        "search.page",
+        {**arguments, "cursor": cursor},
+        request_id=request_id,
+    )
+    assert second["ok"] is False
+    assert cast(dict[str, object], second["error"])["code"] == "cursor_invalid"
+
+
+def test_bridge_lists_and_reads_actual_history_with_session_bound_cursor(
+    tmp_path: Path,
+) -> None:
+    selection = _selection(tmp_path)
+    assert _call(selection, "brain.initialize")["ok"] is True
+    with open_local_brain(selection, filesystem_type_probe=_filesystem) as session:
+        space = session.tasks.spaces.create_space(
+            "Bridge History", delivery_id="bridge.history.space"
+        )
+        source = session.tasks.capture.accept(
+            TextPayload("bridge history source"),
+            delivery_id="bridge.history.source",
+            space_id=space.space_id,
+        )
+        bodies = [
+            "Old bridge é🙂é 漢字\n" * 2000,
+            "Middle bridge body",
+            "Current bridge body",
+        ]
+        page_id: str | None = None
+        for index, body in enumerate(bodies):
+            proposal = session.tasks.review.propose(
+                (source.capture_id,),
+                (ProposalDraft(f"Bridge history {index}", body),),
+                delivery_id=f"bridge.history.proposal.{index}",
+                target_page_id=page_id,
+            )[0]
+            decision = session.tasks.review.decide(
+                proposal.proposal_id,
+                DecisionOutcome.APPROVED,
+                delivery_id=f"bridge.history.decision.{index}",
+                expected_review_digest=proposal.review_digest,
+            )
+            page_id = decision.page_id
+        assert page_id is not None
+
+        runtime = PluginRuntimeState(None)
+        first = dispatch_plugin_request(
+            session,
+            "history.list",
+            {"dto_version": 1, "record_id": page_id, "limit": 2},
+            request_id=f"plugin_{uuid.uuid4()}",
+            base_executable=None,
+            runtime=runtime,
+        )
+        entries = cast(list[dict[str, object]], first["entries"])
+        assert [entry["is_current"] for entry in entries] == [True, False]
+        cursor = cast(str, first["next_cursor"])
+        with pytest.raises(PluginBridgeFailure, match="^cursor_invalid$"):
+            dispatch_plugin_request(
+                session,
+                "history.list",
+                {"dto_version": 1, "record_id": page_id, "limit": 2, "cursor": cursor},
+                request_id=f"plugin_{uuid.uuid4()}",
+                base_executable=None,
+                runtime=PluginRuntimeState(None),
+            )
+        tail = dispatch_plugin_request(
+            session,
+            "history.list",
+            {"dto_version": 1, "record_id": page_id, "limit": 2, "cursor": cursor},
+            request_id=f"plugin_{uuid.uuid4()}",
+            base_executable=None,
+            runtime=runtime,
+        )
+        historical = cast(list[dict[str, object]], tail["entries"])[0]
+        assert historical["is_current"] is False
+
+        arguments: dict[str, object] = {
+            "dto_version": 1,
+            "record_id": page_id,
+            "expected_revision_id": historical["revision_id"],
+            "target_bytes": 32_768,
+        }
+        chunks: list[str] = []
+        while True:
+            shown = dispatch_plugin_request(
+                session,
+                "history.show",
+                arguments,
+                request_id=f"plugin_{uuid.uuid4()}",
+                base_executable=None,
+                runtime=runtime,
+            )
+            assert cast(dict[str, object], shown["record"])["revision_id"] == historical[
+                "revision_id"
+            ]
+            chunks.append(cast(str, cast(dict[str, object], shown["content"])["text"]))
+            if shown["complete"]:
+                break
+            arguments = {**arguments, "cursor": shown["next_cursor"]}
+        reconstructed = "".join(chunks)
+        assert TextPayload(bodies[0]).text in reconstructed
+        assert bodies[-1] not in reconstructed
+
+
+def test_bridge_dispatches_implemented_source_route(tmp_path: Path) -> None:
+    selection = _selection(tmp_path)
+    assert _call(selection, "brain.initialize")["ok"] is True
+    capture = cast(
+        dict[str, object],
+        _call(selection, "capture.create", {"text": "Synthetic routed source"})["result"],
+    )
+    space = cast(
+        dict[str, object],
+        _call(selection, "space.create", {"dto_version": 1, "name": "Routed"})[
+            "result"
+        ],
+    )
+    database = selection.brain_root / ".open-brain/state/phase1.sqlite3"
+    with sqlite3.connect(database) as connection:
+        row = connection.execute(
+            "SELECT source_id,head_capture_id,route_version FROM logical_sources "
+            "WHERE head_capture_id=?",
+            (capture["capture_id"],),
+        ).fetchone()
+    assert row is not None
+    source_id, head, route_version = row
+    response = _call(
+        selection,
+        "source.route",
+        {
+            "dto_version": 1,
+            "source_id": source_id,
+            "space_id": cast(dict[str, object], space["space"])["space_id"],
+            "expected_head": head,
+            "expected_route_version": route_version,
+            "operation_id": "operation_123e4567-e89b-42d3-a456-426614174100",
+        },
+    )
+    assert response["ok"] is True
+    routed = cast(dict[str, object], response["result"])
+    assert routed == {
+        "status": "ok",
+        "dto_version": 1,
+        "source_id": source_id,
+        "head": head,
+        "route_version": route_version + 1,
+    }
+
+
+def test_bridge_uses_shared_organization_and_publication_services(tmp_path: Path) -> None:
+    selection = _selection(tmp_path)
+    fixture = json.loads(
+        (Path(__file__).resolve().parents[1] / "fixtures/t06-client-api.json").read_bytes()
+    )
+    examples = {example["operation"]: example for example in fixture["examples"]}
+
+    def assert_fixture_shape(operation: str, result: dict[str, object]) -> None:
+        expected = cast(dict[str, object], examples[operation]["response"])
+        assert set(result) == set(expected)
+
+    assert _call(selection, "brain.initialize")["ok"] is True
+    setup = cast(dict[str, object], _call(selection, "workspace.setup")["result"])
+    status = cast(dict[str, object], _call(selection, "workspace.status")["result"])
+    assert_fixture_shape("workspace.setup", setup)
+    assert_fixture_shape("workspace.status", status)
+    assert setup["status"] == "setup"
+    assert status["status"] == "ok"
+    assert status["vault_path"] == setup["vault_path"]
+    invalid_arguments: tuple[dict[str, object], ...] = (
+        {"name": "Unversioned"},
+        {"dto_version": True, "name": "Boolean"},
+    )
+    for invalid in invalid_arguments:
+        denied = _call(selection, "space.create", invalid)
+        assert denied["ok"] is False
+        assert cast(dict[str, object], denied["error"])["code"] == "invalid_arguments"
+    captures = [
+        cast(
+            dict[str, object],
+            _call(selection, "capture.create", {"text": text})["result"],
+        )
+        for text in ("Synthetic first source", "Synthetic second source")
+    ]
+    inbox = cast(
+        dict[str, object],
+        _call(
+            selection,
+            "inbox.list",
+            {"dto_version": 1, "unassigned_only": True, "limit": 50, "offset": 0},
+        )["result"],
+    )
+    assert_fixture_shape("inbox.list", inbox)
+    assert [row["capture_id"] for row in cast(list[dict[str, object]], inbox["items"])] == [
+        capture["capture_id"] for capture in captures
+    ]
+    space = cast(
+        dict[str, object],
+        _call(
+            selection, "space.create", {"dto_version": 1, "name": "Synthetic space"}
+        )["result"],
+    )
+    assert_fixture_shape("space.create", space)
+    space_id = cast(dict[str, object], space["space"])["space_id"]
+    spaces = cast(
+        dict[str, object],
+        _call(selection, "space.list", {"dto_version": 1, "limit": 50, "offset": 0})[
+            "result"
+        ],
+    )
+    assert_fixture_shape("space.list", spaces)
+    for index, capture in enumerate(captures):
+        routed = cast(
+            dict[str, object],
+            _call(
+                selection,
+                "inbox.route",
+                {
+                    "dto_version": 1,
+                    "capture_id": capture["capture_id"],
+                    "space_id": space_id,
+                    "idempotency_key": f"synthetic-route-{index}",
+                },
+            )["result"],
+        )
+        assert_fixture_shape("inbox.route", routed)
+    proposed = cast(
+        dict[str, object],
+        _call(
+            selection,
+            "publication.propose",
+            {
+                "dto_version": 1,
+                "capture_ids": [capture["capture_id"] for capture in captures],
+                "title": "Synthetic publication",
+                "markdown": "Complete synthetic body",
+            },
+        )["result"],
+    )
+    assert_fixture_shape("publication.propose", proposed)
+    shown = cast(
+        dict[str, object],
+        _call(
+            selection,
+            "publication.show",
+            {"dto_version": 1, "proposal_id": proposed["proposal_id"]},
+        )["result"],
+    )
+    assert_fixture_shape("publication.show", shown)
+    approved = cast(
+        dict[str, object],
+        _call(
+            selection,
+            "publication.approve",
+            {
+                "dto_version": 1,
+                "proposal_id": proposed["proposal_id"],
+                "review_token": shown["review_token"],
+            },
+        )["result"],
+    )
+    assert_fixture_shape("publication.approve", approved)
+
+    assert shown["markdown"] == "Complete synthetic body"
+    assert approved["status"] == "approved"
+    assert approved["page_id"] == proposed["page_id"]
+    canonical_search = cast(
+        dict[str, object],
+        _call(
+            selection,
+            "search.page",
+            {
+                "dto_version": 1,
+                "query": "synthetic publication",
+                "filters": {
+                    "space_ids": [],
+                    "payload_families": [],
+                    "record_types": ["canonical"],
+                },
+            },
+        )["result"],
+    )
+    canonical_results = cast(list[dict[str, object]], canonical_search["results"])
+    assert len(canonical_results) == 1
+    canonical = canonical_results[0]
+    assert canonical["record_id"] == approved["page_id"]
+    assert canonical["record_type"] == "canonical"
+    assert canonical["source_id"] is None
+    canonical_read = cast(
+        dict[str, object],
+        _call(
+            selection,
+            "record.read",
+            {
+                "dto_version": 1,
+                "record_id": canonical["record_id"],
+                "expected_revision_id": canonical["revision_id"],
+            },
+        )["result"],
+    )
+    assert canonical_read["complete"] is True
+    assert cast(dict[str, object], canonical_read["content"])["text"] == (
+        "Complete synthetic body\n"
+    )
+    refreshed = cast(dict[str, object], _call(selection, "workspace.refresh")["result"])
+    assert_fixture_shape("workspace.refresh", refreshed)
+    note = next(
+        row
+        for row in cast(list[dict[str, object]], refreshed["notes"])
+        if row["note_id"] == approved["page_id"]
+    )
+    note_path = Path(cast(str, refreshed["vault_path"])) / cast(str, note["relative_path"])
+    materialized = note_path.read_text(encoding="utf-8")
+    assert materialized.endswith("\nComplete synthetic body\n")
+    assert f'page_id: "{approved["page_id"]}"' in materialized
+    assert len(cast(list[dict[str, object]], shown["evidence"])) == 2
+    stale = _call(
+        selection,
+        "publication.reject",
+        {
+            "dto_version": 1,
+            "proposal_id": proposed["proposal_id"],
+            "review_token": shown["review_token"],
+        },
+    )
+    assert stale["ok"] is False
+    assert cast(dict[str, object], stale["error"])["code"] == "terminal_decision"
 
 
 def test_status_is_non_mutating_for_empty_state_and_reports_initialized_state(
@@ -119,8 +621,8 @@ def test_status_is_non_mutating_for_empty_state_and_reports_initialized_state(
     assert empty == {
         "brain_root": str(selection.brain_root),
         "initialized": False,
-        "runtime_session_version": 1,
-        "state_schema_version": 6,
+        "runtime_session_version": 2,
+        "state_schema_version": 7,
         "status": "ok",
     }
     assert not selection.brain_root.exists()
@@ -128,7 +630,7 @@ def test_status_is_non_mutating_for_empty_state_and_reports_initialized_state(
     assert _call(selection, "brain.initialize")["ok"] is True
     initialized = cast(dict[str, object], _call(selection, "system.status")["result"])
     assert initialized["initialized"] is True
-    assert initialized["state_schema_version"] == 6
+    assert initialized["state_schema_version"] == 7
 
 
 def test_plugin_bridge_exposes_durable_collector_controls(
@@ -543,6 +1045,59 @@ def test_stdio_session_serves_multiple_framed_requests_in_one_engine_lifecycle(
     assert cast(dict[str, object], responses[1]["result"])["status"] == "unconfigured"
 
 
+def test_persistent_stdio_initialize_is_idempotent_after_workspace_status(
+    tmp_path: Path,
+) -> None:
+    selection = _selection(tmp_path)
+    operations = [
+        ("system.handshake", {}),
+        ("workspace.status", {}),
+        ("brain.initialize", {}),
+        ("brain.initialize", {"unexpected": True}),
+        ("brain.initialize", {}),
+        ("workspace.status", {}),
+    ]
+    requests = [
+        {
+            "arguments": arguments,
+            "operation": operation,
+            "protocol": OPEN_BRAIN_CLIENT_PROTOCOL,
+            "protocol_version": OPEN_BRAIN_CLIENT_PROTOCOL_VERSION,
+            "request_id": f"plugin_{uuid.uuid4()}",
+        }
+        for operation, arguments in operations
+    ]
+    output = BytesIO()
+
+    assert (
+        serve_plugin_stdio(
+            selection,
+            input_stream=BytesIO(
+                b"".join(json.dumps(request).encode("utf-8") + b"\n" for request in requests)
+            ),
+            output_stream=output,
+            filesystem_type_probe=_filesystem,
+        )
+        == 0
+    )
+    responses = [json.loads(line) for line in output.getvalue().splitlines()]
+
+    assert [response["ok"] for response in responses] == [
+        True,
+        True,
+        True,
+        False,
+        True,
+        True,
+    ]
+    assert [cast(dict[str, object], responses[index]["result"])["status"] for index in (2, 4)] == [
+        "already_initialized",
+        "already_initialized",
+    ]
+    assert cast(dict[str, object], responses[3]["error"])["code"] == "invalid_arguments"
+    assert cast(dict[str, object], responses[5]["result"])["status"] == "unconfigured"
+
+
 def test_concurrent_local_clients_preserve_live_consent_and_reserved_state(
     tmp_path: Path,
 ) -> None:
@@ -589,34 +1144,48 @@ def test_concurrent_local_clients_preserve_live_consent_and_reserved_state(
             assert second.tasks.managed_inference.fail(prepared.request_id).status == "failed"
 
 
-def test_v3_migration_waits_until_an_older_registered_runtime_exits(tmp_path: Path) -> None:
+def test_v3_migration_waits_until_an_older_registered_runtime_exits(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     selection = _selection(tmp_path)
-    assert _call(selection, "brain.initialize")["ok"] is True
-    database = selection.brain_root / ".open-brain/state/phase1.sqlite3"
-    with sqlite3.connect(database) as connection:
-        connection.execute("DELETE FROM schema_migrations WHERE version >= 4")
-        for table in (
-            "managed_recovery_decisions", "managed_write_authority",
-            "review_page_heads", "review_sources", "review_contexts",
-        ):
-            connection.execute(f"DROP TABLE {table}")
-        connection.execute("DROP TABLE runtime_compatibility")
-        connection.execute("PRAGMA user_version = 3")
-    with open_local_brain(selection, filesystem_type_probe=_filesystem) as migrated:
-        migrated.tasks.capture.accept(
-            TextPayload("Synthetic compatibility record"),
-            delivery_id="desktop.compatibility.capture",
-        )
-    with sqlite3.connect(database) as connection:
-        connection.execute("DELETE FROM schema_migrations WHERE version >= 4")
-        for table in (
-            "managed_recovery_decisions", "managed_write_authority",
-            "review_page_heads", "review_sources", "review_contexts",
-        ):
-            connection.execute(f"DROP TABLE {table}")
-        connection.execute("DROP TABLE runtime_compatibility")
-        connection.execute("PRAGMA user_version = 3")
+    from packages.app.tests.integration.engine._local_schema_fixtures import use_schema_six_runtime
 
+    with monkeypatch.context() as historical:
+        use_schema_six_runtime(historical, {})
+        from open_brain.services import local_bootstrap
+
+        historical.setattr(local_bootstrap, "PHASE1_STATE_SCHEMA_VERSION", 6)
+        assert _call(selection, "brain.initialize")["ok"] is True
+        database = selection.brain_root / ".open-brain/state/phase1.sqlite3"
+        with sqlite3.connect(database) as connection:
+            connection.execute("DELETE FROM schema_migrations WHERE version >= 4")
+            for table in (
+                "managed_recovery_decisions",
+                "managed_write_authority",
+                "review_page_heads",
+                "review_sources",
+                "review_contexts",
+            ):
+                connection.execute(f"DROP TABLE {table}")
+            connection.execute("DROP TABLE runtime_compatibility")
+            connection.execute("PRAGMA user_version = 3")
+        with open_local_brain(selection, filesystem_type_probe=_filesystem) as migrated:
+            migrated.tasks.capture.accept(
+                TextPayload("Synthetic compatibility record"),
+                delivery_id="desktop.compatibility.capture",
+            )
+        with sqlite3.connect(database) as connection:
+            connection.execute("DELETE FROM schema_migrations WHERE version >= 4")
+            for table in (
+                "managed_recovery_decisions",
+                "managed_write_authority",
+                "review_page_heads",
+                "review_sources",
+                "review_contexts",
+            ):
+                connection.execute(f"DROP TABLE {table}")
+            connection.execute("DROP TABLE runtime_compatibility")
+            connection.execute("PRAGMA user_version = 3")
     profile = open_existing_single_user_local(selection.brain_root)
     with hold_local_runtime_session(
         profile.root,
@@ -633,7 +1202,7 @@ def test_v3_migration_waits_until_an_older_registered_runtime_exits(tmp_path: Pa
 
     with open_local_brain(selection, filesystem_type_probe=_filesystem) as reopened:
         assert reopened.tasks.retrieval.search("compatibility")[0].title
-    assert sqlite3.connect(database).execute("PRAGMA user_version").fetchone() == (6,)
+    assert sqlite3.connect(database).execute("PRAGMA user_version").fetchone() == (7,)
 
 
 def test_bridge_rejects_wrong_or_missing_protocol_versions(tmp_path: Path) -> None:

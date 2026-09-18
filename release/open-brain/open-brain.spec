@@ -13,6 +13,7 @@ datas = sorted(
     collect_data_files(
         "open_brain_engine",
         includes=[
+            "engine/t03_schema.json",
             "portable/**/*.json",
             "portability/**/*.json",
         ],

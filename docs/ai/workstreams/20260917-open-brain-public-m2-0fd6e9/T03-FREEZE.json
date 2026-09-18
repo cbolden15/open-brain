@@ -1,0 +1,99 @@
+{
+  "status": "FROZEN",
+  "task": "T03",
+  "contract_version": "t03.v1",
+  "contract_sha256": "868d3cd2ad6ce1fa7f375151df3a5cf7553ba3165c3fefa409fe95cb6258c37c",
+  "hash_algorithm": "SHA256 of sorted path + NUL + file SHA256 hex + LF for tracked contract artifacts",
+  "artifacts": [
+    {
+      "path": "docs/design/new-user-t03-contracts.md",
+      "sha256": "ab1ef2d29433c71f3b323fefe07f831fc81e03dd8e4527459353e30bdf8c4b68"
+    },
+    {
+      "path": "tests/fixtures/new-user-t03/compatibility.json",
+      "sha256": "bb8f7093aa896b7cb8dd65e3d9ffba9308c935febfb298fd68da9062949218d7"
+    },
+    {
+      "path": "tests/fixtures/new-user-t03/migration-inventory.json",
+      "sha256": "62e26f6e2eca1e049f17de31b5be49934d74243feab6edeed53a8372a30c9270"
+    },
+    {
+      "path": "tests/fixtures/new-user-t03/raw-byte-cases.json",
+      "sha256": "bfb5c05f75c4d13669a5f418b46b5d7c035566729807917bf7d40d2ebb9ab6dd"
+    },
+    {
+      "path": "tests/fixtures/new-user-t03/security-boundaries.json",
+      "sha256": "070fe3c6d47b6c1a50c9dadd73d9401160f8e6b49b144075531f7b630ac53679"
+    },
+    {
+      "path": "tests/fixtures/new-user-t03/strict-cases.json",
+      "sha256": "3ad8727939fcfa8dc22af097fb44dfff258125f8d70751b361f0e8bc96d370a5"
+    },
+    {
+      "path": "tests/fixtures/new-user-t03/strict-contract.schema.json",
+      "sha256": "61a74fa2409f09c1d9ab97d984805366d3a19b13ea55fee5f7899b7b68e19ad9"
+    },
+    {
+      "path": "tests/fixtures/new-user-t03/validator.py",
+      "sha256": "4d6e9dc715d8f33ab051232f427e769b4d33c7fd45cf78f4aa3e658354c85e78"
+    },
+    {
+      "path": "tests/fixtures/new-user-t03/validator.rs",
+      "sha256": "0fa89df8e9aef11674596cedcf0bfe19ac0d161de855ada1586ac8043a09acdf"
+    },
+    {
+      "path": "tests/fixtures/new-user-t03/validator.ts",
+      "sha256": "0bffbb16458f33704756b5386648d972366d44bf71c1b86cefed46e340ba2775"
+    }
+  ],
+  "baseline": "33a7472f06516753c5c66d76eac8e60538c2660f",
+  "reviewed_candidate": "adbd2c07ffca7dbea727574038d5a876fc6173f8",
+  "verified_source_head": "8a000f31c86b4f8f2622840d2d1f23830f81e566",
+  "candidate_delta": "Rust module declaration ordering only; frozen artifacts unchanged.",
+  "version_allocations": {
+    "durable_schema": 7,
+    "runtime_session": 2,
+    "bridge_protocol": 1,
+    "portable_metadata": 4
+  },
+  "independent_review": {
+    "status": "READY",
+    "initial_findings_resolved": 4,
+    "delta_findings_resolved": 2,
+    "remaining_findings": 0,
+    "scope": "Exact changed consumer code and ten hashed contract artifacts; unchanged review evidence retained."
+  },
+  "verification": {
+    "initial_parent_request": "t03-integrated-01",
+    "initial_make_verify": "All stages through desktop build/Python passed; stopped at cargo fmt module order.",
+    "python": {
+      "passed": 2093,
+      "skipped": 5,
+      "skip_reason": "existing filesystem-specific skips"
+    },
+    "plugin_tests_passed": 170,
+    "desktop_typescript_tests_passed": 157,
+    "desktop_python_tests_passed": 1,
+    "lint_typecheck_package_builds": "passed",
+    "repair_parent_request": "t03-rust-continuation-02",
+    "cargo_fmt": "passed after module-order repair",
+    "cargo_test_locked": {
+      "passed": 21,
+      "failed": 0
+    },
+    "git_diff_check": "passed",
+    "actionlint": "passed",
+    "full_suite_rerun": "Not repeated; parent approved focused remaining Cargo gates."
+  },
+  "coordinator_acceptance": {
+    "engine": "Task signatures, current/history authority, immutable identity and conservative historical reconstruction accepted for implementation.",
+    "app": "Strict Python, TypeScript and actual Rust consumers passed; preserve old grants and legacy operations.",
+    "collector": "Current namespace/identity and serializer compatibility retained; direct old writer fence required by T04, new queue/outcome implementation remains T09."
+  },
+  "limits": [
+    "T03 freezes contracts and executable consumer grammar; it does not implement schema7/session2/Portable4.",
+    "A02 storage writer refusal product proof remains T04. A03-A05/A07 remain implementation gates.",
+    "Migration/cursor runtime races, grant dispatch, client journeys and history/relationships must pass later submilestones.",
+    "No all-A01/public release/native GUI/provider acceptance claim."
+  ]
+}

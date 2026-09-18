@@ -62,7 +62,7 @@ def test_gmail_adapter_builds_selected_label_preview_without_bodies() -> None:
     assert selection.resource_id == "mail_label:label:OpenBrain"
 
 
-def test_microsoft_mail_import_updates_revision_checkpoint_and_replays_safely(
+def test_microsoft_mail_import_refuses_unordered_revision_and_replays_safely(
     tmp_path: Path,
 ) -> None:
     adapter = MicrosoftMailSourceAdapter()
@@ -126,23 +126,26 @@ def test_microsoft_mail_import_updates_revision_checkpoint_and_replays_safely(
     )
     changed_page = adapter.preview(selection, (changed,), privacy=_privacy())
     changed_intake = adapter.intake(selection, changed, privacy=_privacy())
-    changed_checkpoint, changed_receipt = adapter.import_page(
-        checkpoint,
-        MailPage(
-            status=MailPageStatus.READY,
-            preview=changed_page,
-            connector_name="microsoft_mail",
-        ),
-        (changed_intake,),
-        sink,
-    )
+    checkpoint_before = checkpoint.to_dict()
+    source_bytes = {p: p.read_bytes() for p in tmp_path.glob("brain-*/sources/**/*")
+                    if p.is_file()}
+    assert source_bytes
+    # Legacy deliveries lack ordering and head-CAS evidence for revision replacement.
+    with pytest.raises(ValueError, match="^conflicting delivery$"):
+        adapter.import_page(
+            checkpoint,
+            MailPage(
+                status=MailPageStatus.READY,
+                preview=changed_page,
+                connector_name="microsoft_mail",
+            ),
+            (changed_intake,),
+            sink,
+        )
+    assert checkpoint.to_dict() == checkpoint_before
+    assert {p: p.read_bytes() for p in tmp_path.glob("brain-*/sources/**/*")
+            if p.is_file()} == source_bytes
 
-    assert changed_receipt.outcome is ConnectorOutcome.COMPLETED
-    assert changed_receipt.created_count == 1
-    assert changed_checkpoint.committed_delivery_ids == checkpoint.committed_delivery_ids
-    assert changed_checkpoint.committed_revision_identities == (
-        changed_intake.key.revision_identity(),
-    )
 
 
 def test_google_drive_adapter_imports_selected_text_like_file_and_rejects_binary(

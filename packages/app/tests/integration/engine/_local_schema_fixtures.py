@@ -3,7 +3,35 @@
 import sqlite3
 from pathlib import Path
 
+import pytest
+from open_brain_engine.engine import local_schema
+from open_brain_engine.engine.local_schema_catalog import LOCAL_MIGRATIONS
+
 FIXTURES = Path(__file__).parents[5] / "tests/fixtures/local-schema"
+
+
+def use_schema_six_runtime(monkeypatch: pytest.MonkeyPatch, namespace: dict[str, object]) -> None:
+    """Execute historical migration/restore contracts at their fixed target version.
+
+    Existing SQL fixtures and their checksums remain unchanged. Current schema-seven
+    activation is exercised independently by source migration and source task tests.
+    """
+    monkeypatch.setattr(local_schema, "PHASE1_STATE_SCHEMA_VERSION", 6)
+    monkeypatch.setattr(local_schema, "LOCAL_MIGRATIONS", LOCAL_MIGRATIONS[:6])
+    if "PHASE1_STATE_SCHEMA_VERSION" in namespace:
+        monkeypatch.setitem(namespace, "PHASE1_STATE_SCHEMA_VERSION", 6)
+    if "LOCAL_MIGRATIONS" in namespace:
+        monkeypatch.setitem(namespace, "LOCAL_MIGRATIONS", LOCAL_MIGRATIONS[:6])
+
+
+def schema_six_script(script: str) -> str:
+    """Select the same historical target in an actual child-process failure schedule."""
+    return (
+        "from open_brain_engine.engine import local_schema as _historical_schema\n"
+        "_historical_schema.PHASE1_STATE_SCHEMA_VERSION = 6\n"
+        "_historical_schema.LOCAL_MIGRATIONS = _historical_schema.LOCAL_MIGRATIONS[:6]\n"
+        + script
+    )
 
 
 def rematerialize_w2(connection: sqlite3.Connection, *, version: int = 1) -> None:

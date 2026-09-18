@@ -185,3 +185,10 @@ def test_review_migration_failure_keeps_historical_schema(
         assert classify_local_schema(retried).state == "current"
     finally:
         retried.close()
+
+
+@pytest.fixture(autouse=True)
+def historical_schema_six_contract(monkeypatch: pytest.MonkeyPatch) -> None:
+    from packages.app.tests.integration.engine._local_schema_fixtures import use_schema_six_runtime
+
+    use_schema_six_runtime(monkeypatch, globals())

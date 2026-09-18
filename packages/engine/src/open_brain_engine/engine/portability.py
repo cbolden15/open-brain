@@ -17,7 +17,9 @@ from open_brain_engine.portable import (
     PORTABLE_V3_SCHEMA_CATALOG_DIGEST,
 )
 from open_brain_engine.portable.managed_v2 import PORTABLE_V2_SCHEMA_CATALOG_DIGEST
+from open_brain_engine.portable.relationships_v1 import RELATIONSHIP_METADATA_PATH
 from open_brain_engine.portable.v1 import PortableSnapshot
+from open_brain_engine.portable.v4 import SOURCE_METADATA_PATH, catalog_digest
 from open_brain_engine.portable.versioned import validate_portable_root, validated_portable_snapshot
 from open_brain_engine.storage.filesystem import RootIdentity, capture_root_identity, read_confined
 from open_brain_engine.storage.locks import FileLease
@@ -62,6 +64,7 @@ def _receipt(
         1,
         2,
         3,
+        4,
     }:
         raise ValueError("unsupported Portable Brain schema")
     entries = cast(list[dict[str, object]], manifest["files"])
@@ -87,7 +90,7 @@ def _manifest(
     tenant_id: str,
     version: int = 1,
 ) -> dict[str, object]:
-    if version not in {1, 2, 3}:
+    if version not in {1, 2, 3, 4}:
         raise ValueError("unsupported Portable Brain schema")
     return {
         "compatibility": {
@@ -105,6 +108,7 @@ def _manifest(
             1: PORTABLE_V1_SCHEMA_CATALOG_DIGEST,
             2: PORTABLE_V2_SCHEMA_CATALOG_DIGEST,
             3: PORTABLE_V3_SCHEMA_CATALOG_DIGEST,
+            4: catalog_digest(dict(files)),
         }[version],
         "schema_version": version,
         "tenant_id": tenant_id,
@@ -177,10 +181,7 @@ def _read_ready_record(
 
 
 def _materialization_counts(manifest: dict[str, object]) -> dict[str, int]:
-    paths = [
-        cast(str, entry["path"])
-        for entry in cast(list[dict[str, object]], manifest["files"])
-    ]
+    paths = [cast(str, entry["path"]) for entry in cast(list[dict[str, object]], manifest["files"])]
     return {
         "batches": sum(path.startswith("sources/batches/") for path in paths),
         "blobs": sum(path.startswith("sources/blobs/") for path in paths),
@@ -192,13 +193,18 @@ def _materialization_counts(manifest: dict[str, object]) -> dict[str, int]:
 def _validate_ready_record(
     manifest: dict[str, object], *, import_id: str, ready: dict[str, object]
 ) -> tuple[dict[str, int], int]:
-    if set(ready) != {
-        "import_id",
-        "index",
-        "materialization",
-        "schema_version",
-        "source_manifest",
-    } or ready.get("import_id") != import_id or ready.get("schema_version") != 1:
+    if (
+        set(ready)
+        != {
+            "import_id",
+            "index",
+            "materialization",
+            "schema_version",
+            "source_manifest",
+        }
+        or ready.get("import_id") != import_id
+        or ready.get("schema_version") != 1
+    ):
         raise ValueError("portable import retry evidence is invalid")
     source_manifest = ready.get("source_manifest")
     index = ready.get("index")
@@ -283,9 +289,7 @@ def _destination_identity(
         raise ValueError("portable destination is unsafe") from error
 
 
-def _index_generation(
-    root: Path, expected_root_identity: RootIdentity | None = None
-) -> int | None:
+def _index_generation(root: Path, expected_root_identity: RootIdentity | None = None) -> int | None:
     try:
         connection = connect_database_read_only(
             root=root,
@@ -344,8 +348,7 @@ def _validate_reopened_import(
         raise ValueError("portable import retry evidence is invalid")
     if (
         int(row[0]) != counts["captures"]
-        or _read_ready_record(destination, expected_root_identity).get("import_id")
-        != import_id
+        or _read_ready_record(destination, expected_root_identity).get("import_id") != import_id
     ):
         raise ValueError("portable import retry evidence is invalid")
 
@@ -396,9 +399,7 @@ class PortabilityTasks:
                 destination,
                 self._engine.profile.owner_actor_id,
                 parent_identity,
-            ).acquire(
-                LockScope.PORTABILITY_PROMOTION
-            ),
+            ).acquire(LockScope.PORTABILITY_PROMOTION),
         ):
             _destination_parent_identity(
                 destination,
@@ -450,6 +451,27 @@ class PortabilityTasks:
         managed = export_managed_workspace_state(self._engine)
         if managed is not None:
             files.append(managed)
+        connection = self._engine._store.connect()
+        try:
+            if connection.execute("PRAGMA user_version").fetchone()[0] >= 7:
+                from .relationship_store import relationship_metadata
+                from .source_store import source_metadata
+
+                relation = relationship_metadata(connection)
+                files = [(path, data) for path, data in files if path != RELATIONSHIP_METADATA_PATH]
+                if relation is not None:
+                    files.append(
+                        (RELATIONSHIP_METADATA_PATH, portable_canonical_json_bytes(relation))
+                    )
+                files = [(path, data) for path, data in files if path != SOURCE_METADATA_PATH]
+                files.append(
+                    (
+                        SOURCE_METADATA_PATH,
+                        portable_canonical_json_bytes(source_metadata(connection)),
+                    )
+                )
+        finally:
+            connection.close()
         files.sort(key=lambda item: item[0])
         has_review_bindings = any(
             relative.startswith("history/review-bindings/") for relative, _ in files
@@ -459,7 +481,13 @@ class PortabilityTasks:
             export_id=export_id,
             created_at=_timestamp(self._engine._clock()),
             tenant_id=self._engine.profile.tenant_id,
-            version=3 if has_review_bindings else 2 if managed is not None else 1,
+            version=4
+            if any(path == SOURCE_METADATA_PATH for path, _ in files)
+            else 3
+            if has_review_bindings
+            else 2
+            if managed is not None
+            else 1,
         )
         try:
             with sibling_stage(
@@ -514,6 +542,8 @@ class PortabilityTasks:
             expected_root_identity=source_identity,
         )
         manifest = source_snapshot.manifest
+        if manifest["schema_version"] == 4:
+            raise ValueError("Portable v4 import is not supported")
         parent_identity = _destination_parent_identity(
             destination,
             source_identity,
@@ -522,9 +552,7 @@ class PortabilityTasks:
             destination,
             self._engine.profile.owner_actor_id,
             parent_identity,
-        ).acquire(
-            LockScope.PORTABILITY_PROMOTION
-        ):
+        ).acquire(LockScope.PORTABILITY_PROMOTION):
             _destination_parent_identity(
                 destination,
                 source_identity,
@@ -706,11 +734,10 @@ class PortabilityTasks:
             created_at="1970-01-01T00:00:00Z",
             tenant_id=self._engine.profile.tenant_id,
             version=(
-                3
-                if any(
-                    relative.startswith("history/review-bindings/")
-                    for relative, _ in files
-                )
+                4
+                if any(path == SOURCE_METADATA_PATH for path, _ in files)
+                else 3
+                if any(relative.startswith("history/review-bindings/") for relative, _ in files)
                 else 1
             ),
         )

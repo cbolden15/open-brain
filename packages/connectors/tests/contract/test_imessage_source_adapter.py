@@ -55,7 +55,7 @@ def test_imessage_adapter_reads_only_selected_conversation_from_sqlite(tmp_path:
     assert "must not appear" not in repr(page.preview.to_dict())
 
 
-def test_imessage_import_updates_revision_checkpoint_and_replays_safely(
+def test_imessage_import_refuses_unordered_revision_and_replays_safely(
     tmp_path: Path,
 ) -> None:
     database = _fixture_database(tmp_path)
@@ -110,23 +110,26 @@ def test_imessage_import_updates_revision_checkpoint_and_replays_safely(
         limit=1,
     )
     changed_intake = _intakes_from_preview(adapter, selection, database, limit=1)[0]
-    changed_checkpoint, changed_receipt = adapter.import_page(
-        checkpoint,
-        changed_page,
-        (changed_intake,),
-        sink,
-    )
+    checkpoint_before = checkpoint.to_dict()
+    source_bytes = {p: p.read_bytes() for p in tmp_path.glob("brain-*/sources/**/*")
+                    if p.is_file()}
+    assert source_bytes
+    # Legacy deliveries lack ordering and head-CAS evidence for revision replacement.
+    with pytest.raises(ValueError, match="^conflicting delivery$"):
+        adapter.import_page(
+            checkpoint,
+            changed_page,
+            (changed_intake,),
+            sink,
+        )
+    assert checkpoint.to_dict() == checkpoint_before
+    assert {p: p.read_bytes() for p in tmp_path.glob("brain-*/sources/**/*")
+            if p.is_file()} == source_bytes
 
     assert changed_page.preview is not None
     assert (
         original_page.preview.records[0].delivery_id
         == changed_page.preview.records[0].delivery_id
-    )
-    assert changed_receipt.outcome is ConnectorOutcome.COMPLETED
-    assert changed_receipt.created_count == 1
-    assert changed_checkpoint.committed_delivery_ids == checkpoint.committed_delivery_ids
-    assert changed_checkpoint.committed_revision_identities == (
-        changed_intake.key.revision_identity(),
     )
 
 

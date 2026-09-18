@@ -2033,3 +2033,83 @@ before invoking a mutation. Regression tests cover long references, depleted wri
 complete pagination of 100 Unicode-heavy captures through the real MCP serializer.
 
 Discovered: 2026-09-16, independent organization review and synthetic reproductions.
+### OBSIDIAN-001: Commands reuse the session opened during plugin startup
+
+Symptom: Paged search and publication stop with invalid_arguments before opening their forms.
+
+Cause: Startup calls workspace.status, which admits a persistent Brain session. Later commands
+call brain.initialize on that same child. Tests with a fresh child per operation miss this order.
+
+Fix: Treat a valid initialization request on an already admitted session as already_initialized.
+Do not enter bootstrap again or bypass argument validation. Exercise startup status, repeated
+initialization, capture, and search through one real stdio session.
+
+Discovered: 2026-09-18, synthetic Obsidian acceptance and a persistent-bridge regression.
+
+### OBSIDIAN-002: Renderer timers may return numbers
+
+Symptom: Disabling the plugin reports failure even though its bridge processes exit.
+
+Cause: Bridge disposal sends termination before calling unref on its force-kill timer.
+Electron renderer timers can return a number, which has no Node unref method.
+
+Fix: Call unref only when the timer provides it. Preserve the delayed force-kill fallback.
+Test disposal with a numeric timer handle as well as normal Node timers.
+
+Discovered: 2026-09-18, synthetic Obsidian acceptance and a numeric-timer regression.
+
+### MCP-STARTUP-001: Retrieval tests should admit sessions before comparing cursors
+
+Symptom: A test for cross-session cursor rejection intermittently receives database_busy while
+starting its second MCP child.
+
+Cause: Both children begin bootstrap at once. Initialization can require a write even when each
+session later has only retrieval grants. The startup race obscures the cursor behavior under test.
+
+Fix: Wait for the first child's initialization response before spawning the second. Retain both
+live sessions for cursor isolation and grant checks, and clean up the first if second startup fails.
+Use the dedicated contention tests to exercise retryable startup failures.
+
+Discovered: 2026-09-18, full M2 verification; the isolated retrieval recheck passed.
+
+### OBSIDIAN-003: Untrusted previews need display projection, not inbox rejection
+
+Symptom: One capture with terminal control characters prevents the entire publication capture
+list from opening, including unrelated valid captures.
+
+Cause: The inbox client applied a rendered-text restriction to valid untrusted preview data.
+
+Fix: Keep the original nonempty, NUL-free preview for selection and draft generation. Escape C0
+controls as visible Unicode sequences only in the capture-choice label. Keep protocol, identifier,
+title, and canonical Markdown validation strict. Raw control-bearing drafts still require editing.
+
+Discovered: 2026-09-18, synthetic Obsidian publication acceptance with the S07 hostile fixture.
+
+### OBSIDIAN-004: Suggestion selection closes before delivering its value
+
+Symptom: Choosing an existing space or Create a new space silently cancels publication.
+
+Cause: Obsidian calls close before onChooseItem. Resolving cancellation synchronously in onClose
+wins the promise before the selected value arrives. Tests that call onChooseItem directly miss it.
+
+Fix: Defer cancellation to a microtask so the synchronous choice callback can settle first.
+Keep Escape cancellation and single settlement. Exercise the real close-before-choice ordering
+through the publication command for existing-space, new-space, and cancellation paths.
+
+Discovered: 2026-09-18, Obsidian 1.13.7 GUI acceptance and installed callback-order inspection.
+
+### OBSIDIAN-005: External note creation registers asynchronously
+
+Symptom: Publication succeeds and the exact managed note exists on disk, but opening it immediately
+reports source_unavailable. The same note becomes available in Obsidian later.
+
+Cause: Native workspace refresh writes the canonical note outside Obsidian's Vault API. Obsidian's
+filesystem watcher registers that file after the bridge response, so an immediate synchronous vault
+lookup can return null.
+
+Fix: Guard the full open operation with plugin lifecycle state before and after managed-vault
+validation and again before opening. Then check the normalized path, subscribe to the public vault
+create event, and check again to close the lookup-to-listener race. Bound the wait and remove its
+listener and timer on success, timeout, or plugin unload. Never bypass the vault to open the file.
+
+Discovered: 2026-09-18, Obsidian 1.13.7 GUI publication acceptance and delayed Quick Switcher proof.

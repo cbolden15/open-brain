@@ -88,8 +88,10 @@ def _provider(monkeypatch: pytest.MonkeyPatch) -> _Google:
     return google
 
 
-def test_provider_preview_import_update_cancel_fresh_retrieval_and_export(
+@pytest.mark.parametrize("change", ["update", "cancel"])
+def test_provider_refuses_unordered_change_preserving_retrieval_and_export(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str],
+    change: str,
 ) -> None:
     google = _provider(monkeypatch)
     brain = tmp_path / "brain"
@@ -116,41 +118,41 @@ def test_provider_preview_import_update_cancel_fresh_retrieval_and_export(
     assert len(results) == 1 and results[0].trust == "third_party"
     assert results[0].provenance.source_origin == "third_party"
 
-    google.queue(google.event("Revisedneedle discussion", link=LINK + "&ctz=UTC"),
-                 token="next-cursor-2")
+    changed: dict[str, object] = (google.event("Revisedneedle discussion", link=LINK + "&ctz=UTC")
+               if change == "update" else {"id": "synthetic-instance", "status": "cancelled"})
+    google.queue(changed, token="next-cursor-2")
     second = execute("preview")
     request = parse_qs(urlsplit(google.requests[-1].full_url).query)
     assert request["syncToken"] == ["next-cursor-1"]
     assert "timeMin" not in request and "timeMax" not in request
-    execute("import", "--preview-id", str(second["preview_id"]))
+    state_before = {p.name: p.read_bytes() for p in (tmp_path / "state").glob("*.json")}
+    assert run_cli(_args(tmp_path, "import", "--preview-id", str(second["preview_id"]))) == 78
+    error = json.loads(capsys.readouterr().out)
+    assert "google_calendar_import_failed" in json.dumps(error)
+    assert {p.name: p.read_bytes() for p in (tmp_path / "state").glob("*.json")} == state_before
     tasks = open_local_engine(profile)
-    assert not tasks.retrieval.search("Originalneedle")
-    assert len(tasks.retrieval.search("Revisedneedle")) == 1
+    assert len(tasks.retrieval.search("Originalneedle")) == 1
+    assert not tasks.retrieval.search("Revisedneedle")
     query = subprocess.run([
         sys.executable, "-I", "-c",
         "from pathlib import Path; from open_brain.profile import compile_single_user_local; "
         "from open_brain_engine.engine import open_local_engine; import sys; "
         "r=open_local_engine(compile_single_user_local(Path(sys.argv[1])))"
-        ".retrieval.search('Revisedneedle'); print(len(r),r[0].trust)", str(brain),
+        ".retrieval.search('Originalneedle'); print(len(r),r[0].trust)", str(brain),
     ], capture_output=True, text=True, timeout=20, check=True)
     assert query.stdout.strip() == "1 third_party"
 
-    google.queue({"id": "synthetic-instance", "status": "cancelled"}, token="next-cursor-3")
-    cancellation = execute("preview")
-    execute("import", "--preview-id", str(cancellation["preview_id"]))
+    assert execute("status")["pending"] is True
     reopened = open_local_engine(profile)
-    assert not reopened.retrieval.search("Revisedneedle")
-    assert len(reopened.retrieval.search("cancelled")) == 1
-    assert execute("status")["configured"] is True
     exported = tmp_path / "export"
     reopened.portability.export(exported, export_id=f"export_{uuid4()}")
     history = b"\n".join(path.read_bytes() for path in exported.rglob("*") if path.is_file())
-    assert b"Originalneedle" in history and b"Revisedneedle" in history
+    assert b"Originalneedle" in history and b"Revisedneedle" not in history
     assert LINK.encode() in history and b"Source revision:" in history
     assert b"omit@example.invalid" not in history
 
 
-def test_expired_cursor_resync_reconciles_missing_event_and_revocation_keeps_state(
+def test_expired_cursor_resync_refuses_unordered_tombstone_and_revocation_keeps_state(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str],
 ) -> None:
     google = _provider(monkeypatch)
@@ -171,11 +173,13 @@ def test_expired_cursor_resync_reconciles_missing_event_and_revocation_keeps_sta
     assert run_cli(_args(tmp_path, "preview")) == 0
     resync = json.loads(capsys.readouterr().out)
     assert resync["full_sync"] is True and resync["record_count"] == 1
-    assert run_cli(_args(tmp_path, "import", "--preview-id", resync["preview_id"])) == 0
-    capsys.readouterr()
+    before_apply = {p.name: p.read_bytes() for p in (tmp_path / "state").glob("*.json")}
+    assert run_cli(_args(tmp_path, "import", "--preview-id", resync["preview_id"])) == 78
+    assert "google_calendar_import_failed" in capsys.readouterr().out
+    assert {p.name: p.read_bytes() for p in (tmp_path / "state").glob("*.json")} == before_apply
     tasks = open_local_engine(profile)
-    assert not tasks.retrieval.search("Removalneedle")
-    assert len(tasks.retrieval.search("unavailable")) == 1
+    assert len(tasks.retrieval.search("Removalneedle")) == 1
+    assert not tasks.retrieval.search("unavailable")
 
 
 def test_prepared_batch_cannot_be_applied_to_another_brain(

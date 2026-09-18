@@ -62,7 +62,7 @@ def _selected(path: Path) -> document_files.SelectedDocument:
 
 
 @pytest.mark.parametrize("kind", ["pdf", "docx"])
-def test_real_file_preview_import_replay_revision_and_portable_history(
+def test_real_file_preview_replay_and_unordered_revision_refusal(
     tmp_path: Path, kind: str,
 ) -> None:
     source = tmp_path / f"private-filename.{kind}"
@@ -101,18 +101,18 @@ def test_real_file_preview_import_replay_revision_and_portable_history(
         import_document(
             changed, connection_id=CONNECTION, preview_id=original.preview_id, brain_root=brain,
         )
-    second = capture(changed)
-    assert second["capture_id"] != first["capture_id"]
+    with pytest.raises(ConnectorContractError, match="^document_import_failed$"):
+        capture(changed)
     reopened = open_local_engine(compile_single_user_local(brain))
-    assert not reopened.retrieval.search("Originalneedle")
-    assert len(reopened.retrieval.search("Revisedneedle")) == 1
-    assert capture(changed)["status"] == "unchanged"
+    assert len(reopened.retrieval.search("Originalneedle")) == 1
+    assert not reopened.retrieval.search("Revisedneedle")
+    assert capture(original)["status"] == "unchanged"
     export = tmp_path / "export"
     reopened.portability.export(export, export_id=f"export_{uuid4()}")
     exported = b"\n".join(p.read_bytes() for p in export.rglob("*") if p.is_file())
-    assert b"Originalneedle" in exported and b"Revisedneedle" in exported
+    assert b"Originalneedle" in exported and b"Revisedneedle" not in exported
     assert original.record.revision_id.encode() in exported
-    assert changed.record.revision_id.encode() in exported
+    assert changed.record.revision_id.encode() not in exported
     assert b"private-filename" not in exported
     assert str(tmp_path).encode() not in exported
 
@@ -323,9 +323,24 @@ def test_pdf_parser_disables_external_decoder_and_bounds_streams(
 
 @pytest.mark.skipif(sys.platform != "darwin", reason="Darwin resident-memory watchdog")
 def test_mac_parser_memory_guard_reaps_child(monkeypatch: pytest.MonkeyPatch) -> None:
+    popen = subprocess.Popen
+    children: list[subprocess.Popen[bytes]] = []
+
+    def sleeping_child(*args: Any, **kwargs: Any) -> subprocess.Popen[bytes]:
+        # Keep the parser alive for the real RSS watchdog's first sample. A tiny
+        # malformed PDF can otherwise return document_invalid before that sample.
+        child = popen([sys.executable, "-I", "-c", "import time; time.sleep(30)"], **kwargs)
+        children.append(child)
+        return child
+
+    monkeypatch.setattr(subprocess, "Popen", sleeping_child)
     monkeypatch.setattr(document_files, "MEMORY_BYTES", 1)
     with pytest.raises(ConnectorContractError, match="document_parser_memory_limit"):
-        document_files._extract(b"%PDF-1.7\n", "text_pdf")
+        document_files._extract(b"fixture", "text_pdf")
+    assert len(children) == 1
+    assert children[0].returncode is not None and children[0].returncode < 0
+    with pytest.raises(ChildProcessError):
+        os.waitpid(children[0].pid, os.WNOHANG)
 
 
 def test_cli_errors_do_not_expose_document_or_path(

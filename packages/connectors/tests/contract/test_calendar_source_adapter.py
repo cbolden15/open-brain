@@ -74,7 +74,7 @@ def test_calendar_source_reference_encodes_event_path_token() -> None:
     )
 
 
-def test_calendar_import_updates_revision_checkpoint_and_replays_safely(
+def test_calendar_import_refuses_unordered_revision_and_replays_safely(
     tmp_path: Path,
 ) -> None:
     adapter = CalendarSourceAdapter()
@@ -149,33 +149,36 @@ def test_calendar_import_updates_revision_checkpoint_and_replays_safely(
     )
     changed_page = adapter.preview(selection, (changed,), privacy=_privacy())
     changed_intake = adapter.intake(selection, changed, privacy=_privacy())
-    changed_checkpoint, changed_receipt = adapter.import_page(
-        checkpoint,
-        adapter.page_from_events(
-            selection,
-            (
-                _event(
-                    provider="outlook_calendar",
-                    description="Synthetic changed event notes.",
-                    revision_id="rev-2",
+    checkpoint_before = checkpoint.to_dict()
+    source_bytes = {p: p.read_bytes() for p in tmp_path.glob("brain-*/sources/**/*")
+                    if p.is_file()}
+    assert source_bytes
+    # Legacy deliveries lack ordering and head-CAS evidence for revision replacement.
+    with pytest.raises(ValueError, match="^conflicting delivery$"):
+        adapter.import_page(
+            checkpoint,
+            adapter.page_from_events(
+                selection,
+                (
+                    _event(
+                        provider="outlook_calendar",
+                        description="Synthetic changed event notes.",
+                        revision_id="rev-2",
+                    ),
                 ),
+                privacy=_privacy(),
+                selected_event_ids=(_EVENT_ID,),
+                range_start="2026-09-15T00:00:00Z",
+                range_end="2026-09-16T00:00:00Z",
             ),
-            privacy=_privacy(),
-            selected_event_ids=(_EVENT_ID,),
-            range_start="2026-09-15T00:00:00Z",
-            range_end="2026-09-16T00:00:00Z",
-        ),
-        (changed_intake,),
-        sink,
-    )
+            (changed_intake,),
+            sink,
+        )
+    assert checkpoint.to_dict() == checkpoint_before
+    assert {p: p.read_bytes() for p in tmp_path.glob("brain-*/sources/**/*")
+            if p.is_file()} == source_bytes
 
     assert original_page.records[0].delivery_id == changed_page.records[0].delivery_id
-    assert changed_receipt.outcome is ConnectorOutcome.COMPLETED
-    assert changed_receipt.created_count == 1
-    assert changed_checkpoint.committed_delivery_ids == checkpoint.committed_delivery_ids
-    assert changed_checkpoint.committed_revision_identities == (
-        changed_intake.key.revision_identity(),
-    )
 
 
 def test_calendar_checkpoint_retains_prior_pages_without_resubmitting(
@@ -407,24 +410,24 @@ def test_calendar_changed_stale_page_does_not_rewind_cursor(
         (second_intake,),
         sink,
     )
-    changed_checkpoint, changed_receipt = adapter.import_page(
-        second_checkpoint,
-        changed_first_replay,
-        (changed_first_intake,),
-        sink,
-    )
+    checkpoint_before = second_checkpoint.to_dict()
+    source_bytes = {p: p.read_bytes() for p in tmp_path.glob("brain-*/sources/**/*")
+                    if p.is_file()}
+    assert source_bytes
+    # Legacy deliveries lack ordering and head-CAS evidence for revision replacement.
+    with pytest.raises(ValueError, match="^conflicting delivery$"):
+        adapter.import_page(
+            second_checkpoint,
+            changed_first_replay,
+            (changed_first_intake,),
+            sink,
+        )
+    assert second_checkpoint.to_dict() == checkpoint_before
+    assert {p: p.read_bytes() for p in tmp_path.glob("brain-*/sources/**/*")
+            if p.is_file()} == source_bytes
 
     assert second_checkpoint.next_cursor == "cursor:page3"
     assert second_checkpoint.observed_page_cursors == ("cursor:page2", "cursor:page3")
-    assert changed_checkpoint.next_cursor == "cursor:page3"
-    assert changed_checkpoint.observed_page_cursors == second_checkpoint.observed_page_cursors
-    assert changed_checkpoint.committed_delivery_ids == second_checkpoint.committed_delivery_ids
-    assert changed_checkpoint.committed_revision_identities == (
-        changed_first_intake.key.revision_identity(),
-        second_intake.key.revision_identity(),
-    )
-    assert changed_receipt.outcome is ConnectorOutcome.COMPLETED
-    assert changed_receipt.submitted_count == 1
 
 
 def test_calendar_import_treats_all_deselected_preview_as_empty(

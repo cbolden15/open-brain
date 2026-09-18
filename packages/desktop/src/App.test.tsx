@@ -6,7 +6,12 @@ import { App } from "./App";
 
 vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
 const mockedInvoke = vi.mocked(invoke);
-const status = { status: "ok", brain_root: "/synthetic/brain", initialized: false, state_schema_version: 6, runtime_session_version: 1 };
+const status = { status: "ok", brain_root: "/synthetic/brain", initialized: false, state_schema_version: 7, runtime_session_version: 2 };
+const contract = {
+  status: "ok", contract_version: "t03.v1",
+  operations: ["search.page", "record.read"].map(name => ({ name, dto_version: 1, required_grants: [name === "record.read" ? "content-read" : "search"] })),
+  limits: { request_bytes: 65536, response_bytes: 1048576, content_calls: 500, content_bytes: 16777216, history_calls: 500, history_bytes: 16777216 },
+};
 const preview = {
   status: "preview", preview_id: "setup_synthetic", client: "claude-code", scope: "project",
   action: "configure", brain_root: "/synthetic/brain", runtime_path: "/synthetic/open-brain",
@@ -16,7 +21,7 @@ const preview = {
 
 beforeEach(() => {
   mockedInvoke.mockReset();
-  mockedInvoke.mockResolvedValue(status);
+  mockedInvoke.mockImplementation(async (_command, input) => (input as { operation?: string }).operation === "contract.describe" ? contract : status);
 });
 afterEach(cleanup);
 
@@ -55,7 +60,7 @@ describe("desktop user operations", () => {
     expect(editor.readOnly).toBe(true);
     expect(editor.value).toBe("synthetic retry memory");
     fireEvent.click(screen.getByRole("button", { name: "Retry this save" }));
-    await screen.findByText("Saved to your Brain.");
+    await screen.findByText("Captured to your inbox.");
     const captures = mockedInvoke.mock.calls.filter(([, input]) => (input as { operation: string }).operation === "capture.create");
     expect(captures).toHaveLength(2);
     expect(captures[0]?.[1]).toEqual(captures[1]?.[1]);
@@ -81,10 +86,15 @@ describe("desktop user operations", () => {
 
   it("shows source text as inert text in search results", async () => {
     const unsafeText = '<img src="x" onerror="alert(1)">';
-    mockedInvoke.mockImplementation(async (_command, input) =>
-      (input as { operation: string }).operation === "system.status" ? status : {
-        results: [{ result_id: "synthetic", title: unsafeText, excerpt: "Untrusted source content", record_type: "source", source_origin: "imported", trust: "unverified" }],
-      });
+    mockedInvoke.mockImplementation(async (_command, input) => {
+      const operation = (input as { operation: string }).operation;
+      if (operation === "system.status") return status;
+      if (operation === "contract.describe") return contract;
+      return {
+        status: "ok", dto_version: 1, next_cursor: null, complete: true, mode_used: "lexical", warnings: [],
+        results: [{ record_id: "capture_123e4567-e89b-42d3-a456-426614174100", revision_id: "capture_123e4567-e89b-42d3-a456-426614174100", source_id: "source_123e4567-e89b-42d3-a456-426614174200", title: unsafeText, excerpt: "Untrusted source content", record_type: "source", payload_family: "text", space_id: null, trust: "unverified", provenance: { representative_capture_id: "capture_123e4567-e89b-42d3-a456-426614174100", capture_ids: ["capture_123e4567-e89b-42d3-a456-426614174100"], source_origin: "third_party" }, source_update_available: false }],
+      };
+    });
     await ready();
     fireEvent.change(screen.getByLabelText("Search your Brain"), { target: { value: "synthetic" } });
     fireEvent.click(screen.getByRole("button", { name: "Search" }));

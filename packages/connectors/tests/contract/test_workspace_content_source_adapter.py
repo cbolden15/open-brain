@@ -134,7 +134,7 @@ def test_workspace_content_preview_is_metadata_only_for_selected_notion_page() -
     assert "must not appear" not in repr(page.preview.to_dict())
 
 
-def test_workspace_content_import_updates_revision_checkpoint_and_replays_safely(
+def test_workspace_content_import_refuses_unordered_revision_and_replays_safely(
     tmp_path: Path,
 ) -> None:
     adapter = WorkspaceContentSourceAdapter()
@@ -187,23 +187,26 @@ def test_workspace_content_import_updates_revision_checkpoint_and_replays_safely
         (original_intake,),
         sink,
     )
-    changed_checkpoint, changed_receipt = adapter.import_page(
-        checkpoint,
-        changed_page,
-        (changed_intake,),
-        sink,
-    )
+    checkpoint_before = checkpoint.to_dict()
+    source_bytes = {p: p.read_bytes() for p in tmp_path.glob("brain-*/sources/**/*")
+                    if p.is_file()}
+    assert source_bytes
+    # Legacy deliveries lack ordering and head-CAS evidence for revision replacement.
+    with pytest.raises(ValueError, match="^conflicting delivery$"):
+        adapter.import_page(
+            checkpoint,
+            changed_page,
+            (changed_intake,),
+            sink,
+        )
+    assert checkpoint.to_dict() == checkpoint_before
+    assert {p: p.read_bytes() for p in tmp_path.glob("brain-*/sources/**/*")
+            if p.is_file()} == source_bytes
 
     assert receipt.outcome is ConnectorOutcome.COMPLETED
     assert replayed_checkpoint == checkpoint
     assert replayed_receipt.outcome is ConnectorOutcome.EMPTY
     assert original_intake.key.delivery_id() == changed_intake.key.delivery_id()
-    assert changed_receipt.outcome is ConnectorOutcome.COMPLETED
-    assert changed_receipt.created_count == 1
-    assert changed_checkpoint.committed_delivery_ids == checkpoint.committed_delivery_ids
-    assert changed_checkpoint.committed_revision_identities == (
-        changed_intake.key.revision_identity(),
-    )
 
 
 def test_workspace_content_selected_page_allows_child_blocks_and_comments_without_id_leak() -> None:

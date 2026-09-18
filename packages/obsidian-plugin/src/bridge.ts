@@ -1,3 +1,4 @@
+import { parseStrictJson } from "./strict-json";
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { realpath, stat } from "node:fs/promises";
@@ -15,8 +16,13 @@ import {
 const MAX_REQUEST_BYTES = 64 * 1024;
 const MAX_RESPONSE_BYTES = 5 * 1024 * 1024;
 const MAX_STDERR_BYTES = 16 * 1024;
+const INTEGER_WIRE_OPERATIONS = new Set<string>([
+  "contract.describe", "search.page", "record.read", "history.list", "history.show",
+  "source.route", "relationship.decide", "relationship.list", "decision.history",
+]);
 
 type Pending = {
+  operation: PluginOperation;
   reject: (error: Error) => void;
   resolve: (value: unknown) => void;
   timer: ReturnType<typeof setTimeout>;
@@ -85,12 +91,14 @@ export class OpenBrainBridge {
         this.#terminate();
       }, timeoutMs);
       this.#pending.set(requestId, {
+        operation,
         reject,
         resolve: (value) => resolve(value as T),
         timer,
       });
       child.stdin.write(payload, (error) => {
         if (error !== null && error !== undefined) {
+          if (this.#child !== child) return;
           const pending = this.#pending.get(requestId);
           if (pending !== undefined) {
             clearTimeout(pending.timer);
@@ -108,6 +116,11 @@ export class OpenBrainBridge {
     this.#terminate();
   }
 
+  /** Cancel in-flight work while keeping this client reusable for a fresh child session. */
+  public cancelPending(): void {
+    if (!this.#disposed) this.#terminate();
+  }
+
   #ensureChild(): ChildProcessWithoutNullStreams {
     if (this.#child !== null && this.#child.exitCode === null) return this.#child;
     const child = this.#spawn(this.#executable, ["plugin"], {
@@ -120,14 +133,22 @@ export class OpenBrainBridge {
     this.#child = child;
     this.#stdout = Buffer.alloc(0);
     this.#stderrBytes = 0;
-    child.stdout.on("data", (chunk: Buffer | string) => this.#onStdout(chunk));
+    child.stdout.on("data", (chunk: Buffer | string) => {
+      if (this.#child === child) this.#onStdout(chunk);
+    });
     child.stderr.on("data", (chunk: Buffer | string) => {
+      if (this.#child !== child) return;
       this.#stderrBytes += Buffer.byteLength(chunk);
       if (this.#stderrBytes > MAX_STDERR_BYTES) this.#terminate();
     });
-    child.once("error", () => this.#failAll("transport_failed"));
+    child.once("error", () => {
+      if (this.#child !== child) return;
+      this.#child = null;
+      this.#failAll("transport_failed");
+    });
     child.once("exit", () => {
-      if (this.#child === child) this.#child = null;
+      if (this.#child !== child) return;
+      this.#child = null;
       this.#failAll("bridge_closed");
     });
     return child;
@@ -152,7 +173,7 @@ export class OpenBrainBridge {
   #handleLine(line: Buffer): void {
     let response: Record<string, unknown>;
     try {
-      response = record(JSON.parse(line.toString("utf8")));
+      response = record(parseStrictJson(line));
     } catch {
       this.#failAll("protocol_error");
       this.#terminate();
@@ -173,6 +194,17 @@ export class OpenBrainBridge {
       this.#failAll("protocol_error");
       this.#terminate();
       return;
+    }
+    if (INTEGER_WIRE_OPERATIONS.has(pending.operation)) {
+      try {
+        if (line.length + 1 > 1024 * 1024) throw new Error("response_too_large");
+        // Validate the original lexemes before JSON's number conversion can erase them.
+        parseStrictJson(line, true);
+      } catch {
+        this.#failAll("protocol_error");
+        this.#terminate();
+        return;
+      }
     }
     clearTimeout(pending.timer);
     this.#pending.delete(requestId);
@@ -223,7 +255,7 @@ export class OpenBrainBridge {
           }
         }
       }, 1_000);
-      force.unref();
+      (force as { unref?: () => void }).unref?.();
     } else {
       child.kill("SIGTERM");
     }

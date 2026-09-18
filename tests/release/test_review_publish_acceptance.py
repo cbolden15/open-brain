@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import sqlite3
 import sys
 from pathlib import Path
 from typing import cast
@@ -45,7 +46,14 @@ def test_source_executable_passes_required_review_publication_checks(tmp_path: P
     assert evidence["selected_capture_count"] == 7
     assert evidence["canonical_page_count"] == 3
     assert evidence["skipped_mandatory_checks"] == 0
-    assert Path(cast(str, report["synthetic_root"])).is_relative_to(tmp_path)
+    synthetic_root = Path(cast(str, report["synthetic_root"]))
+    assert synthetic_root.is_relative_to(tmp_path)
+    manifest = json.loads(
+        (synthetic_root / "verified-export/portable-manifest.json").read_bytes()
+    )
+    assert manifest["schema_version"] == 4
+    with sqlite3.connect(synthetic_root / "brain/.open-brain/state/phase1.sqlite3") as state:
+        assert state.execute("PRAGMA user_version").fetchone()[0] == 7
 
 
 def test_candidate_failure_is_reported_and_returns_nonzero(tmp_path: Path) -> None:

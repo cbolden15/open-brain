@@ -1,0 +1,142 @@
+{
+  "status": "CORE_LOCAL_AND_OBSIDIAN_GUI_VERIFIED_DESKTOP_DEFERRED",
+  "milestone": "M2",
+  "baseline": "33a7472f06516753c5c66d76eac8e60538c2660f",
+  "verified_implementation_head": "aff8dcbcc8bd5ec9958e6261921696ee1167fc0b",
+  "verified_native_head": "2aba721a9375e7da29f2d390030dd37e4ef9aeb2",
+  "versions": {
+    "durable_schema": 7,
+    "runtime_session": 2,
+    "task_contract": "t03.v1",
+    "bridge_protocol": 1,
+    "portable": 4,
+    "relationship_sidecar": 1
+  },
+  "contract_sha256": "868d3cd2ad6ce1fa7f375151df3a5cf7553ba3165c3fefa409fe95cb6258c37c",
+  "bridge_fixture_sha256": "52fb08579010f2fe06320f81a04b1656fdbada5c46028a379ab91689244d495c",
+  "tasks": {
+    "T03": "locally_verified",
+    "T04": "locally_verified",
+    "T05": "locally_verified",
+    "T06": "locally_verified",
+    "T07": "completed_and_verified_obsidian_gui_passed_desktop_further_work_deferred",
+    "T08": "locally_verified"
+  },
+  "independent_review": {
+    "status": "READY",
+    "unresolved_code_findings": 0,
+    "scope": [
+      "Frozen architecture and strict consumers",
+      "Source migration and actual historical writers",
+      "Scoped paging, full projection and cursor authority",
+      "Actual CLI/MCP/plugin sessions",
+      "Obsidian and desktop publication/read workflows",
+      "History, revision relationships and Portable decision evidence",
+      "Native smoke contract repair",
+      "Observed Obsidian lifecycle, inert preview, native choice ordering, and delayed vault registration repairs"
+    ]
+  },
+  "checks": {
+    "make_verify": {
+      "head": "aff8dcbcc8bd5ec9958e6261921696ee1167fc0b",
+      "status": "passed",
+      "python": 2325,
+      "existing_skips": 5,
+      "obsidian": 291,
+      "desktop_typescript": 259,
+      "desktop_python": 1,
+      "rust": 26,
+      "lint_mypy_package_builds": "passed"
+    },
+    "native_smoke_repair": {
+      "head": "ecab8c3db14706edd7d5e50c90fd3e10916c71fe",
+      "scope": "Smoke expectations and README wording only; application code unchanged",
+      "focused_tests": 54,
+      "ruff_mypy": "passed"
+    },
+    "native_audit": "passed",
+    "homebrew_smoke": "passed; existing product absent and left absent",
+    "desktop_native": "passed; local ad hoc signature verified",
+    "packaged_desktop_proof": "passed; capture, one search result, Graphify and cleanup",
+    "diff_actionlint": "passed",
+    "obsidian_gui_repairs": {
+      "head": "aff8dcbcc8bd5ec9958e6261921696ee1167fc0b",
+      "status": "passed",
+      "independent_review": "READY",
+      "obsidian_version": "1.13.7",
+      "full_verify_elapsed_seconds": 303.94
+    }
+  },
+  "acceptance_evidence": [
+    "Actual historical schema 5/schema 6 migration preserves durable bytes, heads and ordered publication membership; old writers refuse schema 7.",
+    "Public CLI traverses 205 unique imported Markdown results over 5 pages; complete Unicode read returns 4 chunks totaling 120,054 NFC-projected bytes.",
+    "Retained long Unicode SHA256 9f8d25229a1cca215863c9cdb70a7dfd565ce8a190abf415a9673de37307d301; raw 126,054-byte fixture differs because established capture normalization applies NFC.",
+    "Independent 1,010-publication adversarial history chain passes iterative traversal.",
+    "Independent relationship/decision paging returns 205 visible entries over 6 pages and excludes 10 hidden opposite endpoints; route mutation invalidates continuations.",
+    "Actual owner CLI duplicate decision/replay preserves independent source identity and all 213 capture-file digests; verified export retains complete relationship decisions.",
+    "Unknown/malformed Portable sidecars, mismatched endpoints, missing decisions and historical supersession cycles refuse.",
+    "Actual synthetic Obsidian 1.13.7 GUI traverses five search pages and restarts a stale cursor. Complete Unicode reader displays beginning, middle and ending markers; cancellation closes the reader without late presentation.",
+    "Capture does not publish. Publication inspection shows the complete draft and selected evidence; keyboard cancellation and stale source routing do not publish. Explicit approval writes exact reviewed text and selected provenance.",
+    "Fresh publication automatically refreshes and opens its managed note after Obsidian registers the external write. Plugin disable exits its stdio child. Original 215 capture files and existing canonical notes remain byte-identical.",
+    "Inert hostile input remains text in search, complete reads, and capture selection. Control characters are escaped only in selection labels; raw evidence is retained."
+  ],
+  "remaining": [],
+  "limits": [
+    "No claim of complete broader A01 or released/native-platform acceptance.",
+    "Portable 4 export/validation are supported; new Portable 4 restore/import is excluded, historical 1\u20133 import remains supported.",
+    "Legacy changed collector deliveries without ordering/CAS evidence refuse; T09/T10 own collector containment and ordered connector integration.",
+    "Retirement/correction/purge, model research and M3 implementation remain outside this milestone.",
+    "No live Brain access, laptop repository edits, push, PR, merge, release or deployment. Parent prepared isolated laptop test artifacts.",
+    "GUI paging observed five pages and 100 enumerated result IDs; exact 205-ID identity coverage is retained CLI/MCP evidence. No claim that all read checks were repeated on the final plugin artifact."
+  ],
+  "artifact_handoff": {
+    "status": "synthetic_cli_mcp_obsidian_verified",
+    "native_seed": "passed; 205 imported notes plus eight synthetic captures",
+    "native_retrieval": "passed; five search pages and four complete Unicode chunks",
+    "wrapper_handshake": "passed; schema 7/session 2",
+    "gui_verified": true,
+    "core": {
+      "sha256": "a66ce1b3c6396d4d7f75272fd1e4258b76cd82aab72a0dd05f7ac9577a254ab8",
+      "bytes": 11385776
+    },
+    "graphify": {
+      "sha256": "57c5ce52c42fe68618a2783046ea0c4845aae2dc77b0e4c4faab937f818a854b",
+      "bytes": 11271696
+    },
+    "desktop_executable": {
+      "sha256": "e9b60258c1830332aaf1b1807e8c775a9c099bab125b88e50bdbb40273fe6613",
+      "bytes": 9929184
+    },
+    "desktop_bundle_manifest_sha256": "e1d0086f730fbd58661c77d1e84256b02ea61c0b9b5970d65712b7806b897097",
+    "plugin_assets": [
+      {
+        "name": "main.js",
+        "sha256": "1cdfd0f0c2e02a178c835dedf1a09ffe51c37ece4f226f3f33eb4b838c990b90",
+        "bytes": 60905
+      },
+      {
+        "name": "manifest.json",
+        "sha256": "5c1f9a8b43dcdf63dab172082034d3447f54238f2d4911d820a3bba545f13fc9",
+        "bytes": 316
+      },
+      {
+        "name": "styles.css",
+        "sha256": "43d7accecdd7b1c60ddf713cce955ddb3ce773eca9e5d943955a6966c9374ee9",
+        "bytes": 1148
+      }
+    ],
+    "gui_scope": "Obsidian only; desktop GUI remains deferred",
+    "plugin_candidate": "aff8dcbcc8bd5ec9958e6261921696ee1167fc0b",
+    "core_candidate": "2aba721a9375e7da29f2d390030dd37e4ef9aeb2"
+  },
+  "delivery_priority": {
+    "primary": [
+      "CLI",
+      "MCP"
+    ],
+    "obsidian_scope": "unchanged",
+    "desktop_work": "preserve completed work; defer further features, GUI acceptance and release preparation",
+    "desktop_release_gates_core": false,
+    "shared_engine_and_compatibility_checks": "required"
+  }
+}

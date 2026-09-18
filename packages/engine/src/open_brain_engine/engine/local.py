@@ -58,6 +58,7 @@ from .portability import PortabilityTasks
 from .reconciliation import ReconciliationTasks, rederive_live_search_projection
 from .retrieval import RetrievalOperations, RetrievalTasks, ScopedRetrieval
 from .review import ReviewOperations, ReviewTasks
+from .sources import SourceTasks
 from .spaces import InboxSpaceTasks, SpaceOperations
 
 
@@ -137,8 +138,19 @@ class BrainEngine(CaptureOperations, SpaceOperations, ReviewOperations, Retrieva
             raise ValueError("invalid mutation authority validator")
         assert_root_identity(profile.root, profile.root_identity)
         schema = inspect_phase1_state(profile)
-        if schema.state in {"invalid", "newer"}:
+        from . import local_schema
+        from .runtime_admission import exclusive_runtime_admission
+        from .source_migration import migrate_sources, migration_pending
+
+        pending = migration_pending(profile)
+        if schema.state in {"invalid", "newer"} and not pending:
             raise StateSchemaUnavailableError(f"local state schema is {schema.state}")
+        if pending or (
+            schema.state in {"supported_old", "legacy", "pre_ledger"}
+            and local_schema.PHASE1_STATE_SCHEMA_VERSION >= 7
+        ):
+            with exclusive_runtime_admission(profile) as admission:
+                migrate_sources(profile, admission=admission, clock=clock)
         self.profile = profile
         self._faults = set(faults)
         self._clock = clock
@@ -153,10 +165,25 @@ class BrainEngine(CaptureOperations, SpaceOperations, ReviewOperations, Retrieva
         )
         with self._writer_lease.acquire_shared_writer():
             self._store = _LocalStore(profile, clock=self._clock)
+            from .source_store import publish_source_metadata
+
+            connection = self._store.connect()
+            try:
+                if connection.execute("PRAGMA user_version").fetchone()[0] >= 7:
+                    publish_source_metadata(connection, profile)
+            finally:
+                connection.close()
         self.capture = CaptureTasks(self)
         self.inbox = InboxSpaceTasks(self)
+        self.sources = SourceTasks(self)
         self.review = ReviewTasks(self)
         self.retrieval = RetrievalTasks(self)
+        from .history import HistoryTasks
+
+        self.history = HistoryTasks(self)
+        from .relationships import RelationshipTasks
+
+        self.relationships = RelationshipTasks(self)
         self.portability = PortabilityTasks(self)
         self.reconciliation = ReconciliationTasks(self)
         self.markdown_import = MarkdownImportTasks(self)
@@ -175,6 +202,9 @@ class BrainEngine(CaptureOperations, SpaceOperations, ReviewOperations, Retrieva
             managed_workspace=self.managed_workspace,
             managed_policy=self.managed_policy,
             managed_inference=self.managed_inference,
+            sources=self.sources,
+            history=self.history,
+            relationships=self.relationships,
         )
 
     @classmethod
@@ -216,6 +246,25 @@ class BrainEngine(CaptureOperations, SpaceOperations, ReviewOperations, Retrieva
         rederive_live_search_projection(self)
 
     def _recover(self, *, startup: bool = False) -> int:
+        connection = self._store.connect()
+        try:
+            source_history = connection.execute("PRAGMA user_version").fetchone()[0] >= 7
+        finally:
+            connection.close()
+        if source_history:
+            if startup:
+                from contextlib import suppress
+
+                from .cursors import CursorStore
+                from .t03_contracts import T03Error
+
+                # Rebuildable cursor custody cannot block unrelated legacy tasks.
+                # Versioned reads retry this binding and refuse before access.
+                with suppress(T03Error):
+                    CursorStore(self.profile).bind_root(self)
+            from .source_intake import quarantine_stale_intakes
+
+            quarantine_stale_intakes(self)
         recovered = 0
         for table, processor in (
             ("space_operations", self._process_space_operation),
@@ -234,14 +283,13 @@ class BrainEngine(CaptureOperations, SpaceOperations, ReviewOperations, Retrieva
             for row in rows:
                 processor(row)
                 recovered += 1
+        self.sources._recover_locked()
         recovered += self.managed_workspace._recover_locked()
         if startup:
             recovered += self.managed_inference._recover_startup_locked()
         return recovered
 
-    def _fault(
-        self, point: CaptureFault | PortabilityFault | ManagedWorkspaceFault
-    ) -> None:
+    def _fault(self, point: CaptureFault | PortabilityFault | ManagedWorkspaceFault) -> None:
         if point in self._faults:
             self._faults.remove(point)
             raise InjectedFault(point)

@@ -102,7 +102,9 @@ class CaptureOperations(_LocalEngineOperations):
             ).fetchone()
             if existing is not None:
                 if cast(str, existing["request_sha256"]) != request_sha:
-                    if _can_replace_public_source(submission, existing):
+                    if connection.execute("PRAGMA user_version").fetchone()[
+                        0
+                    ] < 7 and _can_replace_public_source(submission, existing):
                         previous_capture_id = cast(str, existing["capture_id"])
                         capture_id = _new_id("capture")
                         accepted_at = _timestamp(self._clock())
@@ -245,15 +247,17 @@ class CaptureOperations(_LocalEngineOperations):
         receipt = self._capture_receipt(capture_id)
         if receipt is None:
             raise RuntimeError("capture state unavailable")
-        return project_public_capture_receipt(CaptureReceipt(
-            capture_id=receipt.capture_id,
-            payload_family=receipt.payload_family,
-            state=receipt.state,
-            enrichment_state=receipt.enrichment_state,
-            space_id=receipt.space_id,
-            canonical_path=receipt.canonical_path,
-            duplicate=duplicate,
-        ))
+        return project_public_capture_receipt(
+            CaptureReceipt(
+                capture_id=receipt.capture_id,
+                payload_family=receipt.payload_family,
+                state=receipt.state,
+                enrichment_state=receipt.enrichment_state,
+                space_id=receipt.space_id,
+                canonical_path=receipt.canonical_path,
+                duplicate=duplicate,
+            )
+        )
 
     def _capture_row(self, capture_id: str) -> sqlite3.Row:
         _portable_id(capture_id, "capture")
@@ -270,6 +274,23 @@ class CaptureOperations(_LocalEngineOperations):
 
     def _process_capture(self, supplied_row: sqlite3.Row) -> None:
         row = self._capture_row(cast(str, supplied_row["capture_id"]))
+        connection = self._store.connect()
+        try:
+            if connection.execute("PRAGMA user_version").fetchone()[0] >= 7:
+                intake = connection.execute(
+                    "SELECT plan_json FROM source_intakes WHERE delivery_id=? "
+                    "AND receipt_json IS NULL",
+                    (row["delivery_id"],),
+                ).fetchone()
+                epoch = connection.execute(
+                    "SELECT control_epoch FROM engine_generations"
+                ).fetchone()[0]
+                if intake is not None and json.loads(intake["plan_json"])["control_epoch"] != epoch:
+                    from .t03_contracts import T03Error
+
+                    raise T03Error("operation_pending")
+        finally:
+            connection.close()
         stage = cast(int, row["stage"])
         if stage < 1:
             if cast(bytes | None, row["file_bytes"]) is not None:

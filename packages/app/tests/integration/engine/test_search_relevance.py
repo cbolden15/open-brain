@@ -832,3 +832,13 @@ def test_full_projection_rederivation_restores_reviewed_publications(tmp_path: P
     engine._rederive_live_search_projection()
 
     assert engine.retrieval.search("Reviewed nebula", record_type="canonical") == before
+
+
+@pytest.fixture(autouse=True)
+def historical_schema_six_recipes(
+    monkeypatch: pytest.MonkeyPatch, request: pytest.FixtureRequest
+) -> None:
+    from packages.app.tests.integration.engine._local_schema_fixtures import use_schema_six_runtime
+
+    if request.node.name.startswith(("test_version_one_adoption",)):
+        use_schema_six_runtime(monkeypatch, globals())

@@ -10,11 +10,13 @@ import stat
 import time
 import uuid
 from collections.abc import Callable, Iterator
-from contextlib import contextmanager, suppress
+from contextlib import ExitStack, contextmanager, suppress
 from dataclasses import dataclass
 from pathlib import Path
 
 from open_brain_engine.core.ids import canonical_json_bytes
+from open_brain_engine.engine.contracts import LocalEngineContext
+from open_brain_engine.engine.runtime_admission import hold_runtime_registry
 from open_brain_engine.storage.filesystem import (
     DurabilityError,
     RootConfinementError,
@@ -28,10 +30,11 @@ _RUNTIME_DIRECTORY = "runtime-sessions"
 _REGISTRY_LOCK = "registry.lock"
 _REGISTRY_VERSION = "registry-version"
 _REGISTRY_PENDING_VERSION = "registry-version.pending"
-_REGISTRY_VERSION_BYTES = b"open-brain-runtime-sessions-v1\n"
+_REGISTRY_VERSION_BYTES = b"open-brain-runtime-sessions-v2\n"
+_LEGACY_REGISTRY_VERSION_BYTES = b"open-brain-runtime-sessions-v1\n"
 _SESSION_FILE = re.compile(r"^session-[0-9a-f]{32}\.lock$")
 _REGISTRY_LOCK_TIMEOUT_SECONDS = 2.0
-RUNTIME_SESSION_VERSION = 1
+RUNTIME_SESSION_VERSION = 2
 
 
 class LocalRuntimeSessionError(RuntimeError):
@@ -59,6 +62,7 @@ def hold_local_runtime_session(
     legacy_state_exists: bool,
     recover_abandoned_sessions: Callable[[], object],
     admit_session: Callable[[LocalRuntimeSession], object] | None = None,
+    admission_profile: LocalEngineContext | None = None,
 ) -> Iterator[LocalRuntimeSession]:
     """Register one client and distinguish live peers from abandoned sessions."""
     root_fd = state_fd = directory_fd = registry_fd = session_fd = -1
@@ -66,13 +70,19 @@ def hold_local_runtime_session(
     session_created = False
     body_entered = False
     registry_locked = False
+    admission_stack = ExitStack()
     try:
         root_fd = _open_root(root, root_identity)
         state_fd = _open_child_directory(root_fd, ".open-brain", create=False)
         directory_fd = _open_child_directory(state_fd, _RUNTIME_DIRECTORY, create=True)
         _require_private_directory(directory_fd)
         registry_fd, _ = _open_private_file(directory_fd, _REGISTRY_LOCK, create=True)
-        _acquire_registry_lock(registry_fd)
+        if admission_profile is None:
+            _acquire_registry_lock(registry_fd)
+        else:
+            admission_stack.enter_context(
+                hold_runtime_registry(admission_profile, directory_fd, registry_fd)
+            )
         registry_locked = True
         registry_initialized = _registry_initialized(directory_fd)
         session_fd, _ = _open_private_file(directory_fd, session_name, create=True)
@@ -83,7 +93,7 @@ def hold_local_runtime_session(
                 {
                     "pid": os.getpid(),
                     "session_id": session_name.removeprefix("session-").removesuffix(".lock"),
-                    "version": 1,
+                    "version": RUNTIME_SESSION_VERSION,
                 }
             ),
         )
@@ -108,6 +118,7 @@ def hold_local_runtime_session(
         if not registry_initialized:
             _create_registry_version(directory_fd)
         os.fsync(directory_fd)
+        admission_stack.close()
         fcntl.flock(registry_fd, fcntl.LOCK_UN)
         registry_locked = False
         body_entered = True
@@ -146,6 +157,7 @@ def hold_local_runtime_session(
                 os.unlink(session_name, dir_fd=directory_fd)
                 os.fsync(directory_fd)
         finally:
+            admission_stack.close()
             if registry_locked:
                 with suppress(OSError):
                     fcntl.flock(registry_fd, fcntl.LOCK_UN)
@@ -166,6 +178,8 @@ def _registry_initialized(directory_fd: int) -> bool:
         return False
     try:
         payload = os.read(file_fd, len(_REGISTRY_VERSION_BYTES) + 1)
+        if payload == _LEGACY_REGISTRY_VERSION_BYTES:
+            return False
         if payload != _REGISTRY_VERSION_BYTES:
             raise LocalRuntimeSessionError("runtime session registry version is invalid")
         return True

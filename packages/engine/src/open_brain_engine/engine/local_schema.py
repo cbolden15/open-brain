@@ -39,9 +39,10 @@ from .local_schema_catalog import (
 )
 from .normalization import _MAX_FILE_BYTES, _MAX_TEXT, _utc_now
 from .search_projection import _durable_source_origin, public_search_text
+from .source_schema import SOURCE_HISTORY_SCHEMA
 
 PHASE1_STATE_DATABASE = ".open-brain/state/phase1.sqlite3"
-PHASE1_STATE_SCHEMA_VERSION = 6
+PHASE1_STATE_SCHEMA_VERSION = 7
 
 
 class LocalRecoveryRequiredError(SchemaError):
@@ -104,6 +105,9 @@ def _expected_shape(era: int, nullable: bool, ledger: bool) -> tuple[tuple[str, 
         if era >= 8:
             for statement in MANAGED_RECOVERY_SCHEMA:
                 connection.execute(statement)
+        if era >= 9:
+            for statement in SOURCE_HISTORY_SCHEMA:
+                connection.execute(statement)
         if ledger:
             connection.execute(_SCHEMA_MIGRATIONS_SQL)
         return _shape(connection)
@@ -126,7 +130,7 @@ def classify_local_schema(connection: sqlite3.Connection) -> SchemaState:
             ).fetchall()
             if any(type(row[0]) is int and row[0] > PHASE1_STATE_SCHEMA_VERSION for row in rows):
                 return SchemaState("newer", version)
-            if version not in (1, 2, 3, 4, 5, 6) or len(rows) != version:
+            if version not in (1, 2, 3, 4, 5, 6, 7) or len(rows) != version:
                 return SchemaState("invalid", version)
             for row, migration in zip(rows, LOCAL_MIGRATIONS[:version], strict=True):
                 if tuple(row[:3]) != (migration.version, migration.name, migration.checksum):
@@ -141,6 +145,7 @@ def classify_local_schema(connection: sqlite3.Connection) -> SchemaState:
                 4: _expected_shape(6, False, True),
                 5: _expected_shape(7, False, True),
                 6: _expected_shape(8, False, True),
+                7: _expected_shape(9, False, True),
             }[version]
             if shape == expected:
                 if version >= 4:
@@ -148,7 +153,9 @@ def classify_local_schema(connection: sqlite3.Connection) -> SchemaState:
                         "SELECT singleton, minimum_runtime_session_version, state_schema_version "
                         "FROM runtime_compatibility"
                     ).fetchall()
-                    if [tuple(row) for row in compatibility] != [(1, 1, version)]:
+                    if [tuple(row) for row in compatibility] != [
+                        (1, 2 if version == 7 else 1, version)
+                    ]:
                         return SchemaState("invalid", version)
                 return SchemaState(
                     "current" if version == PHASE1_STATE_SCHEMA_VERSION else "supported_old",
@@ -219,6 +226,11 @@ def open_local_database_read_only(
     timeout_seconds: float = 5.0,
     busy_timeout_ms: int = 5000,
 ) -> sqlite3.Connection:
+    if not inspect_only:
+        from .source_migration import migration_pending
+
+        if migration_pending(profile):
+            raise SchemaError("source history migration is pending")
     connection = connect_database_read_only(
         root=profile.root,
         database_name=PHASE1_STATE_DATABASE,
@@ -251,8 +263,10 @@ def _validate_upgrade_data(connection: sqlite3.Connection) -> None:
             "FROM runtime_compatibility"
         ).fetchall()
         state_version = connection.execute("PRAGMA user_version").fetchone()[0]
-        compatibility_version = state_version if state_version in (5, 6) else 4
-        if [tuple(row) for row in compatibility] != [(1, 1, compatibility_version)]:
+        compatibility_version = state_version if state_version in (5, 6, 7) else 4
+        if [tuple(row) for row in compatibility] != [
+            (1, 2 if state_version == 7 else 1, compatibility_version)
+        ]:
             raise SchemaError("local runtime compatibility floor is invalid")
     if (
         connection.execute(
@@ -342,33 +356,48 @@ def _prepare_local_schema(
     *,
     clock: Callable[[], datetime] = _utc_now,
     on_upgrade_committed: Callable[[], None] | None = None,
+    schema_version: int | None = None,
 ) -> None:
+    target_version = PHASE1_STATE_SCHEMA_VERSION if schema_version is None else schema_version
     try:
         if not setup_required:
             connection.execute("BEGIN")
             state = classify_local_schema(connection)
             connection.execute("COMMIT")
             restore_busy_timeout(connection)
-            if state.state == "current":
+            if state.state in {"current", "supported_old"} and state.version == target_version:
                 return
         begin_immediate(connection)
         state = classify_local_schema(connection)
         empty = created and state.version == 0 and not _shape(connection)
         if not empty:
             _require_supported(state)
-            if state.state == "current":
+            if state.version is not None and state.version > target_version:
+                raise SchemaError("local state is newer than requested compatibility target")
+            if state.state in {"current", "supported_old"} and state.version == target_version:
                 connection.execute("COMMIT")
                 restore_busy_timeout(connection)
                 return
             _validate_upgrade_data(connection)
+            if target_version >= 7:
+                raise SchemaError("source history migration requires exclusive admission")
         connection.create_function("local_public_search_text", 2, _public_text, deterministic=True)
         apply_migrations(
             connection,
             clock=_MigrationClock(clock),
-            migrations=LOCAL_MIGRATIONS,
-            schema_version=PHASE1_STATE_SCHEMA_VERSION,
+            migrations=LOCAL_MIGRATIONS[:target_version],
+            schema_version=target_version,
         )
-        _require_supported(classify_local_schema(connection), current_only=True)
+        if empty and target_version == 7:
+            from uuid import uuid4
+
+            connection.execute(
+                "INSERT INTO engine_generations VALUES(1,?,0,0,1,0,0,0)", (str(uuid4()),)
+            )
+        final_state = classify_local_schema(connection)
+        _require_supported(final_state)
+        if final_state.version != target_version:
+            raise SchemaError("local state compatibility target mismatch")
         _validate_upgrade_data(connection)
         _validate_backfill(connection)
         connection.execute("COMMIT")
@@ -392,8 +421,19 @@ def _prepare_local_schema(
 
 
 def open_local_database(
-    profile: LocalEngineContext, *, clock: Callable[[], datetime] = _utc_now
+    profile: LocalEngineContext,
+    *,
+    clock: Callable[[], datetime] = _utc_now,
+    schema_version: int | None = None,
 ) -> sqlite3.Connection:
+    if schema_version is not None and (
+        type(schema_version) is not int or schema_version not in {6, PHASE1_STATE_SCHEMA_VERSION}
+    ):
+        raise SchemaError("unsupported compatibility target")
+    from .source_migration import migration_pending
+
+    if migration_pending(profile):
+        raise SchemaError("source history migration is pending")
     try:
         state = inspect_phase1_state(profile, timeout_seconds=0.05, busy_timeout_ms=50)
     except DatabaseBusyError:
@@ -412,7 +452,10 @@ def open_local_database(
             database_name=PHASE1_STATE_DATABASE,
             expected_root_identity=profile.root_identity,
             prepare=partial(
-                _prepare_local_schema, clock=clock, on_upgrade_committed=record_upgrade
+                _prepare_local_schema,
+                clock=clock,
+                on_upgrade_committed=record_upgrade,
+                schema_version=schema_version,
             ),
         )
     except Exception as error:

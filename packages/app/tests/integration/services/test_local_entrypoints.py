@@ -3,7 +3,10 @@ from __future__ import annotations
 import importlib
 import importlib.metadata
 import json
+import os
 import socket
+import subprocess
+import sys
 import unicodedata
 from pathlib import Path
 from typing import cast
@@ -20,6 +23,8 @@ from open_brain_engine.core.models import (
 )
 from open_brain_engine.engine import (
     CaptureAction,
+    DecisionOutcome,
+    ProposalDraft,
     PublicJobCaptureContext,
     TextPayload,
     open_local_engine,
@@ -41,6 +46,32 @@ def _private_home(tmp_path: Path) -> Path:
     home.mkdir(mode=0o700)
     home.chmod(0o700)
     return home
+
+
+def _subprocess_cli(root: Path, *arguments: str) -> dict[str, object]:
+    program = (
+        "from open_brain.services.local_entrypoints import run_cli;"
+        "raise SystemExit(run_cli())"
+    )
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            program,
+            *arguments,
+            "--data-dir",
+            str(root),
+            "--json",
+        ],
+        env=os.environ.copy(),
+        capture_output=True,
+        text=True,
+        timeout=30,
+        check=False,
+    )
+    assert result.returncode == 0, (result.stdout, result.stderr)
+    assert result.stderr == ""
+    return cast(dict[str, object], json.loads(result.stdout))
 
 
 def test_local_help_and_version_are_root_free(
@@ -340,7 +371,7 @@ def test_local_init_creates_exact_default_once_without_daemon_or_environment_roo
         "brain_count": 1,
         "daemon_running": False,
         "profile": "local",
-        "state_schema_version": 6,
+        "state_schema_version": 7,
         "status": "initialized",
         "storage": "sqlite",
     }
@@ -611,7 +642,7 @@ def test_exact_local_data_journey_bootstraps_without_init_or_background_runtime(
     exported = cast(dict[str, object], json.loads(capsys.readouterr().out))
     assert exported["status"] == "exported"
     assert exported["verification"] == "verified"
-    assert exported["schema_version"] == 1
+    assert exported["schema_version"] == 4
     assert (destination / "portable-manifest.json").is_file()
     assert any(
         token.encode("utf-8") in path.read_bytes()
@@ -719,6 +750,310 @@ def test_local_search_json_is_bounded_and_export_failure_is_redacted(
     assert str(destination) not in failure
     assert token not in failure
 
+
+def test_owner_cli_subprocess_continues_paging_and_unicode_reads_across_invocations(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "brain"
+    tasks = open_local_engine(compile_single_user_local(root))
+    expected_ids = [
+        tasks.capture.accept(
+            TextPayload("identical subprocess nebula"),
+            delivery_id=f"cli.retrieval.{index}",
+        ).capture_id
+        for index in range(201)
+    ]
+    recipe = json.loads(
+        (
+            Path(__file__).resolve().parents[5]
+            / "tests/fixtures/new-user-t03/security-boundaries.json"
+        ).read_bytes()
+    )["long_text_recipe"]
+    unicode_payload = TextPayload(
+        "".join(part["text"] * part["repeat"] for part in recipe["parts"])
+    )
+    unicode_capture = tasks.capture.accept(
+        unicode_payload, delivery_id="cli.retrieval.unicode"
+    )
+
+    search_arguments = ["search-page", "nebula", "--limit", "100"]
+    found: list[str] = []
+    page_sizes: list[int] = []
+    while True:
+        page = _subprocess_cli(root, *search_arguments)
+        results = cast(list[dict[str, object]], page["results"])
+        page_sizes.append(len(results))
+        found.extend(cast(str, row["record_id"]) for row in results)
+        if page["complete"]:
+            assert page["next_cursor"] is None
+            break
+        search_arguments = [
+            "search-page",
+            "nebula",
+            "--limit",
+            "100",
+            "--cursor",
+            cast(str, page["next_cursor"]),
+        ]
+    assert page_sizes == [100, 100, 1]
+    assert found == sorted(expected_ids)
+
+    read_arguments = [
+        "read",
+        unicode_capture.capture_id,
+        "--expected-revision-id",
+        unicode_capture.capture_id,
+        "--target-bytes",
+        "32768",
+    ]
+    chunks: list[str] = []
+    offset = 0
+    while True:
+        response = _subprocess_cli(root, *read_arguments)
+        assert response["start_byte"] == offset
+        text = cast(str, cast(dict[str, object], response["content"])["text"])
+        offset += len(text.encode("utf-8"))
+        assert response["end_byte"] == offset
+        chunks.append(text)
+        if response["complete"]:
+            assert response["next_cursor"] is None
+            break
+        read_arguments = [
+            "read",
+            unicode_capture.capture_id,
+            "--expected-revision-id",
+            unicode_capture.capture_id,
+            "--target-bytes",
+            "32768",
+            "--cursor",
+            cast(str, response["next_cursor"]),
+        ]
+    assert "".join(chunks) == unicode_payload.text
+
+
+def test_owner_cli_reads_complete_validated_imported_file_projection(tmp_path: Path) -> None:
+    root = tmp_path / "brain"
+    vault = tmp_path / "vault"
+    vault.mkdir()
+    body = "# Imported synthetic\n\nreference-file-nebula 漢字🙂\n"
+    (vault / "Imported.md").write_text(body, encoding="utf-8")
+    imported = _subprocess_cli(root, "import", str(vault), "--yes")
+    assert imported["status"] == "completed"
+
+    page = _subprocess_cli(
+        root,
+        "search-page",
+        "reference-file-nebula",
+        "--payload-family",
+        "reference_or_file",
+        "--record-type",
+        "source",
+    )
+    results = cast(list[dict[str, object]], page["results"])
+    assert len(results) == 1
+    record = results[0]
+    assert record["payload_family"] == "reference_or_file"
+    assert record["record_type"] == "source"
+    read = _subprocess_cli(
+        root,
+        "read",
+        cast(str, record["record_id"]),
+        "--expected-revision-id",
+        cast(str, record["revision_id"]),
+    )
+    assert read["complete"] is True
+    text = cast(str, cast(dict[str, object], read["content"])["text"])
+    assert text == "Imported.md text/markdown " + body
+
+
+def test_owner_cli_lists_and_reads_historical_unicode_revision_across_invocations(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "brain"
+    tasks = open_local_engine(compile_single_user_local(root, starter_spaces=("Notes",)))
+    space = tasks.inbox.spaces()[0]
+    source = tasks.capture.accept(
+        TextPayload("history source"),
+        delivery_id="cli.history.source",
+        space_id=space.space_id,
+    )
+    old_body = "Historical CLI é🙂é 漢字\n" * 2000
+    first = tasks.review.propose(
+        (source.capture_id,),
+        (ProposalDraft("Historical CLI", old_body),),
+        delivery_id="cli.history.first",
+    )[0]
+    approved = tasks.review.decide(
+        first.proposal_id,
+        DecisionOutcome.APPROVED,
+        delivery_id="cli.history.first.decision",
+        expected_review_digest=first.review_digest,
+    )
+    assert approved.page_id is not None
+    second = tasks.review.propose(
+        (source.capture_id,),
+        (ProposalDraft("Current CLI", "Current CLI body"),),
+        delivery_id="cli.history.second",
+        target_page_id=approved.page_id,
+    )[0]
+    tasks.review.decide(
+        second.proposal_id,
+        DecisionOutcome.APPROVED,
+        delivery_id="cli.history.second.decision",
+        expected_review_digest=second.review_digest,
+    )
+
+    first_page = _subprocess_cli(root, "history", "list", approved.page_id, "--limit", "1")
+    current = cast(list[dict[str, object]], first_page["entries"])[0]
+    assert current["is_current"] is True
+    assert first_page["complete"] is False
+    tail = _subprocess_cli(
+        root,
+        "history",
+        "list",
+        approved.page_id,
+        "--limit",
+        "1",
+        "--cursor",
+        cast(str, first_page["next_cursor"]),
+    )
+    historical = cast(list[dict[str, object]], tail["entries"])[0]
+    assert historical["is_current"] is False
+    assert current["predecessor_revision_id"] == historical["revision_id"]
+
+    base_arguments = [
+        "history",
+        "show",
+        approved.page_id,
+        "--expected-revision-id",
+        cast(str, historical["revision_id"]),
+        "--target-bytes",
+        "32768",
+    ]
+    arguments = base_arguments
+    chunks: list[str] = []
+    while True:
+        response = _subprocess_cli(root, *arguments)
+        chunks.append(cast(str, cast(dict[str, object], response["content"])["text"]))
+        if response["complete"]:
+            break
+        arguments = [*base_arguments, "--cursor", cast(str, response["next_cursor"])]
+    reconstructed = "".join(chunks)
+    assert TextPayload(old_body).text in reconstructed
+    assert "Current CLI body" not in reconstructed
+
+
+def test_owner_cli_relationship_replay_cas_history_and_verified_export(tmp_path: Path) -> None:
+    root = tmp_path / "brain"
+    tasks = open_local_engine(compile_single_user_local(root))
+    captures = [
+        tasks.capture.accept(
+            TextPayload(f"independent relationship endpoint {index}"),
+            delivery_id=f"cli.relationship.{index}",
+        )
+        for index in range(2)
+    ]
+    left, right = (capture.capture_id for capture in captures)
+    accept_arguments = [
+        "relationship",
+        "decide",
+        "--left-record-id",
+        left,
+        "--left-revision-id",
+        left,
+        "--right-record-id",
+        right,
+        "--right-revision-id",
+        right,
+        "--kind",
+        "duplicate_of",
+        "--decision",
+        "accept",
+        "--expected-relationship-version",
+        "0",
+        "--operation-id",
+        "operation_11111111-1111-4111-8111-111111111111",
+    ]
+    accepted = _subprocess_cli(root, *accept_arguments)
+    assert accepted["version"] == 1
+    assert _subprocess_cli(root, *accept_arguments) == accepted
+
+    program = (
+        "from open_brain.services.local_entrypoints import run_cli;"
+        "raise SystemExit(run_cli())"
+    )
+    stale = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            program,
+            *accept_arguments[:-1],
+            "operation_22222222-2222-4222-8222-222222222222",
+            "--data-dir",
+            str(root),
+            "--json",
+        ],
+        env=os.environ.copy(),
+        capture_output=True,
+        text=True,
+        timeout=30,
+        check=False,
+    )
+    assert stale.returncode == 1
+    assert json.loads(stale.stdout)["error"]["code"] == "revision_changed"
+    assert stale.stderr == ""
+
+    removed = _subprocess_cli(
+        root,
+        *[
+            "1" if value == "0" else "remove" if value == "accept" else value
+            for value in accept_arguments
+        ][:-1],
+        "operation_33333333-3333-4333-8333-333333333333",
+    )
+    assert removed["relationship_id"] == accepted["relationship_id"]
+    assert removed["version"] == 2
+
+    relationships = _subprocess_cli(root, "relationship", "list", left)
+    entry = cast(list[dict[str, object]], relationships["entries"])[0]
+    assert entry["status"] == "removed"
+    assert {cast(dict[str, object], entry[side])["record_id"] for side in ("left", "right")} == {
+        left,
+        right,
+    }
+
+    first_decision = _subprocess_cli(root, "decision", "history", left, "--limit", "1")
+    first_entry = cast(list[dict[str, object]], first_decision["entries"])[0]
+    assert first_entry["decision"] == "remove"
+    tail = _subprocess_cli(
+        root,
+        "decision",
+        "history",
+        left,
+        "--limit",
+        "1",
+        "--cursor",
+        cast(str, first_decision["next_cursor"]),
+    )
+    assert cast(list[dict[str, object]], tail["entries"])[0]["decision"] == "accept"
+    assert tail["complete"] is True
+
+    search = _subprocess_cli(root, "search-page", "independent relationship endpoint")
+    assert {row["record_id"] for row in cast(list[dict[str, object]], search["results"])} == {
+        left,
+        right,
+    }
+    export = tmp_path / "export"
+    receipt = _subprocess_cli(root, "export", str(export), "--verify")
+    assert receipt["verification"] == "verified"
+    sidecar = json.loads(
+        (export / "history/relationships/decisions-v1.json").read_text(encoding="utf-8")
+    )
+    assert len(sidecar["relationships"]) == 1
+    assert [decision["decision"] for decision in sidecar["decisions"]] == [
+        "accept",
+        "remove",
+    ]
 
 def test_local_search_reconciles_owner_markdown_and_renders_one_safe_line(
     tmp_path: Path,

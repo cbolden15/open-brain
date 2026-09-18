@@ -2,6 +2,8 @@
 
 from open_brain_engine.storage.migrations import _migration
 
+from .source_schema import SOURCE_HISTORY_SCHEMA
+
 BASELINE = (
     """
 CREATE TABLE IF NOT EXISTS captures (
@@ -791,4 +793,5 @@ LOCAL_MIGRATIONS = (
     _migration(4, "runtime_compatibility", RUNTIME_COMPATIBILITY_SCHEMA),
     _migration(5, "review_publication", REVIEW_SCHEMA),
     _migration(6, "managed_recovery_authority", MANAGED_RECOVERY_SCHEMA),
+    _migration(7, "immutable_source_history", SOURCE_HISTORY_SCHEMA),
 )

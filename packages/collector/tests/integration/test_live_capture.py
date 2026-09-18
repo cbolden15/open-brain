@@ -60,7 +60,7 @@ def _service(tmp_path: Path, runtime: Runtime) -> LiveCaptureService:
     return LiveCaptureService(tmp_path / "state", tmp_path / "brain", runtime=runtime)
 
 
-def test_preview_then_import_revisions_preserve_third_party_and_local_privacy(
+def test_preview_then_unordered_revision_refusal_preserves_source_and_checkpoint(
     tmp_path: Path,
 ) -> None:
     runtime = Runtime()
@@ -78,10 +78,16 @@ def test_preview_then_import_revisions_preserve_third_party_and_local_privacy(
         (_intake("Revisedneedle <script>alert(1)</script>", revision="r2"),), {"cursor": "new"}
     )
     second = service.preview("gmail")
-    service.apply("gmail", cast(str, second["preview_id"]))
+    with pytest.raises(ValueError, match="^conflicting delivery$"):
+        service.apply("gmail", cast(str, second["preview_id"]))
     assert runtime.checkpoints == [None, {"cursor": "next"}]
-    assert not open_local_engine(profile).retrieval.search("Originalneedle")
-    assert len(open_local_engine(profile).retrieval.search("Revisedneedle")) == 1
+    assert len(open_local_engine(profile).retrieval.search("Originalneedle")) == 1
+    assert not open_local_engine(profile).retrieval.search("Revisedneedle")
+    assert service.preview("gmail")["preview_id"] == second["preview_id"]
+    assert runtime.calls == 2
+    restarted = LiveCaptureService(tmp_path / "state", tmp_path / "brain", runtime=runtime)
+    assert restarted.preview("gmail")["preview_id"] == second["preview_id"]
+    assert runtime.checkpoints[-1] == {"cursor": "next"}
 
 
 def test_crash_reuses_staged_batch_without_provider_refetch_and_commits_after_ack(

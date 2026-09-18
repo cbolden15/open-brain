@@ -156,7 +156,7 @@ pub fn run_graphify_probe(
         return Err(BridgeError::TransportFailed);
     }
     let value: Value =
-        serde_json::from_slice(&response).map_err(|_| BridgeError::MalformedResponse)?;
+        crate::strict_json::from_slice(&response).map_err(|_| BridgeError::MalformedResponse)?;
     if value.get("protocol").and_then(Value::as_str) != Some("open-brain-graphify-helper-v1")
         || value.get("status").and_then(Value::as_str) != Some("ok")
         || value.get("pages").and_then(Value::as_array).map(Vec::len) != Some(2)
@@ -306,7 +306,7 @@ impl Bridge {
             }
         };
         match event {
-            ReaderEvent::Line(line) => self.decode_response(&line, &request_id),
+            ReaderEvent::Line(line) => self.decode_response(&line, &request_id, operation),
             ReaderEvent::Closed => {
                 self.terminate_now();
                 Err(BridgeError::LostResponse)
@@ -318,11 +318,32 @@ impl Bridge {
         }
     }
 
-    fn decode_response(&mut self, line: &[u8], request_id: &str) -> Result<Value, BridgeError> {
-        let response: Value = serde_json::from_slice(line).map_err(|_| {
+    fn decode_response(
+        &mut self,
+        line: &[u8],
+        request_id: &str,
+        operation: &str,
+    ) -> Result<Value, BridgeError> {
+        let response: Value = crate::strict_json::from_slice(line).map_err(|_| {
             self.terminate_now();
             BridgeError::MalformedResponse
         })?;
+        if matches!(
+            operation,
+            "contract.describe"
+                | "search.page"
+                | "record.read"
+                | "history.list"
+                | "history.show"
+                | "source.route"
+                | "relationship.decide"
+                | "relationship.list"
+                | "decision.history"
+        ) && (line.len() + 1 > 1024 * 1024 || !integer_wire_numbers(&response))
+        {
+            self.terminate_now();
+            return Err(BridgeError::MalformedResponse);
+        }
         let Some(object) = response.as_object() else {
             self.terminate_now();
             return Err(BridgeError::MalformedResponse);
@@ -416,6 +437,16 @@ impl Bridge {
     }
 }
 
+// serde retains floating number tokens until Tauri serializes them for JavaScript.
+fn integer_wire_numbers(value: &Value) -> bool {
+    match value {
+        Value::Number(number) => !number.is_f64(),
+        Value::Array(items) => items.iter().all(integer_wire_numbers),
+        Value::Object(items) => items.values().all(integer_wire_numbers),
+        _ => true,
+    }
+}
+
 impl Drop for Bridge {
     fn drop(&mut self) {
         self.shutdown();
@@ -449,6 +480,7 @@ fn signal_group(group: i32, signal: i32) {
 
 fn read_responses(mut stdout: impl Read, sender: SyncSender<ReaderEvent>) {
     let mut buffer = Vec::new();
+    let mut scan_from = 0;
     let mut chunk = [0_u8; 8192];
     loop {
         match stdout.read(&mut chunk) {
@@ -463,17 +495,25 @@ fn read_responses(mut stdout: impl Read, sender: SyncSender<ReaderEvent>) {
             }
             Ok(count) => {
                 buffer.extend_from_slice(&chunk[..count]);
-                if buffer.len() > MAX_RESPONSE_BYTES {
-                    let _ = sender.send(ReaderEvent::Invalid);
-                    return;
-                }
-                while let Some(newline) = buffer.iter().position(|byte| *byte == b'\n') {
+                while let Some(offset) = buffer[scan_from..].iter().position(|byte| *byte == b'\n')
+                {
+                    let newline = scan_from + offset;
+                    if newline + 1 > MAX_RESPONSE_BYTES {
+                        let _ = sender.send(ReaderEvent::Invalid);
+                        return;
+                    }
                     let mut remainder = buffer.split_off(newline + 1);
                     std::mem::swap(&mut buffer, &mut remainder);
                     remainder.truncate(newline);
                     if sender.send(ReaderEvent::Line(remainder)).is_err() {
                         return;
                     }
+                    scan_from = 0;
+                }
+                scan_from = buffer.len();
+                if buffer.len() > MAX_RESPONSE_BYTES {
+                    let _ = sender.send(ReaderEvent::Invalid);
+                    return;
                 }
             }
             Err(_) => {
@@ -591,6 +631,61 @@ pub(crate) fn stop_owned_child(child: &mut Child, group: i32) -> bool {
     stopped
 }
 
+pub(crate) fn reveal_file(path: &Path) -> Result<(), BridgeError> {
+    if !path.is_absolute() || !path.is_file() {
+        return Err(BridgeError::InvalidRequest);
+    }
+    let executable = match std::env::consts::OS {
+        "macos" => Path::new("/usr/bin/open"),
+        "linux" => Path::new("/usr/bin/xdg-open"),
+        _ => return Err(BridgeError::InvalidRequest),
+    };
+    let executable = exact_executable(executable)?;
+    let mut command = Command::new(executable);
+    command
+        .arg(path)
+        .env_clear()
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .process_group(0);
+    for key in [
+        "DBUS_SESSION_BUS_ADDRESS",
+        "DISPLAY",
+        "HOME",
+        "LANG",
+        "LC_ALL",
+        "LC_CTYPE",
+        "PATH",
+        "TMPDIR",
+        "WAYLAND_DISPLAY",
+        "XDG_RUNTIME_DIR",
+    ] {
+        if let Some(value) = std::env::var_os(key) {
+            command.env(key, value);
+        }
+    }
+    let (mut child, group) = spawn_owned_command(&mut command)?;
+    let deadline = Instant::now() + Duration::from_secs(5);
+    loop {
+        match child.try_wait() {
+            Ok(Some(status)) => {
+                unregister_process_group(group);
+                return if status.success() {
+                    Ok(())
+                } else {
+                    Err(BridgeError::RuntimeUnavailable)
+                };
+            }
+            Ok(None) if Instant::now() < deadline => thread::sleep(Duration::from_millis(10)),
+            _ => {
+                stop_owned_child(&mut child, group);
+                return Err(BridgeError::DeadlineExceeded);
+            }
+        }
+    }
+}
+
 fn begin_shutdown(owner: &Mutex<OwnedProcessGroups>) -> Vec<i32> {
     owner
         .lock()
@@ -686,6 +781,25 @@ for line in sys.stdin:
     }
 
     #[test]
+    fn t03_nested_duplicates_close_the_actual_bridge() {
+        let directory = TempDir::new().unwrap();
+        let executable = script(
+            &directory,
+            r#"import json, sys, time
+request = json.loads(sys.stdin.readline())
+raw = json.dumps({"ok": True, "protocol": "open-brain-client", "protocol_version": 1, "request_id": request["request_id"], "result": {"role": 1}})
+print(raw.replace('"role": 1', '"role": 1, "role": 2'), flush=True)
+time.sleep(30)"#,
+        );
+        let mut bridge = Bridge::spawn(&executable, directory.path()).unwrap();
+        assert_eq!(
+            bridge.invoke("system.handshake", json!({}), None, Duration::from_secs(2)),
+            Err(BridgeError::MalformedResponse)
+        );
+        assert!(bridge.process_group_gone());
+    }
+
+    #[test]
     fn malformed_error_envelope_closes_the_bridge() {
         let directory = TempDir::new().unwrap();
         let executable = script(
@@ -720,6 +834,44 @@ time.sleep(30)"#,
         assert_eq!(
             bridge.invoke("search.query", json!({}), None, Duration::from_secs(1)),
             Err(BridgeError::SessionExhausted)
+        );
+    }
+
+    #[test]
+    fn negotiated_integer_lexemes_are_checked_before_javascript_conversion() {
+        for token in ["1.0", "1e0"] {
+            let directory = TempDir::new().unwrap();
+            let executable = script(
+                &directory,
+                &format!(
+                    r#"import json, sys
+request = json.loads(sys.stdin.readline())
+wire = json.dumps({{"ok": True, "protocol": "open-brain-client", "protocol_version": 1, "request_id": request["request_id"], "result": {{"dto_version": 1}}}})
+print(wire.replace('"dto_version": 1', '"dto_version": {token}'), flush=True)
+"#
+                ),
+            );
+            let mut bridge = Bridge::spawn(&executable, directory.path()).unwrap();
+            assert_eq!(
+                bridge.invoke("search.page", json!({}), None, Duration::from_secs(3)),
+                Err(BridgeError::MalformedResponse)
+            );
+            assert!(bridge.process_group_gone());
+        }
+        let directory = TempDir::new().unwrap();
+        let executable = script(
+            &directory,
+            r#"import json, sys
+request = json.loads(sys.stdin.readline())
+print(json.dumps({"ok": True, "protocol": "open-brain-client", "protocol_version": 1, "request_id": request["request_id"], "result": {"score": 0.125}}), flush=True)
+"#,
+        );
+        let mut bridge = Bridge::spawn(&executable, directory.path()).unwrap();
+        assert_eq!(
+            bridge
+                .invoke("search.query", json!({}), None, Duration::from_secs(3))
+                .unwrap(),
+            json!({"score": 0.125})
         );
     }
 
@@ -861,6 +1013,44 @@ print(json.dumps({"ok": True, "protocol": "open-brain-client", "protocol_version
             ),
             Err(BridgeError::DeadlineExceeded)
         );
+    }
+
+    #[test]
+    fn oversized_response_closes_and_cleans_the_owned_bridge() {
+        let directory = TempDir::new().unwrap();
+        let executable = script(
+            &directory,
+            r#"import sys
+sys.stdin.readline()
+sys.stdout.write('x' * (5 * 1024 * 1024 + 1))
+sys.stdout.flush()"#,
+        );
+        let mut bridge = Bridge::spawn(&executable, directory.path()).unwrap();
+        assert_eq!(
+            bridge.invoke("system.handshake", json!({}), None, Duration::from_secs(3)),
+            Err(BridgeError::MalformedResponse)
+        );
+        assert!(bridge.process_group_gone());
+    }
+
+    #[test]
+    fn response_scanner_handles_chunk_boundaries_and_multiple_frames() {
+        let first = vec![b'a'; 8192];
+        let mut input = first.clone();
+        input.extend_from_slice(b"\nsecond\n");
+        let (sender, receiver) = mpsc::sync_channel(4);
+
+        read_responses(std::io::Cursor::new(input), sender);
+
+        match receiver.recv().unwrap() {
+            ReaderEvent::Line(line) => assert_eq!(line, first),
+            _ => panic!("expected first response frame"),
+        }
+        match receiver.recv().unwrap() {
+            ReaderEvent::Line(line) => assert_eq!(line, b"second"),
+            _ => panic!("expected second response frame"),
+        }
+        assert!(matches!(receiver.recv().unwrap(), ReaderEvent::Closed));
     }
 
     #[test]

@@ -792,3 +792,15 @@ def test_production_import_bounds_and_empty_file_contract_are_fixed() -> None:
         MAX_FILE_BYTES,
     ) == (100_000, 10_000, 536_870_912, 1_048_576)
     assert FilePayload("empty.md", "text/markdown", b"").data == b""
+
+
+@pytest.fixture(autouse=True)
+def historical_schema_six_recipes(
+    monkeypatch: pytest.MonkeyPatch, request: pytest.FixtureRequest
+) -> None:
+    from packages.app.tests.integration.engine._local_schema_fixtures import use_schema_six_runtime
+
+    if request.node.name.startswith(
+        ("test_rebuild_projects_only_active_import_revision_and_preserves_canonical_page",)
+    ):
+        use_schema_six_runtime(monkeypatch, globals())
