@@ -76,7 +76,7 @@ def test_gitlab_adapter_builds_selected_project_preview_without_bodies() -> None
     assert selection.resource_id == "project:gitlab.com/open-brain/fixture"
 
 
-def test_gitlab_project_import_updates_revision_checkpoint_and_replays_safely(
+def test_gitlab_project_import_refuses_unordered_revision_and_replays_safely(
     tmp_path: Path,
 ) -> None:
     adapter = GitLabSourceAdapter()
@@ -131,19 +131,22 @@ def test_gitlab_project_import_updates_revision_checkpoint_and_replays_safely(
     )
     changed_page = adapter.preview_project(selection, (changed,), privacy=_privacy())
     changed_intake = adapter.intake(selection, changed, privacy=_privacy())
-    changed_checkpoint, changed_receipt = adapter.import_project_page(
-        checkpoint,
-        GitLabProjectPage(status=ProjectPageStatus.READY, preview=changed_page),
-        (changed_intake,),
-        sink,
-    )
+    checkpoint_before = checkpoint.to_dict()
+    source_bytes = {p: p.read_bytes() for p in tmp_path.glob("brain-*/sources/**/*")
+                    if p.is_file()}
+    assert source_bytes
+    # Legacy deliveries lack ordering and head-CAS evidence for revision replacement.
+    with pytest.raises(ValueError, match="^conflicting delivery$"):
+        adapter.import_project_page(
+            checkpoint,
+            GitLabProjectPage(status=ProjectPageStatus.READY, preview=changed_page),
+            (changed_intake,),
+            sink,
+        )
+    assert checkpoint.to_dict() == checkpoint_before
+    assert {p: p.read_bytes() for p in tmp_path.glob("brain-*/sources/**/*")
+            if p.is_file()} == source_bytes
 
-    assert changed_receipt.outcome is ConnectorOutcome.COMPLETED
-    assert changed_receipt.created_count == 1
-    assert changed_checkpoint.committed_delivery_ids == checkpoint.committed_delivery_ids
-    assert changed_checkpoint.committed_revision_identities == (
-        changed_intake.key.revision_identity(),
-    )
 
 
 def test_gitlab_checkpoint_store_is_metadata_only_and_atomic(tmp_path: Path) -> None:

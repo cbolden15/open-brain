@@ -62,7 +62,7 @@ def _selected(path: Path) -> document_files.SelectedDocument:
 
 
 @pytest.mark.parametrize("kind", ["pdf", "docx"])
-def test_real_file_preview_import_replay_revision_and_portable_history(
+def test_real_file_preview_replay_and_unordered_revision_refusal(
     tmp_path: Path, kind: str,
 ) -> None:
     source = tmp_path / f"private-filename.{kind}"
@@ -101,18 +101,18 @@ def test_real_file_preview_import_replay_revision_and_portable_history(
         import_document(
             changed, connection_id=CONNECTION, preview_id=original.preview_id, brain_root=brain,
         )
-    second = capture(changed)
-    assert second["capture_id"] != first["capture_id"]
+    with pytest.raises(ConnectorContractError, match="^document_import_failed$"):
+        capture(changed)
     reopened = open_local_engine(compile_single_user_local(brain))
-    assert not reopened.retrieval.search("Originalneedle")
-    assert len(reopened.retrieval.search("Revisedneedle")) == 1
-    assert capture(changed)["status"] == "unchanged"
+    assert len(reopened.retrieval.search("Originalneedle")) == 1
+    assert not reopened.retrieval.search("Revisedneedle")
+    assert capture(original)["status"] == "unchanged"
     export = tmp_path / "export"
     reopened.portability.export(export, export_id=f"export_{uuid4()}")
     exported = b"\n".join(p.read_bytes() for p in export.rglob("*") if p.is_file())
-    assert b"Originalneedle" in exported and b"Revisedneedle" in exported
+    assert b"Originalneedle" in exported and b"Revisedneedle" not in exported
     assert original.record.revision_id.encode() in exported
-    assert changed.record.revision_id.encode() in exported
+    assert changed.record.revision_id.encode() not in exported
     assert b"private-filename" not in exported
     assert str(tmp_path).encode() not in exported
 

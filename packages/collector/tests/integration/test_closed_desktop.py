@@ -106,7 +106,10 @@ def test_persisted_pause_resume_and_disable_control_separate_collector_process(
     )
     assert first["results"][0]["captured_count"] == 1
 
-    _write_fixture(fixture_runtime, revision="updated:2026-09-15T01:13:00Z", token="paused-token")
+    # Scheduling controls use a distinct record; unordered legacy revisions are refused.
+    _write_fixture(
+        fixture_runtime, revision="updated:2026-09-15T01:13:00Z", token="paused-token", issue=71,
+    )
     assert _source_command(collector_state, "pause").returncode == 0
     paused = json.loads(
         _successful_collector_process(
@@ -131,7 +134,9 @@ def test_persisted_pause_resume_and_disable_control_separate_collector_process(
     assert resumed["results"][0]["captured_count"] == 1
 
     assert _source_command(collector_state, "disable").returncode == 0
-    _write_fixture(fixture_runtime, revision="updated:2026-09-15T01:14:00Z", token="disabled-token")
+    _write_fixture(
+        fixture_runtime, revision="updated:2026-09-15T01:14:00Z", token="disabled-token", issue=72,
+    )
     disabled = json.loads(
         _successful_collector_process(
             state=collector_state,
@@ -452,6 +457,7 @@ def test_sync_now_wakes_running_loop_from_durable_state_change(
             fixture_runtime,
             revision="updated:2026-09-15T01:18:00Z",
             token="sync-now-loop-token",
+            issue=71,
         )
         sync_now = subprocess.run(
             [
@@ -503,17 +509,17 @@ def _selection() -> SourceResourceSelection:
     )
 
 
-def _write_fixture(path: Path, *, revision: str, token: str) -> None:
+def _write_fixture(path: Path, *, revision: str, token: str, issue: int = 70) -> None:
     path.write_text(
         json.dumps(
             {
                 "records": [
                     {
-                        "external_id": "issue:closed",
+                        "external_id": f"issue:{issue}",
                         "revision_id": revision,
                         "text": f"Synthetic unattended import body with {token}.",
                         "title": "D3 closed desktop fixture",
-                        "url": "https://github.com/cbolden15/open-brain-fixture/issues/70",
+                        "url": f"https://github.com/cbolden15/open-brain-fixture/issues/{issue}",
                     }
                 ]
             },

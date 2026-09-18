@@ -212,7 +212,7 @@ def test_safari_delivery_harness_denies_unselected_or_unsupported_delivery() -> 
     assert unsupported_browser.clip is None
 
 
-def test_web_clip_import_updates_revision_checkpoint_and_replays_safely(
+def test_web_clip_import_refuses_unordered_revision_and_replays_safely(
     tmp_path: Path,
 ) -> None:
     adapter = WebClipSourceAdapter()
@@ -285,31 +285,34 @@ def test_web_clip_import_updates_revision_checkpoint_and_replays_safely(
     )
     changed_page = adapter.preview(selection, (changed,), privacy=_privacy())
     changed_intake = adapter.intake(selection, changed, privacy=_privacy())
-    changed_checkpoint, changed_receipt = adapter.import_page(
-        checkpoint,
-        adapter.page_from_clips(
-            selection,
-            (
-                _clip(
-                    clip_type="current_page",
-                    text="Synthetic changed web page text.",
-                    revision_id="rev-2",
+    checkpoint_before = checkpoint.to_dict()
+    source_bytes = {p: p.read_bytes() for p in tmp_path.glob("brain-*/sources/**/*")
+                    if p.is_file()}
+    assert source_bytes
+    # Legacy deliveries lack ordering and head-CAS evidence for revision replacement.
+    with pytest.raises(ValueError, match="^conflicting delivery$"):
+        adapter.import_page(
+            checkpoint,
+            adapter.page_from_clips(
+                selection,
+                (
+                    _clip(
+                        clip_type="current_page",
+                        text="Synthetic changed web page text.",
+                        revision_id="rev-2",
+                    ),
                 ),
+                privacy=_privacy(),
+                selected_clip_ids=(_CLIP_ID,),
             ),
-            privacy=_privacy(),
-            selected_clip_ids=(_CLIP_ID,),
-        ),
-        (changed_intake,),
-        sink,
-    )
+            (changed_intake,),
+            sink,
+        )
+    assert checkpoint.to_dict() == checkpoint_before
+    assert {p: p.read_bytes() for p in tmp_path.glob("brain-*/sources/**/*")
+            if p.is_file()} == source_bytes
 
     assert original_page.records[0].delivery_id == changed_page.records[0].delivery_id
-    assert changed_receipt.outcome is ConnectorOutcome.COMPLETED
-    assert changed_receipt.created_count == 1
-    assert changed_checkpoint.committed_delivery_ids == checkpoint.committed_delivery_ids
-    assert changed_checkpoint.committed_revision_identities == (
-        changed_intake.key.revision_identity(),
-    )
 
 
 def test_web_clip_checkpoint_store_is_metadata_only_and_atomic(tmp_path: Path) -> None:
