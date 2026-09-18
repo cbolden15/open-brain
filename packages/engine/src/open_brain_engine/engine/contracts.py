@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import re
 from collections.abc import Callable, Iterator, Mapping, Sequence
 from dataclasses import dataclass
@@ -1594,6 +1595,18 @@ class PublicJobCaptureSink:
     def brain_fingerprint(self) -> str | None:
         """Opaque identity of the exact Brain that created this capability."""
         return self._brain_fingerprint
+
+    @staticmethod
+    def fingerprint_for(root: str, root_identity: tuple[int, int], tenant_id: str) -> str:
+        """Bind a sink to the exact Brain tuple using the collector's stable encoding."""
+        value = [root, root_identity, tenant_id]
+        encoded = json.dumps(
+            value,
+            allow_nan=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8")
+        return sha256(encoded).hexdigest()
 
     def submit(
         self,

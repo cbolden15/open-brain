@@ -661,11 +661,9 @@ class CaptureTasks:
     def public_job_sink(self, context: PublicJobCaptureContext) -> PublicJobCaptureSink:
         context.validate_profile(self._engine.profile)
         profile = self._engine.profile
-        fingerprint = sha256(
-            portable_canonical_json_bytes(
-                [str(profile.root), profile.root_identity, profile.tenant_id]
-            )
-        ).hexdigest()
+        fingerprint = PublicJobCaptureSink.fingerprint_for(
+            str(profile.root), profile.root_identity, profile.tenant_id
+        )
         return PublicJobCaptureSink(
             self,
             context=context,

@@ -360,9 +360,162 @@ def test_live_retry_release_failure_leaves_durable_cleanup_obligation(
     monkeypatch.setattr(service._custody, "release_completed", fail_release)
     with pytest.raises(LiveSourceError, match="source_storage_unavailable"):
         service.custody_retry(receipt_id)
-    assert service._load("source")["cleanup_receipts"] == [receipt_id]
+    assert service._load("source")["retry_receipts"] == [receipt_id]
     restarted = LiveCaptureService(tmp_path / "state", brain, runtime=runtime, sink=lambda _: None)
     restarted._drain_cleanup("source")
+    assert restarted.custody_status("source")["retained_items"] == 0
+
+
+@pytest.mark.parametrize("interruption", ["marker", "before_outcome", "after_outcome"])
+def test_live_retry_intent_recovers_every_persistence_boundary(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, interruption: str
+) -> None:
+    from open_brain_engine.engine import DeliveryConflict
+
+    brain = tmp_path / "brain"
+    compile_single_user_local(brain)
+    runtime = _Runtime((_intake("a"),))
+    service = LiveCaptureService(
+        tmp_path / "state",
+        brain,
+        runtime=runtime,
+        sink=lambda _: (_ for _ in ()).throw(DeliveryConflict()),
+    )
+    service.configure("source", _SELECTION, {})
+    preview = service.preview("source")
+    service.apply("source", cast(str, preview["preview_id"]))
+    receipt_id = cast(list[str], service.custody_status("source")["receipt_ids"])[0]
+    submitted: list[str] = []
+    service._sink = lambda intake: submitted.append(intake.key.external_id)
+    original_save = service._save
+    original_outcome = service._custody.outcome
+
+    if interruption == "marker":
+        monkeypatch.setattr(
+            service,
+            "_save",
+            lambda entry: (_ for _ in ()).throw(KeyboardInterrupt()),
+        )
+    else:
+
+        def interrupt_outcome(*args: object, **kwargs: object) -> None:
+            if interruption == "after_outcome":
+                original_outcome(*args, **kwargs)  # type: ignore[arg-type]
+            raise KeyboardInterrupt
+
+        monkeypatch.setattr(service._custody, "outcome", interrupt_outcome)
+    with pytest.raises(KeyboardInterrupt):
+        service.custody_retry(receipt_id)
+    monkeypatch.setattr(service, "_save", original_save)
+    monkeypatch.setattr(service._custody, "outcome", original_outcome)
+    restarted = LiveCaptureService(tmp_path / "state", brain, runtime=runtime, sink=lambda _: None)
+    restarted._drain_cleanup("source")
+    inspected = restarted.custody_inspect(receipt_id)
+    if interruption == "after_outcome":
+        assert inspected["outcome"] == "captured"
+        assert restarted.custody_status("source")["retained_items"] == 0
+    else:
+        assert inspected["outcome"] == "quarantined"
+        assert restarted.custody_status("source")["retained_items"] == 1
+    assert submitted == ([] if interruption == "marker" else ["a"])
+
+
+def test_live_retry_releases_with_unrelated_pending_preview(tmp_path: Path) -> None:
+    from open_brain_engine.engine import DeliveryConflict
+
+    brain = tmp_path / "brain"
+    compile_single_user_local(brain)
+    runtime = _Runtime((_intake("a"),))
+    service = LiveCaptureService(
+        tmp_path / "state",
+        brain,
+        runtime=runtime,
+        sink=lambda _: (_ for _ in ()).throw(DeliveryConflict()),
+    )
+    service.configure("source", _SELECTION, {})
+    preview_a = service.preview("source")
+    service.apply("source", cast(str, preview_a["preview_id"]))
+    receipt_id = cast(list[str], service.custody_status("source")["receipt_ids"])[0]
+    runtime.intakes = (_intake("b"),)
+    preview_b = service.preview("source")
+    service._sink = lambda _: None
+    assert service.custody_retry(receipt_id)["outcome"] == "captured"
+    assert service.custody_status("source")["retained_items"] == 0
+    service.apply("source", cast(str, preview_b["preview_id"]))
+    assert service.custody_status("source")["retained_items"] == 0
+
+
+@pytest.mark.parametrize("finish", ["apply", "pause", "reset"])
+def test_live_retry_retains_exact_pending_preview_until_finished_or_cancelled(
+    tmp_path: Path, finish: str
+) -> None:
+    from open_brain_engine.engine import DeliveryConflict
+
+    brain = tmp_path / "brain"
+    compile_single_user_local(brain)
+    runtime = _Runtime((_intake("a"),))
+    service = LiveCaptureService(
+        tmp_path / "state",
+        brain,
+        runtime=runtime,
+        sink=lambda _: (_ for _ in ()).throw(DeliveryConflict()),
+    )
+    service.configure("source", _SELECTION, {})
+    preview_a = service.preview("source")
+    service.apply("source", cast(str, preview_a["preview_id"]))
+    receipt_id = cast(list[str], service.custody_status("source")["receipt_ids"])[0]
+    pending = service.preview("source")
+    service._sink = lambda _: None
+    service.custody_retry(receipt_id)
+    assert service.custody_status("source")["retained_items"] == 1
+    if finish == "apply":
+        service.apply("source", cast(str, pending["preview_id"]))
+    elif finish == "pause":
+        service.control("source", "pause")
+    else:
+        replacement = SourceResourceSelection(
+            "gmail", "account:test", "label:replacement", "mail_label"
+        )
+        service.configure("source", replacement, {}, reset=True)
+    assert service.custody_status("source")["retained_items"] == 0
+
+
+def test_live_cancel_resolves_terminal_retry_intent_overlapping_active_batch(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from open_brain_engine.engine import DeliveryConflict
+
+    brain = tmp_path / "brain"
+    compile_single_user_local(brain)
+    runtime = _Runtime((_intake("a"), _intake("b")))
+
+    def mixed(intake: SourceRecordIntake) -> None:
+        if intake.key.external_id == "a":
+            raise DeliveryConflict()
+        raise RuntimeError("synthetic global failure")
+
+    service = LiveCaptureService(tmp_path / "state", brain, runtime=runtime, sink=mixed)
+    service.configure("source", _SELECTION, {})
+    preview = service.preview("source")
+    with pytest.raises(RuntimeError, match="synthetic global failure"):
+        service.apply("source", cast(str, preview["preview_id"]))
+    receipt_id = next(
+        item
+        for item in cast(list[str], service.custody_status("source")["receipt_ids"])
+        if service.custody_inspect(item)["outcome"] == "quarantined"
+    )
+    service._sink = lambda _: None
+    original = service._custody.outcome
+
+    def crash_after_outcome(*args: object, **kwargs: object) -> None:
+        original(*args, **kwargs)  # type: ignore[arg-type]
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(service._custody, "outcome", crash_after_outcome)
+    with pytest.raises(KeyboardInterrupt):
+        service.custody_retry(receipt_id)
+    restarted = LiveCaptureService(tmp_path / "state", brain, runtime=runtime, sink=lambda _: None)
+    restarted.control("source", "pause")
     assert restarted.custody_status("source")["retained_items"] == 0
 
 
@@ -666,9 +819,112 @@ def test_legacy_retry_release_failure_leaves_durable_cleanup_obligation(
     with pytest.raises(LiveSourceError, match="source_storage_unavailable"):
         controller.retry(receipt_id, MemoryCaptureSink())
     source = cast(dict[str, object], state.load()["sources"])["source"]
-    assert cast(dict[str, object], source)["cleanup_receipts"] == [receipt_id]
+    assert cast(dict[str, object], source)["retry_receipts"] == [receipt_id]
     restarted = CollectorController(state, clock=lambda: 100)
     restarted._drain_cleanup("source")
+    assert restarted.custody_status("source")["retained_items"] == 0
+
+
+@pytest.mark.parametrize("interruption", ["marker", "before_outcome", "after_outcome"])
+def test_legacy_retry_intent_recovers_every_persistence_boundary(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, interruption: str
+) -> None:
+    from open_brain_engine.engine import DeliveryConflict
+
+    class Conflict:
+        def submit(self, intake: SourceRecordIntake) -> None:
+            raise DeliveryConflict()
+
+    runtime = type(
+        "Runtime",
+        (),
+        {
+            "fetch_page": lambda self, selection, cursor: CollectorRunPage(
+                selection, (_intake("a"),), "after"
+            )
+        },
+    )()
+    state = CollectorStateStore(tmp_path / "state.json")
+    controller = CollectorController(state, clock=lambda: 100)
+    controller.enable(source_id="source", selection=_SELECTION, interval_seconds=1)
+    controller.sync_due(source_id="source", runtime=runtime, capture_sink=Conflict())
+    receipt_id = cast(list[str], controller.custody_status("source")["receipt_ids"])[0]
+    submitted: list[str] = []
+    sink = type(
+        "Sink",
+        (),
+        {"submit": lambda self, intake: submitted.append(intake.key.external_id)},
+    )()
+    original_save = state.save
+    original_outcome = controller._custody.outcome
+    if interruption == "marker":
+        monkeypatch.setattr(
+            state,
+            "save",
+            lambda value: (_ for _ in ()).throw(KeyboardInterrupt()),
+        )
+    else:
+
+        def interrupt_outcome(*args: object, **kwargs: object) -> None:
+            if interruption == "after_outcome":
+                original_outcome(*args, **kwargs)  # type: ignore[arg-type]
+            raise KeyboardInterrupt
+
+        monkeypatch.setattr(controller._custody, "outcome", interrupt_outcome)
+    with pytest.raises(KeyboardInterrupt):
+        controller.retry(receipt_id, sink)
+    monkeypatch.setattr(state, "save", original_save)
+    monkeypatch.setattr(controller._custody, "outcome", original_outcome)
+    restarted = CollectorController(state, clock=lambda: 100)
+    restarted._drain_cleanup("source")
+    inspected = restarted.custody_inspect(receipt_id)
+    if interruption == "after_outcome":
+        assert inspected["outcome"] == "captured"
+        assert restarted.custody_status("source")["retained_items"] == 0
+    else:
+        assert inspected["outcome"] == "quarantined"
+        assert restarted.custody_status("source")["retained_items"] == 1
+    assert submitted == ([] if interruption == "marker" else ["a"])
+
+
+def test_legacy_cancel_resolves_terminal_retry_intent_overlapping_active_batch(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from open_brain_engine.engine import DeliveryConflict
+
+    class Runtime:
+        def fetch_page(
+            self, selection: SourceResourceSelection, cursor: str | None
+        ) -> CollectorRunPage:
+            return CollectorRunPage(selection, (_intake("a"), _intake("b")), "after")
+
+    class Mixed:
+        def submit(self, intake: SourceRecordIntake) -> None:
+            if intake.key.external_id == "a":
+                raise DeliveryConflict()
+            raise RuntimeError("synthetic global failure")
+
+    state = CollectorStateStore(tmp_path / "state.json")
+    controller = CollectorController(state, clock=lambda: 100)
+    controller.enable(source_id="source", selection=_SELECTION, interval_seconds=1)
+    with pytest.raises(RuntimeError, match="synthetic global failure"):
+        controller.sync_due(source_id="source", runtime=Runtime(), capture_sink=Mixed())
+    receipt_id = next(
+        item
+        for item in cast(list[str], controller.custody_status("source")["receipt_ids"])
+        if controller.custody_inspect(item)["outcome"] == "quarantined"
+    )
+    original = controller._custody.outcome
+
+    def crash_after_outcome(*args: object, **kwargs: object) -> None:
+        original(*args, **kwargs)  # type: ignore[arg-type]
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(controller._custody, "outcome", crash_after_outcome)
+    with pytest.raises(KeyboardInterrupt):
+        controller.retry(receipt_id, MemoryCaptureSink())
+    restarted = CollectorController(state, clock=lambda: 100)
+    restarted.pause("source")
     assert restarted.custody_status("source")["retained_items"] == 0
 
 

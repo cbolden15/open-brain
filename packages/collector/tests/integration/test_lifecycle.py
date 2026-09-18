@@ -6,6 +6,7 @@ import stat
 import threading
 from pathlib import Path
 
+import pytest
 from open_brain_engine.engine import PrivacyDecision
 
 from open_brain_collector.lifecycle import (
@@ -221,6 +222,123 @@ def test_selection_reset_waits_for_capture_in_another_process(tmp_path: Path) ->
     assert reset_done.is_set()
     persisted = json.loads(state_path.read_text(encoding="utf-8"))
     assert persisted["sources"]["github.fixture"]["resource_id"] == "repo:replacement"
+
+
+@pytest.mark.parametrize("schedule", ["reset_disable", "pause_resume"])
+def test_stale_cancellation_save_cannot_overwrite_acknowledged_control(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, schedule: str
+) -> None:
+    state_path = tmp_path / "collector.json"
+    capture_store = CollectorStateStore(state_path)
+    capture = CollectorController(capture_store, clock=lambda: 100)
+    owner = CollectorController(CollectorStateStore(state_path), clock=lambda: 101)
+    capture.enable(source_id="github.fixture", selection=_selection(), interval_seconds=30)
+    first_outcome = threading.Event()
+    first_control_done = threading.Event()
+    stale_read = threading.Event()
+    allow_stale_reader = threading.Event()
+    original_outcome = capture._custody.outcome
+    outcome_calls = 0
+
+    def pause_after_first_outcome(*args: object, **kwargs: object) -> None:
+        nonlocal outcome_calls
+        original_outcome(*args, **kwargs)  # type: ignore[arg-type]
+        outcome_calls += 1
+        if outcome_calls == 1:
+            first_outcome.set()
+            assert first_control_done.wait(2)
+
+    monkeypatch.setattr(capture._custody, "outcome", pause_after_first_outcome)
+    original_load = capture_store.load
+
+    def block_stale_load() -> dict[str, object]:
+        state = original_load()
+        source = state["sources"]["github.fixture"]  # type: ignore[index]
+        assert isinstance(source, dict)
+        selected = (
+            source["resource_id"] == "repo:replacement"
+            if schedule == "reset_disable"
+            else source["status"] == "paused"
+        )
+        if selected and not stale_read.is_set():
+            stale_read.set()
+            assert allow_stale_reader.wait(2)
+        return state
+
+    monkeypatch.setattr(capture_store, "load", block_stale_load)
+    results: list[object] = []
+    sync_thread = threading.Thread(
+        target=lambda: results.append(
+            capture.sync_due(
+                source_id="github.fixture",
+                runtime=_MultiRecordSource(_selection()),
+                capture_sink=MemoryCaptureSink(),
+            )
+        )
+    )
+    sync_thread.start()
+    assert first_outcome.wait(2)
+    if schedule == "reset_disable":
+        replacement = SourceResourceSelection(
+            connector_name="github",
+            connection_id="account:fixture",
+            resource_id="repo:replacement",
+            resource_type="repository",
+        )
+        owner.enable(source_id="github.fixture", selection=replacement, interval_seconds=30)
+    else:
+        owner.pause("github.fixture")
+    first_control_done.set()
+    assert stale_read.wait(2)
+    final_control_done = threading.Event()
+
+    def final_control() -> None:
+        if schedule == "reset_disable":
+            owner.disable("github.fixture")
+        else:
+            owner.resume("github.fixture")
+        final_control_done.set()
+
+    control_thread = threading.Thread(target=final_control)
+    control_thread.start()
+    assert not final_control_done.wait(0.1)
+    allow_stale_reader.set()
+    sync_thread.join(3)
+    control_thread.join(3)
+    assert len(results) == 1 and final_control_done.is_set()
+    expected = "disabled" if schedule == "reset_disable" else "enabled"
+    assert owner.status("github.fixture").status == expected
+
+
+@pytest.mark.parametrize("action", ["pause", "disable"])
+def test_baseline_metadata_only_active_run_control_and_reenable(
+    tmp_path: Path, action: str
+) -> None:
+    store = CollectorStateStore(tmp_path / "collector.json")
+    controller = CollectorController(store, clock=lambda: 100)
+    controller.enable(source_id="github.fixture", selection=_selection(), interval_seconds=30)
+    state = store.load()
+    source = state["sources"]["github.fixture"]  # type: ignore[index]
+    assert isinstance(source, dict)
+    source["active_run"] = {
+        "cursor": "next",
+        "intakes": [],
+        "run_id": "old",
+        "started_epoch": 100,
+    }
+    store.save(state)
+    result = getattr(controller, action)("github.fixture")
+    assert result.status == ("paused" if action == "pause" else "disabled")
+    assert store.load()["sources"]["github.fixture"]["active_run"] is None  # type: ignore[index]
+    if action == "pause":
+        assert controller.resume("github.fixture").status == "enabled"
+    else:
+        assert (
+            controller.enable(
+                source_id="github.fixture", selection=_selection(), interval_seconds=30
+            ).status
+            == "enabled"
+        )
 
 
 def test_pause_during_failed_active_run_is_not_overwritten_by_collector_completion(

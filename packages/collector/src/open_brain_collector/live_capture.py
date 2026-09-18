@@ -169,6 +169,7 @@ class LiveCaptureService:
             "active_custody",
             "cancel_receipts",
             "cleanup_receipts",
+            "retry_receipts",
             "pending",
             "last_run",
             "pause_ack_epoch",
@@ -181,6 +182,8 @@ class LiveCaptureService:
             value["active_custody"] = []
         if isinstance(value, dict) and "cancel_receipts" not in value:
             value["cancel_receipts"] = []
+        if isinstance(value, dict) and "retry_receipts" not in value:
+            value["retry_receipts"] = []
         if (
             not isinstance(value, dict)
             or set(value) != keys
@@ -204,7 +207,7 @@ class LiveCaptureService:
             )
             or any(
                 type(item) is not str or re.fullmatch(r"custody:[0-9a-f]{64}", item) is None
-                for key in ("active_custody", "cancel_receipts")
+                for key in ("active_custody", "cancel_receipts", "retry_receipts")
                 for item in value[key]
             )
             or any(
@@ -266,11 +269,13 @@ class LiveCaptureService:
                 if old["generation"] == generation:
                     if disable:
                         old_pending = old["pending"]
+                        pending_ids = self._pending_receipt_ids(old)
                         old["cancel_receipts"] = list(
                             dict.fromkeys(
                                 [
                                     *cast(list[str], old["cancel_receipts"]),
                                     *cast(list[str], old["active_custody"]),
+                                    *pending_ids,
                                 ]
                             )
                         )
@@ -301,19 +306,23 @@ class LiveCaptureService:
                 else:
                     epoch = cast(int, old["control_epoch"]) + 1
                     old_pending = old["pending"]
+                    pending_ids = self._pending_receipt_ids(old)
                     cancel_receipts = list(
                         dict.fromkeys(
                             [
                                 *cast(list[str], old["cancel_receipts"]),
                                 *cast(list[str], old["active_custody"]),
+                                *pending_ids,
                             ]
                         )
                     )
                     cleanup_receipts = list(cast(list[str], old["cleanup_receipts"]))
+                    retry_receipts = list(cast(list[str], old["retry_receipts"]))
             else:
                 break_result = None
                 cancel_receipts = []
                 cleanup_receipts = []
+                retry_receipts = []
             if break_result is None:
                 entry = {
                     "schema_version": 1,
@@ -332,6 +341,7 @@ class LiveCaptureService:
                     "active_custody": [],
                     "cancel_receipts": cancel_receipts,
                     "cleanup_receipts": cleanup_receipts,
+                    "retry_receipts": retry_receipts,
                     "pending": None,
                     "last_run": None,
                     "pause_ack_epoch": None,
@@ -409,12 +419,14 @@ class LiveCaptureService:
                 entry["interval_seconds"] = interval_seconds
             # A disable or pause cancels any import already in progress, including manual imports.
             if action in {"disable", "pause"}:
+                pending_ids = self._pending_receipt_ids(entry)
                 entry["control_epoch"] = cast(int, entry["control_epoch"]) + 1
                 entry["cancel_receipts"] = list(
                     dict.fromkeys(
                         [
                             *cast(list[str], entry["cancel_receipts"]),
                             *cast(list[str], entry["active_custody"]),
+                            *pending_ids,
                         ]
                     )
                 )
@@ -520,7 +532,7 @@ class LiveCaptureService:
         for name in self._store.names("source-"):
             raw = self._store.read(name)
             if isinstance(raw, dict):
-                for key in ("cleanup_receipts", "cancel_receipts"):
+                for key in ("cleanup_receipts", "cancel_receipts", "retry_receipts"):
                     if isinstance(raw.get(key), list):
                         values.update(cast(list[str], raw[key]))
         return frozenset(values)
@@ -530,18 +542,47 @@ class LiveCaptureService:
             entry = self._load(source_id)
             receipt_ids = tuple(cast(list[str], entry["cleanup_receipts"]))
             cancel_ids = tuple(cast(list[str], entry["cancel_receipts"]))
-            if not receipt_ids and not cancel_ids:
+            retry_ids = tuple(cast(list[str], entry["retry_receipts"]))
+            if not receipt_ids and not cancel_ids and not retry_ids:
                 return
             if receipt_ids:
                 self._custody.release_completed(
                     receipt_ids,
                     protected_ids=self._cleanup_ids(),
                 )
+            referenced = set(cast(list[str], entry["active_custody"]))
+            referenced.update(self._pending_receipt_ids(entry))
+            releasable_retry_ids = tuple(
+                receipt_id
+                for receipt_id in retry_ids
+                if receipt_id not in cancel_ids
+                if self._custody.receipt(receipt_id)["outcome"] != "quarantined"
+                and receipt_id not in referenced
+            )
+            if releasable_retry_ids:
+                self._custody.release_completed(
+                    releasable_retry_ids,
+                    protected_ids=self._cleanup_ids(),
+                )
             if cancel_ids:
                 self._custody.discard_unacknowledged(cancel_ids)
             entry["cleanup_receipts"] = []
             entry["cancel_receipts"] = []
+            entry["retry_receipts"] = []
             self._save(entry)
+
+    def _pending_receipt_ids(self, entry: Mapping[str, object]) -> tuple[str, ...]:
+        pending = self._pending(entry)
+        if pending is None:
+            return ()
+        intakes = tuple(_intake_from_dict(item) for item in cast(list[object], pending["intakes"]))
+        return self._custody.receipt_ids(
+            source_id=cast(str, entry["source_id"]),
+            binding=self._brain_binding,
+            generation=cast(str, entry["generation"]),
+            control_epoch=cast(int, entry["control_epoch"]),
+            intakes=intakes,
+        )
 
     def _submit(self, intake: SourceRecordIntake) -> tuple[str, str | None]:
         if self._sink is not None:
@@ -586,30 +627,34 @@ class LiveCaptureService:
                 or current["status"] == "paused"
             ):
                 raise LiveSourceError("collector_custody_stale")
+            retry_ids = cast(list[str], current["retry_receipts"])
+            current["retry_receipts"] = list(dict.fromkeys([*retry_ids, receipt_id]))
+            self._save(current)
             intake = self._custody.intake(receipt_id)
             try:
                 outcome, capture_id = self._submit(intake)
             except Exception as error:
                 if self._is_item_conflict(error):
+                    current["retry_receipts"] = [
+                        item
+                        for item in cast(list[str], current["retry_receipts"])
+                        if item != receipt_id
+                    ]
+                    self._save(current)
                     return self._custody.inspect(receipt_id)
                 raise
             self._custody.outcome(receipt_id, outcome, capture_id=capture_id)
-            if current["pending"] is None and receipt_id not in cast(
-                list[str], current["active_custody"]
-            ):
-                cleanup = cast(list[str], current["cleanup_receipts"])
-                current["cleanup_receipts"] = list(dict.fromkeys([*cleanup, receipt_id]))
-                self._save(current)
+            referenced = set(cast(list[str], current["active_custody"]))
+            referenced.update(self._pending_receipt_ids(current))
+            if receipt_id not in referenced:
                 self._custody.release_completed(
                     (receipt_id,),
                     protected_ids=self._cleanup_ids(),
                 )
-                current["cleanup_receipts"] = [
-                    item
-                    for item in cast(list[str], current["cleanup_receipts"])
-                    if item != receipt_id
-                ]
-                self._save(current)
+            current["retry_receipts"] = [
+                item for item in cast(list[str], current["retry_receipts"]) if item != receipt_id
+            ]
+            self._save(current)
         return self._custody.inspect(receipt_id)
 
     def apply(
