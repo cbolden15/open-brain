@@ -591,6 +591,61 @@ pub(crate) fn stop_owned_child(child: &mut Child, group: i32) -> bool {
     stopped
 }
 
+pub(crate) fn reveal_file(path: &Path) -> Result<(), BridgeError> {
+    if !path.is_absolute() || !path.is_file() {
+        return Err(BridgeError::InvalidRequest);
+    }
+    let executable = match std::env::consts::OS {
+        "macos" => Path::new("/usr/bin/open"),
+        "linux" => Path::new("/usr/bin/xdg-open"),
+        _ => return Err(BridgeError::InvalidRequest),
+    };
+    let executable = exact_executable(executable)?;
+    let mut command = Command::new(executable);
+    command
+        .arg(path)
+        .env_clear()
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .process_group(0);
+    for key in [
+        "DBUS_SESSION_BUS_ADDRESS",
+        "DISPLAY",
+        "HOME",
+        "LANG",
+        "LC_ALL",
+        "LC_CTYPE",
+        "PATH",
+        "TMPDIR",
+        "WAYLAND_DISPLAY",
+        "XDG_RUNTIME_DIR",
+    ] {
+        if let Some(value) = std::env::var_os(key) {
+            command.env(key, value);
+        }
+    }
+    let (mut child, group) = spawn_owned_command(&mut command)?;
+    let deadline = Instant::now() + Duration::from_secs(5);
+    loop {
+        match child.try_wait() {
+            Ok(Some(status)) => {
+                unregister_process_group(group);
+                return if status.success() {
+                    Ok(())
+                } else {
+                    Err(BridgeError::RuntimeUnavailable)
+                };
+            }
+            Ok(None) if Instant::now() < deadline => thread::sleep(Duration::from_millis(10)),
+            _ => {
+                stop_owned_child(&mut child, group);
+                return Err(BridgeError::DeadlineExceeded);
+            }
+        }
+    }
+}
+
 fn begin_shutdown(owner: &Mutex<OwnedProcessGroups>) -> Vec<i32> {
     owner
         .lock()
@@ -880,6 +935,24 @@ print(json.dumps({"ok": True, "protocol": "open-brain-client", "protocol_version
             ),
             Err(BridgeError::DeadlineExceeded)
         );
+    }
+
+    #[test]
+    fn oversized_response_closes_and_cleans_the_owned_bridge() {
+        let directory = TempDir::new().unwrap();
+        let executable = script(
+            &directory,
+            r#"import sys
+sys.stdin.readline()
+sys.stdout.write('x' * (5 * 1024 * 1024 + 1))
+sys.stdout.flush()"#,
+        );
+        let mut bridge = Bridge::spawn(&executable, directory.path()).unwrap();
+        assert_eq!(
+            bridge.invoke("system.handshake", json!({}), None, Duration::from_secs(3)),
+            Err(BridgeError::MalformedResponse)
+        );
+        assert!(bridge.process_group_gone());
     }
 
     #[test]
