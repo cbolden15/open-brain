@@ -67,7 +67,10 @@
         "A17"
       ],
       "status": "planned",
-      "evidence": []
+      "evidence": [
+        "docs/ai/workstreams/20260918-open-brain-public-m3-source-continuity-owner-control-c63538/T21-CHECKPOINT.json"
+      ],
+      "acceptance_limit": "T21 scoped A16 documentation/examples locally verified on macOS. Global release, Linux, Obsidian GUI, public promotion and T23 acceptance remain open; source-only/deferred features are not certified."
     },
     {
       "id": "F1",
@@ -297,11 +300,12 @@
         "A14",
         "A16"
       ],
-      "status": "t19_scoped_local_verified_t21_pending",
+      "status": "t19_t21_scoped_local_verified",
       "evidence": [
-        "docs/ai/workstreams/20260918-open-brain-public-m3-source-continuity-owner-control-c63538/T19-CHECKPOINT.json"
+        "docs/ai/workstreams/20260918-open-brain-public-m3-source-continuity-owner-control-c63538/T19-CHECKPOINT.json",
+        "docs/ai/workstreams/20260918-open-brain-public-m3-source-continuity-owner-control-c63538/T21-CHECKPOINT.json"
       ],
-      "acceptance_limit": "Scoped A14 only; A16/T21, public promotion and deferred-surface acceptance remain open."
+      "acceptance_limit": "T19 scoped A14 and T21 scoped A16 locally verified. Global release, Linux, Obsidian GUI, public promotion and deferred-surface acceptance remain open."
     },
     {
       "id": "W7",
@@ -316,8 +320,12 @@
         "A16",
         "A17"
       ],
-      "status": "planned",
-      "evidence": []
+      "status": "t20_t21_scoped_local_verified_t23_pending",
+      "evidence": [
+        "docs/ai/workstreams/20260918-open-brain-public-m3-source-continuity-owner-control-c63538/T20-CHECKPOINT.json",
+        "docs/ai/workstreams/20260918-open-brain-public-m3-source-continuity-owner-control-c63538/T21-CHECKPOINT.json"
+      ],
+      "acceptance_limit": "T21 scoped A16 documentation/examples locally verified on macOS. Global release, Linux, Obsidian GUI, public promotion and T23 acceptance remain open; source-only/deferred features are not certified."
     },
     {
       "id": "W8",
@@ -429,6 +437,17 @@
         "docs/ai/workstreams/20260918-open-brain-public-m3-source-continuity-owner-control-c63538/T20-CHECKPOINT.json"
       ],
       "acceptance_limit": "Local macOS scoped A15 only. Linux exact-candidate native/Homebrew, public promotion and Obsidian GUI acceptance remain open. No global A15 completion or release certification."
+    },
+    "T21": {
+      "tasks": [
+        "T21"
+      ],
+      "status": "scoped_documentation_macos_locally_verified",
+      "evidence": [
+        "docs/design/core-v01-t21-documentation.md",
+        "docs/ai/workstreams/20260918-open-brain-public-m3-source-continuity-owner-control-c63538/T21-CHECKPOINT.json"
+      ],
+      "acceptance_limit": "Frozen candidate executable examples only. Reference templates and historical developer/provider instructions are not additional as-written artifact receipts. No Linux, GUI, provider, public readiness or T23 acceptance is claimed. Runtime, schema fences, Obsidian scope and completed desktop code remain unchanged."
     }
   },
   "surface_deferrals": {
