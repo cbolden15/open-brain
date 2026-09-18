@@ -244,11 +244,13 @@ def read_record(
     request: RecordReadRequest,
     *,
     authority: EffectiveAuthority,
+    history: bool = False,
 ) -> RecordReadResponse:
-    authority.require("content-read")
+    authority.require("history-read" if history else "content-read")
+    purpose = "history.show" if history else "record.read"
     with read_snapshot(engine) as connection:
         projected = RecordProjector(engine.profile, connection, authority).read(
-            request.record_id, expected=request.expected_revision_id
+            request.record_id, expected=request.expected_revision_id, history=history
         )
         body = projected.text.encode("utf-8")
         binding = binding_digest(
@@ -266,7 +268,7 @@ def read_record(
         prior = continuation(
             store,
             request.cursor,
-            purpose="record.read",
+            purpose=purpose,
             binding=binding,
             generation=generation,
             now=now,
@@ -313,7 +315,7 @@ def read_record(
         if not complete:
             response["next_cursor"] = store.allocate(
                 {
-                    "purpose": "record.read",
+                    "purpose": purpose,
                     "binding": binding,
                     "generation": generation,
                     "offset": end,

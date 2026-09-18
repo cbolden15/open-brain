@@ -63,7 +63,9 @@ class RecordProjector:
             raise T03Error("not_found")
         return revision, record
 
-    def source(self, anchor: str, *, expected: str | None = None) -> ProjectedRecord:
+    def source(
+        self, anchor: str, *, expected: str | None = None, history: bool = False
+    ) -> ProjectedRecord:
         source = self.connection.execute(
             "SELECT s.* FROM source_revisions r JOIN logical_sources s USING(source_id) "
             "WHERE r.capture_id=?",
@@ -73,12 +75,21 @@ class RecordProjector:
             source is None
             or not self.authority.permits_space(source["space_id"])
             or source["historical_only"]
+            and not history
             or source["lifecycle"] != "active"
             or source["availability"] != "available"
         ):
             raise T03Error("not_found")
         head = source["head_capture_id"]
-        if expected is not None and expected != head:
+        if history and expected is not None:
+            retained = self.connection.execute(
+                "SELECT 1 FROM source_revisions WHERE source_id=? AND capture_id=?",
+                (source["source_id"], expected),
+            ).fetchone()
+            if retained is None:
+                raise T03Error("not_found")
+            head = expected
+        elif expected is not None and expected != head:
             raise T03Error("revision_changed")
         _revision, record = self._capture(head)
         reference = record["source"]["reference"]
@@ -138,7 +149,9 @@ class RecordProjector:
             }
         )
 
-    def canonical(self, page_id: str, *, expected: str | None = None) -> ProjectedRecord:
+    def canonical(
+        self, page_id: str, *, expected: str | None = None, history: bool = False
+    ) -> ProjectedRecord:
         document = self.connection.execute(
             "SELECT * FROM search_documents WHERE result_id=? AND record_type='canonical'",
             (page_id,),
@@ -170,7 +183,17 @@ class RecordProjector:
         else:
             publication_id = head["publication_id"]
         revision_id = canonical_revision_id(publication_id)
-        if expected is not None and revision_id != expected:
+        current_revision = revision_id
+        if history and expected is not None:
+            retained = self.connection.execute(
+                "SELECT DISTINCT publication_id FROM canonical_revision_members "
+                "WHERE page_id=? AND revision_id=?",
+                (page_id, expected),
+            ).fetchone()
+            if retained is None:
+                raise T03Error("not_found")
+            revision_id, publication_id = expected, retained[0]
+        elif expected is not None and revision_id != expected:
             raise T03Error("revision_changed")
         publication, raw = self._publication(publication_id)
         current = read_confined(
@@ -179,7 +202,8 @@ class RecordProjector:
             expected_root_identity=self.profile.root_identity,
         )
         if (
-            current != raw
+            revision_id == current_revision
+            and current != raw
             or publication["page_id"] != page_id
             or publication["published_path"] != document["canonical_path"]
         ):
@@ -196,7 +220,8 @@ class RecordProjector:
         if (
             not members
             or members != page.fields["provenance"]
-            or members[0] != document["capture_id"]
+            or revision_id == current_revision
+            and members[0] != document["capture_id"]
             or page.fields["space_id"] != document["space_id"]
         ):
             raise T03Error("not_found")
@@ -349,12 +374,14 @@ class RecordProjector:
             raise T03Error("not_found")
         return publication, published
 
-    def read(self, record_id: str, *, expected: str | None = None) -> ProjectedRecord:
+    def read(
+        self, record_id: str, *, expected: str | None = None, history: bool = False
+    ) -> ProjectedRecord:
         try:
             return (
-                self.source(record_id, expected=expected)
+                self.source(record_id, expected=expected, history=history)
                 if record_id.startswith("capture_")
-                else self.canonical(record_id, expected=expected)
+                else self.canonical(record_id, expected=expected, history=history)
             )
         except T03Error:
             raise

@@ -48,6 +48,8 @@ if TYPE_CHECKING:
     from .source_intake import SourceRevisionReceipt, SourceRevisionSubmission
     from .t03_contracts import (
         EffectiveAuthority,
+        HistoryListRequest,
+        HistoryListResponse,
         RecordReadRequest,
         RecordReadResponse,
         SearchPageRequest,
@@ -1853,6 +1855,16 @@ class SourceTask(Protocol):
     ) -> SourceRouteResponse: ...
 
 
+class HistoryTask(Protocol):
+    def list_history(
+        self, request: HistoryListRequest, *, authority: EffectiveAuthority
+    ) -> HistoryListResponse: ...
+
+    def read_history(
+        self, request: RecordReadRequest, *, authority: EffectiveAuthority
+    ) -> RecordReadResponse: ...
+
+
 @dataclass(frozen=True, slots=True)
 class EngineTaskSet:
     """The public task identities exposed by one opened local engine root."""
@@ -1869,6 +1881,7 @@ class EngineTaskSet:
     managed_policy: ManagedPolicyTask
     managed_inference: ManagedInferenceTask
     sources: SourceTask | None = None
+    history: HistoryTask | None = None
 
     @property
     def spaces(self) -> InboxSpaceTask:
