@@ -24,6 +24,7 @@ import {
   type ConflictReview,
   type ConflictSummary,
   type Exclusion,
+  type Handshake,
   type SearchItem,
   type ProviderSelection,
   type ProviderStatus,
@@ -45,6 +46,26 @@ import {
   safeRelativePath,
 } from "./contracts";
 import { RefreshScheduler, type RefreshReason } from "./refresh-scheduler";
+import {
+  clientCapabilities,
+  createSpace,
+  decidePublication,
+  deterministicDraft,
+  inspectPublication,
+  listInbox,
+  listSpaces,
+  proposePublication,
+  readCompleteRecord,
+  refreshAndFindApprovedNote,
+  requireCapabilities,
+  routeCaptures,
+  searchPage,
+  type InboxItem,
+  type PublicationInspection,
+  type RecordSummary,
+  type SearchRequest,
+  type SpaceItem,
+} from "./t07-client";
 
 const CANVAS_PATH = normalizePath("Open Brain Graph.canvas");
 const OWNED_CANVAS_HEADING = "# Open Brain graph";
@@ -70,6 +91,8 @@ export default class OpenBrainPlugin extends Plugin {
   #bridge: OpenBrainBridge | null = null;
   #scheduler: RefreshScheduler | null = null;
   #providerSelection: ProviderSelection | null = null;
+  #capabilities: Set<string> | null = null;
+  #handshake: Handshake | null = null;
 
   public override async onload(): Promise<void> {
     this.settings = parseSettings(await this.loadData());
@@ -88,6 +111,8 @@ export default class OpenBrainPlugin extends Plugin {
     this.#bridge?.dispose();
     this.#bridge = null;
     this.#providerSelection = null;
+    this.#capabilities = null;
+    this.#handshake = null;
   }
 
   async updateSettings(update: Partial<OpenBrainSettings>): Promise<void> {
@@ -99,6 +124,8 @@ export default class OpenBrainPlugin extends Plugin {
     this.#bridge?.dispose();
     this.#bridge = null;
     this.#providerSelection = null;
+    this.#capabilities = null;
+    this.#handshake = null;
   }
 
   async refreshPresentation(reason: RefreshReason): Promise<void> {
@@ -232,6 +259,16 @@ export default class OpenBrainPlugin extends Plugin {
       name: "Capture text",
     });
     this.addCommand({
+      callback: () => void this.#reviewCaptures(),
+      id: "review-captures-for-publication",
+      name: "Review captures for publication",
+    });
+    this.addCommand({
+      callback: () => void this.#searchRecords(),
+      id: "search-records",
+      name: "Search records with filters and paging",
+    });
+    this.addCommand({
       callback: () => void this.#search(),
       id: "search",
       name: "Search",
@@ -329,7 +366,105 @@ export default class OpenBrainPlugin extends Plugin {
         (path) => this.#sameVault(path),
         async () => this.#scheduler?.manual(),
       );
-      new Notice("Captured to Open Brain.");
+      new Notice("Captured to the Open Brain inbox. Review is required before it appears as a vault note.");
+      const review = await new ConfirmModal(
+        this.app,
+        "Review captured material",
+        "Review inbox captures for publication in the managed vault now?",
+        "Review captures",
+      ).result();
+      if (review) await this.#reviewCaptures();
+    } catch (error) {
+      this.#noticeError(error);
+    }
+  }
+
+  async #reviewCaptures(): Promise<void> {
+    try {
+      const bridge = await this.#bridgeClient();
+      await bridge.invoke("brain.initialize", {});
+      const capabilities = await this.#clientOperations(bridge);
+      requireCapabilities(capabilities, [
+        "inbox.list", "inbox.route", "publication.approve", "publication.edit_and_approve",
+        "publication.propose", "publication.reject", "publication.show", "space.create",
+        "space.list", "workspace.refresh", "workspace.setup", "workspace.status",
+      ]);
+      const status = parseWorkspaceStatus(await bridge.invoke("workspace.status", {}));
+      if (status === null) await bridge.invoke("workspace.setup", {}, 30_000);
+      const captures = await listInbox(bridge);
+      if (captures.length === 0) {
+        new Notice("The Open Brain inbox has no captures to review.");
+        return;
+      }
+      const selected = await new MultiCaptureModal(this.app, captures).result();
+      if (selected === null) return;
+      const existingSpaces = [...new Set(selected.map((item) => item.space_id).filter((id): id is string => id !== null))];
+      if (existingSpaces.length > 1) throw new BridgeError("mixed_source_spaces");
+      let spaceId = existingSpaces[0];
+      if (spaceId === undefined) {
+        const spaces = await listSpaces(bridge);
+        const choice = await new ChoiceModal<SpaceItem | "create">(this.app, [
+          ...spaces.map((space) => ({ label: space.name, value: space })),
+          { label: "Create a new space", value: "create" },
+        ], "Choose one publication space").result();
+        if (choice === null) return;
+        if (choice === "create") {
+          const name = await new TextPromptModal(this.app, "New space name", false).result();
+          if (name === null) return;
+          spaceId = (await createSpace(bridge, name)).space_id;
+        } else {
+          spaceId = choice.space_id;
+        }
+      }
+      await routeCaptures(bridge, selected, spaceId);
+      const initial = deterministicDraft(selected);
+      const title = await new TextPromptModal(this.app, "Publication title", false, false, initial.title).result();
+      if (title === null) return;
+      const markdown = await new TextPromptModal(this.app, "Edit publication draft", true, false, initial.markdown).result();
+      if (markdown === null) return;
+      let inspection = await proposePublication(bridge, selected, title, markdown);
+      while (true) {
+        const action = await new PublicationReviewModal(this.app, inspection).result();
+        if (action === null) return;
+        let edited: string | undefined;
+        if (action === "edit_and_approve") {
+          const value = await new TextPromptModal(this.app, "Edit and approve publication", true, false, inspection.markdown).result();
+          if (value === null) return;
+          edited = value;
+        }
+        try {
+          const result = await decidePublication(bridge, inspection, action, edited);
+          if (result === null) {
+            new Notice("Publication proposal rejected. No vault note was created.");
+            return;
+          }
+          try {
+            const note = await refreshAndFindApprovedNote(bridge, result.page_id);
+            await this.openManagedFile(note.relative_path);
+          } catch (error) {
+            const code = error instanceof Error ? error.message : "operation_failed";
+            new Notice(`Publication approved, but the managed note could not be refreshed or opened (${code}).`, 10_000);
+          }
+          return;
+        } catch (error) {
+          if (!(error instanceof BridgeError) || error.code !== "review_conflict") throw error;
+          new Notice("The proposal changed. Inspect the refreshed evidence before deciding again.");
+          inspection = await inspectPublication(bridge, inspection.proposal_id);
+        }
+      }
+    } catch (error) {
+      this.#noticeError(error);
+    }
+  }
+
+  async #searchRecords(): Promise<void> {
+    try {
+      const bridge = await this.#bridgeClient();
+      const capabilities = await this.#clientOperations(bridge);
+      requireCapabilities(capabilities, ["search.page", "record.read"]);
+      const request = await new SearchFiltersModal(this.app).result();
+      if (request === null) return;
+      new PagedRecordSearchModal(this.app, bridge, request).open();
     } catch (error) {
       this.#noticeError(error);
     }
@@ -649,12 +784,20 @@ export default class OpenBrainPlugin extends Plugin {
       if (!handshake.operations.includes("graph.review")) {
         throw new BridgeError("incompatible_binary");
       }
+      this.#handshake = handshake;
     } catch (error) {
       bridge.dispose();
       throw error;
     }
     this.#bridge = bridge;
     return bridge;
+  }
+
+  async #clientOperations(bridge: OpenBrainBridge): Promise<Set<string>> {
+    if (this.#capabilities !== null) return this.#capabilities;
+    if (this.#handshake === null) throw new BridgeError("incompatible_binary");
+    this.#capabilities = await clientCapabilities(bridge, this.#handshake);
+    return this.#capabilities;
   }
 
   async #managedBridge(): Promise<OpenBrainBridge> {
@@ -718,6 +861,10 @@ export default class OpenBrainPlugin extends Plugin {
         "Open Brain Graph.canvas already exists and is not plugin-owned. Rename it before refreshing.",
       database_busy: "Open Brain is busy. Retry after the current operation finishes.",
       incompatible_binary: "The installed Open Brain binary does not support this plugin version.",
+      unsupported_capability: "This Open Brain session lacks the grants required for that workflow. Enable the requested capability and reconnect.",
+      cursor_stale: "Search results changed. Restart the search to continue without mixing pages.",
+      review_conflict: "The proposal changed. Inspect it again before deciding.",
+      mixed_source_spaces: "Selected captures must belong to one space. Choose captures from one space and retry.",
       invalid_source_path: "Open Brain returned an invalid source path.",
       invalid_policy: "The exclusion is no longer valid. Refresh the managed vault.",
       operation_conflict: "This conflict is no longer current. Reopen conflict review.",
@@ -830,14 +977,16 @@ class TextPromptModal extends Modal {
   readonly #title: string;
   readonly #multiline: boolean;
   readonly #secret: boolean;
+  readonly #initial: string;
   #resolve: ((value: string | null) => void) | null = null;
   #settled = false;
 
-  public constructor(app: App, title: string, multiline: boolean, secret = false) {
+  public constructor(app: App, title: string, multiline: boolean, secret = false, initial = "") {
     super(app);
     this.#title = title;
     this.#multiline = multiline;
     this.#secret = secret;
+    this.#initial = initial;
   }
 
   public result(): Promise<string | null> {
@@ -858,6 +1007,7 @@ class TextPromptModal extends Modal {
           },
         });
     field.addClass("open-brain-input");
+    field.value = this.#initial;
     const submit = this.contentEl.createEl("button", { text: "Continue" });
     submit.addClass("mod-cta");
     submit.addEventListener("click", () => {
@@ -898,6 +1048,243 @@ class SearchPickerModal extends FuzzySuggestModal<SearchItem> {
   public override onChooseItem(item: SearchItem): void {
     this.#chosen(item);
   }
+}
+
+class MultiCaptureModal extends Modal {
+  readonly #items: InboxItem[];
+  #resolve: ((value: InboxItem[] | null) => void) | null = null;
+  #settled = false;
+
+  public constructor(app: App, items: InboxItem[]) {
+    super(app);
+    this.#items = items;
+  }
+
+  public result(): Promise<InboxItem[] | null> {
+    return new Promise((resolve) => { this.#resolve = resolve; this.open(); });
+  }
+
+  public override onOpen(): void {
+    this.titleEl.setText("Select 1–32 captures for publication");
+    const selected = new Set<string>();
+    for (const item of this.#items) {
+      const row = this.contentEl.createEl("label", { cls: "open-brain-capture-choice" });
+      const checkbox = row.createEl("input", { attr: { type: "checkbox" } });
+      row.createSpan({ text: ` ${item.title ?? item.preview}` });
+      checkbox.addEventListener("change", () => {
+        if (checkbox.checked) {
+          if (selected.size >= 32) { checkbox.checked = false; return; }
+          selected.add(item.capture_id);
+        } else selected.delete(item.capture_id);
+      });
+    }
+    const submit = this.contentEl.createEl("button", { text: "Create draft" });
+    submit.addClass("mod-cta");
+    submit.addEventListener("click", () => {
+      const items = this.#items.filter((item) => selected.has(item.capture_id));
+      if (items.length === 0) { new Notice("Select at least one capture."); return; }
+      this.#settled = true;
+      this.#resolve?.(items);
+      this.close();
+    });
+  }
+
+  public override onClose(): void {
+    this.contentEl.empty();
+    if (!this.#settled) this.#resolve?.(null);
+  }
+}
+
+type PublicationAction = "approve" | "edit_and_approve" | "reject";
+
+class PublicationReviewModal extends Modal {
+  readonly #inspection: PublicationInspection;
+  #resolve: ((value: PublicationAction | null) => void) | null = null;
+  #settled = false;
+
+  public constructor(app: App, inspection: PublicationInspection) {
+    super(app);
+    this.#inspection = inspection;
+  }
+
+  public result(): Promise<PublicationAction | null> {
+    return new Promise((resolve) => { this.#resolve = resolve; this.open(); });
+  }
+
+  public override onOpen(): void {
+    this.titleEl.setText("Inspect publication and evidence");
+    this.contentEl.createEl("h3", { text: this.#inspection.title });
+    this.contentEl.createEl("pre", { cls: "open-brain-publication-draft", text: this.#inspection.markdown });
+    this.contentEl.createEl("h4", { text: "Evidence" });
+    for (const evidence of this.#inspection.evidence) {
+      this.contentEl.createEl("blockquote", { text: evidence.excerpt });
+    }
+    const actions = this.contentEl.createDiv({ cls: "open-brain-review__actions" });
+    this.#action(actions, "Approve", "approve", true);
+    this.#action(actions, "Edit and approve", "edit_and_approve", false);
+    this.#action(actions, "Reject", "reject", false);
+  }
+
+  public override onClose(): void {
+    this.contentEl.empty();
+    if (!this.#settled) this.#resolve?.(null);
+  }
+
+  #action(parent: HTMLElement, label: string, action: PublicationAction, primary: boolean): void {
+    const button = parent.createEl("button", { text: label });
+    if (primary) button.addClass("mod-cta");
+    button.addEventListener("click", () => {
+      this.#settled = true;
+      this.#resolve?.(action);
+      this.close();
+    });
+  }
+}
+
+class SearchFiltersModal extends Modal {
+  #resolve: ((value: SearchRequest | null) => void) | null = null;
+  #settled = false;
+
+  public result(): Promise<SearchRequest | null> {
+    return new Promise((resolve) => { this.#resolve = resolve; this.open(); });
+  }
+
+  public override onOpen(): void {
+    this.titleEl.setText("Search Open Brain records");
+    const query = this.#field("Query");
+    const spaces = this.#field("Space IDs (comma separated, optional)");
+    const payloads = this.#field("Payload families (comma separated, optional)");
+    const types = this.#field("Record types: source, canonical (optional)");
+    this.contentEl.createEl("label", { text: "Search mode" });
+    const mode = this.contentEl.createEl("select");
+    mode.createEl("option", { attr: { value: "lexical" }, text: "Lexical" });
+    mode.createEl("option", { attr: { value: "hybrid" }, text: "Hybrid (when available)" });
+    const submit = this.contentEl.createEl("button", { text: "Search" });
+    submit.addClass("mod-cta");
+    submit.addEventListener("click", () => {
+      const value = query.value.trim();
+      if (value.length === 0) return;
+      const recordTypes = splitFilter(types.value);
+      if (recordTypes.some((type) => type !== "source" && type !== "canonical")) {
+        new Notice("Record types must be source or canonical.");
+        return;
+      }
+      this.#settled = true;
+      this.#resolve?.({ cursor: null, filters: { payload_families: splitFilter(payloads.value),
+        record_types: recordTypes, space_ids: splitFilter(spaces.value) }, limit: 50,
+        mode: mode.value === "hybrid" ? "hybrid" : "lexical", query: value });
+      this.close();
+    });
+    query.focus();
+  }
+
+  public override onClose(): void {
+    this.contentEl.empty();
+    if (!this.#settled) this.#resolve?.(null);
+  }
+
+  #field(label: string): HTMLInputElement {
+    this.contentEl.createEl("label", { text: label });
+    const field = this.contentEl.createEl("input", { attr: { autocomplete: "off", type: "text" } });
+    field.addClass("open-brain-input");
+    return field;
+  }
+}
+
+class PagedRecordSearchModal extends Modal {
+  readonly #bridge: OpenBrainBridge;
+  readonly #base: SearchRequest;
+  #active = true;
+  #cursor: string | null;
+  #loading = false;
+  #results: HTMLElement | null = null;
+  #status: HTMLElement | null = null;
+  #controls: HTMLElement | null = null;
+
+  public constructor(app: App, bridge: OpenBrainBridge, request: SearchRequest) {
+    super(app);
+    this.#bridge = bridge;
+    this.#base = request;
+    this.#cursor = request.cursor;
+  }
+
+  public override onOpen(): void {
+    this.titleEl.setText("Open Brain search results");
+    this.#status = this.contentEl.createEl("p");
+    this.#results = this.contentEl.createDiv({ cls: "open-brain-search-results" });
+    this.#controls = this.contentEl.createDiv({ cls: "open-brain-review__actions" });
+    void this.#load(false);
+  }
+
+  public override onClose(): void {
+    this.#active = false;
+    this.contentEl.empty();
+  }
+
+  async #load(restart: boolean): Promise<void> {
+    if (!this.#active || this.#loading) return;
+    this.#loading = true;
+    if (restart) { this.#cursor = null; this.#results?.empty(); }
+    this.#controls?.empty();
+    this.#status?.setText("Loading bounded results…");
+    try {
+      const page = await searchPage(this.#bridge, { ...this.#base, cursor: this.#cursor });
+      if (!this.#active) return;
+      this.#status?.setText(`Mode: ${page.mode_used}${page.warnings.length > 0 ? `. Warnings: ${page.warnings.join(", ")}` : ""}`);
+      for (const item of page.results) this.#append(item);
+      this.#cursor = page.next_cursor;
+      if (page.next_cursor !== null) this.#button("Load more", () => this.#load(false));
+      else if (this.#results?.childElementCount === 0) this.#status?.setText("No Open Brain results found.");
+    } catch (error) {
+      if (!this.#active) return;
+      const code = error instanceof Error ? error.message : "operation_failed";
+      if (code === "cursor_stale") {
+        this.#status?.setText("Results changed. Restart to replace these pages while preserving the query and filters.");
+        this.#button("Restart search", () => this.#load(true));
+      } else {
+        this.#status?.setText(`Search stopped (${code}).`);
+      }
+    } finally {
+      this.#loading = false;
+    }
+  }
+
+  #append(item: RecordSummary): void {
+    const row = this.#results?.createDiv({ cls: "open-brain-search-result" });
+    if (row === undefined) return;
+    row.createEl("h4", { text: item.title });
+    row.createEl("p", { text: `${item.record_type} · revision ${item.revision_id}` });
+    row.createEl("blockquote", { text: item.excerpt });
+    const read = row.createEl("button", { text: "Read complete record" });
+    read.addEventListener("click", () => {
+      read.disabled = true;
+      void readCompleteRecord(this.#bridge, item.record_id, item.revision_id)
+        .then((content) => { if (this.#active) new FullRecordModal(this.app, item, content).open(); })
+        .catch((error: unknown) => new Notice(`Open Brain read stopped (${error instanceof Error ? error.message : "operation_failed"}).`))
+        .finally(() => { if (this.#active) read.disabled = false; });
+    });
+  }
+
+  #button(label: string, action: () => Promise<void>): void {
+    const button = this.#controls?.createEl("button", { text: label });
+    button?.addEventListener("click", () => { void action(); });
+  }
+}
+
+class FullRecordModal extends Modal {
+  readonly #item: RecordSummary;
+  readonly #content: string;
+  public constructor(app: App, item: RecordSummary, content: string) { super(app); this.#item = item; this.#content = content; }
+  public override onOpen(): void {
+    this.titleEl.setText(this.#item.title);
+    this.contentEl.createEl("p", { text: `${this.#item.record_type} · revision ${this.#item.revision_id}` });
+    this.contentEl.createEl("pre", { cls: "open-brain-record-content", text: this.#content });
+  }
+  public override onClose(): void { this.contentEl.empty(); }
+}
+
+function splitFilter(value: string): string[] {
+  return [...new Set(value.split(",").map((part) => part.trim()).filter(Boolean))];
 }
 
 class SuggestionPickerModal extends FuzzySuggestModal<SuggestionSummary> {
