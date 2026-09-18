@@ -133,31 +133,31 @@ invoke review tools. The collector never receives review-decision authority: pro
 <!-- model: sonnet -->
 ### Phase 1: review patch foundation
 
-- [ ] Add typed patch-draft, patch-operation, binding, history, and Portable Brain contracts with
+- [x] Add typed patch-draft, patch-operation, binding, history, and Portable Brain contracts with
   strict byte/count limits and backward compatibility for existing full-page proposals.
-- [ ] Extend review propose/show/approve/reject/edit behavior and owner CLI output so a patch is
+- [x] Extend review propose/show/approve/reject/edit behavior and owner CLI output so a patch is
   revision-bound, displayed as a diff, and applied only through the confined canonical-page writer.
-- [ ] Add engine and service tests for valid patches, malformed or overlapping edits, stale targets,
+- [x] Add engine and service tests for valid patches, malformed or overlapping edits, stale targets,
   idempotent retries, edited decisions, exports, imports, and unchanged full-page behavior.
 
 <!-- model: sonnet -->
 ### Phase 2: Slack policy, mappings, and suggestions
 
-- [ ] Add typed, versioned private Slack policy state with the chosen heuristic defaults, daily scan
+- [x] Add typed, versioned private Slack policy state with the chosen heuristic defaults, daily scan
   checkpoint, allowlist, pending suggestions, proposal opt-in, and channel/channel+keyword mappings.
-- [ ] Add collector CLI operations for policy setup, mapping add/list/remove, suggestion list/approve/
+- [x] Add collector CLI operations for policy setup, mapping add/list/remove, suggestion list/approve/
   dismiss, and status counts. Validate channel IDs and canonical page IDs before writing.
-- [ ] Extend bounded Slack discovery to score activity and channel-name/topic keywords without
+- [x] Extend bounded Slack discovery to score activity and channel-name/topic keywords without
   capturing unapproved channels, while preserving `Retry-After` and resumable partial scans.
 
 <!-- model: sonnet -->
 ### Phase 3: scheduled patch creation
 
-- [ ] Group new Slack captures by thread, apply the explicit mapping, construct the bounded Slack
+- [x] Group new Slack captures by thread, apply the explicit mapping, construct the bounded Slack
   update fragment, and create an idempotent patch proposal through the review engine boundary.
-- [ ] Keep proposal creation default-off, never auto-approve, and make retries/restarts produce one
+- [x] Keep proposal creation default-off, never auto-approve, and make retries/restarts produce one
   pending proposal for the same capture set, target revision, and mapping generation.
-- [ ] Cover four-hour capture, daily discovery, catch-up after downtime, mapping changes, revoked
+- [x] Cover four-hour capture, daily discovery, catch-up after downtime, mapping changes, revoked
   access, target drift, capture failure, and preserved provenance with focused integration tests.
 
 <!-- model: haiku -->

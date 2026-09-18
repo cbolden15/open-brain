@@ -1,9 +1,18 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from pathlib import Path
+from typing import cast
 
 import pytest
-from open_brain_engine.engine import DecisionOutcome, ProposalDraft, TextPayload, open_local_engine
+from open_brain_engine.engine import (
+    DecisionOutcome,
+    EngineTaskSet,
+    LocalEngineContext,
+    ProposalDraft,
+    TextPayload,
+    open_local_engine,
+)
 
 from open_brain.profile import compile_single_user_local
 from open_brain_collector.live_capture import LiveCaptureService
@@ -62,7 +71,7 @@ def _intake(external_id: str, text: str, *, revision: str) -> SourceRecordIntake
     )
 
 
-def _published_page(tmp_path):
+def _published_page(tmp_path: Path) -> tuple[LocalEngineContext, EngineTaskSet, str]:
     profile = compile_single_user_local(tmp_path / "brain", starter_spaces=("Roadmap",))
     tasks = open_local_engine(profile)
     source = tasks.capture.accept(
@@ -85,7 +94,9 @@ def _published_page(tmp_path):
     return profile, tasks, proposal.page_id
 
 
-def test_scheduled_slack_thread_patch_is_opt_in_idempotent_and_provenanced(tmp_path) -> None:
+def test_scheduled_slack_thread_patch_is_opt_in_idempotent_and_provenanced(
+    tmp_path: Path,
+) -> None:
     profile, tasks, page_id = _published_page(tmp_path)
     policy = SlackPolicyStore(tmp_path / "live")
     policy.setup(_ACCOUNT, {"proposal_opt_in": True})
@@ -104,11 +115,18 @@ def test_scheduled_slack_thread_patch_is_opt_in_idempotent_and_provenanced(tmp_p
     runtime = _SlackRuntime(batch)
     clock = _Clock()
     proposer = SlackPatchProposer(profile.root, policy)
+
+    def propose_captured(
+        selection: SourceResourceSelection,
+        records: tuple[tuple[SourceRecordIntake, str], ...],
+    ) -> None:
+        proposer.propose(selection, records)
+
     service = LiveCaptureService(
         tmp_path / "live" / "capture",
         profile.root,
         runtime=runtime,
-        post_apply=proposer.propose,
+        post_apply=propose_captured,
         clock=clock,
     )
     service.configure("slack.roadmap", _SELECTION, {"date_floor": "2026-09-01T00:00:00Z"})
@@ -154,15 +172,16 @@ def test_scheduled_slack_thread_patch_is_opt_in_idempotent_and_provenanced(tmp_p
         tmp_path / "live" / "capture",
         profile.root,
         runtime=runtime,
-        post_apply=proposer.propose,
+        post_apply=propose_captured,
         clock=clock,
     )
     catch_up = restarted.sync_due()[0]
     assert catch_up["duplicate_count"] == 2 and runtime.calls == 2
     assert len(tasks.review.list(status="pending")) == 2
 
-    mapping = policy.mappings(_ACCOUNT)["mappings"][0]
-    policy.remove_mapping(_ACCOUNT, mapping["mapping_id"])
+    mappings = cast(list[dict[str, object]], policy.mappings(_ACCOUNT)["mappings"])
+    mapping = mappings[0]
+    policy.remove_mapping(_ACCOUNT, cast(str, mapping["mapping_id"]))
     policy.add_mapping(_ACCOUNT, _CHANNEL, page_id, None, page_exists=lambda page: page == page_id)
     clock.value += 14_400
     assert restarted.sync_due()[0]["duplicate_count"] == 2
@@ -170,7 +189,7 @@ def test_scheduled_slack_thread_patch_is_opt_in_idempotent_and_provenanced(tmp_p
 
 
 def test_discovery_is_daily_and_capture_failures_preserve_the_pending_patch_work(
-    tmp_path, monkeypatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     brain = tmp_path / "brain"
     compile_single_user_local(brain)
@@ -190,6 +209,11 @@ def test_discovery_is_daily_and_capture_failures_preserve_the_pending_patch_work
     assert configured["interval_seconds"] == 14_400
     manager._slack_policy.setup(_ACCOUNT, {"keywords": []})
     calls: list[str] = []
+
+    def discover(operation: str, args: dict[str, object]) -> dict[str, object]:
+        calls.append(operation)
+        return {"fetch_candidates": [], "has_more": False}
+
     monkeypatch.setattr(
         manager.capture,
         "sync_due",
@@ -198,8 +222,7 @@ def test_discovery_is_daily_and_capture_failures_preserve_the_pending_patch_work
     monkeypatch.setattr(
         manager,
         "_slack",
-        lambda operation, args: calls.append(operation)
-        or {"fetch_candidates": [], "has_more": False},
+        discover,
     )
     assert manager.sync_due()[-1]["source_id"] == "slack"
     assert calls == ["sources.slack_discover"]
@@ -208,7 +231,12 @@ def test_discovery_is_daily_and_capture_failures_preserve_the_pending_patch_work
     assert calls == ["sources.slack_discover"]
 
     class Revoked(_SlackRuntime):
-        def fetch(self, *args, **kwargs):
+        def fetch(
+            self,
+            selection: SourceResourceSelection,
+            options: dict[str, object],
+            checkpoint: dict[str, object] | None,
+        ) -> LiveBatch:
             raise LiveSourceError("source_access_revoked")
 
     runtime = Revoked(LiveBatch((), {"cursor": "next"}))
@@ -219,7 +247,12 @@ def test_discovery_is_daily_and_capture_failures_preserve_the_pending_patch_work
     assert service.sync_due()[0]["failure_code"] == "source_access_revoked"
 
     class Broken(_SlackRuntime):
-        def fetch(self, *args, **kwargs):
+        def fetch(
+            self,
+            selection: SourceResourceSelection,
+            options: dict[str, object],
+            checkpoint: dict[str, object] | None,
+        ) -> LiveBatch:
             raise RuntimeError("synthetic capture failure")
 
     failed = LiveCaptureService(

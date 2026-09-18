@@ -1,7 +1,7 @@
 {
   "id": "2026-09-18-slack-noteworthy-capture-notes",
   "title": "Implementation notes — Slack noteworthy capture and recurring-note patches",
-  "subtitle": "Phase 3 complete · 2026-09-18 17:57 CDT",
+  "subtitle": "Implementation complete · 2026-09-18 18:18 CDT",
   "introTitle": "How to use",
   "intro": "<p>Each item is a decision, deviation, or tradeoff made during implementation. <strong>Acknowledge</strong> if fine. <strong>Discuss</strong> to write what should change (free-text). <strong>Revert</strong> to flag for undo.</p>",
   "actions": [
@@ -72,6 +72,34 @@
         "Why": "The collector can request a safe append without reading canonical paths or constructing page hashes itself. Captures are routed to the target space and the review engine freezes the actual page revision before producing a pending proposal.",
         "Risk": "No proposal is created until capture receipts are durable. Failed post-processing retries reuse capture IDs and delivery identity; target drift still blocks approval. Focused Ruff, whitespace checks, 15 collector tests, and 2 review-schema tests pass.",
         "Followup": "Phase 4 documents the commands and approval boundary, runs full verification, and records synthetic acceptance evidence."
+      }
+    },
+    {
+      "id": "N4",
+      "group": "phase-4",
+      "title": "Preserve full-page response compatibility and pass the full gate",
+      "where": "docs/acceptance/slack-noteworthy.md",
+      "default": "acknowledge",
+      "body": {
+        "Spec said": "Document the approval boundary, run focused and full verification, and record sanitized synthetic acceptance while leaving real-source acceptance to the owner.",
+        "What I did": "Updated the operator, Slack, review, portability, and privacy docs; recorded 35-test synthetic acceptance; fixed strict typing; and kept patch-only fields out of existing full-page public responses.",
+        "Why": "The exact full-page client contract must remain stable while patch proposals expose their structured operations and diff only when relevant.",
+        "Risk": "Real Slack account acceptance remains owner-run because it needs app registration, consent, and a disposable test channel. No provider data or credentials were committed.",
+        "Followup": "Run the documented real-source matrix with a small owner-selected Slack test channel before treating live provider acceptance as complete."
+      }
+    },
+    {
+      "id": "N5",
+      "group": "phase-4",
+      "title": "Implementation complete",
+      "where": "docs/plans/2026-09-18-slack-noteworthy-capture.md",
+      "default": "acknowledge",
+      "body": {
+        "Spec said": "Deliver noteworthy-channel discovery and recurring-note patch proposals through the optional collector without granting publication authority.",
+        "What I did": "Completed all four phases. The collector now supports private policy, explicit mappings, pending suggestions, four-hour capture, daily discovery, and revision-bound Slack append proposals that require review approval.",
+        "Why": "The implementation keeps Slack credentials and scheduling outside the core, keeps unapproved channels uncaptured, and keeps canonical writes behind the existing reviewed-publication boundary.",
+        "Risk": "Full local verification passes. Five filesystem-specific tests skip on this Mac, and live Slack acceptance remains an explicit owner-run gate.",
+        "Followup": "Review this decision record, then run the real-source acceptance steps in docs/acceptance/slack-noteworthy.md when a test Slack app is available."
       }
     }
   ]

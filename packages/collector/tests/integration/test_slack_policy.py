@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
+from typing import cast
 
 import pytest
 
@@ -13,7 +15,9 @@ _ACCOUNT = "account:" + "a" * 64
 _PAGE = "page_11111111-1111-4111-8111-111111111111"
 
 
-def test_private_slack_policy_defaults_suggestions_and_explicit_approval(tmp_path) -> None:
+def test_private_slack_policy_defaults_suggestions_and_explicit_approval(
+    tmp_path: Path,
+) -> None:
     store = SlackPolicyStore(tmp_path / "live")
     configured = store.setup(
         _ACCOUNT,
@@ -43,7 +47,8 @@ def test_private_slack_policy_defaults_suggestions_and_explicit_approval(tmp_pat
         completed_at=None,
     )
 
-    assert store.suggestions(_ACCOUNT)["suggestions"][0]["channel_id"] == "CROADMAP"
+    suggestions = cast(list[dict[str, object]], store.suggestions(_ACCOUNT)["suggestions"])
+    assert suggestions[0]["channel_id"] == "CROADMAP"
     assert store.approve_suggestion(_ACCOUNT, "CROADMAP")["status"] == "approved"
     assert store.policy(_ACCOUNT)["allowlist"] == ["CROADMAP"]
     assert store.suggestions(_ACCOUNT)["suggestions"] == []
@@ -55,7 +60,7 @@ def test_private_slack_policy_defaults_suggestions_and_explicit_approval(tmp_pat
     }
 
 
-def test_mapping_validates_page_before_writing_and_supports_removal(tmp_path) -> None:
+def test_mapping_validates_page_before_writing_and_supports_removal(tmp_path: Path) -> None:
     store = SlackPolicyStore(tmp_path / "live")
     store.setup(_ACCOUNT, {"keywords": []})
     with pytest.raises(LiveSourceError, match="source_unknown_page"):
@@ -66,12 +71,14 @@ def test_mapping_validates_page_before_writing_and_supports_removal(tmp_path) ->
         _ACCOUNT, "CROADMAP", _PAGE, "release", page_exists=lambda page: page == _PAGE
     )
     assert mapping["page_id"] == _PAGE and mapping["keyword"] == "release"
-    removed = store.remove_mapping(_ACCOUNT, mapping["mapping_id"])
+    removed = store.remove_mapping(_ACCOUNT, cast(str, mapping["mapping_id"]))
     assert removed["status"] == "removed"
     assert store.mappings(_ACCOUNT)["mappings"] == []
 
 
-def test_sources_cli_exposes_policy_setup_and_status_counts(tmp_path, capsys) -> None:
+def test_sources_cli_exposes_policy_setup_and_status_counts(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
     brain = tmp_path / "brain"
     compile_single_user_local(brain)
     state = brain / "collector" / "state.json"

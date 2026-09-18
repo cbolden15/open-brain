@@ -154,7 +154,6 @@ class ReviewPublicationService:
             "space_id": record.space_id,
             "target_page_id": record.target_page_id,
             "operation": record.operation,
-            "draft_type": record.draft_type,
             "proposal_status": record.status,
             "status": "proposed",
         }
@@ -196,6 +195,9 @@ class ReviewPublicationService:
         result = asdict(proposal)
         proposal_status = result.pop("status")
         result["review_token"] = result.pop("review_digest")
+        if proposal.patch is None:
+            result.pop("patch")
+            result.pop("patch_diff")
         return {**result, "proposal_status": proposal_status, "status": "shown"}
 
     def approve(self, arguments: Mapping[str, object]) -> dict[str, object]:

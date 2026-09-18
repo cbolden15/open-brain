@@ -100,7 +100,9 @@ class SlackSourceClient:
         """Score one bounded channel/history page without reading capture content into intake."""
         account = safe_text(connection_id, maximum=128)
         config = _discovery_policy(policy)
-        state = _discovery_checkpoint(account, checkpoint, config["lookback_seconds"])
+        state = _discovery_checkpoint(
+            account, checkpoint, cast(int, config["lookback_seconds"])
+        )
         active = cast(dict[str, object] | None, state["active_channel"])
         if active is None and not cast(list[object], state["pending_channels"]):
             if state["list_complete"]:
@@ -151,7 +153,7 @@ class SlackSourceClient:
         if not isinstance(messages, list) or len(messages) > 100:
             raise LiveSourceError("invalid_provider_response")
         active["message_count"] = cast(int, active["message_count"]) + len(messages)
-        if active["message_count"] > _MAX_DISCOVERY_MESSAGES:
+        if cast(int, active["message_count"]) > _MAX_DISCOVERY_MESSAGES:
             raise LiveSourceError("source_discovery_limit")
         next_history = _next_cursor(payload)
         if next_history is not None:
@@ -162,9 +164,9 @@ class SlackSourceClient:
         state["active_channel"] = None
         has_more = bool(state["pending_channels"]) or not cast(bool, state["list_complete"])
         result_state: dict[str, object] | None = state if has_more else None
-        if candidate["channel_id"] in config["allowlist"]:
+        if candidate["channel_id"] in cast(set[str], config["allowlist"]):
             return SlackDiscoveryBatch(result_state, has_more, fetch_candidates=(candidate,))
-        if candidate["score"] >= config["threshold"]:
+        if cast(int, candidate["score"]) >= cast(int, config["threshold"]):
             return SlackDiscoveryBatch(result_state, has_more, suggestions=(candidate,))
         return SlackDiscoveryBatch(result_state, has_more)
 
@@ -588,10 +590,11 @@ def _valid_discovery_channel(value: object) -> None:
         raise LiveSourceError("invalid_discovery_checkpoint")
     _channel_id(value["channel_id"])
     _channel_name(value["name"])
-    if value["topic"] is not None and (
-        type(value["topic"]) is not str
-        or len(cast(str, value["topic"])) > 512
-        or "\x00" in cast(str, value["topic"])
+    topic = value["topic"]
+    if topic is not None and (
+        type(topic) is not str
+        or len(topic) > 512
+        or "\x00" in topic
     ):
         raise LiveSourceError("invalid_discovery_checkpoint")
     if value["history_cursor"] is not None and type(value["history_cursor"]) is not str:

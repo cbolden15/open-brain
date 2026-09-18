@@ -233,7 +233,7 @@ class SlackPolicyStore:
         with self._store.lock("policy"):
             state = self._load()
             policies = cast(dict[str, dict[str, object]], state["policies"])
-            current = dict(cast(dict[str, object], policies.get(account, _default_policy())))
+            current = dict(policies.get(account, _default_policy()))
             _validate_policy(current)
             updated = mutate(current)
             _validate_policy(updated)

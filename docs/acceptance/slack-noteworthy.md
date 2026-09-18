@@ -36,7 +36,8 @@ data, tokens, URLs containing private identifiers, or raw provider receipts.
 
 ## Repository verification
 
-`git diff --check` and `actionlint .github/workflows/ci.yml` passed. `make verify` passed Ruff, then
-stopped at strict MyPy errors already present in the Slack implementation and focused tests; no
-runtime or package code was changed in this documentation phase, so native/package checks were not
-run.
+`make verify` passed after the Slack typing and full-page response-compatibility fixes: Ruff, strict
+MyPy across 346 source files, 2,466 Python tests with 5 platform-specific skips, 550 frontend tests,
+Python package builds, desktop builds, and 26 Rust tests. `git diff --check` and
+`actionlint .github/workflows/ci.yml` also passed. Native distribution checks were not run because
+this change did not alter native packaging surfaces.

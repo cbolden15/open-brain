@@ -2,10 +2,12 @@ from __future__ import annotations
 
 from hashlib import sha256
 from pathlib import Path
+from typing import cast
 
 import pytest
 from open_brain_engine.engine import (
     DecisionOutcome,
+    EngineTaskSet,
     PatchDraft,
     PatchOperation,
     ProposalDraft,
@@ -20,11 +22,11 @@ from open_brain.profile import compile_single_user_local
 from open_brain.services.review_publication import ReviewPublicationError, ReviewPublicationService
 
 
-def _tasks(root: Path):
+def _tasks(root: Path) -> EngineTaskSet:
     return open_local_engine(compile_single_user_local(root, starter_spaces=("Projects",)))
 
 
-def _approved_page(root: Path):
+def _approved_page(root: Path) -> tuple[EngineTaskSet, str, str, Path]:
     tasks = _tasks(root)
     space_id = tasks.spaces.spaces()[0].space_id
     capture_id = tasks.capture.accept(
@@ -42,11 +44,12 @@ def _approved_page(root: Path):
         delivery_id="patch.seed.approve",
         expected_review_digest=shown.review_digest,
     )
+    assert proposal.page_id is not None
     path = next((root / "content").rglob(f"{proposal.page_id}.md"))
     return tasks, space_id, proposal.page_id, path
 
 
-def _source(tasks, space_id: str, key: str) -> str:
+def _source(tasks: EngineTaskSet, space_id: str, key: str) -> str:
     return tasks.capture.accept(
         TextPayload(f"evidence {key}"), delivery_id=f"patch.source.{key}", space_id=space_id
     ).capture_id
@@ -131,14 +134,14 @@ def test_patch_edit_uses_explicit_replacement_body_and_export_retains_binding(
         service.edit_and_approve(
             {
                 "proposal_id": proposed["proposal_id"],
-                "review_token": shown["review_token"],
+                "review_token": cast(str, shown["review_token"]),
                 "markdown": "bad",
             }
         )
     service.edit_and_approve(
         {
             "proposal_id": proposed["proposal_id"],
-            "review_token": shown["review_token"],
+            "review_token": cast(str, shown["review_token"]),
             "replacement_body": "Owner-edited replacement\n",
             "idempotency_key": "patch.edit",
         }
@@ -146,7 +149,7 @@ def test_patch_edit_uses_explicit_replacement_body_and_export_retains_binding(
     assert "Owner-edited replacement" in path.read_text()
     exported = tmp_path / "exported"
     tasks.portability.export(exported, export_id="export_2b5f2d12-59ee-4f04-9a8b-7f6bbd9c1bd4")
-    assert validate_portable_root(exported)["schema_version"] >= 3
+    assert cast(int, validate_portable_root(exported)["schema_version"]) >= 3
     assert any((exported / "history/review-bindings").rglob("*.json"))
     snapshot = validated_portable_snapshot(exported)
     materialized = materialize_portable_root(
