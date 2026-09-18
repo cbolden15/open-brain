@@ -1743,6 +1743,15 @@ class ReviewTask(Protocol):
         target_page_id: str | None = None,
     ) -> tuple[ProposalRecord, ...]: ...
 
+    def propose_append(
+        self,
+        capture_id: str | Sequence[str],
+        *,
+        target_page_id: str,
+        append_markdown: str,
+        delivery_id: str,
+    ) -> tuple[ProposalRecord, ...]: ...
+
     def list(
         self,
         *,

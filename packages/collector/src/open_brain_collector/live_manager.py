@@ -13,6 +13,7 @@ from open_brain_engine.engine import ReadViewUnavailableError, open_local_read_v
 
 from open_brain_collector.live_capture import LiveCaptureService
 from open_brain_collector.runner import CollectorProfileError, _open_existing_collector_profile
+from open_brain_collector.slack_patches import SlackPatchProposer
 from open_brain_collector.slack_policy import SlackPolicyStore
 from open_brain_connectors.runtime.agent_session_hooks import (
     AgentSessionHookManager,
@@ -33,6 +34,7 @@ from open_brain_connectors.runtime.live_http import LiveHttpTransport
 from open_brain_connectors.runtime.live_storage import OsCredentialStore, PrivateJsonStore
 from open_brain_connectors.runtime.slack_auth import SlackAuth
 from open_brain_connectors.runtime.slack_live import SlackSourceClient
+from open_brain_connectors.runtime.source_intake import SourceRecordIntake
 from open_brain_connectors.runtime.source_registry import SourceResourceSelection
 
 OPERATIONS = frozenset(
@@ -137,10 +139,54 @@ class LiveSourceManager:
         self.root = root
         self.brain_root = brain_root
         self.runtime = runtime or PriorityRuntime(root)
-        self.capture = LiveCaptureService(root / "capture", brain_root, runtime=self.runtime)
         self._setup = PrivateJsonStore(root / "setup")
         self._slack_policy = SlackPolicyStore(root)
+        self._slack_patches = SlackPatchProposer(brain_root, self._slack_policy)
+        self.capture = LiveCaptureService(
+            root / "capture",
+            brain_root,
+            runtime=self.runtime,
+            post_apply=self._post_apply,
+        )
         self.background = background
+
+    def _post_apply(
+        self,
+        selection: SourceResourceSelection,
+        records: tuple[tuple[SourceRecordIntake, str], ...],
+    ) -> None:
+        self._slack_patches.propose(selection, records)
+
+    def sync_due(self) -> list[dict[str, object]]:
+        """Run due discovery before channel capture, without enabling suggestions."""
+        results: list[dict[str, object]] = []
+        for account in self._slack_policy.accounts():
+            try:
+                policy = self._slack_policy.policy(account)
+                discovery = cast(dict[str, object], policy["discovery"])
+                now = int(time.time())
+                if (
+                    discovery["checkpoint"] is not None
+                    or discovery["completed_at"] is None
+                    or now - cast(int, discovery["completed_at"]) >= 86_400
+                ):
+                    outcome = self._slack("sources.slack_discover", {"connection_id": account})
+                    results.append(
+                        {
+                            "source_id": "slack-discovery:" + account,
+                            "outcome": "completed",
+                            **outcome,
+                        }
+                    )
+            except LiveSourceError as error:
+                results.append(
+                    {
+                        "source_id": "slack-discovery:" + account,
+                        "outcome": "failed",
+                        "failure_code": error.code,
+                    }
+                )
+        return [*results, *self.capture.sync_due()]
 
     def dispatch(self, operation: str, arguments: object) -> dict[str, object]:
         if operation not in OPERATIONS or type(arguments) is not dict:
@@ -197,12 +243,16 @@ class LiveSourceManager:
                 raise LiveSourceError("source_use_session_setup")
             if type(args["options"]) is not dict or type(args.get("reset", False)) is not bool:
                 raise LiveSourceError("source_invalid_arguments")
-            return self.capture.configure(
-                safe_text(args.get("source_id", self._source_id(selected))),
+            source_id = safe_text(args.get("source_id", self._source_id(selected)))
+            result = self.capture.configure(
+                source_id,
                 selected,
                 cast(dict[str, object], args["options"]),
                 reset=cast(bool, args.get("reset", False)),
             )
+            if selected.connector_name == "slack":
+                result = self.capture.control(source_id, "schedule", interval_seconds=14_400)
+            return result
         if operation == "sources.preview":
             _shape(args, {"source_id"})
             return self.capture.preview(safe_text(args["source_id"]))

@@ -15,10 +15,12 @@ from open_brain_engine.storage.filesystem import StorageError, read_confined
 from open_brain_engine.storage.markdown import parse_markdown, render_markdown
 
 from .contracts import (
+    MAX_PATCH_REPLACEMENT_BYTES,
     CaptureFault,
     DecisionOutcome,
     DecisionRecord,
     PatchDraft,
+    PatchOperation,
     ProposalDraft,
     ProposalRecord,
     ReviewEvidence,
@@ -44,6 +46,8 @@ from .normalization import (
 from .portability_ports import portable_write_port
 from .review_bound import (
     MAX_REVIEW_MARKDOWN_BYTES,
+    _read_page,
+    _target_state,
     bound_edited_bytes,
     load_bound_context,
     patch_draft_from_binding,
@@ -56,6 +60,63 @@ if TYPE_CHECKING:
 
 
 class ReviewOperations(_LocalEngineOperations):
+    def _propose_append(
+        self,
+        capture_id: str | Sequence[str],
+        *,
+        target_page_id: str,
+        append_markdown: str,
+        delivery_id: str,
+    ) -> tuple[ProposalRecord, ...]:
+        """Create a revision-bound append proposal without exposing page storage."""
+        selected = (capture_id,) if isinstance(capture_id, str) else tuple(capture_id)
+        if (
+            not selected
+            or any(not isinstance(value, str) for value in selected)
+            or not isinstance(append_markdown, str)
+            or not append_markdown.strip()
+            or len(append_markdown.encode("utf-8")) > MAX_PATCH_REPLACEMENT_BYTES
+        ):
+            raise ValueError("invalid append proposal")
+        _portable_id(target_page_id, "page")
+        _delivery_id(delivery_id)
+        with self._store.transaction() as connection:
+            target = _target_state(self, connection, target_page_id)
+            if target is None:
+                raise ValueError("unknown target page")
+            target_space_id = cast(str, target["space_id"])
+        for selected_capture_id in selected:
+            route_delivery = "review-route-" + sha256(
+                (delivery_id + "\x1f" + selected_capture_id).encode("utf-8")
+            ).hexdigest()
+            self._route_capture(selected_capture_id, target_space_id, route_delivery)
+        with self._store.transaction() as connection:
+            target = _target_state(self, connection, target_page_id)
+            if target is None:
+                raise ValueError("unknown target page")
+            current = _read_page(self, cast(str, target["canonical_path"]))
+        body = parse_markdown(current).body
+        draft = PatchDraft(
+            target_page_id=target_page_id,
+            expected_page_sha256=cast(str, target["published_sha256"]),
+            operations=(
+                PatchOperation(
+                    start_byte=len(body.encode("utf-8")),
+                    end_byte=len(body.encode("utf-8")),
+                    replacement="\n\n" + append_markdown.strip(),
+                ),
+            ),
+        )
+        proposal_delivery = "append-" + sha256(
+            (delivery_id + "\x1f" + cast(str, target["published_sha256"])).encode("utf-8")
+        ).hexdigest()
+        return self._propose(
+            selected,
+            (draft,),
+            proposal_delivery,
+            target_page_id=target_page_id,
+        )
+
     def _propose(
         self,
         capture_id: str | Sequence[str],
@@ -1059,6 +1120,22 @@ class ReviewTasks:
                 self._engine._drain_review_decisions()
             return self._engine._propose(
                 capture_id, drafts, delivery_id, target_page_id=target_page_id
+            )
+
+    def propose_append(
+        self,
+        capture_id: str | Sequence[str],
+        *,
+        target_page_id: str,
+        append_markdown: str,
+        delivery_id: str,
+    ) -> tuple[ProposalRecord, ...]:
+        with self._engine._writer_lease.acquire_shared_writer():
+            return self._engine._propose_append(
+                capture_id,
+                target_page_id=target_page_id,
+                append_markdown=append_markdown,
+                delivery_id=delivery_id,
             )
 
     def list(

@@ -86,6 +86,9 @@ class SlackPolicyStore:
             ),
         }
 
+    def accounts(self) -> tuple[str, ...]:
+        return tuple(sorted(cast(dict[str, object], self._load()["policies"])))
+
     def policy(self, account: object) -> dict[str, object]:
         selected = connection_id(account)
         policy = cast(dict[str, object], self._load()["policies"]).get(selected)
