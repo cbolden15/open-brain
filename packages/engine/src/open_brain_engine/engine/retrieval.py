@@ -25,6 +25,14 @@ from .search_projection import (
     source_search_title,
     upsert_search_document,
 )
+from .t03_contracts import (
+    EffectiveAuthority,
+    RecordReadRequest,
+    RecordReadResponse,
+    SearchPageRequest,
+    SearchPageResponse,
+    T03Error,
+)
 
 if TYPE_CHECKING:
     from .local import BrainEngine
@@ -519,6 +527,29 @@ def _validate_allowed_spaces(allowed_space_ids: frozenset[str] | None) -> None:
 class RetrievalTasks:
     def __init__(self, engine: BrainEngine) -> None:
         self._engine = engine
+
+    def search_page(
+        self, request: SearchPageRequest, *, authority: EffectiveAuthority
+    ) -> SearchPageResponse:
+        from .paging import search_page
+
+        return search_page(self._engine, request, authority=authority)
+
+    def read_record(
+        self, request: RecordReadRequest, *, authority: EffectiveAuthority
+    ) -> RecordReadResponse:
+        from .paging import read_record
+
+        return read_record(self._engine, request, authority=authority)
+
+    def rotate_cursors(self, *, authority: EffectiveAuthority) -> int:
+        from .cursors import CursorStore
+
+        if not authority.owner:
+            raise T03Error("unsupported_capability")
+        self._engine._assert_root()
+        with self._engine._writer_lease.acquire_shared_writer():
+            return CursorStore(self._engine.profile).rotate()
 
     def search(
         self,

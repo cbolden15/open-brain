@@ -244,6 +244,10 @@ class BrainEngine(CaptureOperations, SpaceOperations, ReviewOperations, Retrieva
         finally:
             connection.close()
         if source_history:
+            if startup:
+                from .cursors import CursorStore
+
+                CursorStore(self.profile).bind_root(self)
             from .source_intake import quarantine_stale_intakes
 
             quarantine_stale_intakes(self)

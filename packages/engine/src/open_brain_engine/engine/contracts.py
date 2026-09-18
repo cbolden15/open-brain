@@ -46,6 +46,13 @@ from .t03_contracts import EffectiveAuthority, SourceRouteRequest, SourceRouteRe
 
 if TYPE_CHECKING:
     from .source_intake import SourceRevisionReceipt, SourceRevisionSubmission
+    from .t03_contracts import (
+        EffectiveAuthority,
+        RecordReadRequest,
+        RecordReadResponse,
+        SearchPageRequest,
+        SearchPageResponse,
+    )
 
 _HEX64 = re.compile(r"^[0-9a-f]{64}$")
 
@@ -1656,6 +1663,14 @@ class ScopedRetrievalTask(Protocol):
 
 
 class RetrievalTask(Protocol):
+    def search_page(
+        self, request: SearchPageRequest, *, authority: EffectiveAuthority
+    ) -> SearchPageResponse: ...
+
+    def read_record(
+        self, request: RecordReadRequest, *, authority: EffectiveAuthority
+    ) -> RecordReadResponse: ...
+
     def search(
         self,
         query: str,
