@@ -198,7 +198,10 @@ def search_page(
                     continue
                 raise
             summary = projected.summary
-            if row["body"] != projected.text or row["title"] != summary["title"]:
+            indexed_text = (
+                projected.text if projected.indexed_text is None else projected.indexed_text
+            )
+            if row["body"] != indexed_text or row["title"] != summary["title"]:
                 raise T03Error("projection_stale")
             candidate = results + [summary]
             size = len(portable_canonical_json_bytes(candidate))

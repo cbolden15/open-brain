@@ -466,3 +466,82 @@ def test_cursor_custody_failure_preserves_legacy_search(
     assert reopened.retrieval.search("nebula")
     with pytest.raises(T03Error, match="operation_pending"):
         reopened.retrieval.search_page(SearchPageRequest(query="nebula"), authority=authority())
+
+
+@pytest.mark.parametrize(
+    "producer", ["reviewed", "automatic", "imported_reviewed", "imported_automatic"]
+)
+def test_canonical_read_checks_independent_registered_publication_evidence(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, producer: str
+) -> None:
+    import base64
+    import json
+    from hashlib import sha256
+    from uuid import uuid4
+
+    from open_brain_engine.core.ids import portable_canonical_json_bytes
+    from open_brain_engine.engine import CaptureAction, DecisionOutcome, ProposalDraft, local_schema
+    from open_brain_engine.engine.local_schema_catalog import LOCAL_MIGRATIONS
+
+    with monkeypatch.context() as historical:
+        if producer.startswith("imported_"):
+            historical.setattr(local_schema, "PHASE1_STATE_SCHEMA_VERSION", 6)
+            historical.setattr(local_schema, "LOCAL_MIGRATIONS", LOCAL_MIGRATIONS[:6])
+        engine = BrainEngine.open(
+            compile_single_user_local(tmp_path / "brain", starter_spaces=("Notes",))
+        )
+        space = engine.inbox.spaces()[0]
+        capture = engine.capture.accept(
+            TextPayload("Original publication body"),
+            delivery_id="source",
+            space_id=space.space_id,
+            action=CaptureAction.CANONICAL_NOTE
+            if producer.endswith("automatic")
+            else CaptureAction.QUICK,
+        )
+        if producer.endswith("reviewed"):
+            proposal = engine.review.propose(
+                (capture.capture_id,),
+                (ProposalDraft("Publication", "Original publication body"),),
+                delivery_id="proposal",
+            )[0]
+            engine.review.decide(
+                proposal.proposal_id,
+                DecisionOutcome.APPROVED,
+                delivery_id="decision",
+                expected_review_digest=proposal.review_digest,
+            )
+        if producer.startswith("imported_"):
+            export = tmp_path / "export"
+            engine.portability.export(export, export_id="export_" + str(uuid4()))
+    if producer.startswith("imported_"):
+        control = BrainEngine.open(compile_single_user_local(tmp_path / "control"))
+        control.portability.import_clean(
+            tmp_path / "export", tmp_path / "imported", import_id="import_" + str(uuid4())
+        )
+        engine = BrainEngine.open(compile_single_user_local(tmp_path / "imported"))
+    hit = wire(
+        engine.retrieval.search_page(
+            SearchPageRequest(
+                query="publication",
+                filters={"space_ids": [], "payload_families": [], "record_types": ["canonical"]},
+            ),
+            authority=authority(),
+        )
+    )["results"][0]
+    request = RecordReadRequest(record_id=hit["record_id"], expected_revision_id=hit["revision_id"])
+    assert (
+        "Original publication body"
+        in wire(engine.retrieval.read_record(request, authority=authority()))["content"]["text"]
+    )
+    publication_path = next((engine.profile.root / "history/publications").rglob("*.json"))
+    publication = json.loads(publication_path.read_bytes())
+    changed = base64.b64decode(publication["published_bytes_base64"]).replace(
+        b"Original publication body", b"Tampered publication body"
+    )
+    publication["published_bytes_base64"] = base64.b64encode(changed).decode()
+    publication["published_sha256"] = sha256(changed).hexdigest()
+    publication_path.write_bytes(portable_canonical_json_bytes(publication))
+    (engine.profile.root / publication["published_path"]).write_bytes(changed)
+    with pytest.raises(T03Error, match="not_found"):
+        engine.retrieval.read_record(request, authority=authority())

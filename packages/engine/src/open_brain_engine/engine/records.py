@@ -12,10 +12,11 @@ from typing import Any, cast
 from open_brain_engine.portable.v1 import validate_portable_write
 from open_brain_engine.portable.v4 import canonical_revision_id
 from open_brain_engine.storage.filesystem import StorageError, read_confined
-from open_brain_engine.storage.markdown import parse_markdown
+from open_brain_engine.storage.markdown import parse_markdown, render_markdown
 
 from .contracts import FilePayload, LocalEngineContext
 from .materializer import _payload_search_text
+from .normalization import _privacy, _role_claim
 from .search_projection import public_search_text, public_source_origin, source_search_title
 from .t03_contracts import EffectiveAuthority, T03Error, validate_wire
 
@@ -24,6 +25,7 @@ from .t03_contracts import EffectiveAuthority, T03Error, validate_wire
 class ProjectedRecord:
     summary: dict[str, Any]
     text: str
+    indexed_text: str | None = None
 
 
 class RecordProjector:
@@ -244,7 +246,20 @@ class RecordProjector:
             "source_update_available": updated,
         }
         validate_wire("summary", summary)
-        return ProjectedRecord(summary, body)
+        indexed_text = body
+        automatic = self.connection.execute(
+            "SELECT capture_id FROM captures WHERE publication_id=? AND action='canonical_note' "
+            "AND submission_path != 'import'",
+            (publication_id,),
+        ).fetchone()
+        if automatic is not None:
+            _, capture = self._capture(automatic["capture_id"])
+            indexed_text = public_search_text(
+                capture["payload"]["text"],
+                protected_source_reference=references[0],
+                additional_source_references=references[1:],
+            )
+        return ProjectedRecord(summary, body, indexed_text)
 
     def _publication(self, publication_id: str) -> tuple[dict[str, Any], bytes]:
         rows = list(
@@ -266,7 +281,73 @@ class RecordProjector:
         publication = json.loads(raw)
         if publication["publication_id"] != publication_id:
             raise T03Error("not_found")
-        return publication, base64.b64decode(publication["published_bytes_base64"], validate=True)
+        published = base64.b64decode(publication["published_bytes_base64"], validate=True)
+        decision = self.connection.execute(
+            "SELECT * FROM decisions WHERE publication_id=?",
+            (publication_id,),
+        ).fetchone()
+        if decision is not None:
+            if (
+                decision["decision_id"] != publication["decision_id"]
+                or decision["page_id"] != publication["page_id"]
+                or decision["recorded_at"] != publication["recorded_at"]
+                or decision["effective_bytes"] != published
+                or decision["outcome"] not in {"approved", "edited"}
+            ):
+                raise T03Error("not_found")
+        else:
+            automatic = self.connection.execute(
+                "SELECT * FROM captures WHERE publication_id=? "
+                "AND action='canonical_note' AND stage=3",
+                (publication_id,),
+            ).fetchone()
+            if automatic is None or automatic["auto_decision_id"] != publication["decision_id"]:
+                raise T03Error("not_found")
+            _, capture = self._capture(automatic["capture_id"])
+            if capture["payload"]["family"] != "text":
+                raise T03Error("not_found")
+            body = capture["payload"]["text"]
+            title = automatic["title"]
+            if title is None:
+                title = next(
+                    (
+                        line.strip().lstrip("#").strip()
+                        for line in body.splitlines()
+                        if line.strip()
+                    ),
+                    "Untitled note",
+                )[:200]
+            expected = render_markdown(
+                fields={
+                    "actor_id": self.profile.owner_actor_id,
+                    "modified_at": capture["accepted_at"],
+                    "page_id": automatic["page_id"],
+                    "privacy": _privacy(),
+                    "provenance": [automatic["capture_id"]],
+                    "role_claim": _role_claim(self.profile),
+                    "schema_version": 1,
+                    "space_id": capture["space_id"],
+                    "status": "active",
+                    "tenant_id": self.profile.tenant_id,
+                    "title": title,
+                    "trust": "owner",
+                },
+                body=body if body.endswith("\n") else body + "\n",
+            ).encode("utf-8")
+            if published != expected or publication["recorded_at"] != capture["accepted_at"]:
+                raise T03Error("not_found")
+        head = self.connection.execute(
+            "SELECT published_sha256,page_id,canonical_path FROM review_page_heads "
+            "WHERE publication_id=?",
+            (publication_id,),
+        ).fetchone()
+        if head is not None and (
+            head["published_sha256"] != sha256(published).hexdigest()
+            or head["page_id"] != publication["page_id"]
+            or head["canonical_path"] != publication["published_path"]
+        ):
+            raise T03Error("not_found")
+        return publication, published
 
     def read(self, record_id: str, *, expected: str | None = None) -> ProjectedRecord:
         try:
