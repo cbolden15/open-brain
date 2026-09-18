@@ -114,7 +114,7 @@ def test_pause_during_active_run_is_not_overwritten_by_collector_completion(
     persisted = json.loads((tmp_path / "collector.json").read_text(encoding="utf-8"))
     source_state = persisted["sources"]["github.fixture"]
 
-    assert result.outcome == "completed"
+    assert result.outcome == "failed"
     assert result.status == "paused"
     assert result.pause_ack_epoch == 100
     assert source_state["status"] == "paused"

@@ -23,6 +23,7 @@ from open_brain_engine.core.models import (
 from open_brain_engine.engine import (
     CaptureAction,
     CaptureSubmission,
+    DeliveryConflict,
     EngineTaskSet,
     PublicJobCaptureContext,
     PublicProvenance,
@@ -153,8 +154,10 @@ def test_legacy_public_job_changed_delivery_requires_explicit_revision_evidence(
     )
 
     accepted = tasks.capture.submit(first)
-    with pytest.raises(ValueError, match="conflicting delivery"):
+    with pytest.raises(DeliveryConflict, match="conflicting delivery") as conflict:
         tasks.capture.submit(changed)
+    with pytest.raises(AttributeError, match="immutable"):
+        conflict.value.args = ("changed",)
     replay = tasks.capture.submit(first)
     assert replay.capture_id == accepted.capture_id
     assert replay.duplicate is True

@@ -10,8 +10,10 @@ from dataclasses import asdict
 from pathlib import Path
 from typing import Protocol, cast
 
-from open_brain_engine.engine import PrivacyDecision, ReferencePayload
+from open_brain_engine.engine import DeliveryConflict, PrivacyDecision, ReferencePayload
+from open_brain_engine.engine.t03_contracts import T03Error
 
+from open_brain_collector.custody import CustodyStore, intake_digest
 from open_brain_connectors.runtime.live_common import (
     LiveBatch,
     LiveSourceError,
@@ -125,12 +127,13 @@ class LiveCaptureService:
         brain_root: Path,
         *,
         runtime: LiveRuntime,
-        sink: Callable[[SourceRecordIntake], None] | None = None,
+        sink: Callable[[SourceRecordIntake], object] | None = None,
         clock: Callable[[], int] | None = None,
     ) -> None:
         self._brain_root = brain_root
         self._brain_binding = _binding(brain_root)
         self._store = PrivateJsonStore(root)
+        self._custody = CustodyStore(self._store)
         self._runtime = runtime
         self._sink = sink
         self._clock = clock or (lambda: int(time.time()))
@@ -162,10 +165,13 @@ class LiveCaptureService:
             "next_run_epoch",
             "checkpoint",
             "committed",
+            "committed_receipts",
             "pending",
             "last_run",
             "pause_ack_epoch",
         }
+        if isinstance(value, dict) and "committed_receipts" not in value:
+            value["committed_receipts"] = {}
         if (
             not isinstance(value, dict)
             or set(value) != keys
@@ -179,9 +185,14 @@ class LiveCaptureService:
             or not 1 <= value["interval_seconds"] <= 31_536_000
             or not isinstance(value["options"], dict)
             or not isinstance(value["committed"], dict)
+            or not isinstance(value["committed_receipts"], dict)
             or any(
                 type(key) is not str or type(item) is not str
                 for key, item in value["committed"].items()
+            )
+            or any(
+                type(key) is not str or type(item) is not str
+                for key, item in value["committed_receipts"].items()
             )
             or any(
                 value[key] is not None and type(value[key]) is not int
@@ -261,6 +272,7 @@ class LiveCaptureService:
                 "next_run_epoch": None,
                 "checkpoint": None,
                 "committed": {},
+                "committed_receipts": {},
                 "pending": None,
                 "last_run": None,
                 "pause_ack_epoch": None,
@@ -281,6 +293,14 @@ class LiveCaptureService:
                 raise LiveSourceError("source_invalid_state")
             sources.append(self._summary(self._load(value["source_id"])))
         return {"schema_version": 1, "sources": sources}
+
+    def custody_status(self, source_id: str | None = None) -> dict[str, object]:
+        if source_id is not None:
+            self._load(source_id)
+        return self._custody.status(source_id)
+
+    def custody_inspect(self, receipt_id: str) -> dict[str, object]:
+        return self._custody.inspect(receipt_id)
 
     @staticmethod
     def _summary(entry: Mapping[str, object]) -> dict[str, object]:
@@ -417,10 +437,14 @@ class LiveCaptureService:
         if isinstance(checkpoint, dict):
             self._runtime.acknowledge(_selection(entry["selection"]), checkpoint)
 
-    def _submit(self, intake: SourceRecordIntake) -> bool:
+    def _submit(self, intake: SourceRecordIntake) -> tuple[str, str | None]:
         if self._sink is not None:
-            self._sink(intake)
-            return False
+            result = self._sink(intake)
+            if getattr(result, "outcome", None) == "history_only":
+                return ("history_only", getattr(result, "capture_id", None))
+            duplicate = bool(getattr(result, "duplicate", False))
+            capture_id = getattr(result, "capture_id", None)
+            return ("duplicate" if duplicate else "captured", capture_id)
         from open_brain_collector.runner import collector_capture_sink
 
         # Metadata-only provider revisions must also change the engine's content digest.
@@ -430,7 +454,42 @@ class LiveCaptureService:
         sink = collector_capture_sink(self._brain_root)
         kwargs = intake.capture_kwargs()
         kwargs["payload"] = ReferencePayload(url=intake.url, supplied_text=text)
-        return sink.submit(**kwargs).duplicate  # type: ignore[arg-type]
+        receipt = sink.submit(**kwargs)  # type: ignore[arg-type]
+        return ("duplicate" if receipt.duplicate else "captured", receipt.capture_id)
+
+    @staticmethod
+    def _is_item_conflict(error: Exception) -> bool:
+        return isinstance(error, DeliveryConflict) or (
+            isinstance(error, T03Error) and error.code == "source_revision_conflict"
+        )
+
+    def custody_retry(self, receipt_id: str) -> dict[str, object]:
+        receipt = self._custody.receipt(receipt_id)
+        if receipt["outcome"] != "quarantined":
+            raise LiveSourceError("collector_custody_not_replayable")
+        source_id = cast(str, receipt["source_id"])
+        with (
+            self._store.lock("run-" + _source_name(source_id), timeout_seconds=0),
+            self._store.lock("state"),
+        ):
+            current = self._load(source_id)
+            if (
+                current["generation"] != receipt["generation"]
+                or current["control_epoch"] != receipt["control_epoch"]
+                or current["binding"] != receipt["binding"]
+                or current["status"] == "paused"
+            ):
+                raise LiveSourceError("collector_custody_stale")
+            intake = self._custody.intake(receipt_id)
+            try:
+                outcome, capture_id = self._submit(intake)
+            except Exception as error:
+                if self._is_item_conflict(error):
+                    return self._custody.inspect(receipt_id)
+                raise
+            self._custody.outcome(receipt_id, outcome, capture_id=capture_id)
+            self._custody.release_completed((receipt_id,))
+        return self._custody.inspect(receipt_id)
 
     def apply(
         self, source_id: str, preview_id: str, *, automatic: bool = False
@@ -452,19 +511,59 @@ class LiveCaptureService:
             intakes = tuple(
                 _intake_from_dict(item) for item in cast(list[object], pending["intakes"])
             )
+            receipt_ids = self._custody.stage(
+                source_id=source_id,
+                binding=self._brain_binding,
+                generation=cast(str, entry["generation"]),
+                control_epoch=cast(int, entry["control_epoch"]),
+                intakes=intakes,
+            )
             protected = {item.key.delivery_id() for item in intakes}
-            captured = duplicates = 0
-            for intake in intakes:
+            captured = duplicates = quarantined = 0
+            for intake, receipt_id in zip(intakes, receipt_ids, strict=True):
                 with self._store.lock("state"):
                     latest = self._load(source_id)
                     self._require_current(entry, latest, automatic)
                     committed = cast(dict[str, str], latest["committed"])
+                    committed_receipts = cast(dict[str, str], latest["committed_receipts"])
                     delivery, revision = intake.key.delivery_id(), intake.key.revision_identity()
-                    if committed.get(delivery) == revision:
-                        duplicates += 1
+                    committed_value = revision + ":" + intake_digest(intake)
+                    prior = self._custody.receipt(receipt_id)
+                    if prior["outcome"] == "quarantined":
+                        quarantined += 1
                         continue
-                    duplicate = self._submit(intake)
-                    committed[delivery] = revision
+                    if prior["outcome"] in {"captured", "duplicate", "history_only"}:
+                        duplicates += int(prior["outcome"] in {"captured", "duplicate"})
+                        continue
+                    if committed.get(delivery) == committed_value:
+                        duplicates += 1
+                        self._custody.outcome(
+                            receipt_id,
+                            "duplicate",
+                            capture_id=committed_receipts.get(delivery),
+                            evidence=(
+                                "capture_id"
+                                if delivery in committed_receipts
+                                else "acceleration_cache"
+                            ),
+                        )
+                        continue
+                    try:
+                        outcome, capture_id = self._submit(intake)
+                    except Exception as error:
+                        if not self._is_item_conflict(error):
+                            raise
+                        self._custody.outcome(
+                            receipt_id,
+                            "quarantined",
+                            reason_code="source_revision_conflict",
+                        )
+                        quarantined += 1
+                        continue
+                    self._custody.outcome(receipt_id, outcome, capture_id=capture_id)
+                    committed[delivery] = committed_value
+                    if capture_id is not None:
+                        committed_receipts[delivery] = capture_id
                     if len(committed) > _MAX_COMMITTED:
                         # This is an acceleration cache. The engine remains the
                         # durable duplicate authority after historical cache eviction.
@@ -474,17 +573,23 @@ class LiveCaptureService:
                         latest["committed"] = {
                             key: value for key, value in committed.items() if key in keep
                         }
-                    captured += int(not duplicate)
-                    duplicates += int(duplicate)
+                        latest["committed_receipts"] = {
+                            key: value for key, value in committed_receipts.items() if key in keep
+                        }
+                    captured += int(outcome == "captured")
+                    duplicates += int(outcome == "duplicate")
                     self._save(latest)
             with self._store.lock("state"):
                 latest = self._load(source_id)
                 self._require_current(entry, latest, automatic)
+                self._custody.validate_terminal(receipt_ids)
                 last: dict[str, object] = {
                     "preview_id": preview_id,
                     "outcome": "completed",
                     "captured_count": captured,
                     "duplicate_count": duplicates,
+                    "quarantined_count": quarantined,
+                    "receipt_ids": list(receipt_ids),
                     "finished_epoch": self._clock(),
                     "has_more": pending["has_more"],
                     "notices": pending["notices"],
@@ -497,6 +602,7 @@ class LiveCaptureService:
                     )
                 self._save(latest)
                 self._store.delete(preview_id.replace(":", "-") + ".json")
+                self._custody.release_completed(receipt_ids)
                 try:
                     self._acknowledge(latest)
                 except LiveSourceError, OSError:

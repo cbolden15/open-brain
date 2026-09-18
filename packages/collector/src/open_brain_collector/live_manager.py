@@ -41,6 +41,9 @@ OPERATIONS = frozenset(
         "sources.preview",
         "sources.import",
         "sources.control",
+        "sources.custody_status",
+        "sources.custody_inspect",
+        "sources.custody_retry",
         "sources.session_preview",
         "sources.session_apply",
     }
@@ -137,6 +140,16 @@ class LiveSourceManager:
                     "background": self.background,
                 },
             }
+        if operation == "sources.custody_status":
+            _shape(args, set(), {"source_id"})
+            source_id = args.get("source_id")
+            return self.capture.custody_status(None if source_id is None else safe_text(source_id))
+        if operation == "sources.custody_inspect":
+            _shape(args, {"receipt_id"})
+            return self.capture.custody_inspect(safe_text(args["receipt_id"]))
+        if operation == "sources.custody_retry":
+            _shape(args, {"receipt_id"})
+            return self.capture.custody_retry(safe_text(args["receipt_id"]))
         if operation in {"sources.accounts", "sources.connect", "sources.disconnect"}:
             return self._account(operation, args)
         if operation == "sources.resources":

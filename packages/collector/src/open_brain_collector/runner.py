@@ -91,7 +91,9 @@ class CollectorProcessRunner:
             or type(force) is not bool
         ):
             raise ConnectorContractError("invalid collector runner")
-        controller = CollectorController(CollectorStateStore(self.state_path), clock=self.clock)
+        controller = CollectorController(
+            CollectorStateStore(self.state_path), clock=self.clock, brain_root=self.brain_root
+        )
         try:
             with CollectorLease(self.lease_path).acquire(owner=self.owner):
                 results = self._sync_sources(
@@ -119,6 +121,7 @@ class CollectorProcessRunner:
                     controller = CollectorController(
                         CollectorStateStore(self.state_path),
                         clock=self.clock,
+                        brain_root=self.brain_root,
                     )
                     while max_iterations is None or iterations < max_iterations:
                         last = {
