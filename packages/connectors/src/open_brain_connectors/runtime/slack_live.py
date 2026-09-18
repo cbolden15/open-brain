@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import time
 from collections.abc import Mapping
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import cast
 from urllib.parse import urlencode
@@ -22,11 +23,35 @@ from open_brain_connectors.runtime.slack_auth import SlackAuth
 from open_brain_connectors.runtime.source_intake import SourceRecordIntake
 from open_brain_connectors.runtime.source_registry import D4_SLACK_SOURCE, SourceResourceSelection
 
-__all__ = ["SlackSourceClient"]
+__all__ = ["SlackDiscoveryBatch", "SlackSourceClient"]
 
 _API = "https://slack.com/api/"
 _MAX_PAGE = 25
 _MAX_KNOWN_IDENTITIES = 500
+_MAX_DISCOVERY_CHANNELS = 100
+_MAX_DISCOVERY_MESSAGES = 100_000
+
+
+@dataclass(frozen=True, slots=True)
+class SlackDiscoveryBatch:
+    """One resumable metadata-only slice of a Slack channel scoring scan."""
+
+    checkpoint: dict[str, object] | None
+    has_more: bool
+    fetch_candidates: tuple[dict[str, object], ...] = ()
+    suggestions: tuple[dict[str, object], ...] = ()
+
+    def __post_init__(self) -> None:
+        if (
+            self.checkpoint is not None
+            and type(self.checkpoint) is not dict
+            or type(self.has_more) is not bool
+            or type(self.fetch_candidates) is not tuple
+            or type(self.suggestions) is not tuple
+            or len(self.fetch_candidates) > 1
+            or len(self.suggestions) > 1
+        ):
+            raise LiveSourceError("source_invalid_discovery")
 
 
 class SlackSourceClient:
@@ -39,9 +64,7 @@ class SlackSourceClient:
         self._http = http or LiveHttpTransport()
         self._adapter = SlackSourceAdapter()
 
-    def resources(
-        self, connection_id: str, *, cursor: str | None = None
-    ) -> LiveResourcePage:
+    def resources(self, connection_id: str, *, cursor: str | None = None) -> LiveResourcePage:
         if cursor is not None:
             safe_text(cursor, maximum=8192)
         payload = self._api(
@@ -67,6 +90,83 @@ class SlackSourceClient:
             name = _channel_name(item.get("name"))
             resources.append(LiveResource(f"channel:{channel_id}", name, "channel"))
         return LiveResourcePage(tuple(resources), _next_cursor(payload))
+
+    def discover(
+        self,
+        connection_id: str,
+        policy: Mapping[str, object],
+        checkpoint: dict[str, object] | None,
+    ) -> SlackDiscoveryBatch:
+        """Score one bounded channel/history page without reading capture content into intake."""
+        account = safe_text(connection_id, maximum=128)
+        config = _discovery_policy(policy)
+        state = _discovery_checkpoint(account, checkpoint, config["lookback_seconds"])
+        active = cast(dict[str, object] | None, state["active_channel"])
+        if active is None and not cast(list[object], state["pending_channels"]):
+            if state["list_complete"]:
+                return SlackDiscoveryBatch(None, False)
+            payload = self._api(
+                account,
+                "conversations.list",
+                {
+                    "exclude_archived": "true",
+                    "limit": str(_MAX_DISCOVERY_CHANNELS),
+                    "types": "public_channel,private_channel",
+                    **({"cursor": cast(str, state["list_cursor"])} if state["list_cursor"] else {}),
+                },
+            )
+            channels = payload.get("channels")
+            if not isinstance(channels, list) or len(channels) > _MAX_DISCOVERY_CHANNELS:
+                raise LiveSourceError("invalid_provider_response")
+            decoded = tuple(_discovery_channel(item) for item in channels)
+            state["pending_channels"] = [
+                item
+                for item, raw in zip(decoded, channels, strict=True)
+                if cast(Mapping[str, object], raw).get("is_archived") is not True
+            ]
+            state["list_cursor"] = _next_cursor(payload)
+            state["list_complete"] = state["list_cursor"] is None
+            return SlackDiscoveryBatch(
+                state, bool(state["pending_channels"]) or not state["list_complete"]
+            )
+        if active is None:
+            pending = cast(list[dict[str, object]], state["pending_channels"])
+            active, state["pending_channels"] = pending[0], pending[1:]
+            state["active_channel"] = active
+        payload = self._api(
+            account,
+            "conversations.history",
+            {
+                "channel": cast(str, active["channel_id"]),
+                "limit": "100",
+                "oldest": cast(str, state["oldest"]),
+                **(
+                    {"cursor": cast(str, active["history_cursor"])}
+                    if active["history_cursor"]
+                    else {}
+                ),
+            },
+        )
+        messages = payload.get("messages")
+        if not isinstance(messages, list) or len(messages) > 100:
+            raise LiveSourceError("invalid_provider_response")
+        active["message_count"] = cast(int, active["message_count"]) + len(messages)
+        if active["message_count"] > _MAX_DISCOVERY_MESSAGES:
+            raise LiveSourceError("source_discovery_limit")
+        next_history = _next_cursor(payload)
+        if next_history is not None:
+            active["history_cursor"] = next_history
+            state["active_channel"] = active
+            return SlackDiscoveryBatch(state, True)
+        candidate = _scored_channel(active, config)
+        state["active_channel"] = None
+        has_more = bool(state["pending_channels"]) or not cast(bool, state["list_complete"])
+        result_state: dict[str, object] | None = state if has_more else None
+        if candidate["channel_id"] in config["allowlist"]:
+            return SlackDiscoveryBatch(result_state, has_more, fetch_candidates=(candidate,))
+        if candidate["score"] >= config["threshold"]:
+            return SlackDiscoveryBatch(result_state, has_more, suggestions=(candidate,))
+        return SlackDiscoveryBatch(result_state, has_more)
 
     def fetch(
         self,
@@ -309,9 +409,7 @@ class SlackSourceClient:
             mapped["thread_ts"] = _timestamp(value.get("thread_ts"))
         return self._adapter.record_from_rest(mapped)
 
-    def _api(
-        self, connection_id: str, method: str, query: dict[str, str]
-    ) -> dict[str, object]:
+    def _api(self, connection_id: str, method: str, query: dict[str, str]) -> dict[str, object]:
         token = self._auth.access_token(connection_id)
         response = self._http.request(
             "GET",
@@ -372,14 +470,172 @@ def _date_floor(options: dict[str, object]) -> str:
     return f"{moment.timestamp():.6f}"
 
 
+def _discovery_policy(value: Mapping[str, object]) -> dict[str, object]:
+    required = {
+        "activity_weight",
+        "allowlist",
+        "keyword_weight",
+        "keywords",
+        "lookback_seconds",
+        "threshold",
+    }
+    if not isinstance(value, Mapping) or set(value) != required:
+        raise LiveSourceError("invalid_discovery_policy")
+    numbers: dict[str, int] = {}
+    for field in ("activity_weight", "keyword_weight", "threshold"):
+        item = value[field]
+        if type(item) is not int or not 0 <= item <= 100_000:
+            raise LiveSourceError("invalid_discovery_policy")
+        numbers[field] = item
+    lookback = value["lookback_seconds"]
+    if type(lookback) is not int or not 3_600 <= lookback <= 604_800:
+        raise LiveSourceError("invalid_discovery_policy")
+    allowlist = value["allowlist"]
+    keywords = value["keywords"]
+    if (
+        not isinstance(allowlist, list)
+        or len(allowlist) > 500
+        or not isinstance(keywords, list)
+        or len(keywords) > 64
+    ):
+        raise LiveSourceError("invalid_discovery_policy")
+    try:
+        normalized_allowlist = {_channel_id(item) for item in allowlist}
+        normalized_keywords = tuple(safe_text(item, maximum=120).casefold() for item in keywords)
+    except LiveSourceError:
+        raise LiveSourceError("invalid_discovery_policy") from None
+    if len(normalized_allowlist) != len(allowlist) or len(set(normalized_keywords)) != len(
+        keywords
+    ):
+        raise LiveSourceError("invalid_discovery_policy")
+    return {
+        **numbers,
+        "allowlist": normalized_allowlist,
+        "keywords": normalized_keywords,
+        "lookback_seconds": lookback,
+    }
+
+
+def _discovery_checkpoint(
+    connection_id: str, checkpoint: dict[str, object] | None, lookback_seconds: int
+) -> dict[str, object]:
+    if checkpoint is None:
+        return {
+            "active_channel": None,
+            "connection_id": connection_id,
+            "list_complete": False,
+            "list_cursor": None,
+            "oldest": f"{time.time() - lookback_seconds:.6f}",
+            "pending_channels": [],
+            "schema_version": 1,
+        }
+    if type(checkpoint) is not dict or set(checkpoint) != {
+        "active_channel",
+        "connection_id",
+        "list_complete",
+        "list_cursor",
+        "oldest",
+        "pending_channels",
+        "schema_version",
+    }:
+        raise LiveSourceError("invalid_discovery_checkpoint")
+    if (
+        checkpoint["schema_version"] != 1
+        or checkpoint["connection_id"] != connection_id
+        or type(checkpoint["list_complete"]) is not bool
+        or checkpoint["list_cursor"] is not None
+        and type(checkpoint["list_cursor"]) is not str
+    ):
+        raise LiveSourceError("invalid_discovery_checkpoint")
+    _timestamp(checkpoint["oldest"])
+    pending = checkpoint["pending_channels"]
+    if not isinstance(pending, list) or len(pending) > _MAX_DISCOVERY_CHANNELS:
+        raise LiveSourceError("invalid_discovery_checkpoint")
+    for item in pending:
+        _valid_discovery_channel(item)
+    active = checkpoint["active_channel"]
+    if active is not None:
+        _valid_discovery_channel(active)
+    return dict(checkpoint)
+
+
+def _discovery_channel(value: object) -> dict[str, object]:
+    if not isinstance(value, Mapping):
+        raise LiveSourceError("invalid_provider_response")
+    channel = _channel_id(value.get("id"))
+    name = _channel_name(value.get("name"))
+    topic_value = value.get("topic")
+    topic = topic_value.get("value") if isinstance(topic_value, Mapping) else None
+    if topic is not None and (type(topic) is not str or len(topic) > 512 or "\x00" in topic):
+        raise LiveSourceError("invalid_provider_response")
+    return {
+        "channel_id": channel,
+        "history_cursor": None,
+        "message_count": 0,
+        "name": name,
+        "topic": topic,
+    }
+
+
+def _valid_discovery_channel(value: object) -> None:
+    if not isinstance(value, dict) or set(value) != {
+        "channel_id",
+        "history_cursor",
+        "message_count",
+        "name",
+        "topic",
+    }:
+        raise LiveSourceError("invalid_discovery_checkpoint")
+    _channel_id(value["channel_id"])
+    _channel_name(value["name"])
+    if value["topic"] is not None and (
+        type(value["topic"]) is not str
+        or len(cast(str, value["topic"])) > 512
+        or "\x00" in cast(str, value["topic"])
+    ):
+        raise LiveSourceError("invalid_discovery_checkpoint")
+    if value["history_cursor"] is not None and type(value["history_cursor"]) is not str:
+        raise LiveSourceError("invalid_discovery_checkpoint")
+    if (
+        type(value["message_count"]) is not int
+        or not 0 <= value["message_count"] <= _MAX_DISCOVERY_MESSAGES
+    ):
+        raise LiveSourceError("invalid_discovery_checkpoint")
+
+
+def _scored_channel(channel: dict[str, object], policy: dict[str, object]) -> dict[str, object]:
+    topic = cast(str | None, channel["topic"])
+    haystack = (cast(str, channel["name"]) + "\n" + (topic or "")).casefold()
+    keyword_hits = sum(
+        haystack.count(keyword) for keyword in cast(tuple[str, ...], policy["keywords"])
+    )
+    message_count = cast(int, channel["message_count"])
+    score = message_count * cast(int, policy["activity_weight"]) + keyword_hits * cast(
+        int, policy["keyword_weight"]
+    )
+    return {
+        "channel_id": channel["channel_id"],
+        "keyword_hits": keyword_hits,
+        "message_count": message_count,
+        "name": channel["name"],
+        "score": score,
+        "topic": channel["topic"],
+    }
+
+
 def _checkpoint(
     selection: SourceResourceSelection, checkpoint: dict[str, object] | None
 ) -> dict[str, object]:
     if checkpoint is None:
         return _state(selection, None)
     if type(checkpoint) is not dict or set(checkpoint) != {
-        "connection_id", "history_cursor", "pending_removals", "resource_id", "scan",
-        "schema_version", "thread",
+        "connection_id",
+        "history_cursor",
+        "pending_removals",
+        "resource_id",
+        "scan",
+        "schema_version",
+        "thread",
     }:
         raise LiveSourceError("invalid_checkpoint")
     if (
@@ -407,7 +663,10 @@ def _checkpoint(
     thread = checkpoint.get("thread")
     if thread is not None:
         if not isinstance(thread, dict) or set(thread) != {
-            "emitted_parent", "next_history_cursor", "replies_cursor", "root_ts"
+            "emitted_parent",
+            "next_history_cursor",
+            "replies_cursor",
+            "root_ts",
         }:
             raise LiveSourceError("invalid_checkpoint")
         if (
@@ -494,9 +753,7 @@ def _scan(state: dict[str, object]) -> dict[str, object]:
     return value
 
 
-def _scan_value(
-    cutoff: object, known: Mapping[str, str], seen: set[str]
-) -> dict[str, object]:
+def _scan_value(cutoff: object, known: Mapping[str, str], seen: set[str]) -> dict[str, object]:
     return {
         "cutoff": cutoff,
         "known": [

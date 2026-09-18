@@ -1,7 +1,7 @@
 {
   "id": "2026-09-18-slack-noteworthy-capture-notes",
   "title": "Implementation notes — Slack noteworthy capture and recurring-note patches",
-  "subtitle": "starting · 2026-09-18 17:20 CDT",
+  "subtitle": "Phase 1 complete · 2026-09-18 17:37 CDT",
   "introTitle": "How to use",
   "intro": "<p>Each item is a decision, deviation, or tradeoff made during implementation. <strong>Acknowledge</strong> if fine. <strong>Discuss</strong> to write what should change (free-text). <strong>Revert</strong> to flag for undo.</p>",
   "actions": [
@@ -31,5 +31,20 @@
       "badge": "P4"
     }
   ],
-  "items": []
+  "items": [
+    {
+      "id": "N1",
+      "group": "phase-1",
+      "title": "Bind structured patches to the exact canonical revision",
+      "where": "packages/engine/src/open_brain_engine/engine/review_bound.py",
+      "default": "acknowledge",
+      "body": {
+        "Spec said": "Keep full-page review compatible while adding bounded structured patches with stale-target rejection, visible diffs, provenance, and Portable Brain validation.",
+        "What I did": "Added UTF-8 byte-range patch contracts, revision-bound review bindings, derived diffs, CLI and MCP input support, explicit edit-and-approve replacement bodies, and portable-history validation against the parent page.",
+        "Why": "A frozen patch plus the expected published digest prevents a Slack update from silently applying to a changed note while preserving the existing reviewed-publication boundary.",
+        "Risk": "Focused Ruff, mypy, and 23 patch/service/portable tests pass. The broader live MCP subprocess test group could not import open_brain in its spawned interpreter in this run, so full repository verification remains a Phase 4 gate.",
+        "Followup": "Phase 2 adds versioned private Slack policy, explicit mappings, and noteworthy-channel suggestions without capturing unapproved channels."
+      }
+    }
+  ]
 }

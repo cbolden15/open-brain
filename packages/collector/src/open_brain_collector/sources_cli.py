@@ -114,6 +114,36 @@ def main(argv: Sequence[str]) -> int:
             item.add_argument("--cursor")
     for name in ("configure", "session-preview"):
         commands.add_parser(name).add_argument("--arguments-file", required=True)
+    slack_setup = commands.add_parser("slack-policy-setup")
+    slack_setup.add_argument("--connection-id", required=True)
+    slack_setup.add_argument("--keyword", action="append", dest="keywords")
+    slack_setup.add_argument("--allow-channel", action="append", dest="allowlist")
+    slack_setup.add_argument("--lookback-hours", type=int)
+    slack_setup.add_argument("--activity-weight", type=int)
+    slack_setup.add_argument("--keyword-weight", type=int)
+    slack_setup.add_argument("--threshold", type=int)
+    slack_setup.add_argument("--proposal-opt-in", action="store_true")
+    slack_setup.add_argument("--proposal-opt-out", action="store_true")
+    slack_setup.add_argument("--continue-without-keywords", action="store_true")
+    mapping_add = commands.add_parser("slack-mapping-add")
+    mapping_add.add_argument("--connection-id", required=True)
+    mapping_add.add_argument("--channel-id", required=True)
+    mapping_add.add_argument("--page-id", required=True)
+    mapping_add.add_argument("--keyword")
+    mapping_list = commands.add_parser("slack-mapping-list")
+    mapping_list.add_argument("--connection-id", required=True)
+    mapping_remove = commands.add_parser("slack-mapping-remove")
+    mapping_remove.add_argument("--connection-id", required=True)
+    mapping_remove.add_argument("--mapping-id", required=True)
+    suggestions = commands.add_parser("slack-suggestions")
+    suggestions.add_argument("--connection-id", required=True)
+    for name in ("slack-suggestion-approve", "slack-suggestion-dismiss"):
+        item = commands.add_parser(name)
+        item.add_argument("--connection-id", required=True)
+        item.add_argument("--channel-id", required=True)
+    commands.add_parser("slack-status")
+    discover = commands.add_parser("slack-discover")
+    discover.add_argument("--connection-id", required=True)
     for name in ("preview", "import", "control"):
         item = commands.add_parser(name)
         item.add_argument("--source-id", required=True)
@@ -131,6 +161,11 @@ def main(argv: Sequence[str]) -> int:
     request.add_argument("operation")
     request.add_argument("--arguments-file", required=True)
     args = parser.parse_args(argv)
+    if args.command == "slack-policy-setup":
+        if args.proposal_opt_in and args.proposal_opt_out:
+            parser.error("--proposal-opt-in and --proposal-opt-out are mutually exclusive")
+        if args.keywords is None and not args.continue_without_keywords:
+            parser.error("provide --keyword or explicitly pass --continue-without-keywords")
     try:
         if not args.state.is_absolute() or not args.brain_root.is_absolute():
             raise LiveSourceError("collector_invalid_path")
@@ -152,12 +187,7 @@ def main(argv: Sequence[str]) -> int:
             arguments = (
                 _arguments_file(args.arguments_file)
                 if "arguments_file" in values
-                else {
-                    key: value
-                    for key, value in values.items()
-                    if key not in {"state", "brain_root", "foreground", "command"}
-                    and value is not None
-                }
+                else _command_arguments(args)
             )
             result = (
                 LiveSourceManager(args.state.parent / "live", args.brain_root).dispatch(
@@ -180,3 +210,31 @@ def main(argv: Sequence[str]) -> int:
             )
         )
         return 78
+
+
+def _command_arguments(args: argparse.Namespace) -> dict[str, object]:
+    values = vars(args)
+    ignored = {
+        "state",
+        "brain_root",
+        "foreground",
+        "command",
+        "arguments_file",
+        "continue_without_keywords",
+        "lookback_hours",
+        "proposal_opt_in",
+        "proposal_opt_out",
+    }
+    result = {
+        key: value for key, value in values.items() if key not in ignored and value is not None
+    }
+    if args.command == "slack-policy-setup":
+        if args.keywords is None and args.continue_without_keywords:
+            result["keywords"] = []
+        if args.lookback_hours is not None:
+            result["lookback_seconds"] = args.lookback_hours * 3_600
+        if args.proposal_opt_in:
+            result["proposal_opt_in"] = True
+        elif args.proposal_opt_out:
+            result["proposal_opt_in"] = False
+    return cast(dict[str, object], result)
