@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "status": "core_v01_t09_t19_local_verified_delivery_gates_pending",
+  "status": "core_v01_t09_t19_t20_local_verified_delivery_gates_pending",
   "baseline_commit": "33a7472f06516753c5c66d76eac8e60538c2660f",
   "assessment": "docs/audits/2026-09-16-new-user-functional-assessment.md",
   "plan": "docs/plans/2026-09-16-new-user-functionality.md",
@@ -40,7 +40,8 @@
       ],
       "acceptance": "Deferred task acceptance remains open; source verification does not establish public artifact or platform readiness.",
       "t09_checkpoint": "docs/ai/workstreams/20260918-open-brain-public-m3-source-continuity-owner-control-c63538/T09-CHECKPOINT.json",
-      "t19_checkpoint": "docs/ai/workstreams/20260918-open-brain-public-m3-source-continuity-owner-control-c63538/T19-CHECKPOINT.json"
+      "t19_checkpoint": "docs/ai/workstreams/20260918-open-brain-public-m3-source-continuity-owner-control-c63538/T19-CHECKPOINT.json",
+      "t20_checkpoint": "docs/ai/workstreams/20260918-open-brain-public-m3-source-continuity-owner-control-c63538/T20-CHECKPOINT.json"
     }
   },
   "active": [
@@ -417,6 +418,17 @@
         "docs/ai/workstreams/20260918-open-brain-public-m3-source-continuity-owner-control-c63538/T19-CHECKPOINT.json"
       ],
       "acceptance_limit": "Narrowed core CLI/MCP and existing Obsidian catalog truth locally verified; broader artifact/platform/provider/GUI and deferred acceptance remain open."
+    },
+    "T20": {
+      "tasks": [
+        "T20"
+      ],
+      "status": "scoped_core_artifacts_macos_local_verified_linux_public_pending",
+      "evidence": [
+        "docs/design/core-v01-t20-artifacts.md",
+        "docs/ai/workstreams/20260918-open-brain-public-m3-source-continuity-owner-control-c63538/T20-CHECKPOINT.json"
+      ],
+      "acceptance_limit": "Local macOS scoped A15 only. Linux exact-candidate native/Homebrew, public promotion and Obsidian GUI acceptance remain open. No global A15 completion or release certification."
     }
   },
   "surface_deferrals": {

@@ -1,25 +1,22 @@
 {
   "packet_version": 1,
-  "status": "in_progress",
+  "status": "complete",
   "workstream": "20260918-open-brain-public-m3-source-continuity-owner-control-c63538",
-  "milestone": "Core-v0.1-T19-local-verified",
+  "milestone": "Core-v0.1-T20-local-verified",
   "branch": "ob-new-user/m3",
-  "head": "6da4f104a16d9a5a454bb1933f2c3aba94c1c0a3",
+  "head": "907bfe737b9366cafdb47ffb763f72df8dcf5f32",
   "last_verified": {
-    "command": "make -j1 verify; git diff --check; actionlint .github/workflows/ci.yml",
-    "result": "PASS: 2417 Python tests/5 existing skips; 336-file MyPy; package builds; 291 Obsidian, 259 desktop TypeScript, 1 desktop Python and 26 Rust tests; independent review READY"
+    "command": "make -j1 verify; make -j1 native-audit homebrew-smoke; git diff --check; actionlint .github/workflows/ci.yml",
+    "result": "PASS: 2422 Python/5 existing skips; 337-file MyPy; four package builds; 291 Obsidian, 259 desktop TS, 1 desktop Python, 26 Rust; macOS native/Homebrew and independent delta review READY"
   },
   "changes": [
-    "packages/app/src/open_brain/services",
-    "packages/app/tests",
-    "tests/security/test_architecture_boundaries.py",
-    "tools/open_brain_dev/review_publish_acceptance.py",
-    "docs/design/core-v01-t19-catalog.md",
-    "docs/plans/2026-09-16-new-user-functionality-coverage.json",
-    "docs/ai/workstreams/20260918-open-brain-public-m3-source-continuity-owner-control-c63538/T19-CHECKPOINT.json"
+    "tools/open_brain_dev/base_native.py",
+    "tests/release/test_native_core_smoke.py",
+    "docs/design/core-v01-t20-artifacts.md",
+    "docs/ai/workstreams/20260918-open-brain-public-m3-source-continuity-owner-control-c63538/T20-CHECKPOINT.json"
   ],
   "blocker": null,
-  "next_action": "Start T20 in a fresh thread, then narrowed T21/T23. No push/PR/merge/release, live providers/data, OAuth registration, real services or model downloads authorized.",
+  "next_action": "Start T21 in a fresh thread using this exact checkpoint. Do not start T23 here. Push/PR/merge/release, live sources, OAuth, real services and model downloads remain separately gated.",
   "safe_to_start_new_thread": true,
-  "head_policy": "Verified implementation head; private exact-HEAD handoff accounts for subsequent checkpoint-only documentation commit."
+  "head_policy": "Verified implementation head. Private final HANDOFF.json binds the later checkpoint-only commit to exact git HEAD; no self-referential committed hash is claimed."
 }

@@ -69,8 +69,9 @@ or contact optional providers. Connector descriptor v1, bridge v1 and `t03.v1`
 remain compatible. Public acceptance is not inferred from the shared 0.1.0 version,
 workspace installation, descriptor booleans or historical receipts. T19 scoped A14
 is [locally verified](../ai/workstreams/20260918-open-brain-public-m3-source-continuity-owner-control-c63538/T19-CHECKPOINT.json).
-T20/T21/T23 remain fresh-thread gates; public artifact, provider, GUI and deferred
-acceptance remain open.
+T20 scoped core artifacts are [locally verified on macOS arm64](../ai/workstreams/20260918-open-brain-public-m3-source-continuity-owner-control-c63538/T20-CHECKPOINT.json) under the [frozen artifact contract](../design/core-v01-t20-artifacts.md).
+T21 and T23 remain fresh-thread gates. Linux exact-candidate native/Homebrew, public
+promotion, provider, GUI and deferred acceptance remain open.
 
 ## Delivery approach
 
