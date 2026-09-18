@@ -103,6 +103,25 @@ The update keeps the page ID and canonical location. Earlier provenance stays in
 selected captures are appended. Open Brain rejects a stale or manually changed target instead of
 overwriting it.
 
+### Review a Slack append patch
+
+Recurring Slack updates use a separate typed patch draft. They do not overload `markdown` with a
+partial page. The proposal is bound to one canonical page and its exact revision:
+
+```sh
+open-brain review list --status pending --json
+open-brain review show PROPOSAL_ID --json
+open-brain review approve PROPOSAL_ID --review-token REVIEW_TOKEN \
+  --idempotency-key slack-patch-approve
+```
+
+`review show` exposes the target page ID, expected revision, bounded operations, source provenance,
+and a derived human-readable diff. Approval revalidates the page revision and applies only those
+body edits through the existing conflict-preserving writer. If the page changed, approval returns
+`review_conflict`; it never replaces the whole page. `review reject` changes no canonical content.
+Edit-and-approve remains a complete replacement operation for full-page proposals. An ambiguous
+string is never interpreted as an edited patch.
+
 List proposals with bounded pagination and optional filters:
 
 ```sh

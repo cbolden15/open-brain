@@ -11,7 +11,15 @@ from dataclasses import asdict
 from hashlib import sha256
 from typing import cast
 
-from open_brain_engine.engine import DecisionOutcome, ProposalDraft, ProposalRecord, ReviewTask
+from open_brain_engine.engine import (
+    DecisionOutcome,
+    PatchDraft,
+    PatchOperation,
+    ProposalDraft,
+    ProposalRecord,
+    ReviewProposal,
+    ReviewTask,
+)
 
 DEFAULT_REVIEW_PAGE_LIMIT = 50
 MAX_REVIEW_PAGE_LIMIT = 100
@@ -27,20 +35,20 @@ _UUID4 = r"[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}"
 _DIGEST = re.compile(r"^[0-9a-f]{64}$")
 _STATUSES = {"pending", "approved", "rejected", "edited"}
 _REQUIRED = {
-    "propose": {"capture_ids", "title", "markdown"},
+    "propose": {"capture_ids"},
     "list": set(),
     "show": {"proposal_id"},
     "approve": {"proposal_id", "review_token"},
     "reject": {"proposal_id", "review_token"},
-    "edit_and_approve": {"proposal_id", "review_token", "markdown"},
+    "edit_and_approve": {"proposal_id", "review_token"},
 }
 _OPTIONAL = {
-    "propose": {"target_page_id", "idempotency_key"},
+    "propose": {"target_page_id", "idempotency_key", "title", "markdown", "patch"},
     "list": {"capture_id", "space_id", "status", "limit", "offset"},
     "show": set(),
     "approve": {"idempotency_key"},
     "reject": {"idempotency_key"},
-    "edit_and_approve": {"idempotency_key"},
+    "edit_and_approve": {"idempotency_key", "markdown", "replacement_body"},
 }
 
 
@@ -59,6 +67,14 @@ def validate_review_arguments(operation: str, arguments: Mapping[str, object]) -
         raise ReviewPublicationError("invalid_arguments")
     keys = set(arguments)
     if required - keys or keys - (required | optional):
+        raise ReviewPublicationError("invalid_arguments")
+
+    if operation == "propose":
+        full_page = {"title", "markdown"} <= keys
+        patch = "patch" in keys
+        if full_page == patch or (patch and "target_page_id" in keys):
+            raise ReviewPublicationError("invalid_arguments")
+    if operation == "edit_and_approve" and (("markdown" in keys) == ("replacement_body" in keys)):
         raise ReviewPublicationError("invalid_arguments")
 
     for field, value in arguments.items():
@@ -89,9 +105,11 @@ def validate_review_arguments(operation: str, arguments: Mapping[str, object]) -
         elif field == "title":
             if not _valid_text(value, maximum_characters=MAX_REVIEW_TITLE_CHARACTERS):
                 raise ReviewPublicationError("invalid_arguments")
-        elif field == "markdown":
+        elif field == "markdown" or field == "replacement_body":
             if not _valid_markdown(value):
                 raise ReviewPublicationError("invalid_arguments")
+        elif field == "patch":
+            _patch_draft(value)
         elif field == "idempotency_key" and not _valid_text(
             value, maximum_characters=MAX_REVIEW_KEY_CHARACTERS
         ):
@@ -105,16 +123,24 @@ class ReviewPublicationService:
     def propose(self, arguments: Mapping[str, object]) -> dict[str, object]:
         validate_review_arguments("propose", arguments)
         retry_key, delivery_id = _delivery("propose", arguments.get("idempotency_key"))
-        draft = ProposalDraft(
-            title=unicodedata.normalize("NFC", cast(str, arguments["title"])),
-            markdown=cast(str, arguments["markdown"]),
+        draft = (
+            _patch_draft(arguments["patch"])
+            if "patch" in arguments
+            else ProposalDraft(
+                title=unicodedata.normalize("NFC", cast(str, arguments["title"])),
+                markdown=cast(str, arguments["markdown"]),
+            )
         )
         try:
             records = self._task.propose(
                 tuple(cast(list[str], arguments["capture_ids"])),
                 (draft,),
                 delivery_id=delivery_id,
-                target_page_id=cast(str | None, arguments.get("target_page_id")),
+                target_page_id=(
+                    draft.target_page_id
+                    if isinstance(draft, PatchDraft)
+                    else cast(str | None, arguments.get("target_page_id"))
+                ),
             )
         except ValueError as error:
             raise _public_error(error) from None
@@ -169,6 +195,9 @@ class ReviewPublicationService:
         result = asdict(proposal)
         proposal_status = result.pop("status")
         result["review_token"] = result.pop("review_digest")
+        if proposal.patch is None:
+            result.pop("patch")
+            result.pop("patch_diff")
         return {**result, "proposal_status": proposal_status, "status": "shown"}
 
     def approve(self, arguments: Mapping[str, object]) -> dict[str, object]:
@@ -188,12 +217,23 @@ class ReviewPublicationService:
     ) -> dict[str, object]:
         validate_review_arguments(operation, arguments)
         retry_key, delivery_id = _delivery(operation, arguments.get("idempotency_key"))
+        if outcome is DecisionOutcome.EDITED:
+            inspection = self._task.show(cast(str, arguments["proposal_id"]))
+            if (
+                isinstance(inspection, ReviewProposal)
+                and inspection.patch is not None
+                and "replacement_body" not in arguments
+            ):
+                raise ReviewPublicationError("invalid_arguments")
         try:
             receipt = self._task.decide(
                 cast(str, arguments["proposal_id"]),
                 outcome,
                 delivery_id=delivery_id,
-                edited_markdown=cast(str | None, arguments.get("markdown")),
+                edited_markdown=cast(
+                    str | None,
+                    arguments.get("replacement_body", arguments.get("markdown")),
+                ),
                 expected_review_digest=cast(str, arguments["review_token"]),
             )
         except ValueError as error:
@@ -304,3 +344,34 @@ def _public_error(error: ValueError) -> ReviewPublicationError:
         "review proposal exceeds inspection limit": "response_too_large",
     }.get(str(error), "operation_failed")
     return ReviewPublicationError(code)
+
+
+def _patch_draft(value: object) -> PatchDraft:
+    if not isinstance(value, Mapping) or set(value) != {
+        "target_page_id",
+        "expected_page_sha256",
+        "operations",
+    }:
+        raise ReviewPublicationError("invalid_arguments")
+    raw_operations = value["operations"]
+    if not isinstance(raw_operations, list):
+        raise ReviewPublicationError("invalid_arguments")
+    try:
+        operations = tuple(
+            PatchOperation(
+                start_byte=entry["start_byte"],
+                end_byte=entry["end_byte"],
+                replacement=entry["replacement"],
+            )
+            for entry in raw_operations
+            if isinstance(entry, Mapping)
+        )
+        if len(operations) != len(raw_operations):
+            raise ValueError
+        return PatchDraft(
+            target_page_id=cast(str, value["target_page_id"]),
+            expected_page_sha256=cast(str, value["expected_page_sha256"]),
+            operations=operations,
+        )
+    except KeyError, TypeError, ValueError:
+        raise ReviewPublicationError("invalid_arguments") from None

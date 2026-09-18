@@ -379,7 +379,8 @@ class LocalMcpAdapter:
             tools.append(
                 self._review_tool(
                     "brain_review_propose",
-                    "Propose one canonical note from explicitly selected routed captures.",
+                    "Propose one full canonical note or revision-bound patch from explicitly "
+                    "selected routed captures.",
                     {
                         "capture_ids": {
                             "type": "array",
@@ -401,13 +402,50 @@ class LocalMcpAdapter:
                             "type": "string",
                             "pattern": "^page_" + _UUID4_PATTERN + "$",
                         },
+                        "patch": {
+                            "type": "object",
+                            "additionalProperties": False,
+                            "properties": {
+                                "target_page_id": {
+                                    "type": "string",
+                                    "pattern": "^page_" + _UUID4_PATTERN + "$",
+                                },
+                                "expected_page_sha256": {
+                                    "type": "string",
+                                    "pattern": "^[0-9a-f]{64}$",
+                                },
+                                "operations": {
+                                    "type": "array",
+                                    "minItems": 1,
+                                    "maxItems": 16,
+                                    "items": {
+                                        "type": "object",
+                                        "additionalProperties": False,
+                                        "properties": {
+                                            "start_byte": {"type": "integer", "minimum": 0},
+                                            "end_byte": {"type": "integer", "minimum": 0},
+                                            "replacement": {
+                                                "type": "string",
+                                                "maxLength": MAX_REVIEW_MARKDOWN_BYTES,
+                                            },
+                                        },
+                                        "required": ["start_byte", "end_byte", "replacement"],
+                                    },
+                                },
+                            },
+                            "required": [
+                                "target_page_id",
+                                "expected_page_sha256",
+                                "operations",
+                            ],
+                        },
                         "idempotency_key": {
                             "type": "string",
                             "minLength": 1,
                             "maxLength": MAX_KEY_CHARACTERS,
                         },
                     },
-                    required=["capture_ids", "title", "markdown"],
+                    required=["capture_ids"],
                 )
             )
         decision_properties: dict[str, object] = {
@@ -437,7 +475,8 @@ class LocalMcpAdapter:
             tools.append(
                 self._review_tool(
                     "brain_review_edit_and_approve",
-                    "Replace the body and approve the exact inspected review-token-bound draft.",
+                    "Replace the full body, or an explicitly named patch replacement body, and "
+                    "approve the exact inspected review-token-bound draft.",
                     {
                         **decision_properties,
                         "markdown": {
@@ -445,8 +484,13 @@ class LocalMcpAdapter:
                             "minLength": 1,
                             "maxLength": MAX_REVIEW_MARKDOWN_BYTES,
                         },
+                        "replacement_body": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": MAX_REVIEW_MARKDOWN_BYTES,
+                        },
                     },
-                    required=["proposal_id", "review_token", "markdown"],
+                    required=["proposal_id", "review_token"],
                 )
             )
         if self.workspace_status is not None:
@@ -763,36 +807,54 @@ class LocalMcpAdapter:
                 )
             if name == "brain_review_list" and self.review_list is not None:
                 return self._review_call(
-                    "list", arguments, self.review_list,
-                    request_id=request_id, maximum_response_bytes=maximum_response_bytes,
+                    "list",
+                    arguments,
+                    self.review_list,
+                    request_id=request_id,
+                    maximum_response_bytes=maximum_response_bytes,
                 )
             if name == "brain_review_show" and self.review_show is not None:
                 return self._review_call(
-                    "show", arguments, self.review_show,
-                    request_id=request_id, maximum_response_bytes=maximum_response_bytes,
+                    "show",
+                    arguments,
+                    self.review_show,
+                    request_id=request_id,
+                    maximum_response_bytes=maximum_response_bytes,
                 )
             if name == "brain_review_propose" and self.review_propose is not None:
                 return self._review_call(
-                    "propose", arguments, self.review_propose, write="proposal",
-                    request_id=request_id, maximum_response_bytes=maximum_response_bytes,
+                    "propose",
+                    arguments,
+                    self.review_propose,
+                    write="proposal",
+                    request_id=request_id,
+                    maximum_response_bytes=maximum_response_bytes,
                 )
             if name == "brain_review_approve" and self.review_approve is not None:
                 return self._review_call(
-                    "approve", arguments, self.review_approve, write="decision",
-                    request_id=request_id, maximum_response_bytes=maximum_response_bytes,
+                    "approve",
+                    arguments,
+                    self.review_approve,
+                    write="decision",
+                    request_id=request_id,
+                    maximum_response_bytes=maximum_response_bytes,
                 )
             if name == "brain_review_reject" and self.review_reject is not None:
                 return self._review_call(
-                    "reject", arguments, self.review_reject, write="decision",
-                    request_id=request_id, maximum_response_bytes=maximum_response_bytes,
+                    "reject",
+                    arguments,
+                    self.review_reject,
+                    write="decision",
+                    request_id=request_id,
+                    maximum_response_bytes=maximum_response_bytes,
                 )
-            if (
-                name == "brain_review_edit_and_approve"
-                and self.review_edit_and_approve is not None
-            ):
+            if name == "brain_review_edit_and_approve" and self.review_edit_and_approve is not None:
                 return self._review_call(
-                    "edit_and_approve", arguments, self.review_edit_and_approve,
-                    write="decision", request_id=request_id,
+                    "edit_and_approve",
+                    arguments,
+                    self.review_edit_and_approve,
+                    write="decision",
+                    request_id=request_id,
                     maximum_response_bytes=maximum_response_bytes,
                 )
             if name == "brain_workspace_status" and self.workspace_status is not None:

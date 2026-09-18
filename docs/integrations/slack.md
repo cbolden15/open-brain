@@ -32,4 +32,52 @@ The checkpoint holds at most 500 known and 500 seen identities. This keeps the d
 
 Captured Slack content uses Open Brain's local-only default privacy decision. It remains third-party, unverified content. Tests use synthetic data only; they do not prove Slack app registration, sign-in, or live capture.
 
+## Candidate discovery and recurring notes
+
+Discovery is opt-in policy, not automatic channel consent. Configure it for the connected account
+with the optional collector CLI:
+
+```sh
+open-brain-collector sources --state "$CAPTURE_STATE" --brain-root "$CAPTURE_BRAIN" \
+  --foreground slack-policy-setup --connection-id account:REPLACE \
+  --keyword roadmap --keyword launch --lookback-hours 24 \
+  --activity-weight 1 --keyword-weight 20 --threshold 20 \
+  --proposal-opt-in
+```
+
+The defaults are a 24-hour lookback, activity weight `1`, keyword weight `20`, and threshold `20`.
+Discovery runs at most once per 24 hours, checkpoints partial scans, and qualifies scores at or
+above the threshold. A qualifying channel that is not already approved is only a pending suggestion:
+
+```sh
+open-brain-collector sources --state "$CAPTURE_STATE" --brain-root "$CAPTURE_BRAIN" \
+  --foreground slack-suggestions --connection-id account:REPLACE
+open-brain-collector sources --state "$CAPTURE_STATE" --brain-root "$CAPTURE_BRAIN" \
+  --foreground slack-suggestion-approve --connection-id account:REPLACE --channel-id C123
+```
+
+Approval adds the channel to the explicit allowlist. Dismissal leaves it uncaptured. Heuristics never
+enable a channel or create a proposal by themselves.
+
+Recurring-note routing is also explicit and validates the canonical page before writing private
+collector policy:
+
+```sh
+open-brain-collector sources --state "$CAPTURE_STATE" --brain-root "$CAPTURE_BRAIN" \
+  --foreground slack-mapping-add --connection-id account:REPLACE \
+  --channel-id C123 --page-id page_11111111-1111-4111-8111-111111111111 \
+  --keyword roadmap
+```
+
+With proposal opt-in enabled, a matching captured thread creates a pending append-patch proposal.
+It includes bounded quoted Slack text, the source link, capture provenance, the target page ID, and
+the target page revision hash. The collector can create proposals but cannot approve them; inspect
+and decide them through `review show`, `review approve`, or `review reject`. A changed page fails
+approval with `review_conflict`, and rejection leaves the page unchanged.
+
+Synthetic acceptance uses a disposable Brain and an injected Slack transport to cover discovery,
+four-hour capture, restart catch-up, mapping, patch inspection, target drift, and retry behavior.
+Real-source acceptance is owner-run only: use a small test channel, retain pass/fail and safe
+identifiers, and do not commit message bodies, account data, tokens, or raw receipts.
+
 Official references: [Slack PKCE](https://docs.slack.dev/authentication/using-pkce/), [conversation history](https://docs.slack.dev/reference/methods/conversations.history/), and [thread replies](https://docs.slack.dev/reference/methods/conversations.replies/).

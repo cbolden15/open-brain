@@ -171,6 +171,109 @@ def test_channel_discovery_and_rate_limit_are_bounded(tmp_path: Path) -> None:
     assert error.value.retry_after_seconds == 42
 
 
+def test_candidate_discovery_scores_metadata_resumes_history_and_never_creates_intakes(
+    tmp_path: Path,
+) -> None:
+    _, auth = _selection_and_auth(tmp_path)
+    transport = _Transport(
+        [
+            _Response(
+                200,
+                {
+                    "channels": [
+                        {
+                            "id": "COPENBRAIN",
+                            "name": "open-brain",
+                            "topic": {"value": "priority project"},
+                        }
+                    ],
+                    "ok": True,
+                    "response_metadata": {"next_cursor": ""},
+                },
+            ),
+            _Response(
+                200,
+                {
+                    "messages": [{"ts": "1760000000.000001"}],
+                    "ok": True,
+                    "response_metadata": {"next_cursor": "history-next"},
+                },
+            ),
+            _Response(
+                200,
+                {
+                    "messages": [{"ts": "1760000001.000001"}],
+                    "ok": True,
+                    "response_metadata": {"next_cursor": ""},
+                },
+            ),
+        ]
+    )
+    client = SlackSourceClient(auth, http=cast(LiveHttpTransport, transport))
+    policy = {
+        "activity_weight": 1,
+        "allowlist": [],
+        "keyword_weight": 20,
+        "keywords": ["priority"],
+        "lookback_seconds": 86_400,
+        "threshold": 20,
+    }
+
+    listed = client.discover(auth.accounts()[0].connection_id, policy, None)
+    counted = client.discover(auth.accounts()[0].connection_id, policy, listed.checkpoint)
+    completed = client.discover(auth.accounts()[0].connection_id, policy, counted.checkpoint)
+
+    assert listed.fetch_candidates == () and listed.suggestions == ()
+    assert counted.has_more and counted.suggestions == ()
+    assert completed.checkpoint is None and completed.fetch_candidates == ()
+    assert completed.suggestions == (
+        {
+            "channel_id": "COPENBRAIN",
+            "keyword_hits": 1,
+            "message_count": 2,
+            "name": "open-brain",
+            "score": 22,
+            "topic": "priority project",
+        },
+    )
+    assert "cursor=history-next" in transport.urls[2]
+
+
+def test_candidate_discovery_returns_allowlisted_channel_without_suggestion(tmp_path: Path) -> None:
+    _, auth = _selection_and_auth(tmp_path)
+    transport = _Transport(
+        [
+            _Response(
+                200,
+                {
+                    "channels": [{"id": "COPENBRAIN", "name": "open-brain"}],
+                    "ok": True,
+                    "response_metadata": {"next_cursor": ""},
+                },
+            ),
+            _Response(
+                200,
+                {"messages": [], "ok": True, "response_metadata": {"next_cursor": ""}},
+            ),
+        ]
+    )
+    client = SlackSourceClient(auth, http=cast(LiveHttpTransport, transport))
+    policy = {
+        "activity_weight": 1,
+        "allowlist": ["COPENBRAIN"],
+        "keyword_weight": 20,
+        "keywords": [],
+        "lookback_seconds": 86_400,
+        "threshold": 20,
+    }
+
+    listed = client.discover(auth.accounts()[0].connection_id, policy, None)
+    completed = client.discover(auth.accounts()[0].connection_id, policy, listed.checkpoint)
+
+    assert completed.suggestions == ()
+    assert completed.fetch_candidates[0]["channel_id"] == "COPENBRAIN"
+
+
 def test_fetch_rejects_any_channel_or_option_outside_the_selected_source(tmp_path: Path) -> None:
     selection, auth = _selection_and_auth(tmp_path)
     client = SlackSourceClient(auth, http=cast(LiveHttpTransport, _Transport([])))
@@ -300,9 +403,7 @@ def test_scan_cutoff_stays_frozen_across_history_cursor_pages(tmp_path: Path) ->
             _Response(
                 200,
                 {
-                    "messages": [
-                        {"ts": "1760000002.000001", "user": "UONE", "text": "new"}
-                    ],
+                    "messages": [{"ts": "1760000002.000001", "user": "UONE", "text": "new"}],
                     "ok": True,
                     "response_metadata": {"next_cursor": "older"},
                 },
@@ -310,9 +411,7 @@ def test_scan_cutoff_stays_frozen_across_history_cursor_pages(tmp_path: Path) ->
             _Response(
                 200,
                 {
-                    "messages": [
-                        {"ts": "1760000001.000001", "user": "UONE", "text": "old"}
-                    ],
+                    "messages": [{"ts": "1760000001.000001", "user": "UONE", "text": "old"}],
                     "ok": True,
                     "response_metadata": {"next_cursor": ""},
                 },

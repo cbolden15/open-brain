@@ -71,6 +71,20 @@ and does not modify the source tree. Markdown, frontmatter, wiki links, embeds, 
 inert text. Imported records are unverified and their prior revisions remain in local history and
 Portable Brain export after source changes or deletion.
 
+## Slack capture and recurring proposals
+
+Slack user authorization is stored through the operating-system credential store; the collector
+retains only an opaque account reference and has no plaintext fallback for unattended capture. The
+owner selects channels explicitly. Activity and keyword discovery may surface pending suggestions,
+but a suggestion is not a capture grant until the owner approves it.
+
+Slack captures are local-only, third-party, unverified content. A recurring-note mapping is private
+collector policy, and patch proposals contain only a bounded quoted update, source link, provenance,
+target page ID, expected revision, and body-only edit operations. The collector has no review-decision
+authority. A human must inspect and approve each proposal; target drift causes `review_conflict`,
+and rejection does not modify the canonical page. Real-source acceptance must use a disposable Brain
+and must not retain message bodies, account data, tokens, or raw receipts in repository evidence.
+
 ## Search projection
 
 Public search applies an engine-owned projection before matching and again before representation.

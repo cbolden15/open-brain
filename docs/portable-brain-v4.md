@@ -27,3 +27,9 @@ signing material or disposable continuation state. Historical Portable v1–v3 i
 New Portable v4 restore/import is outside M2 and is refused; export validation is not a restore
 receipt. See [records and history](records-and-history.md) for reading retained revisions and
 [Portable v3](portable-brain-v3.md) for the preserved review-binding format.
+
+Review patch proposals use the same retained proposal, binding, decision, publication, and source
+provenance history as full-page proposals. A patch record preserves its target page ID, expected
+revision hash, structured byte-range edits, and derived diff metadata. Export therefore preserves
+pending, rejected, and approved patch history without storing collector credentials, Slack tokens,
+operational checkpoints, or raw account secrets.

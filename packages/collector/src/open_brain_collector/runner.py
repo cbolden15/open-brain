@@ -221,7 +221,7 @@ class CollectorProcessRunner:
 
         manager = LiveSourceManager(root, self.brain_root, background=self.background)
         manager.capture._clock = self.clock
-        return manager.capture.sync_due()
+        return manager.sync_due()
 
 
 class FixtureSourceRuntime(CollectorSourceRuntime):

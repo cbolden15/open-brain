@@ -47,6 +47,11 @@ class LiveRuntime(Protocol):
     ) -> LiveBatch: ...
 
 
+PostApply = Callable[
+    [SourceResourceSelection, tuple[tuple[SourceRecordIntake, str], ...]], None
+]
+
+
 def _digest(value: object) -> str:
     return hashlib.sha256(bounded_json(value, 4_194_304)).hexdigest()
 
@@ -128,6 +133,7 @@ class LiveCaptureService:
         *,
         runtime: LiveRuntime,
         sink: Callable[[SourceRecordIntake], object] | None = None,
+        post_apply: PostApply | None = None,
         clock: Callable[[], int] | None = None,
     ) -> None:
         self._brain_root = brain_root
@@ -136,6 +142,7 @@ class LiveCaptureService:
         self._custody = CustodyStore(self._store)
         self._runtime = runtime
         self._sink = sink
+        self._post_apply = post_apply
         self._clock = clock or (lambda: int(time.time()))
         with self._store.lock("state"):
             marker = self._store.read("brain.json")
@@ -770,6 +777,13 @@ class LiveCaptureService:
                     captured += int(outcome == "captured")
                     duplicates += int(outcome == "duplicate")
                     self._save(latest)
+            if self._post_apply is not None:
+                captured_records = tuple(
+                    (intake, cast(str, self._custody.receipt(receipt_id)["capture_id"]))
+                    for intake, receipt_id in zip(intakes, receipt_ids, strict=True)
+                    if self._custody.receipt(receipt_id)["capture_id"] is not None
+                )
+                self._post_apply(_selection(entry["selection"]), captured_records)
             with self._store.lock("state"):
                 latest = self._load(source_id)
                 self._require_current(entry, latest, automatic)

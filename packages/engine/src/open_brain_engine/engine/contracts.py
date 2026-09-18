@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import re
+import unicodedata
 from collections.abc import Callable, Iterator, Mapping, Sequence
 from dataclasses import dataclass
 from enum import StrEnum
@@ -347,6 +348,86 @@ class ProposalDraft:
             )
 
 
+MAX_PATCH_OPERATIONS = 16
+MAX_PATCH_REPLACEMENT_BYTES = 16 * 1024
+MAX_PATCH_TOTAL_BYTES = 64 * 1024
+
+
+@dataclass(frozen=True, slots=True)
+class PatchOperation:
+    """One UTF-8 byte-range replacement in a canonical Markdown body."""
+
+    start_byte: int
+    end_byte: int
+    replacement: str
+
+    def __post_init__(self) -> None:
+        if (
+            type(self.start_byte) is not int
+            or type(self.end_byte) is not int
+            or not 0 <= self.start_byte <= self.end_byte <= MAX_PATCH_TOTAL_BYTES
+        ):
+            raise ValueError("invalid patch operation")
+        replacement = self.replacement
+        if (
+            not isinstance(replacement, str)
+            or "\x00" in replacement
+            or any(
+                unicodedata.category(character) == "Cc" and character not in {"\t", "\n", "\r"}
+                for character in replacement
+            )
+            or len(replacement.encode("utf-8")) > MAX_PATCH_REPLACEMENT_BYTES
+        ):
+            raise ValueError("invalid patch operation")
+        object.__setattr__(self, "replacement", replacement)
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "end_byte": self.end_byte,
+            "replacement": self.replacement,
+            "start_byte": self.start_byte,
+        }
+
+
+@dataclass(frozen=True, slots=True)
+class PatchDraft:
+    """A revision-bound set of body-only edits for one existing canonical page."""
+
+    target_page_id: str
+    expected_page_sha256: str
+    operations: tuple[PatchOperation, ...]
+
+    def __post_init__(self) -> None:
+        _portable_id(self.target_page_id, "page")
+        if (
+            not isinstance(self.expected_page_sha256, str)
+            or _HEX64.fullmatch(self.expected_page_sha256) is None
+        ):
+            raise ValueError("invalid patch draft")
+        if (
+            not isinstance(self.operations, tuple)
+            or not 1 <= len(self.operations) <= MAX_PATCH_OPERATIONS
+            or any(not isinstance(operation, PatchOperation) for operation in self.operations)
+        ):
+            raise ValueError("invalid patch draft")
+        prior_end = -1
+        total = 0
+        for operation in self.operations:
+            if operation.start_byte < prior_end:
+                raise ValueError("overlapping patch operations")
+            prior_end = operation.end_byte
+            total += len(operation.replacement.encode("utf-8"))
+        if total > MAX_PATCH_TOTAL_BYTES:
+            raise ValueError("patch replacement limit exceeded")
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "expected_page_sha256": self.expected_page_sha256,
+            "operations": [operation.to_dict() for operation in self.operations],
+            "target_page_id": self.target_page_id,
+        }
+
+
 @dataclass(frozen=True, slots=True)
 class EnrichmentRequest:
     capture_id: str
@@ -393,6 +474,7 @@ class ProposalRecord:
     target_page_id: str | None = None
     operation: str = "create"
     review_digest: str | None = None
+    draft_type: str = "full_page"
 
 
 @dataclass(frozen=True, slots=True)
@@ -424,6 +506,8 @@ class ReviewProposal:
     expected_page_sha256: str | None
     expected_publication_id: str | None
     projection_applied: bool
+    patch: PatchDraft | None = None
+    patch_diff: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -1653,10 +1737,19 @@ class ReviewTask(Protocol):
     def propose(
         self,
         capture_id: str | Sequence[str],
-        drafts: Sequence[ProposalDraft],
+        drafts: Sequence[ProposalDraft | PatchDraft],
         *,
         delivery_id: str,
         target_page_id: str | None = None,
+    ) -> tuple[ProposalRecord, ...]: ...
+
+    def propose_append(
+        self,
+        capture_id: str | Sequence[str],
+        *,
+        target_page_id: str,
+        append_markdown: str,
+        delivery_id: str,
     ) -> tuple[ProposalRecord, ...]: ...
 
     def list(

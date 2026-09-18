@@ -789,9 +789,7 @@ def _add_t03_parsers(
         "relationship", help="Owner-only revision-bound relationship decisions and listing."
     )
     _add_local_options(relationship)
-    relationship_children = relationship.add_subparsers(
-        dest="relationship_action", required=True
-    )
+    relationship_children = relationship.add_subparsers(dest="relationship_action", required=True)
     relationship_decide = relationship_children.add_parser("decide")
     _add_local_options(relationship_decide)
     for side in ("left", "right"):
@@ -803,9 +801,7 @@ def _add_t03_parsers(
     relationship_decide.add_argument(
         "--decision", required=True, choices=("accept", "reject", "remove")
     )
-    relationship_decide.add_argument(
-        "--expected-relationship-version", required=True, type=int
-    )
+    relationship_decide.add_argument("--expected-relationship-version", required=True, type=int)
     relationship_decide.add_argument("--operation-id", required=True)
     relationship_list = relationship_children.add_parser("list")
     _add_local_options(relationship_list)
@@ -893,8 +889,15 @@ def _add_review_parsers(
         dest="capture_ids",
         help="Repeat for each explicitly selected source; 1 to 32 unique IDs.",
     )
-    propose.add_argument("--title", required=True, help="Draft title, up to 200 characters.")
-    propose.add_argument("--markdown-file", required=True, help="UTF-8 file path, or - for stdin.")
+    propose.add_argument("--title", help="Draft title, up to 200 characters (full-page draft).")
+    proposal_body = propose.add_mutually_exclusive_group(required=True)
+    proposal_body.add_argument("--markdown-file", help="UTF-8 full-page body path, or - for stdin.")
+    proposal_body.add_argument(
+        "--patch-file",
+        help=(
+            "UTF-8 JSON patch with target_page_id, expected_page_sha256, and byte-range operations."
+        ),
+    )
     propose.add_argument(
         "--target-page-id", help="Update this existing page and retain its identity."
     )
@@ -918,7 +921,12 @@ def _add_review_parsers(
         decision.add_argument("proposal_id")
         decision.add_argument("--review-token", required=True)
         if action == "edit-and-approve":
-            decision.add_argument("--markdown-file", required=True, help="UTF-8 file path, or -.")
+            edited_body = decision.add_mutually_exclusive_group(required=True)
+            edited_body.add_argument("--markdown-file", help="UTF-8 full-page body path, or -.")
+            edited_body.add_argument(
+                "--replacement-body-file",
+                help="Explicit complete replacement body for a patch proposal, or -.",
+            )
         decision.add_argument("--idempotency-key")
 
 
@@ -996,11 +1004,16 @@ def _review_arguments(parsed: argparse.Namespace) -> tuple[str, dict[str, object
     operation = cast(str, parsed.review_action).replace("-", "_")
     arguments: dict[str, object] = {}
     if operation == "propose":
-        arguments.update(
-            capture_ids=parsed.capture_ids,
-            title=parsed.title,
-            markdown=_read_review_markdown(parsed.markdown_file),
-        )
+        arguments["capture_ids"] = parsed.capture_ids
+        if parsed.patch_file is not None:
+            arguments["patch"] = _read_review_patch(parsed.patch_file)
+        else:
+            if parsed.title is None:
+                raise ReviewPublicationError("invalid_arguments")
+            arguments.update(
+                title=parsed.title,
+                markdown=_read_review_markdown(parsed.markdown_file),
+            )
         if parsed.target_page_id is not None:
             arguments["target_page_id"] = parsed.target_page_id
     elif operation == "list":
@@ -1014,7 +1027,10 @@ def _review_arguments(parsed: argparse.Namespace) -> tuple[str, dict[str, object
     else:
         arguments.update(proposal_id=parsed.proposal_id, review_token=parsed.review_token)
         if operation == "edit_and_approve":
-            arguments["markdown"] = _read_review_markdown(parsed.markdown_file)
+            if parsed.replacement_body_file is not None:
+                arguments["replacement_body"] = _read_review_markdown(parsed.replacement_body_file)
+            else:
+                arguments["markdown"] = _read_review_markdown(parsed.markdown_file)
     key = getattr(parsed, "idempotency_key", None)
     if key is not None:
         arguments["idempotency_key"] = key
@@ -1041,6 +1057,17 @@ def _read_review_markdown(value: object) -> str:
         return payload.decode("utf-8")
     except UnicodeDecodeError:
         raise ReviewPublicationError("invalid_arguments") from None
+
+
+def _read_review_patch(value: object) -> dict[str, object]:
+    try:
+        payload = _read_review_markdown(value)
+        decoded = json.loads(payload)
+    except ReviewPublicationError, json.JSONDecodeError:
+        raise ReviewPublicationError("invalid_arguments") from None
+    if not isinstance(decoded, dict):
+        raise ReviewPublicationError("invalid_arguments")
+    return cast(dict[str, object], decoded)
 
 
 def _run_review(
@@ -1079,6 +1106,10 @@ def _run_review(
         print(_terminal_text(f"Review token: {result['review_token']}"))
         if result.get("projection_applied"):
             print("Privacy projection replaced protected material.")
+        if result.get("patch") is not None:
+            print(_terminal_text("Revision-bound patch:"))
+            print(_terminal_text(json.dumps(result["patch"], ensure_ascii=False, sort_keys=True)))
+            print(_terminal_text(cast(str, result["patch_diff"])))
         print(_terminal_markdown(cast(str, result["markdown"])))
     else:
         print(_terminal_text(json.dumps(result, ensure_ascii=False, sort_keys=True)))
