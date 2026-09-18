@@ -2033,3 +2033,27 @@ before invoking a mutation. Regression tests cover long references, depleted wri
 complete pagination of 100 Unicode-heavy captures through the real MCP serializer.
 
 Discovered: 2026-09-16, independent organization review and synthetic reproductions.
+### OBSIDIAN-001: Commands reuse the session opened during plugin startup
+
+Symptom: Paged search and publication stop with invalid_arguments before opening their forms.
+
+Cause: Startup calls workspace.status, which admits a persistent Brain session. Later commands
+call brain.initialize on that same child. Tests with a fresh child per operation miss this order.
+
+Fix: Treat a valid initialization request on an already admitted session as already_initialized.
+Do not enter bootstrap again or bypass argument validation. Exercise startup status, repeated
+initialization, capture, and search through one real stdio session.
+
+Discovered: 2026-09-18, synthetic Obsidian acceptance and a persistent-bridge regression.
+
+### OBSIDIAN-002: Renderer timers may return numbers
+
+Symptom: Disabling the plugin reports failure even though its bridge processes exit.
+
+Cause: Bridge disposal sends termination before calling unref on its force-kill timer.
+Electron renderer timers can return a number, which has no Node unref method.
+
+Fix: Call unref only when the timer provides it. Preserve the delayed force-kill fallback.
+Test disposal with a numeric timer handle as well as normal Node timers.
+
+Discovered: 2026-09-18, synthetic Obsidian acceptance and a numeric-timer regression.
