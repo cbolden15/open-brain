@@ -40,7 +40,7 @@ remain later milestones in the
 permission boundaries.
 
 The M2 source build adds [paged search, complete reads and retained history](docs/records-and-history.md),
-including explicit revision relationships and publication workflows in both clients. Its
+including owner-CLI revision relationships and publication workflows in both clients. Its
 [Portable v4 exports](docs/portable-brain-v4.md) preserve source and decision evidence. These changes
 require a package containing M2; local verification does not publish a new Homebrew release.
 
