@@ -69,6 +69,7 @@ import {
 } from "./t07-client";
 
 const CANVAS_PATH = normalizePath("Open Brain Graph.canvas");
+const DISPLAY_CONTROL = /[\u0000-\u0008\u000b\u000c\u000e-\u001f]/gu;
 const OWNED_CANVAS_HEADING = "# Open Brain graph";
 const PROVIDER_LABELS: Record<string, string> = {
   anthropic_api: "Anthropic API key",
@@ -1079,7 +1080,7 @@ export class MultiCaptureModal extends Modal {
     for (const item of this.#items) {
       const row = this.contentEl.createEl("label", { cls: "open-brain-capture-choice" });
       const checkbox = row.createEl("input", { attr: { type: "checkbox" } });
-      row.createSpan({ text: ` ${item.title ?? item.preview}` });
+      row.createSpan({ text: ` ${displayProjection(item.title ?? item.preview)}` });
       checkbox.addEventListener("change", () => {
         if (checkbox.checked) {
           if (selected.size >= 32) { checkbox.checked = false; return; }
@@ -1102,6 +1103,11 @@ export class MultiCaptureModal extends Modal {
     this.contentEl.empty();
     if (!this.#settled) this.#resolve?.(null);
   }
+}
+
+function displayProjection(value: string): string {
+  return value.replace(DISPLAY_CONTROL, (character) =>
+    `\\u${character.codePointAt(0)!.toString(16).padStart(4, "0")}`);
 }
 
 type PublicationAction = "approve" | "edit_and_approve" | "reject";

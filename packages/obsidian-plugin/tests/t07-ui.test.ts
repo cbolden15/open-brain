@@ -151,6 +151,52 @@ describe("actual T07 modals", () => {
     expect(obsidian.__notices).toContain("Open the managed Open Brain vault before reviewing captures: /synthetic/managed");
   });
 
+  it("the actual review command displays a control-bearing preview across inbox pages", async () => {
+    const obsidian = await import("obsidian") as unknown as {
+      __notices: string[];
+      __opened: Array<{ contentEl: TestElement; titleEl: TestElement }>;
+    };
+    obsidian.__notices.length = 0;
+    obsidian.__opened.length = 0;
+    const hostilePreview = "\u001b]52;c;SYNTHETIC_CLIPBOARD\u0007 <script>synthetic()<[protected]> [run](command:synthetic)";
+    const capture = (n: number, preview = `Ordinary ${n}`) => ({
+      capture_id: `capture_${uuid(n)}`, payload_family: "text", preview, space_id: null, title: null,
+    });
+    const pages = new Map<number, { items: ReturnType<typeof capture>[]; next_offset: number | null }>([
+      [0, { items: [capture(1), capture(2)], next_offset: 50 }],
+      [50, { items: [capture(3), capture(4)], next_offset: 100 }],
+      [100, { items: [capture(5), capture(6)], next_offset: 150 }],
+      [150, { items: [capture(7), capture(8)], next_offset: 200 }],
+      [200, { items: [capture(9, hostilePreview), capture(10)], next_offset: null }],
+    ]);
+    const offsets: number[] = [];
+    const bridge = {
+      invoke: vi.fn(async (operation: string, arguments_: Record<string, unknown>) => {
+        if (operation === "brain.initialize") return { status: "already_initialized" };
+        if (operation === "workspace.status") return { status: "ok", vault_path: "/synthetic/managed" };
+        if (operation === "inbox.list") {
+          const offset = Number(arguments_.offset);
+          offsets.push(offset);
+          return { status: "listed", offset, ...pages.get(offset)! };
+        }
+        throw new Error(`unexpected ${operation}`);
+      }),
+    };
+    const plugin = new OpenBrainPlugin({} as never, {} as never);
+    const running = plugin.reviewCaptures({
+      bridge: bridge as never, capabilities: publicationCapabilities(), sameVault: async () => true,
+    });
+
+    const selection = await openedModal(obsidian.__opened, "Select 1–32 captures for publication");
+    const labels = walk(selection.contentEl).filter((element) => element.tag === "span").map((element) => element.text);
+    expect(offsets).toEqual([0, 50, 100, 150, 200]);
+    expect(labels).toContain(" \\u001b]52;c;SYNTHETIC_CLIPBOARD\\u0007 <script>synthetic()<[protected]> [run](command:synthetic)");
+    expect(labels.some((label) => label.includes("\u001b") || label.includes("\u0007"))).toBe(false);
+    (selection as unknown as { close(): void }).close();
+    await running;
+    expect(obsidian.__notices).toEqual([]);
+  });
+
   it("the actual same-vault command approves, matches the page, and opens its confined note", async () => {
     const obsidian = await import("obsidian") as unknown as { __opened: Array<{ contentEl: TestElement; titleEl: TestElement }> };
     obsidian.__opened.length = 0;

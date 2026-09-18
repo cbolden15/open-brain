@@ -76,6 +76,33 @@ describe("T07 negotiated clients", () => {
     expect(invoke).toHaveBeenCalledTimes(5);
   });
 
+  it("keeps a control-bearing untrusted preview across all inbox pages and rejects malformed DTOs", async () => {
+    const hostilePreview = "\u001b]52;c;SYNTHETIC_CLIPBOARD\u0007 <script>synthetic()<[protected]> [run](command:synthetic)";
+    const hostile: InboxItem = {
+      capture_id: `capture_${uuid(500)}`, payload_family: "text", preview: hostilePreview,
+      space_id: null, title: null,
+    };
+    const pages = Array.from({ length: 5 }, (_, page) => ({
+      status: "listed", offset: page * 50, next_offset: page === 4 ? null : (page + 1) * 50,
+      items: [capture(page * 2), capture(page * 2 + 1)],
+    }));
+    pages[4]!.items.splice(1, 0, hostile);
+    const { bridge, invoke } = fake({ "inbox.list": pages });
+
+    const result = await listInbox(bridge);
+
+    expect(result).toHaveLength(11);
+    expect(result[9]?.capture_id).toBe(hostile.capture_id);
+    expect(result[9]?.preview).toBe(hostilePreview);
+    expect(deterministicDraft([result[9]!]).markdown).toBe(hostilePreview);
+    expect(invoke).toHaveBeenCalledTimes(5);
+
+    const malformed = { ...capture(99), capture_id: 99 };
+    await expect(listInbox(fake({
+      "inbox.list": { status: "listed", offset: 0, next_offset: null, items: [malformed] },
+    }).bridge)).rejects.toEqual(expect.objectContaining<Partial<BridgeError>>({ code: "protocol_error" }));
+  });
+
   it("routes only unrouted captures and refuses mixed existing spaces", async () => {
     const a = "space_123e4567-e89b-42d3-a456-426614174500";
     const b = "space_123e4567-e89b-42d3-a456-426614174501";

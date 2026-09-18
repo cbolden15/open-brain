@@ -115,7 +115,7 @@ export async function listInbox(bridge: Bridge): Promise<InboxItem[]> {
     if (value.status !== "listed" || !Array.isArray(value.items)) throw new BridgeError("protocol_error");
     for (const raw of value.items) {
       const item = record(raw);
-      if (!text(item.capture_id) || !text(item.payload_family) || !displayText(item.preview) ||
+      if (!text(item.capture_id) || !text(item.payload_family) || !text(item.preview) ||
           (item.space_id !== null && !text(item.space_id)) || (item.title !== null && !displayText(item.title))) {
         throw new BridgeError("protocol_error");
       }
