@@ -306,7 +306,7 @@ impl Bridge {
             }
         };
         match event {
-            ReaderEvent::Line(line) => self.decode_response(&line, &request_id),
+            ReaderEvent::Line(line) => self.decode_response(&line, &request_id, operation),
             ReaderEvent::Closed => {
                 self.terminate_now();
                 Err(BridgeError::LostResponse)
@@ -318,11 +318,32 @@ impl Bridge {
         }
     }
 
-    fn decode_response(&mut self, line: &[u8], request_id: &str) -> Result<Value, BridgeError> {
+    fn decode_response(
+        &mut self,
+        line: &[u8],
+        request_id: &str,
+        operation: &str,
+    ) -> Result<Value, BridgeError> {
         let response: Value = crate::strict_json::from_slice(line).map_err(|_| {
             self.terminate_now();
             BridgeError::MalformedResponse
         })?;
+        if matches!(
+            operation,
+            "contract.describe"
+                | "search.page"
+                | "record.read"
+                | "history.list"
+                | "history.show"
+                | "source.route"
+                | "relationship.decide"
+                | "relationship.list"
+                | "decision.history"
+        ) && (line.len() + 1 > 1024 * 1024 || !integer_wire_numbers(&response))
+        {
+            self.terminate_now();
+            return Err(BridgeError::MalformedResponse);
+        }
         let Some(object) = response.as_object() else {
             self.terminate_now();
             return Err(BridgeError::MalformedResponse);
@@ -413,6 +434,16 @@ impl Bridge {
     fn process_group_gone(&self) -> bool {
         let result = unsafe { libc::kill(-self.process_group, 0) };
         result == -1 && std::io::Error::last_os_error().raw_os_error() == Some(libc::ESRCH)
+    }
+}
+
+// serde retains floating number tokens until Tauri serializes them for JavaScript.
+fn integer_wire_numbers(value: &Value) -> bool {
+    match value {
+        Value::Number(number) => !number.is_f64(),
+        Value::Array(items) => items.iter().all(integer_wire_numbers),
+        Value::Object(items) => items.values().all(integer_wire_numbers),
+        _ => true,
     }
 }
 
@@ -803,6 +834,44 @@ time.sleep(30)"#,
         assert_eq!(
             bridge.invoke("search.query", json!({}), None, Duration::from_secs(1)),
             Err(BridgeError::SessionExhausted)
+        );
+    }
+
+    #[test]
+    fn negotiated_integer_lexemes_are_checked_before_javascript_conversion() {
+        for token in ["1.0", "1e0"] {
+            let directory = TempDir::new().unwrap();
+            let executable = script(
+                &directory,
+                &format!(
+                    r#"import json, sys
+request = json.loads(sys.stdin.readline())
+wire = json.dumps({{"ok": True, "protocol": "open-brain-client", "protocol_version": 1, "request_id": request["request_id"], "result": {{"dto_version": 1}}}})
+print(wire.replace('"dto_version": 1', '"dto_version": {token}'), flush=True)
+"#
+                ),
+            );
+            let mut bridge = Bridge::spawn(&executable, directory.path()).unwrap();
+            assert_eq!(
+                bridge.invoke("search.page", json!({}), None, Duration::from_secs(3)),
+                Err(BridgeError::MalformedResponse)
+            );
+            assert!(bridge.process_group_gone());
+        }
+        let directory = TempDir::new().unwrap();
+        let executable = script(
+            &directory,
+            r#"import json, sys
+request = json.loads(sys.stdin.readline())
+print(json.dumps({"ok": True, "protocol": "open-brain-client", "protocol_version": 1, "request_id": request["request_id"], "result": {"score": 0.125}}), flush=True)
+"#,
+        );
+        let mut bridge = Bridge::spawn(&executable, directory.path()).unwrap();
+        assert_eq!(
+            bridge
+                .invoke("search.query", json!({}), None, Duration::from_secs(3))
+                .unwrap(),
+            json!({"score": 0.125})
         );
     }
 

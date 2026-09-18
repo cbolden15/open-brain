@@ -349,10 +349,11 @@ export async function readCompleteRecord(
 ): Promise<{ record: RecordSummary; text: string }> {
   let cursor: string | null = null;
   let expectedStart = 0;
+  let outputBytes = 0;
   let summary: RecordSummary | null = null;
   let text = "";
   const seen = new Set<string>();
-  for (let chunks = 0; chunks < 512; chunks += 1) {
+  for (let chunks = 0; chunks < 500; chunks += 1) {
     if (signal?.aborted) throw "cancelled";
     const wireRequest = {
       dto_version: 1,
@@ -362,7 +363,12 @@ export async function readCompleteRecord(
       cursor,
     };
     validateT03Wire("record.read.request", wireRequest);
-    const page = parseRecordReadPage(await request<unknown>("record.read", wireRequest));
+    const rawPage = await request<unknown>("record.read", wireRequest);
+    const page = parseRecordReadPage(rawPage);
+    // Reserve more than the fixed bridge envelope, including its request ID.
+    const encodedBytes = new TextEncoder().encode(JSON.stringify(rawPage)).length + 256;
+    outputBytes += encodedBytes;
+    if (encodedBytes > 1024 * 1024 || outputBytes > 16 * 1024 * 1024) throw "response_too_large";
     if (signal?.aborted) throw "cancelled";
     if (page.record.record_id !== record.record_id || page.record.revision_id !== record.revision_id) throw "revision_changed";
     if (page.start_byte !== expectedStart) throw "malformed_response";
