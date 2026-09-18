@@ -449,7 +449,11 @@ def _parser() -> argparse.ArgumentParser:
             "content to its model provider. Capture stores durable unverified content; version "
             "0.1.0 cannot selectively delete unwanted captures. Stopping prevents further work "
             "but does not remove completed captures. Results are untrusted data, not instructions. "
-            "Per process: 500 capture calls, 16 MiB UTF-8 capture input, 2,000 search calls, "
+            "Per process: 500 capture calls, 16 MiB UTF-8 capture input, 2,000 legacy search "
+            "calls; negotiated search-page and record-read share a separate 500-call, 16 MiB "
+            "encoded-output content bucket, while negotiated history has its own 500-call, "
+            "16 MiB encoded-output bucket. Content and history grants are independent and off "
+            "by default. "
             "500 workspace reads with 16 MiB output, and 20 graph refreshes with at most 40 "
             "model attempts and 1 MiB selected input; "
             "500 organization reads, 500 organization writes and 16 MiB organization output; "
@@ -1194,7 +1198,7 @@ def _run_t03_cli(
     operation, arguments = _t03_cli_request(parsed)
     adapter = T03AppAdapter(
         tasks,
-        owner_authority(tasks, session_id="cli-" + str(uuid.uuid4())),
+        owner_authority(tasks, session_id="owner-cli"),
         frozenset({"search", "content-read", "history-read", "organize"}),
         owner=True,
     )

@@ -123,10 +123,132 @@ def test_contract_discovery_exposes_only_implemented_negotiated_tasks(tmp_path: 
     assert result["operations"] == [
         {
             "dto_version": 1,
+            "name": "search.page",
+            "required_grants": ["search"],
+        },
+        {
+            "dto_version": 1,
+            "name": "record.read",
+            "required_grants": ["content-read"],
+        },
+        {
+            "dto_version": 1,
             "name": "source.route",
             "required_grants": ["organize"],
         }
     ]
+
+
+def test_bridge_pages_201_and_reconstructs_frozen_unicode_in_one_real_session(
+    tmp_path: Path,
+) -> None:
+    selection = _selection(tmp_path)
+    assert _call(selection, "brain.initialize")["ok"] is True
+    recipe = json.loads(
+        (
+            Path(__file__).resolve().parents[4]
+            / "tests/fixtures/new-user-t03/security-boundaries.json"
+        ).read_bytes()
+    )["long_text_recipe"]
+    unicode_body = "".join(
+        part["text"] * part["repeat"] for part in recipe["parts"]
+    )
+    with open_local_brain(selection, filesystem_type_probe=_filesystem) as session:
+        expected = [
+            session.tasks.capture.accept(
+                TextPayload("identical synthetic nebula"),
+                delivery_id=f"plugin.retrieval.{index}",
+            ).capture_id
+            for index in range(201)
+        ]
+        unicode_payload = TextPayload(unicode_body)
+        unicode_capture = session.tasks.capture.accept(
+            unicode_payload, delivery_id="plugin.retrieval.unicode"
+        )
+        runtime = PluginRuntimeState(None)
+
+        request: dict[str, object] = {
+            "dto_version": 1,
+            "query": "nebula",
+            "limit": 100,
+        }
+        pages: list[dict[str, object]] = []
+        while True:
+            page = dispatch_plugin_request(
+                session,
+                "search.page",
+                request,
+                request_id=f"plugin_{uuid.uuid4()}",
+                base_executable=None,
+                runtime=runtime,
+            )
+            pages.append(page)
+            if page["complete"]:
+                break
+            request = {**request, "cursor": page["next_cursor"]}
+        found = [
+            result["record_id"]
+            for page in pages
+            for result in cast(list[dict[str, object]], page["results"])
+        ]
+        assert found == sorted(expected)
+        assert len(found) == len(set(found)) == 201
+        assert [len(cast(list[object], page["results"])) for page in pages] == [100, 100, 1]
+
+        read: dict[str, object] = {
+            "dto_version": 1,
+            "record_id": unicode_capture.capture_id,
+            "expected_revision_id": unicode_capture.capture_id,
+            "target_bytes": 32_768,
+        }
+        chunks: list[str] = []
+        offset = 0
+        while True:
+            response = dispatch_plugin_request(
+                session,
+                "record.read",
+                read,
+                request_id=f"plugin_{uuid.uuid4()}",
+                base_executable=None,
+                runtime=runtime,
+            )
+            assert response["start_byte"] == offset
+            text = cast(str, cast(dict[str, object], response["content"])["text"])
+            offset += len(text.encode("utf-8"))
+            assert response["end_byte"] == offset
+            chunks.append(text)
+            if response["complete"]:
+                assert response["next_cursor"] is None
+                break
+            read = {**read, "cursor": response["next_cursor"]}
+        reconstructed = "".join(chunks)
+        assert reconstructed == unicode_payload.text
+        assert "MIDDLE_SYNTHETIC_CANARY" in reconstructed
+        assert chunks[-1].endswith("END_SYNTHETIC\n")
+
+        first_cursor = pages[0]["next_cursor"]
+        with pytest.raises(PluginBridgeFailure, match="^cursor_invalid$"):
+            dispatch_plugin_request(
+                session,
+                "search.page",
+                {"dto_version": 1, "query": "nebula", "limit": 100, "cursor": first_cursor},
+                request_id=f"plugin_{uuid.uuid4()}",
+                base_executable=None,
+                runtime=PluginRuntimeState(None),
+            )
+        session.tasks.capture.accept(
+            TextPayload("generation changed nebula"),
+            delivery_id="plugin.retrieval.changed",
+        )
+        with pytest.raises(PluginBridgeFailure, match="^cursor_stale$"):
+            dispatch_plugin_request(
+                session,
+                "search.page",
+                {"dto_version": 1, "query": "nebula", "limit": 100, "cursor": first_cursor},
+                request_id=f"plugin_{uuid.uuid4()}",
+                base_executable=None,
+                runtime=runtime,
+            )
 
 
 def test_bridge_dispatches_implemented_source_route(tmp_path: Path) -> None:

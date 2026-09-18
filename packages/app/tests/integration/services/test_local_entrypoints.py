@@ -3,7 +3,10 @@ from __future__ import annotations
 import importlib
 import importlib.metadata
 import json
+import os
 import socket
+import subprocess
+import sys
 import unicodedata
 from pathlib import Path
 from typing import cast
@@ -41,6 +44,32 @@ def _private_home(tmp_path: Path) -> Path:
     home.mkdir(mode=0o700)
     home.chmod(0o700)
     return home
+
+
+def _subprocess_cli(root: Path, *arguments: str) -> dict[str, object]:
+    program = (
+        "from open_brain.services.local_entrypoints import run_cli;"
+        "raise SystemExit(run_cli())"
+    )
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            program,
+            *arguments,
+            "--data-dir",
+            str(root),
+            "--json",
+        ],
+        env=os.environ.copy(),
+        capture_output=True,
+        text=True,
+        timeout=30,
+        check=False,
+    )
+    assert result.returncode == 0, (result.stdout, result.stderr)
+    assert result.stderr == ""
+    return cast(dict[str, object], json.loads(result.stdout))
 
 
 def test_local_help_and_version_are_root_free(
@@ -719,6 +748,85 @@ def test_local_search_json_is_bounded_and_export_failure_is_redacted(
     assert str(destination) not in failure
     assert token not in failure
 
+
+def test_owner_cli_subprocess_continues_paging_and_unicode_reads_across_invocations(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "brain"
+    tasks = open_local_engine(compile_single_user_local(root))
+    expected_ids = [
+        tasks.capture.accept(
+            TextPayload("identical subprocess nebula"),
+            delivery_id=f"cli.retrieval.{index}",
+        ).capture_id
+        for index in range(201)
+    ]
+    recipe = json.loads(
+        (
+            Path(__file__).resolve().parents[5]
+            / "tests/fixtures/new-user-t03/security-boundaries.json"
+        ).read_bytes()
+    )["long_text_recipe"]
+    unicode_payload = TextPayload(
+        "".join(part["text"] * part["repeat"] for part in recipe["parts"])
+    )
+    unicode_capture = tasks.capture.accept(
+        unicode_payload, delivery_id="cli.retrieval.unicode"
+    )
+
+    search_arguments = ["search-page", "nebula", "--limit", "100"]
+    found: list[str] = []
+    page_sizes: list[int] = []
+    while True:
+        page = _subprocess_cli(root, *search_arguments)
+        results = cast(list[dict[str, object]], page["results"])
+        page_sizes.append(len(results))
+        found.extend(cast(str, row["record_id"]) for row in results)
+        if page["complete"]:
+            assert page["next_cursor"] is None
+            break
+        search_arguments = [
+            "search-page",
+            "nebula",
+            "--limit",
+            "100",
+            "--cursor",
+            cast(str, page["next_cursor"]),
+        ]
+    assert page_sizes == [100, 100, 1]
+    assert found == sorted(expected_ids)
+
+    read_arguments = [
+        "read",
+        unicode_capture.capture_id,
+        "--expected-revision-id",
+        unicode_capture.capture_id,
+        "--target-bytes",
+        "32768",
+    ]
+    chunks: list[str] = []
+    offset = 0
+    while True:
+        response = _subprocess_cli(root, *read_arguments)
+        assert response["start_byte"] == offset
+        text = cast(str, cast(dict[str, object], response["content"])["text"])
+        offset += len(text.encode("utf-8"))
+        assert response["end_byte"] == offset
+        chunks.append(text)
+        if response["complete"]:
+            assert response["next_cursor"] is None
+            break
+        read_arguments = [
+            "read",
+            unicode_capture.capture_id,
+            "--expected-revision-id",
+            unicode_capture.capture_id,
+            "--target-bytes",
+            "32768",
+            "--cursor",
+            cast(str, response["next_cursor"]),
+        ]
+    assert "".join(chunks) == unicode_payload.text
 
 def test_local_search_reconciles_owner_markdown_and_renders_one_safe_line(
     tmp_path: Path,
