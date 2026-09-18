@@ -942,6 +942,119 @@ def test_owner_cli_lists_and_reads_historical_unicode_revision_across_invocation
     assert TextPayload(old_body).text in reconstructed
     assert "Current CLI body" not in reconstructed
 
+
+def test_owner_cli_relationship_replay_cas_history_and_verified_export(tmp_path: Path) -> None:
+    root = tmp_path / "brain"
+    tasks = open_local_engine(compile_single_user_local(root))
+    captures = [
+        tasks.capture.accept(
+            TextPayload(f"independent relationship endpoint {index}"),
+            delivery_id=f"cli.relationship.{index}",
+        )
+        for index in range(2)
+    ]
+    left, right = (capture.capture_id for capture in captures)
+    accept_arguments = [
+        "relationship",
+        "decide",
+        "--left-record-id",
+        left,
+        "--left-revision-id",
+        left,
+        "--right-record-id",
+        right,
+        "--right-revision-id",
+        right,
+        "--kind",
+        "duplicate_of",
+        "--decision",
+        "accept",
+        "--expected-relationship-version",
+        "0",
+        "--operation-id",
+        "operation_11111111-1111-4111-8111-111111111111",
+    ]
+    accepted = _subprocess_cli(root, *accept_arguments)
+    assert accepted["version"] == 1
+    assert _subprocess_cli(root, *accept_arguments) == accepted
+
+    program = (
+        "from open_brain.services.local_entrypoints import run_cli;"
+        "raise SystemExit(run_cli())"
+    )
+    stale = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            program,
+            *accept_arguments[:-1],
+            "operation_22222222-2222-4222-8222-222222222222",
+            "--data-dir",
+            str(root),
+            "--json",
+        ],
+        env=os.environ.copy(),
+        capture_output=True,
+        text=True,
+        timeout=30,
+        check=False,
+    )
+    assert stale.returncode == 1
+    assert json.loads(stale.stdout)["error"]["code"] == "revision_changed"
+    assert stale.stderr == ""
+
+    removed = _subprocess_cli(
+        root,
+        *[
+            "1" if value == "0" else "remove" if value == "accept" else value
+            for value in accept_arguments
+        ][:-1],
+        "operation_33333333-3333-4333-8333-333333333333",
+    )
+    assert removed["relationship_id"] == accepted["relationship_id"]
+    assert removed["version"] == 2
+
+    relationships = _subprocess_cli(root, "relationship", "list", left)
+    entry = cast(list[dict[str, object]], relationships["entries"])[0]
+    assert entry["status"] == "removed"
+    assert {cast(dict[str, object], entry[side])["record_id"] for side in ("left", "right")} == {
+        left,
+        right,
+    }
+
+    first_decision = _subprocess_cli(root, "decision", "history", left, "--limit", "1")
+    first_entry = cast(list[dict[str, object]], first_decision["entries"])[0]
+    assert first_entry["decision"] == "remove"
+    tail = _subprocess_cli(
+        root,
+        "decision",
+        "history",
+        left,
+        "--limit",
+        "1",
+        "--cursor",
+        cast(str, first_decision["next_cursor"]),
+    )
+    assert cast(list[dict[str, object]], tail["entries"])[0]["decision"] == "accept"
+    assert tail["complete"] is True
+
+    search = _subprocess_cli(root, "search-page", "independent relationship endpoint")
+    assert {row["record_id"] for row in cast(list[dict[str, object]], search["results"])} == {
+        left,
+        right,
+    }
+    export = tmp_path / "export"
+    receipt = _subprocess_cli(root, "export", str(export), "--verify")
+    assert receipt["verification"] == "verified"
+    sidecar = json.loads(
+        (export / "history/relationships/decisions-v1.json").read_text(encoding="utf-8")
+    )
+    assert len(sidecar["relationships"]) == 1
+    assert [decision["decision"] for decision in sidecar["decisions"]] == [
+        "accept",
+        "remove",
+    ]
+
 def test_local_search_reconciles_owner_markdown_and_renders_one_safe_line(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
