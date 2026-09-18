@@ -4,7 +4,7 @@
   "rows": [
     {
       "acceptance_id": "A01",
-      "status": "retained_partial_plus_t23_pending",
+      "status": "retained_partial_with_scoped_macos_evidence",
       "evidence": [
         {
           "path": "docs/ai/workstreams/20260917-open-brain-public-m1-publication-1f7912/EVIDENCE.json",
@@ -26,11 +26,16 @@
         }
       ],
       "scoped_claim": "Retained source publication/tamper/export evidence; reused exact macOS capture/import to canonical vault/search/full read",
-      "open_reason": "Broader cumulative native and GUI release acceptance not newly claimed"
+      "open_reason": "Broader cumulative native and GUI release acceptance not newly claimed",
+      "t23_acceptance_rows": [
+        "reused-documentation-journey",
+        "default-home-journey",
+        "custody-export"
+      ]
     },
     {
       "acceptance_id": "A02",
-      "status": "retained_partial_plus_t23_pending",
+      "status": "retained_partial_with_scoped_macos_evidence",
       "evidence": [
         {
           "path": "docs/ai/workstreams/20260917-open-brain-public-m2-0fd6e9/M2-CHECKPOINT.json",
@@ -40,11 +45,14 @@
         }
       ],
       "scoped_claim": "Retained strict DTO/grant/error and unsupported-writer source evidence",
-      "open_reason": "No new migration or old-client native certification"
+      "open_reason": "No new migration or old-client native certification",
+      "t23_acceptance_rows": [
+        "mcp-failure-redaction"
+      ]
     },
     {
       "acceptance_id": "A03",
-      "status": "retained_partial_plus_t23_pending",
+      "status": "retained_source_subset_only",
       "evidence": [
         {
           "path": "docs/ai/workstreams/20260917-open-brain-public-m2-0fd6e9/M2-CHECKPOINT.json",
@@ -54,11 +62,12 @@
         }
       ],
       "scoped_claim": "Retained schema-5/6 migration and immutable history source evidence",
-      "open_reason": "No fresh native migration run; no blanket A03 promotion"
+      "open_reason": "No fresh native migration run; no blanket A03 promotion",
+      "t23_acceptance_rows": []
     },
     {
       "acceptance_id": "A04",
-      "status": "retained_partial_plus_t23_pending",
+      "status": "retained_partial_with_scoped_macos_evidence",
       "evidence": [
         {
           "path": "docs/ai/workstreams/20260917-open-brain-public-m2-0fd6e9/M2-CHECKPOINT.json",
@@ -74,11 +83,14 @@
         }
       ],
       "scoped_claim": "Retained 201-result paging/filter source evidence; reused native Unicode complete reads",
-      "open_reason": "Native full paging/filter matrix not newly claimed"
+      "open_reason": "Native full paging/filter matrix not newly claimed",
+      "t23_acceptance_rows": [
+        "reused-documentation-journey"
+      ]
     },
     {
       "acceptance_id": "A05",
-      "status": "retained_partial_plus_t23_pending",
+      "status": "retained_partial_with_scoped_macos_evidence",
       "evidence": [
         {
           "path": "docs/ai/workstreams/20260917-open-brain-public-m2-0fd6e9/M2-CHECKPOINT.json",
@@ -94,11 +106,17 @@
         }
       ],
       "scoped_claim": "Reused CLI/MCP/agent package journeys; new denied-write/EOF checks",
-      "open_reason": "Exact Obsidian GUI open; desktop GUI deferred"
+      "open_reason": "Exact Obsidian GUI open; desktop GUI deferred",
+      "t23_acceptance_rows": [
+        "reused-documentation-journey",
+        "default-home-journey",
+        "mcp-failure-redaction",
+        "foreground-eof"
+      ]
     },
     {
       "acceptance_id": "A06",
-      "status": "retained_partial_plus_t23_pending",
+      "status": "retained_source_subset_only",
       "evidence": [
         {
           "path": "docs/ai/workstreams/20260918-open-brain-public-m3-source-continuity-owner-control-c63538/T09-CHECKPOINT.json",
@@ -108,11 +126,12 @@
         }
       ],
       "scoped_claim": "Retained T09 synthetic custody/containment source evidence",
-      "open_reason": "T10 source continuity deferred; no live sources"
+      "open_reason": "T10 source continuity deferred; no live sources",
+      "t23_acceptance_rows": []
     },
     {
       "acceptance_id": "A07",
-      "status": "retained_partial_plus_t23_pending",
+      "status": "retained_source_subset_only",
       "evidence": [
         {
           "path": "docs/ai/workstreams/20260917-open-brain-public-m2-0fd6e9/M2-CHECKPOINT.json",
@@ -122,53 +141,60 @@
         }
       ],
       "scoped_claim": "Retained history/relationships source evidence",
-      "open_reason": "No new full artifact history/relationship matrix"
+      "open_reason": "No new full artifact history/relationship matrix",
+      "t23_acceptance_rows": []
     },
     {
       "acceptance_id": "A08",
       "status": "deferred_open",
       "evidence": [],
       "scoped_claim": "No T23 implementation",
-      "open_reason": "T11 retire/correct deferred"
+      "open_reason": "T11 retire/correct deferred",
+      "t23_acceptance_rows": []
     },
     {
       "acceptance_id": "A09",
       "status": "deferred_open",
       "evidence": [],
       "scoped_claim": "No T23 implementation",
-      "open_reason": "T12 selective forget deferred"
+      "open_reason": "T12 selective forget deferred",
+      "t23_acceptance_rows": []
     },
     {
       "acceptance_id": "A10",
       "status": "deferred_open",
       "evidence": [],
       "scoped_claim": "No T23 implementation",
-      "open_reason": "T13 Markdown root rebind deferred"
+      "open_reason": "T13 Markdown root rebind deferred",
+      "t23_acceptance_rows": []
     },
     {
       "acceptance_id": "A11",
       "status": "deferred_open",
       "evidence": [],
       "scoped_claim": "No T23 implementation",
-      "open_reason": "T14 optional PDF/DOCX deferred"
+      "open_reason": "T14 optional PDF/DOCX deferred",
+      "t23_acceptance_rows": []
     },
     {
       "acceptance_id": "A12",
       "status": "deferred_open",
       "evidence": [],
       "scoped_claim": "No T23 implementation",
-      "open_reason": "T15 Linux service deferred; no real services"
+      "open_reason": "T15 Linux service deferred; no real services",
+      "t23_acceptance_rows": []
     },
     {
       "acceptance_id": "A13",
       "status": "deferred_open",
       "evidence": [],
       "scoped_claim": "No T23 implementation",
-      "open_reason": "T16-T18 semantic recall deferred; no model downloads"
+      "open_reason": "T16-T18 semantic recall deferred; no model downloads",
+      "t23_acceptance_rows": []
     },
     {
       "acceptance_id": "A14",
-      "status": "retained_partial_plus_t23_pending",
+      "status": "retained_partial_with_scoped_macos_evidence",
       "evidence": [
         {
           "path": "docs/ai/workstreams/20260918-open-brain-public-m3-source-continuity-owner-control-c63538/T19-CHECKPOINT.json",
@@ -190,11 +216,15 @@
         }
       ],
       "scoped_claim": "Retained catalog source and exact native truth; certifications remain empty",
-      "open_reason": "No public/provider promotion"
+      "open_reason": "No public/provider promotion",
+      "t23_acceptance_rows": [
+        "reused-native-homebrew",
+        "reused-documentation-journey"
+      ]
     },
     {
       "acceptance_id": "A15",
-      "status": "retained_partial_plus_t23_pending",
+      "status": "retained_partial_with_scoped_macos_evidence",
       "evidence": [
         {
           "path": "docs/ai/workstreams/20260918-open-brain-public-m3-source-continuity-owner-control-c63538/T20-CHECKPOINT.json",
@@ -204,11 +234,16 @@
         }
       ],
       "scoped_claim": "Reused exact macOS native audit/local-file Homebrew; new clean archive staging",
-      "open_reason": "Linux exact candidate and public delivery open; optional packages source-only"
+      "open_reason": "Linux exact candidate and public delivery open; optional packages source-only",
+      "t23_acceptance_rows": [
+        "reused-native-homebrew",
+        "archive-staging",
+        "default-home-journey"
+      ]
     },
     {
       "acceptance_id": "A16",
-      "status": "retained_partial_plus_t23_pending",
+      "status": "retained_partial_with_scoped_macos_evidence",
       "evidence": [
         {
           "path": "docs/ai/workstreams/20260918-open-brain-public-m3-source-continuity-owner-control-c63538/T21-CHECKPOINT.json",
@@ -218,11 +253,14 @@
         }
       ],
       "scoped_claim": "Reused 11 exact native documentation blocks with hashes and original timing",
-      "open_reason": "No Linux/provider/GUI certification"
+      "open_reason": "No Linux/provider/GUI certification",
+      "t23_acceptance_rows": [
+        "reused-documentation-journey"
+      ]
     },
     {
       "acceptance_id": "A17",
-      "status": "retained_partial_plus_t23_pending",
+      "status": "scoped_macos_locally_verified_global_open",
       "evidence": [
         {
           "path": "docs/ai/workstreams/20260918-open-brain-public-m3-source-continuity-owner-control-c63538/T20-CHECKPOINT.json",
@@ -238,13 +276,25 @@
         }
       ],
       "scoped_claim": "T23 scoped local macOS staging/default HOME/failure/redaction/custody/EOF timing plus reused CLI/MCP/agent/plugin package evidence",
-      "open_reason": "Global A17 open: Linux, exact Obsidian GUI, production OAuth/provider refresh/revocation/custody/timing, live source/public promotion; desktop GUI/release deferred"
+      "open_reason": "Global A17 open: Linux, exact Obsidian GUI, production OAuth/provider refresh/revocation/custody/timing, live source/public promotion; desktop GUI/release deferred",
+      "t23_acceptance_rows": [
+        "reused-native-homebrew",
+        "reused-documentation-journey",
+        "archive-staging",
+        "default-home-journey",
+        "mcp-failure-redaction",
+        "custody-export",
+        "foreground-eof"
+      ]
     }
   ],
   "historical_gui_note": "Historical M2 Obsidian GUI receipt remains preserved; it is not the exact T20/T23 artifact receipt and does not close current GUI gate.",
   "baseline": "b9f4a9cf944ecf1638b67c1af947407b561f0eee",
   "artifact_source_commit": "907bfe737b9366cafdb47ffb763f72df8dcf5f32",
-  "status": "frozen_reconciliation_pending_execution",
+  "status": "scoped_macos_locally_verified_global_gates_open",
   "contract": "docs/design/core-v01-t23-acceptance.md",
-  "new_acceptance_matrix": "docs/acceptance/core-v01-t23.json"
+  "new_acceptance_matrix": "docs/acceptance/core-v01-t23.json",
+  "verified_implementation_head": "63d9dfe87356b65a1507ea305898b0ad680ba4cc",
+  "t23_checkpoint": "docs/ai/workstreams/20260918-open-brain-public-m3-source-continuity-owner-control-c63538/T23-CHECKPOINT.json",
+  "t23_receipt_sha256": "13d65e8f29f63b8f2614fa50bc65311505dfe675104b6f1234c5b56a6a4c418e"
 }

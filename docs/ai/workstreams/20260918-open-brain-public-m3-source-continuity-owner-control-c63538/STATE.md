@@ -1,12 +1,13 @@
 # Workstream State
 
 - ID: `20260918-open-brain-public-m3-source-continuity-owner-control-c63538`; repository: `open-brain-public`; branch: `ob-new-user/m3`.
-- T23 baseline/current commit: `b9f4a9cf944ecf1638b67c1af947407b561f0eee`; scoped acceptance changes are uncommitted.
-- T09, T19, T20 and T21 local evidence is preserved. T21 verified implementation: `987dea814a4b8730f8b3b73e19bb35262f6a6044`.
-- T23 inventory verified both retained archives and 21 reviewed files; the frozen [contract](../../../design/core-v01-t23-acceptance.md) has independent READY review.
-- [A01–A17 reconciliation](T23-RECONCILIATION.json) retains exact source checkpoint hashes and explicit unfinished portions.
-- T23 harness, focused/native acceptance and final independent review are in progress. Final full verification has not run.
-- Two child reservations are held; shared session use is 10/12, including 8 prior sessions.
-- Linux exact-candidate native/Homebrew, exact Obsidian GUI, production OAuth/provider, live-source and public promotion remain open. T10–T18/T22 and desktop GUI/release remain deferred.
-- No product/runtime/schema changes are authorized. No next milestone starts here.
-- Fresh-thread safety is false until the final clean exact-HEAD private handoff validates and all child reservations are released.
+- Verified T23 implementation: `63d9dfe87356b65a1507ea305898b0ad680ba4cc`.
+- [T23 checkpoint](T23-CHECKPOINT.json) records scoped macOS acceptance; [A01–A17 reconciliation](T23-RECONCILIATION.json) retains previous evidence and open portions.
+- Full serial verification passed: 2456 Python with 5 existing skips, 341 MyPy files, four package builds, 291 Obsidian, 259 desktop TypeScript, 1 desktop Python and 26 Rust tests.
+- Focused checks: 34 passed. Exact native gate: 5 new rows, 2 reused evidence groups and 6 explicit open gates. The unchanged T20/T21 journeys were reused by hash.
+- Independent contract READY; four acceptance-evidence findings repaired; independent delta READY and 25 negative cases rejected. Final checkpoint metadata/evidence review READY.
+- Product/build inputs and 21 prior reviewed hashes preserved. Schema 7/runtime session 2 unchanged.
+- Raw commands/logs/reviews/runner/usage remain private. No public or provider certification was added.
+- Linux exact candidate, exact Obsidian GUI, production OAuth/provider, live-source and public promotion remain open. T10–T18/T22 and desktop GUI/release remain deferred; desktop release does not gate core delivery.
+- Stop at T23; no next milestone is authorized.
+- Public metadata anchors the verified implementation. All child reservations are released (10/12 total sessions). The committed packet anchors implementation verification; final fresh-thread safety is recorded by the private exact-HEAD gate/handoff after the checkpoint-only commit.

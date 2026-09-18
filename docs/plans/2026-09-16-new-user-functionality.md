@@ -71,7 +71,7 @@ workspace installation, descriptor booleans or historical receipts. T19 scoped A
 is [locally verified](../ai/workstreams/20260918-open-brain-public-m3-source-continuity-owner-control-c63538/T19-CHECKPOINT.json).
 T20 scoped core artifacts are [locally verified on macOS arm64](../ai/workstreams/20260918-open-brain-public-m3-source-continuity-owner-control-c63538/T20-CHECKPOINT.json) under the [frozen artifact contract](../design/core-v01-t20-artifacts.md).
 T21/scoped A16 is [locally verified on macOS arm64](../ai/workstreams/20260918-open-brain-public-m3-source-continuity-owner-control-c63538/T21-CHECKPOINT.json) under the [documentation contract](../design/core-v01-t21-documentation.md).
-T23/scoped A17 is in progress under the [bounded macOS acceptance contract](../design/core-v01-t23-acceptance.md).
+T23/scoped A17 is [locally verified on macOS arm64](../ai/workstreams/20260918-open-brain-public-m3-source-continuity-owner-control-c63538/T23-CHECKPOINT.json) under the [bounded macOS acceptance contract](../design/core-v01-t23-acceptance.md).
 The [A01–A17 reconciliation](../ai/workstreams/20260918-open-brain-public-m3-source-continuity-owner-control-c63538/T23-RECONCILIATION.json) preserves earlier scoped evidence and records unfinished portions. Linux exact-candidate native/Homebrew,
 public promotion, production OAuth/provider, live-source, exact Obsidian GUI and deferred acceptance remain open.
 
