@@ -2097,3 +2097,18 @@ Keep Escape cancellation and single settlement. Exercise the real close-before-c
 through the publication command for existing-space, new-space, and cancellation paths.
 
 Discovered: 2026-09-18, Obsidian 1.13.7 GUI acceptance and installed callback-order inspection.
+
+### OBSIDIAN-005: External note creation registers asynchronously
+
+Symptom: Publication succeeds and the exact managed note exists on disk, but opening it immediately
+reports source_unavailable. The same note becomes available in Obsidian later.
+
+Cause: Native workspace refresh writes the canonical note outside Obsidian's Vault API. Obsidian's
+filesystem watcher registers that file after the bridge response, so an immediate synchronous vault
+lookup can return null.
+
+Fix: After revalidating the managed vault, check the normalized path, subscribe to the public vault
+create event, and check again to close the lookup-to-listener race. Bound the wait and remove its
+listener and timer on success, timeout, or plugin unload. Never bypass the vault to open the file.
+
+Discovered: 2026-09-18, Obsidian 1.13.7 GUI publication acceptance and delayed Quick Switcher proof.

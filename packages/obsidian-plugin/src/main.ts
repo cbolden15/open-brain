@@ -2,6 +2,7 @@ import { realpath } from "node:fs/promises";
 
 import {
   App,
+  type EventRef,
   FileSystemAdapter,
   FuzzySuggestModal,
   Modal,
@@ -70,6 +71,7 @@ import {
 
 const CANVAS_PATH = normalizePath("Open Brain Graph.canvas");
 const DISPLAY_CONTROL = /[\u0000-\u0008\u000b\u000c\u000e-\u001f]/gu;
+const FILE_REGISTRATION_TIMEOUT_MS = 10_000;
 const OWNED_CANVAS_HEADING = "# Open Brain graph";
 const PROVIDER_LABELS: Record<string, string> = {
   anthropic_api: "Anthropic API key",
@@ -100,6 +102,7 @@ export default class OpenBrainPlugin extends Plugin {
   #scheduler: RefreshScheduler | null = null;
   #providerSelection: ProviderSelection | null = null;
   #handshake: Handshake | null = null;
+  #pendingFileWaits = new Set<() => void>();
 
   public override async onload(): Promise<void> {
     this.settings = parseSettings(await this.loadData());
@@ -115,6 +118,7 @@ export default class OpenBrainPlugin extends Plugin {
   public override onunload(): void {
     this.#scheduler?.dispose();
     this.#scheduler = null;
+    for (const cancel of [...this.#pendingFileWaits]) cancel();
     this.#bridge?.dispose();
     this.#bridge = null;
     this.#providerSelection = null;
@@ -185,9 +189,42 @@ export default class OpenBrainPlugin extends Plugin {
   async openManagedFile(relativePath: string): Promise<void> {
     if (!safeRelativePath(relativePath)) throw new BridgeError("invalid_source_path");
     await this.#managedBridge();
-    const file = this.app.vault.getAbstractFileByPath(normalizePath(relativePath));
-    if (!(file instanceof TFile)) throw new BridgeError("source_unavailable");
+    const file = await this.#waitForVaultFile(normalizePath(relativePath));
     await openCanvasFile(this.app.workspace, file);
+  }
+
+  async #waitForVaultFile(path: string): Promise<TFile> {
+    const current = this.app.vault.getAbstractFileByPath(path);
+    if (current instanceof TFile) return current;
+    return await new Promise<TFile>((resolve, reject) => {
+      let settled = false;
+      let timer: ReturnType<typeof setTimeout> | null = null;
+      let eventRef: EventRef | null = null;
+      const finish = (file: TFile | null, error?: BridgeError): void => {
+        if (settled) return;
+        settled = true;
+        if (timer !== null) clearTimeout(timer);
+        if (eventRef !== null) this.app.vault.offref(eventRef);
+        this.#pendingFileWaits.delete(cancel);
+        if (file !== null) resolve(file);
+        else reject(error ?? new BridgeError("source_unavailable"));
+      };
+      const cancel = (): void => finish(null, new BridgeError("bridge_closed"));
+      eventRef = this.app.vault.on("create", (file) => {
+        if (file instanceof TFile && file.path === path) finish(file);
+      });
+      this.#pendingFileWaits.add(cancel);
+      try {
+        const registered = this.app.vault.getAbstractFileByPath(path);
+        if (registered instanceof TFile) {
+          finish(registered);
+          return;
+        }
+        timer = setTimeout(() => finish(null), FILE_REGISTRATION_TIMEOUT_MS);
+      } catch {
+        finish(null);
+      }
+    });
   }
 
   async reviewSuggestion(suggestionId: string): Promise<void> {

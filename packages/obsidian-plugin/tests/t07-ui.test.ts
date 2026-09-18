@@ -1,4 +1,9 @@
-import { describe, expect, it, vi } from "vitest";
+import { chmod, mkdtemp, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import path from "node:path";
+import process from "node:process";
+
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("obsidian", () => {
   const opened: unknown[] = [];
@@ -41,18 +46,25 @@ vi.mock("obsidian", () => {
       (this as unknown as { onChooseItem(item: T): void }).onChooseItem(item);
     }
   }
+  class FileSystemAdapter {
+    public constructor(readonly basePath = "") {}
+    public getBasePath(): string { return this.basePath; }
+  }
+  class TFile { public constructor(readonly path = "") {} }
   return {
     __notices: notices, __opened: opened,
-    App: class {}, FileSystemAdapter: class {}, FuzzySuggestModal, Modal,
+    App: class {}, FileSystemAdapter, FuzzySuggestModal, Modal,
     Notice: class { public constructor(message: string) { notices.push(message); } },
     Plugin: class { public app: unknown; public constructor(app: unknown) { this.app = app; } },
-    PluginSettingTab: class {}, Setting: class {}, TFile: class {},
+    PluginSettingTab: class {}, Setting: class {}, TFile,
     normalizePath: (value: string) => value,
   };
 });
 
 import OpenBrainPlugin, { PagedRecordSearchModal, SearchFiltersModal } from "../src/main";
 import { validateT03Wire } from "../src/t03-wire";
+
+afterEach(() => vi.restoreAllMocks());
 
 type TestElement = { children: TestElement[]; disabled: boolean; tag: string; text: string; trigger(name: string): void; value: string };
 const walk = (element: TestElement): TestElement[] => [element, ...element.children.flatMap(walk)];
@@ -203,6 +215,76 @@ describe("actual T07 modals", () => {
     expect(obsidian.__notices).toEqual([]);
   });
 
+  it("opens a managed file after Obsidian registers the externally refreshed note", async () => {
+    const vaultPath = await mkdtemp(path.join(tmpdir(), "open-brain-managed-vault-"));
+    const executable = await managedBridgeExecutable(vaultPath);
+    const relativePath = "spaces/synthetic/notes/page_delayed.md";
+    const harness = await managedFileHarness(vaultPath, executable);
+    const opening = harness.plugin.openManagedFile(relativePath);
+    void opening.catch(() => undefined);
+
+    try {
+      await vi.waitFor(() => expect(harness.on).toHaveBeenCalledOnce());
+      const file = new harness.TFile(relativePath);
+      harness.register(file);
+      await opening;
+      expect(harness.openFile).toHaveBeenCalledWith(file, { active: true });
+      expect(harness.offref).toHaveBeenCalledOnce();
+    } finally {
+      harness.plugin.onunload();
+    }
+  });
+
+  it("bounds a genuinely absent managed file and removes its create listener", async () => {
+    const nativeSetTimeout = globalThis.setTimeout;
+    vi.spyOn(globalThis, "setTimeout").mockImplementation(((callback: () => void, delay?: number) =>
+      nativeSetTimeout(callback, delay === 10_000 ? 5 : delay)) as typeof setTimeout);
+    const vaultPath = await mkdtemp(path.join(tmpdir(), "open-brain-managed-vault-"));
+    const executable = await managedBridgeExecutable(vaultPath);
+    const harness = await managedFileHarness(vaultPath, executable);
+
+    try {
+      await expect(harness.plugin.openManagedFile("spaces/synthetic/notes/missing.md")).rejects.toEqual(
+        expect.objectContaining({ code: "source_unavailable" }),
+      );
+      expect(harness.offref).toHaveBeenCalledOnce();
+      expect(harness.openFile).not.toHaveBeenCalled();
+    } finally {
+      harness.plugin.onunload();
+    }
+  });
+
+  it("cancels a pending managed-file wait on unload", async () => {
+    const vaultPath = await mkdtemp(path.join(tmpdir(), "open-brain-managed-vault-"));
+    const executable = await managedBridgeExecutable(vaultPath);
+    const harness = await managedFileHarness(vaultPath, executable);
+    const opening = harness.plugin.openManagedFile("spaces/synthetic/notes/pending.md");
+    void opening.catch(() => undefined);
+    await vi.waitFor(() => expect(harness.on).toHaveBeenCalledOnce());
+
+    harness.plugin.onunload();
+
+    await expect(opening).rejects.toEqual(expect.objectContaining({ code: "bridge_closed" }));
+    expect(harness.offref).toHaveBeenCalledOnce();
+    expect(harness.openFile).not.toHaveBeenCalled();
+  });
+
+  it("rejects a wrong vault before waiting for file registration", async () => {
+    const expectedVault = await mkdtemp(path.join(tmpdir(), "open-brain-managed-expected-"));
+    const actualVault = await mkdtemp(path.join(tmpdir(), "open-brain-managed-actual-"));
+    const executable = await managedBridgeExecutable(expectedVault);
+    const harness = await managedFileHarness(actualVault, executable);
+
+    try {
+      await expect(harness.plugin.openManagedFile("spaces/synthetic/notes/wrong.md")).rejects.toEqual(
+        expect.objectContaining({ code: "wrong_vault" }),
+      );
+      expect(harness.on).not.toHaveBeenCalled();
+    } finally {
+      harness.plugin.onunload();
+    }
+  });
+
   it("the actual same-vault command approves, matches the page, and opens its confined note", async () => {
     const obsidian = await import("obsidian") as unknown as { __opened: Array<{ contentEl: TestElement; titleEl: TestElement }> };
     obsidian.__opened.length = 0;
@@ -306,6 +388,80 @@ describe("actual T07 modals", () => {
   );
 
 });
+
+async function managedFileHarness(vaultPath: string, executable: string) {
+  const obsidian = await import("obsidian") as unknown as {
+    FileSystemAdapter: new (basePath: string) => { getBasePath(): string };
+    TFile: new (path: string) => { path: string };
+  };
+  type File = InstanceType<typeof obsidian.TFile>;
+  const listeners = new Map<object, (file: File) => void>();
+  let current: File | null = null;
+  const on = vi.fn((_name: string, callback: (file: File) => void) => {
+    const ref = {};
+    listeners.set(ref, callback);
+    return ref;
+  });
+  const offref = vi.fn((ref: object) => { listeners.delete(ref); });
+  const openFile = vi.fn(async () => undefined);
+  const leaf = { openFile, getViewState: () => ({ state: {} }) };
+  const app = {
+    vault: {
+      adapter: new obsidian.FileSystemAdapter(vaultPath),
+      getAbstractFileByPath: vi.fn(() => current),
+      offref,
+      on,
+    },
+    workspace: {
+      getLeaf: vi.fn(() => leaf),
+      getLeavesOfType: vi.fn(() => []),
+      revealLeaf: vi.fn(async () => undefined),
+    },
+  };
+  const plugin = new OpenBrainPlugin(app as never, {} as never);
+  plugin.settings = { executablePath: executable, inferencePaused: false };
+  return {
+    TFile: obsidian.TFile, offref, on, openFile, plugin,
+    register(file: File): void {
+      current = file;
+      for (const listener of [...listeners.values()]) listener(file);
+    },
+  };
+}
+
+async function managedBridgeExecutable(vaultPath: string): Promise<string> {
+  const directory = await mkdtemp(path.join(tmpdir(), "open-brain-managed-bridge-"));
+  const executable = path.join(directory, "open-brain");
+  const handshake = {
+    desktop_only: true, operations: ["graph.review"], product_version: "0.1.0",
+    protocol: "open-brain-client", protocol_version: 1, status: "ok",
+  };
+  const status = {
+    active_notes: 1, connected: true, inactive_notes: 0, open_conflicts: 0,
+    pending_suggestions: 0, status: "ok", vault_path: vaultPath, workspace_id: `workspace_${uuid(800)}`,
+  };
+  const body = `#!${process.execPath}
+let buffer = "";
+const handshake = ${JSON.stringify(handshake)};
+const status = ${JSON.stringify(status)};
+process.stdin.setEncoding("utf8");
+process.stdin.on("data", (chunk) => {
+  buffer += chunk;
+  let newline = buffer.indexOf("\\n");
+  while (newline >= 0) {
+    const request = JSON.parse(buffer.slice(0, newline));
+    buffer = buffer.slice(newline + 1);
+    const result = request.operation === "system.handshake" ? handshake : status;
+    process.stdout.write(JSON.stringify({ok:true, protocol:"open-brain-client", protocol_version:1,
+      request_id:request.request_id, result}) + "\\n");
+    newline = buffer.indexOf("\\n");
+  }
+});
+`;
+  await writeFile(executable, body, "utf8");
+  await chmod(executable, 0o700);
+  return executable;
+}
 
 function publicationCapabilities(): Set<string> {
   return new Set(["inbox.list", "inbox.route", "publication.approve", "publication.edit_and_approve",
