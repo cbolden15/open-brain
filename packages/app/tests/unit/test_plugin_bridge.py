@@ -251,6 +251,34 @@ def test_bridge_pages_201_and_reconstructs_frozen_unicode_in_one_real_session(
             )
 
 
+def test_separate_stdio_sessions_reject_cursor_when_first_request_ids_match(
+    tmp_path: Path,
+) -> None:
+    selection = _selection(tmp_path)
+    assert _call(selection, "brain.initialize")["ok"] is True
+    with open_local_brain(selection, filesystem_type_probe=_filesystem) as session:
+        for index in range(3):
+            session.tasks.capture.accept(
+                TextPayload("bridge session collision nebula"),
+                delivery_id=f"bridge.session.{index}",
+            )
+
+    request_id = "plugin_11111111-1111-4111-8111-111111111111"
+    arguments: dict[str, object] = {"dto_version": 1, "query": "nebula", "limit": 2}
+    first = _call(selection, "search.page", arguments, request_id=request_id)
+    first_result = cast(dict[str, object], first["result"])
+    cursor = cast(str, first_result["next_cursor"])
+
+    second = _call(
+        selection,
+        "search.page",
+        {**arguments, "cursor": cursor},
+        request_id=request_id,
+    )
+    assert second["ok"] is False
+    assert cast(dict[str, object], second["error"])["code"] == "cursor_invalid"
+
+
 def test_bridge_dispatches_implemented_source_route(tmp_path: Path) -> None:
     selection = _selection(tmp_path)
     assert _call(selection, "brain.initialize")["ok"] is True

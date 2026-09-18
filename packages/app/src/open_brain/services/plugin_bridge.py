@@ -7,6 +7,7 @@ import os
 import re
 import stat
 import time
+import uuid
 from collections.abc import Mapping
 from contextlib import ExitStack
 from pathlib import Path
@@ -219,6 +220,7 @@ class PluginRuntimeState:
         "credential_store",
         "remaining_attempts",
         "remaining_input_bytes",
+        "session_id",
         "selected_custody",
         "selected_provider",
         "session_credentials",
@@ -229,6 +231,7 @@ class PluginRuntimeState:
         self.credential_store = credential_store
         self.remaining_attempts = _MAX_PROVIDER_ATTEMPTS
         self.remaining_input_bytes = _MAX_PROVIDER_INPUT_BYTES
+        self.session_id = "bridge-" + str(uuid.uuid4())
         self.selected_provider: ManagedProvider | None = None
         self.selected_custody: str | None = None
         self.session_credentials: dict[ManagedProvider, str] = {}
@@ -394,7 +397,7 @@ def dispatch_plugin_request(
         "history.show",
         "source.route",
     }:
-        adapter = _t03_bridge_adapter(tasks, _runtime(runtime), request_id=request_id)
+        adapter = _t03_bridge_adapter(tasks, _runtime(runtime))
         try:
             return adapter.invoke(
                 operation,
@@ -1267,14 +1270,12 @@ def _runtime(value: PluginRuntimeState | None) -> PluginRuntimeState:
 def _t03_bridge_adapter(
     tasks: EngineTaskSet,
     runtime: PluginRuntimeState,
-    *,
-    request_id: str,
 ) -> T03AppAdapter:
     if runtime.t03_adapter is None:
         grants = frozenset({"search", "content-read", "history-read", "organize"})
         runtime.t03_adapter = T03AppAdapter(
             tasks,
-            owner_authority(tasks, session_id="bridge-" + request_id),
+            owner_authority(tasks, session_id=runtime.session_id),
             grants,
             owner=True,
         )
