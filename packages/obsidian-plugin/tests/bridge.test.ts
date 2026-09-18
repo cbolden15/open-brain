@@ -78,6 +78,23 @@ process.stdin.once("data", (chunk) => {
     );
   });
 
+  it("keeps a replacement session usable after cancelling pending work", async () => {
+    const executable = await fakeExecutable(`
+process.stdin.once("data", (chunk) => {
+  const request = JSON.parse(chunk);
+  setTimeout(() => process.stdout.write(JSON.stringify({ok:true, protocol:"open-brain-client", protocol_version:1,
+    request_id:request.request_id, result:{operation:request.operation}}) + "\\n"), 50);
+});
+`);
+    const bridge = new OpenBrainBridge(executable);
+    bridges.push(bridge);
+    const cancelled = bridge.invoke("system.handshake", {}).catch((error: unknown) => error);
+    bridge.cancelPending();
+    const replacement = bridge.invoke<{ operation: string }>("workspace.status", {});
+    await expect(cancelled).resolves.toEqual(expect.objectContaining<Partial<BridgeError>>({ code: "bridge_closed" }));
+    await expect(replacement).resolves.toEqual({ operation: "workspace.status" });
+  });
+
   it("rejects a response beyond the transport budget", async () => {
     const executable = await fakeExecutable(`
 process.stdin.once("data", (chunk) => {

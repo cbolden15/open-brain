@@ -92,6 +92,7 @@ export class OpenBrainBridge {
       });
       child.stdin.write(payload, (error) => {
         if (error !== null && error !== undefined) {
+          if (this.#child !== child) return;
           const pending = this.#pending.get(requestId);
           if (pending !== undefined) {
             clearTimeout(pending.timer);
@@ -126,14 +127,22 @@ export class OpenBrainBridge {
     this.#child = child;
     this.#stdout = Buffer.alloc(0);
     this.#stderrBytes = 0;
-    child.stdout.on("data", (chunk: Buffer | string) => this.#onStdout(chunk));
+    child.stdout.on("data", (chunk: Buffer | string) => {
+      if (this.#child === child) this.#onStdout(chunk);
+    });
     child.stderr.on("data", (chunk: Buffer | string) => {
+      if (this.#child !== child) return;
       this.#stderrBytes += Buffer.byteLength(chunk);
       if (this.#stderrBytes > MAX_STDERR_BYTES) this.#terminate();
     });
-    child.once("error", () => this.#failAll("transport_failed"));
+    child.once("error", () => {
+      if (this.#child !== child) return;
+      this.#child = null;
+      this.#failAll("transport_failed");
+    });
     child.once("exit", () => {
-      if (this.#child === child) this.#child = null;
+      if (this.#child !== child) return;
+      this.#child = null;
       this.#failAll("bridge_closed");
     });
     return child;
