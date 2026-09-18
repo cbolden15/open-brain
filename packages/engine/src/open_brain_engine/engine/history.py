@@ -87,17 +87,20 @@ def canonical_versions(projector: RecordProjector, page_id: str) -> list[dict[st
             row, predecessor=predecessor, recorded_at=publication["recorded_at"], reason=reason
         )
     depths: dict[str, int] = {}
-
-    def depth(revision: str, visiting: frozenset[str] = frozenset()) -> int:
-        if revision in visiting or revision not in versions:
-            raise T03Error("operation_pending")
-        if revision not in depths:
-            previous = versions[revision]["predecessor"]
-            depths[revision] = 0 if previous is None else 1 + depth(previous, visiting | {revision})
-        return depths[revision]
-
     for revision in versions:
-        depth(revision)
+        chain: list[str] = []
+        visiting: set[str] = set()
+        current: str | None = revision
+        while current is not None and current not in depths:
+            if current in visiting or current not in versions:
+                raise T03Error("operation_pending")
+            visiting.add(current)
+            chain.append(current)
+            current = versions[current]["predecessor"]
+        depth = -1 if current is None else depths[current]
+        for member in reversed(chain):
+            depth += 1
+            depths[member] = depth
     # Causal depth supplies the engine sequence within a proven chain. The binary
     # tie-break is presentation only; roots explicitly retain an unordered diagnostic.
     return sorted(

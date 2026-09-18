@@ -47,11 +47,17 @@ from .t03_contracts import EffectiveAuthority, SourceRouteRequest, SourceRouteRe
 if TYPE_CHECKING:
     from .source_intake import SourceRevisionReceipt, SourceRevisionSubmission
     from .t03_contracts import (
+        DecisionHistoryRequest,
+        DecisionHistoryResponse,
         EffectiveAuthority,
         HistoryListRequest,
         HistoryListResponse,
         RecordReadRequest,
         RecordReadResponse,
+        RelationshipDecideRequest,
+        RelationshipDecideResponse,
+        RelationshipListRequest,
+        RelationshipListResponse,
         SearchPageRequest,
         SearchPageResponse,
     )
@@ -1865,6 +1871,18 @@ class HistoryTask(Protocol):
     ) -> RecordReadResponse: ...
 
 
+class RelationshipTask(Protocol):
+    def decide(
+        self, request: RelationshipDecideRequest, *, authority: EffectiveAuthority
+    ) -> RelationshipDecideResponse: ...
+    def list_relationships(
+        self, request: RelationshipListRequest, *, authority: EffectiveAuthority
+    ) -> RelationshipListResponse: ...
+    def list_decisions(
+        self, request: DecisionHistoryRequest, *, authority: EffectiveAuthority
+    ) -> DecisionHistoryResponse: ...
+
+
 @dataclass(frozen=True, slots=True)
 class EngineTaskSet:
     """The public task identities exposed by one opened local engine root."""
@@ -1882,6 +1900,7 @@ class EngineTaskSet:
     managed_inference: ManagedInferenceTask
     sources: SourceTask | None = None
     history: HistoryTask | None = None
+    relationships: RelationshipTask | None = None
 
     @property
     def spaces(self) -> InboxSpaceTask:

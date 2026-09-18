@@ -22,6 +22,7 @@ from open_brain_engine.storage.filesystem import (
 from open_brain_engine.storage.markdown import parse_markdown
 
 from .managed_v2 import validate_portable_file_set_v2
+from .relationships_v1 import RELATIONSHIP_METADATA_PATH, validate_relationship_metadata
 from .v1 import (
     PortableSnapshot,
     PortableValidationError,
@@ -44,6 +45,23 @@ PORTABLE_V4_SCHEMA_CATALOG_DIGEST = sha256(
     )
 ).hexdigest()
 
+PORTABLE_V4_RELATIONSHIPS_CATALOG_DIGEST = sha256(
+    portable_canonical_json_bytes(
+        {
+            "base_catalog": PORTABLE_V4_SCHEMA_CATALOG_DIGEST,
+            "relationship_evidence": 1,
+        }
+    )
+).hexdigest()
+
+
+def catalog_digest(files: Mapping[str, bytes]) -> str:
+    return (
+        PORTABLE_V4_RELATIONSHIPS_CATALOG_DIGEST
+        if RELATIONSHIP_METADATA_PATH in files
+        else PORTABLE_V4_SCHEMA_CATALOG_DIGEST
+    )
+
 
 def canonical_revision_id(publication_id: str) -> str:
     return "revision_" + str(uuid5(NAMESPACE_URL, "open-brain-publication:" + publication_id))
@@ -62,7 +80,7 @@ def manifest_v4(
             for path, payload in sorted(files.items())
         ],
         "layout_version": 4,
-        "schema_catalog_digest": PORTABLE_V4_SCHEMA_CATALOG_DIGEST,
+        "schema_catalog_digest": catalog_digest(files),
         "schema_version": 4,
         "tenant_id": tenant_id,
     }
@@ -78,7 +96,11 @@ def validate_portable_file_set_v4(files: Mapping[str, bytes], *, tenant_id: str)
         or metadata["schema_version"] != 1
     ):
         raise PortableValidationError("source metadata invalid")
-    base = {path: data for path, data in files.items() if path != SOURCE_METADATA_PATH}
+    base = {
+        path: data
+        for path, data in files.items()
+        if path not in {SOURCE_METADATA_PATH, RELATIONSHIP_METADATA_PATH}
+    }
     validator = (
         validate_portable_file_set_v3
         if any(p.startswith("history/review-bindings/") for p in base)
@@ -214,6 +236,9 @@ def validate_portable_file_set_v4(files: Mapping[str, bytes], *, tenant_id: str)
             raise ValueError
     except TypeError, KeyError, ValueError:
         raise PortableValidationError("source metadata invalid") from None
+    relationships = files.get(RELATIONSHIP_METADATA_PATH)
+    if relationships is not None:
+        validate_relationship_metadata(relationships, metadata)
 
 
 def validated_portable_snapshot_v4(
@@ -235,7 +260,7 @@ def validated_portable_snapshot_v4(
         or manifest.get("contract_version") != "4"
         or manifest.get("compatibility")
         != {"maximum_contract_version": "4", "minimum_contract_version": "1"}
-        or manifest.get("schema_catalog_digest") != PORTABLE_V4_SCHEMA_CATALOG_DIGEST
+        or manifest.get("schema_catalog_digest") != catalog_digest(files)
     ):
         raise PortableValidationError("unsupported Portable v4 manifest")
     projected = dict(

@@ -17,8 +17,9 @@ from open_brain_engine.portable import (
     PORTABLE_V3_SCHEMA_CATALOG_DIGEST,
 )
 from open_brain_engine.portable.managed_v2 import PORTABLE_V2_SCHEMA_CATALOG_DIGEST
+from open_brain_engine.portable.relationships_v1 import RELATIONSHIP_METADATA_PATH
 from open_brain_engine.portable.v1 import PortableSnapshot
-from open_brain_engine.portable.v4 import PORTABLE_V4_SCHEMA_CATALOG_DIGEST, SOURCE_METADATA_PATH
+from open_brain_engine.portable.v4 import SOURCE_METADATA_PATH, catalog_digest
 from open_brain_engine.portable.versioned import validate_portable_root, validated_portable_snapshot
 from open_brain_engine.storage.filesystem import RootIdentity, capture_root_identity, read_confined
 from open_brain_engine.storage.locks import FileLease
@@ -107,7 +108,7 @@ def _manifest(
             1: PORTABLE_V1_SCHEMA_CATALOG_DIGEST,
             2: PORTABLE_V2_SCHEMA_CATALOG_DIGEST,
             3: PORTABLE_V3_SCHEMA_CATALOG_DIGEST,
-            4: PORTABLE_V4_SCHEMA_CATALOG_DIGEST,
+            4: catalog_digest(dict(files)),
         }[version],
         "schema_version": version,
         "tenant_id": tenant_id,
@@ -453,8 +454,15 @@ class PortabilityTasks:
         connection = self._engine._store.connect()
         try:
             if connection.execute("PRAGMA user_version").fetchone()[0] >= 7:
+                from .relationship_store import relationship_metadata
                 from .source_store import source_metadata
 
+                relation = relationship_metadata(connection)
+                files = [(path, data) for path, data in files if path != RELATIONSHIP_METADATA_PATH]
+                if relation is not None:
+                    files.append(
+                        (RELATIONSHIP_METADATA_PATH, portable_canonical_json_bytes(relation))
+                    )
                 files = [(path, data) for path, data in files if path != SOURCE_METADATA_PATH]
                 files.append(
                     (

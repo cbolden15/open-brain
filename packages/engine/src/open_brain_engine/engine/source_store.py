@@ -117,6 +117,9 @@ def source_metadata(connection: sqlite3.Connection) -> dict[str, Any]:
 
 
 def publish_source_metadata(connection: sqlite3.Connection, profile: LocalEngineContext) -> None:
+    from .relationship_store import publish_relationship_metadata
+
+    publish_relationship_metadata(connection, profile)
     manifest = read_confined(
         root=profile.root,
         relative="portable-manifest.json",

@@ -40,7 +40,7 @@ def test_source_history_exact_revision_grant_and_current_scope(tmp_path: Path) -
     )
     head = None
     ids = []
-    texts = ["First historical 漢字", "Second source", "Third source"]
+    texts = ["First historical 漢字" * 2000, "Second source", "Third source"]
     for sequence, text in enumerate(texts):
         capture = replace(original, payload=ReferencePayload(original.source_reference, text))
         receipt = engine.sources.submit_revision(
@@ -73,7 +73,7 @@ def test_source_history_exact_revision_grant_and_current_scope(tmp_path: Path) -
     )
     assert tail["entries"][0]["revision_id"] == ids[0]
     assert tail["complete"]
-    read = RecordReadRequest(record_id=ids[-1], expected_revision_id=ids[0], target_bytes=2)
+    read = RecordReadRequest(record_id=ids[-1], expected_revision_id=ids[0], target_bytes=4096)
     chunks = []
     while True:
         response = wire(engine.history.read_history(read, authority=authority()))
@@ -148,3 +148,48 @@ def test_canonical_history_causal_predecessor_and_exact_bytes(tmp_path: Path) ->
     )
     assert "Initial publication 漢字" in read["content"]["text"]
     assert read["record"]["title"] == "Initial title"
+
+
+def test_migrated_ungrouped_orphan_is_history_only(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from open_brain_engine.engine import local_schema
+    from open_brain_engine.engine.local_schema_catalog import LOCAL_MIGRATIONS
+
+    profile = compile_single_user_local(tmp_path / "brain")
+    with monkeypatch.context() as legacy:
+        legacy.setattr(local_schema, "PHASE1_STATE_SCHEMA_VERSION", 6)
+        legacy.setattr(local_schema, "LOCAL_MIGRATIONS", LOCAL_MIGRATIONS[:6])
+        old = BrainEngine.open(profile)
+        submission = _public_submission(old.tasks)
+        submission = replace(
+            submission,
+            payload=ReferencePayload(submission.source_reference, "Synthetic public-job capture"),
+        )
+        orphan = old.capture.submit(submission)
+        old.capture.submit(
+            replace(
+                submission,
+                payload=ReferencePayload(
+                    submission.source_reference, "Changed old writer delivery"
+                ),
+            )
+        )
+    current = BrainEngine.open(profile)
+    page = wire(
+        current.history.list_history(
+            HistoryListRequest(record_id=orphan.capture_id), authority=authority()
+        )
+    )
+    assert len(page["entries"]) == 1 and not page["entries"][0]["is_current"]
+    assert page["entries"][0]["predecessor_revision_id"] is None
+    assert "Ungrouped" in page["entries"][0]["reason"]
+    request = RecordReadRequest(record_id=orphan.capture_id, expected_revision_id=orphan.capture_id)
+    assert (
+        "Synthetic public-job capture"
+        in wire(current.history.read_history(request, authority=authority()))["content"]["text"]
+    )
+    with pytest.raises(T03Error, match="not_found"):
+        current.retrieval.read_record(
+            request, authority=replace(authority(), capabilities=frozenset({"content-read"}))
+        )

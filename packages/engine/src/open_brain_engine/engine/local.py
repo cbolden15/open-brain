@@ -181,6 +181,9 @@ class BrainEngine(CaptureOperations, SpaceOperations, ReviewOperations, Retrieva
         from .history import HistoryTasks
 
         self.history = HistoryTasks(self)
+        from .relationships import RelationshipTasks
+
+        self.relationships = RelationshipTasks(self)
         self.portability = PortabilityTasks(self)
         self.reconciliation = ReconciliationTasks(self)
         self.markdown_import = MarkdownImportTasks(self)
@@ -201,6 +204,7 @@ class BrainEngine(CaptureOperations, SpaceOperations, ReviewOperations, Retrieva
             managed_inference=self.managed_inference,
             sources=self.sources,
             history=self.history,
+            relationships=self.relationships,
         )
 
     @classmethod
