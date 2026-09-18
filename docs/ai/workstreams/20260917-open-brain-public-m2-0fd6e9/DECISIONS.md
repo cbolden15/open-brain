@@ -15,3 +15,9 @@ Migration inputs were constructed using actual historical writers at schema-5 `3
 The reviewed T06 bridge client fixture is frozen for disjoint T07 work in [T06-BRIDGE-FREEZE.json](T06-BRIDGE-FREEZE.json). MCP repairs and actual engine-wired acceptance remain open; this is not completion of T06.
 
 T04 source/migration is locally verified at `c320ff02b6f3bc375045f32e2437deea6343946e`; [T04-CHECKPOINT.json](T04-CHECKPOINT.json) records independent review and the complete parent verification receipt. Schema 7/session 2 and Portable 4 export now execute. Historical schema-5/schema-6 source bytes, ordered publication evidence and supported old imports remain intact. Final native/package acceptance and T05–T08 completion remain open.
+
+M2 implementation and automated/native verification are recorded in [M2-CHECKPOINT.json](M2-CHECKPOINT.json). Current/history grants remain independent; cross-runtime bridge cursors bind a trusted runtime identity. Canonical reads verify retained publication bytes against independent approval evidence. Canonical predecessors follow durable review bindings, with iterative traversal and explicit diagnostics for independent historical roots.
+
+Relationship decisions retain exact revision endpoints and append-only decisions in an optional, independently versioned Portable 4 sidecar. A distinct supported catalog digest preserves validation of prior source-only v4 exports. Existing schema 7 DDL and frozen task/bridge artifacts are unchanged. New Portable 4 restore remains excluded.
+
+Verification retains the complete suite at the application checkpoint and reruns affected native gates after the smoke-only compatibility repair. The parent corrected a proof-checker field-name mismatch without changing the product or rebuilding unchanged artifacts. Native GUI acceptance remains an observed manual gate; the ready artifact/profile does not certify that gate.

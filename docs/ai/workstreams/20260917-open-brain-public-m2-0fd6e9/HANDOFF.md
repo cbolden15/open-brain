@@ -1,13 +1,16 @@
-# Workstream handoff
+# M2 local handoff
 
-status: created
-workstream: 20260917-open-brain-public-m2-0fd6e9
-milestone: created
-branch: ob-new-user/m2
-head: unknown
-last_verified.command: create-workstream
-last_verified.result: created; STATE.md and HANDOFF.md persisted
-changes: STATE.md,HANDOFF.md
-blocker: null
-next_action: verify workstream before starting new thread
-safe_to_start_new_thread: false
+T03–T08 implementation is integrated on `ob-new-user/m2`. All substantive reviews are READY,
+and the full automated suite plus native audit, Homebrew smoke, desktop packaging and packaged
+synthetic proof pass. [M2-CHECKPOINT.json](M2-CHECKPOINT.json) records exact verified heads and checks.
+The native smoke expectation repair changes only verification code; its focused checks supplement
+the retained full-suite receipt for unchanged application code.
+
+The first client artifact is ready for manual testing with a native-seeded synthetic Brain and
+matching managed vault. Native GUI workflow acceptance is still pending. No complete broader A01,
+release, provider or second-platform acceptance is claimed. Private execution state, launch paths,
+review reports and measured usage remain in the coordinator run directory.
+
+Next: execute the supplied native GUI checklist, record observed results and resolve any findings.
+Publication requires separate authorization. Portable4 restore, M3 implementation and later
+retirement/correction/purge work remain outside this handoff.

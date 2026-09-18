@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "status": "m1_merged_m2_in_progress",
+  "status": "m1_merged_m2_local_verified_manual_gui_pending",
   "baseline_commit": "33a7472f06516753c5c66d76eac8e60538c2660f",
   "assessment": "docs/audits/2026-09-16-new-user-functional-assessment.md",
   "plan": "docs/plans/2026-09-16-new-user-functionality.md",
@@ -62,8 +62,10 @@
         "A04",
         "A05"
       ],
-      "status": "planned",
-      "evidence": []
+      "status": "implemented_local_manual_gui_pending",
+      "evidence": [
+        "docs/ai/workstreams/20260917-open-brain-public-m2-0fd6e9/M2-CHECKPOINT.json"
+      ]
     },
     {
       "id": "F2b",
@@ -77,8 +79,10 @@
         "A04",
         "A05"
       ],
-      "status": "planned",
-      "evidence": []
+      "status": "implemented_local_manual_gui_pending",
+      "evidence": [
+        "docs/ai/workstreams/20260917-open-brain-public-m2-0fd6e9/M2-CHECKPOINT.json"
+      ]
     },
     {
       "id": "F2c",
@@ -94,8 +98,10 @@
         "A04",
         "A05"
       ],
-      "status": "planned",
-      "evidence": []
+      "status": "implemented_local_manual_gui_pending",
+      "evidence": [
+        "docs/ai/workstreams/20260917-open-brain-public-m2-0fd6e9/M2-CHECKPOINT.json"
+      ]
     },
     {
       "id": "F4a",
@@ -111,7 +117,10 @@
         "A06"
       ],
       "status": "planned",
-      "evidence": []
+      "evidence": [],
+      "partial_implementation_evidence": [
+        "docs/ai/workstreams/20260917-open-brain-public-m2-0fd6e9/M2-CHECKPOINT.json"
+      ]
     },
     {
       "id": "F4b",
@@ -170,7 +179,10 @@
         "A08"
       ],
       "status": "planned",
-      "evidence": []
+      "evidence": [],
+      "partial_implementation_evidence": [
+        "docs/ai/workstreams/20260917-open-brain-public-m2-0fd6e9/M2-CHECKPOINT.json"
+      ]
     },
     {
       "id": "W2b",
@@ -184,7 +196,10 @@
         "A08"
       ],
       "status": "planned",
-      "evidence": []
+      "evidence": [],
+      "partial_implementation_evidence": [
+        "docs/ai/workstreams/20260917-open-brain-public-m2-0fd6e9/M2-CHECKPOINT.json"
+      ]
     },
     {
       "id": "W3",
@@ -310,16 +325,36 @@
         "T07",
         "T08"
       ],
-      "status": "in_progress",
+      "status": "local_implementation_verified_manual_gui_pending",
       "verified_tasks": [
         "T03",
-        "T04"
+        "T04",
+        "T05",
+        "T06",
+        "T08"
       ],
       "evidence": [
         "docs/ai/workstreams/20260917-open-brain-public-m2-0fd6e9/T03-FREEZE.json",
-        "docs/ai/workstreams/20260917-open-brain-public-m2-0fd6e9/T04-CHECKPOINT.json"
+        "docs/ai/workstreams/20260917-open-brain-public-m2-0fd6e9/T04-CHECKPOINT.json",
+        "docs/ai/workstreams/20260917-open-brain-public-m2-0fd6e9/M2-CHECKPOINT.json"
       ],
-      "acceptance_limit": "T03 contracts and T04 local source/migration checkpoint verified. T05/T06/T07/T08 completion and final native/package/GUI acceptance remain open."
+      "acceptance_limit": "All M2 implementation/reviews and automated/native/package gates passed. T07 native GUI workflows await observed manual acceptance. Broader A01/release acceptance and later milestone dependencies remain open.",
+      "implemented_tasks": [
+        "T03",
+        "T04",
+        "T05",
+        "T06",
+        "T07",
+        "T08"
+      ],
+      "automated_and_packaged_verified_tasks": [
+        "T03",
+        "T04",
+        "T05",
+        "T06",
+        "T07",
+        "T08"
+      ]
     }
   }
 }

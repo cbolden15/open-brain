@@ -9,3 +9,5 @@
 - Created date: 2026-09-17
 
 Absolute execution identity and measured usage are retained in the private run ledger.
+
+Local implementation and automated/native verification are complete. [M2-CHECKPOINT.json](M2-CHECKPOINT.json) records exact code/build heads, retained checks, reviewed contracts and artifact digests. Native GUI workflow acceptance remains pending; this is not a release-readiness claim.

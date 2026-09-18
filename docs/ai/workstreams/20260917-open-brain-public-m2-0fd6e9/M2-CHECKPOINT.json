@@ -1,0 +1,118 @@
+{
+  "status": "LOCAL_AUTOMATED_VERIFIED_GUI_PENDING",
+  "milestone": "M2",
+  "baseline": "33a7472f06516753c5c66d76eac8e60538c2660f",
+  "verified_implementation_head": "5b9d9a3af89013cfb4812cdf47cf0ca0778a3512",
+  "verified_native_head": "ecab8c3db14706edd7d5e50c90fd3e10916c71fe",
+  "versions": {
+    "durable_schema": 7,
+    "runtime_session": 2,
+    "task_contract": "t03.v1",
+    "bridge_protocol": 1,
+    "portable": 4,
+    "relationship_sidecar": 1
+  },
+  "contract_sha256": "868d3cd2ad6ce1fa7f375151df3a5cf7553ba3165c3fefa409fe95cb6258c37c",
+  "bridge_fixture_sha256": "52fb08579010f2fe06320f81a04b1656fdbada5c46028a379ab91689244d495c",
+  "tasks": {
+    "T03": "locally_verified",
+    "T04": "locally_verified",
+    "T05": "locally_verified",
+    "T06": "locally_verified",
+    "T07": "implemented_automated_and_packaged_verified_gui_pending",
+    "T08": "locally_verified"
+  },
+  "independent_review": {
+    "status": "READY",
+    "unresolved_code_findings": 0,
+    "scope": [
+      "Frozen architecture and strict consumers",
+      "Source migration and actual historical writers",
+      "Scoped paging, full projection and cursor authority",
+      "Actual CLI/MCP/plugin sessions",
+      "Obsidian and desktop publication/read workflows",
+      "History, revision relationships and Portable decision evidence",
+      "Native smoke contract repair"
+    ]
+  },
+  "checks": {
+    "make_verify": {
+      "head": "5b9d9a3af89013cfb4812cdf47cf0ca0778a3512",
+      "status": "passed",
+      "python": 2324,
+      "existing_skips": 5,
+      "obsidian": 279,
+      "desktop_typescript": 259,
+      "desktop_python": 1,
+      "rust": 26,
+      "lint_mypy_package_builds": "passed"
+    },
+    "native_smoke_repair": {
+      "head": "ecab8c3db14706edd7d5e50c90fd3e10916c71fe",
+      "scope": "Smoke expectations and README wording only; application code unchanged",
+      "focused_tests": 54,
+      "ruff_mypy": "passed"
+    },
+    "native_audit": "passed",
+    "homebrew_smoke": "passed; existing product absent and left absent",
+    "desktop_native": "passed; local ad hoc signature verified",
+    "packaged_desktop_proof": "passed; capture, one search result, Graphify and cleanup",
+    "diff_actionlint": "passed"
+  },
+  "acceptance_evidence": [
+    "Actual historical schema 5/schema 6 migration preserves durable bytes, heads and ordered publication membership; old writers refuse schema 7.",
+    "Public CLI traverses 205 unique imported Markdown results over 5 pages; complete Unicode read returns 4 chunks totaling 120,054 NFC-projected bytes.",
+    "Retained long Unicode SHA256 9f8d25229a1cca215863c9cdb70a7dfd565ce8a190abf415a9673de37307d301; raw 126,054-byte fixture differs because established capture normalization applies NFC.",
+    "Independent 1,010-publication adversarial history chain passes iterative traversal.",
+    "Independent relationship/decision paging returns 205 visible entries over 6 pages and excludes 10 hidden opposite endpoints; route mutation invalidates continuations.",
+    "Actual owner CLI duplicate decision/replay preserves independent source identity and all 213 capture-file digests; verified export retains complete relationship decisions.",
+    "Unknown/malformed Portable sidecars, mismatched endpoints, missing decisions and historical supersession cycles refuse."
+  ],
+  "remaining": [
+    "Observed native Obsidian and desktop GUI workflow acceptance. The independently reviewed artifact, synthetic native profile and manual checklist are ready."
+  ],
+  "limits": [
+    "No claim of complete broader A01 or released/native-platform acceptance.",
+    "Portable 4 export/validation are supported; new Portable 4 restore/import is excluded, historical 1\u20133 import remains supported.",
+    "Legacy changed collector deliveries without ordering/CAS evidence refuse; T09/T10 own collector containment and ordered connector integration.",
+    "Retirement/correction/purge, model research and M3 implementation remain outside this milestone.",
+    "No live Brain or laptop edits, push, PR, merge, release or deployment."
+  ],
+  "artifact_handoff": {
+    "status": "ready_for_manual_test",
+    "native_seed": "passed; 205 imported notes plus eight synthetic captures",
+    "native_retrieval": "passed; five search pages and four complete Unicode chunks",
+    "wrapper_handshake": "passed; schema 7/session 2",
+    "gui_verified": false,
+    "core": {
+      "sha256": "672505b36d626556d7c30296e287c3fdfd6c18bc52927e9a30d2a349fc7d8ac3",
+      "bytes": 11386240
+    },
+    "graphify": {
+      "sha256": "00bdec61d5957436e2b17d767e3a4fad638be43063aaedee5ecf1499bab390b8",
+      "bytes": 11269152
+    },
+    "desktop_executable": {
+      "sha256": "e9b60258c1830332aaf1b1807e8c775a9c099bab125b88e50bdbb40273fe6613",
+      "bytes": 9929184
+    },
+    "desktop_bundle_manifest_sha256": "e1d0086f730fbd58661c77d1e84256b02ea61c0b9b5970d65712b7806b897097",
+    "plugin_assets": [
+      {
+        "name": "main.js",
+        "sha256": "d9632335c189bd4a40465a500649047f558d6bdd5e7dd0c217dadfe1a5d8f695",
+        "bytes": 59948
+      },
+      {
+        "name": "manifest.json",
+        "sha256": "5c1f9a8b43dcdf63dab172082034d3447f54238f2d4911d820a3bba545f13fc9",
+        "bytes": 316
+      },
+      {
+        "name": "styles.css",
+        "sha256": "43d7accecdd7b1c60ddf713cce955ddb3ce773eca9e5d943955a6966c9374ee9",
+        "bytes": 1148
+      }
+    ]
+  }
+}

@@ -1,6 +1,6 @@
 # New-user functionality implementation plan
 
-Status: M1 T01–T02 and recovery checkpoints A–C merged in PR41 at `33a7472f06516753c5c66d76eac8e60538c2660f`. M2 T03 contracts and strict consumers are frozen in [T03-FREEZE.json](../ai/workstreams/20260917-open-brain-public-m2-0fd6e9/T03-FREEZE.json); T04 source/migration is locally verified in [T04-CHECKPOINT.json](../ai/workstreams/20260917-open-brain-public-m2-0fd6e9/T04-CHECKPOINT.json); T05–T08 and final native acceptance remain in progress. Broader product/release acceptance remains open.
+Status: M1 T01–T02 and recovery checkpoints A–C merged in PR41 at `33a7472f06516753c5c66d76eac8e60538c2660f`. M2 T03 contracts and strict consumers are frozen in [T03-FREEZE.json](../ai/workstreams/20260917-open-brain-public-m2-0fd6e9/T03-FREEZE.json); T04 source/migration is locally verified in [T04-CHECKPOINT.json](../ai/workstreams/20260917-open-brain-public-m2-0fd6e9/T04-CHECKPOINT.json); M2 implementation and automated/native checks are recorded in [M2-CHECKPOINT.json](../ai/workstreams/20260917-open-brain-public-m2-0fd6e9/M2-CHECKPOINT.json); native GUI workflow acceptance remains pending. Broader product/release acceptance remains open.
 
 ## Objective and authority
 
@@ -64,7 +64,7 @@ Create a reviewed contract artifact before parallel implementation. It must defi
 
 T03 must explicitly define private cursor-signing key creation/custody/rotation and invalidation across restart, relocation and imported Brain identity; a cursor never grants access. It must also preserve untrusted-source framing in agent-facing reads/history: embedded instructions are content, not authority to run tools, widen grants, publish or delete. Add malicious-source fixtures and check that projection/serialization never promotes source text into privileged instructions. These are required contract/security proof obligations, not claims that the planning review certified them.
 
-Current durable schema is 6 and runtime session version is 1. T03 must allocate the next durable version without rewriting historical schema-5 or schema-6 migration fixtures. Existing consumers sometimes reject unknown fields. New operations need negotiated capabilities and strict producer/consumer fixtures; additive JSON is not assumed compatible. Preserve old first-page `search(query, limit)` behavior. Version durable migrations and reject old writers/sessions that could corrupt new state. Keep storage schema, runtime session compatibility and transport protocol versions distinct.
+The merged M1 baseline used durable schema 6 and runtime session version 1. M2 now uses schema 7/session 2 under the frozen T03 contract, preserving historical schema-5 and schema-6 migration fixtures. Existing consumers sometimes reject unknown fields. New operations need negotiated capabilities and strict producer/consumer fixtures; additive JSON is not assumed compatible. Preserve old first-page `search(query, limit)` behavior. Version durable migrations and reject old writers/sessions that could corrupt new state. Keep storage schema, runtime session compatibility and transport protocol versions distinct.
 
 ### Stable sources and immutable evidence
 
