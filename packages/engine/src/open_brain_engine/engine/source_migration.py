@@ -139,6 +139,10 @@ def _new_plan(
         "incarnation": str(uuid4()),
         "preimages": inventory.evidence(),
         "private": private,
+        "post_private": inventory_private_state(
+            connection, publication_paths=inventory.publication_paths
+        ),
+        "publication_paths": inventory.publication_paths,
         "metadata": metadata,
         "manifest": manifest,
         "aliases": [
@@ -232,7 +236,17 @@ def _migrate_sources(
             ):
                 raise T03Error("operation_pending")
         current_private = inventory_private_state(connection)
-        old_tables = plan["private"]["tables"]
+        installed = (
+            connection.execute(
+                "SELECT 1 FROM sqlite_master WHERE name='engine_generations' AND type='table'"
+            ).fetchone()
+            is not None
+        )
+        old_tables = (
+            plan.get("post_private", plan["private"])["tables"]
+            if installed
+            else plan["private"]["tables"]
+        )
         current_tables = cast(dict[str, object], current_private["tables"])
         if any(current_tables.get(table) != evidence for table, evidence in old_tables.items()):
             raise T03Error("operation_pending")
@@ -325,6 +339,10 @@ def _migrate_sources(
         connection.execute(
             "UPDATE engine_generations SET fencing_epoch=? WHERE singleton=1", (epoch,)
         )
+        for decision_id, path in plan.get("publication_paths", {}).items():
+            connection.execute(
+                "UPDATE decisions SET publication_path=? WHERE decision_id=?", (path, decision_id)
+            )
         if connection.execute("PRAGMA foreign_key_check").fetchone() is not None:
             raise T03Error("operation_pending")
         connection.execute("COMMIT")

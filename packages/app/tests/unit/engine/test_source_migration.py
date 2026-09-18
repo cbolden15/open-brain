@@ -6,9 +6,10 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
-from open_brain_engine.engine import ReferencePayload, TextPayload, open_local_engine
-from open_brain_engine.engine.local import BrainEngine, StateSchemaUnavailableError
+from open_brain_engine.engine import ReferencePayload, TextPayload, local_schema
+from open_brain_engine.engine.local import BrainEngine
 from open_brain_engine.engine.local_schema import PHASE1_STATE_DATABASE
+from open_brain_engine.engine.local_schema_catalog import LOCAL_MIGRATIONS
 from open_brain_engine.engine.runtime_admission import exclusive_runtime_admission
 from open_brain_engine.engine.source_migration import JOURNAL, migrate_sources
 from open_brain_engine.portable.v1 import PortableValidationError, validated_portable_snapshot
@@ -33,16 +34,19 @@ from packages.app.tests.unit.engine.test_foundation_contracts import _public_sub
     ],
 )
 def test_source_cutover_recovers_without_rewriting_legacy_bytes(
-    tmp_path: Path, crash: str | None
+    tmp_path: Path, crash: str | None, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     profile = compile_single_user_local(tmp_path / "brain")
-    engine = BrainEngine.open(profile)
-    submission = _public_submission(engine.tasks)
-    first = replace(submission, payload=ReferencePayload(submission.source_reference, "first"))
-    old = engine.capture.submit(first)
-    current = engine.capture.submit(
-        replace(first, payload=ReferencePayload(first.source_reference, "second"))
-    )
+    with monkeypatch.context() as legacy:
+        legacy.setattr(local_schema, "PHASE1_STATE_SCHEMA_VERSION", 6)
+        legacy.setattr(local_schema, "LOCAL_MIGRATIONS", LOCAL_MIGRATIONS[:6])
+        engine = BrainEngine.open(profile)
+        submission = _public_submission(engine.tasks)
+        first = replace(submission, payload=ReferencePayload(submission.source_reference, "first"))
+        old = engine.capture.submit(first)
+        current = engine.capture.submit(
+            replace(first, payload=ReferencePayload(first.source_reference, "second"))
+        )
     preimages = {
         p.relative_to(profile.root): p.read_bytes()
         for p in (profile.root / "sources").rglob("*")
@@ -66,10 +70,10 @@ def test_source_cutover_recovers_without_rewriting_legacy_bytes(
                     checkpoint=checkpoint,
                 )
             if crash != "journal_durable":
-                with pytest.raises(StateSchemaUnavailableError):
-                    open_local_engine(profile)
-                with pytest.raises(SchemaError):
-                    engine.capture.accept(TextPayload("refused"), delivery_id="legacy.refused")
+                with monkeypatch.context() as legacy:
+                    legacy.setattr(local_schema, "PHASE1_STATE_SCHEMA_VERSION", 6)
+                    with pytest.raises(SchemaError):
+                        engine.capture.accept(TextPayload("refused"), delivery_id="legacy.refused")
         migrate_sources(profile, admission=admission, clock=lambda: datetime.now(UTC))
     assert json.loads((profile.root / JOURNAL).read_bytes())["stage"] == "complete"
     for path, data in preimages.items():

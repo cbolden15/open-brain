@@ -38,7 +38,8 @@ from open_brain_engine.engine.local import (
     RetrievalTasks,
     ReviewTasks,
 )
-from open_brain_engine.portable import validate_portable_root
+from open_brain_engine.engine.source_intake import SourceRevisionSubmission
+from open_brain_engine.portable.versioned import validate_portable_root
 
 from open_brain.profile import compile_single_user_local
 
@@ -118,7 +119,9 @@ def test_capture_submission_is_immutable_and_replays_the_existing_request_finger
     assert replay.duplicate is True
 
 
-def test_public_job_third_party_revision_replaces_active_source_result(tmp_path: Path) -> None:
+def test_legacy_public_job_changed_delivery_requires_explicit_revision_evidence(
+    tmp_path: Path,
+) -> None:
     tasks = open_local_engine(compile_single_user_local(tmp_path / "brain"))
     context = _public_job_context(tasks)
     source_reference = "https://example.test/github/issues/1"
@@ -150,17 +153,15 @@ def test_public_job_third_party_revision_replaces_active_source_result(tmp_path:
     )
 
     accepted = tasks.capture.submit(first)
-    replaced = tasks.capture.submit(changed)
-    replay = tasks.capture.submit(changed)
-
-    assert replaced.capture_id != accepted.capture_id
-    assert replaced.duplicate is False
-    assert replay.capture_id == replaced.capture_id
+    with pytest.raises(ValueError, match="conflicting delivery"):
+        tasks.capture.submit(changed)
+    replay = tasks.capture.submit(first)
+    assert replay.capture_id == accepted.capture_id
     assert replay.duplicate is True
-    results = tasks.retrieval.search("betaonly")
+    results = tasks.retrieval.search("alphaonly")
     assert len(results) == 1
-    assert results[0].result_id == replaced.capture_id
-    assert tasks.retrieval.search("alphaonly") == ()
+    assert results[0].result_id == accepted.capture_id
+    assert tasks.retrieval.search("betaonly") == ()
 
 
 def test_public_job_third_party_revision_preserves_superseded_source_in_export(
@@ -196,8 +197,32 @@ def test_public_job_third_party_revision_preserves_superseded_source_in_export(
         title="Synthetic issue",
     )
 
-    accepted = tasks.capture.submit(first)
-    replaced = tasks.capture.submit(changed)
+    assert tasks.sources is not None
+    namespace = dict(
+        connector_name="synthetic", connection_id="one", resource_id="one", external_id="one"
+    )
+    accepted = tasks.sources.submit_revision(
+        SourceRevisionSubmission(
+            capture=first,
+            namespace=namespace,
+            revision_key="one",
+            canonical_sha256=first.request_sha256(),
+            expected_head=None,
+            ordering={"kind": "unordered"},
+            expected_control_epoch=0,
+        )
+    )
+    replaced = tasks.sources.submit_revision(
+        SourceRevisionSubmission(
+            capture=changed,
+            namespace=namespace,
+            revision_key="two",
+            canonical_sha256=changed.request_sha256(),
+            expected_head=accepted.capture_id,
+            ordering={"kind": "predecessor", "revision_key": "one"},
+            expected_control_epoch=0,
+        )
+    )
     export = tmp_path / "export"
     receipt = tasks.portability.export(
         export,
@@ -213,8 +238,7 @@ def test_public_job_third_party_revision_preserves_superseded_source_in_export(
     exported = {
         capture["capture_id"]: capture
         for capture in (
-            json.loads((export / str(path)).read_text(encoding="utf-8"))
-            for path in capture_paths
+            json.loads((export / str(path)).read_text(encoding="utf-8")) for path in capture_paths
         )
     }
 
@@ -471,7 +495,7 @@ def test_scoped_fetch_denies_a_known_canonical_result_before_content_projection(
         reads.append("canonical content read")
         raise AssertionError("scoped fetch must not read a disallowed canonical file")
 
-    monkeypatch.setattr('open_brain_engine.engine.retrieval.read_confined', read_if_called)
+    monkeypatch.setattr("open_brain_engine.engine.retrieval.read_confined", read_if_called)
 
     known_disallowed = scoped.fetch(denied_result.result_id)
     unknown = scoped.fetch("result_00000000-0000-4000-8000-000000000000")

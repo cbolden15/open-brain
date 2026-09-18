@@ -48,9 +48,18 @@ CREATE TABLE source_operations (
     """.strip(),
     """
 CREATE TABLE source_quarantine (
- custody_id TEXT PRIMARY KEY, source_id TEXT NOT NULL REFERENCES logical_sources(source_id),
+ custody_id TEXT PRIMARY KEY, source_id TEXT REFERENCES logical_sources(source_id),
  revision_key TEXT NOT NULL, request_sha256 TEXT NOT NULL, submission_json BLOB NOT NULL,
  recorded_at TEXT NOT NULL
+)
+    """.strip(),
+    """
+CREATE TABLE source_intakes (
+ namespace_sha256 TEXT NOT NULL, revision_key TEXT NOT NULL,
+ source_id TEXT NOT NULL, request_sha256 TEXT NOT NULL,
+ delivery_id TEXT NOT NULL UNIQUE, plan_json TEXT NOT NULL,
+ submission_json BLOB NOT NULL, receipt_json TEXT,
+ PRIMARY KEY(namespace_sha256,revision_key)
 )
     """.strip(),
     """

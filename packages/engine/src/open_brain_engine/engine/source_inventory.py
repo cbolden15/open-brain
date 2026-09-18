@@ -14,7 +14,11 @@ from open_brain_engine.core.ids import portable_canonical_json_bytes
 from open_brain_engine.portable.managed_v2 import validate_portable_file_set_v2
 from open_brain_engine.portable.v1 import validate_portable_file_set
 from open_brain_engine.portable.v3 import validate_portable_file_set_v3
-from open_brain_engine.portable.v4 import canonical_revision_id
+from open_brain_engine.portable.v4 import (
+    SOURCE_METADATA_PATH,
+    canonical_revision_id,
+    validate_portable_file_set_v4,
+)
 from open_brain_engine.storage.filesystem import capture_root_identity, read_confined
 from open_brain_engine.storage.markdown import parse_markdown
 
@@ -32,6 +36,7 @@ class DurableSourceInventory:
     current_rows: dict[str, dict[str, Any]]
     aliases: dict[str, str]
     memberships: tuple[tuple[str, str, str, int, str], ...]
+    publication_paths: dict[str, str]
 
     def evidence(self) -> list[dict[str, object]]:
         return [
@@ -62,7 +67,9 @@ def inventory_sources(
             if (path == "brain.toml" or path.startswith(("content/", "history/", "sources/")))
         }
         validator = (
-            validate_portable_file_set_v3
+            validate_portable_file_set_v4
+            if SOURCE_METADATA_PATH in portable
+            else validate_portable_file_set_v3
             if any(path.startswith("history/review-bindings/") for path in portable)
             else validate_portable_file_set_v2
             if any(path.startswith("history/managed-workspace/") for path in portable)
@@ -153,10 +160,26 @@ def inventory_sources(
                 raise ValueError("review membership evidence conflicts")
         # The public source record is immutable. Routes may legitimately differ in SQL.
         memberships: list[tuple[str, str, str, int, str]] = []
+        publication_paths: dict[str, str] = {}
         for path, payload in sorted(portable.items()):
             if not path.startswith("history/publications/"):
                 continue
             publication = json.loads(payload)
+            decision_id = publication["decision_id"]
+            decision = connection.execute(
+                "SELECT * FROM decisions WHERE decision_id=?",
+                (decision_id,),
+            ).fetchone()
+            if decision is None or decision["publication_id"] != publication["publication_id"]:
+                raise ValueError("publication SQL identity conflicts")
+            if decision["publication_path"] != path:
+                legacy_key = "import.decision." + sha256(decision_id.encode()).hexdigest()
+                if (
+                    decision["delivery_id"] != legacy_key
+                    or decision["publication_path"] != publication["published_path"]
+                ):
+                    raise ValueError("publication SQL path conflicts")
+                publication_paths[decision_id] = path
             page = parse_markdown(
                 base64.b64decode(publication["published_bytes_base64"], validate=True)
             )
@@ -186,12 +209,16 @@ def inventory_sources(
                 raise ValueError("publication membership evidence conflicts")
             if expected[0][1] != head["capture_id"]:
                 raise ValueError("publication representative evidence conflicts")
-        return DurableSourceInventory(files, captures, current, aliases, tuple(memberships))
+        return DurableSourceInventory(
+            files, captures, current, aliases, tuple(memberships), publication_paths
+        )
     except ValueError, TypeError, KeyError, sqlite3.Error, OSError:
         raise T03Error("operation_pending") from None
 
 
-def inventory_private_state(connection: sqlite3.Connection) -> dict[str, object]:
+def inventory_private_state(
+    connection: sqlite3.Connection, *, publication_paths: dict[str, str] | None = None
+) -> dict[str, object]:
     """Hash all historical SQL, validating private managed bytes and root bindings.
 
     These operational receipts remain private. They are never source identity evidence
@@ -212,13 +239,18 @@ def inventory_private_state(connection: sqlite3.Connection) -> dict[str, object]
             continue
         encoded_rows = []
         for values in connection.execute(f'SELECT * FROM "{table}"'):
+            projected = list(values)
+            if table == "decisions" and publication_paths:
+                replacement = publication_paths.get(values["decision_id"])
+                if replacement is not None:
+                    projected[values.keys().index("publication_path")] = replacement
             encoded_rows.append(
                 portable_canonical_json_bytes(
                     [
                         {"blob": base64.b64encode(value).decode()}
                         if isinstance(value, bytes)
                         else value
-                        for value in values
+                        for value in projected
                     ]
                 )
             )

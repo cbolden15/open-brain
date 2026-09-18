@@ -31,9 +31,7 @@ class Materialization:
     history_records: int
 
 
-def _json_records(
-    files: Mapping[str, bytes], relative: str
-) -> list[tuple[str, dict[str, object]]]:
+def _json_records(files: Mapping[str, bytes], relative: str) -> list[tuple[str, dict[str, object]]]:
     prefix = relative + "/"
     return [
         (path, cast(dict[str, object], json.loads(payload)))
@@ -143,7 +141,7 @@ def _proposal_text(record: Mapping[str, object]) -> tuple[str, str]:
         return cast(str, parsed.fields["title"]), parsed.body
     try:
         value = json.loads(payload)
-    except (UnicodeDecodeError, json.JSONDecodeError):
+    except UnicodeDecodeError, json.JSONDecodeError:
         return cast(str, record["proposed_kind"]), ""
     if not isinstance(value, Mapping):
         return cast(str, record["proposed_kind"]), ""
@@ -215,9 +213,7 @@ def materialize_portable_root(
         for _, record in proposals
         if record.get("supplied_reason") == "explicit canonical-note action"
     }
-    canonical_owner_by_capture: dict[
-        str, tuple[str, str, str, str]
-    ] = {}
+    canonical_owner_by_capture: dict[str, tuple[str, str, str, str]] = {}
     for proposal_id, proposal in proposal_by_id.items():
         if proposal.get("supplied_reason") != "explicit canonical-note action":
             continue
@@ -256,9 +252,7 @@ def materialize_portable_root(
         space_id = proposal.get("space_id")
         slug = space_slugs.get(space_id) if isinstance(space_id, str) else None
         content = cast(Mapping[str, object], proposal["proposed_content"])
-        proposed = parse_markdown(
-            base64.b64decode(cast(str, content["bytes_base64"]))
-        )
+        proposed = parse_markdown(base64.b64decode(cast(str, content["bytes_base64"])))
         proposal_canonical_paths[proposal_id] = (
             f"content/spaces/{slug}/notes/{page_id}.md"
             if slug is not None
@@ -446,9 +440,7 @@ def materialize_portable_root(
             binding = binding_by_proposal.get(proposal_id)
             if binding is not None:
                 proposal_path = next(
-                    path
-                    for path, candidate in proposals
-                    if candidate["proposal_id"] == proposal_id
+                    path for path, candidate in proposals if candidate["proposal_id"] == proposal_id
                 )
                 binding_path = next(
                     path
@@ -469,9 +461,7 @@ def materialize_portable_root(
                     """,
                     [
                         (proposal_id, capture_id, ordinal)
-                        for ordinal, capture_id in enumerate(
-                            cast(list[str], binding["provenance"])
-                        )
+                        for ordinal, capture_id in enumerate(cast(list[str], binding["provenance"]))
                     ],
                 )
         for _, record in decisions:
@@ -505,7 +495,9 @@ def materialize_portable_root(
                     page_id,
                     publication["publication_id"] if publication is not None else None,
                     canonical_path,
-                    publication["published_path"] if publication is not None else None,
+                    publication_entry_by_decision[decision_id][0]
+                    if publication is not None
+                    else None,
                 ),
             )
             connection.execute(

@@ -39,9 +39,10 @@ from .local_schema_catalog import (
 )
 from .normalization import _MAX_FILE_BYTES, _MAX_TEXT, _utc_now
 from .search_projection import _durable_source_origin, public_search_text
+from .source_schema import SOURCE_HISTORY_SCHEMA
 
 PHASE1_STATE_DATABASE = ".open-brain/state/phase1.sqlite3"
-PHASE1_STATE_SCHEMA_VERSION = 6
+PHASE1_STATE_SCHEMA_VERSION = 7
 
 
 class LocalRecoveryRequiredError(SchemaError):
@@ -104,6 +105,9 @@ def _expected_shape(era: int, nullable: bool, ledger: bool) -> tuple[tuple[str, 
         if era >= 8:
             for statement in MANAGED_RECOVERY_SCHEMA:
                 connection.execute(statement)
+        if era >= 9:
+            for statement in SOURCE_HISTORY_SCHEMA:
+                connection.execute(statement)
         if ledger:
             connection.execute(_SCHEMA_MIGRATIONS_SQL)
         return _shape(connection)
@@ -126,7 +130,7 @@ def classify_local_schema(connection: sqlite3.Connection) -> SchemaState:
             ).fetchall()
             if any(type(row[0]) is int and row[0] > PHASE1_STATE_SCHEMA_VERSION for row in rows):
                 return SchemaState("newer", version)
-            if version not in (1, 2, 3, 4, 5, 6) or len(rows) != version:
+            if version not in (1, 2, 3, 4, 5, 6, 7) or len(rows) != version:
                 return SchemaState("invalid", version)
             for row, migration in zip(rows, LOCAL_MIGRATIONS[:version], strict=True):
                 if tuple(row[:3]) != (migration.version, migration.name, migration.checksum):
@@ -141,6 +145,7 @@ def classify_local_schema(connection: sqlite3.Connection) -> SchemaState:
                 4: _expected_shape(6, False, True),
                 5: _expected_shape(7, False, True),
                 6: _expected_shape(8, False, True),
+                7: _expected_shape(9, False, True),
             }[version]
             if shape == expected:
                 if version >= 4:
@@ -148,7 +153,9 @@ def classify_local_schema(connection: sqlite3.Connection) -> SchemaState:
                         "SELECT singleton, minimum_runtime_session_version, state_schema_version "
                         "FROM runtime_compatibility"
                     ).fetchall()
-                    if [tuple(row) for row in compatibility] != [(1, 1, version)]:
+                    if [tuple(row) for row in compatibility] != [
+                        (1, 2 if version == 7 else 1, version)
+                    ]:
                         return SchemaState("invalid", version)
                 return SchemaState(
                     "current" if version == PHASE1_STATE_SCHEMA_VERSION else "supported_old",
@@ -251,8 +258,10 @@ def _validate_upgrade_data(connection: sqlite3.Connection) -> None:
             "FROM runtime_compatibility"
         ).fetchall()
         state_version = connection.execute("PRAGMA user_version").fetchone()[0]
-        compatibility_version = state_version if state_version in (5, 6) else 4
-        if [tuple(row) for row in compatibility] != [(1, 1, compatibility_version)]:
+        compatibility_version = state_version if state_version in (5, 6, 7) else 4
+        if [tuple(row) for row in compatibility] != [
+            (1, 2 if state_version == 7 else 1, compatibility_version)
+        ]:
             raise SchemaError("local runtime compatibility floor is invalid")
     if (
         connection.execute(
@@ -361,6 +370,7 @@ def _prepare_local_schema(
                 restore_busy_timeout(connection)
                 return
             _validate_upgrade_data(connection)
+            raise SchemaError("source history migration requires exclusive admission")
         connection.create_function("local_public_search_text", 2, _public_text, deterministic=True)
         apply_migrations(
             connection,
@@ -368,6 +378,12 @@ def _prepare_local_schema(
             migrations=LOCAL_MIGRATIONS,
             schema_version=PHASE1_STATE_SCHEMA_VERSION,
         )
+        if empty and PHASE1_STATE_SCHEMA_VERSION == 7:
+            from uuid import uuid4
+
+            connection.execute(
+                "INSERT INTO engine_generations VALUES(1,?,0,0,1,0,0,0)", (str(uuid4()),)
+            )
         _require_supported(classify_local_schema(connection), current_only=True)
         _validate_upgrade_data(connection)
         _validate_backfill(connection)

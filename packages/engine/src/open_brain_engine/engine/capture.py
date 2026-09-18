@@ -102,7 +102,9 @@ class CaptureOperations(_LocalEngineOperations):
             ).fetchone()
             if existing is not None:
                 if cast(str, existing["request_sha256"]) != request_sha:
-                    if _can_replace_public_source(submission, existing):
+                    if connection.execute("PRAGMA user_version").fetchone()[
+                        0
+                    ] < 7 and _can_replace_public_source(submission, existing):
                         previous_capture_id = cast(str, existing["capture_id"])
                         capture_id = _new_id("capture")
                         accepted_at = _timestamp(self._clock())
@@ -245,15 +247,17 @@ class CaptureOperations(_LocalEngineOperations):
         receipt = self._capture_receipt(capture_id)
         if receipt is None:
             raise RuntimeError("capture state unavailable")
-        return project_public_capture_receipt(CaptureReceipt(
-            capture_id=receipt.capture_id,
-            payload_family=receipt.payload_family,
-            state=receipt.state,
-            enrichment_state=receipt.enrichment_state,
-            space_id=receipt.space_id,
-            canonical_path=receipt.canonical_path,
-            duplicate=duplicate,
-        ))
+        return project_public_capture_receipt(
+            CaptureReceipt(
+                capture_id=receipt.capture_id,
+                payload_family=receipt.payload_family,
+                state=receipt.state,
+                enrichment_state=receipt.enrichment_state,
+                space_id=receipt.space_id,
+                canonical_path=receipt.canonical_path,
+                duplicate=duplicate,
+            )
+        )
 
     def _capture_row(self, capture_id: str) -> sqlite3.Row:
         _portable_id(capture_id, "capture")

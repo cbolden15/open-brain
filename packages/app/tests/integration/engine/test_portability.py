@@ -11,6 +11,7 @@ from importlib.resources import files
 from pathlib import Path
 from typing import cast
 
+import open_brain_engine.engine.local_schema as local_schema
 import open_brain_engine.engine.portability as portability_module
 import pytest
 from open_brain_engine.core.ids import portable_canonical_json_bytes
@@ -25,6 +26,7 @@ from open_brain_engine.engine import (
     ProposalDraft,
     TextPayload,
 )
+from open_brain_engine.engine.local_schema_catalog import LOCAL_MIGRATIONS
 from open_brain_engine.engine.materializer import Materialization, materialize_portable_root
 from open_brain_engine.engine.portability_ports import PortableWritePort, portable_write_port
 from open_brain_engine.portable import PortableValidationError, validate_portable_root
@@ -36,9 +38,14 @@ from open_brain_engine.storage.staging import SiblingStage
 
 from open_brain.profile import compile_single_user_local
 
-FIXTURE_ROOT = Path(
-    str(files("open_brain_engine.portable").joinpath("conformance/v1/brain-root"))
-)
+FIXTURE_ROOT = Path(str(files("open_brain_engine.portable").joinpath("conformance/v1/brain-root")))
+
+
+@pytest.fixture(autouse=True)
+def historical_portable_writer(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Keep these v1-v3 roundtrip recipes on their unchanged schema-six producer."""
+    monkeypatch.setattr(local_schema, "PHASE1_STATE_SCHEMA_VERSION", 6)
+    monkeypatch.setattr(local_schema, "LOCAL_MIGRATIONS", LOCAL_MIGRATIONS[:6])
 
 
 def _engine(root: Path, *, faults: set[PortabilityFault] | None = None) -> BrainEngine:
@@ -279,9 +286,7 @@ def test_populated_live_root_round_trips_with_stable_identity_bytes_and_results(
     assert import_receipt.blobs == 1
     assert import_receipt.history_records >= 6
     assert _portable_bytes(exported) == _portable_bytes(imported)
-    event_paths = tuple(
-        (exported / "sources/captures").rglob(f"{event.capture_id}.json")
-    )
+    event_paths = tuple((exported / "sources/captures").rglob(f"{event.capture_id}.json"))
     assert len(event_paths) == 1
     event_record = json.loads(event_paths[0].read_bytes())
     assert event_record["payload_binding"]["kind"] == "inline"
@@ -335,11 +340,7 @@ def test_bound_page_three_revision_v3_round_trip_is_byte_and_identity_stable(
         reopened = _engine(source)
         current = reopened.review.propose(
             (capture_id,),
-            (
-                ProposalDraft(
-                    "Stable portable page", f"Portable revision {ordinal} final phrase"
-                ),
-            ),
+            (ProposalDraft("Stable portable page", f"Portable revision {ordinal} final phrase"),),
             delivery_id=f"delivery.bound.portable.update.{ordinal}",
             target_page_id=created.page_id,
         )[0]
@@ -352,9 +353,7 @@ def test_bound_page_three_revision_v3_round_trip_is_byte_and_identity_stable(
 
     reopened = _engine(source)
     rebuilt = reopened.tasks.portability.rebuild_index()
-    results = reopened.retrieval.search(
-        "Portable revision 3 final phrase", record_type="canonical"
-    )
+    results = reopened.retrieval.search("Portable revision 3 final phrase", record_type="canonical")
     exported = tmp_path / "bound-exported"
     reopened.tasks.portability.export(
         exported,
@@ -383,13 +382,16 @@ def test_bound_page_three_revision_v3_round_trip_is_byte_and_identity_stable(
     assert _portable_bytes(exported) == _portable_bytes(reexported)
     assert len(tuple(exported.glob("history/review-bindings/*/*/*.json"))) == 3
     publications = tuple(exported.glob("history/publications/*/*/*.json"))
-    assert len(
-        [
-            path
-            for path in publications
-            if json.loads(path.read_bytes()).get("page_id") == created.page_id
-        ]
-    ) == 3
+    assert (
+        len(
+            [
+                path
+                for path in publications
+                if json.loads(path.read_bytes()).get("page_id") == created.page_id
+            ]
+        )
+        == 3
+    )
     imported_results = imported_engine.retrieval.search(
         "Portable revision 3 final phrase", record_type="canonical"
     )
@@ -410,18 +412,14 @@ def test_bound_page_three_revision_v3_round_trip_is_byte_and_identity_stable(
 def test_imported_legacy_canonical_capture_remains_the_page_owner(tmp_path: Path) -> None:
     source = tmp_path / "legacy-owner-source"
     engine = _engine(source)
-    space = engine.inbox.create_space(
-        "Legacy Owner", delivery_id="delivery.legacy.owner.space"
-    )
+    space = engine.inbox.create_space("Legacy Owner", delivery_id="delivery.legacy.owner.space")
     capture = engine.capture.accept(
         TextPayload("Imported legacy owner phrase"),
         delivery_id="delivery.legacy.owner.capture",
         action=CaptureAction.CANONICAL_NOTE,
         space_id=space.space_id,
     )
-    expected = engine.retrieval.search(
-        "Imported legacy owner phrase", record_type="canonical"
-    )[0]
+    expected = engine.retrieval.search("Imported legacy owner phrase", record_type="canonical")[0]
     exported = tmp_path / "legacy-owner-export"
     engine.portability.export(
         exported,
@@ -436,9 +434,7 @@ def test_imported_legacy_canonical_capture_remains_the_page_owner(tmp_path: Path
     reopened = _engine(imported)
 
     reopened._rederive_live_search_projection()
-    results = reopened.retrieval.search(
-        "Imported legacy owner phrase", record_type="canonical"
-    )
+    results = reopened.retrieval.search("Imported legacy owner phrase", record_type="canonical")
 
     assert [(result.result_id, result.capture_id) for result in results] == [
         (expected.result_id, capture.capture_id)
@@ -532,9 +528,7 @@ def test_v3_rejects_recomputed_edited_publication_provenance_tamper(
 ) -> None:
     root = tmp_path / "edited-tamper-source"
     engine = _engine(root)
-    space = engine.inbox.create_space(
-        "Edited Tamper", delivery_id="delivery.edited.tamper.space"
-    )
+    space = engine.inbox.create_space("Edited Tamper", delivery_id="delivery.edited.tamper.space")
     captures = tuple(
         engine.capture.accept(
             TextPayload(f"Edited tamper source {index}"),
@@ -648,8 +642,7 @@ def test_null_event_and_measurement_occurrence_round_trip_without_fabrication(
     reopened = _engine(imported)
     assert reopened.retrieval.search("null-event-token")[0].capture_id == event.capture_id
     assert (
-        reopened.retrieval.search("null-measurement-token")[0].capture_id
-        == measurement.capture_id
+        reopened.retrieval.search("null-measurement-token")[0].capture_id == measurement.capture_id
     )
 
 
@@ -676,9 +669,7 @@ def test_post_capture_route_chain_round_trips_current_space_membership(tmp_path:
     )
 
     source_payload = _capture_payload(source, capture.capture_id)
-    source_record = next(
-        (source / "sources" / "captures").rglob(f"{capture.capture_id}.json")
-    )
+    source_record = next((source / "sources" / "captures").rglob(f"{capture.capture_id}.json"))
     route_records = [
         cast(dict[str, object], json.loads(path.read_bytes()))
         for path in (source / "history" / "routes").rglob("*.json")
@@ -707,10 +698,13 @@ def test_post_capture_route_chain_round_trips_current_space_membership(tmp_path:
     )
     reopened = _engine(imported)
 
-    assert reopened.retrieval.search(
-        "routepreservationquasar",
-        space_id=first_space.space_id,
-    ) == ()
+    assert (
+        reopened.retrieval.search(
+            "routepreservationquasar",
+            space_id=first_space.space_id,
+        )
+        == ()
+    )
     result = reopened.retrieval.search(
         "routepreservationquasar",
         space_id=final_space.space_id,

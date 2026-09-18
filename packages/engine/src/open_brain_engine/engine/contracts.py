@@ -10,7 +10,7 @@ from hashlib import sha256
 from html import unescape
 from pathlib import Path, PurePosixPath
 from types import MappingProxyType
-from typing import Any, Protocol, cast
+from typing import TYPE_CHECKING, Any, Protocol, cast
 from urllib.parse import unquote
 
 from open_brain_engine.core.ids import canonicalize_source_url, portable_canonical_json_bytes
@@ -42,6 +42,10 @@ from .normalization import (
     _role_claim,
     _text,
 )
+from .t03_contracts import EffectiveAuthority, SourceRouteRequest, SourceRouteResponse
+
+if TYPE_CHECKING:
+    from .source_intake import SourceRevisionReceipt, SourceRevisionSubmission
 
 _HEX64 = re.compile(r"^[0-9a-f]{64}$")
 
@@ -582,7 +586,7 @@ class PortabilityReceipt:
         ):
             if type(value) is not int or value < 0:
                 raise ValueError("invalid portability receipt count")
-        if self.schema_version not in {1, 2, 3}:
+        if self.schema_version not in {1, 2, 3, 4}:
             raise ValueError("invalid portability receipt schema version")
         if self.index_generation is not None and (
             type(self.index_generation) is not int or self.index_generation < 1
@@ -1824,6 +1828,16 @@ class ManagedInferenceTask(Protocol):
     def recover_abandoned_sessions(self) -> int: ...
 
 
+class SourceTask(Protocol):
+    def submit_revision(self, submission: SourceRevisionSubmission) -> SourceRevisionReceipt: ...
+
+    def fence_intake(self, *, expected_epoch: int, authority: EffectiveAuthority) -> int: ...
+
+    def route(
+        self, request: SourceRouteRequest, *, authority: EffectiveAuthority
+    ) -> SourceRouteResponse: ...
+
+
 @dataclass(frozen=True, slots=True)
 class EngineTaskSet:
     """The public task identities exposed by one opened local engine root."""
@@ -1839,6 +1853,7 @@ class EngineTaskSet:
     managed_workspace: ManagedWorkspaceTask
     managed_policy: ManagedPolicyTask
     managed_inference: ManagedInferenceTask
+    sources: SourceTask | None = None
 
     @property
     def spaces(self) -> InboxSpaceTask:

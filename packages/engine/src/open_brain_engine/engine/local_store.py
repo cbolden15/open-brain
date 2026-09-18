@@ -35,7 +35,19 @@ class _LocalStore:
             if classify_local_schema(connection).state != "current":
                 raise SchemaError("local state schema changed before write")
             yield connection
+            from .source_store import (
+                publish_source_metadata,
+                register_completed_captures,
+                register_publication_members,
+            )
+
+            source_history = connection.execute("PRAGMA user_version").fetchone()[0] >= 7
+            if source_history:
+                register_completed_captures(connection, self.profile)
+                register_publication_members(connection, self.profile)
             connection.execute("COMMIT")
+            if source_history:
+                publish_source_metadata(connection, self.profile)
             restore_busy_timeout(connection)
         except BaseException:
             with suppress(sqlite3.Error):

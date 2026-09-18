@@ -4,13 +4,21 @@ from dataclasses import replace
 from pathlib import Path
 
 import pytest
-from open_brain_engine.engine import ReferencePayload, TextPayload, open_local_engine
+from open_brain_engine.engine import ReferencePayload, TextPayload, local_schema, open_local_engine
 from open_brain_engine.engine.local_schema import open_local_database, open_local_database_read_only
+from open_brain_engine.engine.local_schema_catalog import LOCAL_MIGRATIONS
 from open_brain_engine.engine.source_inventory import inventory_sources
 from open_brain_engine.engine.t03_contracts import T03Error
 
 from open_brain.profile import compile_single_user_local
 from packages.app.tests.unit.engine.test_foundation_contracts import _public_submission
+
+
+@pytest.fixture(autouse=True)
+def schema_six_writer(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Create preimages through the retained schema-six capture path."""
+    monkeypatch.setattr(local_schema, "PHASE1_STATE_SCHEMA_VERSION", 6)
+    monkeypatch.setattr(local_schema, "LOCAL_MIGRATIONS", LOCAL_MIGRATIONS[:6])
 
 
 def test_inventory_preserves_ungrouped_historical_bytes_and_current_alias(tmp_path: Path) -> None:

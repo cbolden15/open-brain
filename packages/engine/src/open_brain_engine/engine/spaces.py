@@ -213,7 +213,9 @@ class SpaceOperations(_LocalEngineOperations):
         space = self._space(space_id)
         return f"content/spaces/{space.slug}/notes/{page_id}.md"
 
-    def _route_capture(self, capture_id: str, space_id: str, delivery_id: str) -> RoutedCapture:
+    def _route_capture(
+        self, capture_id: str, space_id: str, delivery_id: str, *, allow_published: bool = False
+    ) -> RoutedCapture:
         _portable_id(capture_id, "capture")
         _portable_id(space_id, "space")
         _delivery_id(delivery_id)
@@ -223,6 +225,20 @@ class SpaceOperations(_LocalEngineOperations):
         conflict: tuple[str, str] | None = None
         created = False
         with self._store.transaction() as connection:
+            if connection.execute("PRAGMA user_version").fetchone()[0] >= 7:
+                current = connection.execute(
+                    "SELECT s.head_capture_id,s.historical_only FROM source_revisions r "
+                    "JOIN logical_sources s USING(source_id) WHERE r.capture_id=?",
+                    (capture_id,),
+                ).fetchone()
+                if (
+                    current is None
+                    or current["head_capture_id"] != capture_id
+                    or current["historical_only"]
+                ):
+                    from .t03_contracts import T03Error
+
+                    raise T03Error("revision_changed")
             existing = connection.execute(
                 "SELECT * FROM route_operations WHERE delivery_id = ?", (delivery_id,)
             ).fetchone()
@@ -235,10 +251,14 @@ class SpaceOperations(_LocalEngineOperations):
                 ).fetchone()
                 if capture is None or _space_row(connection, space_id) is None:
                     raise ValueError("unknown route target")
-                if cast(str, capture["action"]) == CaptureAction.CANONICAL_NOTE.value:
+                if (
+                    not allow_published
+                    and cast(str, capture["action"]) == CaptureAction.CANONICAL_NOTE.value
+                ):
                     raise ValueError("published capture cannot be rerouted")
                 if (
-                    connection.execute(
+                    not allow_published
+                    and connection.execute(
                         "SELECT 1 FROM review_sources s JOIN decisions d USING (proposal_id) "
                         "WHERE s.capture_id = ? AND d.outcome IN ('approved', 'edited') LIMIT 1",
                         (capture_id,),
@@ -320,7 +340,8 @@ class SpaceOperations(_LocalEngineOperations):
         if stage < 2:
             with self._store.transaction() as connection:
                 connection.execute(
-                    "UPDATE search_documents SET space_id = ?, updated_at = ? WHERE capture_id = ?",
+                    "UPDATE search_documents SET space_id = ?, updated_at = ? "
+                    "WHERE capture_id = ? AND record_type = 'source'",
                     (row["space_id"], row["recorded_at"], row["capture_id"]),
                 )
                 connection.execute(

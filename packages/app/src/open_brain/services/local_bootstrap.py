@@ -70,9 +70,7 @@ def open_local_brain(
     filesystem_type_probe: FilesystemTypeProbe | None = None,
 ) -> Iterator[LocalBrainSession]:
     """Bootstrap and hold one default Brain through a direct local operation."""
-    with prepare_local_root(
-        selection, filesystem_type_probe=filesystem_type_probe
-    ) as prepared:
+    with prepare_local_root(selection, filesystem_type_probe=filesystem_type_probe) as prepared:
         identity_exists = prepared.private_file_exists("brain.toml")
         initialized_before = identity_exists and prepared.private_file_exists(_STATE_DATABASE)
         prepared.revalidate()
@@ -81,7 +79,9 @@ def open_local_brain(
             validate_before_identity_write=prepared.revalidate,
         )
         initial_schema = inspect_phase1_state(profile)
-        if initial_schema.state in {"invalid", "newer"}:
+        from open_brain_engine.engine.source_migration import migration_pending
+
+        if initial_schema.state in {"invalid", "newer"} and not migration_pending(profile):
             raise StateSchemaUnavailableError(f"local state schema is {initial_schema.state}")
 
         def validate_direct_write() -> None:
@@ -115,6 +115,7 @@ def open_local_brain(
             legacy_state_exists=initialized_before,
             recover_abandoned_sessions=recover_abandoned_sessions,
             admit_session=admit,
+            admission_profile=profile,
         ):
             if tasks is None:
                 raise RuntimeError("local engine admission did not complete")
@@ -133,9 +134,7 @@ def initialize_local_brain(
     filesystem_type_probe: FilesystemTypeProbe | None = None,
 ) -> LocalInitReceipt:
     """Create or reopen one owner, one Brain, and its direct SQLite state."""
-    with open_local_brain(
-        selection, filesystem_type_probe=filesystem_type_probe
-    ) as session:
+    with open_local_brain(selection, filesystem_type_probe=filesystem_type_probe) as session:
         initialized_before = session.initialized_before
     return LocalInitReceipt(
         status="already_initialized" if initialized_before else "initialized",
@@ -146,6 +145,7 @@ def initialize_local_brain(
         application_encryption=False,
         state_schema_version=PHASE1_STATE_SCHEMA_VERSION,
     )
+
 
 def _require_current_local_state(
     prepared: PreparedLocalRoot,
