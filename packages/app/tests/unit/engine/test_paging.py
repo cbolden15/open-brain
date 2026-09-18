@@ -418,3 +418,25 @@ def test_markdown_import_paging_reads_validated_full_blob(tmp_path: Path) -> Non
     blob.write_bytes(b"tampered synthetic blob")
     with pytest.raises(T03Error, match="not_found"):
         engine.retrieval.read_record(request, authority=authority())
+
+
+def test_same_inode_directory_rename_invalidates_cursor(tmp_path: Path) -> None:
+    import json
+
+    old_root = tmp_path / "before"
+    engine = BrainEngine.open(compile_single_user_local(old_root))
+    for index in range(2):
+        engine.capture.accept(TextPayload("relocation nebula"), delivery_id=str(index))
+    request = SearchPageRequest(query="nebula", limit=1)
+    cursor = wire(engine.retrieval.search_page(request, authority=authority()))["next_cursor"]
+    before = json.loads((old_root / ".open-brain/cursors/identity.json").read_bytes())
+    inode = old_root.stat().st_ino
+    new_root = tmp_path / "after"
+    old_root.rename(new_root)
+    assert new_root.stat().st_ino == inode
+    moved = BrainEngine.open(compile_single_user_local(new_root))
+    after = json.loads((new_root / ".open-brain/cursors/identity.json").read_bytes())
+    assert after["incarnation"] != before["incarnation"]
+    with pytest.raises(T03Error, match="cursor_stale"):
+        moved.retrieval.search_page(replace(request, cursor=cursor), authority=authority())
+    assert wire(moved.retrieval.search_page(request, authority=authority()))["results"]

@@ -200,15 +200,20 @@ class CursorStore:
                 identity = None if raw is None else json.loads(raw)
                 if identity is not None and (
                     not isinstance(identity, dict)
-                    or set(identity) != {"root", "incarnation"}
+                    or set(identity)
+                    not in ({"root", "incarnation"}, {"root", "incarnation", "location"})
                     or not isinstance(identity["root"], list)
                     or len(identity["root"]) != 2
                     or any(type(value) is not int for value in identity["root"])
                     or type(identity["incarnation"]) is not str
+                    or "location" in identity
+                    and type(identity["location"]) is not str
                 ):
                     raise T03Error("operation_pending")
-                moved = identity is not None and identity["root"] != list(
-                    self.profile.root_identity
+                location = str(self.profile.root.resolve(strict=True))
+                moved = identity is not None and (
+                    identity["root"] != list(self.profile.root_identity)
+                    or identity.get("location") != location
                 )
                 if key_raw is not None and identity is None:
                     key = self._validate_key(key_raw)
@@ -248,6 +253,7 @@ class CursorStore:
                         {
                             "root": list(self.profile.root_identity),
                             "incarnation": incarnation,
+                            "location": location,
                         }
                     ),
                 )
