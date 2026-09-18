@@ -1,9 +1,10 @@
 import { invoke } from "@tauri-apps/api/core";
 import { useCallback, useEffect, useState, type FormEvent } from "react";
-import { errorMessage, negotiatedOperations, request, saveMayHaveCompleted, setupReady, type BrainStatus, type CollectorEnableInput, type CollectorStatus, type ContractDescription, type SetupInput, type SetupPreview, type SetupResult } from "./client";
+import { errorMessage, negotiatedOperations, request, saveMayHaveCompleted, setupReady, type BrainStatus, type CollectorEnableInput, type CollectorStatus, type SetupInput, type SetupPreview, type SetupResult } from "./client";
 import { PublicationPanel } from "./PublicationPanel";
 import { SearchPanel } from "./SearchPanel";
 import { SourceCapturePanel } from "./SourceCapturePanel";
+import { parseContractDescription } from "./t03-wire";
 
 const destinations = ["Search", "Capture", "Review", "Sources", "Activity", "Settings"] as const;
 type Destination = typeof destinations[number];
@@ -51,7 +52,7 @@ export function App() {
       const status = await request<BrainStatus>("system.status");
       setBrain(status);
       try {
-        setOperations(negotiatedOperations(await request<ContractDescription>("contract.describe")));
+        setOperations(negotiatedOperations(parseContractDescription(await request<unknown>("contract.describe"))));
       } catch {
         setOperations(new Set());
       }

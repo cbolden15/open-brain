@@ -12,6 +12,10 @@ const captures = [
 ];
 const space = { space_id: "space_123e4567-e89b-42d3-a456-426614174500", name: "Synthetic space", slug: "synthetic-space" };
 const proposal = { proposal_id: "proposal_123e4567-e89b-42d3-a456-426614174300", page_id: "page_123e4567-e89b-42d3-a456-426614174400" };
+const workspaceStatus = { status: "ok", connected: true, active_notes: 0, inactive_notes: 0, observation_generation: 0, open_conflicts: 0, pending_suggestions: 0, policy_generation: 0, workspace_id: "workspace_123e4567-e89b-42d3-a456-426614174700", vault_path: "/synthetic/vault" };
+const proposed = { status: "proposed", proposal_status: "pending", ...proposal, space_id: space.space_id, target_page_id: null, operation: "create", effective_idempotency_key: "synthetic-propose" };
+const approved = { status: "approved", outcome: "approved", decision_id: "decision_123e4567-e89b-42d3-a456-426614174800", ...proposal, publication_id: "publication_123e4567-e89b-42d3-a456-426614174900", duplicate: false, effective_idempotency_key: "synthetic-approve" };
+const refreshed = { status: "refreshed", duplicate: false, generation: 1, note_id: null, workspace_id: workspaceStatus.workspace_id, vault_path: workspaceStatus.vault_path, notes: [{ note_id: proposal.page_id, revision_id: "revision_123e4567-e89b-42d3-a456-426614174600", relative_path: "New note.md" }] };
 const inspection = {
   status: "shown", proposal_status: "pending", ...proposal, title: "New note", space_id: space.space_id, target_page_id: null, operation: "create",
   capture_ids: captures.map(row => row.capture_id), selected_capture_ids: captures.map(row => row.capture_id),
@@ -27,6 +31,32 @@ function operation(input: unknown): string {
   return (input as { operation?: string }).operation ?? "native";
 }
 
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>(next => { resolve = next; });
+  return { promise, resolve };
+}
+
+function publicationMock(proposeResult: Promise<unknown> | unknown, showResult: Promise<unknown> | unknown) {
+  return async (_command: string, input?: unknown) => {
+    if (!input) return undefined;
+    const request = input as { operation: string };
+    if (request.operation === "workspace.status") return workspaceStatus;
+    if (request.operation === "inbox.list") return { status: "listed", items: [{ ...captures[0], space_id: space.space_id }], offset: 0, next_offset: null };
+    if (request.operation === "space.list") return { status: "listed", spaces: [space], offset: 0, next_offset: null };
+    if (request.operation === "publication.propose") return proposeResult;
+    if (request.operation === "publication.show") return showResult;
+    throw "unexpected_operation";
+  };
+}
+
+async function prepareOneCaptureDraft() {
+  fireEvent.click(screen.getByRole("button", { name: "Review inbox captures" }));
+  await screen.findByText("First synthetic source");
+  fireEvent.click(screen.getByRole("checkbox"));
+  fireEvent.click(screen.getByRole("button", { name: "Create editable draft" }));
+}
+
 describe("desktop publication review", () => {
   it("sets up an empty vault, routes 1–32 captures, inspects, approves, refreshes, and reveals only the returned note", async () => {
     let statusCalls = 0;
@@ -34,17 +64,17 @@ describe("desktop publication review", () => {
       if (command === "desktop_reveal_managed_note") return undefined;
       if (!input) return undefined;
       const request = input as { operation: string; arguments: Record<string, unknown> };
-      if (request.operation === "workspace.status" && statusCalls++ === 0) throw "setup_required";
-      if (request.operation === "workspace.status") return { status: "ok", vault_path: "/synthetic/vault" };
-      if (request.operation === "workspace.setup") return { status: "setup", vault_path: "/synthetic/vault" };
-      if (request.operation === "inbox.list") return { status: "listed", items: captures, next_offset: null };
-      if (request.operation === "space.list") return { status: "listed", spaces: [], next_offset: null };
+      if (request.operation === "workspace.status" && statusCalls++ === 0) return { status: "unconfigured" };
+      if (request.operation === "workspace.status") return workspaceStatus;
+      if (request.operation === "workspace.setup") return { status: "setup", duplicate: false, generation: null, note_id: null, workspace_id: workspaceStatus.workspace_id, vault_path: workspaceStatus.vault_path };
+      if (request.operation === "inbox.list") return { status: "listed", items: captures, offset: 0, next_offset: null };
+      if (request.operation === "space.list") return { status: "listed", spaces: [], offset: 0, next_offset: null };
       if (request.operation === "space.create") return { status: "created", space };
       if (request.operation === "inbox.route") return { status: "routed", capture_id: request.arguments.capture_id, space_id: space.space_id };
-      if (request.operation === "publication.propose") return { status: "proposed", ...proposal };
+      if (request.operation === "publication.propose") return proposed;
       if (request.operation === "publication.show") return inspection;
-      if (request.operation === "publication.approve") return { status: "approved", outcome: "approved", ...proposal, publication_id: "publication_synthetic" };
-      if (request.operation === "workspace.refresh") return { status: "refreshed", vault_path: "/synthetic/vault", notes: [{ note_id: proposal.page_id, revision_id: "revision_synthetic", relative_path: "New note.md" }] };
+      if (request.operation === "publication.approve") return approved;
+      if (request.operation === "workspace.refresh") return refreshed;
       throw "unexpected_operation";
     });
     render(<PublicationPanel disabled={false} />);
@@ -62,7 +92,7 @@ describe("desktop publication review", () => {
     await screen.findByText("Inspect exact proposal");
     expect(document.querySelector(".inspection system")).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Approve exact inspected draft" }));
-    await screen.findByText("Published to the managed vault.");
+    await screen.findByText("Published and materialized to the managed vault.");
     fireEvent.click(screen.getByRole("button", { name: "Open managed note" }));
     await waitFor(() => expect(mockedInvoke.mock.calls.some(([command, input]) => command === "desktop_reveal_managed_note" && (input as { relativePath: string }).relativePath === "New note.md")).toBe(true));
     const approval = mockedInvoke.mock.calls.find(([, input]) => operation(input) === "publication.approve")?.[1] as { arguments: Record<string, unknown> };
@@ -73,10 +103,10 @@ describe("desktop publication review", () => {
     mockedInvoke.mockImplementation(async (_command, input) => {
       if (!input) return undefined;
       const request = input as { operation: string };
-      if (request.operation === "workspace.status") return { status: "ok" };
-      if (request.operation === "inbox.list") return { items: captures.map(row => ({ ...row, space_id: space.space_id })), next_offset: null };
-      if (request.operation === "space.list") return { spaces: [space] };
-      if (request.operation === "publication.propose") return proposal;
+      if (request.operation === "workspace.status") return workspaceStatus;
+      if (request.operation === "inbox.list") return { status: "listed", items: captures.map(row => ({ ...row, space_id: space.space_id })), offset: 0, next_offset: null };
+      if (request.operation === "space.list") return { status: "listed", spaces: [space], offset: 0, next_offset: null };
+      if (request.operation === "publication.propose") return proposed;
       if (request.operation === "publication.show") return inspection;
       throw "unexpected_operation";
     });
@@ -98,14 +128,14 @@ describe("desktop publication review", () => {
     mockedInvoke.mockImplementation(async (_command, input) => {
       if (!input) return undefined;
       const request = input as { operation: string };
-      if (request.operation === "workspace.status") return { status: "ok" };
-      if (request.operation === "inbox.list") return { items: [{ ...captures[0], space_id: space.space_id }], next_offset: null };
-      if (request.operation === "space.list") return { spaces: [space] };
-      if (request.operation === "publication.propose") return proposal;
+      if (request.operation === "workspace.status") return workspaceStatus;
+      if (request.operation === "inbox.list") return { status: "listed", items: [{ ...captures[0], space_id: space.space_id }], offset: 0, next_offset: null };
+      if (request.operation === "space.list") return { status: "listed", spaces: [space], offset: 0, next_offset: null };
+      if (request.operation === "publication.propose") return proposed;
       if (request.operation === "publication.show") return { ...inspection, markdown: "# New note\n\nFirst synthetic source\n", selected_capture_ids: [captures[0]?.capture_id], capture_ids: [captures[0]?.capture_id], review_token: String(++shows).repeat(64) };
       if (request.operation === "publication.approve" && approvals++ === 0) throw "review_conflict";
-      if (request.operation === "publication.approve") return { status: "approved", outcome: "approved", ...proposal };
-      if (request.operation === "workspace.refresh") return { status: "refreshed", vault_path: "/synthetic/vault", notes: [{ note_id: proposal.page_id, revision_id: "revision_synthetic", relative_path: "New note.md" }] };
+      if (request.operation === "publication.approve") return approved;
+      if (request.operation === "workspace.refresh") return refreshed;
       throw "unexpected_operation";
     });
     render(<PublicationPanel disabled={false} />);
@@ -117,12 +147,76 @@ describe("desktop publication review", () => {
     await screen.findByText("Inspect exact proposal");
     fireEvent.click(screen.getByRole("button", { name: "Approve exact inspected draft" }));
     await screen.findByText(/changed after inspection/);
-    expect(screen.queryByText("Published to the managed vault.")).toBeNull();
+    expect(screen.queryByText("Published and materialized to the managed vault.")).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Inspect proposal again" }));
     await screen.findByText("Inspect exact proposal");
     fireEvent.click(screen.getByRole("button", { name: "Approve exact inspected draft" }));
-    await screen.findByText("Published to the managed vault.");
+    await screen.findByText("Published and materialized to the managed vault.");
     expect(shows).toBe(2);
     expect(approvals).toBe(2);
+  });
+
+  it("keeps delayed propose and show responses alive across their own React renders", async () => {
+    const proposeResult = deferred<unknown>();
+    const showResult = deferred<unknown>();
+    mockedInvoke.mockImplementation(publicationMock(proposeResult.promise, showResult.promise));
+    render(<PublicationPanel disabled={false} />);
+    await prepareOneCaptureDraft();
+    fireEvent.click(screen.getByRole("button", { name: "Inspect proposal and evidence" }));
+    proposeResult.resolve(proposed);
+    await waitFor(() => expect(mockedInvoke.mock.calls.filter(([, input]) => operation(input) === "publication.show")).toHaveLength(1));
+    expect((screen.getByRole("button", { name: "Inspect proposal again" }) as HTMLButtonElement).disabled).toBe(true);
+    showResult.resolve({ ...inspection, capture_ids: [captures[0]?.capture_id], selected_capture_ids: [captures[0]?.capture_id], evidence: [inspection.evidence[0]], markdown: "# New note\n\nFirst synthetic source\n" });
+    await screen.findByText("Inspect exact proposal");
+    expect((screen.getByRole("button", { name: "Approve exact inspected draft" }) as HTMLButtonElement).disabled).toBe(false);
+  });
+
+  it("invalidates a pending show when the draft changes and clears busy state", async () => {
+    const showResult = deferred<unknown>();
+    mockedInvoke.mockImplementation(publicationMock(proposed, showResult.promise));
+    render(<PublicationPanel disabled={false} />);
+    await prepareOneCaptureDraft();
+    fireEvent.click(screen.getByRole("button", { name: "Inspect proposal and evidence" }));
+    await waitFor(() => expect(mockedInvoke.mock.calls.some(([, input]) => operation(input) === "publication.show")).toBe(true));
+    fireEvent.change(screen.getByLabelText("Complete Markdown draft"), { target: { value: "# New note\n\nChanged while waiting\n" } });
+    showResult.resolve(inspection);
+    await waitFor(() => expect((screen.getByRole("button", { name: "Inspect proposal and evidence" }) as HTMLButtonElement).disabled).toBe(false));
+    expect(screen.queryByText("Inspect exact proposal")).toBeNull();
+  });
+
+  it("cancels a pending show with Escape and ignores its later response", async () => {
+    const showResult = deferred<unknown>();
+    mockedInvoke.mockImplementation(publicationMock(proposed, showResult.promise));
+    render(<PublicationPanel disabled={false} />);
+    await prepareOneCaptureDraft();
+    fireEvent.click(screen.getByRole("button", { name: "Inspect proposal and evidence" }));
+    await waitFor(() => expect(mockedInvoke.mock.calls.some(([, input]) => operation(input) === "publication.show")).toBe(true));
+    fireEvent.keyDown(window, { key: "Escape" });
+    await screen.findByText("Draft review cancelled. No publication decision was sent.");
+    showResult.resolve(inspection);
+    await waitFor(() => expect(screen.queryByText("Inspect exact proposal")).toBeNull());
+    expect(screen.queryByRole("button", { name: "Approve exact inspected draft" })).toBeNull();
+  });
+
+  it("reports approval truthfully when refresh fails", async () => {
+    mockedInvoke.mockImplementation(async (_command, input) => {
+      if (!input) return undefined;
+      const request = input as { operation: string };
+      if (request.operation === "workspace.status") return workspaceStatus;
+      if (request.operation === "inbox.list") return { status: "listed", items: [{ ...captures[0], space_id: space.space_id }], offset: 0, next_offset: null };
+      if (request.operation === "space.list") return { status: "listed", spaces: [space], offset: 0, next_offset: null };
+      if (request.operation === "publication.propose") return proposed;
+      if (request.operation === "publication.show") return { ...inspection, capture_ids: [captures[0]?.capture_id], selected_capture_ids: [captures[0]?.capture_id], evidence: [inspection.evidence[0]], markdown: "# New note\n\nFirst synthetic source\n" };
+      if (request.operation === "publication.approve") return approved;
+      if (request.operation === "workspace.refresh") throw "transport_failed";
+      throw "unexpected_operation";
+    });
+    render(<PublicationPanel disabled={false} />);
+    await prepareOneCaptureDraft();
+    fireEvent.click(screen.getByRole("button", { name: "Inspect proposal and evidence" }));
+    await screen.findByText("Inspect exact proposal");
+    fireEvent.click(screen.getByRole("button", { name: "Approve exact inspected draft" }));
+    await screen.findByText("Publication approved, but the managed vault refresh did not complete.");
+    expect(screen.queryByRole("button", { name: "Open managed note" })).toBeNull();
   });
 });

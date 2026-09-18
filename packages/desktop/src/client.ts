@@ -1,4 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
+import { parseRecordReadPage, validateT03Wire } from "./t03-wire";
 
 export interface BrainStatus {
   status: "ok";
@@ -12,7 +13,7 @@ export interface RecordSummary {
   record_type: "source" | "canonical";
   revision_id: string;
   source_id: string | null;
-  payload_family: "text" | "document" | "media" | "reference_or_file";
+  payload_family: "text" | "event" | "measurement" | "reference_or_file";
   space_id: string | null;
   title: string;
   excerpt: string;
@@ -107,6 +108,18 @@ export interface WorkspaceRefresh {
   status: "refreshed";
   vault_path: string;
   notes: { note_id: string; revision_id: string; relative_path: string }[];
+}
+export interface WorkspaceStatusResult {
+  status: "ok";
+  connected: boolean;
+  active_notes: number;
+  inactive_notes: number;
+  observation_generation: number;
+  open_conflicts: number;
+  pending_suggestions: number;
+  policy_generation: number;
+  workspace_id: string;
+  vault_path: string;
 }
 export interface SetupInput {
   client: "claude-code" | "codex";
@@ -215,6 +228,102 @@ export function setupReady(input: SetupInput): boolean {
     (input.action === "remove" || input.allow_capture || input.allow_search);
 }
 
+export function parseWorkspaceStatus(value: unknown): WorkspaceStatusResult | null {
+  const item = exactRecord(value, ["status"], ["connected", "active_notes", "inactive_notes", "observation_generation", "open_conflicts", "pending_suggestions", "policy_generation", "workspace_id", "vault_path"]);
+  if (item.status === "unconfigured" && Object.keys(item).length === 1) return null;
+  if (item.status !== "ok" || typeof item.connected !== "boolean" ||
+    !["active_notes", "inactive_notes", "observation_generation", "open_conflicts", "pending_suggestions", "policy_generation"].every(key => nonnegative(item[key])) ||
+    !wireText(item.workspace_id) || !absolutePath(item.vault_path)) throw "malformed_response";
+  return item as unknown as WorkspaceStatusResult;
+}
+
+export function parseWorkspaceSetup(value: unknown): void {
+  const item = exactRecord(value, ["status", "duplicate", "generation", "note_id", "workspace_id", "vault_path"]);
+  if (item.status !== "setup" || typeof item.duplicate !== "boolean" ||
+    (item.generation !== null && !nonnegative(item.generation)) ||
+    (item.note_id !== null && !wireText(item.note_id)) || !wireText(item.workspace_id) || !absolutePath(item.vault_path)) throw "malformed_response";
+}
+
+export function parseInboxPage(value: unknown): { items: InboxItem[]; next_offset: number | null } {
+  const page = exactRecord(value, ["status", "items", "offset", "next_offset"], ["offset_limit_reached"]);
+  if (page.status !== "listed" || !nonnegative(page.offset) || !nullableOffset(page.next_offset) ||
+    (page.offset_limit_reached !== undefined && typeof page.offset_limit_reached !== "boolean") ||
+    !Array.isArray(page.items) || page.items.length > 100) throw "malformed_response";
+  const items = page.items.map(raw => {
+    const item = exactRecord(raw, ["capture_id", "payload_family", "state", "space_id", "intent", "capture_why", "title", "preview"]);
+    if (!identifier(item.capture_id, ["capture"]) || !wireText(item.payload_family) || !wireText(item.state) ||
+      (item.space_id !== null && !identifier(item.space_id, ["space"])) ||
+      (item.intent !== null && !displayText(item.intent)) || !displayText(item.capture_why) ||
+      (item.title !== null && !displayText(item.title)) || !displayText(item.preview, true)) throw "malformed_response";
+    return item as unknown as InboxItem;
+  });
+  return { items, next_offset: page.next_offset as number | null };
+}
+
+export function parseSpacePage(value: unknown): { spaces: Space[] } {
+  const page = exactRecord(value, ["status", "spaces", "offset", "next_offset"], ["offset_limit_reached"]);
+  if (page.status !== "listed" || !nonnegative(page.offset) || !nullableOffset(page.next_offset) ||
+    (page.offset_limit_reached !== undefined && typeof page.offset_limit_reached !== "boolean") ||
+    !Array.isArray(page.spaces) || page.spaces.length > 100) throw "malformed_response";
+  return { spaces: page.spaces.map(parseSpace) };
+}
+
+export function parseCreatedSpace(value: unknown): Space {
+  const result = exactRecord(value, ["status", "space"]);
+  if (result.status !== "created") throw "malformed_response";
+  return parseSpace(result.space);
+}
+
+export function parseRoutedCapture(value: unknown, captureId: string, spaceId: string): void {
+  const item = exactRecord(value, ["status", "capture_id", "space_id"]);
+  if (item.status !== "routed" || item.capture_id !== captureId || item.space_id !== spaceId) throw "malformed_response";
+}
+
+export function parseProposal(value: unknown): { proposal_id: string; page_id: string } {
+  const item = exactRecord(value, ["status", "proposal_status", "proposal_id", "page_id", "space_id", "target_page_id", "operation", "effective_idempotency_key"]);
+  if (item.status !== "proposed" || item.proposal_status !== "pending" || !identifier(item.proposal_id, ["proposal"]) ||
+    !identifier(item.page_id, ["page"]) || !identifier(item.space_id, ["space"]) ||
+    (item.target_page_id !== null && !identifier(item.target_page_id, ["page"])) || !["create", "update"].includes(String(item.operation)) || !wireText(item.effective_idempotency_key)) throw "malformed_response";
+  return { proposal_id: item.proposal_id as string, page_id: item.page_id as string };
+}
+
+export function parsePublicationInspection(value: unknown): PublicationInspection {
+  const item = exactRecord(value, ["status", "proposal_status", "proposal_id", "title", "space_id", "page_id", "target_page_id", "operation", "capture_ids", "selected_capture_ids", "evidence", "review_token", "markdown", "expected_page_sha256", "expected_publication_id", "projection_applied"]);
+  if (item.status !== "shown" || !["pending", "approved", "rejected", "edited"].includes(String(item.proposal_status)) ||
+    !identifier(item.proposal_id, ["proposal"]) || !displayText(item.title) || !identifier(item.space_id, ["space"]) ||
+    !identifier(item.page_id, ["page"]) || (item.target_page_id !== null && !identifier(item.target_page_id, ["page"])) ||
+    !["create", "update"].includes(String(item.operation)) || !idArray(item.capture_ids, "capture", 32) || !idArray(item.selected_capture_ids, "capture", 32) ||
+    !Array.isArray(item.evidence) || item.evidence.length > 32 || !digest(item.review_token) || typeof item.markdown !== "string" ||
+    (item.expected_page_sha256 !== null && !digest(item.expected_page_sha256)) ||
+    (item.expected_publication_id !== null && !identifier(item.expected_publication_id, ["publication"])) || typeof item.projection_applied !== "boolean") throw "malformed_response";
+  const evidence = item.evidence.map(raw => {
+    const row = exactRecord(raw, ["capture_id", "excerpt", "sha256", "projection_applied"]);
+    if (!identifier(row.capture_id, ["capture"]) || !displayText(row.excerpt, true) || !digest(row.sha256) || typeof row.projection_applied !== "boolean") throw "malformed_response";
+    return row as unknown as PublicationInspection["evidence"][number];
+  });
+  return { ...item, capture_ids: [...item.capture_ids as string[]], selected_capture_ids: [...item.selected_capture_ids as string[]], evidence } as unknown as PublicationInspection;
+}
+
+export function parseDecision(value: unknown, proposalId: string): { status: string; outcome: string; proposal_id: string; page_id: string; publication_id?: string } {
+  const item = exactRecord(value, ["status", "outcome", "decision_id", "proposal_id", "page_id", "publication_id", "duplicate", "effective_idempotency_key"]);
+  if (!["approved", "edited", "rejected"].includes(String(item.status)) || item.outcome !== item.status ||
+    !identifier(item.decision_id, ["decision"]) || item.proposal_id !== proposalId || !identifier(item.page_id, ["page"]) ||
+    (item.publication_id !== null && !identifier(item.publication_id, ["publication"])) || typeof item.duplicate !== "boolean" || !wireText(item.effective_idempotency_key)) throw "malformed_response";
+  return item as unknown as { status: string; outcome: string; proposal_id: string; page_id: string; publication_id?: string };
+}
+
+export function parseWorkspaceRefresh(value: unknown): WorkspaceRefresh {
+  const item = exactRecord(value, ["status", "duplicate", "generation", "note_id", "workspace_id", "vault_path", "notes"]);
+  if (item.status !== "refreshed" || typeof item.duplicate !== "boolean" || !nonnegative(item.generation) ||
+    (item.note_id !== null && !identifier(item.note_id, ["page"])) || !wireText(item.workspace_id) || !absolutePath(item.vault_path) || !Array.isArray(item.notes)) throw "malformed_response";
+  const notes = item.notes.map(raw => {
+    const note = exactRecord(raw, ["note_id", "revision_id", "relative_path"]);
+    if (!identifier(note.note_id, ["page"]) || !identifier(note.revision_id, ["revision"]) || !safeRelativePath(note.relative_path)) throw "malformed_response";
+    return note as unknown as WorkspaceRefresh["notes"][number];
+  });
+  return { status: "refreshed", vault_path: item.vault_path as string, notes };
+}
+
 export function negotiatedOperations(description: ContractDescription | null): Set<string> {
   if (!description || description.status !== "ok" || description.contract_version !== "t03.v1" || !Array.isArray(description.operations)) return new Set();
   const grants: Record<string, string> = {
@@ -245,19 +354,18 @@ export async function readCompleteRecord(
   const seen = new Set<string>();
   for (let chunks = 0; chunks < 512; chunks += 1) {
     if (signal?.aborted) throw "cancelled";
-    const page: RecordReadPage = await request<RecordReadPage>("record.read", {
+    const wireRequest = {
       dto_version: 1,
       record_id: record.record_id,
       expected_revision_id: record.revision_id,
       target_bytes: 32768,
       cursor,
-    });
+    };
+    validateT03Wire("record.read.request", wireRequest);
+    const page = parseRecordReadPage(await request<unknown>("record.read", wireRequest));
     if (signal?.aborted) throw "cancelled";
-    if (page.dto_version !== 1 || page.content.kind !== "untrusted_text" ||
-      page.record.record_id !== record.record_id || page.record.revision_id !== record.revision_id ||
-      page.start_byte !== expectedStart || page.end_byte < page.start_byte ||
-      page.end_byte - page.start_byte !== new TextEncoder().encode(page.content.text).length ||
-      page.complete !== (page.next_cursor === null)) throw "malformed_response";
+    if (page.record.record_id !== record.record_id || page.record.revision_id !== record.revision_id) throw "revision_changed";
+    if (page.start_byte !== expectedStart) throw "malformed_response";
     summary ??= page.record;
     text += page.content.text;
     expectedStart = page.end_byte;
@@ -267,4 +375,44 @@ export async function readCompleteRecord(
     cursor = page.next_cursor;
   }
   throw "response_too_large";
+}
+
+function exactRecord(value: unknown, required: string[], optional: string[] = []): Record<string, unknown> {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) throw "malformed_response";
+  const item = value as Record<string, unknown>;
+  const allowed = new Set([...required, ...optional]);
+  if (!required.every(key => Object.prototype.hasOwnProperty.call(item, key)) || Object.keys(item).some(key => !allowed.has(key))) throw "malformed_response";
+  return item;
+}
+
+function wireText(value: unknown): value is string {
+  return typeof value === "string" && value.length > 0 && !value.includes("\0") && [...value].every(character => {
+    const point = character.codePointAt(0)!;
+    return point < 0xd800 || point > 0xdfff;
+  });
+}
+
+function displayText(value: unknown, allowEmpty = false): value is string {
+  return typeof value === "string" && (allowEmpty || value.length > 0) && !/[\u0000-\u0008\u000b\u000c\u000e-\u001f]/u.test(value);
+}
+
+function identifier(value: unknown, prefixes: string[]): value is string {
+  return typeof value === "string" && new RegExp(`^(?:${prefixes.join("|")})_[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`).test(value);
+}
+
+function digest(value: unknown): value is string { return typeof value === "string" && /^[0-9a-f]{64}$/.test(value); }
+function nonnegative(value: unknown): value is number { return Number.isSafeInteger(value) && Number(value) >= 0; }
+function nullableOffset(value: unknown): value is number | null { return value === null || nonnegative(value); }
+function absolutePath(value: unknown): value is string { return wireText(value) && value.startsWith("/"); }
+function safeRelativePath(value: unknown): value is string {
+  return wireText(value) && !value.includes("\\") && !value.startsWith("/") && value.split("/").every(part => part !== "" && part !== "." && part !== "..");
+}
+function idArray(value: unknown, prefix: string, maximum: number): value is string[] {
+  return Array.isArray(value) && value.length >= 1 && value.length <= maximum && value.every(item => identifier(item, [prefix])) && new Set(value).size === value.length;
+}
+
+function parseSpace(value: unknown): Space {
+  const item = exactRecord(value, ["space_id", "name", "slug"]);
+  if (!identifier(item.space_id, ["space"]) || !displayText(item.name) || !wireText(item.slug)) throw "malformed_response";
+  return item as unknown as Space;
 }

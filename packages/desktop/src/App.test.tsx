@@ -92,7 +92,7 @@ describe("desktop user operations", () => {
       if (operation === "contract.describe") return contract;
       return {
         status: "ok", dto_version: 1, next_cursor: null, complete: true, mode_used: "lexical", warnings: [],
-        results: [{ record_id: "capture_123e4567-e89b-42d3-a456-426614174100", revision_id: "capture_123e4567-e89b-42d3-a456-426614174100", source_id: "source_123e4567-e89b-42d3-a456-426614174200", title: unsafeText, excerpt: "Untrusted source content", record_type: "source", payload_family: "text", space_id: null, trust: "unverified", provenance: { representative_capture_id: "capture_123e4567-e89b-42d3-a456-426614174100", capture_ids: ["capture_123e4567-e89b-42d3-a456-426614174100"], source_origin: "imported" }, source_update_available: false }],
+        results: [{ record_id: "capture_123e4567-e89b-42d3-a456-426614174100", revision_id: "capture_123e4567-e89b-42d3-a456-426614174100", source_id: "source_123e4567-e89b-42d3-a456-426614174200", title: unsafeText, excerpt: "Untrusted source content", record_type: "source", payload_family: "text", space_id: null, trust: "unverified", provenance: { representative_capture_id: "capture_123e4567-e89b-42d3-a456-426614174100", capture_ids: ["capture_123e4567-e89b-42d3-a456-426614174100"], source_origin: "third_party" }, source_update_available: false }],
       };
     });
     await ready();

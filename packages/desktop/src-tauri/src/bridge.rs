@@ -449,6 +449,7 @@ fn signal_group(group: i32, signal: i32) {
 
 fn read_responses(mut stdout: impl Read, sender: SyncSender<ReaderEvent>) {
     let mut buffer = Vec::new();
+    let mut scan_from = 0;
     let mut chunk = [0_u8; 8192];
     loop {
         match stdout.read(&mut chunk) {
@@ -463,17 +464,25 @@ fn read_responses(mut stdout: impl Read, sender: SyncSender<ReaderEvent>) {
             }
             Ok(count) => {
                 buffer.extend_from_slice(&chunk[..count]);
-                if buffer.len() > MAX_RESPONSE_BYTES {
-                    let _ = sender.send(ReaderEvent::Invalid);
-                    return;
-                }
-                while let Some(newline) = buffer.iter().position(|byte| *byte == b'\n') {
+                while let Some(offset) = buffer[scan_from..].iter().position(|byte| *byte == b'\n')
+                {
+                    let newline = scan_from + offset;
+                    if newline + 1 > MAX_RESPONSE_BYTES {
+                        let _ = sender.send(ReaderEvent::Invalid);
+                        return;
+                    }
                     let mut remainder = buffer.split_off(newline + 1);
                     std::mem::swap(&mut buffer, &mut remainder);
                     remainder.truncate(newline);
                     if sender.send(ReaderEvent::Line(remainder)).is_err() {
                         return;
                     }
+                    scan_from = 0;
+                }
+                scan_from = buffer.len();
+                if buffer.len() > MAX_RESPONSE_BYTES {
+                    let _ = sender.send(ReaderEvent::Invalid);
+                    return;
                 }
             }
             Err(_) => {
@@ -953,6 +962,26 @@ sys.stdout.flush()"#,
             Err(BridgeError::MalformedResponse)
         );
         assert!(bridge.process_group_gone());
+    }
+
+    #[test]
+    fn response_scanner_handles_chunk_boundaries_and_multiple_frames() {
+        let first = vec![b'a'; 8192];
+        let mut input = first.clone();
+        input.extend_from_slice(b"\nsecond\n");
+        let (sender, receiver) = mpsc::sync_channel(4);
+
+        read_responses(std::io::Cursor::new(input), sender);
+
+        match receiver.recv().unwrap() {
+            ReaderEvent::Line(line) => assert_eq!(line, first),
+            _ => panic!("expected first response frame"),
+        }
+        match receiver.recv().unwrap() {
+            ReaderEvent::Line(line) => assert_eq!(line, b"second"),
+            _ => panic!("expected second response frame"),
+        }
+        assert!(matches!(receiver.recv().unwrap(), ReaderEvent::Closed));
     }
 
     #[test]

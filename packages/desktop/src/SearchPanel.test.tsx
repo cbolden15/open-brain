@@ -32,7 +32,7 @@ describe("negotiated desktop search", () => {
     fireEvent.change(screen.getByLabelText("Search your Brain"), { target: { value: "synthetic launch" } });
     fireEvent.click(screen.getByText("Filters and mode"));
     fireEvent.click(screen.getByLabelText("Captures"));
-    fireEvent.click(screen.getByLabelText("text"));
+    fireEvent.click(screen.getByLabelText("event"));
     fireEvent.change(screen.getByLabelText("Space IDs"), { target: { value: "space_123e4567-e89b-42d3-a456-426614174500" } });
     fireEvent.click(screen.getByRole("button", { name: "Search" }));
     await screen.findByText("100 matches");
@@ -42,7 +42,7 @@ describe("negotiated desktop search", () => {
     await screen.findByText("201 matches");
     expect(new Set(screen.getAllByRole("article").map(article => article.textContent)).size).toBe(201);
     const first = mockedInvoke.mock.calls[0]?.[1] as { arguments: { filters: object } };
-    expect(first.arguments.filters).toEqual({ space_ids: ["space_123e4567-e89b-42d3-a456-426614174500"], payload_families: ["text"], record_types: ["source"] });
+    expect(first.arguments.filters).toEqual({ space_ids: ["space_123e4567-e89b-42d3-a456-426614174500"], payload_families: ["event"], record_types: ["source"] });
   });
 
   it("surfaces a stale cursor and restarts only after an explicit action", async () => {
@@ -95,5 +95,21 @@ describe("negotiated desktop search", () => {
     expect(screen.getByRole("status").textContent).toContain("unavailable");
     expect((screen.getByRole("button", { name: "Search" }) as HTMLButtonElement).disabled).toBe(true);
     expect(mockedInvoke).not.toHaveBeenCalled();
+  });
+
+  it("accepts valid empty display strings and rejects response grammar extensions", async () => {
+    mockedInvoke.mockResolvedValueOnce({ status: "ok", dto_version: 1, results: [hit(8, "")], next_cursor: null, complete: true, mode_used: "lexical", warnings: [] });
+    render(<SearchPanel disabled={false} operations={operations} onCapture={() => undefined} />);
+    fireEvent.change(screen.getByLabelText("Search your Brain"), { target: { value: "empty title" } });
+    fireEvent.click(screen.getByRole("button", { name: "Search" }));
+    await screen.findByText("Excerpt 8");
+    cleanup();
+
+    mockedInvoke.mockResolvedValueOnce({ status: "ok", dto_version: 1, results: [{ ...hit(9), unknown: true }], next_cursor: null, complete: true, mode_used: "lexical", warnings: [] });
+    render(<SearchPanel disabled={false} operations={operations} onCapture={() => undefined} />);
+    fireEvent.change(screen.getByLabelText("Search your Brain"), { target: { value: "malformed result" } });
+    fireEvent.click(screen.getByRole("button", { name: "Search" }));
+    await screen.findByRole("alert");
+    expect(screen.queryByText("Synthetic 9")).toBeNull();
   });
 });

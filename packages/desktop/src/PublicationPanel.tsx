@@ -1,6 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { useEffect, useRef, useState } from "react";
-import { errorMessage, request, type InboxItem, type PublicationInspection, type Space, type WorkspaceRefresh } from "./client";
+import { errorMessage, parseCreatedSpace, parseDecision, parseInboxPage, parseProposal, parsePublicationInspection, parseRoutedCapture, parseSpacePage, parseWorkspaceRefresh, parseWorkspaceSetup, parseWorkspaceStatus, request, type InboxItem, type PublicationInspection, type Space } from "./client";
 
 type Proposal = { proposal_id: string; page_id: string };
 type Decision = { status: string; outcome: string; proposal_id: string; page_id: string; publication_id?: string };
@@ -23,10 +23,14 @@ export function PublicationPanel({ disabled }: { disabled: boolean }) {
   const [error, setError] = useState("");
   const flowVersion = useRef(0);
   const decisionPending = useRef(false);
+  const activeReview = useRef(false);
+  const mounted = useRef(true);
+  activeReview.current = Boolean(proposal || markdown);
 
   useEffect(() => {
+    mounted.current = true;
     const cancel = (event: KeyboardEvent) => {
-      if (event.key !== "Escape" || decisionPending.current || (!proposal && !markdown)) return;
+      if (event.key !== "Escape" || decisionPending.current || !activeReview.current) return;
       event.preventDefault();
       flowVersion.current += 1;
       setProposal(null);
@@ -40,19 +44,31 @@ export function PublicationPanel({ disabled }: { disabled: boolean }) {
     };
     window.addEventListener("keydown", cancel);
     return () => {
+      mounted.current = false;
       flowVersion.current += 1;
       window.removeEventListener("keydown", cancel);
     };
-  }, [proposal, markdown]);
+  }, []);
 
   async function ensureWorkspace() {
-    try {
-      await request("workspace.status");
-    } catch (caught) {
-      if (String(caught) !== "setup_required") throw caught;
-      await request("workspace.setup");
-      await request("workspace.status");
+    let status = parseWorkspaceStatus(await request<unknown>("workspace.status"));
+    if (status === null) {
+      parseWorkspaceSetup(await request<unknown>("workspace.setup"));
+      status = parseWorkspaceStatus(await request<unknown>("workspace.status"));
+      if (status === null) throw "malformed_response";
     }
+  }
+
+  function editDraft(update: () => void, preserveSettledInspection = false) {
+    if (busy || !preserveSettledInspection) {
+      flowVersion.current += 1;
+      setProposal(null);
+      setInspection(null);
+    }
+    setDecision(null);
+    setApprovedNote(null);
+    setError("");
+    update();
   }
 
   async function load(offset = 0) {
@@ -61,8 +77,8 @@ export function PublicationPanel({ disabled }: { disabled: boolean }) {
     setError("");
     try {
       await ensureWorkspace();
-      const inbox = await request<{ items: InboxItem[]; next_offset: number | null }>("inbox.list", { dto_version: 1, unassigned_only: false, limit: 50, offset });
-      const listed = await request<{ spaces: Space[] }>("space.list", { dto_version: 1, limit: 50, offset: 0 });
+      const inbox = parseInboxPage(await request<unknown>("inbox.list", { dto_version: 1, unassigned_only: false, limit: 50, offset }));
+      const listed = parseSpacePage(await request<unknown>("space.list", { dto_version: 1, limit: 50, offset: 0 }));
       setItems(previous => offset ? [...previous, ...inbox.items] : inbox.items);
       setNextOffset(inbox.next_offset);
       setSpaces(listed.spaces);
@@ -101,15 +117,15 @@ export function PublicationPanel({ disabled }: { disabled: boolean }) {
       let destination = spaceId;
       if (!destination) {
         if (!newSpace.trim()) throw "invalid_arguments";
-        const created = await request<{ space: Space }>("space.create", { dto_version: 1, name: newSpace.trim() });
-        destination = created.space.space_id;
-        setSpaces(previous => [...previous, created.space]);
+        const created = parseCreatedSpace(await request<unknown>("space.create", { dto_version: 1, name: newSpace.trim() }));
+        destination = created.space_id;
+        setSpaces(previous => [...previous, created]);
         setSpaceId(destination);
       }
       for (const captureId of selected) {
         const row = items.find(item => item.capture_id === captureId);
         if (row?.space_id !== destination) {
-          await request("inbox.route", { dto_version: 1, capture_id: captureId, space_id: destination });
+          parseRoutedCapture(await request<unknown>("inbox.route", { dto_version: 1, capture_id: captureId, space_id: destination }), captureId, destination);
         }
       }
       setItems(previous => previous.map(item => selected.includes(item.capture_id) ? { ...item, space_id: destination } : item));
@@ -146,20 +162,20 @@ export function PublicationPanel({ disabled }: { disabled: boolean }) {
     setBusy(true);
     setError("");
     try {
-      const nextProposal = proposal ?? await request<Proposal>("publication.propose", {
+      const nextProposal = proposal ?? parseProposal(await request<unknown>("publication.propose", {
         dto_version: 1,
         capture_ids: selected,
         title: title.trim(),
         markdown,
-      });
+      }));
       if (version !== flowVersion.current) return;
       setProposal(nextProposal);
-      const shown = await request<PublicationInspection>("publication.show", { dto_version: 1, proposal_id: nextProposal.proposal_id });
+      const shown = parsePublicationInspection(await request<unknown>("publication.show", { dto_version: 1, proposal_id: nextProposal.proposal_id }));
       if (version === flowVersion.current) setInspection(shown);
     } catch (caught) {
       if (version === flowVersion.current) setError(errorMessage(caught));
     } finally {
-      if (version === flowVersion.current) setBusy(false);
+      if (mounted.current) setBusy(false);
     }
   }
 
@@ -175,10 +191,10 @@ export function PublicationPanel({ disabled }: { disabled: boolean }) {
         review_token: inspection.review_token,
       };
       if (operation === "publication.edit_and_approve") arguments_.markdown = markdown;
-      const result = await request<Decision>(operation, arguments_);
+      const result = parseDecision(await request<unknown>(operation, arguments_), proposal.proposal_id);
       setDecision(result);
       if (operation !== "publication.reject") {
-        const refreshed = await request<WorkspaceRefresh>("workspace.refresh");
+        const refreshed = parseWorkspaceRefresh(await request<unknown>("workspace.refresh"));
         const note = refreshed.notes.find(row => row.note_id === result.page_id);
         if (!note) throw "malformed_response";
         setApprovedNote({ vaultPath: refreshed.vault_path, relativePath: note.relative_path });
@@ -220,11 +236,11 @@ export function PublicationPanel({ disabled }: { disabled: boolean }) {
       {selected.length ? <div className="route-controls"><label>Route selected to<select value={spaceId} onChange={event => setSpaceId(event.target.value)}><option value="">Create a new space</option>{spaces.map(space => <option value={space.space_id} key={space.space_id}>{space.name}</option>)}</select></label>{!spaceId ? <label>New space name<input value={newSpace} maxLength={120} onChange={event => setNewSpace(event.target.value)} /></label> : null}<button type="button" className="secondary" disabled={busy || (!spaceId && !newSpace.trim())} onClick={() => void routeSelected()}>Route selected</button><button type="button" disabled={busy || !routedTogether} onClick={prepareDraft}>Create editable draft</button></div> : null}
     </> : null}
     {markdown && !decision ? <div className="publication-draft">
-      <label>Title<input value={title} maxLength={500} readOnly={Boolean(proposal)} onChange={event => setTitle(event.target.value)} /></label>
-      <label>Complete Markdown draft<textarea rows={14} value={markdown} onChange={event => setMarkdown(event.target.value)} /></label>
+      <label>Title<input value={title} maxLength={500} readOnly={Boolean(proposal)} onChange={event => editDraft(() => setTitle(event.target.value))} /></label>
+      <label>Complete Markdown draft<textarea rows={14} value={markdown} onChange={event => editDraft(() => setMarkdown(event.target.value), true)} /></label>
       {!inspection ? <button type="button" disabled={busy || !title.trim() || !markdown.trim()} onClick={() => void inspect()}>{proposal ? "Inspect proposal again" : "Inspect proposal and evidence"}</button> : <div className="inspection" aria-label="Publication inspection"><h2>Inspect exact proposal</h2><p>{inspection.operation} · {inspection.selected_capture_ids.length} evidence captures</p><pre>{inspection.markdown}</pre><ul>{inspection.evidence.map(row => <li key={row.capture_id}>{row.capture_id}: {row.excerpt}</li>)}</ul><div className="row-actions"><button type="button" disabled={busy || editedAfterInspection} onClick={() => void decide("publication.approve")}>Approve exact inspected draft</button><button type="button" disabled={busy || !editedAfterInspection} onClick={() => void decide("publication.edit_and_approve")}>Edit and approve</button><button type="button" className="secondary" disabled={busy} onClick={() => void decide("publication.reject")}>Reject proposal</button></div></div>}
       <p className="helper-text">Press Escape to cancel this review. Cancelling does not send an approval or rejection.</p>
     </div> : null}
-    {decision ? <div className="notice success" role="status"><p><strong>{decision.outcome === "rejected" ? "Proposal rejected." : "Published to the managed vault."}</strong></p>{approvedNote ? <button type="button" disabled={busy} onClick={() => void openApprovedNote()}>Open managed note</button> : null}</div> : null}
+    {decision ? <div className="notice success" role="status"><p><strong>{decision.outcome === "rejected" ? "Proposal rejected." : approvedNote ? "Published and materialized to the managed vault." : busy ? "Publication approved. Refreshing the managed vault…" : "Publication approved, but the managed vault refresh did not complete."}</strong></p>{approvedNote ? <button type="button" disabled={busy} onClick={() => void openApprovedNote()}>Open managed note</button> : null}</div> : null}
   </section>;
 }

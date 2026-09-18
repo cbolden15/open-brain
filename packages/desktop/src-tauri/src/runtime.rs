@@ -4,10 +4,12 @@ use crate::proof::validate_runtime_pair;
 use serde_json::{Value, json};
 use std::collections::HashSet;
 use std::fs;
+use std::os::unix::fs::MetadataExt;
 use std::path::{Component, Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tauri::{AppHandle, Manager, State, path::BaseDirectory};
+use uuid::Uuid;
 
 const SUPPORTED_STATE_SCHEMA: u64 = 7;
 const SUPPORTED_RUNTIME_SESSION: u64 = 2;
@@ -48,16 +50,25 @@ const COLLECTOR_OPERATIONS: &[&str] = &[
 pub(crate) struct DesktopState {
     session: Arc<Mutex<Option<Bridge>>>,
     collector: Arc<Mutex<CollectorConnection>>,
-    approved_pages: Arc<Mutex<HashSet<String>>>,
-    managed_notes: Arc<Mutex<Option<ManagedNotes>>>,
+    reveal: Arc<Mutex<RevealAuthority>>,
     data_dir: Option<PathBuf>,
 }
 
 #[derive(Debug)]
 struct ManagedNotes {
+    session_epoch: u64,
     wire_vault: PathBuf,
     canonical_vault: PathBuf,
+    vault_device: u64,
+    vault_inode: u64,
     relative_paths: HashSet<PathBuf>,
+}
+
+#[derive(Default)]
+struct RevealAuthority {
+    session_epoch: u64,
+    approved_pages: HashSet<String>,
+    managed_notes: Option<ManagedNotes>,
 }
 
 impl DesktopState {
@@ -65,8 +76,7 @@ impl DesktopState {
         Self {
             session: Arc::default(),
             collector: Arc::default(),
-            approved_pages: Arc::default(),
-            managed_notes: Arc::default(),
+            reveal: Arc::default(),
             data_dir,
         }
     }
@@ -90,8 +100,7 @@ pub(crate) async fn desktop_request(
     }
     let session = Arc::clone(&state.session);
     let collector = Arc::clone(&state.collector);
-    let approved_pages = Arc::clone(&state.approved_pages);
-    let managed_notes = Arc::clone(&state.managed_notes);
+    let reveal = Arc::clone(&state.reveal);
     let data_dir = state.data_dir.clone();
     tauri::async_runtime::spawn_blocking(move || {
         if SOURCE_OPERATIONS.contains(&operation.as_str()) {
@@ -100,13 +109,26 @@ pub(crate) async fn desktop_request(
                     .try_lock()
                     .map_err(|_| "operation_in_progress".to_owned())?;
                 if guard.is_none() {
-                    *guard = Some(connect(&app, data_dir.as_deref())?);
+                    let bridge = connect(&app, data_dir.as_deref())?;
+                    reset_reveal_authority(&reveal)?;
+                    *guard = Some(bridge);
                 }
-                let status = guard
-                    .as_mut()
-                    .ok_or("bridge_closed")?
-                    .invoke("system.status", json!({}), None, Duration::from_secs(10))
-                    .map_err(|error| error.code())?;
+                let status = match guard.as_mut().ok_or("bridge_closed")?.invoke(
+                    "system.status",
+                    json!({}),
+                    None,
+                    Duration::from_secs(10),
+                ) {
+                    Ok(status) => status,
+                    Err(error) => {
+                        let code = error.code();
+                        if should_invalidate(&error) {
+                            guard.take();
+                            reset_reveal_authority(&reveal)?;
+                        }
+                        return Err(code);
+                    }
+                };
                 PathBuf::from(
                     status
                         .get("brain_root")
@@ -123,7 +145,9 @@ pub(crate) async fn desktop_request(
             .try_lock()
             .map_err(|_| "operation_in_progress".to_owned())?;
         if guard.is_none() {
-            *guard = Some(connect(&app, data_dir.as_deref())?);
+            let bridge = connect(&app, data_dir.as_deref())?;
+            reset_reveal_authority(&reveal)?;
+            *guard = Some(bridge);
         }
         let bridge = guard.as_mut().ok_or_else(|| "bridge_closed".to_owned())?;
         let response = bridge.invoke(&operation, arguments, request_id, Duration::from_secs(10));
@@ -133,33 +157,46 @@ pub(crate) async fn desktop_request(
                     operation.as_str(),
                     "publication.approve" | "publication.edit_and_approve"
                 ) {
-                    let page_id = value
-                        .get("page_id")
-                        .and_then(Value::as_str)
-                        .ok_or_else(|| "malformed_response".to_owned())?;
-                    approved_pages
+                    let page_id = match approved_page_from_decision(&value) {
+                        Ok(page_id) => page_id,
+                        Err(code) => {
+                            guard.take();
+                            reset_reveal_authority(&reveal)?;
+                            return Err(code);
+                        }
+                    };
+                    reveal
                         .lock()
                         .map_err(|_| "operation_in_progress".to_owned())?
-                        .insert(page_id.to_owned());
+                        .approved_pages
+                        .insert(page_id);
                 }
                 if operation == "workspace.refresh" {
-                    let approved = approved_pages
+                    let mut authority = reveal
                         .lock()
                         .map_err(|_| "operation_in_progress".to_owned())?;
-                    let access = managed_notes_from_refresh(&value, &approved)
-                        .map_err(|_| "malformed_response".to_owned())?;
-                    *managed_notes
-                        .lock()
-                        .map_err(|_| "operation_in_progress".to_owned())? = Some(access);
+                    let access = match managed_notes_from_refresh(
+                        &value,
+                        &authority.approved_pages,
+                        authority.session_epoch,
+                    ) {
+                        Ok(access) => access,
+                        Err(()) => {
+                            drop(authority);
+                            guard.take();
+                            reset_reveal_authority(&reveal)?;
+                            return Err("malformed_response".to_owned());
+                        }
+                    };
+                    authority.managed_notes = Some(access);
                 }
                 Ok(value)
             }
             Err(error) => {
                 let code = error.code();
-                if code == "session_exhausted"
-                    || !matches!(error, BridgeError::Server(_) | BridgeError::InvalidRequest)
-                {
+                if should_invalidate(&error) {
                     guard.take();
+                    reset_reveal_authority(&reveal)?;
                 }
                 Err(code)
             }
@@ -175,17 +212,17 @@ pub(crate) async fn desktop_reveal_managed_note(
     vault_path: String,
     relative_path: String,
 ) -> Result<(), String> {
-    let managed_notes = Arc::clone(&state.managed_notes);
+    let session = Arc::clone(&state.session);
+    let reveal = Arc::clone(&state.reveal);
     tauri::async_runtime::spawn_blocking(move || {
-        let selected = {
-            let guard = managed_notes
-                .lock()
-                .map_err(|_| "operation_in_progress".to_owned())?;
-            let access = guard
-                .as_ref()
-                .ok_or_else(|| "note_not_approved".to_owned())?;
-            reveal_path(access, &vault_path, &relative_path)?
-        };
+        let session_guard = session
+            .try_lock()
+            .map_err(|_| "operation_in_progress".to_owned())?;
+        let guard = reveal
+            .lock()
+            .map_err(|_| "operation_in_progress".to_owned())?;
+        let selected =
+            authorized_reveal_path(session_guard.is_some(), &guard, &vault_path, &relative_path)?;
         crate::bridge::reveal_file(&selected).map_err(|error| error.code())
     })
     .await
@@ -195,18 +232,12 @@ pub(crate) async fn desktop_reveal_managed_note(
 #[tauri::command]
 pub(crate) async fn desktop_reconnect(state: State<'_, DesktopState>) -> Result<(), String> {
     let session = Arc::clone(&state.session);
-    let approved_pages = Arc::clone(&state.approved_pages);
-    let managed_notes = Arc::clone(&state.managed_notes);
+    let reveal = Arc::clone(&state.reveal);
     tauri::async_runtime::spawn_blocking(move || {
         let mut guard = session
             .try_lock()
             .map_err(|_| "operation_in_progress".to_owned())?;
-        *approved_pages
-            .lock()
-            .map_err(|_| "operation_in_progress".to_owned())? = HashSet::new();
-        *managed_notes
-            .lock()
-            .map_err(|_| "operation_in_progress".to_owned())? = None;
+        reset_reveal_authority(&reveal)?;
         if let Some(mut bridge) = guard.take()
             && !bridge.shutdown()
         {
@@ -245,6 +276,64 @@ fn connect(app: &AppHandle, data_dir: Option<&Path>) -> Result<Bridge, String> {
     Ok(bridge)
 }
 
+fn should_invalidate(error: &BridgeError) -> bool {
+    matches!(error, BridgeError::SessionExhausted)
+        || !matches!(error, BridgeError::Server(_) | BridgeError::InvalidRequest)
+}
+
+fn reset_reveal_authority(reveal: &Mutex<RevealAuthority>) -> Result<(), String> {
+    let mut authority = reveal
+        .lock()
+        .map_err(|_| "operation_in_progress".to_owned())?;
+    authority.session_epoch = authority.session_epoch.wrapping_add(1);
+    authority.approved_pages.clear();
+    authority.managed_notes = None;
+    Ok(())
+}
+
+fn exact_keys(value: &Value, expected: &[&str]) -> bool {
+    value.as_object().is_some_and(|object| {
+        object.len() == expected.len() && expected.iter().all(|key| object.contains_key(*key))
+    })
+}
+
+fn valid_id(value: &Value, prefix: &str) -> bool {
+    value
+        .as_str()
+        .and_then(|text| text.strip_prefix(&format!("{prefix}_")))
+        .and_then(|id| Uuid::parse_str(id).ok())
+        .is_some()
+}
+
+fn approved_page_from_decision(value: &Value) -> Result<String, String> {
+    let keys = [
+        "status",
+        "outcome",
+        "decision_id",
+        "proposal_id",
+        "page_id",
+        "publication_id",
+        "duplicate",
+        "effective_idempotency_key",
+    ];
+    let status = value.get("status").and_then(Value::as_str);
+    if !exact_keys(value, &keys)
+        || !matches!(status, Some("approved" | "edited"))
+        || value.get("outcome").and_then(Value::as_str) != status
+        || !valid_id(&value["decision_id"], "decision")
+        || !valid_id(&value["proposal_id"], "proposal")
+        || !valid_id(&value["page_id"], "page")
+        || !(value["publication_id"].is_null() || valid_id(&value["publication_id"], "publication"))
+        || !value["duplicate"].is_boolean()
+        || !value["effective_idempotency_key"]
+            .as_str()
+            .is_some_and(|key| !key.is_empty())
+    {
+        return Err("malformed_response".to_owned());
+    }
+    Ok(value["page_id"].as_str().unwrap().to_owned())
+}
+
 pub(crate) fn validate_handshake(value: &Value) -> Result<(), String> {
     let operations = value.get("operations").and_then(Value::as_array);
     if value.get("protocol").and_then(Value::as_str) != Some(PROTOCOL)
@@ -270,7 +359,26 @@ pub(crate) fn validate_handshake(value: &Value) -> Result<(), String> {
 fn managed_notes_from_refresh(
     value: &Value,
     approved_pages: &HashSet<String>,
+    session_epoch: u64,
 ) -> Result<ManagedNotes, ()> {
+    let keys = [
+        "status",
+        "duplicate",
+        "generation",
+        "note_id",
+        "workspace_id",
+        "vault_path",
+        "notes",
+    ];
+    if !exact_keys(value, &keys)
+        || value.get("status").and_then(Value::as_str) != Some("refreshed")
+        || !value["duplicate"].is_boolean()
+        || value["generation"].as_u64().is_none()
+        || !(value["note_id"].is_null() || valid_id(&value["note_id"], "page"))
+        || !valid_id(&value["workspace_id"], "workspace")
+    {
+        return Err(());
+    }
     let wire_vault = PathBuf::from(value.get("vault_path").and_then(Value::as_str).ok_or(())?);
     if !wire_vault.is_absolute()
         || fs::symlink_metadata(&wire_vault)
@@ -284,9 +392,16 @@ fn managed_notes_from_refresh(
     if !canonical_vault.is_dir() {
         return Err(());
     }
+    let vault_metadata = fs::metadata(&canonical_vault).map_err(|_| ())?;
     let notes = value.get("notes").and_then(Value::as_array).ok_or(())?;
     let mut relative_paths = HashSet::new();
     for note in notes {
+        if !exact_keys(note, &["note_id", "revision_id", "relative_path"])
+            || !valid_id(&note["note_id"], "page")
+            || !valid_id(&note["revision_id"], "revision")
+        {
+            return Err(());
+        }
         let note_id = note.get("note_id").and_then(Value::as_str).ok_or(())?;
         if !approved_pages.contains(note_id) {
             continue;
@@ -300,8 +415,11 @@ fn managed_notes_from_refresh(
         relative_paths.insert(relative);
     }
     Ok(ManagedNotes {
+        session_epoch,
         wire_vault,
         canonical_vault,
+        vault_device: vault_metadata.dev(),
+        vault_inode: vault_metadata.ino(),
         relative_paths,
     })
 }
@@ -338,19 +456,43 @@ fn validate_relative_note(vault: &Path, relative: &Path) -> Result<PathBuf, ()> 
 
 fn reveal_path(
     access: &ManagedNotes,
+    session_epoch: u64,
     vault_path: &str,
     relative_path: &str,
 ) -> Result<PathBuf, String> {
     let wire_vault = Path::new(vault_path);
     let relative = Path::new(relative_path);
-    if wire_vault != access.wire_vault || !access.relative_paths.contains(relative) {
+    if access.session_epoch != session_epoch
+        || wire_vault != access.wire_vault
+        || !access.relative_paths.contains(relative)
+    {
         return Err("note_not_approved".to_owned());
     }
     let current_vault = fs::canonicalize(wire_vault).map_err(|_| "unsafe_vault_path".to_owned())?;
     if current_vault != access.canonical_vault {
         return Err("unsafe_vault_path".to_owned());
     }
+    let metadata = fs::metadata(&current_vault).map_err(|_| "unsafe_vault_path".to_owned())?;
+    if metadata.dev() != access.vault_device || metadata.ino() != access.vault_inode {
+        return Err("unsafe_vault_path".to_owned());
+    }
     validate_relative_note(&current_vault, relative).map_err(|_| "unsafe_vault_path".to_owned())
+}
+
+fn authorized_reveal_path(
+    session_active: bool,
+    authority: &RevealAuthority,
+    vault_path: &str,
+    relative_path: &str,
+) -> Result<PathBuf, String> {
+    if !session_active {
+        return Err("note_not_approved".to_owned());
+    }
+    let access = authority
+        .managed_notes
+        .as_ref()
+        .ok_or_else(|| "note_not_approved".to_owned())?;
+    reveal_path(access, authority.session_epoch, vault_path, relative_path)
 }
 
 #[cfg(test)]
@@ -433,33 +575,81 @@ mod tests {
         fs::create_dir(&vault).unwrap();
         fs::write(vault.join("Approved.md"), "synthetic").unwrap();
         let refresh = json!({
+            "status": "refreshed", "duplicate": false, "generation": 1, "note_id": null,
+            "workspace_id": "workspace_123e4567-e89b-42d3-a456-426614174700",
             "vault_path": vault,
-            "notes": [{"note_id": "page_synthetic", "revision_id": "revision_synthetic", "relative_path": "Approved.md"}],
+            "notes": [{"note_id": "page_123e4567-e89b-42d3-a456-426614174400", "revision_id": "revision_123e4567-e89b-42d3-a456-426614174600", "relative_path": "Approved.md"}],
         });
-        let access =
-            managed_notes_from_refresh(&refresh, &HashSet::from(["page_synthetic".to_owned()]))
-                .unwrap();
+        let access = managed_notes_from_refresh(
+            &refresh,
+            &HashSet::from(["page_123e4567-e89b-42d3-a456-426614174400".to_owned()]),
+            7,
+        )
+        .unwrap();
+        let authority = RevealAuthority {
+            session_epoch: 7,
+            approved_pages: HashSet::new(),
+            managed_notes: Some(access),
+        };
         assert_eq!(
-            reveal_path(&access, vault.to_str().unwrap(), "Approved.md").unwrap(),
+            authorized_reveal_path(true, &authority, vault.to_str().unwrap(), "Approved.md")
+                .unwrap(),
             fs::canonicalize(vault.join("Approved.md")).unwrap()
         );
         assert_eq!(
-            reveal_path(&access, vault.to_str().unwrap(), "../outside.md"),
+            authorized_reveal_path(false, &authority, vault.to_str().unwrap(), "Approved.md"),
+            Err("note_not_approved".to_owned())
+        );
+        let access = authority.managed_notes.as_ref().unwrap();
+        assert_eq!(
+            reveal_path(&access, 7, vault.to_str().unwrap(), "../outside.md"),
             Err("note_not_approved".to_owned())
         );
         assert_eq!(
-            reveal_path(&access, vault.to_str().unwrap(), "Other.md"),
+            reveal_path(&access, 7, vault.to_str().unwrap(), "Other.md"),
+            Err("note_not_approved".to_owned())
+        );
+        assert_eq!(
+            reveal_path(&access, 8, vault.to_str().unwrap(), "Approved.md"),
             Err("note_not_approved".to_owned())
         );
         std::os::unix::fs::symlink(directory.path().join("outside.md"), vault.join("Linked.md"))
             .unwrap();
         let unsafe_refresh = json!({
+            "status": "refreshed", "duplicate": false, "generation": 2, "note_id": null,
+            "workspace_id": "workspace_123e4567-e89b-42d3-a456-426614174700",
             "vault_path": vault,
-            "notes": [{"note_id": "page_other", "revision_id": "revision_other", "relative_path": "Linked.md"}],
+            "notes": [{"note_id": "page_123e4567-e89b-42d3-a456-426614174401", "revision_id": "revision_123e4567-e89b-42d3-a456-426614174601", "relative_path": "Linked.md"}],
         });
         assert!(
-            managed_notes_from_refresh(&unsafe_refresh, &HashSet::from(["page_other".to_owned()]))
-                .is_err()
+            managed_notes_from_refresh(
+                &unsafe_refresh,
+                &HashSet::from(["page_123e4567-e89b-42d3-a456-426614174401".to_owned()]),
+                7
+            )
+            .is_err()
         );
+
+        fs::rename(&vault, directory.path().join("old-vault")).unwrap();
+        fs::create_dir(&vault).unwrap();
+        fs::write(vault.join("Approved.md"), "replacement").unwrap();
+        assert_eq!(
+            reveal_path(&access, 7, vault.to_str().unwrap(), "Approved.md"),
+            Err("unsafe_vault_path".to_owned())
+        );
+    }
+
+    #[test]
+    fn session_replacement_clears_all_reveal_authority() {
+        let authority = Mutex::new(RevealAuthority {
+            session_epoch: 3,
+            approved_pages: HashSet::from(["page_123e4567-e89b-42d3-a456-426614174400".to_owned()]),
+            managed_notes: None,
+        });
+        reset_reveal_authority(&authority).unwrap();
+        let authority = authority.lock().unwrap();
+        assert_eq!(authority.session_epoch, 4);
+        assert!(authority.approved_pages.is_empty());
+        assert!(authority.managed_notes.is_none());
     }
 }

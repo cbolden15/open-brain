@@ -8,6 +8,7 @@ import {
   type SearchMode,
   type SearchPage,
 } from "./client";
+import { parseSearchPage, validateT03Wire } from "./t03-wire";
 
 type SearchSnapshot = { query: string; filters: SearchFilters; mode: SearchMode };
 
@@ -77,15 +78,16 @@ export function SearchPanel({ disabled, operations, onCapture }: {
     setStale(false);
     if (!continuation) setOpened(null);
     try {
-      const page = await request<SearchPage>("search.page", {
+      const wireRequest = {
         dto_version: 1,
         query: selected.query,
         filters: selected.filters,
         mode: selected.mode,
         limit: 100,
         cursor: continuation ? nextCursor : null,
-      });
-      if (page.dto_version !== 1 || page.complete !== (page.next_cursor === null)) throw "malformed_response";
+      };
+      validateT03Wire("search.page.request", wireRequest);
+      const page: SearchPage = parseSearchPage(await request<unknown>("search.page", wireRequest));
       setSnapshot(selected);
       setHits(previous => {
         const combined = continuation ? [...previous, ...page.results] : page.results;
@@ -133,7 +135,7 @@ export function SearchPanel({ disabled, operations, onCapture }: {
       <details className="search-filters"><summary>Filters and mode</summary>
         <label>Space IDs<input value={spaceIds} onChange={event => setSpaceIds(event.target.value)} placeholder="space_… separated by commas" /></label>
         <fieldset><legend>Record type</legend>{(["source", "canonical"] as const).map(value => <label key={value}><input type="checkbox" checked={recordTypes.includes(value)} onChange={event => setRecordTypes(toggle(recordTypes, value, event.target.checked))} />{value === "source" ? "Captures" : "Published notes"}</label>)}</fieldset>
-        <fieldset><legend>Payload</legend>{(["text", "document", "media", "reference_or_file"] as const).map(value => <label key={value}><input type="checkbox" checked={payloadFamilies.includes(value)} onChange={event => setPayloadFamilies(toggle(payloadFamilies, value, event.target.checked))} />{value.replaceAll("_", " ")}</label>)}</fieldset>
+        <fieldset><legend>Payload</legend>{(["text", "event", "measurement", "reference_or_file"] as const).map(value => <label key={value}><input type="checkbox" checked={payloadFamilies.includes(value)} onChange={event => setPayloadFamilies(toggle(payloadFamilies, value, event.target.checked))} />{value.replaceAll("_", " ")}</label>)}</fieldset>
         <label>Search mode<select value={mode} onChange={event => setMode(event.target.value as SearchMode)}><option value="lexical">Lexical</option><option value="hybrid_preferred">Hybrid when available</option><option value="hybrid_required">Require hybrid</option></select></label>
       </details>
     </form>
