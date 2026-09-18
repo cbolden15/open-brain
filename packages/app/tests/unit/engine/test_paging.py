@@ -440,3 +440,29 @@ def test_same_inode_directory_rename_invalidates_cursor(tmp_path: Path) -> None:
     with pytest.raises(T03Error, match="cursor_stale"):
         moved.retrieval.search_page(replace(request, cursor=cursor), authority=authority())
     assert wire(moved.retrieval.search_page(request, authority=authority()))["results"]
+
+
+def test_cursor_custody_failure_preserves_legacy_search(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from open_brain_engine.engine.cursors import CursorStore
+
+    profile = compile_single_user_local(tmp_path / "brain")
+    engine = BrainEngine.open(profile)
+    engine.capture.accept(TextPayload("legacy nebula"), delivery_id="legacy")
+    directory = profile.root / ".open-brain/cursors"
+    directory.chmod(0o755)
+    reopened = BrainEngine.open(profile)
+    assert reopened.retrieval.search("nebula")
+    with pytest.raises(T03Error, match="operation_pending"):
+        reopened.retrieval.search_page(SearchPageRequest(query="nebula"), authority=authority())
+    directory.chmod(0o700)
+
+    def unavailable(_store: CursorStore, _name: str, _data: bytes) -> None:
+        raise OSError("synthetic cursor filesystem unavailable")
+
+    monkeypatch.setattr(CursorStore, "_write", unavailable)
+    reopened = BrainEngine.open(profile)
+    assert reopened.retrieval.search("nebula")
+    with pytest.raises(T03Error, match="operation_pending"):
+        reopened.retrieval.search_page(SearchPageRequest(query="nebula"), authority=authority())

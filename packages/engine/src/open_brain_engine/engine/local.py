@@ -245,9 +245,15 @@ class BrainEngine(CaptureOperations, SpaceOperations, ReviewOperations, Retrieva
             connection.close()
         if source_history:
             if startup:
-                from .cursors import CursorStore
+                from contextlib import suppress
 
-                CursorStore(self.profile).bind_root(self)
+                from .cursors import CursorStore
+                from .t03_contracts import T03Error
+
+                # Rebuildable cursor custody cannot block unrelated legacy tasks.
+                # Versioned reads retry this binding and refuse before access.
+                with suppress(T03Error):
+                    CursorStore(self.profile).bind_root(self)
             from .source_intake import quarantine_stale_intakes
 
             quarantine_stale_intakes(self)
