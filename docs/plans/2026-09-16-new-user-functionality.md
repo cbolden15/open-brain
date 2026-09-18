@@ -59,6 +59,19 @@ core boundary. Public promotion still requires exact artifact/platform evidence;
 push, PR, merge, release, live data, OAuth registration, real service installation,
 and model downloads remain separately gated.
 
+### T19 catalog checkpoint boundary
+
+The narrowed catalog contract is frozen in [Core v0.1 T19 catalog](../design/core-v01-t19-catalog.md).
+It joins actual core CLI, grant-filtered MCP and existing plugin bridge registrations
+with package/version observations, separate readiness and acceptance states, and
+explicit source-only/deferred classifications. Inspection must not initialize a Brain
+or contact optional providers. Connector descriptor v1, bridge v1 and `t03.v1`
+remain compatible. Public acceptance is not inferred from the shared 0.1.0 version,
+workspace installation, descriptor booleans or historical receipts. T19 scoped A14
+is [locally verified](../ai/workstreams/20260918-open-brain-public-m3-source-continuity-owner-control-c63538/T19-CHECKPOINT.json).
+T20/T21/T23 remain fresh-thread gates; public artifact, provider, GUI and deferred
+acceptance remain open.
+
 ## Delivery approach
 
 Use an orchestrator-worker workflow with independent verification. The coordinator owns coverage, shared decisions, integration and evidence. Workers own bounded changes. Shared contracts are frozen before adapters fan out. Immediate F1 remediation does not wait for a schema migration or the model work.

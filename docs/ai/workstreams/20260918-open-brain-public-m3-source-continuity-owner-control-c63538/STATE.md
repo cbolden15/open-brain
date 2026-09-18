@@ -3,17 +3,18 @@
 - ID: `20260918-open-brain-public-m3-source-continuity-owner-control-c63538`
 - Repository: `open-brain-public`
 - Branch: `ob-new-user/m3`
-- Verified implementation HEAD: `92f33a1eb95184d86b804b038e4d0dd3d725a8f4`
-- M2 baseline: `3070e33a24ebd1e44a81b51f5d1c9cdb66b46935`
-- Objective: Core v0.1: finish T09, then narrowed T19–T21 and T23.
-- Current checkpoint: T09 locally verified; see [T09-CHECKPOINT.json](T09-CHECKPOINT.json).
-- Independent review: ready; all original and residual findings closed. Independent 54 focused and 21 composed tests passed.
-- Full verification: make verify passed in 303.84 seconds; 2,392 Python tests passed, 5 existing skips; package/plugin/desktop compatibility checks passed.
-- Integrated diff and actionlint: passed. Product source matches the reviewed worker candidate; subsequent fixture fixes are mechanical typing/import changes.
-- T10–T18 and T22: explicitly deferred. Full A06 routing/update continuity and deferred acceptance remain open.
-- Remaining authorized work: narrowed T19 catalog, T20 artifacts, T21 documentation, T23 exact-candidate acceptance.
-- Child sessions used: 2 of 12; both released. No heavy job remains.
-- Authority: local synthetic work only; publication, live sources and real service installation remain separately gated.
-- Private ledger, prompts, reviews, raw logs and exact post-checkpoint handoff remain outside the repository.
-- Checkpoint-only documentation commits may follow the verified implementation HEAD above; private handoff and machine Git identify the exact current checkout.
-- Safe to start a new thread: true after private exact-HEAD handoff validation.
+- Verified implementation HEAD: `6da4f104a16d9a5a454bb1933f2c3aba94c1c0a3`
+- T19 baseline: `87b28051631577632602fbf14ac66ca3d9ad7c2c`
+- Objective: Core v0.1; T09 and narrowed T19 are locally verified.
+- Current checkpoint: [T19-CHECKPOINT.json](T19-CHECKPOINT.json). Prior [T09-CHECKPOINT.json](T09-CHECKPOINT.json) remains authoritative for its scope.
+- T19/A14: scoped core CLI/MCP and existing Obsidian catalog truth verified. Schema 2 is additive; no public certification or deferred acceptance is claimed.
+- Independent review: READY; two metadata findings closed; exact full-gate fixture parity repair independently reviewed without weakening grant checks.
+- Full verification: PASS: 2417 Python tests/5 existing skips; 336-file MyPy; package builds; 291 Obsidian, 259 desktop TypeScript, 1 desktop Python and 26 Rust tests; independent review READY. Elapsed 280.33 seconds.
+- Final diff and actionlint: passed. Desktop, engine, connector and collector implementations are unchanged by T19.
+- Shared child sessions: 4 of 12; two new T19 sessions, reused for repairs and review. All children released.
+- T10–T18/T22 and desktop release remain deferred. Existing Obsidian GUI acceptance remains open.
+- Next: T20, then narrowed T21/T23, in a fresh thread. Do not start the next milestone here.
+- External actions remain closed: push/PR/merge/release, live data/providers, OAuth registration, real service installation/enabling, and model downloads.
+- Raw logs, prompts, reviews, measured usage and exact post-checkpoint handoff remain private; no private data is committed.
+- Checkpoint-only documentation may follow the verified implementation head; private handoff and Git identify the final checkout.
+- Safe to start a new thread: true after validated private exact-HEAD handoff.

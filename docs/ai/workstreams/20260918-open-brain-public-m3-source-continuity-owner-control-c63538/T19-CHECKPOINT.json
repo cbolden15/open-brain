@@ -1,0 +1,461 @@
+{
+  "status": "LOCALLY_VERIFIED",
+  "milestone": "T19",
+  "scope": "Core-v0.1",
+  "baseline": "87b28051631577632602fbf14ac66ca3d9ad7c2c",
+  "verified_implementation_head": "6da4f104a16d9a5a454bb1933f2c3aba94c1c0a3",
+  "catalog_schema_version": 2,
+  "acceptance": {
+    "A14": "Narrowed core CLI/MCP and existing Obsidian catalog truth locally verified; broader artifact/platform/provider/GUI and deferred acceptance remain open."
+  },
+  "surfaces": {
+    "core_candidate": [
+      "core CLI",
+      "stdio MCP",
+      "existing Obsidian plugin bridge/workflow",
+      "immutable records and publication",
+      "lexical search and complete reads",
+      "history and explicit relationships",
+      "managed vault and graph projections"
+    ],
+    "new_inspection_operations": [
+      "open-brain catalog --json [--schema-version 2]",
+      "brain_catalog with schema_version 2",
+      "catalog.describe with schema_version 2"
+    ],
+    "public_certifications": [],
+    "source_only_descriptors": [
+      "agent_session",
+      "calendar",
+      "confluence",
+      "github",
+      "gitlab",
+      "gmail",
+      "google_drive",
+      "imessage",
+      "jira",
+      "local_document",
+      "meeting_transcript",
+      "microsoft_mail",
+      "notion",
+      "slack",
+      "web_clip"
+    ],
+    "additional_source_only": [
+      "YouTube conformance extension",
+      "optional collector recovery",
+      "direct-provider graph refresh implementation; authorization/readiness unassessed"
+    ],
+    "deferred_capabilities": [
+      "connected_source_continuity",
+      "desktop_release",
+      "google_oauth_provider_readiness",
+      "linux_service_lifecycle",
+      "local_pdf_docx_public_integration",
+      "markdown_root_rebind",
+      "retire_correct_selective_forget",
+      "semantic_recall",
+      "slack_public_integration"
+    ],
+    "deferred_tasks": [
+      "T10",
+      "T11",
+      "T12",
+      "T13",
+      "T14",
+      "T15",
+      "T16",
+      "T17",
+      "T18",
+      "T22"
+    ],
+    "desktop": "Completed contributor code and compatibility tests preserved; further features, GUI and release deferred.",
+    "declared_artifact_platforms": [
+      "linux-x86_64",
+      "macos-arm64"
+    ],
+    "registered_cli_commands": [
+      [
+        "agent",
+        "setup"
+      ],
+      [
+        "capture"
+      ],
+      [
+        "catalog"
+      ],
+      [
+        "decision",
+        "history"
+      ],
+      [
+        "doctor"
+      ],
+      [
+        "export"
+      ],
+      [
+        "graph",
+        "accept"
+      ],
+      [
+        "graph",
+        "canvas"
+      ],
+      [
+        "graph",
+        "exclude"
+      ],
+      [
+        "graph",
+        "grant-consent"
+      ],
+      [
+        "graph",
+        "include"
+      ],
+      [
+        "graph",
+        "projection"
+      ],
+      [
+        "graph",
+        "refresh-structural"
+      ],
+      [
+        "graph",
+        "revoke-consent"
+      ],
+      [
+        "graph",
+        "suggestions"
+      ],
+      [
+        "history",
+        "list"
+      ],
+      [
+        "history",
+        "show"
+      ],
+      [
+        "import"
+      ],
+      [
+        "inbox",
+        "list"
+      ],
+      [
+        "inbox",
+        "route"
+      ],
+      [
+        "init"
+      ],
+      [
+        "mcp"
+      ],
+      [
+        "obsidian-plugin",
+        "install"
+      ],
+      [
+        "obsidian-plugin",
+        "remove"
+      ],
+      [
+        "obsidian-plugin",
+        "status"
+      ],
+      [
+        "plugin"
+      ],
+      [
+        "read"
+      ],
+      [
+        "relationship",
+        "decide"
+      ],
+      [
+        "relationship",
+        "list"
+      ],
+      [
+        "review",
+        "approve"
+      ],
+      [
+        "review",
+        "edit-and-approve"
+      ],
+      [
+        "review",
+        "list"
+      ],
+      [
+        "review",
+        "propose"
+      ],
+      [
+        "review",
+        "reject"
+      ],
+      [
+        "review",
+        "show"
+      ],
+      [
+        "search"
+      ],
+      [
+        "search-page"
+      ],
+      [
+        "source",
+        "route"
+      ],
+      [
+        "space",
+        "create"
+      ],
+      [
+        "space",
+        "list"
+      ],
+      [
+        "space",
+        "rename"
+      ],
+      [
+        "status"
+      ],
+      [
+        "workspace",
+        "accept"
+      ],
+      [
+        "workspace",
+        "deactivate"
+      ],
+      [
+        "workspace",
+        "materialize"
+      ],
+      [
+        "workspace",
+        "observe"
+      ],
+      [
+        "workspace",
+        "recover"
+      ],
+      [
+        "workspace",
+        "refresh"
+      ],
+      [
+        "workspace",
+        "resolve"
+      ],
+      [
+        "workspace",
+        "restore"
+      ],
+      [
+        "workspace",
+        "setup"
+      ],
+      [
+        "workspace",
+        "status"
+      ]
+    ],
+    "registered_mcp_tools": [
+      "brain_catalog",
+      "brain_contract_describe",
+      "brain_search_page",
+      "brain_read",
+      "brain_history_list",
+      "brain_history_show",
+      "brain_source_route",
+      "brain_capture",
+      "brain_search",
+      "brain_inbox_list",
+      "brain_space_list",
+      "brain_space_create",
+      "brain_space_rename",
+      "brain_inbox_route",
+      "brain_review_list",
+      "brain_review_show",
+      "brain_review_propose",
+      "brain_review_approve",
+      "brain_review_reject",
+      "brain_review_edit_and_approve",
+      "brain_workspace_status",
+      "brain_graph_suggestions",
+      "brain_graph_projection",
+      "brain_graph_refresh"
+    ],
+    "bridge_registries": {
+      "base_operations": [
+        "agent.setup.apply",
+        "agent.setup.preview",
+        "brain.initialize",
+        "capture.create",
+        "catalog.describe",
+        "contract.describe",
+        "graph.accept",
+        "graph.canvas",
+        "graph.refresh_semantic",
+        "graph.refresh_structural",
+        "graph.review",
+        "graph.suggestions",
+        "inbox.list",
+        "inbox.route",
+        "policy.exclusions",
+        "policy.set_exclusion",
+        "provider.configure",
+        "provider.remove",
+        "provider.status",
+        "publication.approve",
+        "publication.edit_and_approve",
+        "publication.list",
+        "publication.propose",
+        "publication.reject",
+        "publication.show",
+        "search.query",
+        "space.create",
+        "space.list",
+        "space.rename",
+        "system.handshake",
+        "system.status",
+        "workspace.conflict_review",
+        "workspace.conflicts",
+        "workspace.reconcile",
+        "workspace.refresh",
+        "workspace.resolve",
+        "workspace.setup",
+        "workspace.status"
+      ],
+      "negotiated_operations": [
+        "history.list",
+        "history.show",
+        "record.read",
+        "search.page",
+        "source.route"
+      ],
+      "optional_collector_operations": [
+        "collector.disable",
+        "collector.enable",
+        "collector.pause",
+        "collector.resume",
+        "collector.schedule",
+        "collector.status",
+        "collector.sync_now"
+      ]
+    },
+    "discovery_limit": "Registration is not executable availability, authorization, operational readiness, UI proof or public acceptance."
+  },
+  "compatibility": {
+    "bridge_protocol": 1,
+    "catalog_schema": 2,
+    "portable_metadata": 4,
+    "runtime_session": 2,
+    "state_schema": 7,
+    "task_contract": "t03.v1",
+    "legacy_connector_descriptor": 1,
+    "legacy_search_and_grants": "preserved",
+    "new_dependencies": [],
+    "storage_migration": false
+  },
+  "independent_review": {
+    "model": "gpt-6-astra",
+    "effort": "high",
+    "status": "READY",
+    "resolved_metadata_findings": 2,
+    "unresolved_actionable_findings": 0,
+    "final_catalog_mcp_bridge_tests": 129,
+    "fixture_delta_tests": 6,
+    "reviewed_app_source_test_sha256": "ac137642be0314a1290e7360568f04467f032b0558958550548525c62f8bce77",
+    "scope": "Separate reviewer verified F1/F2 closure, request-bound MCP size refusal, grant/compatibility parity and the exact two-file full-gate fixture delta."
+  },
+  "checks": {
+    "focused_command": "uv run pytest -q packages/app/tests/unit/test_catalog.py packages/app/tests/integration/services/test_local_entrypoints.py packages/app/tests/integration/services/test_local_mcp.py packages/app/tests/unit/test_plugin_bridge.py packages/app/tests/unit/test_obsidian_plugin.py packages/app/tests/integration/services/test_managed_cli_mcp.py packages/app/tests/unit/test_t03_adapters.py packages/app/tests/unit/test_managed_providers.py packages/connectors/tests/contract/test_source_cli.py",
+    "focused_passed": 256,
+    "catalog_negative_tests_subset": 25,
+    "fixture_command": "uv run pytest -q tests/security/test_architecture_boundaries.py tests/release/test_review_publish_acceptance.py",
+    "fixture_passed": 6,
+    "focused_ruff_mypy": "passed",
+    "coordinator_smoke": {
+      "status": "passed",
+      "candidate": "T19 repaired source tree",
+      "tests": [
+        "separate-process CLI with synthetic HOME/XDG",
+        "deterministic byte-identical JSON",
+        "empty trusted public certification",
+        "unsupported schema and enable action refused",
+        "no-grant MCP refused",
+        "no Brain/config files created and no synthetic private paths returned"
+      ],
+      "catalog_sha256": "bf645ed16dd3c7a418d19dde37a6c1eced0095c465471cfe319c3c11fa5d8ef2",
+      "catalog_bytes": 14860,
+      "cli_registration_nodes": 52,
+      "mcp_registered_tools": 24,
+      "optional_source_descriptors": 15,
+      "deferred_classifications": 9
+    },
+    "make_verify": {
+      "status": "passed",
+      "command": "make -j1 verify",
+      "head": "6da4f104a16d9a5a454bb1933f2c3aba94c1c0a3",
+      "elapsed_seconds": 280.33,
+      "python_passed": 2417,
+      "existing_filesystem_skips": 5,
+      "mypy_files": 336,
+      "obsidian_tests": 291,
+      "desktop_typescript_tests": 259,
+      "desktop_python_tests": 1,
+      "rust_tests": 26,
+      "package_builds": [
+        "engine",
+        "app",
+        "connectors",
+        "collector"
+      ],
+      "lint_typecheck_builds": "passed"
+    },
+    "first_full_attempt": "Two exact test-fixture inventory failures; 2415 passed and 5 existing skips. Minimal equality-preserving fixture repair independently reviewed; complete rerun passed.",
+    "git_diff_check": "passed",
+    "actionlint": "passed"
+  },
+  "remaining_risks": [
+    "Conservative version/requirement projection may under-report compatibility for noncanonical third-party packaging; it never promotes public state.",
+    "Executable availability, provider authorization, runtime readiness and Obsidian enablement remain unassessed where inspection has no evidence.",
+    "Historical M2/T09 evidence is not exact-candidate public certification; trusted public certifications remain empty.",
+    "T20 core artifacts/platform proof, T21 documentation acceptance and T23 exact-candidate acceptance require fresh-thread work. Obsidian observed GUI acceptance remains open.",
+    "No package metadata or native build configuration changed; no new native/public artifact acceptance is claimed.",
+    "T10-T18/T22 and desktop release remain deferred, not passed."
+  ],
+  "usage": {
+    "started_at": "2026-09-18T15:01:02.825481+00:00",
+    "checkpoint_at": "2026-09-18T15:55:22.812931+00:00",
+    "elapsed_seconds": 3259.99,
+    "new_child_sessions": 2,
+    "shared_child_sessions_used": 4,
+    "shared_child_session_cap": 12,
+    "active_children": 0,
+    "first_full_verify_elapsed_seconds": 236.54,
+    "final_full_verify_elapsed_seconds": 280.33,
+    "token_usage": null,
+    "cost": null,
+    "unavailable_metrics": "Current root runner exposes no token/cost receipt before turn completion; replayed child counters are not summed."
+  },
+  "next_action": "Start T20 in a fresh thread, then narrowed T21/T23. No push/PR/merge/release, live providers/data, OAuth registration, real services or model downloads authorized.",
+  "handoff_validation": {
+    "status": "passed",
+    "packet_version": 1,
+    "head_policy": "Repository packet names verified implementation; private packet tracks subsequent documentation-only final HEAD."
+  }
+}

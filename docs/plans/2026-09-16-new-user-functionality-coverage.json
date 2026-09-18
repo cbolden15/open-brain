@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "status": "m1_merged_m2_core_local_verified_obsidian_gui_pending_desktop_deferred",
+  "status": "core_v01_t09_t19_local_verified_delivery_gates_pending",
   "baseline_commit": "33a7472f06516753c5c66d76eac8e60538c2660f",
   "assessment": "docs/audits/2026-09-16-new-user-functional-assessment.md",
   "plan": "docs/plans/2026-09-16-new-user-functionality.md",
@@ -39,7 +39,8 @@
         "T22"
       ],
       "acceptance": "Deferred task acceptance remains open; source verification does not establish public artifact or platform readiness.",
-      "t09_checkpoint": "docs/ai/workstreams/20260918-open-brain-public-m3-source-continuity-owner-control-c63538/T09-CHECKPOINT.json"
+      "t09_checkpoint": "docs/ai/workstreams/20260918-open-brain-public-m3-source-continuity-owner-control-c63538/T09-CHECKPOINT.json",
+      "t19_checkpoint": "docs/ai/workstreams/20260918-open-brain-public-m3-source-continuity-owner-control-c63538/T19-CHECKPOINT.json"
     }
   },
   "active": [
@@ -295,8 +296,11 @@
         "A14",
         "A16"
       ],
-      "status": "planned",
-      "evidence": []
+      "status": "t19_scoped_local_verified_t21_pending",
+      "evidence": [
+        "docs/ai/workstreams/20260918-open-brain-public-m3-source-continuity-owner-control-c63538/T19-CHECKPOINT.json"
+      ],
+      "acceptance_limit": "Scoped A14 only; A16/T21, public promotion and deferred-surface acceptance remain open."
     },
     {
       "id": "W7",
@@ -392,6 +396,27 @@
         "T07",
         "T08"
       ]
+    },
+    "T09": {
+      "tasks": [
+        "T09"
+      ],
+      "status": "locally_verified",
+      "evidence": [
+        "docs/ai/workstreams/20260918-open-brain-public-m3-source-continuity-owner-control-c63538/T09-CHECKPOINT.json"
+      ],
+      "acceptance_limit": "A06 containment/custody subset only; deferred T10 continuity remains open."
+    },
+    "T19": {
+      "tasks": [
+        "T19"
+      ],
+      "status": "scoped_core_catalog_locally_verified",
+      "evidence": [
+        "docs/design/core-v01-t19-catalog.md",
+        "docs/ai/workstreams/20260918-open-brain-public-m3-source-continuity-owner-control-c63538/T19-CHECKPOINT.json"
+      ],
+      "acceptance_limit": "Narrowed core CLI/MCP and existing Obsidian catalog truth locally verified; broader artifact/platform/provider/GUI and deferred acceptance remain open."
     }
   },
   "surface_deferrals": {

@@ -2,23 +2,24 @@
   "packet_version": 1,
   "status": "in_progress",
   "workstream": "20260918-open-brain-public-m3-source-continuity-owner-control-c63538",
-  "milestone": "Core-v0.1-T09-local-verified",
+  "milestone": "Core-v0.1-T19-local-verified",
   "branch": "ob-new-user/m3",
-  "head": "92f33a1eb95184d86b804b038e4d0dd3d725a8f4",
+  "head": "6da4f104a16d9a5a454bb1933f2c3aba94c1c0a3",
   "last_verified": {
-    "command": "make verify; git diff --check; actionlint .github/workflows/ci.yml",
-    "result": "PASS: 2392 Python tests,5 existing skips; package/plugin/desktop checks; independent review READY"
+    "command": "make -j1 verify; git diff --check; actionlint .github/workflows/ci.yml",
+    "result": "PASS: 2417 Python tests/5 existing skips; 336-file MyPy; package builds; 291 Obsidian, 259 desktop TypeScript, 1 desktop Python and 26 Rust tests; independent review READY"
   },
   "changes": [
-    "packages/collector",
-    "packages/engine/src/open_brain_engine/engine",
-    "packages/app/tests/integration/services/test_m3_collector_recovery.py",
-    "docs/integrations/collector-recovery.md",
-    "docs/design/m3-t09-collector-recovery.md",
-    "docs/plans/2026-09-16-new-user-functionality.md"
+    "packages/app/src/open_brain/services",
+    "packages/app/tests",
+    "tests/security/test_architecture_boundaries.py",
+    "tools/open_brain_dev/review_publish_acceptance.py",
+    "docs/design/core-v01-t19-catalog.md",
+    "docs/plans/2026-09-16-new-user-functionality-coverage.json",
+    "docs/ai/workstreams/20260918-open-brain-public-m3-source-continuity-owner-control-c63538/T19-CHECKPOINT.json"
   ],
   "blocker": null,
-  "next_action": "Begin narrowed T19 catalog truth from verified T09 checkpoint; then T20-T21/T23. T10-T18/T22 remain deferred; external actions remain gated.",
+  "next_action": "Start T20 in a fresh thread, then narrowed T21/T23. No push/PR/merge/release, live providers/data, OAuth registration, real services or model downloads authorized.",
   "safe_to_start_new_thread": true,
-  "head_policy": "Verified implementation head; private exact-HEAD handoff accounts for subsequent checkpoint-only documentation commits."
+  "head_policy": "Verified implementation head; private exact-HEAD handoff accounts for subsequent checkpoint-only documentation commit."
 }
