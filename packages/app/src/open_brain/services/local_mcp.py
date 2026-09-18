@@ -520,6 +520,8 @@ class LocalMcpAdapter:
                                 "type": "array",
                                 "items": {
                                     "type": "string",
+                                    "minLength": 42,
+                                    "maxLength": 42,
                                     "pattern": (
                                         "^space_[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-"
                                         "[0-9a-f]{4}-[0-9a-f]{12}$"

@@ -189,6 +189,8 @@ def test_mcp_registry_lists_only_negotiated_tools_and_keeps_content_typed() -> N
             "type": "array",
             "items": {
                 "type": "string",
+                "minLength": 42,
+                "maxLength": 42,
                 "pattern": (
                     "^space_[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-"
                     "[0-9a-f]{4}-[0-9a-f]{12}$"
@@ -224,6 +226,18 @@ def test_mcp_registry_lists_only_negotiated_tools_and_keeps_content_typed() -> N
                 "filters": {
                     "space_ids": [],
                     "payload_families": ["bogus"],
+                    "record_types": [],
+                },
+            }
+        )
+    with pytest.raises(ValidationError):
+        Draft202012Validator(search_tool["inputSchema"]).validate(
+            {
+                "dto_version": 1,
+                "query": "synthetic launch",
+                "filters": {
+                    "space_ids": ["space_123e4567-e89b-42d3-a456-426614174500\n"],
+                    "payload_families": [],
                     "record_types": [],
                 },
             }
