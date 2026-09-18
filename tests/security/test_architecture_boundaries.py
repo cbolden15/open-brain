@@ -48,6 +48,7 @@ def test_application_package_contains_only_foreground_local_surfaces() -> None:
         "profile.py",
         "services/__init__.py",
         "services/agent_setup.py",
+        "services/catalog.py",
         "services/local_bootstrap.py",
         "services/local_entrypoints.py",
         "services/graphify_projection.py",

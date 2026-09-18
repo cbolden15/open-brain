@@ -352,7 +352,7 @@ class _Acceptance:
                 ),
             ),
         )
-        if tools != {"brain_review_list", "brain_review_show"}:
+        if tools != {"brain_catalog", "brain_review_list", "brain_review_show"}:
             raise AcceptanceFailure("read-only review grant exposed unexpected MCP tools")
         denial = responses[0]
         denied = "error" in denial or bool(_object(denial, "result").get("isError"))
@@ -366,6 +366,7 @@ class _Acceptance:
         self._claude_entry = self._configure("claude-code", self.claude_project, grants)
         self._codex_entry = self._configure("codex", self.codex_project, grants)
         expected_tools = {
+            "brain_catalog",
             "brain_review_list",
             "brain_review_show",
             "brain_review_propose",
