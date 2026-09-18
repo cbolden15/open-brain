@@ -23,6 +23,8 @@ from open_brain_engine.core.models import (
 )
 from open_brain_engine.engine import (
     CaptureAction,
+    DecisionOutcome,
+    ProposalDraft,
     PublicJobCaptureContext,
     TextPayload,
     open_local_engine,
@@ -862,6 +864,83 @@ def test_owner_cli_reads_complete_validated_imported_file_projection(tmp_path: P
     assert read["complete"] is True
     text = cast(str, cast(dict[str, object], read["content"])["text"])
     assert text == "Imported.md text/markdown " + body
+
+
+def test_owner_cli_lists_and_reads_historical_unicode_revision_across_invocations(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "brain"
+    tasks = open_local_engine(compile_single_user_local(root, starter_spaces=("Notes",)))
+    space = tasks.inbox.spaces()[0]
+    source = tasks.capture.accept(
+        TextPayload("history source"),
+        delivery_id="cli.history.source",
+        space_id=space.space_id,
+    )
+    old_body = "Historical CLI é🙂é 漢字\n" * 2000
+    first = tasks.review.propose(
+        (source.capture_id,),
+        (ProposalDraft("Historical CLI", old_body),),
+        delivery_id="cli.history.first",
+    )[0]
+    approved = tasks.review.decide(
+        first.proposal_id,
+        DecisionOutcome.APPROVED,
+        delivery_id="cli.history.first.decision",
+        expected_review_digest=first.review_digest,
+    )
+    assert approved.page_id is not None
+    second = tasks.review.propose(
+        (source.capture_id,),
+        (ProposalDraft("Current CLI", "Current CLI body"),),
+        delivery_id="cli.history.second",
+        target_page_id=approved.page_id,
+    )[0]
+    tasks.review.decide(
+        second.proposal_id,
+        DecisionOutcome.APPROVED,
+        delivery_id="cli.history.second.decision",
+        expected_review_digest=second.review_digest,
+    )
+
+    first_page = _subprocess_cli(root, "history", "list", approved.page_id, "--limit", "1")
+    current = cast(list[dict[str, object]], first_page["entries"])[0]
+    assert current["is_current"] is True
+    assert first_page["complete"] is False
+    tail = _subprocess_cli(
+        root,
+        "history",
+        "list",
+        approved.page_id,
+        "--limit",
+        "1",
+        "--cursor",
+        cast(str, first_page["next_cursor"]),
+    )
+    historical = cast(list[dict[str, object]], tail["entries"])[0]
+    assert historical["is_current"] is False
+    assert current["predecessor_revision_id"] == historical["revision_id"]
+
+    base_arguments = [
+        "history",
+        "show",
+        approved.page_id,
+        "--expected-revision-id",
+        cast(str, historical["revision_id"]),
+        "--target-bytes",
+        "32768",
+    ]
+    arguments = base_arguments
+    chunks: list[str] = []
+    while True:
+        response = _subprocess_cli(root, *arguments)
+        chunks.append(cast(str, cast(dict[str, object], response["content"])["text"]))
+        if response["complete"]:
+            break
+        arguments = [*base_arguments, "--cursor", cast(str, response["next_cursor"])]
+    reconstructed = "".join(chunks)
+    assert TextPayload(old_body).text in reconstructed
+    assert "Current CLI body" not in reconstructed
 
 def test_local_search_reconciles_owner_markdown_and_renders_one_safe_line(
     tmp_path: Path,

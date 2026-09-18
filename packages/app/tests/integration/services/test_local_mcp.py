@@ -16,6 +16,8 @@ import pytest
 from open_brain_engine.engine import (
     CaptureReceipt,
     CaptureTask,
+    DecisionOutcome,
+    ProposalDraft,
     PublicJobCaptureSink,
     TextPayload,
     open_local_engine,
@@ -903,7 +905,10 @@ def test_entrypoint_admits_standalone_negotiated_read_grants(
     ("flag", "expected"),
     [
         ("--allow-content-read", ["brain_contract_describe", "brain_read"]),
-        ("--allow-history-read", ["brain_contract_describe"]),
+        (
+            "--allow-history-read",
+            ["brain_contract_describe", "brain_history_list", "brain_history_show"],
+        ),
     ],
 )
 def test_live_negotiated_grant_describes_only_implemented_contract(
@@ -919,7 +924,9 @@ def test_live_negotiated_grant_describes_only_implemented_contract(
         described = _exchange(process, _call("brain_contract_describe", {}, 3))
         operations = described["result"]["structuredContent"]["operations"]
         assert [operation["name"] for operation in operations] == (
-            ["record.read"] if flag == "--allow-content-read" else []
+            ["record.read"]
+            if flag == "--allow-content-read"
+            else ["history.list", "history.show"]
         )
         assert process.stdin is not None
         process.stdin.close()
@@ -1034,6 +1041,117 @@ def test_live_mcp_engine_retrieval_grants_and_cursor_failures(tasks: Any) -> Non
         ]
     finally:
         for child in (process, other):
+            if child.stdin is not None and not child.stdin.closed:
+                child.stdin.close()
+            if child.poll() is None:
+                child.wait(timeout=10)
+            assert child.stderr is not None and child.stderr.read() == ""
+
+
+def test_live_mcp_history_list_show_cursor_and_independent_grant(tasks: Any) -> None:
+    space = tasks.spaces.create_space("MCP History", delivery_id="mcp.history.space")
+    source = tasks.capture.accept(
+        TextPayload("MCP history source"),
+        delivery_id="mcp.history.source",
+        space_id=space.space_id,
+    )
+    bodies = ["Old MCP é🙂é 漢字\n" * 2000, "Middle MCP body", "Current MCP body"]
+    page_id: str | None = None
+    for index, body in enumerate(bodies):
+        proposal = tasks.review.propose(
+            (source.capture_id,),
+            (ProposalDraft(f"MCP history {index}", body),),
+            delivery_id=f"mcp.history.proposal.{index}",
+            target_page_id=page_id,
+        )[0]
+        decision = tasks.review.decide(
+            proposal.proposal_id,
+            DecisionOutcome.APPROVED,
+            delivery_id=f"mcp.history.decision.{index}",
+            expected_review_digest=proposal.review_digest,
+        )
+        page_id = decision.page_id
+    assert page_id is not None
+
+    process = _start(tasks.profile.root, "--allow-history-read")
+    other = _start(tasks.profile.root, "--allow-history-read")
+    content_only = _start(tasks.profile.root, "--allow-content-read")
+    try:
+        for child in (process, other, content_only):
+            assert "result" in _exchange(child, INITIALIZE)
+        listed = _exchange(process, {"jsonrpc": "2.0", "id": 2, "method": "tools/list"})
+        assert {tool["name"] for tool in listed["result"]["tools"]} == {
+            "brain_contract_describe",
+            "brain_history_list",
+            "brain_history_show",
+        }
+        first = _exchange(
+            process,
+            _call(
+                "brain_history_list",
+                {"dto_version": 1, "record_id": page_id, "limit": 2},
+                3,
+            ),
+        )["result"]["structuredContent"]
+        entries = first["entries"]
+        assert len(entries) == 2
+        assert entries[0]["is_current"] is True
+        assert entries[1]["is_current"] is False
+        cursor = first["next_cursor"]
+
+        cross_session = _exchange(
+            other,
+            _call(
+                "brain_history_list",
+                {"dto_version": 1, "record_id": page_id, "limit": 2, "cursor": cursor},
+                4,
+            ),
+        )
+        assert cross_session["result"]["content"] == [
+            {"type": "text", "text": "cursor_invalid"}
+        ]
+        tail = _exchange(
+            process,
+            _call(
+                "brain_history_list",
+                {"dto_version": 1, "record_id": page_id, "limit": 2, "cursor": cursor},
+                5,
+            ),
+        )["result"]["structuredContent"]
+        assert tail["complete"] is True
+        old_revision = tail["entries"][0]["revision_id"]
+
+        arguments: dict[str, object] = {
+            "dto_version": 1,
+            "record_id": page_id,
+            "expected_revision_id": old_revision,
+            "target_bytes": 32_768,
+        }
+        chunks: list[str] = []
+        while True:
+            shown = _exchange(process, _call("brain_history_show", arguments, 6))[
+                "result"
+            ]["structuredContent"]
+            assert shown["record"]["revision_id"] == old_revision
+            chunks.append(shown["content"]["text"])
+            if shown["complete"]:
+                break
+            arguments = {**arguments, "cursor": shown["next_cursor"]}
+        assert TextPayload(bodies[0]).text in "".join(chunks)
+
+        denied = _exchange(
+            content_only,
+            _call(
+                "brain_history_list",
+                {"dto_version": 1, "record_id": page_id},
+                7,
+            ),
+        )
+        assert denied["result"]["content"] == [
+            {"type": "text", "text": "unsupported_capability"}
+        ]
+    finally:
+        for child in (process, other, content_only):
             if child.stdin is not None and not child.stdin.closed:
                 child.stdin.close()
             if child.poll() is None:

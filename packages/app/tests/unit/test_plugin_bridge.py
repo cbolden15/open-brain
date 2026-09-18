@@ -10,9 +10,11 @@ from typing import cast
 import pytest
 from open_brain_engine.engine import (
     CaptureAction,
+    DecisionOutcome,
     ManagedAccessMode,
     ManagedProvider,
     ManagedWorkspaceFailure,
+    ProposalDraft,
     TextPayload,
     canonical_json_bytes,
 )
@@ -130,6 +132,16 @@ def test_contract_discovery_exposes_only_implemented_negotiated_tasks(tmp_path: 
             "dto_version": 1,
             "name": "record.read",
             "required_grants": ["content-read"],
+        },
+        {
+            "dto_version": 1,
+            "name": "history.list",
+            "required_grants": ["history-read"],
+        },
+        {
+            "dto_version": 1,
+            "name": "history.show",
+            "required_grants": ["history-read"],
         },
         {
             "dto_version": 1,
@@ -277,6 +289,102 @@ def test_separate_stdio_sessions_reject_cursor_when_first_request_ids_match(
     )
     assert second["ok"] is False
     assert cast(dict[str, object], second["error"])["code"] == "cursor_invalid"
+
+
+def test_bridge_lists_and_reads_actual_history_with_session_bound_cursor(
+    tmp_path: Path,
+) -> None:
+    selection = _selection(tmp_path)
+    assert _call(selection, "brain.initialize")["ok"] is True
+    with open_local_brain(selection, filesystem_type_probe=_filesystem) as session:
+        space = session.tasks.spaces.create_space(
+            "Bridge History", delivery_id="bridge.history.space"
+        )
+        source = session.tasks.capture.accept(
+            TextPayload("bridge history source"),
+            delivery_id="bridge.history.source",
+            space_id=space.space_id,
+        )
+        bodies = [
+            "Old bridge é🙂é 漢字\n" * 2000,
+            "Middle bridge body",
+            "Current bridge body",
+        ]
+        page_id: str | None = None
+        for index, body in enumerate(bodies):
+            proposal = session.tasks.review.propose(
+                (source.capture_id,),
+                (ProposalDraft(f"Bridge history {index}", body),),
+                delivery_id=f"bridge.history.proposal.{index}",
+                target_page_id=page_id,
+            )[0]
+            decision = session.tasks.review.decide(
+                proposal.proposal_id,
+                DecisionOutcome.APPROVED,
+                delivery_id=f"bridge.history.decision.{index}",
+                expected_review_digest=proposal.review_digest,
+            )
+            page_id = decision.page_id
+        assert page_id is not None
+
+        runtime = PluginRuntimeState(None)
+        first = dispatch_plugin_request(
+            session,
+            "history.list",
+            {"dto_version": 1, "record_id": page_id, "limit": 2},
+            request_id=f"plugin_{uuid.uuid4()}",
+            base_executable=None,
+            runtime=runtime,
+        )
+        entries = cast(list[dict[str, object]], first["entries"])
+        assert [entry["is_current"] for entry in entries] == [True, False]
+        cursor = cast(str, first["next_cursor"])
+        with pytest.raises(PluginBridgeFailure, match="^cursor_invalid$"):
+            dispatch_plugin_request(
+                session,
+                "history.list",
+                {"dto_version": 1, "record_id": page_id, "limit": 2, "cursor": cursor},
+                request_id=f"plugin_{uuid.uuid4()}",
+                base_executable=None,
+                runtime=PluginRuntimeState(None),
+            )
+        tail = dispatch_plugin_request(
+            session,
+            "history.list",
+            {"dto_version": 1, "record_id": page_id, "limit": 2, "cursor": cursor},
+            request_id=f"plugin_{uuid.uuid4()}",
+            base_executable=None,
+            runtime=runtime,
+        )
+        historical = cast(list[dict[str, object]], tail["entries"])[0]
+        assert historical["is_current"] is False
+
+        arguments: dict[str, object] = {
+            "dto_version": 1,
+            "record_id": page_id,
+            "expected_revision_id": historical["revision_id"],
+            "target_bytes": 32_768,
+        }
+        chunks: list[str] = []
+        while True:
+            shown = dispatch_plugin_request(
+                session,
+                "history.show",
+                arguments,
+                request_id=f"plugin_{uuid.uuid4()}",
+                base_executable=None,
+                runtime=runtime,
+            )
+            assert cast(dict[str, object], shown["record"])["revision_id"] == historical[
+                "revision_id"
+            ]
+            chunks.append(cast(str, cast(dict[str, object], shown["content"])["text"]))
+            if shown["complete"]:
+                break
+            arguments = {**arguments, "cursor": shown["next_cursor"]}
+        reconstructed = "".join(chunks)
+        assert TextPayload(bodies[0]).text in reconstructed
+        assert bodies[-1] not in reconstructed
 
 
 def test_bridge_dispatches_implemented_source_route(tmp_path: Path) -> None:
