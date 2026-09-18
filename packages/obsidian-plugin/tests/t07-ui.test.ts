@@ -47,8 +47,8 @@ vi.mock("obsidian", () => {
     }
   }
   class FileSystemAdapter {
-    public constructor(readonly basePath = "") {}
-    public getBasePath(): string { return this.basePath; }
+    public constructor(readonly basePath = "", readonly onGetBasePath = () => {}) {}
+    public getBasePath(): string { this.onGetBasePath(); return this.basePath; }
   }
   class TFile { public constructor(readonly path = "") {} }
   return {
@@ -269,6 +269,39 @@ describe("actual T07 modals", () => {
     expect(harness.openFile).not.toHaveBeenCalled();
   });
 
+  it("does not register a missing-file wait after unload during managed-vault validation", async () => {
+    const nativeSetTimeout = globalThis.setTimeout;
+    vi.spyOn(globalThis, "setTimeout").mockImplementation(((callback: () => void, delay?: number) =>
+      nativeSetTimeout(callback, delay === 10_000 ? 5 : delay)) as typeof setTimeout);
+    const vaultPath = await mkdtemp(path.join(tmpdir(), "open-brain-managed-vault-"));
+    const executable = await managedBridgeExecutable(vaultPath);
+    let unload = (): void => {};
+    const harness = await managedFileHarness(vaultPath, executable, () => queueMicrotask(unload));
+    unload = () => harness.plugin.onunload();
+
+    await expect(harness.plugin.openManagedFile("spaces/synthetic/notes/unloaded-missing.md")).rejects.toEqual(
+      expect.objectContaining({ code: "bridge_closed" }),
+    );
+    expect(harness.on).not.toHaveBeenCalled();
+    expect(harness.openFile).not.toHaveBeenCalled();
+  });
+
+  it("does not open an already registered file after unload during managed-vault validation", async () => {
+    const vaultPath = await mkdtemp(path.join(tmpdir(), "open-brain-managed-vault-"));
+    const executable = await managedBridgeExecutable(vaultPath);
+    const relativePath = "spaces/synthetic/notes/unloaded-existing.md";
+    let unload = (): void => {};
+    const harness = await managedFileHarness(vaultPath, executable, () => queueMicrotask(unload));
+    const file = new harness.TFile(relativePath);
+    unload = () => { harness.makeCurrent(file); harness.plugin.onunload(); };
+
+    await expect(harness.plugin.openManagedFile(relativePath)).rejects.toEqual(
+      expect.objectContaining({ code: "bridge_closed" }),
+    );
+    expect(harness.on).not.toHaveBeenCalled();
+    expect(harness.openFile).not.toHaveBeenCalled();
+  });
+
   it("rejects a wrong vault before waiting for file registration", async () => {
     const expectedVault = await mkdtemp(path.join(tmpdir(), "open-brain-managed-expected-"));
     const actualVault = await mkdtemp(path.join(tmpdir(), "open-brain-managed-actual-"));
@@ -389,9 +422,11 @@ describe("actual T07 modals", () => {
 
 });
 
-async function managedFileHarness(vaultPath: string, executable: string) {
+async function managedFileHarness(
+  vaultPath: string, executable: string, onGetBasePath: () => void = () => {},
+) {
   const obsidian = await import("obsidian") as unknown as {
-    FileSystemAdapter: new (basePath: string) => { getBasePath(): string };
+    FileSystemAdapter: new (basePath: string, onGetBasePath?: () => void) => { getBasePath(): string };
     TFile: new (path: string) => { path: string };
   };
   type File = InstanceType<typeof obsidian.TFile>;
@@ -407,7 +442,7 @@ async function managedFileHarness(vaultPath: string, executable: string) {
   const leaf = { openFile, getViewState: () => ({ state: {} }) };
   const app = {
     vault: {
-      adapter: new obsidian.FileSystemAdapter(vaultPath),
+      adapter: new obsidian.FileSystemAdapter(vaultPath, onGetBasePath),
       getAbstractFileByPath: vi.fn(() => current),
       offref,
       on,
@@ -422,6 +457,7 @@ async function managedFileHarness(vaultPath: string, executable: string) {
   plugin.settings = { executablePath: executable, inferencePaused: false };
   return {
     TFile: obsidian.TFile, offref, on, openFile, plugin,
+    makeCurrent(file: File): void { current = file; },
     register(file: File): void {
       current = file;
       for (const listener of [...listeners.values()]) listener(file);

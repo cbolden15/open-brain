@@ -103,8 +103,10 @@ export default class OpenBrainPlugin extends Plugin {
   #providerSelection: ProviderSelection | null = null;
   #handshake: Handshake | null = null;
   #pendingFileWaits = new Set<() => void>();
+  #unloaded = false;
 
   public override async onload(): Promise<void> {
+    this.#unloaded = false;
     this.settings = parseSettings(await this.loadData());
     this.addSettingTab(new OpenBrainSettingTab(this.app, this));
     this.#scheduler = new RefreshScheduler((reason) => this.refreshPresentation(reason));
@@ -116,6 +118,7 @@ export default class OpenBrainPlugin extends Plugin {
   }
 
   public override onunload(): void {
+    this.#unloaded = true;
     this.#scheduler?.dispose();
     this.#scheduler = null;
     for (const cancel of [...this.#pendingFileWaits]) cancel();
@@ -188,8 +191,11 @@ export default class OpenBrainPlugin extends Plugin {
 
   async openManagedFile(relativePath: string): Promise<void> {
     if (!safeRelativePath(relativePath)) throw new BridgeError("invalid_source_path");
+    if (this.#unloaded) throw new BridgeError("bridge_closed");
     await this.#managedBridge();
+    if (this.#unloaded) throw new BridgeError("bridge_closed");
     const file = await this.#waitForVaultFile(normalizePath(relativePath));
+    if (this.#unloaded) throw new BridgeError("bridge_closed");
     await openCanvasFile(this.app.workspace, file);
   }
 

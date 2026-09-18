@@ -2107,7 +2107,8 @@ Cause: Native workspace refresh writes the canonical note outside Obsidian's Vau
 filesystem watcher registers that file after the bridge response, so an immediate synchronous vault
 lookup can return null.
 
-Fix: After revalidating the managed vault, check the normalized path, subscribe to the public vault
+Fix: Guard the full open operation with plugin lifecycle state before and after managed-vault
+validation and again before opening. Then check the normalized path, subscribe to the public vault
 create event, and check again to close the lookup-to-listener race. Bound the wait and remove its
 listener and timer on success, timeout, or plugin unload. Never bypass the vault to open the file.
 
