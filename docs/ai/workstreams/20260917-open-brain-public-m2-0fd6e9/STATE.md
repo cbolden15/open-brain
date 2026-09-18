@@ -10,4 +10,4 @@
 
 Absolute execution identity and measured usage are retained in the private run ledger.
 
-Local implementation and automated/native verification are complete. [M2-CHECKPOINT.json](M2-CHECKPOINT.json) records exact code/build heads, retained checks, reviewed contracts and artifact digests. Core CLI/MCP delivery has priority. Obsidian GUI acceptance remains pending and in scope; further desktop features and release preparation are deferred. Shared-engine and compatibility checks remain required; desktop release readiness does not gate core delivery.
+Local implementation and automated/native verification are complete. [M2-CHECKPOINT.json](M2-CHECKPOINT.json) records exact code/build heads, retained checks, reviewed contracts and artifact digests. Core CLI/MCP delivery has priority. Obsidian 1.13.7 synthetic GUI acceptance is complete, including publication/open and bridge shutdown. Further desktop features and release preparation are deferred. Shared-engine and compatibility checks remain required; desktop release readiness does not gate core delivery.
