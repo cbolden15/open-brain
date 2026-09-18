@@ -828,6 +828,41 @@ def test_owner_cli_subprocess_continues_paging_and_unicode_reads_across_invocati
         ]
     assert "".join(chunks) == unicode_payload.text
 
+
+def test_owner_cli_reads_complete_validated_imported_file_projection(tmp_path: Path) -> None:
+    root = tmp_path / "brain"
+    vault = tmp_path / "vault"
+    vault.mkdir()
+    body = "# Imported synthetic\n\nreference-file-nebula 漢字🙂\n"
+    (vault / "Imported.md").write_text(body, encoding="utf-8")
+    imported = _subprocess_cli(root, "import", str(vault), "--yes")
+    assert imported["status"] == "completed"
+
+    page = _subprocess_cli(
+        root,
+        "search-page",
+        "reference-file-nebula",
+        "--payload-family",
+        "reference_or_file",
+        "--record-type",
+        "source",
+    )
+    results = cast(list[dict[str, object]], page["results"])
+    assert len(results) == 1
+    record = results[0]
+    assert record["payload_family"] == "reference_or_file"
+    assert record["record_type"] == "source"
+    read = _subprocess_cli(
+        root,
+        "read",
+        cast(str, record["record_id"]),
+        "--expected-revision-id",
+        cast(str, record["revision_id"]),
+    )
+    assert read["complete"] is True
+    text = cast(str, cast(dict[str, object], read["content"])["text"])
+    assert text == "Imported.md text/markdown " + body
+
 def test_local_search_reconciles_owner_markdown_and_renders_one_safe_line(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],

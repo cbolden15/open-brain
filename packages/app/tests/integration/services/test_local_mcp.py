@@ -899,20 +899,28 @@ def test_entrypoint_admits_standalone_negotiated_read_grants(
     }
 
 
-@pytest.mark.parametrize("flag", ["--allow-content-read", "--allow-history-read"])
-def test_live_unavailable_negotiated_grant_still_describes_empty_contract(
+@pytest.mark.parametrize(
+    ("flag", "expected"),
+    [
+        ("--allow-content-read", ["brain_contract_describe", "brain_read"]),
+        ("--allow-history-read", ["brain_contract_describe"]),
+    ],
+)
+def test_live_negotiated_grant_describes_only_implemented_contract(
     tasks: Any,
     flag: str,
+    expected: list[str],
 ) -> None:
     process = _start(tasks.profile.root, flag)
     try:
         assert "result" in _exchange(process, INITIALIZE)
         tools = _exchange(process, {"jsonrpc": "2.0", "id": 2, "method": "tools/list"})
-        assert [tool["name"] for tool in tools["result"]["tools"]] == [
-            "brain_contract_describe"
-        ]
+        assert [tool["name"] for tool in tools["result"]["tools"]] == expected
         described = _exchange(process, _call("brain_contract_describe", {}, 3))
-        assert described["result"]["structuredContent"]["operations"] == []
+        operations = described["result"]["structuredContent"]["operations"]
+        assert [operation["name"] for operation in operations] == (
+            ["record.read"] if flag == "--allow-content-read" else []
+        )
         assert process.stdin is not None
         process.stdin.close()
         assert process.wait(timeout=10) == 0
@@ -921,6 +929,116 @@ def test_live_unavailable_negotiated_grant_still_describes_empty_contract(
         if process.poll() is None:
             process.kill()
             process.wait(timeout=5)
+
+
+def test_live_mcp_engine_retrieval_grants_and_cursor_failures(tasks: Any) -> None:
+    captures = [
+        tasks.capture.accept(
+            TextPayload("actual MCP paged nebula"),
+            delivery_id=f"mcp.retrieval.{index}",
+        )
+        for index in range(3)
+    ]
+    unicode_payload = TextPayload("é🙂é 漢字 actual MCP content\n" * 2000)
+    unicode_capture = tasks.capture.accept(
+        unicode_payload, delivery_id="mcp.retrieval.unicode"
+    )
+    process = _start(
+        tasks.profile.root,
+        "--allow-search",
+        "--allow-content-read",
+    )
+    other = _start(tasks.profile.root, "--allow-search")
+    try:
+        assert "result" in _exchange(process, INITIALIZE)
+        listed = _exchange(process, {"jsonrpc": "2.0", "id": 2, "method": "tools/list"})
+        names = {tool["name"] for tool in listed["result"]["tools"]}
+        assert {"brain_contract_describe", "brain_search_page", "brain_read"} <= names
+        first = _exchange(
+            process,
+            _call(
+                "brain_search_page",
+                {"dto_version": 1, "query": "nebula", "limit": 2},
+                3,
+            ),
+        )["result"]["structuredContent"]
+        assert [row["record_id"] for row in first["results"]] == sorted(
+            capture.capture_id for capture in captures
+        )[:2]
+        cursor = first["next_cursor"]
+
+        assert "result" in _exchange(other, INITIALIZE)
+        cross_session = _exchange(
+            other,
+            _call(
+                "brain_search_page",
+                {"dto_version": 1, "query": "nebula", "limit": 2, "cursor": cursor},
+                4,
+            ),
+        )
+        assert cross_session["result"]["isError"] is True
+        assert cross_session["result"]["content"] == [
+            {"type": "text", "text": "cursor_invalid"}
+        ]
+
+        tasks.capture.accept(
+            TextPayload("actual MCP changed nebula"),
+            delivery_id="mcp.retrieval.changed",
+        )
+        stale = _exchange(
+            process,
+            _call(
+                "brain_search_page",
+                {"dto_version": 1, "query": "nebula", "limit": 2, "cursor": cursor},
+                5,
+            ),
+        )
+        assert stale["result"]["content"] == [{"type": "text", "text": "cursor_stale"}]
+
+        read_arguments: dict[str, object] = {
+            "dto_version": 1,
+            "record_id": unicode_capture.capture_id,
+            "expected_revision_id": unicode_capture.capture_id,
+            "target_bytes": 32_768,
+        }
+        chunks: list[str] = []
+        offset = 0
+        while True:
+            read = _exchange(process, _call("brain_read", read_arguments, 6))[
+                "result"
+            ]["structuredContent"]
+            assert read["start_byte"] == offset
+            text = read["content"]["text"]
+            offset += len(text.encode("utf-8"))
+            assert read["end_byte"] == offset
+            chunks.append(text)
+            if read["complete"]:
+                break
+            read_arguments = {**read_arguments, "cursor": read["next_cursor"]}
+        assert "".join(chunks) == unicode_payload.text
+
+        denied = _exchange(
+            other,
+            _call(
+                "brain_read",
+                {
+                    "dto_version": 1,
+                    "record_id": unicode_capture.capture_id,
+                    "expected_revision_id": unicode_capture.capture_id,
+                },
+                7,
+            ),
+        )
+        assert denied["result"]["content"] == [
+            {"type": "text", "text": "unsupported_capability"}
+        ]
+    finally:
+        for child in (process, other):
+            if child.stdin is not None and not child.stdin.closed:
+                child.stdin.close()
+            if child.poll() is None:
+                child.wait(timeout=10)
+            assert child.stderr is not None and child.stderr.read() == ""
 
 
 @pytest.mark.parametrize(

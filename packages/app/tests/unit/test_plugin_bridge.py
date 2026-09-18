@@ -412,6 +412,44 @@ def test_bridge_uses_shared_organization_and_publication_services(tmp_path: Path
     assert shown["markdown"] == "Complete synthetic body"
     assert approved["status"] == "approved"
     assert approved["page_id"] == proposed["page_id"]
+    canonical_search = cast(
+        dict[str, object],
+        _call(
+            selection,
+            "search.page",
+            {
+                "dto_version": 1,
+                "query": "synthetic publication",
+                "filters": {
+                    "space_ids": [],
+                    "payload_families": [],
+                    "record_types": ["canonical"],
+                },
+            },
+        )["result"],
+    )
+    canonical_results = cast(list[dict[str, object]], canonical_search["results"])
+    assert len(canonical_results) == 1
+    canonical = canonical_results[0]
+    assert canonical["record_id"] == approved["page_id"]
+    assert canonical["record_type"] == "canonical"
+    assert canonical["source_id"] is None
+    canonical_read = cast(
+        dict[str, object],
+        _call(
+            selection,
+            "record.read",
+            {
+                "dto_version": 1,
+                "record_id": canonical["record_id"],
+                "expected_revision_id": canonical["revision_id"],
+            },
+        )["result"],
+    )
+    assert canonical_read["complete"] is True
+    assert cast(dict[str, object], canonical_read["content"])["text"] == (
+        "Complete synthetic body\n"
+    )
     refreshed = cast(dict[str, object], _call(selection, "workspace.refresh")["result"])
     assert_fixture_shape("workspace.refresh", refreshed)
     note = next(
