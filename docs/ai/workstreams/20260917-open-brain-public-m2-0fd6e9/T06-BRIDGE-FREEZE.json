@@ -1,0 +1,25 @@
+{
+  "status": "FROZEN_FOR_T07_BRIDGE_CLIENTS",
+  "artifact": "packages/app/tests/fixtures/t06-client-api.json",
+  "sha256": "52fb08579010f2fe06320f81a04b1656fdbada5c46028a379ab91689244d495c",
+  "contract_sha256": "868d3cd2ad6ce1fa7f375151df3a5cf7553ba3165c3fefa409fe95cb6258c37c",
+  "reviewed_source_head": "a025356cd79739c2970062267a012588587c3cc4",
+  "integrated_checkpoint": "61f533622de330f13bcf2b7f0d18a47247697af7",
+  "review": "Independent bridge fixture review READY; no remaining reviewed bridge/client contract blockers.",
+  "checks": {
+    "reviewer_focused_app_tests_passed": 101,
+    "parent_python_passed": 2274,
+    "parent_python_skipped": 5,
+    "parent_status": "FAILED: new foreground-module inventory and historical C04 parser expectation need test updates; not T06 completion."
+  },
+  "remaining": [
+    "MCP standalone unavailable-method startup and advertised filter schema repairs",
+    "Actual engine-wired retrieval/history acceptance",
+    "Final integrated full/native checks",
+    "T07 implementation and review"
+  ],
+  "limits": [
+    "Freeze covers bridge client fixture only; T06 is incomplete.",
+    "Workspace operations retain legacy unversioned arguments; new organization/publication and retrieval operations require dto_version1."
+  ]
+}
