@@ -1,9 +1,11 @@
 import { invoke } from "@tauri-apps/api/core";
-import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
-import { errorMessage, request, saveMayHaveCompleted, setupReady, type BrainStatus, type CollectorEnableInput, type CollectorStatus, type SearchHit, type SetupInput, type SetupPreview, type SetupResult } from "./client";
+import { useCallback, useEffect, useState, type FormEvent } from "react";
+import { errorMessage, negotiatedOperations, request, saveMayHaveCompleted, setupReady, type BrainStatus, type CollectorEnableInput, type CollectorStatus, type ContractDescription, type SetupInput, type SetupPreview, type SetupResult } from "./client";
+import { PublicationPanel } from "./PublicationPanel";
+import { SearchPanel } from "./SearchPanel";
 import { SourceCapturePanel } from "./SourceCapturePanel";
 
-const destinations = ["Search", "Capture", "Sources", "Activity", "Settings"] as const;
+const destinations = ["Search", "Capture", "Review", "Sources", "Activity", "Settings"] as const;
 type Destination = typeof destinations[number];
 type Activity = { id: string; title: string; detail: string; at: Date; failed: boolean };
 
@@ -13,10 +15,7 @@ export function App() {
   const [connecting, setConnecting] = useState(true);
   const [connectionError, setConnectionError] = useState("");
   const [busy, setBusy] = useState(false);
-  const [query, setQuery] = useState("");
-  const [searched, setSearched] = useState<string | null>(null);
-  const [hits, setHits] = useState<SearchHit[]>([]);
-  const [searchError, setSearchError] = useState("");
+  const [operations, setOperations] = useState<Set<string>>(new Set());
   const [draft, setDraft] = useState("");
   const [pendingSave, setPendingSave] = useState<{ id: string; text: string } | null>(null);
   const [saveError, setSaveError] = useState("");
@@ -40,7 +39,6 @@ export function App() {
   const [preview, setPreview] = useState<SetupPreview | null>(null);
   const [setupResult, setSetupResult] = useState<SetupResult | null>(null);
   const [setupError, setSetupError] = useState("");
-  const searchInput = useRef<HTMLInputElement>(null);
 
   const record = useCallback((title: string, detail: string, failed = false) => {
     setActivity(previous => [{ id: crypto.randomUUID(), title, detail, failed, at: new Date() }, ...previous].slice(0, 100));
@@ -50,7 +48,13 @@ export function App() {
     setConnectionError("");
     try {
       if (restart) await invoke("desktop_reconnect");
-      setBrain(await request<BrainStatus>("system.status"));
+      const status = await request<BrainStatus>("system.status");
+      setBrain(status);
+      try {
+        setOperations(negotiatedOperations(await request<ContractDescription>("contract.describe")));
+      } catch {
+        setOperations(new Set());
+      }
     } catch (error) {
       setBrain(null);
       setConnectionError(errorMessage(error));
@@ -62,7 +66,6 @@ export function App() {
       if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
         event.preventDefault();
         setPage("Search");
-        setTimeout(() => searchInput.current?.focus(), 0);
       }
       if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "n") {
         event.preventDefault();
@@ -78,25 +81,6 @@ export function App() {
   const draftTooLong = draftBytes > 16 * 1024;
   const clientName = setup.client === "claude-code" ? "Claude Code" : "Codex";
 
-  async function search(event?: FormEvent, phrase = query) {
-    event?.preventDefault();
-    const term = phrase.trim();
-    if (!term || unavailable) return;
-    setBusy(true);
-    setSearchError("");
-    setPage("Search");
-    setQuery(term);
-    try {
-      const result = await request<{ results: SearchHit[] }>("search.query", { query: term, limit: 30 });
-      setHits(result.results);
-      setSearched(term);
-      record("Search completed", String(result.results.length) + (result.results.length === 1 ? " match" : " matches"));
-    } catch (error) {
-      setSearchError(errorMessage(error));
-      record("Search needs attention", errorMessage(error), true);
-    } finally { setBusy(false); }
-  }
-
   async function save(event: FormEvent) {
     event.preventDefault();
     if (!draft.trim() || draftTooLong || unavailable) return;
@@ -111,7 +95,7 @@ export function App() {
       setDraft("");
       setPendingSave(null);
       setBrain(previous => previous ? { ...previous, initialized: true } : previous);
-      record("Note saved", "Available to this desktop and permitted agent searches.");
+      record("Captured to inbox", "Ready for search or explicit review before vault publication.");
     } catch (error) {
       setSaveError(saveMayHaveCompleted(error)
         ? "The save was not confirmed. Retry this same note to check the original save without creating another one."
@@ -249,22 +233,7 @@ export function App() {
         {connectionError ? <div className="notice error" role="alert"><p>{connectionError}</p><button type="button" onClick={() => void connect(true)} disabled={busy || connecting}>Retry connection</button></div> : null}
         {connecting ? <div className="notice" role="status">Opening the local runtime. First startup can take several seconds.</div> : null}
 
-        {page === "Search" ? <section aria-labelledby="search-title">
-          <div className="page-title"><p className="eyebrow">Search</p><h1 id="search-title">Find what you saved.</h1><p>Bring a fact, decision, or idea back into focus.</p></div>
-          <form className="search-form" onSubmit={event => void search(event)}>
-            <label className="visually-hidden" htmlFor="search-input">Search your Brain</label>
-            <input ref={searchInput} id="search-input" type="search" placeholder="A person, project, or something you remember…" value={query} maxLength={2000} onChange={event => setQuery(event.target.value)} />
-            <button type="submit" disabled={unavailable || !query.trim()}>{busy ? "Searching…" : "Search"}</button>
-          </form>
-          {searchError ? <p className="notice error" role="alert">{searchError}</p> : null}
-          {searched !== null ? <div className="results" aria-live="polite">
-            <div className="section-label"><span>{hits.length} {hits.length === 1 ? "match" : "matches"}</span><span>For “{searched}”</span></div>
-            {hits.length ? hits.map(hit => <article className="search-result" key={hit.result_id}>
-              <div className="result-meta"><span>{hit.record_type === "source" ? "Capture" : "Note"}</span><span>{hit.source_origin === "owner_authored" ? "Owner authored" : "Unverified source"}</span></div>
-              <h2>{hit.title}</h2><p>{hit.excerpt}</p>
-            </article>) : <div className="empty-state"><h2>No matches yet.</h2><p>Try fewer words, or capture the detail you want to remember.</p><button type="button" className="secondary" onClick={() => setPage("Capture")}>Capture a note</button></div>}
-          </div> : <div className="empty-state search-empty"><span className="empty-symbol" aria-hidden="true">↗</span><h2>{brain?.initialized ? "Your memory is a search away." : "Start with one thing worth remembering."}</h2><p>Save a note here or through a connected agent. It will be searchable in the same Brain.</p><button type="button" className="secondary" onClick={() => setPage("Capture")}>{brain?.initialized ? "Capture a note" : "Capture your first note"}</button></div>}
-        </section> : null}
+        {page === "Search" ? <SearchPanel disabled={unavailable} operations={operations} onCapture={() => setPage("Capture")} /> : null}
 
         {page === "Capture" ? <section aria-labelledby="capture-title">
           <div className="page-title"><p className="eyebrow">Capture</p><h1 id="capture-title">Keep the useful part.</h1><p>A thought, a decision, or the context you will need later.</p></div>
@@ -276,9 +245,11 @@ export function App() {
           </form>
           {draftTooLong ? <p className="notice error" role="alert">That note is too long. Shorten it before saving.</p> : null}
           {saveError ? <p className="notice error" role="alert">{saveError}</p> : null}
-          {savedText ? <div className="notice success" role="status"><p><strong>Saved to your Brain.</strong> It is ready for search.</p><button type="button" className="secondary" disabled={unavailable} onClick={() => void search(undefined, savedText.trim().split(/\s+/).slice(0, 12).join(" "))}>Find this note</button></div> : null}
+          {savedText ? <div className="notice success" role="status"><p><strong>Captured to your inbox.</strong> Publication to the managed vault requires review and approval.</p><button type="button" className="secondary" disabled={unavailable} onClick={() => setPage("Review")}>Review captures for vault</button></div> : null}
           <p className="helper-text">Saving here does not send the note to a model. Agents can read it when you grant search access.</p>
         </section> : null}
+
+        {page === "Review" ? <PublicationPanel disabled={unavailable} /> : null}
 
         {page === "Sources" ? <section aria-labelledby="sources-title">
           <div className="page-title"><p className="eyebrow">Sources</p><h1 id="sources-title">Bring your context together.</h1><p>Choose where memories come from and who can retrieve them.</p></div>
