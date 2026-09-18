@@ -129,7 +129,10 @@ pub(crate) async fn desktop_request(
         let response = bridge.invoke(&operation, arguments, request_id, Duration::from_secs(10));
         match response {
             Ok(value) => {
-                if matches!(operation.as_str(), "publication.approve" | "publication.edit_and_approve") {
+                if matches!(
+                    operation.as_str(),
+                    "publication.approve" | "publication.edit_and_approve"
+                ) {
                     let page_id = value
                         .get("page_id")
                         .and_then(Value::as_str)
@@ -178,7 +181,9 @@ pub(crate) async fn desktop_reveal_managed_note(
             let guard = managed_notes
                 .lock()
                 .map_err(|_| "operation_in_progress".to_owned())?;
-            let access = guard.as_ref().ok_or_else(|| "note_not_approved".to_owned())?;
+            let access = guard
+                .as_ref()
+                .ok_or_else(|| "note_not_approved".to_owned())?;
             reveal_path(access, &vault_path, &relative_path)?
         };
         crate::bridge::reveal_file(&selected).map_err(|error| error.code())
@@ -246,8 +251,7 @@ pub(crate) fn validate_handshake(value: &Value) -> Result<(), String> {
         || value.get("protocol_version").and_then(Value::as_u64) != Some(PROTOCOL_VERSION)
         || value.get("runtime_session_version").and_then(Value::as_u64)
             != Some(SUPPORTED_RUNTIME_SESSION)
-        || value.get("state_schema_version").and_then(Value::as_u64)
-            != Some(SUPPORTED_STATE_SCHEMA)
+        || value.get("state_schema_version").and_then(Value::as_u64) != Some(SUPPORTED_STATE_SCHEMA)
         || value.get("product_version").and_then(Value::as_str) != Some("0.1.0")
         || !value
             .get("brain_root")
@@ -263,9 +267,17 @@ pub(crate) fn validate_handshake(value: &Value) -> Result<(), String> {
     Ok(())
 }
 
-fn managed_notes_from_refresh(value: &Value, approved_pages: &HashSet<String>) -> Result<ManagedNotes, ()> {
+fn managed_notes_from_refresh(
+    value: &Value,
+    approved_pages: &HashSet<String>,
+) -> Result<ManagedNotes, ()> {
     let wire_vault = PathBuf::from(value.get("vault_path").and_then(Value::as_str).ok_or(())?);
-    if !wire_vault.is_absolute() || fs::symlink_metadata(&wire_vault).map_err(|_| ())?.file_type().is_symlink() {
+    if !wire_vault.is_absolute()
+        || fs::symlink_metadata(&wire_vault)
+            .map_err(|_| ())?
+            .file_type()
+            .is_symlink()
+    {
         return Err(());
     }
     let canonical_vault = fs::canonicalize(&wire_vault).map_err(|_| ())?;
@@ -279,25 +291,41 @@ fn managed_notes_from_refresh(value: &Value, approved_pages: &HashSet<String>) -
         if !approved_pages.contains(note_id) {
             continue;
         }
-        let relative = PathBuf::from(note.get("relative_path").and_then(Value::as_str).ok_or(())?);
+        let relative = PathBuf::from(
+            note.get("relative_path")
+                .and_then(Value::as_str)
+                .ok_or(())?,
+        );
         validate_relative_note(&canonical_vault, &relative)?;
         relative_paths.insert(relative);
     }
-    Ok(ManagedNotes { wire_vault, canonical_vault, relative_paths })
+    Ok(ManagedNotes {
+        wire_vault,
+        canonical_vault,
+        relative_paths,
+    })
 }
 
 fn validate_relative_note(vault: &Path, relative: &Path) -> Result<PathBuf, ()> {
     if relative.as_os_str().is_empty()
         || relative.is_absolute()
-        || relative.components().any(|part| !matches!(part, Component::Normal(_)))
+        || relative
+            .components()
+            .any(|part| !matches!(part, Component::Normal(_)))
     {
         return Err(());
     }
     let mut candidate = vault.to_path_buf();
     for component in relative.components() {
-        let Component::Normal(name) = component else { return Err(()) };
+        let Component::Normal(name) = component else {
+            return Err(());
+        };
         candidate.push(name);
-        if fs::symlink_metadata(&candidate).map_err(|_| ())?.file_type().is_symlink() {
+        if fs::symlink_metadata(&candidate)
+            .map_err(|_| ())?
+            .file_type()
+            .is_symlink()
+        {
             return Err(());
         }
     }
@@ -308,7 +336,11 @@ fn validate_relative_note(vault: &Path, relative: &Path) -> Result<PathBuf, ()> 
     Ok(canonical)
 }
 
-fn reveal_path(access: &ManagedNotes, vault_path: &str, relative_path: &str) -> Result<PathBuf, String> {
+fn reveal_path(
+    access: &ManagedNotes,
+    vault_path: &str,
+    relative_path: &str,
+) -> Result<PathBuf, String> {
     let wire_vault = Path::new(vault_path);
     let relative = Path::new(relative_path);
     if wire_vault != access.wire_vault || !access.relative_paths.contains(relative) {
@@ -385,8 +417,12 @@ mod tests {
         for version in ["baseline", "current"] {
             let mut old = next.clone();
             old["state_schema_version"] = fixture["versions"][version]["storage"].clone();
-            old["runtime_session_version"] = fixture["versions"][version]["runtime_session"].clone();
-            assert_eq!(validate_handshake(&old), Err("incompatible_runtime".to_owned()));
+            old["runtime_session_version"] =
+                fixture["versions"][version]["runtime_session"].clone();
+            assert_eq!(
+                validate_handshake(&old),
+                Err("incompatible_runtime".to_owned())
+            );
         }
     }
 
@@ -400,7 +436,9 @@ mod tests {
             "vault_path": vault,
             "notes": [{"note_id": "page_synthetic", "revision_id": "revision_synthetic", "relative_path": "Approved.md"}],
         });
-        let access = managed_notes_from_refresh(&refresh, &HashSet::from(["page_synthetic".to_owned()])).unwrap();
+        let access =
+            managed_notes_from_refresh(&refresh, &HashSet::from(["page_synthetic".to_owned()]))
+                .unwrap();
         assert_eq!(
             reveal_path(&access, vault.to_str().unwrap(), "Approved.md").unwrap(),
             fs::canonicalize(vault.join("Approved.md")).unwrap()
@@ -413,11 +451,15 @@ mod tests {
             reveal_path(&access, vault.to_str().unwrap(), "Other.md"),
             Err("note_not_approved".to_owned())
         );
-        std::os::unix::fs::symlink(directory.path().join("outside.md"), vault.join("Linked.md")).unwrap();
+        std::os::unix::fs::symlink(directory.path().join("outside.md"), vault.join("Linked.md"))
+            .unwrap();
         let unsafe_refresh = json!({
             "vault_path": vault,
             "notes": [{"note_id": "page_other", "revision_id": "revision_other", "relative_path": "Linked.md"}],
         });
-        assert!(managed_notes_from_refresh(&unsafe_refresh, &HashSet::from(["page_other".to_owned()])).is_err());
+        assert!(
+            managed_notes_from_refresh(&unsafe_refresh, &HashSet::from(["page_other".to_owned()]))
+                .is_err()
+        );
     }
 }
