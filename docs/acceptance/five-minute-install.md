@@ -1,5 +1,10 @@
 # Five-minute Open Brain acceptance test
 
+> Historical provider/GUI acceptance target. The current Core v0.1 documentation journey is the
+> [first-use guide](../first-use.md), which needs no provider credentials. This older target and its
+> historical receipts do not certify the current candidate. T23 and applicable GUI/platform/provider
+> gates remain separate; T21 does not run this timed journey.
+
 Status: current target contract; command-line integration and macOS plugin structure are proven;
 exact-candidate real-provider timing on macOS and Linux desktop timing remain open
 

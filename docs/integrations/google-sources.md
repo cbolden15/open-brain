@@ -1,5 +1,11 @@
 # Gmail and Google Drive sources
 
+> Core v0.1 scope: this is optional **source-only implementation and historical evidence**, not
+> a supported public onboarding path. It is not installed by the core artifact. Connected-source
+> continuity, production provider readiness and real service setup remain deferred or separately
+> gated. Historical acceptance below does not certify the current candidate. Use
+> [core sources](core-sources.md) for the supported local capture/Markdown path.
+
 Gmail and Google Drive are separate connections. They request different read scopes and
 Open Brain stores their refresh material only through the configured operating-system
 credential store. A resource selection limits what Open Brain imports. It does not narrow

@@ -1,6 +1,8 @@
 # Install Open Brain
 
-Status: v0.1.0 release instructions
+Status: release-channel instructions with Core v0.1 candidate boundaries. Local verification does
+not publish a release. Product version `0.1.0` alone does not identify the candidate; consult the
+[feature/version matrix](core-v01-features.md) and installed help/catalog.
 
 ## Requirement
 
@@ -28,13 +30,10 @@ set.
 
 ## First use
 
-```sh
-open-brain capture "A note to remember"
-open-brain import /absolute/path/to/markdown --yes
-open-brain search "remember"
-open-brain export "$PWD/brain-export" --verify
-open-brain status --json
-```
+Use the [first-use guide](first-use.md) for executable synthetic examples, including Markdown
+import, explicit routing, proposal inspection and approval, the managed vault, lexical search and
+complete reads. Its [doctor examples](doctor.md) use `doctor --check NAME --json`. An older installed
+release may lack these candidate commands; do not assume installing the tap installs this tree.
 
 The first stateful command creates one owner and one Brain automatically. Data lives at:
 
@@ -67,6 +66,11 @@ listed above. In Obsidian, open **Settings → Community plugins**, enable commu
 needed, and enable **Open Brain**. The installer stages only Open Brain's owned plugin files. It
 does not enable the plugin, edit Obsidian's enabled-plugin list, or replace other plugins and
 settings.
+
+The candidate also exposes inbox routing, draft creation, full inspection and token-bound
+publication, plus paged search and complete current-record reads in the existing plugin.
+Use the matching managed vault. Packaged assets and CLI staging do not prove GUI activation;
+exact-candidate Obsidian GUI acceptance remains open.
 
 Use the Obsidian command palette for capture, search, graph refresh, source navigation, suggestion
 review, conflict resolution, and semantic exclusions. **Open Brain: Configure semantic provider**
@@ -147,7 +151,9 @@ handlers or overriding the package's Python requirement.
 
 The optional desktop companion in `packages/desktop` is a contributor build with local capture,
 search, and agent setup. Homebrew installs the core and Obsidian assets separately. Source
-connections and background collection are not implemented.
+connections and collection exist in optional source packages, but Core v0.1 does not certify their
+public onboarding, continued source updates, services or desktop release. See the
+[source guide](integrations/core-sources.md).
 
 Claude Code and Codex can also be configured through the [headless CLI](agent-setup.md).
 

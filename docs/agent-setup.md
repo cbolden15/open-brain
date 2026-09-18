@@ -2,8 +2,11 @@
 
 Open Brain can configure Claude Code or Codex from the desktop or the headless CLI. Each route uses
 the same setup service. The desktop is optional, and neither route installs a background collector.
-This command is available in the D1 source build; existing Homebrew releases need a release containing
-D1 before they expose it.
+This page describes the Core v0.1 candidate. Existing releases may lack these commands; product
+version alone does not establish availability. Check the [feature/version matrix](core-v01-features.md).
+The [first-use guide](first-use.md) executes synthetic setup preview/apply/removal and stdio discovery
+for both clients without touching real profiles. Commands below are reference templates: replace
+uppercase IDs and absolute example paths with your own, and inspect each preview before applying.
 
 ## Headless setup
 
@@ -35,7 +38,7 @@ configuring. `--runtime /absolute/path/to/open-brain` can select an executable; 
 the running core. `--data-dir /absolute/path/to/brain` selects an expert/test Brain override. Normal
 setup uses the platform-default Brain.
 
-For M2 complete current reads, add `--allow-content-read`; retained history requires the separate
+For complete current reads, add `--allow-content-read`; retained history requires the separate
 `--allow-history-read` flag. Both are off by default and independent of search. See
 [records and history](records-and-history.md) for paging, read budgets and historical identity.
 
@@ -93,7 +96,7 @@ a capture when the user asks. Routing changes assignment and search metadata. It
 the capture, change its trust, or convert it into a canonical note. Generated instructions name only
 the explicitly granted tools and limit organization to the current user request.
 
-The M2 source build uses private schema version 7 and runtime session version 2. Stop older sessions before
+The candidate uses private schema version 7 and runtime session version 2. Stop older sessions before
 upgrading an existing Brain. Older runtimes reject the newer schema, so update other installed clients
 before using them on that Brain. After moving the app or upgrading a CLI whose versioned path changes, preview setup again.
 
@@ -106,3 +109,19 @@ For removal, repeat the same client, scope, and project options with `--action r
 then add `--apply --preview-id setup_HASH_FROM_PREVIEW`. Removal only changes recognized, unedited
 Open Brain fragments. It preserves unrelated settings and refuses to overwrite edits inside an owned
 fragment, including Codex settings that extend the server outside its marked block. A partially interrupted setup can be previewed again to complete or remove its owned pieces.
+
+## Discover the actual session
+
+`open-brain catalog --json` describes registered CLI/MCP/bridge implementation without opening a
+Brain. It is not a grant. Inside an already authorized MCP process, `tools/list` and
+`brain_catalog` with `{"schema_version":2}` describe that session. Starting `mcp` without a grant
+fails. The setup CLI offers nine grants; manual MCP additionally offers workspace-read and
+graph-refresh. The shared bridge accepts all nine setup grants, while the desktop setup UI exposes
+capture/search only. Obsidian has no agent-setup control. Do not infer a UI control from a bridge
+registration or a permission from package installation.
+
+Review-decide grants durable approve/reject/edit-and-approve operations after inspection. Content,
+history, inbox and review reads can expose private data to the connected client and its provider.
+Capture is durable; stopping/removing setup does not remove captured content. No selective forget
+or transcript collection is enabled by agent memory setup. Optional session collection is
+[source-only](integrations/core-sources.md).

@@ -1,12 +1,15 @@
 # Reading records and retained history
 
-The M2 source build provides filtered search pages and complete projected text. Existing `open-brain search` keeps its bounded first-page behavior. For continuation, use `search-page`:
+The Core v0.1 candidate provides filtered search pages and complete projected text. Existing `open-brain search` keeps its bounded first-page behavior. For continuation, use `search-page`:
 
 ```sh
 open-brain search-page "synthetic launch" --limit 50 --record-type source --payload-family reference_or_file --json
 ```
 
-Released packages need a version containing M2 to expose these operations.
+Existing released packages may lack these operations despite sharing version `0.1.0`.
+Use the [feature/version matrix](core-v01-features.md). The [first-use guide](first-use.md)
+executes the full synthetic workflow; this page supplies reference templates with explicit
+placeholder IDs and queries.
 
 Each result identifies its `record_id`, immutable `revision_id`, record type, source identity when applicable, and ordered provenance. Payload filters use `text`, `event`, `measurement`, or `reference_or_file`. Repeat `--space-id`, `--payload-family`, or `--record-type` to select multiple values. Spaces narrow relevance within your existing authority.
 

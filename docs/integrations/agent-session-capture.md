@@ -1,5 +1,11 @@
 # Agent session capture
 
+> Core v0.1 scope: this is optional **source-only implementation and historical evidence**, not
+> a supported public onboarding path. It is not installed by the core artifact. Connected-source
+> continuity, production provider readiness and real service setup remain deferred or separately
+> gated. Historical acceptance below does not certify the current candidate. Use
+> [core sources](core-sources.md) for the supported local capture/Markdown path.
+
 Open Brain can capture fresh sessions from an explicitly selected project running Claude
 Code or Codex. Capture is off until the project has an enabled choice for each content
 type. `session_summary` and `session_transcript` are separate choices. A summary is
