@@ -141,6 +141,7 @@ class SpaceInboxService:
                 "unknown space": "unknown_space",
                 "unknown route target": "unknown_route_target",
                 "published capture cannot be rerouted": "published_capture",
+                "revision_changed": "unknown_route_target",
             }.get(str(error))
             if code is None:
                 raise

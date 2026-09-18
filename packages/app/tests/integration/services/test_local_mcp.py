@@ -832,7 +832,7 @@ def test_cli_and_mcp_share_semantic_dataset_results_and_export(
     assert "source_ref" not in json.dumps(mcp_result)
     export = tmp_path / "export"
     assert run_cli(("export", str(export), "--verify", "--data-dir", str(root), "--json")) == 0
-    assert json.loads(capsys.readouterr().out)["schema_version"] == 1
+    assert json.loads(capsys.readouterr().out)["schema_version"] == 4
     record = json.loads(
         next((export / "sources/captures").rglob(str(captured["capture_id"]) + ".json")).read_text()
     )
@@ -938,6 +938,7 @@ def test_live_unavailable_negotiated_grant_still_describes_empty_contract(
                 "brain_space_create",
                 "brain_space_rename",
                 "brain_inbox_route",
+                "brain_source_route",
             },
             _call("brain_space_create", {"name": "Stdio space"}),
         ),

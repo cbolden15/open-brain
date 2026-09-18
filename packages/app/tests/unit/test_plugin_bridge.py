@@ -101,8 +101,8 @@ def test_handshake_is_bounded_and_does_not_initialize_the_brain(tmp_path: Path) 
     assert result["protocol_version"] == OPEN_BRAIN_CLIENT_PROTOCOL_VERSION
     assert result["desktop_only"] is True
     assert result["brain_root"] == str(selection.brain_root)
-    assert result["runtime_session_version"] == 1
-    assert result["state_schema_version"] == 6
+    assert result["runtime_session_version"] == 2
+    assert result["state_schema_version"] == 7
     assert "graph.review" in cast(list[str], result["operations"])
     assert "system.status" in cast(list[str], result["operations"])
     assert "agent.setup.preview" in cast(list[str], result["operations"])
@@ -111,7 +111,7 @@ def test_handshake_is_bounded_and_does_not_initialize_the_brain(tmp_path: Path) 
     assert not selection.brain_root.exists()
 
 
-def test_contract_discovery_omits_unimplemented_negotiated_tasks(tmp_path: Path) -> None:
+def test_contract_discovery_exposes_only_implemented_negotiated_tasks(tmp_path: Path) -> None:
     selection = _selection(tmp_path)
     assert _call(selection, "brain.initialize")["ok"] is True
 
@@ -120,7 +120,58 @@ def test_contract_discovery_omits_unimplemented_negotiated_tasks(tmp_path: Path)
     assert response["ok"] is True
     result = cast(dict[str, object], response["result"])
     assert result["contract_version"] == "t03.v1"
-    assert result["operations"] == []
+    assert result["operations"] == [
+        {
+            "dto_version": 1,
+            "name": "source.route",
+            "required_grants": ["organize"],
+        }
+    ]
+
+
+def test_bridge_dispatches_implemented_source_route(tmp_path: Path) -> None:
+    selection = _selection(tmp_path)
+    assert _call(selection, "brain.initialize")["ok"] is True
+    capture = cast(
+        dict[str, object],
+        _call(selection, "capture.create", {"text": "Synthetic routed source"})["result"],
+    )
+    space = cast(
+        dict[str, object],
+        _call(selection, "space.create", {"dto_version": 1, "name": "Routed"})[
+            "result"
+        ],
+    )
+    database = selection.brain_root / ".open-brain/state/phase1.sqlite3"
+    with sqlite3.connect(database) as connection:
+        row = connection.execute(
+            "SELECT source_id,head_capture_id,route_version FROM logical_sources "
+            "WHERE head_capture_id=?",
+            (capture["capture_id"],),
+        ).fetchone()
+    assert row is not None
+    source_id, head, route_version = row
+    response = _call(
+        selection,
+        "source.route",
+        {
+            "dto_version": 1,
+            "source_id": source_id,
+            "space_id": cast(dict[str, object], space["space"])["space_id"],
+            "expected_head": head,
+            "expected_route_version": route_version,
+            "operation_id": "operation_123e4567-e89b-42d3-a456-426614174100",
+        },
+    )
+    assert response["ok"] is True
+    routed = cast(dict[str, object], response["result"])
+    assert routed == {
+        "status": "ok",
+        "dto_version": 1,
+        "source_id": source_id,
+        "head": head,
+        "route_version": route_version + 1,
+    }
 
 
 def test_bridge_uses_shared_organization_and_publication_services(tmp_path: Path) -> None:
@@ -274,8 +325,8 @@ def test_status_is_non_mutating_for_empty_state_and_reports_initialized_state(
     assert empty == {
         "brain_root": str(selection.brain_root),
         "initialized": False,
-        "runtime_session_version": 1,
-        "state_schema_version": 6,
+        "runtime_session_version": 2,
+        "state_schema_version": 7,
         "status": "ok",
     }
     assert not selection.brain_root.exists()
@@ -283,7 +334,7 @@ def test_status_is_non_mutating_for_empty_state_and_reports_initialized_state(
     assert _call(selection, "brain.initialize")["ok"] is True
     initialized = cast(dict[str, object], _call(selection, "system.status")["result"])
     assert initialized["initialized"] is True
-    assert initialized["state_schema_version"] == 6
+    assert initialized["state_schema_version"] == 7
 
 
 def test_plugin_bridge_exposes_durable_collector_controls(

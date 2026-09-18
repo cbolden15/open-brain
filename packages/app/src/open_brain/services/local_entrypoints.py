@@ -1997,7 +1997,7 @@ def _record_verified_export(
         manifest_version = cast(dict[str, object], manifest_value)["schema_version"]
     except UnicodeDecodeError, json.JSONDecodeError, KeyError, TypeError:
         raise ValueError("Portable export manifest is unavailable") from None
-    if type(manifest_version) is not int or manifest_version not in {1, 2, 3}:
+    if type(manifest_version) is not int or manifest_version not in {1, 2, 3, 4}:
         raise ValueError("Portable export manifest is unavailable")
     session.prepared.revalidate()
     atomic_replace(
@@ -2036,7 +2036,7 @@ def _verified_export_state(session: LocalBrainSession) -> str:
                 "manifest_digest_sha256",
                 "schema_version",
             }
-            or value["schema_version"] not in {1, 2, 3}
+            or value["schema_version"] not in {1, 2, 3, 4}
             or canonical_json_bytes(value) != payload
             or not isinstance(value["created_at"], str)
             or not isinstance(value["export_id"], str)
