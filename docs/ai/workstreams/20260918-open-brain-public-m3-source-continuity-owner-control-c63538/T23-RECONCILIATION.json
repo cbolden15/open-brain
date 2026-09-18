@@ -1,0 +1,300 @@
+{
+  "schema_version": 1,
+  "global_acceptance_complete": false,
+  "rows": [
+    {
+      "acceptance_id": "A01",
+      "status": "retained_partial_with_scoped_macos_evidence",
+      "evidence": [
+        {
+          "path": "docs/ai/workstreams/20260917-open-brain-public-m1-publication-1f7912/EVIDENCE.json",
+          "sha256": "e8c0224a16e11d2e642a84535e485a6fbee47039e78f6fa8faf6b035eacd446a",
+          "source_commit": "8b0a5d55f49b568527d7f37ac2596d1b4daa5784",
+          "evidence_kind": "retained scoped checkpoint; original receipt limits preserved"
+        },
+        {
+          "path": "docs/ai/workstreams/20260917-open-brain-public-m2-0fd6e9/M2-CHECKPOINT.json",
+          "sha256": "9711703bee362c0c5669bd8dc5767f9184651669ba09ca0431224bc829b5f784",
+          "source_commit": "aff8dcbcc8bd5ec9958e6261921696ee1167fc0b",
+          "evidence_kind": "retained scoped checkpoint; original receipt limits preserved"
+        },
+        {
+          "path": "docs/ai/workstreams/20260918-open-brain-public-m3-source-continuity-owner-control-c63538/T21-CHECKPOINT.json",
+          "sha256": "3c2ee2458e92d64d37d3b96936781c4692549db822d5ad2e24e8d2dbd596e075",
+          "source_commit": "987dea814a4b8730f8b3b73e19bb35262f6a6044",
+          "evidence_kind": "retained scoped checkpoint; original receipt limits preserved"
+        }
+      ],
+      "scoped_claim": "Retained source publication/tamper/export evidence; reused exact macOS capture/import to canonical vault/search/full read",
+      "open_reason": "Broader cumulative native and GUI release acceptance not newly claimed",
+      "t23_acceptance_rows": [
+        "reused-documentation-journey",
+        "default-home-journey",
+        "custody-export"
+      ]
+    },
+    {
+      "acceptance_id": "A02",
+      "status": "retained_partial_with_scoped_macos_evidence",
+      "evidence": [
+        {
+          "path": "docs/ai/workstreams/20260917-open-brain-public-m2-0fd6e9/M2-CHECKPOINT.json",
+          "sha256": "9711703bee362c0c5669bd8dc5767f9184651669ba09ca0431224bc829b5f784",
+          "source_commit": "aff8dcbcc8bd5ec9958e6261921696ee1167fc0b",
+          "evidence_kind": "retained scoped checkpoint; original receipt limits preserved"
+        }
+      ],
+      "scoped_claim": "Retained strict DTO/grant/error and unsupported-writer source evidence",
+      "open_reason": "No new migration or old-client native certification",
+      "t23_acceptance_rows": [
+        "mcp-failure-redaction"
+      ]
+    },
+    {
+      "acceptance_id": "A03",
+      "status": "retained_source_subset_only",
+      "evidence": [
+        {
+          "path": "docs/ai/workstreams/20260917-open-brain-public-m2-0fd6e9/M2-CHECKPOINT.json",
+          "sha256": "9711703bee362c0c5669bd8dc5767f9184651669ba09ca0431224bc829b5f784",
+          "source_commit": "aff8dcbcc8bd5ec9958e6261921696ee1167fc0b",
+          "evidence_kind": "retained scoped checkpoint; original receipt limits preserved"
+        }
+      ],
+      "scoped_claim": "Retained schema-5/6 migration and immutable history source evidence",
+      "open_reason": "No fresh native migration run; no blanket A03 promotion",
+      "t23_acceptance_rows": []
+    },
+    {
+      "acceptance_id": "A04",
+      "status": "retained_partial_with_scoped_macos_evidence",
+      "evidence": [
+        {
+          "path": "docs/ai/workstreams/20260917-open-brain-public-m2-0fd6e9/M2-CHECKPOINT.json",
+          "sha256": "9711703bee362c0c5669bd8dc5767f9184651669ba09ca0431224bc829b5f784",
+          "source_commit": "aff8dcbcc8bd5ec9958e6261921696ee1167fc0b",
+          "evidence_kind": "retained scoped checkpoint; original receipt limits preserved"
+        },
+        {
+          "path": "docs/ai/workstreams/20260918-open-brain-public-m3-source-continuity-owner-control-c63538/T21-CHECKPOINT.json",
+          "sha256": "3c2ee2458e92d64d37d3b96936781c4692549db822d5ad2e24e8d2dbd596e075",
+          "source_commit": "987dea814a4b8730f8b3b73e19bb35262f6a6044",
+          "evidence_kind": "retained scoped checkpoint; original receipt limits preserved"
+        }
+      ],
+      "scoped_claim": "Retained 201-result paging/filter source evidence; reused native Unicode complete reads",
+      "open_reason": "Native full paging/filter matrix not newly claimed",
+      "t23_acceptance_rows": [
+        "reused-documentation-journey"
+      ]
+    },
+    {
+      "acceptance_id": "A05",
+      "status": "retained_partial_with_scoped_macos_evidence",
+      "evidence": [
+        {
+          "path": "docs/ai/workstreams/20260917-open-brain-public-m2-0fd6e9/M2-CHECKPOINT.json",
+          "sha256": "9711703bee362c0c5669bd8dc5767f9184651669ba09ca0431224bc829b5f784",
+          "source_commit": "aff8dcbcc8bd5ec9958e6261921696ee1167fc0b",
+          "evidence_kind": "retained scoped checkpoint; original receipt limits preserved"
+        },
+        {
+          "path": "docs/ai/workstreams/20260918-open-brain-public-m3-source-continuity-owner-control-c63538/T21-CHECKPOINT.json",
+          "sha256": "3c2ee2458e92d64d37d3b96936781c4692549db822d5ad2e24e8d2dbd596e075",
+          "source_commit": "987dea814a4b8730f8b3b73e19bb35262f6a6044",
+          "evidence_kind": "retained scoped checkpoint; original receipt limits preserved"
+        }
+      ],
+      "scoped_claim": "Reused CLI/MCP/agent package journeys; new denied-write/EOF checks",
+      "open_reason": "Exact Obsidian GUI open; desktop GUI deferred",
+      "t23_acceptance_rows": [
+        "reused-documentation-journey",
+        "default-home-journey",
+        "mcp-failure-redaction",
+        "foreground-eof"
+      ]
+    },
+    {
+      "acceptance_id": "A06",
+      "status": "retained_source_subset_only",
+      "evidence": [
+        {
+          "path": "docs/ai/workstreams/20260918-open-brain-public-m3-source-continuity-owner-control-c63538/T09-CHECKPOINT.json",
+          "sha256": "96c4d65ffc44c0a759bf2611fa8804adb3ce1b13a7e8f0bdbf2e7e0db1818727",
+          "source_commit": "92f33a1eb95184d86b804b038e4d0dd3d725a8f4",
+          "evidence_kind": "retained scoped checkpoint; original receipt limits preserved"
+        }
+      ],
+      "scoped_claim": "Retained T09 synthetic custody/containment source evidence",
+      "open_reason": "T10 source continuity deferred; no live sources",
+      "t23_acceptance_rows": []
+    },
+    {
+      "acceptance_id": "A07",
+      "status": "retained_source_subset_only",
+      "evidence": [
+        {
+          "path": "docs/ai/workstreams/20260917-open-brain-public-m2-0fd6e9/M2-CHECKPOINT.json",
+          "sha256": "9711703bee362c0c5669bd8dc5767f9184651669ba09ca0431224bc829b5f784",
+          "source_commit": "aff8dcbcc8bd5ec9958e6261921696ee1167fc0b",
+          "evidence_kind": "retained scoped checkpoint; original receipt limits preserved"
+        }
+      ],
+      "scoped_claim": "Retained history/relationships source evidence",
+      "open_reason": "No new full artifact history/relationship matrix",
+      "t23_acceptance_rows": []
+    },
+    {
+      "acceptance_id": "A08",
+      "status": "deferred_open",
+      "evidence": [],
+      "scoped_claim": "No T23 implementation",
+      "open_reason": "T11 retire/correct deferred",
+      "t23_acceptance_rows": []
+    },
+    {
+      "acceptance_id": "A09",
+      "status": "deferred_open",
+      "evidence": [],
+      "scoped_claim": "No T23 implementation",
+      "open_reason": "T12 selective forget deferred",
+      "t23_acceptance_rows": []
+    },
+    {
+      "acceptance_id": "A10",
+      "status": "deferred_open",
+      "evidence": [],
+      "scoped_claim": "No T23 implementation",
+      "open_reason": "T13 Markdown root rebind deferred",
+      "t23_acceptance_rows": []
+    },
+    {
+      "acceptance_id": "A11",
+      "status": "deferred_open",
+      "evidence": [],
+      "scoped_claim": "No T23 implementation",
+      "open_reason": "T14 optional PDF/DOCX deferred",
+      "t23_acceptance_rows": []
+    },
+    {
+      "acceptance_id": "A12",
+      "status": "deferred_open",
+      "evidence": [],
+      "scoped_claim": "No T23 implementation",
+      "open_reason": "T15 Linux service deferred; no real services",
+      "t23_acceptance_rows": []
+    },
+    {
+      "acceptance_id": "A13",
+      "status": "deferred_open",
+      "evidence": [],
+      "scoped_claim": "No T23 implementation",
+      "open_reason": "T16-T18 semantic recall deferred; no model downloads",
+      "t23_acceptance_rows": []
+    },
+    {
+      "acceptance_id": "A14",
+      "status": "retained_partial_with_scoped_macos_evidence",
+      "evidence": [
+        {
+          "path": "docs/ai/workstreams/20260918-open-brain-public-m3-source-continuity-owner-control-c63538/T19-CHECKPOINT.json",
+          "sha256": "773a3ffa5e334fdfb583a30152a8c27feaf28c0066986c22dcd001f78eca02d1",
+          "source_commit": "6da4f104a16d9a5a454bb1933f2c3aba94c1c0a3",
+          "evidence_kind": "retained scoped checkpoint; original receipt limits preserved"
+        },
+        {
+          "path": "docs/ai/workstreams/20260918-open-brain-public-m3-source-continuity-owner-control-c63538/T20-CHECKPOINT.json",
+          "sha256": "4949ed722b26c3ffbf77fae4d293661e5ed44e208061f9ad2d96c680b2d31519",
+          "source_commit": "907bfe737b9366cafdb47ffb763f72df8dcf5f32",
+          "evidence_kind": "retained scoped checkpoint; original receipt limits preserved"
+        },
+        {
+          "path": "docs/ai/workstreams/20260918-open-brain-public-m3-source-continuity-owner-control-c63538/T21-CHECKPOINT.json",
+          "sha256": "3c2ee2458e92d64d37d3b96936781c4692549db822d5ad2e24e8d2dbd596e075",
+          "source_commit": "987dea814a4b8730f8b3b73e19bb35262f6a6044",
+          "evidence_kind": "retained scoped checkpoint; original receipt limits preserved"
+        }
+      ],
+      "scoped_claim": "Retained catalog source and exact native truth; certifications remain empty",
+      "open_reason": "No public/provider promotion",
+      "t23_acceptance_rows": [
+        "reused-native-homebrew",
+        "reused-documentation-journey"
+      ]
+    },
+    {
+      "acceptance_id": "A15",
+      "status": "retained_partial_with_scoped_macos_evidence",
+      "evidence": [
+        {
+          "path": "docs/ai/workstreams/20260918-open-brain-public-m3-source-continuity-owner-control-c63538/T20-CHECKPOINT.json",
+          "sha256": "4949ed722b26c3ffbf77fae4d293661e5ed44e208061f9ad2d96c680b2d31519",
+          "source_commit": "907bfe737b9366cafdb47ffb763f72df8dcf5f32",
+          "evidence_kind": "retained scoped checkpoint; original receipt limits preserved"
+        }
+      ],
+      "scoped_claim": "Reused exact macOS native audit/local-file Homebrew; new clean archive staging",
+      "open_reason": "Linux exact candidate and public delivery open; optional packages source-only",
+      "t23_acceptance_rows": [
+        "reused-native-homebrew",
+        "archive-staging",
+        "default-home-journey"
+      ]
+    },
+    {
+      "acceptance_id": "A16",
+      "status": "retained_partial_with_scoped_macos_evidence",
+      "evidence": [
+        {
+          "path": "docs/ai/workstreams/20260918-open-brain-public-m3-source-continuity-owner-control-c63538/T21-CHECKPOINT.json",
+          "sha256": "3c2ee2458e92d64d37d3b96936781c4692549db822d5ad2e24e8d2dbd596e075",
+          "source_commit": "987dea814a4b8730f8b3b73e19bb35262f6a6044",
+          "evidence_kind": "retained scoped checkpoint; original receipt limits preserved"
+        }
+      ],
+      "scoped_claim": "Reused 11 exact native documentation blocks with hashes and original timing",
+      "open_reason": "No Linux/provider/GUI certification",
+      "t23_acceptance_rows": [
+        "reused-documentation-journey"
+      ]
+    },
+    {
+      "acceptance_id": "A17",
+      "status": "scoped_macos_locally_verified_global_open",
+      "evidence": [
+        {
+          "path": "docs/ai/workstreams/20260918-open-brain-public-m3-source-continuity-owner-control-c63538/T20-CHECKPOINT.json",
+          "sha256": "4949ed722b26c3ffbf77fae4d293661e5ed44e208061f9ad2d96c680b2d31519",
+          "source_commit": "907bfe737b9366cafdb47ffb763f72df8dcf5f32",
+          "evidence_kind": "retained scoped checkpoint; original receipt limits preserved"
+        },
+        {
+          "path": "docs/ai/workstreams/20260918-open-brain-public-m3-source-continuity-owner-control-c63538/T21-CHECKPOINT.json",
+          "sha256": "3c2ee2458e92d64d37d3b96936781c4692549db822d5ad2e24e8d2dbd596e075",
+          "source_commit": "987dea814a4b8730f8b3b73e19bb35262f6a6044",
+          "evidence_kind": "retained scoped checkpoint; original receipt limits preserved"
+        }
+      ],
+      "scoped_claim": "T23 scoped local macOS staging/default HOME/failure/redaction/custody/EOF timing plus reused CLI/MCP/agent/plugin package evidence",
+      "open_reason": "Global A17 open: Linux, exact Obsidian GUI, production OAuth/provider refresh/revocation/custody/timing, live source/public promotion; desktop GUI/release deferred",
+      "t23_acceptance_rows": [
+        "reused-native-homebrew",
+        "reused-documentation-journey",
+        "archive-staging",
+        "default-home-journey",
+        "mcp-failure-redaction",
+        "custody-export",
+        "foreground-eof"
+      ]
+    }
+  ],
+  "historical_gui_note": "Historical M2 Obsidian GUI receipt remains preserved; it is not the exact T20/T23 artifact receipt and does not close current GUI gate.",
+  "baseline": "b9f4a9cf944ecf1638b67c1af947407b561f0eee",
+  "artifact_source_commit": "907bfe737b9366cafdb47ffb763f72df8dcf5f32",
+  "status": "scoped_macos_locally_verified_global_gates_open",
+  "contract": "docs/design/core-v01-t23-acceptance.md",
+  "new_acceptance_matrix": "docs/acceptance/core-v01-t23.json",
+  "verified_implementation_head": "63d9dfe87356b65a1507ea305898b0ad680ba4cc",
+  "t23_checkpoint": "docs/ai/workstreams/20260918-open-brain-public-m3-source-continuity-owner-control-c63538/T23-CHECKPOINT.json",
+  "t23_receipt_sha256": "13d65e8f29f63b8f2614fa50bc65311505dfe675104b6f1234c5b56a6a4c418e"
+}

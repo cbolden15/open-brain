@@ -9,6 +9,19 @@ The first Secure Node implementation is preserved under `archive/open-brain-secu
 non-building history. It is not an Open Brain extra, entry point, dependency, or runtime profile.
 Portable Brain and shared record identities remain the boundary for any future separate product.
 
+## Candidate scope
+
+This tree documents the locally verified **Core v0.1 candidate**, not a newly published release.
+The shared `0.1.0` version alone does not identify its features. Check `open-brain --help` and
+`open-brain catalog --json` on the executable you will use; an older release may lack catalog.
+The [feature/version matrix](docs/core-v01-features.md) separates implementation, installed assets,
+authorization and acceptance. The candidate has no public acceptance certification.
+
+Start with the [executable first-use guide](docs/first-use.md) for synthetic capture and Markdown
+import through routing, proposal inspection, approval, managed vault, search and complete reads.
+[Doctor checks](docs/doctor.md) provide bounded local diagnostics. These local checks do not close
+Linux exact-candidate, Obsidian GUI or public-promotion gates.
+
 ## Install
 
 Homebrew is the prerequisite on macOS and Linux. Install the complete resource set with:
@@ -17,8 +30,10 @@ Homebrew is the prerequisite on macOS and Linux. Install the complete resource s
 brew install cbolden15/tap/open-brain
 ```
 
-The exact product journey is in [the five-minute acceptance test](docs/acceptance/five-minute-install.md),
-and the install details are in [the installation guide](docs/install.md).
+This is the supported release installation channel; a local candidate check does not update the tap.
+Use the [installation guide](docs/install.md) to distinguish released resources from candidate proof.
+The earlier [five-minute provider acceptance test](docs/acceptance/five-minute-install.md) remains a
+separate historical target, not the Core v0.1 first-use prerequisite.
 
 The native package also includes a desktop-only Obsidian plugin for the managed Markdown vault and
 a separately packaged structural Graphify helper. The plugin offers capture, search, source
@@ -33,33 +48,29 @@ make that transport work.
 
 An optional desktop companion in `packages/desktop` provides local capture, search, and Claude Code
 and Codex setup. It is a contributor build separate from Homebrew. The same
-[agent setup works headlessly](docs/agent-setup.md). Source connections and recurring collection
-remain later milestones in the
-[desktop plan](docs/plans/2026-09-14-desktop-companion.md). See
+[agent setup works headlessly](docs/agent-setup.md). Optional source/collector implementations are
+source-only; continuously updating connected sources
+and production provider onboarding remain outside Core v0.1. See the
+[source boundary](docs/integrations/core-sources.md). See
 [ADR 0017](docs/architecture/decisions/0017-desktop-companion-boundary.md) for the package and
 permission boundaries.
 
-The M2 source build adds [paged search, complete reads and retained history](docs/records-and-history.md),
+The Core v0.1 candidate includes [paged search, complete reads and retained history](docs/records-and-history.md),
 including owner-CLI revision relationships and publication workflows in both clients. Its
 [Portable v4 exports](docs/portable-brain-v4.md) preserve source and decision evidence. These changes
-require a package containing M2; local verification does not publish a new Homebrew release.
+require this candidate's surfaces; local verification does not publish a new Homebrew release.
 
 ## Use Open Brain
 
-```sh
-open-brain capture "A note to remember"
-open-brain import /absolute/path/to/markdown --yes
-open-brain search "remember"
-open-brain inbox list --unassigned
-open-brain space create "Projects"
-open-brain export "$PWD/brain-export" --verify
-open-brain status --json
-```
+Follow the [first-use guide](docs/first-use.md) in order. It derives IDs from actual responses and
+includes executable examples; reference pages use uppercase placeholders for your own IDs.
 
 The first capture creates the private data directory, owner identity, Brain identity, and SQLite
 state automatically. Existing supported local databases upgrade transactionally when opened for
-writing. Local SQLite schema version 2 is separate from Portable Brain schema version 1, which
-`open-brain export --json` reports. See [schema migrations](docs/schema-migrations.md) for supported
+writing. This candidate uses local state schema **7**, runtime session **2**, and Portable metadata
+**4**. These are separate from product version `0.1.0`, catalog schema 2, task contract `t03.v1`,
+and plugin bridge protocol 1. Stop older sessions before upgrading and update clients together;
+older runtimes must refuse incompatible state. See [schema migrations](docs/schema-migrations.md) for supported
 older layouts, refusal behavior, and interrupted-transaction recovery.
 
 Markdown import scans nested lowercase `.md` files, skips Obsidian metadata directories, and leaves
@@ -84,7 +95,7 @@ application-level encryption.
 `open-brain mcp` serves tools over inherited stdio until the client closes it. It uses the same
 local Brain as the CLI and opens no listener, daemon, or child service. The invoking OS user and
 stdio channel are the trust boundary. Choose capture, search, inbox read, organization, workspace
-read, or graph refresh
+read, graph refresh, complete content, retained history, or review capabilities
 independently; starting without any capability flag is an error. For clients that use an
 `mcpServers` configuration, choose one example.
 
@@ -145,12 +156,21 @@ characters). Reusing a key with identical text returns the original capture; dif
 captures. `brain_search` accepts `query` (1 to 500 characters) and `limit` (1 to 10, default 10).
 Results carry `trust` and `source_origin`; automated captures are `unverified` with origin `unknown`.
 Neither tool accepts a source path, owner role, publication action, or connector request.
+`brain_catalog` is available in an already granted session and accepts `{"schema_version":2}`;
+it discloses metadata without granting any additional tools. `tools/list` is the session's callable
+inventory. CLI catalog registration alone is not evidence that a client can call an operation.
 
 Add `--allow-inbox-read` for `brain_inbox_list` and `brain_space_list`. Add `--allow-organize` for
 `brain_space_create`, `brain_space_rename`, and `brain_inbox_route`. These permissions are independent
 of capture and search. Space names and inbox previews are untrusted content that a connected client
 may send to its model provider. [Agent setup](docs/agent-setup.md) can configure these grants for
 Claude Code and Codex.
+
+For complete current text add `--allow-content-read`; retained revision access requires
+`--allow-history-read`. Search does not imply either grant. Review uses independent
+`--allow-review-read`, `--allow-review-propose`, and `--allow-review-decide` flags. A decision can
+publish only with the token from an inspection of the proposal. See [agent setup](docs/agent-setup.md)
+and [review/publication](docs/review-publication.md). Owner CLI operations do not need MCP grants.
 
 Each process permits 500 valid capture attempts and 16 MiB of aggregate UTF-8 capture input, 2,000
 valid search attempts, 500 workspace reads with 16 MiB of output, and 20 graph refresh requests with
@@ -165,8 +185,9 @@ same idempotency key after contention. SQLite retains its five-second busy timeo
 MCP capture uses a non-owner, capture-only identity. Search and path-free workspace/graph reads have
 separate authority. `--allow-graph-refresh` exposes only a refresh request; version 0.1.0 has no MCP
 provider-configuration or credential operation, so it returns `provider_not_configured`. The adapter
-cannot accept a suggestion, resolve a conflict, edit exclusions, invoke connectors or actions, or
-gain owner mutation authority. Stopping the stdio process closes its capabilities.
+cannot accept graph suggestions, resolve workspace conflicts, edit exclusions or invoke
+connectors. Its explicitly granted review decisions can publish a canonical page after inspection;
+this is separate from graph-suggestion acceptance. Stopping the stdio process closes its capabilities.
 
 ## Develop
 

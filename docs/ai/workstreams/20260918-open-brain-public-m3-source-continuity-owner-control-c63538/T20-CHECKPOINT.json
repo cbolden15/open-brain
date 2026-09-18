@@ -1,0 +1,130 @@
+{
+  "status": "LOCALLY_VERIFIED",
+  "milestone": "T20",
+  "scope": "Core-v0.1 scoped A15 local macOS arm64",
+  "baseline": "2ea2e66473915e7b7864bd8023b0ca42f4eb691f",
+  "verified_implementation_head": "907bfe737b9366cafdb47ffb763f72df8dcf5f32",
+  "contract": "docs/design/core-v01-t20-artifacts.md",
+  "contract_revision": 2,
+  "changes": [
+    "Native module audit requires catalog implementation",
+    "Native CLI catalog compatibility/package checks before Brain creation",
+    "Exact MCP catalog invocation, authorization inventory and ungranted-tool refusal checks",
+    "Runtime subprocesses use synthetic HOME, minimal system PATH, disposable cwd and no PYTHONPATH"
+  ],
+  "compatibility": {
+    "state_schema": 7,
+    "runtime_session": 2,
+    "task_contract": "t03.v1",
+    "bridge_protocol": 1,
+    "catalog_schema": 2,
+    "portable_metadata": 4,
+    "product_version": "0.1.0",
+    "core_behavior": "unchanged; zero-capability MCP startup refusal preserved"
+  },
+  "checks": {
+    "make_verify": {
+      "python_passed": 2422,
+      "existing_skips": 5,
+      "mypy_files": 337,
+      "obsidian_tests": 291,
+      "desktop_typescript_tests": 259,
+      "desktop_python_tests": 1,
+      "rust_tests": 26,
+      "package_builds": [
+        "engine",
+        "app",
+        "connectors",
+        "collector"
+      ],
+      "elapsed_seconds": 269.57
+    },
+    "native_homebrew": {
+      "command": "make -j1 native-audit homebrew-smoke",
+      "result": "passed",
+      "elapsed_seconds": 79.73,
+      "scope": "local-file keg-only install, installed runtime/Graphify/Obsidian checks, guarded removal and product preservation"
+    },
+    "focused_implementation": {
+      "passed": 17,
+      "elapsed_seconds": 0.16
+    },
+    "focused_repair": {
+      "passed": 19,
+      "elapsed_seconds": 0.27
+    },
+    "git_diff_check": "passed",
+    "actionlint": "passed"
+  },
+  "artifacts": {
+    "platform": "macos-arm64",
+    "manifest_sha256": "8d5913b0512b639306a7226cf9414d8cdcfbcbd6e2dcf702581fd7eb79277be4",
+    "artifacts": [
+      {
+        "role": "base",
+        "platform": "macos-arm64",
+        "filename": "open-brain-0.1.0-macos-arm64.tar.gz",
+        "archive_sha256": "4dfaac1436fa14da9e464779dec9cbbb0f3a51314832df8572a0ce9a5d6d92cf",
+        "executable_sha256": "a6974a513827f11e49eff90d45fcb6aa4cee7e2b05b0d34897e030dd2eccf687",
+        "destination": "bin/open-brain",
+        "obsidian_assets": {
+          "main.js": "1cdfd0f0c2e02a178c835dedf1a09ffe51c37ece4f226f3f33eb4b838c990b90",
+          "manifest.json": "5c1f9a8b43dcdf63dab172082034d3447f54238f2d4911d820a3bba545f13fc9",
+          "styles.css": "43d7accecdd7b1c60ddf713cce955ddb3ce773eca9e5d943955a6966c9374ee9"
+        }
+      },
+      {
+        "role": "graphify",
+        "platform": "macos-arm64",
+        "filename": "open-brain-graphify-0.1.0-macos-arm64.tar.gz",
+        "archive_sha256": "ad173b000df245f1e0563d3977007f891e7ac3e319b50a0ed673e799d91b5923",
+        "executable_sha256": "63f574a5beaa4e658110230b70a6422ed30ed47730044a5f5d0a886027d08854",
+        "destination": "libexec/open-brain-graphify",
+        "obsidian_assets": {}
+      }
+    ],
+    "source_aggregate_sha256": "e5231e921a8885b3ef8f140842b0ce85f45ce3f3134e7ed1f4f1b4e928469349",
+    "reproducibility": "Deterministic archive tests for identical inputs; independent native bit-for-bit rebuild not claimed"
+  },
+  "independent_review": {
+    "model": "gpt-6-astra",
+    "effort": "high",
+    "status": "READY",
+    "initial_findings": 1,
+    "resolved_findings": 1,
+    "open_findings": 0,
+    "disposition": "P2 actual MCP catalog invocation and exact authorization projection repaired and independently delta-reviewed",
+    "reviewed_files": {
+      "tools/open_brain_dev/base_native.py": "4e98cc76d070cae70be7d43c6af6ce0958071f30f614db9b223b8b2de0c3755d",
+      "tests/release/test_native_core_smoke.py": "fd35ecf50f5410a969acf8cabafe64bb07d23b33afbbad458fbd6ece641a695b",
+      "docs/design/core-v01-t20-artifacts.md": "adf052e02ef641b771dc60afa5fc6258914eb22e6ffcc43f05aa4a9fd8c58ee6"
+    },
+    "initial_focused_tests": 116,
+    "initial_focused_elapsed_seconds": 21.18,
+    "delta_focused_tests": 44,
+    "delta_pytest_elapsed_seconds": 0.36,
+    "negative_probes_rejected": 3
+  },
+  "acceptance_limit": "Local macOS scoped A15 only. Linux exact-candidate native/Homebrew, public promotion and Obsidian GUI acceptance remain open. No global A15 completion or release certification.",
+  "remaining_gates": [
+    "T21 scoped documentation in fresh thread",
+    "T23 exact-candidate acceptance in its own authorized phase",
+    "Linux x86_64 exact-candidate native/Homebrew",
+    "Obsidian GUI acceptance",
+    "Public promotion and separate external-action authorization"
+  ],
+  "deferred_tasks": [
+    "T10",
+    "T11",
+    "T12",
+    "T13",
+    "T14",
+    "T15",
+    "T16",
+    "T17",
+    "T18",
+    "T22"
+  ],
+  "desktop": "Completed compatibility work preserved; release/signing/notarization/AppImage/window work not performed",
+  "next_action": "Start T21 in a fresh thread using this exact checkpoint. Do not start T23 here. Push/PR/merge/release, live sources, OAuth, real services and model downloads remain separately gated."
+}

@@ -1,17 +1,20 @@
 # Operations
 
-Open Brain has no service lifecycle. Start a command when work is needed and wait for it to exit.
+The Open Brain core has no service lifecycle. Start a command when work is needed and wait for it
+to exit. Optional source-only collector operations are separate; see [core sources](integrations/core-sources.md).
 
 ## Normal checks
 
 ```sh
 open-brain status --json
-open-brain doctor --json
+open-brain doctor --check search-index --json
 ```
 
 Status identifies the local profile, SQLite storage, foreground-only operation, and lack of
 application-level encryption. Doctor verifies the private data directory, dependency closure, and
-search index. A healthy result requires no daemon restart or service repair.
+search index. Run one named check at a time; see the [four executable doctor examples](doctor.md).
+These commands describe the Core v0.1 candidate, not a release certification. A healthy result
+requires no daemon restart or service repair.
 
 ## Data location
 
@@ -28,7 +31,7 @@ Open Brain uses bounded SQLite waits and process locks. A competing local writer
 `database_busy` or exit 75. Wait for the other foreground command to finish, then retry a capture
 with the same idempotency key when one was supplied.
 
-There is no daemon-authority lease, supervisor, scheduler, service unit, or control socket to inspect.
+The core has no daemon-authority lease, supervisor, scheduler, service unit, or control socket to inspect.
 
 ## Backup and transfer
 

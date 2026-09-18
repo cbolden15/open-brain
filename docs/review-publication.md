@@ -4,9 +4,11 @@ Open Brain can turn one or more routed captures into a reviewed canonical note. 
 the source captures unchanged. It records which captures supported the draft, requires inspection
 before a decision, and keeps the same page identity when that note is updated later.
 
-This feature is available in this source build. Merging it does not update an existing Homebrew
-installation. A later Open Brain release is required before an installed executable gains these
-commands.
+This page describes the Core v0.1 candidate; it does not certify an existing Homebrew release.
+Check the [feature/version matrix](core-v01-features.md). The [first-use guide](first-use.md) executes
+capture plus Markdown import through publication and complete reads. The commands below are
+reference templates: substitute actual IDs, tokens and paths. Approve, reject and edit-and-approve
+are alternative terminal decisions, not a sequence to run on the same proposal.
 
 ## Prepare the captures
 

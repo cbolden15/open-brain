@@ -4,7 +4,7 @@ Spaces group captures by topic. The inbox lists quick captures from the CLI, age
 sources. A capture without a space appears in the unassigned inbox. Published canonical notes are
 outside this routing workflow.
 
-These commands are available in this source build. An installed Homebrew executable needs a release
+These commands are available in the Core v0.1 candidate. An installed Homebrew executable needs a release
 containing this change. Prefix commands with `uv run` when working from a source checkout.
 
 ## Use the CLI
@@ -93,3 +93,7 @@ approve an unverified source. Routing a published capture is refused.
 The current engine also refuses an automated source revision that would replace a routed capture.
 That preserves the owner's organized version; routing does not promise ongoing updates to that
 capture. Keep changing source items unassigned when their automatic revisions must continue.
+
+The [first-use guide](first-use.md) provides executable synthetic routing and publication examples;
+uppercase IDs in this reference are placeholders. See the [feature/version matrix](core-v01-features.md)
+for candidate compatibility and acceptance boundaries.

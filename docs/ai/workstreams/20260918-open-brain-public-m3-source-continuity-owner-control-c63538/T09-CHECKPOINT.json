@@ -1,0 +1,75 @@
+{
+  "status": "LOCALLY_VERIFIED",
+  "milestone": "T09",
+  "scope": "Core-v0.1",
+  "baseline": "3070e33a24ebd1e44a81b51f5d1c9cdb66b46935",
+  "verified_implementation_head": "92f33a1eb95184d86b804b038e4d0dd3d725a8f4",
+  "reviewed_worker_head": "9d6f5ca303b7ccddb8c333bf360732837a3cbf04",
+  "tasks": {
+    "T09": "locally_verified",
+    "T10": "deferred_by_core_v01_decision",
+    "T11": "deferred_by_core_v01_decision",
+    "T12": "deferred_by_core_v01_decision",
+    "T13": "deferred_by_core_v01_decision",
+    "T14": "deferred_by_core_v01_decision",
+    "T15": "deferred_by_core_v01_decision"
+  },
+  "acceptance": {
+    "A06": "T09 item containment/custody subset verified; deferred T10 routing/update/publication continuity remains open"
+  },
+  "independent_review": {
+    "status": "READY",
+    "original_and_residual_findings": "all closed",
+    "unresolved_actionable_findings": 0,
+    "independent_focused_tests": 54,
+    "independent_composed_tests": 21,
+    "coordinator_composed_sha256": "8fdfa29189f8d00594d4c710bad012a9e53f5d4a44aadc9aaf6e11ff452f1843",
+    "integrated_source_matches_reviewed_candidate": true,
+    "post_review_change": "Mechanical test typing/import fixes only; assertions and patch targets preserved"
+  },
+  "checks": {
+    "make_verify": {
+      "status": "passed",
+      "head": "92f33a1eb95184d86b804b038e4d0dd3d725a8f4",
+      "elapsed_seconds": 303.84,
+      "python_passed": 2392,
+      "existing_filesystem_skips": 5,
+      "mypy_files": 334,
+      "package_builds": [
+        "engine",
+        "app",
+        "connectors",
+        "collector"
+      ],
+      "obsidian_tests": 291,
+      "desktop_typescript_tests": 259,
+      "desktop_python_tests": 1,
+      "rust_tests": 26,
+      "lint_typecheck_builds": "passed"
+    },
+    "worker_focused": {
+      "collector": 111,
+      "engine_foundation": 15,
+      "composed": 21
+    },
+    "diff_check": "passed",
+    "actionlint": "passed"
+  },
+  "verified_behaviors": [
+    "Both collector paths isolate immutable item conflicts and capture independent items in either batch order.",
+    "Exact intake custody and checkpoint/ack ordering survive injected storage and restart boundaries without provider refetch of staged payloads.",
+    "Durable staging, cancellation, checkpoint cleanup and retry intent prevent stranded payload quota.",
+    "Owner pause/disable/reset barriers preserve later acknowledged controls across controllers and processes.",
+    "Explicit/implicit production Brain binding supports Unicode paths and refuses another Brain.",
+    "Owner metadata-only status/inspect/retry works through CLI and private Unix control IPC.",
+    "Item/serialized-byte admission, protected receipt pruning, and global failure refusal are covered with synthetic fixtures."
+  ],
+  "limits": [
+    "Full A06 and T10-T18/T22 acceptance are deferred, not passed.",
+    "No live-source/provider, real service installation, native platform, GUI or public release acceptance is claimed.",
+    "Injected storage/restart seams do not constitute physical power-loss testing.",
+    "Protected cleanup metadata may temporarily exceed the normal 512-record pruning target; document bound is 4 MiB.",
+    "Deferred T12 purge must explicitly coordinate the current collector-before-engine lock order."
+  ],
+  "next_action": "Narrowed T19 capability/catalog truth, then T20-T21/T23 core artifacts/docs/acceptance; external gates remain closed."
+}

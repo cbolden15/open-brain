@@ -15,11 +15,13 @@ from open_brain_collector.lifecycle import (
     CollectorController,
     CollectorStateStore,
     CollectorStorageError,
+    EngineCaptureSink,
 )
 from open_brain_collector.runner import (
     CollectorProcessRunner,
     DispatchingSourceRuntime,
     FixtureSourceRuntime,
+    collector_capture_sink,
 )
 from open_brain_collector.service import CollectorLaunchdServiceManager, CollectorServiceError
 from open_brain_connectors.runtime.connectors import ConnectorContractError
@@ -64,6 +66,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     run_loop.add_argument("--background", action="store_true")
     lifecycle = subparsers.add_parser("source", help="manage explicit collector source state")
     lifecycle.add_argument("--state", required=True)
+    lifecycle.add_argument("--brain-root")
     lifecycle_subparsers = lifecycle.add_subparsers(dest="source_command", required=True)
     enable = lifecycle_subparsers.add_parser("enable")
     enable.add_argument("--source-id", required=True)
@@ -78,6 +81,12 @@ def main(argv: Sequence[str] | None = None) -> int:
     schedule = lifecycle_subparsers.add_parser("schedule")
     schedule.add_argument("--source-id", required=True)
     schedule.add_argument("--interval-seconds", required=True, type=int)
+    custody_status = lifecycle_subparsers.add_parser("custody-status")
+    custody_status.add_argument("--source-id")
+    custody_inspect = lifecycle_subparsers.add_parser("custody-inspect")
+    custody_inspect.add_argument("--receipt-id", required=True)
+    custody_retry = lifecycle_subparsers.add_parser("custody-retry")
+    custody_retry.add_argument("--receipt-id", required=True)
     service = subparsers.add_parser("service", help="manage opt-in collector launchd service")
     service.add_argument("--plist-dir", required=True)
     service.add_argument("--label", required=True)
@@ -106,12 +115,15 @@ def main(argv: Sequence[str] | None = None) -> int:
         )
         return 0
     if args.command == "source":
-        controller = CollectorController(
-            CollectorStateStore(Path(cast(str, args.state))),
-            clock=lambda: int(time()),
-        )
         command = cast(str, args.source_command)
         try:
+            controller = CollectorController(
+                CollectorStateStore(Path(cast(str, args.state))),
+                clock=lambda: int(time()),
+                brain_root=(
+                    Path(cast(str, args.brain_root)) if args.brain_root is not None else None
+                ),
+            )
             if command == "enable":
                 selection = GitHubSourceAdapter().repository_selection(
                     connection_id=cast(str, args.connection_id),
@@ -137,17 +149,49 @@ def main(argv: Sequence[str] | None = None) -> int:
                     cast(str, args.source_id),
                     cast(int, args.interval_seconds),
                 )
+            elif command == "custody-status":
+                result = controller.custody_status(cast(str | None, args.source_id))
+                print(json.dumps(result, sort_keys=True))
+                return 0
+            elif command == "custody-inspect":
+                result = controller.custody_inspect(cast(str, args.receipt_id))
+                print(json.dumps(result, sort_keys=True))
+                return 0
+            elif command == "custody-retry":
+                if args.brain_root is None:
+                    raise LiveSourceError("source_brain_unavailable")
+                result = controller.retry(
+                    cast(str, args.receipt_id),
+                    EngineCaptureSink(collector_capture_sink(Path(cast(str, args.brain_root)))),
+                )
+                print(json.dumps(result, sort_keys=True))
+                return 0
             else:
                 command_result = controller.status(cast(str, args.source_id))
-        except (CollectorStorageError, ConnectorContractError) as error:
+        except (CollectorStorageError, ConnectorContractError, LiveSourceError) as error:
             print(
                 json.dumps(
                     {
                         "failure_code": (
                             "storage_unavailable"
                             if isinstance(error, CollectorStorageError)
+                            else error.code
+                            if isinstance(error, LiveSourceError)
                             else str(error)
                         ),
+                        "outcome": "failed",
+                        "schema_version": 1,
+                        "source_id": getattr(args, "source_id", None),
+                    },
+                    sort_keys=True,
+                )
+            )
+            return 78
+        except Exception:
+            print(
+                json.dumps(
+                    {
+                        "failure_code": "source_operation_failed",
                         "outcome": "failed",
                         "schema_version": 1,
                         "source_id": getattr(args, "source_id", None),

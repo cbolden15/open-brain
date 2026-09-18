@@ -42,6 +42,39 @@ This decision narrows the desktop portions of the tasks and acceptance rows belo
 
 Google OAuth “Desktop client” describes an OAuth application type; CLI/connector authentication work is not deferred by this desktop-product decision. M3 implementation and outward publication still require their separate authorization.
 
+### Core v0.1 delivery scope (user decision, 2026-09-18)
+
+T09 collector recovery is [locally verified](../ai/workstreams/20260918-open-brain-public-m3-source-continuity-owner-control-c63538/T09-CHECKPOINT.json). Narrow T19–T21 and T23 to core CLI/MCP,
+the existing Obsidian workflow, truthful core artifacts and documentation, and
+exact-candidate acceptance. T10–T18 and T22 are deferred. Their original task and
+acceptance definitions below remain follow-up requirements, not completed work.
+
+The candidate may describe immutable records and publication, lexical search,
+complete reads, history, and explicit relationships according to verified
+implementation. It must not claim continuously updating connected sources,
+retire/correct/selective forget, Markdown-root rebind, PDF/DOCX, Linux background
+service, semantic recall, desktop release readiness, or Google OAuth/provider
+readiness. Preserve completed desktop compatibility and the foreground-only
+core boundary. Public promotion still requires exact artifact/platform evidence;
+push, PR, merge, release, live data, OAuth registration, real service installation,
+and model downloads remain separately gated.
+
+### T19 catalog checkpoint boundary
+
+The narrowed catalog contract is frozen in [Core v0.1 T19 catalog](../design/core-v01-t19-catalog.md).
+It joins actual core CLI, grant-filtered MCP and existing plugin bridge registrations
+with package/version observations, separate readiness and acceptance states, and
+explicit source-only/deferred classifications. Inspection must not initialize a Brain
+or contact optional providers. Connector descriptor v1, bridge v1 and `t03.v1`
+remain compatible. Public acceptance is not inferred from the shared 0.1.0 version,
+workspace installation, descriptor booleans or historical receipts. T19 scoped A14
+is [locally verified](../ai/workstreams/20260918-open-brain-public-m3-source-continuity-owner-control-c63538/T19-CHECKPOINT.json).
+T20 scoped core artifacts are [locally verified on macOS arm64](../ai/workstreams/20260918-open-brain-public-m3-source-continuity-owner-control-c63538/T20-CHECKPOINT.json) under the [frozen artifact contract](../design/core-v01-t20-artifacts.md).
+T21/scoped A16 is [locally verified on macOS arm64](../ai/workstreams/20260918-open-brain-public-m3-source-continuity-owner-control-c63538/T21-CHECKPOINT.json) under the [documentation contract](../design/core-v01-t21-documentation.md).
+T23/scoped A17 is [locally verified on macOS arm64](../ai/workstreams/20260918-open-brain-public-m3-source-continuity-owner-control-c63538/T23-CHECKPOINT.json) under the [bounded macOS acceptance contract](../design/core-v01-t23-acceptance.md).
+The [A01–A17 reconciliation](../ai/workstreams/20260918-open-brain-public-m3-source-continuity-owner-control-c63538/T23-RECONCILIATION.json) preserves earlier scoped evidence and records unfinished portions. Linux exact-candidate native/Homebrew,
+public promotion, production OAuth/provider, live-source, exact Obsidian GUI and deferred acceptance remain open.
+
 ## Delivery approach
 
 Use an orchestrator-worker workflow with independent verification. The coordinator owns coverage, shared decisions, integration and evidence. Workers own bounded changes. Shared contracts are frozen before adapters fan out. Immediate F1 remediation does not wait for a schema migration or the model work.

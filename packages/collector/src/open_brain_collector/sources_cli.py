@@ -96,6 +96,10 @@ def main(argv: Sequence[str]) -> int:
     )
     commands = parser.add_subparsers(dest="command", required=True)
     commands.add_parser("status")
+    custody_status = commands.add_parser("custody-status")
+    custody_status.add_argument("--source-id")
+    for name in ("custody-inspect", "custody-retry"):
+        commands.add_parser(name).add_argument("--receipt-id", required=True)
     commands.add_parser("endpoint")
     commands.add_parser("background-enable")
     commands.add_parser("background-disable")

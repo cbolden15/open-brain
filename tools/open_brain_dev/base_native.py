@@ -42,6 +42,7 @@ _REQUIRED_MODULES: Final = frozenset(
         "open_brain.local_data",
         "open_brain.profile",
         "open_brain.services.agent_setup",
+        "open_brain.services.catalog",
         "open_brain.services.local_bootstrap",
         "open_brain.services.local_entrypoints",
         "open_brain.services.graph_projection_store",
@@ -247,9 +248,14 @@ def smoke_base_artifact(
 ) -> dict[str, object]:
     executable = artifact.resolve(strict=True)
     with TemporaryDirectory(prefix="open-brain-smoke-") as raw:
-        home = Path(raw).resolve(strict=True)
+        runtime_root = Path(raw).resolve(strict=True)
+        home = runtime_root / "home"
+        working_directory = runtime_root / "work"
+        home.mkdir(mode=0o700)
+        working_directory.mkdir(mode=0o700)
         home.chmod(0o700)
-        environment = {"HOME": os.fspath(home), "PATH": os.environ.get("PATH", "")}
+        environment = {"HOME": os.fspath(home), "PATH": os.defpath}
+        _smoke_catalog(executable, environment)
         self_check = _run((os.fspath(executable), "__open-brain-self-check"), environment)
         if json.loads(self_check.stdout) != {
             "daemon_running": False,
@@ -906,26 +912,26 @@ def _smoke_local_mcp(executable: Path, home: Path, environment: Mapping[str, str
     }
 
     def exchange(
-        flag: str, name: str, arguments: dict[str, object], *, tools: set[str] | None = None
+        flag: str,
+        name: str,
+        arguments: dict[str, object],
+        *,
+        tools: set[str] | None = None,
+        inspect_catalog: bool = False,
     ) -> dict[str, object]:
-        expected_tools = set(tools or {name})
-        if flag == "--allow-search":
-            expected_tools.update({"brain_contract_describe", "brain_search_page"})
-        elif flag == "--allow-organize":
-            expected_tools.update({"brain_contract_describe", "brain_source_route"})
-        requests = [
+        expected_tools = _expected_mcp_tools(flag, name, tools)
+        denied_name = "brain_search" if name == "brain_capture" else "brain_capture"
+        requests = _mcp_exchange_requests(
             initialize,
-            {"jsonrpc": "2.0", "id": 2, "method": "tools/list"},
-            {
-                "jsonrpc": "2.0",
-                "id": 3,
-                "method": "tools/call",
-                "params": {"name": name, "arguments": arguments},
-            },
-        ]
+            name,
+            arguments,
+            denied_name,
+            inspect_catalog=inspect_catalog,
+        )
         try:
             process = subprocess.run(
                 (os.fspath(executable), "mcp", flag),
+                cwd=_runtime_working_directory(environment),
                 env=dict(environment),
                 input="".join(json.dumps(request) + "\n" for request in requests),
                 capture_output=True,
@@ -933,16 +939,11 @@ def _smoke_local_mcp(executable: Path, home: Path, environment: Mapping[str, str
                 timeout=30,
                 check=True,
             )
-            responses = [json.loads(line) for line in process.stdout.splitlines()]
-            if (
-                process.stderr
-                or len(responses) != 3
-                or responses[0]["result"]["capabilities"] != {"tools": {}}
-                or {tool["name"] for tool in responses[1]["result"]["tools"]} != expected_tools
-                or responses[2]["result"].get("isError")
-            ):
-                raise BaseNativeError("native MCP exchange failed")
-            return cast(dict[str, object], responses[2]["result"]["structuredContent"])
+            return _validate_mcp_exchange(
+                process,
+                expected_tools,
+                inspect_catalog=inspect_catalog,
+            )
         except (OSError, subprocess.SubprocessError, ValueError, KeyError, TypeError) as error:
             raise BaseNativeError("native MCP exchange failed") from error
 
@@ -953,6 +954,7 @@ def _smoke_local_mcp(executable: Path, home: Path, environment: Mapping[str, str
             "text": token,
             "idempotency_key": "installed-smoke",
         },
+        inspect_catalog=True,
     )
     repeated = exchange(
         "--allow-capture",
@@ -978,17 +980,24 @@ def _smoke_local_mcp(executable: Path, home: Path, environment: Mapping[str, str
     ):
         raise BaseNativeError("native MCP search failed")
     paged = exchange(
-        "--allow-search", "brain_search_page", {"dto_version": 1, "query": token},
+        "--allow-search",
+        "brain_search_page",
+        {"dto_version": 1, "query": token},
         tools={"brain_search", "brain_search_page", "brain_contract_describe"},
     )
     read = exchange(
-        "--allow-content-read", "brain_read",
-        {"dto_version": 1, "record_id": capture["capture_id"],
-         "expected_revision_id": capture["capture_id"]},
+        "--allow-content-read",
+        "brain_read",
+        {
+            "dto_version": 1,
+            "record_id": capture["capture_id"],
+            "expected_revision_id": capture["capture_id"],
+        },
         tools={"brain_read", "brain_contract_describe"},
     )
     history = exchange(
-        "--allow-history-read", "brain_history_list",
+        "--allow-history-read",
+        "brain_history_list",
         {"dto_version": 1, "record_id": capture["capture_id"]},
         tools={"brain_history_list", "brain_history_show", "brain_contract_describe"},
     )
@@ -1006,53 +1015,215 @@ def _smoke_local_mcp(executable: Path, home: Path, environment: Mapping[str, str
     organization_tools = {"brain_space_create", "brain_space_rename", "brain_inbox_route"}
     read_tools = {"brain_space_list", "brain_inbox_list"}
     created = exchange(
-        "--allow-organize", "brain_space_create",
+        "--allow-organize",
+        "brain_space_create",
         {"name": "Installed organization", "idempotency_key": "installed-space"},
         tools=organization_tools,
     )
-    repeated_space = json.loads(_run(
-        (os.fspath(executable), "space", "create", "Installed organization",
-         "--idempotency-key", "installed-space", "--json"), environment,
-    ).stdout)
+    repeated_space = json.loads(
+        _run(
+            (
+                os.fspath(executable),
+                "space",
+                "create",
+                "Installed organization",
+                "--idempotency-key",
+                "installed-space",
+                "--json",
+            ),
+            environment,
+        ).stdout
+    )
     if repeated_space != created:
         raise BaseNativeError("native organization replay failed")
     space_id = cast(dict[str, str], created["space"])["space_id"]
-    renamed = json.loads(_run(
-        (os.fspath(executable), "space", "rename", space_id, "Installed renamed", "--json"),
-        environment,
-    ).stdout)
+    renamed = json.loads(
+        _run(
+            (os.fspath(executable), "space", "rename", space_id, "Installed renamed", "--json"),
+            environment,
+        ).stdout
+    )
     spaces = exchange("--allow-inbox-read", "brain_space_list", {}, tools=read_tools)
     if renamed["space"] not in cast(list[dict[str, object]], spaces["spaces"]):
         raise BaseNativeError("native organization rename failed")
     route_arguments = {
-        "capture_id": capture["capture_id"], "space_id": space_id,
+        "capture_id": capture["capture_id"],
+        "space_id": space_id,
         "idempotency_key": "installed-route",
     }
     routed = exchange(
-        "--allow-organize", "brain_inbox_route", route_arguments, tools=organization_tools,
+        "--allow-organize",
+        "brain_inbox_route",
+        route_arguments,
+        tools=organization_tools,
     )
-    repeated_route = json.loads(_run(
-        (os.fspath(executable), "inbox", "route", cast(str, capture["capture_id"]), space_id,
-         "--idempotency-key", "installed-route", "--json"), environment,
-    ).stdout)
+    repeated_route = json.loads(
+        _run(
+            (
+                os.fspath(executable),
+                "inbox",
+                "route",
+                cast(str, capture["capture_id"]),
+                space_id,
+                "--idempotency-key",
+                "installed-route",
+                "--json",
+            ),
+            environment,
+        ).stdout
+    )
     inbox = exchange(
-        "--allow-inbox-read", "brain_inbox_list", {"unassigned_only": True}, tools=read_tools,
+        "--allow-inbox-read",
+        "brain_inbox_list",
+        {"unassigned_only": True},
+        tools=read_tools,
     )
-    assigned = json.loads(_run(
-        (os.fspath(executable), "inbox", "list", "--json"), environment,
-    ).stdout)
+    assigned = json.loads(
+        _run(
+            (os.fspath(executable), "inbox", "list", "--json"),
+            environment,
+        ).stdout
+    )
     if (
         routed != repeated_route
-        or any(item["capture_id"] == capture["capture_id"]
-               for item in cast(list[dict[str, object]], inbox["items"]))
-        or not any(item["capture_id"] == capture["capture_id"] and item["space_id"] == space_id
-                   for item in assigned["items"])
+        or any(
+            item["capture_id"] == capture["capture_id"]
+            for item in cast(list[dict[str, object]], inbox["items"])
+        )
+        or not any(
+            item["capture_id"] == capture["capture_id"] and item["space_id"] == space_id
+            for item in assigned["items"]
+        )
         or exchange("--allow-search", "brain_search", {"query": token}) != search
     ):
         raise BaseNativeError("native organization routing failed")
     run_root = _brain_root(home) / ".open-brain/run"
     if run_root.is_dir() and any(run_root.iterdir()):
         raise BaseNativeError("native MCP left a runtime artifact")
+
+
+def _expected_mcp_tools(flag: str, name: str, tools: set[str] | None) -> set[str]:
+    expected = set(tools if tools is not None else {name})
+    expected.add("brain_catalog")
+    if flag == "--allow-search":
+        expected.update({"brain_contract_describe", "brain_search_page"})
+    elif flag == "--allow-organize":
+        expected.update({"brain_contract_describe", "brain_source_route"})
+    return expected
+
+
+def _mcp_exchange_requests(
+    initialize: dict[str, object],
+    name: str,
+    arguments: dict[str, object],
+    denied_name: str,
+    *,
+    inspect_catalog: bool,
+) -> list[dict[str, object]]:
+    requests = [
+        initialize,
+        {"jsonrpc": "2.0", "id": 2, "method": "tools/list"},
+        {
+            "jsonrpc": "2.0",
+            "id": 3,
+            "method": "tools/call",
+            "params": {"name": name, "arguments": arguments},
+        },
+        {
+            "jsonrpc": "2.0",
+            "id": 4,
+            "method": "tools/call",
+            "params": {"name": denied_name, "arguments": {}},
+        },
+    ]
+    if inspect_catalog:
+        requests.append(
+            {
+                "jsonrpc": "2.0",
+                "id": 5,
+                "method": "tools/call",
+                "params": {"name": "brain_catalog", "arguments": {"schema_version": 2}},
+            }
+        )
+    return requests
+
+
+def _validate_mcp_exchange(
+    process: subprocess.CompletedProcess[str],
+    expected_tools: set[str],
+    *,
+    inspect_catalog: bool = False,
+) -> dict[str, object]:
+    responses = [json.loads(line) for line in process.stdout.splitlines()]
+    if (
+        process.stderr
+        or len(responses) != 4 + int(inspect_catalog)
+        or responses[0]["result"]["capabilities"] != {"tools": {}}
+        or {tool["name"] for tool in responses[1]["result"]["tools"]} != expected_tools
+        or responses[2]["result"].get("isError")
+        or responses[3]["result"].get("isError") is not True
+        or responses[3]["result"]["content"] != [{"type": "text", "text": "unknown tool"}]
+    ):
+        raise BaseNativeError("native MCP exchange failed")
+    if inspect_catalog:
+        catalog = responses[4]["result"]
+        structured = catalog.get("structuredContent")
+        surfaces = structured.get("surfaces") if isinstance(structured, dict) else None
+        mcp = surfaces.get("mcp") if isinstance(surfaces, dict) else None
+        if (
+            catalog.get("isError")
+            or not isinstance(mcp, dict)
+            or mcp.get("authorized_tools") != sorted(expected_tools)
+        ):
+            raise BaseNativeError("native MCP catalog authorization failed")
+    return cast(dict[str, object], responses[2]["result"]["structuredContent"])
+
+
+def _smoke_catalog(executable: Path, environment: Mapping[str, str]) -> None:
+    """Inspect grantless public metadata before any Brain is created."""
+    catalog = cast(
+        dict[str, object],
+        json.loads(
+            _run(
+                (os.fspath(executable), "catalog", "--schema-version", "2", "--json"),
+                environment,
+            ).stdout
+        ),
+    )
+    compatibility = catalog.get("compatibility")
+    product = catalog.get("product")
+    packages = catalog.get("packages")
+    acceptance = catalog.get("acceptance")
+    if (
+        catalog.get("schema_version") != 2
+        or compatibility
+        != {
+            "bridge_protocol": 1,
+            "catalog_schema": 2,
+            "portable_metadata": 4,
+            "runtime_session": 2,
+            "state_schema": 7,
+            "task_contract": "t03.v1",
+        }
+        or not isinstance(product, dict)
+        or product.get("name") != "open-brain"
+        or product.get("public_acceptance") != "not_certified"
+        or not isinstance(packages, list)
+        or {
+            package.get("name"): package.get("installed")
+            for package in packages
+            if isinstance(package, dict)
+        }
+        != {
+            "open-brain": True,
+            "open-brain-collector": False,
+            "open-brain-connectors": False,
+            "open-brain-engine": True,
+        }
+        or not isinstance(acceptance, dict)
+        or acceptance.get("trusted_certifications") != []
+    ):
+        raise BaseNativeError("native catalog discovery failed")
 
 
 def _smoke_graphify_projection(
@@ -1273,6 +1444,7 @@ def _run(
     try:
         return subprocess.run(
             command,
+            cwd=_runtime_working_directory(environment),
             env=dict(environment),
             check=True,
             capture_output=True,
@@ -1281,6 +1453,17 @@ def _run(
         )
     except (OSError, subprocess.SubprocessError) as error:
         raise BaseNativeError("native runtime check failed") from error
+
+
+def _runtime_working_directory(environment: Mapping[str, str]) -> Path:
+    try:
+        home = Path(environment["HOME"]).resolve(strict=True)
+        working_directory = (home.parent / "work").resolve(strict=True)
+    except (KeyError, OSError) as error:
+        raise BaseNativeError("native runtime isolation is unavailable") from error
+    if home.parent != working_directory.parent or working_directory == home:
+        raise BaseNativeError("native runtime isolation is unavailable")
+    return working_directory
 
 
 def _main(argv: Sequence[str] | None = None) -> int:

@@ -1,0 +1,347 @@
+{
+  "status": "LOCALLY_VERIFIED",
+  "milestone": "T23",
+  "scope": "Core v0.1 scoped A17; local macOS arm64 only",
+  "baseline": "b9f4a9cf944ecf1638b67c1af947407b561f0eee",
+  "verified_implementation_head": "63d9dfe87356b65a1507ea305898b0ad680ba4cc",
+  "artifact_source_head": "907bfe737b9366cafdb47ffb763f72df8dcf5f32",
+  "contract": "docs/design/core-v01-t23-acceptance.md",
+  "executable_contract": "docs/acceptance/core-v01-t23.json",
+  "contract_sha256": "237384c4456ec37ec5c0c8d5be2cf72e00e3d4880690b4de1f6735bc68a39ce5",
+  "artifacts": {
+    "base": {
+      "archive_sha256": "4dfaac1436fa14da9e464779dec9cbbb0f3a51314832df8572a0ce9a5d6d92cf",
+      "destination": "bin/open-brain",
+      "executable_sha256": "a6974a513827f11e49eff90d45fcb6aa4cee7e2b05b0d34897e030dd2eccf687",
+      "filename": "open-brain-0.1.0-macos-arm64.tar.gz"
+    },
+    "graphify": {
+      "archive_sha256": "ad173b000df245f1e0563d3977007f891e7ac3e319b50a0ed673e799d91b5923",
+      "destination": "libexec/open-brain-graphify",
+      "executable_sha256": "63f574a5beaa4e658110230b70a6422ed30ed47730044a5f5d0a886027d08854",
+      "filename": "open-brain-graphify-0.1.0-macos-arm64.tar.gz"
+    },
+    "manifest": {
+      "filename": "open-brain-component-manifest-v1.txt",
+      "sha256": "8d5913b0512b639306a7226cf9414d8cdcfbcbd6e2dcf702581fd7eb79277be4"
+    },
+    "obsidian_assets": {
+      "main.js": "1cdfd0f0c2e02a178c835dedf1a09ffe51c37ece4f226f3f33eb4b838c990b90",
+      "manifest.json": "5c1f9a8b43dcdf63dab172082034d3447f54238f2d4911d820a3bba545f13fc9",
+      "styles.css": "43d7accecdd7b1c60ddf713cce955ddb3ce773eca9e5d943955a6966c9374ee9"
+    }
+  },
+  "platform": "macos-arm64",
+  "hardware": {
+    "machine": "arm64",
+    "memory_gib": 24,
+    "model": "Apple M2",
+    "os_version": "15.7.2"
+  },
+  "global_A17_complete": false,
+  "public_readiness": false,
+  "product_changes": false,
+  "compatibility": {
+    "state_schema": 7,
+    "runtime_session": 2,
+    "task_contract": "t03.v1",
+    "bridge_protocol": 1,
+    "catalog_schema": 2,
+    "portable_metadata": 4,
+    "product_version": "0.1.0"
+  },
+  "checks": {
+    "make_verify": {
+      "status": "passed",
+      "head": "63d9dfe87356b65a1507ea305898b0ad680ba4cc",
+      "command": "make -j1 verify",
+      "offline_dependency_mode": true,
+      "elapsed_seconds": 270.059,
+      "python_passed": 2456,
+      "existing_skips": 5,
+      "python_elapsed_seconds": 253.67,
+      "mypy_files": 341,
+      "obsidian_tests": 291,
+      "desktop_typescript_tests": 259,
+      "desktop_python_tests": 1,
+      "rust_tests": 26,
+      "package_builds": [
+        "engine",
+        "app",
+        "connectors",
+        "collector"
+      ],
+      "log_sha256": "1d2cf34f7a240189146be888c687d84875bf81188f8bf5d2f1be8d4d064399f0"
+    },
+    "focused": {
+      "passed": 34,
+      "elapsed_seconds": 0.34,
+      "command_elapsed_seconds": 0.489
+    },
+    "acceptance": {
+      "result": "passed_local_scoped",
+      "head": "63d9dfe87356b65a1507ea305898b0ad680ba4cc",
+      "receipt_sha256": "13d65e8f29f63b8f2614fa50bc65311505dfe675104b6f1234c5b56a6a4c418e",
+      "new_rows": 5,
+      "reused_rows": 2,
+      "open_gates": 6,
+      "new_gate_elapsed_seconds": 6.148299,
+      "staging_to_export_seconds": 2.607127,
+      "utc_started_at": "2026-09-18T18:12:59.359522+00:00",
+      "utc_finished_at": "2026-09-18T18:13:05.507905+00:00",
+      "rows": [
+        {
+          "row_id": "reused-native-homebrew",
+          "acceptance_ids": [
+            "A14",
+            "A15",
+            "A17"
+          ],
+          "source_commit": "907bfe737b9366cafdb47ffb763f72df8dcf5f32",
+          "platform": "macos-arm64",
+          "fixture_id": "T20 retained native/Homebrew receipt",
+          "expected": "native audit and local-file Homebrew journey passed",
+          "actual": "native audit and local-file Homebrew journey passed",
+          "status": "passed",
+          "elapsed_seconds": 79.73,
+          "open_reason": null,
+          "reused_receipt": "089fc0bcd39e8a2f308b87d49b76d7a7b7842111c1be226b32f7a59344f479b1",
+          "original_started_at": "2026-09-18T16:31:55.122510+00:00"
+        },
+        {
+          "row_id": "reused-documentation-journey",
+          "acceptance_ids": [
+            "A01",
+            "A04",
+            "A05",
+            "A14",
+            "A16",
+            "A17"
+          ],
+          "source_commit": "987dea814a4b8730f8b3b73e19bb35262f6a6044",
+          "platform": "macos-arm64",
+          "fixture_id": "T21 retained 11-block synthetic journey",
+          "expected": "all 11 reviewed documentation blocks completed",
+          "actual": "all 11 reviewed documentation blocks completed",
+          "status": "passed",
+          "elapsed_seconds": 26.891,
+          "open_reason": null,
+          "reused_receipt": "5dee7f23309d6de30e1edcef56e215eaba5b7ee53d2b1325f2557fd106524e10",
+          "original_started_at": "2026-09-18T17:20:59.139047+00:00",
+          "shared_aggregate_timing": true,
+          "completed_block_count": 11
+        },
+        {
+          "row_id": "archive-staging",
+          "acceptance_ids": [
+            "A15",
+            "A17"
+          ],
+          "source_commit": "907bfe737b9366cafdb47ffb763f72df8dcf5f32",
+          "platform": "macos-arm64",
+          "fixture_id": "synthetic-core-v01-t23-v1",
+          "expected": "safe members and exact staged base/helper/plugin hashes",
+          "actual": "safe members and exact staged base/helper/plugin hashes",
+          "status": "passed",
+          "elapsed_seconds": 0.077487,
+          "open_reason": null
+        },
+        {
+          "row_id": "default-home-journey",
+          "acceptance_ids": [
+            "A01",
+            "A05",
+            "A15",
+            "A17"
+          ],
+          "source_commit": "907bfe737b9366cafdb47ffb763f72df8dcf5f32",
+          "platform": "macos-arm64",
+          "fixture_id": "synthetic-core-v01-t23-v1",
+          "expected": "initialized, captured, searchable, verified export",
+          "actual": "initialized, captured, searchable, verified export",
+          "status": "passed",
+          "elapsed_seconds": 2.52964,
+          "open_reason": null,
+          "phase_seconds": {
+            "capture": 0.574421,
+            "export": 0.584403,
+            "init": 0.757117,
+            "search": 0.613315
+          }
+        },
+        {
+          "row_id": "mcp-failure-redaction",
+          "acceptance_ids": [
+            "A02",
+            "A05",
+            "A17"
+          ],
+          "source_commit": "907bfe737b9366cafdb47ffb763f72df8dcf5f32",
+          "platform": "macos-arm64",
+          "fixture_id": "synthetic-core-v01-t23-v1",
+          "expected": "no-grant refused; read-only capture denied; malformed request redacted",
+          "actual": "no-grant refused; read-only capture denied; malformed request redacted",
+          "status": "passed",
+          "elapsed_seconds": 2.235715,
+          "open_reason": null,
+          "phase_seconds": {
+            "authorized_mcp_denials": 0.574682,
+            "no_grant_refusal": 0.530306,
+            "post_denial_denied_text_search": 0.548783,
+            "post_denial_public_search": 0.581943
+          }
+        },
+        {
+          "row_id": "custody-export",
+          "acceptance_ids": [
+            "A01",
+            "A17"
+          ],
+          "source_commit": "907bfe737b9366cafdb47ffb763f72df8dcf5f32",
+          "platform": "macos-arm64",
+          "fixture_id": "synthetic-core-v01-t23-v1",
+          "expected": "public source retained in inspected owner roles; protected values absent from inspected exports",
+          "actual": "public source retained in inspected owner roles; protected values absent from inspected exports",
+          "status": "passed",
+          "elapsed_seconds": 0.606374,
+          "open_reason": null,
+          "phase_seconds": {
+            "post_denial_verified_export": 0.599638,
+            "role_path_and_inventory_scan": 0.006735
+          },
+          "custody": {
+            "compared_nonvolatile_files": 3,
+            "first_export_capture_files": 1,
+            "owner_capture_source_files": 1,
+            "owner_database_files": 1,
+            "post_denial_export_capture_files": 1
+          }
+        },
+        {
+          "row_id": "foreground-eof",
+          "acceptance_ids": [
+            "A05",
+            "A17"
+          ],
+          "source_commit": "907bfe737b9366cafdb47ffb763f72df8dcf5f32",
+          "platform": "macos-arm64",
+          "fixture_id": "synthetic-core-v01-t23-v1",
+          "expected": "foreground process exits successfully before 5 seconds",
+          "actual": "foreground process exits successfully before 5 seconds",
+          "status": "passed",
+          "elapsed_seconds": 0.592045,
+          "open_reason": null
+        }
+      ]
+    },
+    "git_diff_check": "passed",
+    "actionlint": "passed"
+  },
+  "evidence_reuse": {
+    "input_receipt_sha256": {
+      "T20-ARTIFACTS.json": "29d25ededcf74f33cae0c38083e9e1a448b067ce6dcf61688fc97e75e2adfa00",
+      "T20-NATIVE-HOMEBREW.json": "089fc0bcd39e8a2f308b87d49b76d7a7b7842111c1be226b32f7a59344f479b1",
+      "T21-COMMITTED-GATE-RUN.json": "9bbfbf0792f53404f808496fc5008be259cddac752758fa269cf4aaee653e83e",
+      "T21-COMMITTED-GATE.json": "5dee7f23309d6de30e1edcef56e215eaba5b7ee53d2b1325f2557fd106524e10"
+    },
+    "prior_reviewed_files_preserved": 21,
+    "source_build_inputs_unchanged": true,
+    "original_t20_elapsed_seconds": 79.73,
+    "original_t21_aggregate_elapsed_seconds": 26.891,
+    "unchanged_journeys_rerun": false
+  },
+  "independent_review": {
+    "model": "gpt-6-astra",
+    "effort": "high",
+    "contract": "READY",
+    "initial_final": "four P2 acceptance-evidence findings",
+    "repair_delta": "READY",
+    "findings_resolved": 4,
+    "open_findings": 0,
+    "independent_focused_passed": 34,
+    "independent_negative_cases_rejected": 25,
+    "review_sha256": "44f9fd92129357f82c866c4462c1c716d7e758ef887011a6ee8aaaba204eb91c",
+    "checkpoint_metadata_review": "READY",
+    "reviewed_files": {
+      "tools/open_brain_dev/core_acceptance.py": "27e35d8f7d05338b92a1a97abed933eaf13b4ca674206ed9abfb085ada1cb831",
+      "tests/release/test_core_acceptance.py": "a1ca35ddfdf1e9054c7081588751919ed07fcad1df456b3da5d9f3d657786c54",
+      "docs/acceptance/core-v01-t23.json": "237384c4456ec37ec5c0c8d5be2cf72e00e3d4880690b4de1f6735bc68a39ce5",
+      "docs/design/core-v01-t23-acceptance.md": "eb0754eda5b734f83a29201022f894705b8e2130857c61b5ef15e4f571b597ec"
+    },
+    "checkpoint_review_sha256": "0fd25426a98a9d8b5a4814952d898c53767ba9c946e13556a23dc51e5af79e23"
+  },
+  "open_gates": [
+    {
+      "reason": "Linux x86_64 exact candidate",
+      "status": "open"
+    },
+    {
+      "reason": "exact-candidate Obsidian GUI",
+      "status": "open"
+    },
+    {
+      "reason": "production OAuth/provider refresh/revocation/custody/timing",
+      "status": "open"
+    },
+    {
+      "reason": "live sources",
+      "status": "open"
+    },
+    {
+      "reason": "public promotion",
+      "status": "open"
+    },
+    {
+      "reason": "desktop GUI/release",
+      "status": "open"
+    }
+  ],
+  "deferred_tasks": [
+    "T10",
+    "T11",
+    "T12",
+    "T13",
+    "T14",
+    "T15",
+    "T16",
+    "T17",
+    "T18",
+    "T22"
+  ],
+  "desktop": "Completed code preserved; GUI/release deferred, not a core delivery gate",
+  "reconciliation": "docs/ai/workstreams/20260918-open-brain-public-m3-source-continuity-owner-control-c63538/T23-RECONCILIATION.json",
+  "limits": [
+    "Local archive staging and retained local-file Homebrew evidence; no public install or release promotion",
+    "Offline local clock is not the historical 300-second GUI/provider clock",
+    "Expected synthetic owner-source/export custody and protocol projection only; no production credential custody or hostile same-user isolation",
+    "Retained M1/M2/T09 source checks keep their original limits; no blanket A01-A17 native acceptance"
+  ],
+  "next_action": "Stop at T23 checkpoint. No next milestone or external action authorized.",
+  "head_policy": "This committed receipt binds the verified implementation. Private final gate and validated handoff bind the later metadata-only checkpoint commit to exact HEAD.",
+  "usage": {
+    "started_at": "2026-09-18T17:32:27.441054+00:00",
+    "checkpoint_metadata_at": "2026-09-18T18:16:37.936306+00:00",
+    "elapsed_seconds": 2650.495,
+    "elapsed_basis": "Fresh T23 runner identity; initial source reads were not timed. Final post-commit mechanical checks are recorded privately.",
+    "new_child_sessions": 2,
+    "total_child_sessions": 10,
+    "child_session_cap": 12,
+    "active_children": 0,
+    "token_usage": null,
+    "cost": null,
+    "unavailable_metrics": "Root token/cost measurements unavailable; replayed counters not summed"
+  },
+  "changed_files": [
+    "docs/acceptance/core-v01-t23.json",
+    "docs/ai/workstreams/20260918-open-brain-public-m3-source-continuity-owner-control-c63538/HANDOFF.json",
+    "docs/ai/workstreams/20260918-open-brain-public-m3-source-continuity-owner-control-c63538/HANDOFF.md",
+    "docs/ai/workstreams/20260918-open-brain-public-m3-source-continuity-owner-control-c63538/STATE.md",
+    "docs/ai/workstreams/20260918-open-brain-public-m3-source-continuity-owner-control-c63538/T23-CHECKPOINT.json",
+    "docs/ai/workstreams/20260918-open-brain-public-m3-source-continuity-owner-control-c63538/T23-RECONCILIATION.json",
+    "docs/design/core-v01-t23-acceptance.md",
+    "docs/plans/2026-09-16-new-user-functionality-coverage.json",
+    "docs/plans/2026-09-16-new-user-functionality.md",
+    "tests/release/test_core_acceptance.py",
+    "tools/open_brain_dev/core_acceptance.py"
+  ]
+}

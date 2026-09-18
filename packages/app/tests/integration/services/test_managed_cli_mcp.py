@@ -151,6 +151,7 @@ def test_mcp_workspace_capabilities_are_opt_in_bounded_and_non_owner() -> None:
         graph_refresh=refresh,
     )
     assert {tool["name"] for tool in adapter.list_tools()} == {
+        "brain_catalog",
         "brain_workspace_status",
         "brain_graph_suggestions",
         "brain_graph_projection",

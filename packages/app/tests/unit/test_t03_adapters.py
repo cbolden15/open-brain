@@ -172,6 +172,7 @@ def test_mcp_registry_lists_only_negotiated_tools_and_keeps_content_typed() -> N
     adapter = LocalMcpAdapter(negotiated=negotiated)
 
     assert {tool["name"] for tool in adapter.list_tools()} == {
+        "brain_catalog",
         "brain_contract_describe",
         "brain_search_page",
         "brain_read",

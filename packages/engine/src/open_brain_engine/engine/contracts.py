@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import re
 from collections.abc import Callable, Iterator, Mapping, Sequence
 from dataclasses import dataclass
@@ -1569,16 +1570,43 @@ class CaptureTask(Protocol):
 class PublicJobCaptureSink:
     """A capture-only capability for one validated non-owner public-job identity."""
 
-    def __init__(self, capture: CaptureTask, *, context: PublicJobCaptureContext) -> None:
-        if not isinstance(context, PublicJobCaptureContext):
+    def __init__(
+        self,
+        capture: CaptureTask,
+        *,
+        context: PublicJobCaptureContext,
+        brain_fingerprint: str | None = None,
+    ) -> None:
+        if not isinstance(context, PublicJobCaptureContext) or (
+            brain_fingerprint is not None
+            and re.fullmatch(r"[0-9a-f]{64}", brain_fingerprint) is None
+        ):
             raise ValueError("invalid public-job context")
         self._capture = capture
         self._context = context
+        self._brain_fingerprint = brain_fingerprint
 
     @property
     def context(self) -> PublicJobCaptureContext:
         """Expose only the validated capture actor and role claim bound to this sink."""
         return self._context
+
+    @property
+    def brain_fingerprint(self) -> str | None:
+        """Opaque identity of the exact Brain that created this capability."""
+        return self._brain_fingerprint
+
+    @staticmethod
+    def fingerprint_for(root: str, root_identity: tuple[int, int], tenant_id: str) -> str:
+        """Bind a sink to the exact Brain tuple using the collector's stable encoding."""
+        value = [root, root_identity, tenant_id]
+        encoded = json.dumps(
+            value,
+            allow_nan=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8")
+        return sha256(encoded).hexdigest()
 
     def submit(
         self,

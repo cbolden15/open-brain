@@ -29,6 +29,7 @@ from open_brain_engine.core.models import (
 from open_brain_engine.core.policy import classify_privacy
 from open_brain_engine.providers.base import ProviderMode
 
+from .capture import DeliveryConflict
 from .contracts import (
     CaptureReceipt,
     CaptureTask,
@@ -131,6 +132,7 @@ __all__ = [
     "ContentKind",
     "ContentOrigin",
     "DecisionOutcome",
+    "DeliveryConflict",
     "EnrichmentProvider",
     "EnrichmentRequest",
     "EnrichmentUnavailable",

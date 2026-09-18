@@ -53,6 +53,20 @@ if TYPE_CHECKING:
     from .local import BrainEngine
 
 
+class DeliveryConflict(ValueError):
+    """A submitted immutable delivery key was previously bound to different bytes."""
+
+    __slots__ = ()
+
+    def __init__(self) -> None:
+        super().__init__("conflicting delivery")
+
+    def __setattr__(self, name: str, value: object) -> None:
+        if name in {"__traceback__", "__cause__", "__context__", "__suppress_context__"}:
+            return super().__setattr__(name, value)
+        raise AttributeError("delivery conflict is immutable")
+
+
 class CaptureOperations(_LocalEngineOperations):
     def _accept_capture(
         self,
@@ -239,7 +253,7 @@ class CaptureOperations(_LocalEngineOperations):
                 )
         if conflict is not None:
             self._quarantine(delivery_id, expected=conflict[0], actual=conflict[1])
-            raise ValueError("conflicting delivery")
+            raise DeliveryConflict()
         if not duplicate:
             self._fault(CaptureFault.AFTER_CAPTURE_RESERVATION)
         row = self._capture_row(capture_id)
@@ -646,7 +660,15 @@ class CaptureTasks:
 
     def public_job_sink(self, context: PublicJobCaptureContext) -> PublicJobCaptureSink:
         context.validate_profile(self._engine.profile)
-        return PublicJobCaptureSink(self, context=context)
+        profile = self._engine.profile
+        fingerprint = PublicJobCaptureSink.fingerprint_for(
+            str(profile.root), profile.root_identity, profile.tenant_id
+        )
+        return PublicJobCaptureSink(
+            self,
+            context=context,
+            brain_fingerprint=fingerprint,
+        )
 
     def get(self, capture_id: str) -> CaptureReceipt | None:
         receipt = self._engine._capture_receipt(capture_id)

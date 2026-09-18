@@ -78,16 +78,17 @@ def test_preview_then_unordered_revision_refusal_preserves_source_and_checkpoint
         (_intake("Revisedneedle <script>alert(1)</script>", revision="r2"),), {"cursor": "new"}
     )
     second = service.preview("gmail")
-    with pytest.raises(ValueError, match="^conflicting delivery$"):
-        service.apply("gmail", cast(str, second["preview_id"]))
+    result = service.apply("gmail", cast(str, second["preview_id"]))
+    assert result["quarantined_count"] == 1
     assert runtime.checkpoints == [None, {"cursor": "next"}]
     assert len(open_local_engine(profile).retrieval.search("Originalneedle")) == 1
     assert not open_local_engine(profile).retrieval.search("Revisedneedle")
-    assert service.preview("gmail")["preview_id"] == second["preview_id"]
-    assert runtime.calls == 2
+    custody = service.custody_status("gmail")
+    assert cast(dict[str, int], custody["counts"])["quarantined"] == 1
+    receipt_id = cast(list[str], custody["receipt_ids"])[0]
+    assert service.custody_inspect(receipt_id)["reason_code"] == "source_revision_conflict"
     restarted = LiveCaptureService(tmp_path / "state", tmp_path / "brain", runtime=runtime)
-    assert restarted.preview("gmail")["preview_id"] == second["preview_id"]
-    assert runtime.checkpoints[-1] == {"cursor": "next"}
+    assert restarted.custody_inspect(receipt_id)["outcome"] == "quarantined"
 
 
 def test_crash_reuses_staged_batch_without_provider_refetch_and_commits_after_ack(

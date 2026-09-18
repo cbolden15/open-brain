@@ -1,0 +1,167 @@
+{
+  "status": "LOCALLY_VERIFIED",
+  "milestone": "T21",
+  "scope": "Core-v0.1 scoped A16 local macOS arm64",
+  "baseline": "6ab6863b0f3b33d918cbbe4a4ea0005c2fe9b0b7",
+  "verified_implementation_head": "987dea814a4b8730f8b3b73e19bb35262f6a6044",
+  "contract": "docs/design/core-v01-t21-documentation.md",
+  "contract_revision": 2,
+  "changes": [
+    "Truthful README/CLI/agent/source/doctor/feature-version documentation",
+    "Exact extracted synthetic first-use examples and supporting executable gate/regressions",
+    "Candidate/release and bridge/UI distinctions; no product implementation changes"
+  ],
+  "compatibility": {
+    "state_schema": 7,
+    "runtime_session": 2,
+    "task_contract": "t03.v1",
+    "bridge_protocol": 1,
+    "catalog_schema": 2,
+    "portable_metadata": 4,
+    "product_version": "0.1.0"
+  },
+  "checks": {
+    "make_verify": {
+      "command": "make -j1 verify",
+      "python_passed": 2431,
+      "existing_skips": 5,
+      "python_elapsed_seconds": 250.49,
+      "mypy_files": 339,
+      "obsidian_tests": 291,
+      "desktop_typescript_tests": 259,
+      "desktop_python_tests": 1,
+      "rust_tests": 26,
+      "package_builds": [
+        "engine",
+        "app",
+        "connectors",
+        "collector"
+      ],
+      "elapsed_seconds": 267.92
+    },
+    "focused": {
+      "passed": 9,
+      "elapsed_seconds": 0.19
+    },
+    "documentation_gate": {
+      "completed_blocks": 11,
+      "extracted_blocks": 11,
+      "elapsed_seconds": 26.891,
+      "examples": [
+        {
+          "id": "first-use-environment",
+          "sha256": "42f1e9bbbcf1fb62e6f240ca90d9ae7a1835828966c25ea2d3a2e73b7745e569"
+        },
+        {
+          "id": "capture-and-import",
+          "sha256": "38deda7e462191d3821b9585095483b15a77d8d52b743759a256fec37c7edd4d"
+        },
+        {
+          "id": "route-review-publish",
+          "sha256": "8163294560e11ca41c2537d3205de564b4870374e8608816b46a347fdf3cf7eb"
+        },
+        {
+          "id": "workspace-search-and-complete-read",
+          "sha256": "1f79b8f3ae45a6a00abf5aa50eca86afc728c4965ccabcc1721a631d9e6fa46a"
+        },
+        {
+          "id": "mcp-grant-isolation",
+          "sha256": "adc3c6874b9d1970a4a945645b47783cc0582320dc146556de96fb53f1933b44"
+        },
+        {
+          "id": "agent-setup-lifecycle",
+          "sha256": "96382a1539b6b18552db4f43627d943bfc6b981dbc3b06980ce9357b48f82018"
+        },
+        {
+          "id": "obsidian-plugin-lifecycle",
+          "sha256": "f5e6920f2639e4826fd2b969fbcea9ffb5456ae5d178e4f2fd6e4b393af9cf24"
+        },
+        {
+          "id": "doctor-private-data-directory",
+          "sha256": "66774024a675eee1420ed65869173e9ac1a28690ec21488405d8b940aa5d4c39"
+        },
+        {
+          "id": "doctor-foreground-runtime",
+          "sha256": "29fc35c67eb586ef097657c30ecb9fe0dc2dc416a038c965aa1d33209b53c10c"
+        },
+        {
+          "id": "doctor-base-dependency-closure",
+          "sha256": "cb967ac6a35660be216ae5c09ab2c5aec3c156cb9cc826327787e3d1eaac5f80"
+        },
+        {
+          "id": "doctor-search-index",
+          "sha256": "adcd1554d6348fb3d10262818ec484f1d04eabb62935e1200c90247f83186477"
+        }
+      ],
+      "journey": "Synthetic capture plus Markdown import, route both, propose, full inspect, approve, vault bytes, source/canonical search and complete Unicode reads; 3 MCP configurations, 2 generated nine-grant clients, plugin stage/remove, 4 doctor checks"
+    },
+    "git_diff_check": "passed",
+    "actionlint": "passed"
+  },
+  "artifact_provenance": {
+    "checkpoint": "docs/ai/workstreams/20260918-open-brain-public-m3-source-continuity-owner-control-c63538/T20-CHECKPOINT.json",
+    "source_head": "907bfe737b9366cafdb47ffb763f72df8dcf5f32",
+    "runtime_build_inputs_unchanged": true,
+    "artifact_sha256": "a6974a513827f11e49eff90d45fcb6aa4cee7e2b05b0d34897e030dd2eccf687",
+    "graphify_sha256": "63f574a5beaa4e658110230b70a6422ed30ed47730044a5f5d0a886027d08854",
+    "obsidian_assets": {
+      "main.js": "1cdfd0f0c2e02a178c835dedf1a09ffe51c37ece4f226f3f33eb4b838c990b90",
+      "manifest.json": "5c1f9a8b43dcdf63dab172082034d3447f54238f2d4911d820a3bba545f13fc9",
+      "styles.css": "43d7accecdd7b1c60ddf713cce955ddb3ce773eca9e5d943955a6966c9374ee9"
+    },
+    "manifest_sha256": "8d5913b0512b639306a7226cf9414d8cdcfbcbd6e2dcf702581fd7eb79277be4"
+  },
+  "independent_review": {
+    "model": "gpt-6-astra",
+    "effort": "high",
+    "status": "READY",
+    "contract_findings_resolved": 2,
+    "documentation_findings_resolved": 1,
+    "final_findings_resolved": 5,
+    "open_findings": 0,
+    "focused_passed": 9,
+    "focused_elapsed_seconds": 0.04,
+    "delta_gate_elapsed_seconds": 28.429,
+    "negative_probes_rejected": 10,
+    "reviewed_files": {
+      "README.md": "49b139a1b85896dd0bf34c31f54457b7144605204f3bad9edbf8636b1c236e8e",
+      "docs/acceptance/five-minute-install.md": "b4ffef1f6e6f38db2f6aff05e77dc7b8254734585b6319e8d11e2ac741f3a195",
+      "docs/agent-setup.md": "1e1d8c4cac4c664be689feab238a17ff1116a41df7b5989da9e31cf70e17410d",
+      "docs/cli.md": "78d8e4edc1c3a972364178c4fbc5d10aec64d80a119e3646f465ee00f3fefb91",
+      "docs/core-v01-features.md": "75d8ce2a2f3537b515157a7adecdd232e4770ab8e4cf2682bf479edd6594ddf6",
+      "docs/design/core-v01-t21-documentation.md": "7f5342199268bdecb1bd6eb3887b86e3a350367f8469bedd44f0961189affc66",
+      "docs/doctor.md": "41b7a0cb12ff8c424c1955d8b202d676773f21825c82d7fd89d1d74eb8400918",
+      "docs/first-use.md": "53a8317e667e6596939d1ba8efa9b93671947e580d58761db45038d6cf42daf7",
+      "docs/install.md": "d455e5b348c42e942ea998b62b80126823d1653d7a75f5afb207204376a4a7a6",
+      "docs/integrations/agent-session-capture.md": "b9157d29c6e75d11f6dd0c0bda6f551914de2902d44d7fe31c15eb20b0f3c0e6",
+      "docs/integrations/core-sources.md": "8effcb0e6612b6adec352064268d16aa6e5db5c9e4ca31336fce26365e57745d",
+      "docs/integrations/google-sources.md": "7ab9d7d4fec4cb4932d976c026b02293236b280668b5a05b2eb5d4fdf293cbb5",
+      "docs/operations.md": "b7e0dc3f1cd3a942890a3fdc72278ae7c2950269b46c25f45dcc57ab1754f2a8",
+      "docs/records-and-history.md": "e44a4a3b71f463e257acae50ff8a8196088fdc67df183d4b9960cb34b2e9224c",
+      "docs/review-publication.md": "c24bbcd63b2561afcfae9bdf7355870ed93fe7e7c8aba810898d6b6bb811fafa",
+      "docs/spaces-inbox.md": "51ffd9a32bacb2cdc14257f5a88d19a469f425291a8f7a8823ee042a76280c17",
+      "tests/release/test_documentation_examples.py": "64f5b87995ea466906dfc2894d341b7805f0ae46016e18ebe2369c50d232644a",
+      "tools/open_brain_dev/documentation_examples.py": "9d7419b309945acb59a3c02b6a27759831570d91ed10110165a8b39cf8e0adb3"
+    }
+  },
+  "acceptance_limit": "Frozen candidate executable examples only. Reference templates and historical developer/provider instructions are not additional as-written artifact receipts. No Linux, GUI, provider, public readiness or T23 acceptance is claimed. Runtime, schema fences, Obsidian scope and completed desktop code remain unchanged.",
+  "remaining_gates": [
+    "T23 exact-candidate acceptance in a fresh thread",
+    "Linux x86_64 exact-candidate native/Homebrew",
+    "Obsidian GUI acceptance",
+    "Public promotion and separate external-action authorization"
+  ],
+  "deferred_tasks": [
+    "T10",
+    "T11",
+    "T12",
+    "T13",
+    "T14",
+    "T15",
+    "T16",
+    "T17",
+    "T18",
+    "T22"
+  ],
+  "next_action": "Start T23 in a fresh thread using this exact T21 checkpoint. Do not start T23 here. Push/PR/merge/release, live sources, OAuth, real services and model downloads remain separately gated."
+}

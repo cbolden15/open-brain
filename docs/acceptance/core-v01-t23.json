@@ -1,0 +1,189 @@
+{
+  "schema_version": 1,
+  "scope": "Core v0.1 T23 scoped local macOS arm64 acceptance",
+  "global_acceptance_complete": false,
+  "source": {
+    "baseline": "b9f4a9cf944ecf1638b67c1af947407b561f0eee",
+    "artifact_source": "907bfe737b9366cafdb47ffb763f72df8dcf5f32",
+    "t21_implementation": "987dea814a4b8730f8b3b73e19bb35262f6a6044"
+  },
+  "platform": "macos-arm64",
+  "allowed_repository_paths": [
+    "tools/open_brain_dev/core_acceptance.py",
+    "tests/release/test_core_acceptance.py",
+    "docs/acceptance/core-v01-t23.json",
+    "docs/design/core-v01-t23-acceptance.md",
+    "docs/plans/2026-09-16-new-user-functionality.md",
+    "docs/plans/2026-09-16-new-user-functionality-coverage.json",
+    "docs/ai/workstreams/20260918-open-brain-public-m3-source-continuity-owner-control-c63538/T23-RECONCILIATION.json",
+    "docs/ai/workstreams/20260918-open-brain-public-m3-source-continuity-owner-control-c63538/T23-CHECKPOINT.json",
+    "docs/ai/workstreams/20260918-open-brain-public-m3-source-continuity-owner-control-c63538/STATE.md",
+    "docs/ai/workstreams/20260918-open-brain-public-m3-source-continuity-owner-control-c63538/HANDOFF.json",
+    "docs/ai/workstreams/20260918-open-brain-public-m3-source-continuity-owner-control-c63538/HANDOFF.md"
+  ],
+  "fixture": {
+    "id": "synthetic-core-v01-t23-v1",
+    "public_canary_sha256": "624602fa18d3cf4a2296c0f7b4526ef4cb844f172f6b2f62e04c0b81296e2729",
+    "secret_canary_sha256": "0af9d9384e0b2470aa0713951e75f522c5d43418d4a45d7529cf7dab4a01025d",
+    "path_canary_sha256": "dde0dad6cf1791ee37b00664474832ecc01404bcd3d7ea17ff2caf320a4d5b08"
+  },
+  "artifacts": {
+    "manifest": {
+      "filename": "open-brain-component-manifest-v1.txt",
+      "sha256": "8d5913b0512b639306a7226cf9414d8cdcfbcbd6e2dcf702581fd7eb79277be4"
+    },
+    "base": {
+      "filename": "open-brain-0.1.0-macos-arm64.tar.gz",
+      "archive_sha256": "4dfaac1436fa14da9e464779dec9cbbb0f3a51314832df8572a0ce9a5d6d92cf",
+      "executable_sha256": "a6974a513827f11e49eff90d45fcb6aa4cee7e2b05b0d34897e030dd2eccf687",
+      "destination": "bin/open-brain"
+    },
+    "graphify": {
+      "filename": "open-brain-graphify-0.1.0-macos-arm64.tar.gz",
+      "archive_sha256": "ad173b000df245f1e0563d3977007f891e7ac3e319b50a0ed673e799d91b5923",
+      "executable_sha256": "63f574a5beaa4e658110230b70a6422ed30ed47730044a5f5d0a886027d08854",
+      "destination": "libexec/open-brain-graphify"
+    },
+    "obsidian_assets": {
+      "main.js": "1cdfd0f0c2e02a178c835dedf1a09ffe51c37ece4f226f3f33eb4b838c990b90",
+      "manifest.json": "5c1f9a8b43dcdf63dab172082034d3447f54238f2d4911d820a3bba545f13fc9",
+      "styles.css": "43d7accecdd7b1c60ddf713cce955ddb3ce773eca9e5d943955a6966c9374ee9"
+    }
+  },
+  "reused_evidence": {
+    "T20-NATIVE-HOMEBREW.json": {
+      "sha256": "089fc0bcd39e8a2f308b87d49b76d7a7b7842111c1be226b32f7a59344f479b1",
+      "required_fields": {
+        "head": "907bfe737b9366cafdb47ffb763f72df8dcf5f32",
+        "started_at": "2026-09-18T16:31:55.122510+00:00",
+        "elapsed_seconds": 79.73,
+        "exit_code": 0,
+        "platform": "macos-arm64",
+        "source_aggregate_sha256": "e5231e921a8885b3ef8f140842b0ce85f45ce3f3134e7ed1f4f1b4e928469349"
+      }
+    },
+    "T20-ARTIFACTS.json": {
+      "sha256": "29d25ededcf74f33cae0c38083e9e1a448b067ce6dcf61688fc97e75e2adfa00",
+      "required_fields": {
+        "status": "passed",
+        "head": "907bfe737b9366cafdb47ffb763f72df8dcf5f32",
+        "platform": "macos-arm64",
+        "manifest_sha256": "8d5913b0512b639306a7226cf9414d8cdcfbcbd6e2dcf702581fd7eb79277be4",
+        "native_audit": "passed"
+      }
+    },
+    "T21-COMMITTED-GATE.json": {
+      "sha256": "5dee7f23309d6de30e1edcef56e215eaba5b7ee53d2b1325f2557fd106524e10",
+      "required_fields": {
+        "artifact_sha256": "a6974a513827f11e49eff90d45fcb6aa4cee7e2b05b0d34897e030dd2eccf687",
+        "graphify_sha256": "63f574a5beaa4e658110230b70a6422ed30ed47730044a5f5d0a886027d08854",
+        "completed_example_count": 11,
+        "example_count": 11,
+        "extracted_example_count": 11,
+        "elapsed_seconds": 26.891,
+        "result": "passed"
+      }
+    },
+    "T21-COMMITTED-GATE-RUN.json": {
+      "sha256": "9bbfbf0792f53404f808496fc5008be259cddac752758fa269cf4aaee653e83e",
+      "required_fields": {
+        "started_at": "2026-09-18T17:20:59.139047+00:00",
+        "head": "987dea814a4b8730f8b3b73e19bb35262f6a6044",
+        "exit_code": 0,
+        "dirty_paths": [],
+        "elapsed_seconds": 26.95
+      }
+    }
+  },
+  "reviewed_files": {
+    "tools/open_brain_dev/base_native.py": "4e98cc76d070cae70be7d43c6af6ce0958071f30f614db9b223b8b2de0c3755d",
+    "tests/release/test_native_core_smoke.py": "fd35ecf50f5410a969acf8cabafe64bb07d23b33afbbad458fbd6ece641a695b",
+    "docs/design/core-v01-t20-artifacts.md": "adf052e02ef641b771dc60afa5fc6258914eb22e6ffcc43f05aa4a9fd8c58ee6",
+    "README.md": "49b139a1b85896dd0bf34c31f54457b7144605204f3bad9edbf8636b1c236e8e",
+    "docs/acceptance/five-minute-install.md": "b4ffef1f6e6f38db2f6aff05e77dc7b8254734585b6319e8d11e2ac741f3a195",
+    "docs/agent-setup.md": "1e1d8c4cac4c664be689feab238a17ff1116a41df7b5989da9e31cf70e17410d",
+    "docs/cli.md": "78d8e4edc1c3a972364178c4fbc5d10aec64d80a119e3646f465ee00f3fefb91",
+    "docs/core-v01-features.md": "75d8ce2a2f3537b515157a7adecdd232e4770ab8e4cf2682bf479edd6594ddf6",
+    "docs/design/core-v01-t21-documentation.md": "7f5342199268bdecb1bd6eb3887b86e3a350367f8469bedd44f0961189affc66",
+    "docs/doctor.md": "41b7a0cb12ff8c424c1955d8b202d676773f21825c82d7fd89d1d74eb8400918",
+    "docs/first-use.md": "53a8317e667e6596939d1ba8efa9b93671947e580d58761db45038d6cf42daf7",
+    "docs/install.md": "d455e5b348c42e942ea998b62b80126823d1653d7a75f5afb207204376a4a7a6",
+    "docs/integrations/agent-session-capture.md": "b9157d29c6e75d11f6dd0c0bda6f551914de2902d44d7fe31c15eb20b0f3c0e6",
+    "docs/integrations/core-sources.md": "8effcb0e6612b6adec352064268d16aa6e5db5c9e4ca31336fce26365e57745d",
+    "docs/integrations/google-sources.md": "7ab9d7d4fec4cb4932d976c026b02293236b280668b5a05b2eb5d4fdf293cbb5",
+    "docs/operations.md": "b7e0dc3f1cd3a942890a3fdc72278ae7c2950269b46c25f45dcc57ab1754f2a8",
+    "docs/records-and-history.md": "e44a4a3b71f463e257acae50ff8a8196088fdc67df183d4b9960cb34b2e9224c",
+    "docs/review-publication.md": "c24bbcd63b2561afcfae9bdf7355870ed93fe7e7c8aba810898d6b6bb811fafa",
+    "docs/spaces-inbox.md": "51ffd9a32bacb2cdc14257f5a88d19a469f425291a8f7a8823ee042a76280c17",
+    "tests/release/test_documentation_examples.py": "64f5b87995ea466906dfc2894d341b7805f0ae46016e18ebe2369c50d232644a",
+    "tools/open_brain_dev/documentation_examples.py": "9d7419b309945acb59a3c02b6a27759831570d91ed10110165a8b39cf8e0adb3"
+  },
+  "receipt_contract": {
+    "required_rows": [
+      "reused-native-homebrew",
+      "reused-documentation-journey",
+      "archive-staging",
+      "default-home-journey",
+      "mcp-failure-redaction",
+      "custody-export",
+      "foreground-eof"
+    ],
+    "reused_rows": ["reused-native-homebrew", "reused-documentation-journey"],
+    "new_rows": ["archive-staging", "default-home-journey", "mcp-failure-redaction", "custody-export", "foreground-eof"],
+    "new_row_contracts": {
+      "archive-staging": {
+        "acceptance_ids": ["A15", "A17"],
+        "fixture_id": "synthetic-core-v01-t23-v1",
+        "expected": "safe members and exact staged base/helper/plugin hashes",
+        "command": ["harness:verify manifest/archive members and stage base/helper/plugin roles"]
+      },
+      "default-home-journey": {
+        "acceptance_ids": ["A01", "A05", "A15", "A17"],
+        "fixture_id": "synthetic-core-v01-t23-v1",
+        "expected": "initialized, captured, searchable, verified export",
+        "command": [
+          "open-brain init --json",
+          "open-brain capture <synthetic-public-canary> --json",
+          "open-brain search <synthetic-public-canary> --json",
+          "open-brain export <synthetic-export> --verify --json"
+        ]
+      },
+      "mcp-failure-redaction": {
+        "acceptance_ids": ["A02", "A05", "A17"],
+        "fixture_id": "synthetic-core-v01-t23-v1",
+        "expected": "no-grant refused; read-only capture denied; malformed request redacted",
+        "command": [
+          "open-brain mcp <EOF> [no grants] => exit 2",
+          "open-brain mcp --allow-search <fixture:mcp-denial-and-malformed-jsonl>",
+          "open-brain search <synthetic-public-canary> --json [post-denial]",
+          "open-brain search denied --json [post-denial]"
+        ]
+      },
+      "custody-export": {
+        "acceptance_ids": ["A01", "A17"],
+        "fixture_id": "synthetic-core-v01-t23-v1",
+        "expected": "public source retained in inspected owner roles; protected values absent from inspected exports",
+        "command": [
+          "open-brain export <synthetic-post-denial-export> --verify --json",
+          "harness:inspect expected source and Portable Brain file roles",
+          "harness:compare nonvolatile Portable Brain inventory"
+        ]
+      },
+      "foreground-eof": {
+        "acceptance_ids": ["A05", "A17"],
+        "fixture_id": "synthetic-core-v01-t23-v1",
+        "expected": "foreground process exits successfully before 5 seconds",
+        "command": ["open-brain mcp --allow-search <EOF>"]
+      }
+    },
+    "canary_policy": "synthetic canary values are represented by identity hashes and omitted from receipts"
+  },
+  "open_gates": [
+    "Linux x86_64 exact candidate",
+    "exact-candidate Obsidian GUI",
+    "production OAuth/provider refresh/revocation/custody/timing",
+    "live sources",
+    "public promotion",
+    "desktop GUI/release"
+  ]
+}
