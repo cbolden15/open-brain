@@ -786,6 +786,386 @@ INSERT INTO runtime_compatibility (
     """.strip(),
 )
 
+PRIVACY_SCHEMA = (
+    """
+ALTER TABLE search_documents ADD COLUMN effective_tier TEXT NOT NULL
+    CHECK (effective_tier IN ('public','work','personal','secret','unknown'))
+    DEFAULT 'unknown'
+    """.strip(),
+    """
+ALTER TABLE search_documents ADD COLUMN effective_cloud INTEGER NOT NULL
+    CHECK (effective_cloud IN (0, 1)) DEFAULT 0
+    """.strip(),
+    """
+ALTER TABLE search_documents ADD COLUMN effective_external_egress INTEGER NOT NULL
+    CHECK (effective_external_egress IN (0, 1)) DEFAULT 0
+    """.strip(),
+    """
+ALTER TABLE search_documents ADD COLUMN invalid_evidence_reason TEXT CHECK (
+    invalid_evidence_reason IS NULL
+    OR invalid_evidence_reason IN ('missing','malformed','inconsistent')
+)
+    """.strip(),
+    """
+ALTER TABLE search_documents ADD COLUMN invalid_evidence_sha256 TEXT CHECK (
+    invalid_evidence_sha256 IS NULL OR length(invalid_evidence_sha256) = 64
+)
+    """.strip(),
+    """
+CREATE TABLE source_revision_privacy (
+    capture_id TEXT PRIMARY KEY REFERENCES source_revisions(capture_id),
+    effective_privacy_json TEXT NOT NULL CHECK (
+        typeof(effective_privacy_json) = 'text'
+        AND CASE
+            WHEN json_valid(effective_privacy_json)
+                THEN json_type(effective_privacy_json) = 'object'
+            ELSE 0
+        END
+    )
+)
+    """.strip(),
+    """
+CREATE TABLE canonical_revision_privacy (
+    revision_id TEXT PRIMARY KEY,
+    effective_privacy_json TEXT NOT NULL CHECK (
+        typeof(effective_privacy_json) = 'text'
+        AND CASE
+            WHEN json_valid(effective_privacy_json)
+                THEN json_type(effective_privacy_json) = 'object'
+            ELSE 0
+        END
+    )
+)
+    """.strip(),
+    """
+CREATE TABLE privacy_invalid_evidence (
+    target_kind TEXT NOT NULL CHECK (
+        target_kind IN ('source_revision','canonical_revision','search_document')
+    ),
+    target_id TEXT NOT NULL,
+    invalid_reason TEXT NOT NULL CHECK (
+        invalid_reason IN ('missing','malformed','inconsistent')
+    ),
+    invalid_evidence_sha256 TEXT NOT NULL CHECK (length(invalid_evidence_sha256) = 64),
+    PRIMARY KEY (target_kind, target_id, invalid_evidence_sha256)
+)
+    """.strip(),
+    """
+CREATE TRIGGER privacy_invalid_evidence_update_immutable
+BEFORE UPDATE ON privacy_invalid_evidence
+BEGIN
+    SELECT RAISE(ABORT, 'privacy invalid evidence is append-only');
+END
+    """.strip(),
+    """
+CREATE TRIGGER privacy_invalid_evidence_delete_immutable
+BEFORE DELETE ON privacy_invalid_evidence
+BEGIN
+    SELECT RAISE(ABORT, 'privacy invalid evidence is append-only');
+END
+    """.strip(),
+    """
+CREATE TABLE privacy_repair_ledger (
+    repair_id TEXT PRIMARY KEY,
+    target_kind TEXT NOT NULL CHECK (
+        target_kind IN ('source_revision','canonical_revision','search_document')
+    ),
+    target_id TEXT NOT NULL,
+    invalid_evidence_sha256 TEXT NOT NULL CHECK (length(invalid_evidence_sha256) = 64),
+    owner_actor_id TEXT NOT NULL,
+    replacement_privacy_json TEXT NOT NULL CHECK (
+        typeof(replacement_privacy_json) = 'text'
+        AND CASE
+            WHEN json_valid(replacement_privacy_json)
+            THEN json_type(replacement_privacy_json) = 'object'
+            ELSE 0
+        END
+    ),
+    operation_id TEXT NOT NULL UNIQUE,
+    recorded_at TEXT NOT NULL,
+    supersedes_repair_id TEXT REFERENCES privacy_repair_ledger(repair_id),
+    UNIQUE (target_kind, target_id, invalid_evidence_sha256, operation_id)
+)
+    """.strip(),
+    """
+CREATE TRIGGER privacy_repair_ledger_update_immutable BEFORE UPDATE ON privacy_repair_ledger
+BEGIN
+    SELECT RAISE(ABORT, 'privacy repair ledger is append-only');
+END
+    """.strip(),
+    """
+CREATE TRIGGER privacy_repair_ledger_delete_immutable BEFORE DELETE ON privacy_repair_ledger
+BEGIN
+    SELECT RAISE(ABORT, 'privacy repair ledger is append-only');
+END
+    """.strip(),
+    """
+CREATE TRIGGER search_documents_privacy_insert_shape BEFORE INSERT ON search_documents
+BEGIN
+    SELECT CASE
+        WHEN (NEW.invalid_evidence_reason IS NULL) != (NEW.invalid_evidence_sha256 IS NULL)
+        THEN RAISE(ABORT, 'invalid search privacy evidence pairing')
+        WHEN NEW.effective_tier IN ('secret','unknown')
+        AND (NEW.effective_cloud != 0 OR NEW.effective_external_egress != 0)
+        THEN RAISE(ABORT, 'invalid search privacy authority')
+        WHEN NEW.invalid_evidence_reason IS NOT NULL
+        AND (NEW.effective_tier != 'unknown' OR NEW.effective_cloud != 0
+        OR NEW.effective_external_egress != 0)
+        THEN RAISE(ABORT, 'invalid search privacy failure closure')
+    END;
+END
+    """.strip(),
+    """
+CREATE TRIGGER search_documents_privacy_update_shape BEFORE UPDATE ON search_documents
+BEGIN
+    SELECT CASE
+        WHEN (NEW.invalid_evidence_reason IS NULL) != (NEW.invalid_evidence_sha256 IS NULL)
+        THEN RAISE(ABORT, 'invalid search privacy evidence pairing')
+        WHEN NEW.effective_tier IN ('secret','unknown')
+        AND (NEW.effective_cloud != 0 OR NEW.effective_external_egress != 0)
+        THEN RAISE(ABORT, 'invalid search privacy authority')
+        WHEN NEW.invalid_evidence_reason IS NOT NULL
+        AND (NEW.effective_tier != 'unknown' OR NEW.effective_cloud != 0
+        OR NEW.effective_external_egress != 0)
+        THEN RAISE(ABORT, 'invalid search privacy failure closure')
+    END;
+END
+    """.strip(),
+    "DROP TABLE runtime_compatibility",
+    """
+CREATE TABLE runtime_compatibility (
+    singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
+    minimum_runtime_session_version INTEGER NOT NULL CHECK (
+        minimum_runtime_session_version = 3
+    ),
+    state_schema_version INTEGER NOT NULL CHECK (state_schema_version = 8)
+)
+    """.strip(),
+    """
+INSERT INTO runtime_compatibility (
+    singleton, minimum_runtime_session_version, state_schema_version
+) VALUES (1, 3, 8)
+    """.strip(),
+)
+
+IDENTITY_AND_REPAIR_SCHEMA = (
+    """
+CREATE TABLE brain_identity (
+    singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
+    tenant_id TEXT NOT NULL UNIQUE CHECK (length(tenant_id) > 0),
+    brain_id TEXT NOT NULL UNIQUE CHECK (length(brain_id) > 0),
+    issuer_epoch INTEGER NOT NULL CHECK (issuer_epoch > 0),
+    legacy_issuer_epoch INTEGER CHECK (legacy_issuer_epoch IS NULL OR legacy_issuer_epoch > 0),
+    recorded_at TEXT NOT NULL CHECK (length(recorded_at) > 0),
+    CHECK (legacy_issuer_epoch IS NULL OR legacy_issuer_epoch < issuer_epoch)
+)
+    """.strip(),
+    """
+CREATE TRIGGER brain_identity_update_immutable BEFORE UPDATE ON brain_identity
+BEGIN
+    SELECT RAISE(ABORT, 'brain identity is durable');
+END
+    """.strip(),
+    """
+CREATE TRIGGER brain_identity_delete_immutable BEFORE DELETE ON brain_identity
+BEGIN
+    SELECT RAISE(ABORT, 'brain identity is durable');
+END
+    """.strip(),
+    """
+CREATE TABLE legacy_issuer_bindings (
+    artifact_path TEXT NOT NULL CHECK (length(artifact_path) > 0),
+    jsonl_ordinal INTEGER CHECK (jsonl_ordinal IS NULL OR jsonl_ordinal >= 0),
+    payload_sha256 TEXT NOT NULL CHECK (length(payload_sha256) = 64),
+    issuer_epoch INTEGER NOT NULL CHECK (issuer_epoch > 0)
+)
+    """.strip(),
+    """
+CREATE UNIQUE INDEX legacy_issuer_binding_identity_idx
+ON legacy_issuer_bindings(artifact_path, coalesce(jsonl_ordinal, -1))
+    """.strip(),
+    """
+CREATE TRIGGER legacy_issuer_bindings_update_immutable
+BEFORE UPDATE ON legacy_issuer_bindings
+BEGIN
+    SELECT RAISE(ABORT, 'legacy issuer bindings are append-only');
+END
+    """.strip(),
+    """
+CREATE TRIGGER legacy_issuer_bindings_delete_immutable
+BEFORE DELETE ON legacy_issuer_bindings
+BEGIN
+    SELECT RAISE(ABORT, 'legacy issuer bindings are append-only');
+END
+    """.strip(),
+    """
+CREATE TABLE issuer_migration_marker (
+    singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
+    source_manifest_bytes BLOB NOT NULL CHECK (
+        typeof(source_manifest_bytes) = 'blob' AND length(source_manifest_bytes) > 0
+    ),
+    source_manifest_sha256 TEXT NOT NULL CHECK (length(source_manifest_sha256) = 64),
+    brain_id TEXT NOT NULL CHECK (length(brain_id) > 0),
+    legacy_issuer_epoch INTEGER NOT NULL CHECK (legacy_issuer_epoch > 0),
+    current_issuer_epoch INTEGER NOT NULL CHECK (current_issuer_epoch > 0),
+    legacy_binding_manifest_sha256 TEXT NOT NULL CHECK (
+        length(legacy_binding_manifest_sha256) = 64
+    ),
+    recorded_at TEXT NOT NULL CHECK (length(recorded_at) > 0),
+    CHECK (legacy_issuer_epoch < current_issuer_epoch)
+)
+    """.strip(),
+    """
+CREATE TRIGGER issuer_migration_marker_update_immutable
+BEFORE UPDATE ON issuer_migration_marker
+BEGIN
+    SELECT RAISE(ABORT, 'issuer migration marker is append-only');
+END
+    """.strip(),
+    """
+CREATE TRIGGER issuer_migration_marker_delete_immutable
+BEFORE DELETE ON issuer_migration_marker
+BEGIN
+    SELECT RAISE(ABORT, 'issuer migration marker is append-only');
+END
+    """.strip(),
+    "DROP TABLE privacy_repair_ledger",
+    """
+CREATE TABLE privacy_repair_ledger (
+    repair_id TEXT PRIMARY KEY,
+    repair_sequence INTEGER NOT NULL UNIQUE CHECK (repair_sequence > 0),
+    target_kind TEXT NOT NULL CHECK (
+        target_kind IN ('source_revision','canonical_revision')
+    ),
+    target_id TEXT NOT NULL,
+    invalid_evidence_sha256 TEXT NOT NULL CHECK (length(invalid_evidence_sha256) = 64),
+    owner_actor_id TEXT NOT NULL CHECK (length(owner_actor_id) > 0),
+    replacement_privacy_json TEXT NOT NULL CHECK (
+        typeof(replacement_privacy_json) = 'text'
+        AND CASE
+            WHEN json_valid(replacement_privacy_json)
+            THEN json_type(replacement_privacy_json) = 'object'
+            ELSE 0
+        END
+    ),
+    operation_id TEXT NOT NULL UNIQUE,
+    request_sha256 TEXT NOT NULL CHECK (length(request_sha256) = 64),
+    issuer_epoch INTEGER NOT NULL CHECK (issuer_epoch > 0),
+    receipt_json TEXT NOT NULL CHECK (
+        typeof(receipt_json) = 'text'
+        AND CASE
+            WHEN json_valid(receipt_json)
+            THEN json_type(receipt_json) = 'object'
+            ELSE 0
+        END
+    ),
+    recorded_at TEXT NOT NULL CHECK (length(recorded_at) > 0),
+    supersedes_repair_id TEXT REFERENCES privacy_repair_ledger(repair_id),
+    FOREIGN KEY (target_kind, target_id, invalid_evidence_sha256)
+        REFERENCES privacy_invalid_evidence(target_kind, target_id, invalid_evidence_sha256)
+)
+    """.strip(),
+    """
+CREATE UNIQUE INDEX privacy_repair_supersession_idx
+ON privacy_repair_ledger(supersedes_repair_id) WHERE supersedes_repair_id IS NOT NULL
+    """.strip(),
+    """
+CREATE TRIGGER privacy_repair_ledger_update_immutable BEFORE UPDATE ON privacy_repair_ledger
+BEGIN
+    SELECT RAISE(ABORT, 'privacy repair ledger is append-only');
+END
+    """.strip(),
+    """
+CREATE TRIGGER privacy_repair_ledger_delete_immutable BEFORE DELETE ON privacy_repair_ledger
+BEGIN
+    SELECT RAISE(ABORT, 'privacy repair ledger is append-only');
+END
+    """.strip(),
+    """
+ALTER TABLE search_documents ADD COLUMN applied_repair_id TEXT
+    """.strip(),
+    """
+ALTER TABLE search_documents ADD COLUMN applied_repair_sequence INTEGER CHECK (
+    applied_repair_sequence IS NULL OR applied_repair_sequence > 0
+)
+    """.strip(),
+    "DROP TRIGGER search_documents_privacy_insert_shape",
+    "DROP TRIGGER search_documents_privacy_update_shape",
+    """
+CREATE TRIGGER search_documents_privacy_insert_shape BEFORE INSERT ON search_documents
+BEGIN
+    SELECT CASE
+        WHEN (NEW.invalid_evidence_reason IS NULL) != (NEW.invalid_evidence_sha256 IS NULL)
+        THEN RAISE(ABORT, 'invalid search privacy evidence pairing')
+        WHEN (NEW.applied_repair_id IS NULL) != (NEW.applied_repair_sequence IS NULL)
+        THEN RAISE(ABORT, 'invalid search privacy repair pairing')
+        WHEN NEW.effective_tier IN ('secret','unknown')
+        AND (NEW.effective_cloud != 0 OR NEW.effective_external_egress != 0)
+        THEN RAISE(ABORT, 'invalid search privacy authority')
+        WHEN NEW.applied_repair_id IS NOT NULL AND NEW.invalid_evidence_reason IS NULL
+        THEN RAISE(ABORT, 'invalid search privacy repair lineage')
+        WHEN NEW.applied_repair_id IS NOT NULL AND NOT EXISTS (
+            SELECT 1 FROM privacy_repair_ledger AS repair
+            WHERE repair.repair_id = NEW.applied_repair_id
+            AND repair.repair_sequence = NEW.applied_repair_sequence
+            AND repair.invalid_evidence_sha256 = NEW.invalid_evidence_sha256
+            AND (repair.target_kind != 'source_revision' OR repair.target_id = NEW.capture_id)
+        )
+        THEN RAISE(ABORT, 'invalid search privacy repair binding')
+        WHEN NEW.invalid_evidence_reason IS NOT NULL
+        AND (NEW.effective_tier != 'unknown' OR NEW.effective_cloud != 0
+        OR NEW.effective_external_egress != 0)
+        AND NEW.applied_repair_id IS NULL
+        THEN RAISE(ABORT, 'invalid search privacy failure closure')
+    END;
+END
+    """.strip(),
+    """
+CREATE TRIGGER search_documents_privacy_update_shape BEFORE UPDATE ON search_documents
+BEGIN
+    SELECT CASE
+        WHEN (NEW.invalid_evidence_reason IS NULL) != (NEW.invalid_evidence_sha256 IS NULL)
+        THEN RAISE(ABORT, 'invalid search privacy evidence pairing')
+        WHEN (NEW.applied_repair_id IS NULL) != (NEW.applied_repair_sequence IS NULL)
+        THEN RAISE(ABORT, 'invalid search privacy repair pairing')
+        WHEN NEW.effective_tier IN ('secret','unknown')
+        AND (NEW.effective_cloud != 0 OR NEW.effective_external_egress != 0)
+        THEN RAISE(ABORT, 'invalid search privacy authority')
+        WHEN NEW.applied_repair_id IS NOT NULL AND NEW.invalid_evidence_reason IS NULL
+        THEN RAISE(ABORT, 'invalid search privacy repair lineage')
+        WHEN NEW.applied_repair_id IS NOT NULL AND NOT EXISTS (
+            SELECT 1 FROM privacy_repair_ledger AS repair
+            WHERE repair.repair_id = NEW.applied_repair_id
+            AND repair.repair_sequence = NEW.applied_repair_sequence
+            AND repair.invalid_evidence_sha256 = NEW.invalid_evidence_sha256
+            AND (repair.target_kind != 'source_revision' OR repair.target_id = NEW.capture_id)
+        )
+        THEN RAISE(ABORT, 'invalid search privacy repair binding')
+        WHEN NEW.invalid_evidence_reason IS NOT NULL
+        AND (NEW.effective_tier != 'unknown' OR NEW.effective_cloud != 0
+        OR NEW.effective_external_egress != 0)
+        AND NEW.applied_repair_id IS NULL
+        THEN RAISE(ABORT, 'invalid search privacy failure closure')
+    END;
+END
+    """.strip(),
+    "DROP TABLE runtime_compatibility",
+    """
+CREATE TABLE runtime_compatibility (
+    singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
+    minimum_runtime_session_version INTEGER NOT NULL CHECK (
+        minimum_runtime_session_version = 4
+    ),
+    state_schema_version INTEGER NOT NULL CHECK (state_schema_version = 9)
+)
+    """.strip(),
+    """
+INSERT INTO runtime_compatibility (
+    singleton, minimum_runtime_session_version, state_schema_version
+) VALUES (1, 4, 9)
+    """.strip(),
+)
+
 LOCAL_MIGRATIONS = (
     _migration(1, "local_baseline", BASELINE),
     _migration(2, "local_search_and_import", _MIGRATION_2),
@@ -794,4 +1174,6 @@ LOCAL_MIGRATIONS = (
     _migration(5, "review_publication", REVIEW_SCHEMA),
     _migration(6, "managed_recovery_authority", MANAGED_RECOVERY_SCHEMA),
     _migration(7, "immutable_source_history", SOURCE_HISTORY_SCHEMA),
+    _migration(8, "effective_privacy_projection", PRIVACY_SCHEMA),
+    _migration(9, "issuer_identity_and_owner_repair", IDENTITY_AND_REPAIR_SCHEMA),
 )

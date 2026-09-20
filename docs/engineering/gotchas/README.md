@@ -986,6 +986,25 @@ highlighting, snippet generation, or truncation. Reapply the projection at the o
 
 Discovered: 2026-09-08.
 
+### SEARCH-002: Search coverage derives from logical source heads, not projection deletes
+
+Symptom: `portability.export` fails with `repair-aware search coverage mismatch` after a Markdown
+import updates, reverts, or deletes a note, although the live search results look correct.
+
+Cause: Markdown import superseded and missing revisions by deleting their `search_documents`
+rows while leaving each capture's logical source active and available. Portable Brain v5 and
+restore rederivation derive expected search identities from logical source heads, so the durable
+heads promised coverage the projection had removed. Interrupted imports had the same drift because
+capture registration inserted every source as available before activation.
+
+Fix: Keep availability aligned with the projection rule. Registration consults the Markdown
+projection rule when inserting a source; activation sets the head available and marks the
+superseded head missing; scan finalization marks missing files missing. Never fix coverage by
+teaching the Portable validator about importer tables, because the Portable snapshot does not carry
+them and restore would resurrect superseded revisions into search.
+
+Discovered: 2026-09-20, full `make verify` after the CUT-G2C focused suites passed.
+
 ### TOOLING-004: MyPy recognizes static platform guards
 
 Symptom: A platform-only import passes MyPy on its supported host but fails with `import-not-found`

@@ -34,7 +34,7 @@ _REGISTRY_VERSION_BYTES = b"open-brain-runtime-sessions-v2\n"
 _LEGACY_REGISTRY_VERSION_BYTES = b"open-brain-runtime-sessions-v1\n"
 _SESSION_FILE = re.compile(r"^session-[0-9a-f]{32}\.lock$")
 _REGISTRY_LOCK_TIMEOUT_SECONDS = 2.0
-RUNTIME_SESSION_VERSION = 2
+RUNTIME_SESSION_VERSION = 4
 
 
 class LocalRuntimeSessionError(RuntimeError):

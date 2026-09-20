@@ -9,10 +9,13 @@ from contextlib import suppress
 from dataclasses import dataclass
 from datetime import datetime
 from functools import cache, lru_cache, partial
+from typing import TYPE_CHECKING
 
+from open_brain_engine.core.access_contracts import derive_brain_id
 from open_brain_engine.storage.migrations import (
     _SCHEMA_MIGRATIONS_SQL,
     SchemaError,
+    _format_timestamp,
     apply_migrations,
 )
 from open_brain_engine.storage.sqlite import (
@@ -28,11 +31,13 @@ from open_brain_engine.storage.sqlite import (
 from .contracts import LocalEngineContext
 from .local_schema_catalog import (
     BASELINE,
+    IDENTITY_AND_REPAIR_SCHEMA,
     IMPORT_SCHEMA,
     LIVE_SEARCH_SCHEMA,
     LOCAL_MIGRATIONS,
     MANAGED_RECOVERY_SCHEMA,
     MANAGED_WORKSPACE_SCHEMA,
+    PRIVACY_SCHEMA,
     REVIEW_SCHEMA,
     RUNTIME_COMPATIBILITY_SCHEMA,
     SEARCH_SCHEMA,
@@ -41,8 +46,11 @@ from .normalization import _MAX_FILE_BYTES, _MAX_TEXT, _utc_now
 from .search_projection import _durable_source_origin, public_search_text
 from .source_schema import SOURCE_HISTORY_SCHEMA
 
+if TYPE_CHECKING:
+    from .portable_v5_restore import ValidatedV5IssuerSeed
+
 PHASE1_STATE_DATABASE = ".open-brain/state/phase1.sqlite3"
-PHASE1_STATE_SCHEMA_VERSION = 7
+PHASE1_STATE_SCHEMA_VERSION = 9
 
 
 class LocalRecoveryRequiredError(SchemaError):
@@ -108,6 +116,12 @@ def _expected_shape(era: int, nullable: bool, ledger: bool) -> tuple[tuple[str, 
         if era >= 9:
             for statement in SOURCE_HISTORY_SCHEMA:
                 connection.execute(statement)
+        if era >= 10:
+            for statement in PRIVACY_SCHEMA:
+                connection.execute(statement)
+        if era >= 11:
+            for statement in IDENTITY_AND_REPAIR_SCHEMA:
+                connection.execute(statement)
         if ledger:
             connection.execute(_SCHEMA_MIGRATIONS_SQL)
         return _shape(connection)
@@ -130,7 +144,7 @@ def classify_local_schema(connection: sqlite3.Connection) -> SchemaState:
             ).fetchall()
             if any(type(row[0]) is int and row[0] > PHASE1_STATE_SCHEMA_VERSION for row in rows):
                 return SchemaState("newer", version)
-            if version not in (1, 2, 3, 4, 5, 6, 7) or len(rows) != version:
+            if version not in (1, 2, 3, 4, 5, 6, 7, 8, 9) or len(rows) != version:
                 return SchemaState("invalid", version)
             for row, migration in zip(rows, LOCAL_MIGRATIONS[:version], strict=True):
                 if tuple(row[:3]) != (migration.version, migration.name, migration.checksum):
@@ -146,6 +160,8 @@ def classify_local_schema(connection: sqlite3.Connection) -> SchemaState:
                 5: _expected_shape(7, False, True),
                 6: _expected_shape(8, False, True),
                 7: _expected_shape(9, False, True),
+                8: _expected_shape(10, False, True),
+                9: _expected_shape(11, False, True),
             }[version]
             if shape == expected:
                 if version >= 4:
@@ -154,7 +170,7 @@ def classify_local_schema(connection: sqlite3.Connection) -> SchemaState:
                         "FROM runtime_compatibility"
                     ).fetchall()
                     if [tuple(row) for row in compatibility] != [
-                        (1, 2 if version == 7 else 1, version)
+                        (1, {7: 2, 8: 3, 9: 4}.get(version, 1), version)
                     ]:
                         return SchemaState("invalid", version)
                 return SchemaState(
@@ -263,9 +279,9 @@ def _validate_upgrade_data(connection: sqlite3.Connection) -> None:
             "FROM runtime_compatibility"
         ).fetchall()
         state_version = connection.execute("PRAGMA user_version").fetchone()[0]
-        compatibility_version = state_version if state_version in (5, 6, 7) else 4
+        compatibility_version = state_version if state_version in (5, 6, 7, 8, 9) else 4
         if [tuple(row) for row in compatibility] != [
-            (1, 2 if state_version == 7 else 1, compatibility_version)
+            (1, {7: 2, 8: 3, 9: 4}.get(state_version, 1), compatibility_version)
         ]:
             raise SchemaError("local runtime compatibility floor is invalid")
     if (
@@ -357,9 +373,13 @@ def _prepare_local_schema(
     clock: Callable[[], datetime] = _utc_now,
     on_upgrade_committed: Callable[[], None] | None = None,
     schema_version: int | None = None,
+    tenant_id: str | None = None,
+    issuer_seed: ValidatedV5IssuerSeed | None = None,
 ) -> None:
     target_version = PHASE1_STATE_SCHEMA_VERSION if schema_version is None else schema_version
     try:
+        if issuer_seed is not None and (not created or target_version != 9):
+            raise SchemaError("v5 issuer seed requires genuinely empty schema-9 creation")
         if not setup_required:
             connection.execute("BEGIN")
             state = classify_local_schema(connection)
@@ -370,6 +390,8 @@ def _prepare_local_schema(
         begin_immediate(connection)
         state = classify_local_schema(connection)
         empty = created and state.version == 0 and not _shape(connection)
+        if issuer_seed is not None and not empty:
+            raise SchemaError("v5 issuer seed requires genuinely empty schema-9 creation")
         if not empty:
             _require_supported(state)
             if state.version is not None and state.version > target_version:
@@ -379,6 +401,10 @@ def _prepare_local_schema(
                 restore_busy_timeout(connection)
                 return
             _validate_upgrade_data(connection)
+            if target_version >= 9 and state.version == 8:
+                raise SchemaError("issuer migration requires exclusive admission")
+            if target_version >= 8 and state.version == 7:
+                raise SchemaError("privacy migration requires exclusive admission")
             if target_version >= 7:
                 raise SchemaError("source history migration requires exclusive admission")
         connection.create_function("local_public_search_text", 2, _public_text, deterministic=True)
@@ -388,11 +414,24 @@ def _prepare_local_schema(
             migrations=LOCAL_MIGRATIONS[:target_version],
             schema_version=target_version,
         )
-        if empty and target_version == 7:
+        if empty and target_version >= 7:
             from uuid import uuid4
 
             connection.execute(
                 "INSERT INTO engine_generations VALUES(1,?,0,0,1,0,0,0)", (str(uuid4()),)
+            )
+        if empty and target_version >= 9 and issuer_seed is not None:
+            issuer_seed.install(connection, tenant_id=tenant_id)
+        elif empty and target_version >= 9:
+            # Fresh post-cutover state provisions its durable identity in the same
+            # schema transaction: current epoch one, no legacy evidence invented.
+            if not isinstance(tenant_id, str) or not tenant_id:
+                raise SchemaError("fresh issuer identity requires a canonical tenant ID")
+            connection.execute(
+                "INSERT INTO brain_identity ("
+                "singleton, tenant_id, brain_id, issuer_epoch, legacy_issuer_epoch, recorded_at"
+                ") VALUES (1, ?, ?, 1, NULL, ?)",
+                (tenant_id, derive_brain_id(tenant_id), _format_timestamp(clock())),
             )
         final_state = classify_local_schema(connection)
         _require_supported(final_state)
@@ -425,15 +464,19 @@ def open_local_database(
     *,
     clock: Callable[[], datetime] = _utc_now,
     schema_version: int | None = None,
+    issuer_seed: ValidatedV5IssuerSeed | None = None,
 ) -> sqlite3.Connection:
     if schema_version is not None and (
         type(schema_version) is not int or schema_version not in {6, PHASE1_STATE_SCHEMA_VERSION}
     ):
         raise SchemaError("unsupported compatibility target")
+    from .privacy_migration import privacy_migration_pending
     from .source_migration import migration_pending
 
     if migration_pending(profile):
         raise SchemaError("source history migration is pending")
+    if privacy_migration_pending(profile):
+        raise SchemaError("privacy migration is pending")
     try:
         state = inspect_phase1_state(profile, timeout_seconds=0.05, busy_timeout_ms=50)
     except DatabaseBusyError:
@@ -456,6 +499,8 @@ def open_local_database(
                 clock=clock,
                 on_upgrade_committed=record_upgrade,
                 schema_version=schema_version,
+                tenant_id=profile.tenant_id,
+                issuer_seed=issuer_seed,
             ),
         )
     except Exception as error:

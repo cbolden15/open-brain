@@ -147,7 +147,13 @@ def _identity(profile: LocalEngineContext) -> dict[str, object]:
 
 def _schema_version(connection: sqlite3.Connection) -> int:
     state = classify_local_schema(connection)
-    if state.state not in {"current", "supported_old"} or state.version not in {5, 6, 7}:
+    if state.state not in {"current", "supported_old"} or state.version not in {
+        5,
+        6,
+        7,
+        8,
+        9,
+    }:
         raise ManagedRecoveryFailure("recovery_unavailable")
     if connection.execute("PRAGMA foreign_key_check").fetchone() is not None:
         raise ManagedRecoveryFailure("operation_replay_mismatch")

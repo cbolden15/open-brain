@@ -33,12 +33,19 @@ MAX_RESPONSE_BYTES = 240_000
 
 def authority_binding(authority: EffectiveAuthority) -> dict[str, Any]:
     return {
-        "principal": authority.principal_id,
-        "session": authority.session_id,
+        "principal_id": authority.principal_id,
+        "session_id": authority.session_id,
         "capabilities": sorted(authority.capabilities),
         "owner": authority.owner,
-        "spaces": None if authority.space_ids is None else sorted(authority.space_ids),
-        "epoch": authority.authorization_epoch,
+        "space_ids": None if authority.space_ids is None else sorted(authority.space_ids),
+        "allowed_read_tiers": sorted(tier.value for tier in authority.allowed_read_tiers),
+        "allowed_capture_tiers": sorted(tier.value for tier in authority.allowed_capture_tiers),
+        "egress_mode": authority.egress_mode.value,
+        "provider_id": authority.provider_id,
+        "consent_id": authority.consent_id,
+        "authorization_generation": authority.authorization_generation,
+        "brain_id": authority.brain_id,
+        "issuer_epoch": authority.issuer_epoch,
     }
 
 
@@ -49,7 +56,7 @@ def read_snapshot(engine: BrainEngine) -> Iterator[sqlite3.Connection]:
         CursorStore(engine.profile).bind_root(engine)
         connection = engine._store.connect()
         try:
-            if connection.execute("PRAGMA user_version").fetchone()[0] != 7:
+            if connection.execute("PRAGMA user_version").fetchone()[0] != 9:
                 raise T03Error("incompatible_runtime")
             yield connection
         except sqlite3.Error, StorageError:

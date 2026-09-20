@@ -103,8 +103,8 @@ def test_handshake_is_bounded_and_does_not_initialize_the_brain(tmp_path: Path) 
     assert result["protocol_version"] == OPEN_BRAIN_CLIENT_PROTOCOL_VERSION
     assert result["desktop_only"] is True
     assert result["brain_root"] == str(selection.brain_root)
-    assert result["runtime_session_version"] == 2
-    assert result["state_schema_version"] == 7
+    assert result["runtime_session_version"] == 4
+    assert result["state_schema_version"] == 9
     assert "graph.review" in cast(list[str], result["operations"])
     assert "system.status" in cast(list[str], result["operations"])
     assert "agent.setup.preview" in cast(list[str], result["operations"])
@@ -621,8 +621,8 @@ def test_status_is_non_mutating_for_empty_state_and_reports_initialized_state(
     assert empty == {
         "brain_root": str(selection.brain_root),
         "initialized": False,
-        "runtime_session_version": 2,
-        "state_schema_version": 7,
+        "runtime_session_version": 4,
+        "state_schema_version": 9,
         "status": "ok",
     }
     assert not selection.brain_root.exists()
@@ -630,7 +630,7 @@ def test_status_is_non_mutating_for_empty_state_and_reports_initialized_state(
     assert _call(selection, "brain.initialize")["ok"] is True
     initialized = cast(dict[str, object], _call(selection, "system.status")["result"])
     assert initialized["initialized"] is True
-    assert initialized["state_schema_version"] == 7
+    assert initialized["state_schema_version"] == 9
 
 
 def test_plugin_bridge_exposes_durable_collector_controls(
@@ -1187,22 +1187,21 @@ def test_v3_migration_waits_until_an_older_registered_runtime_exits(
             connection.execute("DROP TABLE runtime_compatibility")
             connection.execute("PRAGMA user_version = 3")
     profile = open_existing_single_user_local(selection.brain_root)
-    with hold_local_runtime_session(
+    with (
+        hold_local_runtime_session(
         profile.root,
         profile.root_identity,
         legacy_state_exists=True,
         recover_abandoned_sessions=lambda: None,
+    ), pytest.raises(LocalRuntimeCompatibilityError, match="exclusive runtime"),
+        open_local_brain(selection, filesystem_type_probe=_filesystem),
     ):
-        with (
-            pytest.raises(LocalRuntimeCompatibilityError, match="exclusive runtime"),
-            open_local_brain(selection, filesystem_type_probe=_filesystem),
-        ):
-            pass
-        assert sqlite3.connect(database).execute("PRAGMA user_version").fetchone() == (3,)
+        pass
+    assert sqlite3.connect(database).execute("PRAGMA user_version").fetchone() == (3,)
 
     with open_local_brain(selection, filesystem_type_probe=_filesystem) as reopened:
         assert reopened.tasks.retrieval.search("compatibility")[0].title
-    assert sqlite3.connect(database).execute("PRAGMA user_version").fetchone() == (7,)
+    assert sqlite3.connect(database).execute("PRAGMA user_version").fetchone() == (9,)
 
 
 def test_bridge_rejects_wrong_or_missing_protocol_versions(tmp_path: Path) -> None:

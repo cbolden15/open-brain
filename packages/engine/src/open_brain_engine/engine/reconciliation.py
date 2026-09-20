@@ -196,7 +196,6 @@ class ReconciliationTasks:
             seen_pages.add(canonical_path)
             parsed = parse_markdown(payload)
             title = _required_string(fields, "title")
-            trust = _required_string(fields, "trust")
             updated_at = _required_string(fields, "modified_at")
             projection = project_search_document(
                 connection,
@@ -207,8 +206,13 @@ class ReconciliationTasks:
                 body=parsed.body,
                 canonical_path=canonical_path,
             )
-            if trust != projection.canonical_frontmatter_trust:
-                raise ValueError("canonical page trust changed")
+            _require_canonical_trust(
+                fields,
+                self._engine,
+                connection,
+                page_id=page_id,
+                expected_trust=projection.canonical_frontmatter_trust,
+            )
             if (
                 projection.title != cast(str, row["title"])
                 or projection.body != cast(str, row["body"])
@@ -274,6 +278,8 @@ def rederive_live_search_projection(engine: BrainEngine) -> None:
 def _projection_inputs(
     engine: BrainEngine,
     connection: sqlite3.Connection,
+    *,
+    portable_files: Mapping[str, bytes] | None = None,
 ) -> tuple[_ProjectionInput, ...]:
     known_spaces = {
         cast(str, row["space_id"]): cast(str, row["slug"])
@@ -388,7 +394,15 @@ def _projection_inputs(
         ]
         page_ids.add(page_id)
 
-    files = _read_canonical_tree(engine)
+    files = (
+        _read_canonical_tree(engine)
+        if portable_files is None
+        else tuple(
+            (PurePosixPath(path).relative_to("content/spaces"), payload)
+            for path, payload in sorted(portable_files.items())
+            if path.startswith("content/spaces/")
+        )
+    )
     parsed_files: list[tuple[PurePosixPath, str, dict[str, object], str]] = []
     for relative, payload in files:
         canonical_path = f"content/spaces/{relative.as_posix()}"
@@ -446,8 +460,13 @@ def _projection_inputs(
             body=body,
             canonical_path=canonical_path,
         )
-        if _required_string(fields, "trust") != projection.canonical_frontmatter_trust:
-            raise ValueError("canonical page trust changed")
+        _require_canonical_trust(
+            fields,
+            engine,
+            connection,
+            page_id=page_id,
+            expected_trust=projection.canonical_frontmatter_trust,
+        )
         inputs.append(
             _ProjectionInput(
                 result_id=page_id,
@@ -512,6 +531,34 @@ def _required_string(fields: dict[str, object], key: str) -> str:
     return value
 
 
+def _require_canonical_trust(
+    fields: dict[str, object],
+    engine: BrainEngine,
+    connection: sqlite3.Connection,
+    *,
+    page_id: str,
+    expected_trust: str | None,
+) -> None:
+    artifact_trust = _required_string(fields, "trust")
+    # Early owner publications used owner frontmatter even when their durable
+    # decision derives reviewed trust. Only a validated historical owner claim
+    # and a page without a modern review head qualify. Current search trust is
+    # always derived from durable state, never from this artifact label.
+    historical_owner_label = (
+        artifact_trust == "owner"
+        and expected_trust == "reviewed"
+        and tuple(cast(list[str], cast(Mapping[str, object], fields["role_claim"])["capabilities"]))
+        != tuple(cast(tuple[str, ...], engine.profile.owner_role_claim["capabilities"]))
+        and connection.execute(
+            "SELECT 1 FROM review_page_heads WHERE page_id = ?",
+            (page_id,),
+        ).fetchone()
+        is None
+    )
+    if artifact_trust != expected_trust and not historical_owner_label:
+        raise ValueError("canonical page trust changed")
+
+
 def _require_owner_identity(fields: dict[str, object], engine: BrainEngine) -> None:
     role_claim = fields.get("role_claim")
     expected = engine.profile.owner_role_claim
@@ -527,6 +574,8 @@ def _require_owner_identity(fields: dict[str, object], engine: BrainEngine) -> N
         )
         or not isinstance(capabilities, (list, tuple))
         or not isinstance(expected_capabilities, (list, tuple))
-        or tuple(capabilities) != tuple(expected_capabilities)
+        or any(not isinstance(capability, str) for capability in capabilities)
+        or tuple(capabilities) != tuple(sorted(set(capabilities)))
+        or not set(capabilities).issubset(expected_capabilities)
     ):
         raise ValueError("canonical Markdown owner identity changed")

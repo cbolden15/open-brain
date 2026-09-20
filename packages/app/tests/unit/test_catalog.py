@@ -76,6 +76,7 @@ def test_catalog_is_deterministic_json_safe_and_evidence_paths_exist() -> None:
         second, sort_keys=True, separators=(",", ":")
     )
     assert first["schema_version"] == 2
+    assert cast(dict[str, object], first["compatibility"])["portable_metadata"] == 5
     assert cast(dict[str, object], first["acceptance"])["trusted_certifications"] == []
     root = Path(__file__).resolve().parents[4]
     evidence = cast(list[dict[str, str]], cast(dict[str, object], first["acceptance"])["evidence"])
@@ -106,6 +107,77 @@ def test_cli_catalog_uses_parser_registration_before_root_selection(
     assert len(commands) == 52
     assert run_cli(("catalog", "--json", "--schema-version", "1")) == 2
     assert run_cli(("catalog", "--json", "--unknown")) == 2
+
+
+def test_owner_privacy_repair_is_installed_but_excluded_from_every_catalog_context(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    import open_brain.services.t03_adapters as t03
+
+    parsed = _parser().parse_args(
+        ("privacy", "repair", "--request-file", "-", "--json")
+    )
+    assert parsed.command == "privacy"
+    assert parsed.privacy_action == "repair"
+    commands = cli_registrations(_parser())
+    assert len(commands) == 52
+    assert ("privacy", "repair") not in {
+        tuple(cast(list[str], command["command"])) for command in commands
+    }
+
+    def forbidden(*_args: object, **_kwargs: object) -> object:
+        raise AssertionError("Brain selection/bootstrap is forbidden")
+
+    monkeypatch.setattr(entrypoints, "select_local_root", forbidden)
+    assert run_cli(("catalog", "--json")) == 0
+    direct = json.loads(capsys.readouterr().out)
+    adapter = LocalMcpAdapter(search=lambda _query, _limit: ())
+    mcp = adapter.call_tool("brain_catalog", {"schema_version": 2})
+
+    selection = select_local_root(
+        data_dir=str(tmp_path / "brain"),
+        environment={"HOME": str(tmp_path)},
+        platform_name="darwin",
+    )
+    request = {
+        "arguments": {"schema_version": 2},
+        "operation": "catalog.describe",
+        "protocol": bridge.OPEN_BRAIN_CLIENT_PROTOCOL,
+        "protocol_version": bridge.OPEN_BRAIN_CLIENT_PROTOCOL_VERSION,
+        "request_id": f"plugin_{uuid.uuid4()}",
+    }
+    output = io.BytesIO()
+    assert (
+        bridge.serve_plugin_stdio(
+            selection,
+            input_stream=io.BytesIO(json.dumps(request).encode()),
+            output_stream=output,
+            base_executable=tmp_path / "missing/open-brain",
+            environment={"HOME": str(tmp_path)},
+        )
+        == 0
+    )
+    plugin = cast(dict[str, object], json.loads(output.getvalue())["result"])
+    for catalog in (direct, mcp, plugin):
+        surfaces = cast(dict[str, object], catalog["surfaces"])
+        cli = cast(dict[str, object], surfaces["cli"])
+        serialized_commands = cast(list[dict[str, object]], cli["commands"])
+        assert ["privacy", "repair"] not in [row["command"] for row in serialized_commands]
+
+    assert all("repair" not in cast(str, tool["name"]) for tool in MCP_REGISTERED_TOOLS)
+    assert all(
+        "repair" not in operation
+        for operation in (
+            *bridge._BASE_OPERATIONS,
+            *bridge._NEGOTIATED_OPERATIONS,
+            *bridge._COLLECTOR_OPERATIONS,
+            *bridge._available_operations({}),
+            *t03._NEGOTIATED,
+            *t03._OWNER_ONLY,
+        )
+    )
 
 
 def test_mcp_catalog_uses_actual_authorized_session_registry() -> None:

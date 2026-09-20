@@ -68,6 +68,19 @@ def _count(root: Path, table: str) -> int:
         connection.close()
 
 
+def _availability(root: Path, capture_id: str) -> str:
+    connection = sqlite3.connect(root / ".open-brain/state/phase1.sqlite3")
+    try:
+        row = connection.execute(
+            "SELECT availability FROM logical_sources WHERE head_capture_id = ?",
+            (capture_id,),
+        ).fetchone()
+    finally:
+        connection.close()
+    assert row is not None
+    return cast(str, row[0])
+
+
 def _database(root: Path) -> Path:
     return root / ".open-brain/state/phase1.sqlite3"
 
@@ -137,10 +150,16 @@ def test_markdown_import_is_idempotent_updates_reactivates_and_exports_history(
     assert engine.retrieval.search("portable-nested-token")[0].capture_id == original_nested_id
     assert _count(brain, "captures") == 4
 
+    root_id = engine.retrieval.search("portable-root-token")[0].capture_id
     (vault / "root.md").unlink()
     missing = engine.markdown_import.import_directory(str(vault))
     assert missing.missing == 1
     assert engine.retrieval.search("portable-root-token") == ()
+    # Superseded and missing imported revisions leave the available source set so
+    # Portable Brain search coverage derives from the same heads the live search uses.
+    assert _availability(brain, original_nested_id) == "available"
+    assert _availability(brain, changed_nested_id) == "missing"
+    assert _availability(brain, root_id) == "missing"
 
     export = tmp_path / "portable"
     engine.portability.export(
@@ -191,6 +210,12 @@ def test_pending_capture_stays_unsearchable_until_retry_activation(
     assert engine.retrieval.search("pending-reservation-token") == ()
     reopened = _engine(brain)
     assert reopened.retrieval.search("pending-reservation-token") == ()
+    # A reserved but unactivated capture is outside search, so export must not
+    # count it as available search coverage.
+    reopened.portability.export(
+        tmp_path / "pending-portable",
+        export_id="export_00000000-0000-4000-8000-000000000405",
+    )
 
     resumed = reopened.markdown_import.import_directory(str(vault))
     assert resumed.imported == 1

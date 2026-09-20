@@ -175,6 +175,9 @@ def test_migrated_ungrouped_orphan_is_history_only(
                 ),
             )
         )
+    from open_brain_engine.engine import coordinate_local_migration
+
+    coordinate_local_migration(profile)
     current = BrainEngine.open(profile)
     page = wire(
         current.history.list_history(

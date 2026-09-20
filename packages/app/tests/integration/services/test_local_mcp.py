@@ -22,6 +22,7 @@ from open_brain_engine.engine import (
     TextPayload,
     open_local_engine,
 )
+from open_brain_engine.portable.v5 import V5_SIDECAR_PATHS
 from open_brain_engine.storage.operational import FileLease
 
 from open_brain.profile import compile_single_user_local
@@ -847,7 +848,10 @@ def test_cli_and_mcp_share_semantic_dataset_results_and_export(
     assert "source_ref" not in json.dumps(mcp_result)
     export = tmp_path / "export"
     assert run_cli(("export", str(export), "--verify", "--data-dir", str(root), "--json")) == 0
-    assert json.loads(capsys.readouterr().out)["schema_version"] == 4
+    assert json.loads(capsys.readouterr().out)["schema_version"] == 5
+    assert all((export / relative).is_file() for relative in V5_SIDECAR_PATHS)
+    assert not any(".open-brain" in path.parts for path in export.rglob("*"))
+    assert not any(path.suffix in {".sqlite", ".sqlite3"} for path in export.rglob("*"))
     record = json.loads(
         next((export / "sources/captures").rglob(str(captured["capture_id"]) + ".json")).read_text()
     )

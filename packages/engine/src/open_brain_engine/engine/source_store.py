@@ -15,6 +15,11 @@ from open_brain_engine.storage.filesystem import atomic_replace, read_confined
 from open_brain_engine.storage.markdown import parse_markdown
 
 from .contracts import LocalEngineContext
+from .privacy_store import (
+    effective_privacy_enabled,
+    write_canonical_revision_privacy,
+    write_source_revision_privacy,
+)
 from .t03_contracts import T03Error
 
 
@@ -50,10 +55,19 @@ def register_completed_captures(
 
             register_intake(connection, row, payload, intake)
             continue
+        from .markdown_import import capture_projection_is_active
+
         source_id = "source_" + str(uuid4())
+        availability = (
+            "available"
+            if capture_projection_is_active(
+                connection, delivery_id=row["delivery_id"], capture_id=row["capture_id"]
+            )
+            else "missing"
+        )
         connection.execute(
-            "INSERT INTO logical_sources VALUES(?,?,0,?,0,1,'active','available')",
-            (source_id, row["capture_id"], row["space_id"]),
+            "INSERT INTO logical_sources VALUES(?,?,0,?,0,1,'active',?)",
+            (source_id, row["capture_id"], row["space_id"], availability),
         )
         connection.execute(
             "INSERT INTO source_revisions VALUES(?,?,1,NULL,?,?,?, ?,NULL,NULL,?,NULL)",
@@ -71,6 +85,23 @@ def register_completed_captures(
             "INSERT INTO source_aliases VALUES(?,?,?)",
             (row["delivery_id"], source_id, row["request_sha256"]),
         )
+    # Every retained revision records its effective privacy: any revision row that
+    # lacks its projection (including intake-registered revisions) is projected now
+    # through the same engine-owned path the migration backfill used.
+    if effective_privacy_enabled(connection):
+        for revision in list(
+            connection.execute(
+                "SELECT r.capture_id AS capture_id, c.privacy_json AS privacy_json "
+                "FROM source_revisions r LEFT JOIN captures c ON c.capture_id = r.capture_id "
+                "LEFT JOIN source_revision_privacy p ON p.capture_id = r.capture_id "
+                "WHERE p.capture_id IS NULL ORDER BY r.capture_id"
+            )
+        ):
+            write_source_revision_privacy(
+                connection,
+                capture_id=revision["capture_id"],
+                privacy_json=revision["privacy_json"],
+            )
     # Existing legacy routing remains reflected in the logical current-head route.
     for row in connection.execute(
         "SELECT s.source_id,s.space_id,c.space_id AS current_space "
@@ -199,4 +230,27 @@ def register_publication_members(
                     ordinal,
                     capture_id,
                 ),
+            )
+    # Every canonical revision records its deterministic combined privacy: any
+    # revision whose member set lacks its projection is projected now through the
+    # same engine-owned path the migration backfill used.
+    if effective_privacy_enabled(connection):
+        for unprojected in list(
+            connection.execute(
+                "SELECT DISTINCT m.revision_id AS revision_id FROM canonical_revision_members m "
+                "LEFT JOIN canonical_revision_privacy p ON p.revision_id = m.revision_id "
+                "WHERE p.revision_id IS NULL ORDER BY m.revision_id"
+            )
+        ):
+            values = [
+                member[0]
+                for member in connection.execute(
+                    "SELECT c.privacy_json FROM canonical_revision_members m "
+                    "LEFT JOIN captures c ON c.capture_id = m.capture_id "
+                    "WHERE m.revision_id = ? ORDER BY m.ordinal",
+                    (unprojected["revision_id"],),
+                )
+            ]
+            write_canonical_revision_privacy(
+                connection, revision_id=unprojected["revision_id"], values=values
             )

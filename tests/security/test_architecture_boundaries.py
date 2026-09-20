@@ -53,6 +53,7 @@ def test_application_package_contains_only_foreground_local_surfaces() -> None:
         "services/local_entrypoints.py",
         "services/graphify_projection.py",
         "services/graph_projection_store.py",
+        "services/launcher_policy.py",
         "services/local_mcp.py",
         "services/local_native_entrypoint.py",
         "services/local_operations.py",
@@ -88,3 +89,21 @@ def test_secure_node_and_legacy_sources_are_quarantined_outside_packages() -> No
     assert "nw0-authority-proof" not in (
         REPOSITORY_ROOT / ".github/workflows/ci.yml"
     ).read_text()
+
+
+def test_privacy_repair_symbol_is_confined_to_owner_cli_and_engine() -> None:
+    files = (
+        APP_SOURCE_ROOT / "services/local_mcp.py",
+        APP_SOURCE_ROOT / "services/plugin_bridge.py",
+        APP_SOURCE_ROOT / "services/t03_adapters.py",
+        APP_SOURCE_ROOT / "services/launcher_policy.py",
+        APP_SOURCE_ROOT / "services/agent_setup.py",
+        *(
+            REPOSITORY_ROOT / "packages/collector/src"
+        ).rglob("*.py"),
+        *(
+            REPOSITORY_ROOT / "packages/connectors/src"
+        ).rglob("*.py"),
+    )
+    prohibited = ("privacy_repair", "privacy.repair", "privacy-repair")
+    assert all(token not in path.read_text() for path in files for token in prohibited)

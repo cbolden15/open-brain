@@ -24,7 +24,9 @@ from open_brain_engine.portable.v4 import (
     PORTABLE_V4_RELATIONSHIPS_CATALOG_DIGEST,
     PORTABLE_V4_SCHEMA_CATALOG_DIGEST,
     SOURCE_METADATA_PATH,
+    manifest_v4,
 )
+from open_brain_engine.portable.v5 import PORTABLE_V5_SCHEMA_CATALOG_DIGEST, V5_SIDECAR_PATHS
 from open_brain_engine.portable.versioned import validated_portable_snapshot
 
 from open_brain.profile import compile_single_user_local
@@ -47,6 +49,29 @@ def request(left: str, right: str, kind: str = "duplicate_of") -> RelationshipDe
         expected_relationship_version=0,
         operation_id="operation_" + str(uuid4()),
     )
+
+
+def _write_v4_fixture(source: Path, destination: Path) -> dict[str, Any]:
+    snapshot = validated_portable_snapshot(source)
+    files = {
+        relative: payload
+        for relative, payload in snapshot.files.items()
+        if relative != "portable-manifest.json" and relative not in V5_SIDECAR_PATHS
+    }
+    for relative, payload in files.items():
+        target = destination / relative
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(payload)
+    manifest = manifest_v4(
+        files,
+        tenant_id=str(snapshot.manifest["tenant_id"]),
+        export_id="export_" + str(uuid4()),
+        created_at=str(snapshot.manifest["created_at"]),
+    )
+    (destination / "portable-manifest.json").write_bytes(
+        portable_canonical_json_bytes(manifest)
+    )
+    return cast(dict[str, Any], validated_portable_snapshot(destination).manifest)
 
 
 def test_symmetric_relationship_replay_versions_and_hidden_endpoint(tmp_path: Path) -> None:
@@ -144,6 +169,10 @@ def test_supersedes_cycle_self_and_export_complete_decisions(tmp_path: Path) -> 
     engine.portability.export(old_export, export_id="export_" + str(uuid4()))
     assert (
         validated_portable_snapshot(old_export).manifest["schema_catalog_digest"]
+        == PORTABLE_V5_SCHEMA_CATALOG_DIGEST
+    )
+    assert (
+        _write_v4_fixture(old_export, tmp_path / "legacy-v4-base")["schema_catalog_digest"]
         == PORTABLE_V4_SCHEMA_CATALOG_DIGEST
     )
     engine.relationships.decide(request(ids[0], ids[1], "supersedes"), authority=owner())
@@ -155,7 +184,13 @@ def test_supersedes_cycle_self_and_export_complete_decisions(tmp_path: Path) -> 
     export = tmp_path / "export"
     engine.portability.export(export, export_id="export_" + str(uuid4()))
     snapshot = validated_portable_snapshot(export)
-    assert snapshot.manifest["schema_catalog_digest"] == PORTABLE_V4_RELATIONSHIPS_CATALOG_DIGEST
+    assert snapshot.manifest["schema_catalog_digest"] == PORTABLE_V5_SCHEMA_CATALOG_DIGEST
+    assert (
+        _write_v4_fixture(export, tmp_path / "legacy-v4-relationships")[
+            "schema_catalog_digest"
+        ]
+        == PORTABLE_V4_RELATIONSHIPS_CATALOG_DIGEST
+    )
     assert all(snapshot.files[path] == data for path, data in before.items())
     sidecar = json.loads(snapshot.files[RELATIONSHIP_METADATA_PATH])
     assert len(sidecar["decisions"]) == len(sidecar["relationships"]) == 2
@@ -164,11 +199,6 @@ def test_supersedes_cycle_self_and_export_complete_decisions(tmp_path: Path) -> 
     missing = dict(sidecar, decisions=sidecar["decisions"][:-1])
     with pytest.raises(ValueError, match="relationship evidence invalid"):
         validate_relationship_metadata(portable_canonical_json_bytes(missing), metadata)
-    manifest = json.loads((export / "portable-manifest.json").read_bytes())
-    manifest["schema_catalog_digest"] = PORTABLE_V4_SCHEMA_CATALOG_DIGEST
-    (export / "portable-manifest.json").write_bytes(portable_canonical_json_bytes(manifest))
-    with pytest.raises(ValueError, match="unsupported Portable v4 manifest"):
-        validated_portable_snapshot(export)
 
 
 def test_relationship_commit_recovery_and_cursor_staleness(

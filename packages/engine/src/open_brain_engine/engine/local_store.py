@@ -6,6 +6,7 @@ import sqlite3
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager, suppress
 from datetime import datetime
+from typing import TYPE_CHECKING
 
 from open_brain_engine.storage.sqlite import SchemaError, begin_immediate, restore_busy_timeout
 
@@ -13,6 +14,9 @@ from .contracts import LocalEngineContext
 from .local_schema import classify_local_schema, open_local_database, open_local_database_read_only
 from .local_schema import live_search_schema_is_available as live_search_schema_is_available
 from .normalization import _utc_now
+
+if TYPE_CHECKING:
+    from .portable_v5_restore import ValidatedV5IssuerSeed
 
 
 class _LocalStore:
@@ -22,12 +26,15 @@ class _LocalStore:
         *,
         clock: Callable[[], datetime] = _utc_now,
         schema_version: int | None = None,
+        issuer_seed: ValidatedV5IssuerSeed | None = None,
     ) -> None:
         self.profile = profile
         self.root = profile.root
         self._clock = clock
         self._schema_version = schema_version
-        open_local_database(profile, clock=clock, schema_version=schema_version).close()
+        open_local_database(
+            profile, clock=clock, schema_version=schema_version, issuer_seed=issuer_seed
+        ).close()
 
     def connect(self) -> sqlite3.Connection:
         connection = open_local_database_read_only(

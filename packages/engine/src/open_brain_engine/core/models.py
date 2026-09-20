@@ -133,10 +133,11 @@ class PrivacyDecision:
             raise ValidationError("invalid privacy decision")
         if not isinstance(authority, Authority):
             raise ValidationError("invalid privacy decision")
-        if confirmation_ref is not None and (
-            not isinstance(confirmation_ref, str) or not confirmation_ref
-        ):
-            raise ValidationError("invalid privacy decision")
+        normalized_confirmation_ref = None
+        if confirmation_ref is not None:
+            if not isinstance(confirmation_ref, str) or not confirmation_ref:
+                raise ValidationError("invalid privacy decision")
+            normalized_confirmation_ref = _nfc(confirmation_ref)
         expected_tier = {
             PrivacyReason.POLICY_PUBLIC: PrivacyTier.PUBLIC,
             PrivacyReason.POLICY_WORK: PrivacyTier.WORK,
@@ -159,16 +160,20 @@ class PrivacyDecision:
         if normalized_tier is not expected_tier[normalized_reason]:
             raise ValidationError("invalid privacy decision")
         if normalized_reason is PrivacyReason.PERSONAL_CONFIRMED:
-            if not confirmation_ref:
+            if not normalized_confirmation_ref:
                 raise ValidationError("invalid privacy decision")
-        elif confirmation_ref is not None:
+        elif normalized_confirmation_ref is not None:
             raise ValidationError("invalid privacy decision")
         if normalized_reason in local_only_reasons and (
             authority.cloud or authority.external_egress
         ):
             raise ValidationError("invalid privacy decision")
         return cls(
-            normalized_tier, normalized_reason, _nfc(policy_version), authority, confirmation_ref
+            normalized_tier,
+            normalized_reason,
+            _nfc(policy_version),
+            authority,
+            normalized_confirmation_ref,
         )
 
     def to_dict(self) -> dict[str, object]:
@@ -185,21 +190,22 @@ class PrivacyDecision:
 
     @classmethod
     def from_dict(cls, value: Mapping[str, object]) -> PrivacyDecision:
-        _exact_keys(value, {"tier", "reason", "policy_version", "authority", "confirmation_ref"})
-        authority = _mapping(value["authority"])
+        stored = dict(_mapping(value))
+        _exact_keys(stored, {"tier", "reason", "policy_version", "authority", "confirmation_ref"})
+        authority = dict(_mapping(stored["authority"]))
         _exact_keys(authority, {"cloud", "external_egress"})
         if not isinstance(authority["cloud"], bool) or not isinstance(
             authority["external_egress"], bool
         ):
             raise ValidationError("invalid privacy decision")
         return cls.create(
-            tier=cast(str, value["tier"]),
-            reason=cast(str, value["reason"]),
-            policy_version=cast(str, value["policy_version"]),
+            tier=cast(str, stored["tier"]),
+            reason=cast(str, stored["reason"]),
+            policy_version=cast(str, stored["policy_version"]),
             authority=Authority(
                 cloud=authority["cloud"], external_egress=authority["external_egress"]
             ),
-            confirmation_ref=cast(str | None, value["confirmation_ref"]),
+            confirmation_ref=cast(str | None, stored["confirmation_ref"]),
         )
 
 

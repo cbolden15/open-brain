@@ -57,6 +57,7 @@ from .managed_workspace import ManagedWorkspaceTasks
 from .markdown_import import MarkdownImportTasks
 from .normalization import _done, _utc_now
 from .portability import PortabilityTasks
+from .privacy_repairs import PrivacyRepairTasks
 from .reconciliation import ReconciliationTasks, rederive_live_search_projection
 from .retrieval import RetrievalOperations, RetrievalTasks, ScopedRetrieval
 from .review import ReviewOperations, ReviewTasks
@@ -141,18 +142,45 @@ class BrainEngine(CaptureOperations, SpaceOperations, ReviewOperations, Retrieva
         assert_root_identity(profile.root, profile.root_identity)
         schema = inspect_phase1_state(profile)
         from . import local_schema
-        from .runtime_admission import exclusive_runtime_admission
-        from .source_migration import migrate_sources, migration_pending
+        from .privacy_migration import privacy_migration_pending
+        from .source_migration import migration_pending
 
-        pending = migration_pending(profile)
-        if schema.state in {"invalid", "newer"} and not pending:
+        if migration_pending(profile) or privacy_migration_pending(profile):
+            # A journaled cutover may only resume through the explicit coordinator.
+            raise StateSchemaUnavailableError("local state migration is pending")
+        if schema.state in {"invalid", "newer"}:
             raise StateSchemaUnavailableError(f"local state schema is {schema.state}")
-        if pending or (
+        if (
             schema.state in {"supported_old", "legacy", "pre_ledger"}
             and local_schema.PHASE1_STATE_SCHEMA_VERSION >= 7
+            and (schema.version is None or schema.version < 7)
         ):
-            with exclusive_runtime_admission(profile) as admission:
-                migrate_sources(profile, admission=admission, clock=clock)
+            # The ordinary opener never silently migrates; the explicit
+            # coordinator owns the chained source-history and privacy cutover.
+            raise StateSchemaUnavailableError(
+                "local state schema is supported_old: source migration requires "
+                "exclusive admission"
+            )
+        if (
+            schema.state == "supported_old"
+            and schema.version == 7
+            and local_schema.PHASE1_STATE_SCHEMA_VERSION >= 8
+        ):
+            # The ordinary opener never silently migrates a schema-seven Brain.
+            raise StateSchemaUnavailableError(
+                "local state schema is supported_old: privacy migration requires "
+                "exclusive admission"
+            )
+        if (
+            schema.state == "supported_old"
+            and schema.version == 8
+            and local_schema.PHASE1_STATE_SCHEMA_VERSION >= 9
+        ):
+            # The ordinary opener never silently migrates a schema-eight Brain.
+            raise StateSchemaUnavailableError(
+                "local state schema is supported_old: issuer migration requires "
+                "exclusive admission"
+            )
         self.profile = profile
         self._faults = set(faults)
         self._clock = clock
@@ -192,6 +220,7 @@ class BrainEngine(CaptureOperations, SpaceOperations, ReviewOperations, Retrieva
         self.managed_workspace = ManagedWorkspaceTasks(self)
         self.managed_policy = ManagedPolicyTasks(self, self.managed_workspace)
         self.managed_inference = ManagedInferenceTasks(self, self.managed_workspace)
+        self.privacy_repair = PrivacyRepairTasks(self)
         self._task_set = EngineTaskSet(
             profile=profile,
             capture=self.capture,
@@ -207,6 +236,7 @@ class BrainEngine(CaptureOperations, SpaceOperations, ReviewOperations, Retrieva
             sources=self.sources,
             history=self.history,
             relationships=self.relationships,
+            privacy_repair=self.privacy_repair,
         )
 
     @classmethod

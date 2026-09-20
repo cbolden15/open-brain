@@ -2,13 +2,18 @@ from __future__ import annotations
 
 import importlib
 import importlib.metadata
+import io
 import json
 import os
 import socket
+import sqlite3
 import subprocess
 import sys
 import unicodedata
+from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
+from types import SimpleNamespace
 from typing import cast
 
 import pytest
@@ -29,12 +34,24 @@ from open_brain_engine.engine import (
     TextPayload,
     open_local_engine,
 )
+from open_brain_engine.engine.consent_contracts import EgressMode
+from open_brain_engine.engine.contracts import EngineTaskSet, LocalEngineContext
+from open_brain_engine.engine.local_schema import (
+    open_local_database,
+    open_local_database_read_only,
+)
+from open_brain_engine.engine.privacy_repairs import PrivacyRepairError, PrivacyRepairRequest
+from open_brain_engine.engine.t03_contracts import EffectiveAuthority
+from open_brain_engine.portable.v5 import V5_SIDECAR_PATHS
+from open_brain_engine.storage.locks import LockBusyError
 
 import open_brain.services.local_bootstrap as bootstrap_module
+import open_brain.services.local_entrypoints as entrypoints
 import open_brain.services.obsidian_plugin as obsidian_plugin_module
 from open_brain.local_data import LocalDataError
 from open_brain.profile import compile_single_user_local, open_existing_single_user_local
 from open_brain.services.local_entrypoints import run_cli
+from open_brain.services.t03_adapters import owner_authority
 
 
 def _filesystem(_path: Path, platform_name: str) -> str:
@@ -72,6 +89,419 @@ def _subprocess_cli(root: Path, *arguments: str) -> dict[str, object]:
     assert result.returncode == 0, (result.stdout, result.stderr)
     assert result.stderr == ""
     return cast(dict[str, object], json.loads(result.stdout))
+
+
+def _privacy_repair_brain(tmp_path: Path) -> tuple[Path, LocalEngineContext, str, str]:
+    from open_brain_engine.engine.local import BrainEngine
+    from open_brain_engine.engine.privacy_projection import project_retained_privacy_evidence
+    from open_brain_engine.engine.reconciliation import rederive_live_search_projection
+    from open_brain_engine.engine.source_store import register_completed_captures
+
+    root = tmp_path / "privacy-repair-brain"
+    profile = compile_single_user_local(root)
+    tasks = open_local_engine(profile)
+    capture = tasks.capture.accept(
+        TextPayload("synthetic owner CLI privacy repair"),
+        delivery_id="privacy-repair.cli.capture",
+    )
+    connection = open_local_database(profile)
+    try:
+        connection.execute("BEGIN IMMEDIATE")
+        connection.execute(
+            "UPDATE captures SET privacy_json=NULL WHERE capture_id=?", (capture.capture_id,)
+        )
+        connection.execute(
+            "DELETE FROM source_revision_privacy WHERE capture_id=?", (capture.capture_id,)
+        )
+        register_completed_captures(connection, profile)
+        connection.execute("COMMIT")
+    finally:
+        connection.close()
+    rederive_live_search_projection(BrainEngine.open(profile))
+    digest = project_retained_privacy_evidence([None]).invalid_evidence_sha256
+    assert digest is not None
+    return root, profile, capture.capture_id, digest
+
+
+def _privacy_request(capture_id: str, digest: str, *, operation_id: str) -> dict[str, object]:
+    return {
+        "target_kind": "source_revision",
+        "target_id": capture_id,
+        "invalid_evidence_sha256": digest,
+        "replacement_privacy": {
+            "tier": "work",
+            "reason": "policy_work",
+            "policy_version": "privacy-v1",
+            "authority": {"cloud": True, "external_egress": True},
+            "confirmation_ref": None,
+        },
+        "operation_id": operation_id,
+        "supersedes_repair_id": None,
+    }
+
+
+def _privacy_cli_arguments(root: Path, request_file: Path | str) -> tuple[str, ...]:
+    return (
+        "privacy",
+        "repair",
+        "--request-file",
+        str(request_file),
+        "--json",
+        "--data-dir",
+        str(root),
+    )
+
+
+def test_owner_privacy_repair_cli_emits_stored_receipt_and_replays_byte_identically(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    root, profile, capture_id, digest = _privacy_repair_brain(tmp_path)
+    request_file = tmp_path / "repair.json"
+    request_file.write_text(
+        json.dumps(_privacy_request(capture_id, digest, operation_id="privacy-repair.cli.1")),
+        encoding="utf-8",
+    )
+    arguments = _privacy_cli_arguments(root, request_file)
+
+    assert run_cli(arguments, filesystem_type_probe=_filesystem) == 0
+    first_output = capsys.readouterr()
+    assert first_output.err == ""
+    assert first_output.out.endswith("\n")
+    first_bytes = first_output.out.removesuffix("\n").encode()
+    with open_local_database_read_only(profile) as connection:
+        row = connection.execute(
+            "SELECT receipt_json FROM privacy_repair_ledger WHERE operation_id=?",
+            ("privacy-repair.cli.1",),
+        ).fetchone()
+        stored_before = connection.execute(
+            "SELECT * FROM privacy_repair_ledger ORDER BY repair_sequence"
+        ).fetchall()
+        generation_before = connection.execute(
+            "SELECT retrieval_generation FROM engine_generations WHERE singleton=1"
+        ).fetchone()[0]
+        issuer_epoch = connection.execute("SELECT issuer_epoch FROM brain_identity").fetchone()[0]
+    assert first_bytes == row[0].encode()
+    payload = cast(dict[str, object], json.loads(first_output.out))
+    assert payload["owner_actor_id"] == profile.owner_actor_id
+    assert payload["issuer_epoch"] == issuer_epoch
+    assert cast(str, payload["repair_id"]).startswith("repair_")
+    assert payload["repair_sequence"] == 1
+    assert cast(str, payload["recorded_at"]).endswith("Z")
+
+    assert run_cli(arguments, filesystem_type_probe=_filesystem) == 0
+    replay_output = capsys.readouterr()
+    assert replay_output.err == ""
+    assert replay_output.out == first_output.out
+    with open_local_database_read_only(profile) as connection:
+        assert connection.execute(
+            "SELECT * FROM privacy_repair_ledger ORDER BY repair_sequence"
+        ).fetchall() == stored_before
+        assert connection.execute(
+            "SELECT retrieval_generation FROM engine_generations WHERE singleton=1"
+        ).fetchone()[0] == generation_before
+
+
+def test_privacy_repair_cli_rejects_untrusted_or_malformed_request_fields_before_bootstrap(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    sentinel = "PRIVATE_REPAIR_SENTINEL"
+    valid = _privacy_request("capture_synthetic", "a" * 64, operation_id="privacy-repair.bad")
+    payloads = []
+    for field in (
+        "owner_actor_id",
+        "issuer_epoch",
+        "repair_id",
+        "repair_sequence",
+        "recorded_at",
+        "timestamp",
+        "principal_id",
+        "session_id",
+        "owner",
+        "egress_mode",
+    ):
+        payloads.append(json.dumps({**valid, field: sentinel}).encode())
+    payloads.extend(
+        (
+            json.dumps({key: value for key, value in valid.items() if key != "target_id"}).encode(),
+            b'{"target_kind":"source_revision","target_kind":"canonical_revision"}',
+            b'["not-an-object"]',
+            b'\xff\xfe',
+            json.dumps(valid)
+            .replace('"target_id": "capture_synthetic"', '"target_id": NaN')
+            .encode(),
+            b" " * 65_537,
+        )
+    )
+
+    def forbidden(*_args: object, **_kwargs: object) -> object:
+        raise AssertionError("Brain bootstrap is forbidden")
+
+    monkeypatch.setattr(entrypoints, "select_local_root", forbidden)
+    root = tmp_path / "absent-brain"
+    expected = {
+        "error": {
+            "code": "invalid_request",
+            "message": "The privacy repair request is invalid.",
+        },
+        "status": "failed",
+    }
+    for index, payload in enumerate(payloads):
+        request_file = tmp_path / f"invalid-{index}.json"
+        request_file.write_bytes(payload)
+        assert run_cli(_privacy_cli_arguments(root, request_file)) == 2
+        output = capsys.readouterr()
+        assert output.err == ""
+        assert json.loads(output.out) == expected
+        assert sentinel not in output.out
+        assert not root.exists()
+
+    assert run_cli(_privacy_cli_arguments(root, tmp_path / "missing-request.json")) == 2
+    assert json.loads(capsys.readouterr().out) == expected
+    assert not root.exists()
+
+    assert run_cli(("privacy", "repair", "--json")) == 2
+    assert json.loads(capsys.readouterr().out)["error"]["code"] == "invalid_command"
+    assert run_cli(("privacy", "repair", "--request-file", "-")) == 2
+    missing_json = capsys.readouterr()
+    assert missing_json.out == ""
+    assert missing_json.err == "Open Brain could not parse the command.\n"
+
+
+def test_privacy_repair_cli_accepts_stdin_without_exposing_execution_authority(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    request = _privacy_request("capture_synthetic", "a" * 64, operation_id="repair.stdin")
+    observed: dict[str, object] = {}
+
+    class RepairTask:
+        def repair_privacy(self, parsed_request: object, *, authority: object) -> object:
+            observed.update(request=parsed_request, authority=authority)
+            raise PrivacyRepairError("not_found")
+
+    tasks = SimpleNamespace(
+        profile=SimpleNamespace(owner_actor_id="actor_synthetic_owner"),
+        privacy_repair=RepairTask(),
+    )
+
+    @contextmanager
+    def opened(*_args: object, **_kwargs: object) -> Iterator[SimpleNamespace]:
+        yield SimpleNamespace(tasks=tasks)
+
+    stdin = io.TextIOWrapper(io.BytesIO(json.dumps(request).encode()), encoding="utf-8")
+    monkeypatch.setattr(sys, "stdin", stdin)
+    monkeypatch.setattr(entrypoints, "select_local_root", lambda **_kwargs: object())
+    monkeypatch.setattr(entrypoints, "open_local_brain", opened)
+    assert run_cli(_privacy_cli_arguments(tmp_path / "brain", "-")) == 1
+    output = capsys.readouterr()
+    assert output.err == ""
+    assert json.loads(output.out)["error"]["code"] == "not_found"
+    parsed_request = cast(PrivacyRepairRequest, observed["request"])
+    authority = cast(EffectiveAuthority, observed["authority"])
+    assert parsed_request.operation_id == "repair.stdin"
+    assert authority.principal_id == "actor_synthetic_owner"
+
+
+def test_privacy_repair_cli_uses_profile_owner_local_authority(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    root, profile, capture_id, digest = _privacy_repair_brain(tmp_path)
+    request_file = tmp_path / "authority.json"
+    request_file.write_text(
+        json.dumps(_privacy_request(capture_id, digest, operation_id="privacy-repair.authority")),
+        encoding="utf-8",
+    )
+    observed: dict[str, object] = {}
+    original = owner_authority
+
+    def capture_authority(tasks: object, *, session_id: str) -> object:
+        authority = original(tasks, session_id=session_id)
+        observed.update(tasks=tasks, session_id=session_id, authority=authority)
+        return authority
+
+    monkeypatch.setattr(
+        "open_brain.services.local_entrypoints.owner_authority", capture_authority
+    )
+    assert (
+        run_cli(_privacy_cli_arguments(root, request_file), filesystem_type_probe=_filesystem)
+        == 0
+    )
+    assert capsys.readouterr().err == ""
+    tasks = cast(EngineTaskSet, observed["tasks"])
+    authority = cast(EffectiveAuthority, observed["authority"])
+    assert observed["session_id"] == "owner-cli"
+    assert authority.principal_id == tasks.profile.owner_actor_id == profile.owner_actor_id
+    assert authority.owner is True
+    assert authority.egress_mode is EgressMode.OWNER_LOCAL
+
+
+@pytest.mark.parametrize(
+    ("code", "expected_exit"),
+    (
+        ("invalid_request", 2),
+        ("not_found", 1),
+        ("evidence_mismatch", 1),
+        ("operation_conflict", 1),
+        ("supersession_invalid", 1),
+        ("operation_pending", 75),
+        ("owner_required", 78),
+        ("issuer_mismatch", 78),
+        ("ledger_corrupt", 78),
+    ),
+)
+def test_privacy_repair_cli_error_codes_are_bounded_and_have_stable_exits(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+    code: str,
+    expected_exit: int,
+) -> None:
+    private_values = (
+        "capture_PRIVATE",
+        "a" * 64,
+        "privacy-repair.PRIVATE",
+        "/synthetic/private/request.json",
+        "replacement private text",
+        "synthetic exception text",
+    )
+    request_file = tmp_path / "request.json"
+    request_file.write_text(
+        json.dumps(
+            _privacy_request(
+                private_values[0], private_values[1], operation_id=private_values[2]
+            )
+        ),
+        encoding="utf-8",
+    )
+
+    class RepairTask:
+        def repair_privacy(self, _request: object, *, authority: object) -> object:
+            raise PrivacyRepairError(code)
+
+    tasks = SimpleNamespace(
+        profile=SimpleNamespace(owner_actor_id="actor_synthetic_owner"),
+        privacy_repair=RepairTask(),
+    )
+
+    @contextmanager
+    def opened(*_args: object, **_kwargs: object) -> Iterator[SimpleNamespace]:
+        yield SimpleNamespace(tasks=tasks)
+
+    monkeypatch.setattr(entrypoints, "select_local_root", lambda **_kwargs: object())
+    monkeypatch.setattr(entrypoints, "open_local_brain", opened)
+    assert run_cli(_privacy_cli_arguments(tmp_path / "brain", request_file)) == expected_exit
+    output = capsys.readouterr()
+    assert output.err == ""
+    payload = json.loads(output.out)
+    messages = {
+        "invalid_request": "The privacy repair request is invalid.",
+        "not_found": "The repair target or matching evidence marker is unavailable.",
+        "evidence_mismatch": "The retained privacy evidence does not match the repair request.",
+        "operation_conflict": "The operation ID belongs to a different privacy repair request.",
+        "supersession_invalid": "The requested supersession is not the active repair head.",
+        "operation_pending": "The privacy repair is temporarily unavailable; retry.",
+        "owner_required": "Owner-local privacy repair authority is required.",
+        "issuer_mismatch": "The Brain issuer evidence could not be verified.",
+        "ledger_corrupt": "The privacy repair ledger could not be verified.",
+    }
+    assert payload == {
+        "error": {"code": code, "message": messages[code]},
+        "status": "failed",
+    }
+    assert len(output.out.encode()) < 1_024
+    assert all(value not in output.out for value in private_values)
+
+
+def test_privacy_repair_cli_real_lock_busy_is_database_busy(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    request_file = tmp_path / "request.json"
+    request_file.write_text(
+        json.dumps(_privacy_request("capture_synthetic", "a" * 64, operation_id="repair.busy")),
+        encoding="utf-8",
+    )
+
+    @contextmanager
+    def busy(*_args: object, **_kwargs: object) -> Iterator[None]:
+        raise LockBusyError("synthetic private busy detail")
+        yield
+
+    monkeypatch.setattr(entrypoints, "select_local_root", lambda **_kwargs: object())
+    monkeypatch.setattr(entrypoints, "open_local_brain", busy)
+    assert run_cli(_privacy_cli_arguments(tmp_path / "brain", request_file)) == 75
+    output = capsys.readouterr()
+    assert output.err == ""
+    assert json.loads(output.out)["error"]["code"] == "database_busy"
+    assert "synthetic private" not in output.out
+
+
+def test_privacy_repair_cli_conflict_and_supersession_have_zero_partial_writes(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    root, profile, capture_id, digest = _privacy_repair_brain(tmp_path)
+    request_file = tmp_path / "repair.json"
+    first_request = _privacy_request(capture_id, digest, operation_id="privacy-repair.chain.first")
+
+    def run(request: dict[str, object]) -> tuple[int, dict[str, object]]:
+        request_file.write_text(json.dumps(request), encoding="utf-8")
+        exit_code = run_cli(
+            _privacy_cli_arguments(root, request_file), filesystem_type_probe=_filesystem
+        )
+        output = capsys.readouterr()
+        assert output.err == ""
+        return exit_code, cast(dict[str, object], json.loads(output.out))
+
+    def state() -> tuple[list[sqlite3.Row], tuple[object, ...], int]:
+        with open_local_database_read_only(profile) as connection:
+            return (
+                connection.execute(
+                    "SELECT * FROM privacy_repair_ledger ORDER BY repair_sequence"
+                ).fetchall(),
+                tuple(
+                    connection.execute(
+                        "SELECT effective_tier, applied_repair_id, applied_repair_sequence "
+                        "FROM search_documents WHERE result_id=?",
+                        (capture_id,),
+                    ).fetchone()
+                ),
+                connection.execute(
+                    "SELECT retrieval_generation FROM engine_generations WHERE singleton=1"
+                ).fetchone()[0],
+            )
+
+    assert run(first_request)[0] == 0
+    first_payload = run(first_request)[1]
+    after_first = state()
+    conflict = cast(dict[str, object], json.loads(json.dumps(first_request)))
+    conflict_replacement = cast(dict[str, object], conflict["replacement_privacy"])
+    conflict_authority = cast(dict[str, object], conflict_replacement["authority"])
+    conflict_authority["cloud"] = False
+    assert run(conflict)[0] == 1
+    assert state() == after_first
+
+    second_request = _privacy_request(
+        capture_id, digest, operation_id="privacy-repair.chain.second"
+    )
+    second_replacement = cast(dict[str, object], second_request["replacement_privacy"])
+    second_replacement["tier"] = "public"
+    second_replacement["reason"] = "policy_public"
+    second_request["supersedes_repair_id"] = first_payload["repair_id"]
+    assert run(second_request)[0] == 0
+    after_second = state()
+    assert len(after_second[0]) == 2
+    assert after_second[2] == after_first[2] + 1
+
+    stale = _privacy_request(capture_id, digest, operation_id="privacy-repair.chain.stale")
+    stale["supersedes_repair_id"] = first_payload["repair_id"]
+    assert run(stale)[0] == 1
+    assert state() == after_second
 
 
 def test_local_help_and_version_are_root_free(
@@ -371,7 +801,7 @@ def test_local_init_creates_exact_default_once_without_daemon_or_environment_roo
         "brain_count": 1,
         "daemon_running": False,
         "profile": "local",
-        "state_schema_version": 7,
+        "state_schema_version": 9,
         "status": "initialized",
         "storage": "sqlite",
     }
@@ -642,8 +1072,9 @@ def test_exact_local_data_journey_bootstraps_without_init_or_background_runtime(
     exported = cast(dict[str, object], json.loads(capsys.readouterr().out))
     assert exported["status"] == "exported"
     assert exported["verification"] == "verified"
-    assert exported["schema_version"] == 4
+    assert exported["schema_version"] == 5
     assert (destination / "portable-manifest.json").is_file()
+    assert all((destination / relative).is_file() for relative in V5_SIDECAR_PATHS)
     assert any(
         token.encode("utf-8") in path.read_bytes()
         for path in destination.rglob("*")

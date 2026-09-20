@@ -6,6 +6,7 @@ from pathlib import Path
 from uuid import uuid4
 
 import pytest
+from open_brain_engine.core.ids import portable_canonical_json_bytes
 from open_brain_engine.engine import ReferencePayload, TextPayload, local_schema, open_local_engine
 from open_brain_engine.engine.local import BrainEngine
 from open_brain_engine.engine.local_schema import open_local_database_read_only
@@ -17,14 +18,15 @@ from open_brain_engine.engine.t03_contracts import (
     T03Error,
     response_to_wire,
 )
-from open_brain_engine.portable.v4 import SOURCE_METADATA_PATH
+from open_brain_engine.portable.v4 import SOURCE_METADATA_PATH, manifest_v4
+from open_brain_engine.portable.v5 import V5_SIDECAR_PATHS
 from open_brain_engine.portable.versioned import validated_portable_snapshot
 
 from open_brain.profile import compile_single_user_local
 from packages.app.tests.unit.engine.test_foundation_contracts import _public_submission
 
 
-def test_source_route_cas_preserves_capture_and_exports_v4(tmp_path: Path) -> None:
+def test_source_route_cas_preserves_capture_and_exports_v5(tmp_path: Path) -> None:
     profile = compile_single_user_local(tmp_path / "brain")
     tasks = open_local_engine(profile)
     receipt = tasks.capture.accept(
@@ -63,12 +65,48 @@ def test_source_route_cas_preserves_capture_and_exports_v4(tmp_path: Path) -> No
     assert metadata["sources"][0]["head_capture_id"] == receipt.capture_id
     export = tmp_path / "export"
     exported = tasks.portability.export(export, export_id="export_" + str(uuid4()))
-    assert exported.schema_version == 4
+    assert exported.schema_version == 5
     snapshot = validated_portable_snapshot(export)
+    assert snapshot.manifest["schema_version"] == 5
+    assert snapshot.files.keys() >= V5_SIDECAR_PATHS
     assert snapshot.files[path] == before
+    imported = tmp_path / "imported"
+    import_receipt = tasks.portability.import_clean(
+        export, imported, import_id="import_" + str(uuid4())
+    )
+    assert import_receipt.schema_version == 5
+    assert imported.is_dir()
+
+
+def test_standalone_v4_import_refusal_uses_valid_v4_fixture(tmp_path: Path) -> None:
+    tasks = open_local_engine(compile_single_user_local(tmp_path / "brain"))
+    tasks.capture.accept(TextPayload("synthetic legacy fixture"), delivery_id="legacy.v4")
+    current = tmp_path / "current-v5"
+    tasks.portability.export(current, export_id="export_" + str(uuid4()))
+    snapshot = validated_portable_snapshot(current)
+    files = {
+        relative: payload
+        for relative, payload in snapshot.files.items()
+        if relative != "portable-manifest.json" and relative not in V5_SIDECAR_PATHS
+    }
+    legacy = tmp_path / "legacy-v4"
+    for relative, payload in files.items():
+        destination = legacy / relative
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        destination.write_bytes(payload)
+    manifest = manifest_v4(
+        files,
+        tenant_id=str(snapshot.manifest["tenant_id"]),
+        export_id="export_" + str(uuid4()),
+        created_at=str(snapshot.manifest["created_at"]),
+    )
+    (legacy / "portable-manifest.json").write_bytes(
+        portable_canonical_json_bytes(manifest)
+    )
+    assert validated_portable_snapshot(legacy).manifest["schema_version"] == 4
     with pytest.raises(ValueError, match="Portable v4 import is not supported"):
         tasks.portability.import_clean(
-            export, tmp_path / "refused", import_id="import_" + str(uuid4())
+            legacy, tmp_path / "refused", import_id="import_" + str(uuid4())
         )
     assert not (tmp_path / "refused").exists()
 
@@ -214,6 +252,9 @@ def test_migrated_alias_adoption_and_automatic_publication_preserve_identity(
             delivery_id="automatic",
             space_id=space.space_id,
         )
+    from open_brain_engine.engine import coordinate_local_migration
+
+    coordinate_local_migration(profile)
     tasks = open_local_engine(profile)
     assert tasks.sources is not None
     adopted = tasks.sources.submit_revision(
@@ -287,7 +328,7 @@ def test_schema_seven_imports_legacy_portable_without_changing_evidence(
     assert validated_portable_snapshot(destination).files == snapshot.files
     imported = open_local_engine(compile_single_user_local(destination))
     with open_local_database_read_only(imported.profile) as connection:
-        assert connection.execute("PRAGMA user_version").fetchone()[0] == 7
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 9
         assert connection.execute("SELECT count(*) FROM source_revisions").fetchone()[0] > 0
 
 
@@ -314,9 +355,9 @@ def test_schema_seven_owner_recovery_retains_current_writer_floor(tmp_path: Path
     assert moved.read_bytes() == before
     reopened = open_local_engine(engine.profile)
     with open_local_database_read_only(reopened.profile) as connection:
-        assert connection.execute("PRAGMA user_version").fetchone()[0] == 7
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 9
         assert tuple(connection.execute("SELECT * FROM runtime_compatibility").fetchone()) == (
             1,
-            2,
-            7,
+            4,
+            9,
         )

@@ -7,11 +7,22 @@ import sqlite3
 import unicodedata
 from collections.abc import Mapping
 from dataclasses import dataclass
+from typing import cast
 
 from open_brain_engine.core.ids import portable_canonical_json_bytes
 from open_brain_engine.core.models import ContentOrigin, Provenance
 
 from .contracts import project_public_result_text
+from .privacy_projection import (
+    RepairedPrivacyEvidence,
+    RetainedPrivacyEvidence,
+    project_retained_privacy_evidence,
+)
+from .privacy_store import (
+    effective_privacy_enabled,
+    owner_repair_projection_enabled,
+    record_invalid_evidence,
+)
 
 
 def public_search_text(
@@ -236,6 +247,114 @@ def _canonical_trust(
     return (search_trust, "reviewed")
 
 
+def _retained_capture_privacy(
+    connection: sqlite3.Connection, capture_id: str
+) -> tuple[str | int | float | bytes | None]:
+    row = connection.execute(
+        "SELECT privacy_json FROM captures WHERE capture_id = ?", (capture_id,)
+    ).fetchone()
+    if row is None:
+        # A missing capture row is missing evidence and fails closed to the typed
+        # invalid path; it never surfaces as an untyped error.
+        return (None,)
+    return (cast("str | int | float | bytes | None", row[0]),)
+
+
+def _canonical_member_privacy_values(
+    connection: sqlite3.Connection, *, result_id: str, capture_id: str
+) -> tuple[str | int | float | bytes | None, ...]:
+    """Resolve retained canonical member values without the current-row graph checks.
+
+    Used only after ``canonical_source_rows`` proved the graph mismatched, so the
+    invalid-evidence digest still binds the same deterministic retained values the
+    current head proposal resolves.
+    """
+    head = connection.execute(
+        "SELECT proposal_id FROM review_page_heads WHERE page_id = ?", (result_id,)
+    ).fetchone()
+    if head is None:
+        return _retained_capture_privacy(connection, capture_id)
+    return tuple(
+        cast("str | int | float | bytes | None", row[0])
+        for row in connection.execute(
+            "SELECT c.privacy_json FROM review_sources s JOIN captures c USING (capture_id) "
+            "WHERE s.proposal_id = ? ORDER BY s.ordinal",
+            (head["proposal_id"],),
+        )
+    )
+
+
+def project_search_privacy(
+    connection: sqlite3.Connection, *, result_id: str, capture_id: str, record_type: str
+) -> RetainedPrivacyEvidence:
+    """Project one search row's effective privacy from its exact retained source set.
+
+    Source rows read their own capture's immutable privacy evidence. Canonical rows
+    resolve their current retained member set; a member-graph mismatch fails closed to
+    ``inconsistent`` without blocking any unrelated row. The projection never infers
+    privacy from title, body, space, or path.
+    """
+    if record_type == "source":
+        return project_retained_privacy_evidence(
+            _retained_capture_privacy(connection, capture_id)
+        )
+    if record_type != "canonical":
+        return project_retained_privacy_evidence((), caller_declared_inconsistent=True)
+    try:
+        rows = canonical_source_rows(connection, result_id=result_id, capture_id=capture_id)
+    except ValueError:
+        return project_retained_privacy_evidence(
+            _canonical_member_privacy_values(
+                connection, result_id=result_id, capture_id=capture_id
+            ),
+            caller_declared_inconsistent=True,
+        )
+    return project_retained_privacy_evidence(tuple(row["privacy_json"] for row in rows))
+
+
+def write_search_privacy(
+    connection: sqlite3.Connection,
+    *,
+    result_id: str,
+    evidence: RetainedPrivacyEvidence | RepairedPrivacyEvidence,
+    applied_repair: tuple[str, int] | None = None,
+) -> None:
+    """Persist one search row's complete effective-privacy projection."""
+    privacy_values = (
+        evidence.tier.value,
+        int(evidence.authority.cloud),
+        int(evidence.authority.external_egress),
+        None if evidence.invalid_reason is None else evidence.invalid_reason.value,
+        evidence.invalid_evidence_sha256,
+    )
+    if owner_repair_projection_enabled(connection):
+        connection.execute(
+            """
+            UPDATE search_documents
+            SET effective_tier = ?, effective_cloud = ?, effective_external_egress = ?,
+                invalid_evidence_reason = ?, invalid_evidence_sha256 = ?,
+                applied_repair_id = ?, applied_repair_sequence = ?
+            WHERE result_id = ?
+            """,
+            (
+                *privacy_values,
+                None if applied_repair is None else applied_repair[0],
+                None if applied_repair is None else applied_repair[1],
+                result_id,
+            ),
+        )
+        return
+    connection.execute(
+        """
+        UPDATE search_documents
+        SET effective_tier = ?, effective_cloud = ?, effective_external_egress = ?,
+            invalid_evidence_reason = ?, invalid_evidence_sha256 = ?
+        WHERE result_id = ?
+        """,
+        (*privacy_values, result_id),
+    )
+
+
 def upsert_search_document(
     connection: sqlite3.Connection,
     *,
@@ -278,6 +397,115 @@ def upsert_search_document(
         body=body,
         canonical_path=canonical_path,
     )
+    base_values = (
+        result_id,
+        capture_id,
+        record_type,
+        payload_family,
+        space_id,
+        projection.title,
+        projection.body,
+        projection.trust,
+        projection.provenance_json,
+        canonical_path,
+        updated_at,
+    )
+    # Effective privacy exists only from schema eight; historical schema-seven
+    # runtimes keep writing their exact historical row shape.
+    if effective_privacy_enabled(connection):
+        if owner_repair_projection_enabled(connection):
+            from .privacy_repairs import resolve_search_privacy
+
+            privacy, applied_repair = resolve_search_privacy(
+                connection,
+                result_id=result_id,
+                capture_id=capture_id,
+                record_type=record_type,
+            )
+            connection.execute(
+                """
+                INSERT INTO search_documents (
+                    result_id, capture_id, record_type, payload_family, space_id,
+                    title, body, trust, provenance_json, canonical_path, updated_at,
+                    effective_tier, effective_cloud, effective_external_egress,
+                    invalid_evidence_reason, invalid_evidence_sha256,
+                    applied_repair_id, applied_repair_sequence
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(result_id) DO UPDATE SET
+                    space_id = excluded.space_id,
+                    title = excluded.title,
+                    body = excluded.body,
+                    trust = excluded.trust,
+                    provenance_json = excluded.provenance_json,
+                    canonical_path = excluded.canonical_path,
+                    updated_at = excluded.updated_at,
+                    effective_tier = excluded.effective_tier,
+                    effective_cloud = excluded.effective_cloud,
+                    effective_external_egress = excluded.effective_external_egress,
+                    invalid_evidence_reason = excluded.invalid_evidence_reason,
+                    invalid_evidence_sha256 = excluded.invalid_evidence_sha256,
+                    applied_repair_id = excluded.applied_repair_id,
+                    applied_repair_sequence = excluded.applied_repair_sequence
+                """,
+                (
+                    *base_values,
+                    privacy.tier.value,
+                    int(privacy.authority.cloud),
+                    int(privacy.authority.external_egress),
+                    None if privacy.invalid_reason is None else privacy.invalid_reason.value,
+                    privacy.invalid_evidence_sha256,
+                    None if applied_repair is None else applied_repair[0],
+                    None if applied_repair is None else applied_repair[1],
+                ),
+            )
+            record_invalid_evidence(
+                connection,
+                target_kind="search_document",
+                target_id=result_id,
+                evidence=privacy,
+            )
+            return
+        privacy = project_search_privacy(
+            connection, result_id=result_id, capture_id=capture_id, record_type=record_type
+        )
+        connection.execute(
+            """
+            INSERT INTO search_documents (
+                result_id, capture_id, record_type, payload_family, space_id,
+                title, body, trust, provenance_json, canonical_path, updated_at,
+                effective_tier, effective_cloud, effective_external_egress,
+                invalid_evidence_reason, invalid_evidence_sha256
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(result_id) DO UPDATE SET
+                space_id = excluded.space_id,
+                title = excluded.title,
+                body = excluded.body,
+                trust = excluded.trust,
+                provenance_json = excluded.provenance_json,
+                canonical_path = excluded.canonical_path,
+                updated_at = excluded.updated_at,
+                effective_tier = excluded.effective_tier,
+                effective_cloud = excluded.effective_cloud,
+                effective_external_egress = excluded.effective_external_egress,
+                invalid_evidence_reason = excluded.invalid_evidence_reason,
+                invalid_evidence_sha256 = excluded.invalid_evidence_sha256
+            """,
+            (
+                *base_values,
+                privacy.tier.value,
+                int(privacy.authority.cloud),
+                int(privacy.authority.external_egress),
+                None if privacy.invalid_reason is None else privacy.invalid_reason.value,
+                privacy.invalid_evidence_sha256,
+            ),
+        )
+        record_invalid_evidence(
+            connection,
+            target_kind="search_document",
+            target_id=result_id,
+            evidence=privacy,
+        )
+        return
     connection.execute(
         """
         INSERT INTO search_documents (
@@ -293,19 +521,7 @@ def upsert_search_document(
             canonical_path = excluded.canonical_path,
             updated_at = excluded.updated_at
         """,
-        (
-            result_id,
-            capture_id,
-            record_type,
-            payload_family,
-            space_id,
-            projection.title,
-            projection.body,
-            projection.trust,
-            projection.provenance_json,
-            canonical_path,
-            updated_at,
-        ),
+        base_values,
     )
 
 
@@ -313,8 +529,10 @@ __all__ = [
     "public_search_text",
     "public_source_origin",
     "project_search_document",
+    "project_search_privacy",
     "SearchDocumentProjection",
     "source_trust",
     "source_search_title",
     "upsert_search_document",
+    "write_search_privacy",
 ]
