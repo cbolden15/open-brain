@@ -34,6 +34,7 @@ youtube = "open_brain_connectors.conformance:connector"
 
 [project.scripts]
 open-brain-source = "open_brain_connectors.runtime.source_cli:run_cli"
+open-brain-outbox = "open_brain_connectors.outbox.cli:run_cli"
 
 [tool.uv.sources]
 open-brain-engine = { workspace = true }

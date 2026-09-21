@@ -150,7 +150,10 @@ def build_catalog(
             (
                 "open-brain-connectors",
                 "0.1.0",
-                {"open-brain-source": "open_brain_connectors.runtime.source_cli:run_cli"},
+                {
+                    "open-brain-source": "open_brain_connectors.runtime.source_cli:run_cli",
+                    "open-brain-outbox": "open_brain_connectors.outbox.cli:run_cli",
+                },
                 {"open-brain-engine": "==0.1.0", "pypdf": "==6.18.1"},
             ),
             (
