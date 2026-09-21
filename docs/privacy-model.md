@@ -15,6 +15,43 @@ The live public-safe FTS5 projection is stored in `.open-brain/state/phase1.sqli
 retained for compatibility. It does not indicate a running Phase 1 service. SQLite may use temporary
 operating-system storage for sorter or FTS scratch.
 
+## Capture privacy tiers and classification
+
+Every capture receives one immutable privacy decision from the closed tier set `public`, `work`,
+`personal`, `secret`, and `unknown` before persistence. Local capture and Markdown import keep
+their existing default decision unless the owner passes an explicit tier.
+
+The owner sets an explicit tier per capture with `open-brain capture TEXT --privacy-tier TIER` and
+per import with `open-brain import DIRECTORY --privacy-tier TIER`. The flag is owner-only
+authority on the local command line. A remote or destination-bound client never receives it, and
+it is never merged with the startup-policy tier set that governs destination-bound submission.
+
+One Markdown import invocation applies one fixed tier to every imported note unless the owner
+supplies a per-root privacy manifest with `--privacy-manifest /absolute/path.json`. The manifest
+is one JSON object of at most 65,536 bytes whose exact keys are repository-relative root paths and
+whose values are tier names, for example `{"projects": "work", "journal": "personal"}` with
+synthetic root names. Duplicate keys, absolute or traversing paths, overlapping roots, unknown
+tiers, or an unreadable or non-object file are rejected with `invalid_privacy_manifest` before
+any note is imported. Precedence is fixed: the most specific matching manifest root wins, then the
+invocation tier, then the unchanged default decision.
+
+A non-default import tier is part of the import revision identity. The delivery ID and the stored
+revision digest incorporate the tier, so importing the same file again under a different tier
+creates a new revision instead of a no-op. Default-tier imports keep the exact historical delivery
+IDs and content digests.
+
+## Boundary classification
+
+The canonical admission boundary may rescan a submission and narrow its retained tier, for example
+to `secret` on a detection finding or to `unknown` on a missing or invalid classification.
+Narrowing is monotonic: no automatic or client-driven path widens a tier after submission. The
+sole audited exception is the owner-only privacy repair ledger, which can move a fail-closed
+`unknown` to a wider tier and leaves its own repair record.
+
+The redaction-based boundary classifier, which reuses the deterministic work-tier redaction policy
+as a secret signal, is opt-in and off by default. The engine wires no classifier into capture, so
+default submissions keep their submitted decision unchanged.
+
 ## MCP
 
 The owner explicitly launches `open-brain mcp` with capture, search, or both. Inherited stdio and the
@@ -69,7 +106,8 @@ tool-free client confinement has not been established.
 Import reads only the absolute source root selected by the owner, follows no links, loads no plugins,
 and does not modify the source tree. Markdown, frontmatter, wiki links, embeds, HTML, and code remain
 inert text. Imported records are unverified and their prior revisions remain in local history and
-Portable Brain export after source changes or deletion.
+Portable Brain export after source changes or deletion. The import tier flags and per-root manifest
+are described in [import design](import.md).
 
 ## Slack capture and recurring proposals
 

@@ -26,6 +26,7 @@ this scope. A catalog version is not a protocol or database upgrade instruction.
 | Surface | Candidate implementation | Acceptance / limitation |
 |---|---|---|
 | Core CLI | Local capture, Markdown import, spaces/inbox, source routing, proposals and inspected decisions | Locally verified; [first-use examples](first-use.md); no release promotion |
+| Capture admission | Engine-enforced envelope, body, and batch bounds, per-principal rate and concurrency gates, bounded writer waiters, absolute storage watermarks, owner explicit tiers, and destination-bound submission under a trusted launcher policy | Stable refusal results leave no partial state; defaults in the [capture contract](capture-contract.md); redaction boundary classifier off by default |
 | Retrieval | Lexical search, paged filters, complete projected reads, retained history and explicit relationships | Independent content/history grants for MCP; cursors can become stale |
 | Managed vault | `workspace setup`, `status`, `refresh`; approved canonical pages | Sibling `Open Brain Vault`; routing alone does not publish; no `vault` CLI |
 | Agent memory | Claude Code and Codex preview/apply/remove through `agent setup` | Nine independent grants, off by default; synthetic setup proof is not live client/provider acceptance |

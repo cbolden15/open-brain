@@ -14,6 +14,7 @@ opening a Brain. See the [feature/version matrix](core-v01-features.md).
 | Command family | Purpose / reference |
 |---|---|
 | `init`, `capture`, `import`, `status`, `export` | Local storage lifecycle; [first-use](first-use.md), [install](install.md) |
+| `capture-submit` | Destination-bound capture under a trusted startup policy; [capture contract](capture-contract.md) |
 | `catalog` | Versioned metadata; no grants or public certification |
 | `search`, `search-page`, `read` | Lexical retrieval and complete projected text; [records](records-and-history.md) |
 | `history list/show`, `relationship list/decide`, `decision history` | Retained evidence; owner relationship mutations |
@@ -32,6 +33,13 @@ There is no `vault` command; the managed vault is the `Open Brain Vault` sibling
 
 Commands that support machine output accept `--json`. The shared `--data-dir` option must be an
 absolute path. Without it, the CLI uses the platform data directory. `OPEN_BRAIN_ROOT` is ignored.
+
+`capture` accepts `--privacy-tier` with one of `public`, `work`, `personal`, `secret`, or `unknown`
+as an owner-only explicit privacy tier. `import` accepts the same `--privacy-tier` for the whole
+invocation plus `--privacy-manifest` pointing at a validated per-root privacy manifest JSON file;
+see [import design](import.md). `capture-submit` submits one destination-bound capture under a
+trusted startup policy and requires `--policy` with an absolute `launcher-policy.v1` JSON path; see
+[capture contract](capture-contract.md) for the tier rules and admission limits.
 
 `workspace setup` creates or reopens the dedicated `Open Brain Vault` sibling beside the private
 Brain directory. Explicit `workspace refresh` adds newly accepted canonical pages and advances
@@ -62,10 +70,13 @@ a link, resolve a conflict, or mutate a note. Until a provider adapter is config
 
 Capture, search, content-read, history-read, inbox-read, organize, review-read, review-propose and
 review-decide are independent `--allow-...` flags; workspace-read and graph-refresh are additional
-manual MCP grants. Search alone does not grant full content or history. Review decisions publish
-only after token-bound inspection. `tools/list` reflects session grants, while `brain_catalog`
-accepts `{"schema_version":2}` for metadata. Neither catalog discovery nor source text can widen
-permissions. CLI setup and the shared bridge support nine grants. The desktop setup UI exposes
+manual MCP grants. `capture-submit` is a further manual grant: `--allow-capture-submit` exposes the
+destination-bound `brain_capture_submit` tool and requires `--capture-policy` with an absolute
+trusted `launcher-policy.v1` JSON path. Search alone does not grant full content or history. Review
+decisions publish only after token-bound inspection. `tools/list` reflects session grants, while
+`brain_catalog` accepts `{"schema_version":2}` for metadata. Neither catalog discovery nor source
+text can widen permissions. CLI setup and the shared bridge support nine grants; capture-submit is a
+launch-time grant with no setup fragment. The desktop setup UI exposes
 capture/search; Obsidian has no agent-setup control. See [agent setup](agent-setup.md) for privacy
 and client activation.
 
@@ -76,9 +87,10 @@ MCP process resets only the process limits.
 
 ## Exit behavior
 
-Invalid usage returns 2. Temporary SQLite writer contention returns 75 for capture, search, import,
-or MCP work. A private-directory or operation failure returns 78 without exposing sensitive paths.
-Interrupted Markdown import returns 130.
+Invalid usage returns 2. Temporary SQLite writer contention returns 75 for capture, capture-submit,
+search, import, or MCP work. A private-directory or operation failure returns 78 without exposing
+sensitive paths; a refused startup policy returns 78 with `destination_mismatch`, `issuer_mismatch`,
+or `stale_policy`. Interrupted Markdown import returns 130.
 
 Secure Node and predecessor command families are historical source under `archive/`. They are not
 installed commands and are not supported through the Open Brain executable.
