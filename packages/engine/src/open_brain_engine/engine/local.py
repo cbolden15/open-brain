@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import sqlite3
+import threading
+from collections import deque
 from collections.abc import Callable, Collection
 from datetime import datetime
 from hashlib import sha256
@@ -162,8 +164,7 @@ class BrainEngine(CaptureOperations, SpaceOperations, ReviewOperations, Retrieva
             # The ordinary opener never silently migrates; the explicit
             # coordinator owns the chained source-history and privacy cutover.
             raise StateSchemaUnavailableError(
-                "local state schema is supported_old: source migration requires "
-                "exclusive admission"
+                "local state schema is supported_old: source migration requires exclusive admission"
             )
         if (
             schema.state == "supported_old"
@@ -182,8 +183,7 @@ class BrainEngine(CaptureOperations, SpaceOperations, ReviewOperations, Retrieva
         ):
             # The ordinary opener never silently migrates a schema-eight Brain.
             raise StateSchemaUnavailableError(
-                "local state schema is supported_old: issuer migration requires "
-                "exclusive admission"
+                "local state schema is supported_old: issuer migration requires exclusive admission"
             )
         self.profile = profile
         self._faults = set(faults)
@@ -192,6 +192,13 @@ class BrainEngine(CaptureOperations, SpaceOperations, ReviewOperations, Retrieva
         self._admission_limits = (
             admission_limits if admission_limits is not None else AdmissionLimits()
         )
+        # Engine-owned admission gate state. The core is one foreground
+        # process, so the per-principal rate windows and the concurrent
+        # admission counter are per-process and recover in-process without
+        # reopening the engine.
+        self._admission_gate_guard = threading.Lock()
+        self._admission_rate_windows: dict[str, deque[datetime]] = {}
+        self._active_admissions = 0
         lease_identity = "engine-" + sha256(profile.owner_actor_id.encode("utf-8")).hexdigest()[:32]
         self._writer_lease = FileLease(
             profile.root / ".open-brain",

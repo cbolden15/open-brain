@@ -5,12 +5,18 @@ from __future__ import annotations
 import base64
 import json
 import sqlite3
+import threading
+from collections import deque
+from collections.abc import Iterator
+from contextlib import contextmanager
+from datetime import datetime, timedelta
 from hashlib import sha256
 from typing import TYPE_CHECKING, cast
 
 from open_brain_engine.core.ids import portable_canonical_json_bytes
 from open_brain_engine.core.models import ContentOrigin
 from open_brain_engine.providers.base import EnrichmentState
+from open_brain_engine.storage.locks import WriterQueueFullError
 from open_brain_engine.storage.markdown import render_markdown
 
 from .contracts import (
@@ -78,7 +84,27 @@ def _payload_body_length(payload: Payload) -> int:
     return 0
 
 
+# Bounded writer wait for capture paths only. This is a small documented
+# constant rather than an AdmissionLimits field: the milestone fixes the
+# waiter cap and rate/concurrency bounds as configuration, while the wait
+# deadline itself stays a local foreground-runtime constant.
+_WRITER_WAIT_TIMEOUT_SECONDS = 5.0
+_WRITER_POLL_INTERVAL_SECONDS = 0.01
+_RATE_WINDOW = timedelta(seconds=60)
+
+
+def _principal_key(tenant_id: str, actor_id: str) -> str:
+    """One admission principal is tenant plus actor; owner paths share the owner key."""
+    return f"{tenant_id}:{actor_id}"
+
+
 class CaptureOperations(_LocalEngineOperations):
+    # Engine-owned admission gate state, initialized by BrainEngine; declared
+    # here so typed gate arithmetic on the mixin resolves.
+    _admission_gate_guard: threading.Lock
+    _admission_rate_windows: dict[str, deque[datetime]]
+    _active_admissions: int
+
     def _accept_capture(
         self,
         payload: Payload,
@@ -102,6 +128,72 @@ class CaptureOperations(_LocalEngineOperations):
                 title=title,
             )
         )
+
+    @contextmanager
+    def _admit_before_writer(self, principal_key: str) -> Iterator[None]:
+        """Per-principal rate and concurrent-admission gate for remote submissions.
+
+        Raises ``CaptureAdmissionError(rate_limited)`` or
+        ``CaptureAdmissionError(admission_busy)`` before the writer lease is
+        touched, so a refusal leaves no capture row, blob, or search document.
+        The sliding window and the counter are per process (the core is one
+        foreground process) and recover in-process: the window ages out and
+        the counter releases on success and on exceptions. Only admitted
+        requests consume rate budget for their principal.
+        """
+        limits = self._admission_limits
+        with self._admission_gate_guard:
+            now = self._clock()
+            window = self._admission_rate_windows.get(principal_key)
+            if window is None:
+                window = deque()
+                self._admission_rate_windows[principal_key] = window
+            else:
+                boundary = now - _RATE_WINDOW
+                while window and window[0] <= boundary:
+                    window.popleft()
+            if len(window) >= limits.requests_per_minute_per_principal:
+                raise CaptureAdmissionError(CaptureAdmissionResult.RATE_LIMITED)
+            if self._active_admissions >= limits.max_concurrent_admissions:
+                raise CaptureAdmissionError(CaptureAdmissionResult.ADMISSION_BUSY)
+            window.append(now)
+            self._active_admissions += 1
+        try:
+            yield
+        finally:
+            with self._admission_gate_guard:
+                self._active_admissions -= 1
+
+    @contextmanager
+    def _admit_submission(self, submission: CaptureSubmission) -> Iterator[None]:
+        """Gate remote-originated submissions; owner paths skip rate and concurrency.
+
+        Outcome 1 keeps existing no-flag local capture and Markdown import
+        behaving exactly as today, so CaptureSubmissionPath.OWNER submissions
+        are never rate limited or concurrency capped. Non-owner submissions
+        (public job today, destination-bound clients later) pass the full
+        per-principal gate before the writer lease.
+        """
+        if submission.submission_path is CaptureSubmissionPath.OWNER:
+            yield
+            return
+        key = _principal_key(submission.tenant_id, submission.actor_id)
+        with self._admit_before_writer(key):
+            yield
+
+    @contextmanager
+    def _writer_lease_bounded(self) -> Iterator[None]:
+        """Bounded writer lease for capture paths; a full queue becomes an admission result."""
+        limits = self._admission_limits
+        try:
+            with self._writer_lease.acquire_shared_writer_bounded(
+                max_waiters=limits.max_writer_waiters,
+                timeout=_WRITER_WAIT_TIMEOUT_SECONDS,
+                poll_interval=_WRITER_POLL_INTERVAL_SECONDS,
+            ):
+                yield
+        except WriterQueueFullError:
+            raise CaptureAdmissionError(CaptureAdmissionResult.WRITER_QUEUE_FULL) from None
 
     def _submit_capture(self, submission: CaptureSubmission) -> CaptureReceipt:
         submission.validate_profile(self.profile)
@@ -663,8 +755,9 @@ class CaptureTasks:
         capture_why: str | None = None,
         title: str | None = None,
     ) -> CaptureReceipt:
-        with self._engine._writer_lease.acquire_shared_writer():
-            return self._engine._accept_capture(
+        engine = self._engine
+        with engine._writer_lease.acquire_shared_writer():
+            return engine._accept_capture(
                 payload,
                 delivery_id=delivery_id,
                 action=action,
@@ -675,8 +768,17 @@ class CaptureTasks:
             )
 
     def submit(self, submission: CaptureSubmission) -> CaptureReceipt:
-        with self._engine._writer_lease.acquire_shared_writer():
-            return self._engine._submit_capture(submission)
+        engine = self._engine
+        with engine._admit_submission(submission):
+            # Owner submissions keep today's immediate LockBusyError under a
+            # competing writer; only remote-originated submissions wait boundedly.
+            lease = (
+                engine._writer_lease.acquire_shared_writer()
+                if submission.submission_path is CaptureSubmissionPath.OWNER
+                else engine._writer_lease_bounded()
+            )
+            with lease:
+                return engine._submit_capture(submission)
 
     def public_job_sink(self, context: PublicJobCaptureContext) -> PublicJobCaptureSink:
         context.validate_profile(self._engine.profile)
