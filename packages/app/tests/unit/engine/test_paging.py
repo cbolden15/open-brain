@@ -30,6 +30,18 @@ def authority(session: str = "session") -> EffectiveAuthority:
     return EffectiveAuthority("owner", session, frozenset({"search", "content-read"}), None)
 
 
+def scoped_authority(
+    *tiers: PrivacyTier, session: str = "scoped-session"
+) -> EffectiveAuthority:
+    return EffectiveAuthority(
+        "synthetic-principal",
+        session,
+        frozenset({"search", "content-read"}),
+        None,
+        allowed_read_tiers=frozenset(tiers),
+    )
+
+
 def test_cursor_authority_binding_names_and_binds_every_policy_dimension() -> None:
     brain_id = derive_brain_id("tenant_00000000-0000-4000-8000-000000000001")
     other_brain_id = derive_brain_id("tenant_00000000-0000-4000-8000-000000000002")
@@ -95,6 +107,139 @@ def test_cursor_authority_binding_names_and_binds_every_policy_dimension() -> No
         changed = authority_binding(variant)
         assert changed[field] != binding[field]
         assert binding_digest(changed) != baseline_digest
+
+
+def test_paged_search_enforces_the_principal_tier_matrix_and_owner_access(
+    tmp_path: Path,
+) -> None:
+    engine = BrainEngine.open(compile_single_user_local(tmp_path / "brain"))
+    captured = {
+        tier: engine.capture.accept(
+            TextPayload(f"tier matrix nebula {tier.value}"),
+            delivery_id=f"tier.matrix.{tier.value}",
+            title=f"Tier {tier.value}",
+            privacy_tier=tier,
+        ).capture_id
+        for tier in PrivacyTier
+    }
+    request = SearchPageRequest(query="tier matrix nebula", limit=100)
+    permitted_tiers = (PrivacyTier.PUBLIC, PrivacyTier.WORK, PrivacyTier.PERSONAL)
+
+    for mask in range(1 << len(permitted_tiers)):
+        allowed = tuple(
+            tier for index, tier in enumerate(permitted_tiers) if mask & (1 << index)
+        )
+        results = wire(
+            engine.retrieval.search_page(request, authority=scoped_authority(*allowed))
+        )["results"]
+        assert {row["record_id"] for row in results} == {captured[tier] for tier in allowed}
+
+    owner = EffectiveAuthority(
+        "synthetic-owner",
+        "owner-session",
+        frozenset({"search", "content-read"}),
+        None,
+        owner=True,
+    )
+    assert {
+        row["record_id"]
+        for row in wire(engine.retrieval.search_page(request, authority=owner))["results"]
+    } == set(captured.values())
+
+
+def test_hidden_tiers_do_not_change_visible_ranking_or_page_boundaries(tmp_path: Path) -> None:
+    engine = BrainEngine.open(compile_single_user_local(tmp_path / "brain"))
+    visible = {
+        engine.capture.accept(
+            TextPayload(term),
+            delivery_id=f"ranking.visible.{term}",
+            title=term,
+            privacy_tier=PrivacyTier.PUBLIC,
+        ).capture_id: term
+        for term in ("alpha", "beta")
+    }
+    request = SearchPageRequest(query="alpha beta", limit=1)
+    public = scoped_authority(PrivacyTier.PUBLIC)
+
+    first = wire(engine.retrieval.search_page(request, authority=public))
+    second = wire(
+        engine.retrieval.search_page(
+            replace(request, cursor=first["next_cursor"]), authority=public
+        )
+    )
+    baseline = [first["results"], second["results"]]
+    flooded_term = visible[first["results"][0]["record_id"]]
+
+    for index in range(20):
+        engine.capture.accept(
+            TextPayload(" ".join([flooded_term] * 4)),
+            delivery_id=f"ranking.hidden.{index}",
+            title=flooded_term,
+            privacy_tier=PrivacyTier.PERSONAL,
+        )
+
+    paired_first = wire(engine.retrieval.search_page(request, authority=public))
+    paired_second = wire(
+        engine.retrieval.search_page(
+            replace(request, cursor=paired_first["next_cursor"]), authority=public
+        )
+    )
+    assert [paired_first["results"], paired_second["results"]] == baseline
+    assert [paired_first["complete"], paired_second["complete"]] == [False, True]
+
+
+def test_record_projector_denies_disallowed_source_and_canonical_before_content_reads(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from open_brain_engine.engine import CaptureAction
+    from open_brain_engine.engine import records as records_module
+
+    engine = BrainEngine.open(
+        compile_single_user_local(tmp_path / "brain", starter_spaces=("Notes",))
+    )
+    space = engine.inbox.spaces()[0]
+    capture = engine.capture.accept(
+        TextPayload("classified canonical nebula"),
+        delivery_id="tier.projector.personal",
+        action=CaptureAction.CANONICAL_NOTE,
+        space_id=space.space_id,
+        privacy_tier=PrivacyTier.PERSONAL,
+    )
+    personal = scoped_authority(PrivacyTier.PERSONAL)
+    canonical = wire(
+        engine.retrieval.search_page(
+            SearchPageRequest(
+                query="classified canonical nebula",
+                filters={"space_ids": [], "payload_families": [], "record_types": ["canonical"]},
+            ),
+            authority=personal,
+        )
+    )["results"][0]
+    requests = (
+        RecordReadRequest(
+            record_id=capture.capture_id,
+            expected_revision_id=capture.capture_id,
+        ),
+        RecordReadRequest(
+            record_id=canonical["record_id"],
+            expected_revision_id=canonical["revision_id"],
+        ),
+    )
+    for request in requests:
+        assert wire(engine.retrieval.read_record(request, authority=personal))["content"]["text"]
+
+    reads: list[str] = []
+
+    def read_if_called(*_args: object, **_kwargs: object) -> None:
+        reads.append("content read")
+        return None
+
+    monkeypatch.setattr(records_module, "read_confined", read_if_called)
+    public = scoped_authority(PrivacyTier.PUBLIC)
+    for request in requests:
+        with pytest.raises(T03Error, match="not_found"):
+            engine.retrieval.read_record(request, authority=public)
+    assert reads == []
 
 
 def test_equal_score_keyset_traversal_and_restart(tmp_path: Path) -> None:

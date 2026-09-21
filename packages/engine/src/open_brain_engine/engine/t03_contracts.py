@@ -137,7 +137,7 @@ class EffectiveAuthority:
         return self.space_ids is None or space_id in self.space_ids
 
     def permits_read_tier(self, tier: PrivacyTier) -> bool:
-        return tier in self.allowed_read_tiers
+        return self.owner or tier in self.allowed_read_tiers
 
     def permits_capture_tier(self, tier: PrivacyTier) -> bool:
         return tier in self.allowed_capture_tiers

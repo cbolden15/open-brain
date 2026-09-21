@@ -179,9 +179,10 @@ def test_migrated_ungrouped_orphan_is_history_only(
 
     coordinate_local_migration(profile)
     current = BrainEngine.open(profile)
+    owner = replace(authority(), owner=True)
     page = wire(
         current.history.list_history(
-            HistoryListRequest(record_id=orphan.capture_id), authority=authority()
+            HistoryListRequest(record_id=orphan.capture_id), authority=owner
         )
     )
     assert len(page["entries"]) == 1 and not page["entries"][0]["is_current"]
@@ -190,7 +191,7 @@ def test_migrated_ungrouped_orphan_is_history_only(
     request = RecordReadRequest(record_id=orphan.capture_id, expected_revision_id=orphan.capture_id)
     assert (
         "Synthetic public-job capture"
-        in wire(current.history.read_history(request, authority=authority()))["content"]["text"]
+        in wire(current.history.read_history(request, authority=owner))["content"]["text"]
     )
     with pytest.raises(T03Error, match="not_found"):
         current.retrieval.read_record(
