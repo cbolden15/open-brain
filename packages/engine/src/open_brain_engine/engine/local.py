@@ -8,11 +8,13 @@ from collections import deque
 from collections.abc import Callable, Collection
 from datetime import datetime
 from hashlib import sha256
+from pathlib import Path
 
 from open_brain_engine.providers.base import ProviderMode
 from open_brain_engine.storage.filesystem import assert_root_identity
 from open_brain_engine.storage.locks import FileLease
 from open_brain_engine.storage.sqlite import SchemaError
+from open_brain_engine.storage.watermarks import StorageUsage
 
 from .capture import CaptureOperations, CaptureTasks
 from .contracts import (
@@ -132,9 +134,12 @@ class BrainEngine(CaptureOperations, SpaceOperations, ReviewOperations, Retrieva
         enrichment_provider: EnrichmentProvider | None,
         validate_mutation_authority: Callable[[], None] | None = None,
         admission_limits: AdmissionLimits | None = None,
+        storage_probe: Callable[[Path], StorageUsage] | None = None,
     ) -> None:
         if admission_limits is not None and not isinstance(admission_limits, AdmissionLimits):
             raise ValueError("invalid admission limits")
+        if storage_probe is not None and not callable(storage_probe):
+            raise ValueError("invalid storage probe")
         if profile.provider_mode is ProviderMode.CLOUD:
             raise ValueError("Phase 1 local engine does not enable cloud enrichment")
         if profile.provider_mode is ProviderMode.NONE and enrichment_provider is not None:
@@ -192,6 +197,11 @@ class BrainEngine(CaptureOperations, SpaceOperations, ReviewOperations, Retrieva
         self._admission_limits = (
             admission_limits if admission_limits is not None else AdmissionLimits()
         )
+        # Storage watermarks re-probe the Brain root's filesystem on every
+        # submission; ``None`` resolves to the standard statvfs probe of the
+        # root, and an injected probe lets tests fake usage without filling
+        # a disk.
+        self._storage_probe = storage_probe
         # Engine-owned admission gate state. The core is one foreground
         # process, so the per-principal rate windows and the concurrent
         # admission counter are per-process and recover in-process without
@@ -264,6 +274,7 @@ class BrainEngine(CaptureOperations, SpaceOperations, ReviewOperations, Retrieva
         validate_mutation_authority: Callable[[], None] | None = None,
         recover_abandoned_sessions: bool = True,
         admission_limits: AdmissionLimits | None = None,
+        storage_probe: Callable[[Path], StorageUsage] | None = None,
     ) -> BrainEngine:
         if not isinstance(profile, LocalEngineContext):
             raise ValueError("invalid local profile")
@@ -274,6 +285,7 @@ class BrainEngine(CaptureOperations, SpaceOperations, ReviewOperations, Retrieva
             enrichment_provider=enrichment_provider,
             validate_mutation_authority=validate_mutation_authority,
             admission_limits=admission_limits,
+            storage_probe=storage_probe,
         )
         with engine._writer_lease.acquire_shared_writer():
             engine._recover(startup=recover_abandoned_sessions)

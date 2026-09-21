@@ -7,15 +7,17 @@ import json
 import sqlite3
 import threading
 from collections import deque
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from datetime import datetime, timedelta
 from hashlib import sha256
+from pathlib import Path
 from typing import TYPE_CHECKING, cast
 
 from open_brain_engine.core.ids import portable_canonical_json_bytes
 from open_brain_engine.core.models import ContentOrigin
 from open_brain_engine.providers.base import EnrichmentState
+from open_brain_engine.storage import watermarks
 from open_brain_engine.storage.locks import WriterQueueFullError
 from open_brain_engine.storage.markdown import render_markdown
 
@@ -104,6 +106,7 @@ class CaptureOperations(_LocalEngineOperations):
     _admission_gate_guard: threading.Lock
     _admission_rate_windows: dict[str, deque[datetime]]
     _active_admissions: int
+    _storage_probe: Callable[[Path], watermarks.StorageUsage] | None
 
     def _accept_capture(
         self,
@@ -195,6 +198,28 @@ class CaptureOperations(_LocalEngineOperations):
         except WriterQueueFullError:
             raise CaptureAdmissionError(CaptureAdmissionResult.WRITER_QUEUE_FULL) from None
 
+    def _refuse_on_storage_watermark(self) -> None:
+        """Classify Brain-root free storage before any write path runs.
+
+        Every submission path (owner, public job, Markdown import) funnels
+        through ``_submit_capture``, so one check before the reservation
+        read, blob write, or SQLite transaction protects the Brain itself
+        and leaves no capture row, revision, blob, search document, or
+        receipt on refusal. The probe runs per submission, so free space
+        returning above a watermark recovers without reopening the engine.
+        """
+        # The default resolves through the watermarks module attribute at
+        # call time so a test conftest can pin one hermetic probe for the
+        # whole suite; an injected engine probe always wins.
+        probe = (
+            self._storage_probe
+            if self._storage_probe is not None
+            else watermarks.probe_storage_usage
+        )
+        result = watermarks.classify_storage(probe(self.profile.root), self._admission_limits)
+        if result is not None:
+            raise CaptureAdmissionError(result)
+
     def _submit_capture(self, submission: CaptureSubmission) -> CaptureReceipt:
         submission.validate_profile(self.profile)
         limits = self._admission_limits
@@ -206,6 +231,7 @@ class CaptureOperations(_LocalEngineOperations):
             raise CaptureAdmissionError(CaptureAdmissionResult.ENVELOPE_TOO_LARGE)
         if body_length > limits.max_body_bytes:
             raise CaptureAdmissionError(CaptureAdmissionResult.BODY_TOO_LARGE)
+        self._refuse_on_storage_watermark()
         capture_submission_is_reserved(cast("BrainEngine", self), submission)
         payload = submission.payload
         delivery_id = submission.delivery_id

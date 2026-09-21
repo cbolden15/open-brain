@@ -1433,8 +1433,8 @@ class AdmissionLimits:
     requests_per_minute_per_principal: int = 120
     max_concurrent_admissions: int = 8
     max_writer_waiters: int = 16
-    storage_high_watermark_ratio: float = 0.8
-    storage_critical_watermark_ratio: float = 0.95
+    storage_high_free_bytes: int = 2 * 1024 * 1024 * 1024
+    storage_critical_free_bytes: int = 512 * 1024 * 1024
 
     def __post_init__(self) -> None:
         for name in (
@@ -1445,17 +1445,13 @@ class AdmissionLimits:
             "requests_per_minute_per_principal",
             "max_concurrent_admissions",
             "max_writer_waiters",
+            "storage_high_free_bytes",
+            "storage_critical_free_bytes",
         ):
             value = getattr(self, name)
             if type(value) is not int or value <= 0:
                 raise ValueError("invalid admission limits")
-        for ratio in (
-            self.storage_high_watermark_ratio,
-            self.storage_critical_watermark_ratio,
-        ):
-            if not isinstance(ratio, int | float) or not 0 < ratio < 1:
-                raise ValueError("invalid admission limits")
-        if not self.storage_high_watermark_ratio < self.storage_critical_watermark_ratio:
+        if not self.storage_critical_free_bytes < self.storage_high_free_bytes:
             raise ValueError("invalid admission limits")
 
     def to_dict(self) -> dict[str, object]:
@@ -1467,8 +1463,8 @@ class AdmissionLimits:
             "requests_per_minute_per_principal": self.requests_per_minute_per_principal,
             "max_concurrent_admissions": self.max_concurrent_admissions,
             "max_writer_waiters": self.max_writer_waiters,
-            "storage_high_watermark_ratio": self.storage_high_watermark_ratio,
-            "storage_critical_watermark_ratio": self.storage_critical_watermark_ratio,
+            "storage_high_free_bytes": self.storage_high_free_bytes,
+            "storage_critical_free_bytes": self.storage_critical_free_bytes,
         }
 
     @classmethod
@@ -1481,8 +1477,8 @@ class AdmissionLimits:
             "requests_per_minute_per_principal",
             "max_concurrent_admissions",
             "max_writer_waiters",
-            "storage_high_watermark_ratio",
-            "storage_critical_watermark_ratio",
+            "storage_high_free_bytes",
+            "storage_critical_free_bytes",
         }:
             raise ValueError("invalid admission limits")
         return cls(**cast(dict[str, Any], dict(value)))

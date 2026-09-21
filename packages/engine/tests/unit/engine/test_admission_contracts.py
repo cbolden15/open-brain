@@ -151,10 +151,11 @@ def test_admission_limits_defaults_are_safe_non_zero_and_ordered() -> None:
         limits.max_writer_waiters,
     )
     assert all(type(count) is int and count > 0 for count in counts)
-    assert type(limits.storage_high_watermark_ratio) is float
-    assert type(limits.storage_critical_watermark_ratio) is float
-    assert limits.storage_high_watermark_ratio > 0.0
-    assert limits.storage_high_watermark_ratio < limits.storage_critical_watermark_ratio < 1.0
+    assert type(limits.storage_high_free_bytes) is int
+    assert type(limits.storage_critical_free_bytes) is int
+    assert limits.storage_high_free_bytes == 2 * 1024 * 1024 * 1024
+    assert limits.storage_critical_free_bytes == 512 * 1024 * 1024
+    assert limits.storage_critical_free_bytes < limits.storage_high_free_bytes
 
 
 @pytest.mark.parametrize(
@@ -167,12 +168,12 @@ def test_admission_limits_defaults_are_safe_non_zero_and_ordered() -> None:
         {"requests_per_minute_per_principal": 0},
         {"max_concurrent_admissions": None},
         {"max_writer_waiters": -5},
-        {"storage_high_watermark_ratio": 0.0},
-        {"storage_high_watermark_ratio": 1.0},
-        {"storage_critical_watermark_ratio": 0.0},
-        {"storage_critical_watermark_ratio": 1.0},
-        {"storage_high_watermark_ratio": 0.9, "storage_critical_watermark_ratio": 0.9},
-        {"storage_high_watermark_ratio": 0.95, "storage_critical_watermark_ratio": 0.9},
+        {"storage_high_free_bytes": 0},
+        {"storage_critical_free_bytes": -1},
+        {"storage_high_free_bytes": True},
+        {"storage_critical_free_bytes": "1024"},
+        {"storage_high_free_bytes": 512, "storage_critical_free_bytes": 512},
+        {"storage_high_free_bytes": 256, "storage_critical_free_bytes": 512},
     ],
 )
 def test_admission_limits_reject_invalid_values(overrides: dict[str, object]) -> None:
@@ -189,8 +190,8 @@ def test_admission_limits_round_trip_and_reject_unknown_or_missing_keys() -> Non
         requests_per_minute_per_principal=7,
         max_concurrent_admissions=2,
         max_writer_waiters=4,
-        storage_high_watermark_ratio=0.5,
-        storage_critical_watermark_ratio=0.75,
+        storage_high_free_bytes=4096,
+        storage_critical_free_bytes=1024,
     )
     encoded = limits.to_dict()
     assert AdmissionLimits.from_dict(encoded) == limits

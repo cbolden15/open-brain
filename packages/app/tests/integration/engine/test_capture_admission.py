@@ -39,6 +39,7 @@ from open_brain_engine.storage.locks import (
     FileLease,
     LockBusyError,
 )
+from open_brain_engine.storage.watermarks import StorageUsage
 
 from open_brain.profile import compile_single_user_local
 
@@ -51,8 +52,14 @@ def _engine(
     *,
     limits: AdmissionLimits | None = None,
     clock: Callable[[], datetime] | None = None,
+    storage_probe: Callable[[Path], StorageUsage] | None = None,
 ) -> BrainEngine:
-    return BrainEngine.open(compile_single_user_local(root), admission_limits=limits, clock=clock)
+    return BrainEngine.open(
+        compile_single_user_local(root),
+        admission_limits=limits,
+        clock=clock,
+        storage_probe=storage_probe,
+    )
 
 
 def _count(root: Path, table: str) -> int:
@@ -435,3 +442,88 @@ def test_owner_submit_fails_fast_while_a_competing_writer_holds_the_root(
         engine.capture.submit(owner_submission)
     assert time.monotonic() - started < 0.5
     _assert_nothing_was_admitted(root)
+
+
+class _FakeUsageProbe:
+    """Injectable storage probe so tests fake full disks without filling one."""
+
+    def __init__(self, usage: StorageUsage) -> None:
+        self.usage = usage
+
+    def __call__(self, path: Path) -> StorageUsage:
+        return self.usage
+
+
+_GIB = 1024 * 1024 * 1024
+_MIB = 1024 * 1024
+
+
+def _usage_with_free(free_bytes: int) -> StorageUsage:
+    total_bytes = 100 * _GIB
+    return StorageUsage(
+        total_bytes=total_bytes, used_bytes=total_bytes - free_bytes, free_bytes=free_bytes
+    )
+
+
+def test_critical_watermark_rejects_an_owner_capture_without_partial_state(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "brain"
+    engine = _engine(root, storage_probe=_FakeUsageProbe(_usage_with_free(400 * _MIB)))
+    with pytest.raises(CaptureAdmissionError) as raised:
+        engine.capture.accept(TextPayload("synthetic"), delivery_id="admission-critical-owner-1")
+    assert raised.value.result is CaptureAdmissionResult.STORAGE_CRITICAL
+    assert raised.value.retryable is False
+    _assert_nothing_was_admitted(root)
+
+
+def test_critical_watermark_rejects_a_public_job_capture_without_partial_state(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "brain"
+    engine = _engine(root, storage_probe=_FakeUsageProbe(_usage_with_free(400 * _MIB)))
+    with pytest.raises(CaptureAdmissionError) as raised:
+        engine.capture.submit(_public_job_submission(engine, "admission-critical-public-1"))
+    assert raised.value.result is CaptureAdmissionResult.STORAGE_CRITICAL
+    assert raised.value.retryable is False
+    _assert_nothing_was_admitted(root)
+
+
+def test_critical_watermark_rejects_markdown_import_without_partial_state(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "brain"
+    vault = tmp_path / "vault"
+    vault.mkdir()
+    (vault / "note.md").write_text("# Note\nsynthetic-critical-token\n", encoding="utf-8")
+    engine = _engine(root, storage_probe=_FakeUsageProbe(_usage_with_free(400 * _MIB)))
+    with pytest.raises(CaptureAdmissionError) as raised:
+        engine.markdown_import.import_directory(str(vault), confirm=lambda _: True)
+    assert raised.value.result is CaptureAdmissionResult.STORAGE_CRITICAL
+    assert raised.value.retryable is False
+    _assert_nothing_was_admitted(root)
+
+
+def test_high_watermark_rejects_with_a_retryable_result(tmp_path: Path) -> None:
+    root = tmp_path / "brain"
+    engine = _engine(root, storage_probe=_FakeUsageProbe(_usage_with_free(_GIB)))
+    with pytest.raises(CaptureAdmissionError) as raised:
+        engine.capture.accept(TextPayload("synthetic"), delivery_id="admission-high-owner-1")
+    assert raised.value.result is CaptureAdmissionResult.STORAGE_HIGH
+    assert raised.value.retryable is True
+    _assert_nothing_was_admitted(root)
+
+
+def test_free_space_returning_above_high_admits_without_reopening_the_engine(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "brain"
+    probe = _FakeUsageProbe(_usage_with_free(_GIB))
+    engine = _engine(root, storage_probe=probe)
+    with pytest.raises(CaptureAdmissionError):
+        engine.capture.accept(TextPayload("synthetic"), delivery_id="admission-recover-1")
+    probe.usage = _usage_with_free(60 * _GIB)
+    receipt = engine.capture.accept(TextPayload("synthetic"), delivery_id="admission-recover-1")
+    assert receipt.duplicate is False
+    assert _count(root, "captures") == 1
+    assert _count(root, "search_documents") >= 1
