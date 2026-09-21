@@ -709,7 +709,10 @@ def test_upgrade_writer_contention_is_bounded_and_retry_safe(tmp_path: Path) -> 
         start = time.monotonic()
         with pytest.raises(DatabaseBusyError, match="database busy"):
             open_local_database(profile)
-        assert 4 <= time.monotonic() - start < 10
+        # The open path stacks a connect timeout and a SQLite busy timeout of five seconds
+        # each, so a loaded CI runner can legitimately reach ten seconds. The bound proves the
+        # wait is finite, not that it is short (gotcha TOOLING-005).
+        assert 4 <= time.monotonic() - start < 20
         assert list(held.iterdump()) == before
         held.execute("ROLLBACK")
     finally:

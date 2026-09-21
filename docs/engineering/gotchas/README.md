@@ -1005,6 +1005,22 @@ them and restore would resurrect superseded revisions into search.
 
 Discovered: 2026-09-20, full `make verify` after the CUT-G2C focused suites passed.
 
+### TOOLING-006: Writer-contention timing bounds must allow stacked timeouts
+
+Symptom: CI on macOS fails `test_upgrade_writer_contention_is_bounded_and_retry_safe` with an
+elapsed time just over ten seconds, while the same test takes about five seconds locally and the
+branch never touched the database open path.
+
+Cause: `open_local_database` waits up to five seconds to connect and then up to five more seconds
+on the SQLite busy handler when another connection holds a write transaction. On a slow runner both
+waits elapse, so a `< 10` bound sits exactly on the worst case.
+
+Fix: bound such tests at a value that proves the wait is finite, not short. The test now asserts
+under twenty seconds with a comment naming the stacked timeouts. Do not shorten either timeout to
+make the test faster.
+
+Discovered: 2026-09-21, twice in a row on pull request CI for unrelated branches.
+
 ### TOOLING-004: MyPy recognizes static platform guards
 
 Symptom: A platform-only import passes MyPy on its supported host but fails with `import-not-found`
