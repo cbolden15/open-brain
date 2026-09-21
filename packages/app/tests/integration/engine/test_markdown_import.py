@@ -418,9 +418,7 @@ def test_registered_root_replacement_stops_before_missing_finalization(
     assert failure.value.code == "import_root_changed"
     assert len(engine.retrieval.search("pre-finalization-root-swap")) == 1
     with sqlite3.connect(_database(brain)) as connection:
-        row = connection.execute(
-            "SELECT active_revision_id FROM markdown_import_files"
-        ).fetchone()
+        row = connection.execute("SELECT active_revision_id FROM markdown_import_files").fetchone()
         current_scan = connection.execute(
             "SELECT last_complete_scan_id FROM markdown_import_roots"
         ).fetchone()[0]
@@ -817,6 +815,234 @@ def test_production_import_bounds_and_empty_file_contract_are_fixed() -> None:
         MAX_FILE_BYTES,
     ) == (100_000, 10_000, 536_870_912, 1_048_576)
     assert FilePayload("empty.md", "text/markdown", b"").data == b""
+
+
+def _active_capture_privacy(root: Path, relative_path: str) -> dict[str, object]:
+    connection = sqlite3.connect(_database(root))
+    try:
+        row = connection.execute(
+            """
+            SELECT c.privacy_json
+            FROM captures AS c
+            JOIN markdown_import_revisions AS r ON r.capture_id = c.capture_id
+            JOIN markdown_import_files AS f
+              ON f.file_id = r.file_id AND f.active_revision_id = r.revision_id
+            WHERE f.relative_path = ?
+            """,
+            (relative_path,),
+        ).fetchone()
+    finally:
+        connection.close()
+    assert row is not None
+    return cast(dict[str, object], json.loads(cast(str, row[0])))
+
+
+def _active_search_tier(root: Path, relative_path: str) -> str:
+    connection = sqlite3.connect(_database(root))
+    try:
+        row = connection.execute(
+            """
+            SELECT s.effective_tier
+            FROM search_documents AS s
+            JOIN markdown_import_revisions AS r ON r.capture_id = s.capture_id
+            JOIN markdown_import_files AS f
+              ON f.file_id = r.file_id AND f.active_revision_id = r.revision_id
+            WHERE f.relative_path = ? AND s.record_type = 'source'
+            """,
+            (relative_path,),
+        ).fetchone()
+    finally:
+        connection.close()
+    assert row is not None
+    return cast(str, row[0])
+
+
+FIXED_LOCAL_PRIVACY = {
+    "authority": {"cloud": False, "external_egress": False},
+    "confirmation_ref": None,
+    "policy_version": "privacy-v1",
+    "reason": "personal_local_only",
+    "tier": "personal",
+}
+
+
+def test_import_without_a_tier_keeps_the_fixed_local_privacy_and_identity(
+    tmp_path: Path,
+) -> None:
+    brain = tmp_path / "brain"
+    vault = tmp_path / "vault"
+    vault.mkdir()
+    (vault / "note.md").write_text("# Note\nsynthetic-fixed-tier-token\n", encoding="utf-8")
+    engine = _engine(brain)
+    first = engine.markdown_import.import_directory(str(vault), confirm=lambda _: True)
+    assert first.imported == 1
+    assert _active_capture_privacy(brain, "note.md") == FIXED_LOCAL_PRIVACY
+    second = engine.markdown_import.import_directory(str(vault), confirm=lambda _: True)
+    assert second.imported == 0
+    assert second.unchanged == 1
+    assert _count(brain, "captures") == 1
+
+
+def test_import_applies_one_explicit_tier_to_the_whole_invocation(tmp_path: Path) -> None:
+    brain = tmp_path / "brain"
+    vault = tmp_path / "vault"
+    vault.mkdir()
+    (vault / "note.md").write_text("# Note\nsynthetic-work-tier-token\n", encoding="utf-8")
+    engine = _engine(brain)
+    first = engine.markdown_import.import_directory(
+        str(vault), confirm=lambda _: True, privacy_tier=PrivacyTier.WORK
+    )
+    assert first.imported == 1
+    privacy = _active_capture_privacy(brain, "note.md")
+    assert privacy["tier"] == "work"
+    assert privacy["reason"] == "policy_work"
+    assert privacy["policy_version"] == "privacy-v1"
+    assert privacy["authority"] == {"cloud": False, "external_egress": False}
+    second = engine.markdown_import.import_directory(
+        str(vault), confirm=lambda _: True, privacy_tier=PrivacyTier.WORK
+    )
+    assert second.unchanged == 1
+    assert _count(brain, "captures") == 1
+    with pytest.raises(ValueError, match="invalid Markdown import request"):
+        engine.markdown_import.import_directory(
+            str(vault), confirm=lambda _: True, privacy_tier="synthetic-tier"
+        )
+
+
+def test_reimport_under_a_different_tier_is_a_new_revision_not_unchanged(
+    tmp_path: Path,
+) -> None:
+    brain = tmp_path / "brain"
+    vault = tmp_path / "vault"
+    vault.mkdir()
+    (vault / "note.md").write_text("# Note\nsynthetic-retier-token\n", encoding="utf-8")
+    engine = _engine(brain)
+    default = engine.markdown_import.import_directory(str(vault), confirm=lambda _: True)
+    assert default.imported == 1
+    secret = engine.markdown_import.import_directory(
+        str(vault), confirm=lambda _: True, privacy_tier=PrivacyTier.SECRET
+    )
+    assert secret.unchanged == 0
+    assert secret.updated == 1
+    assert _count(brain, "captures") == 2
+    assert _count(brain, "markdown_import_revisions") == 2
+    assert _active_capture_privacy(brain, "note.md")["tier"] == "secret"
+    assert _active_search_tier(brain, "note.md") == "secret"
+    restored = engine.markdown_import.import_directory(str(vault), confirm=lambda _: True)
+    assert restored.updated == 1
+    assert _count(brain, "captures") == 2
+    assert _active_capture_privacy(brain, "note.md")["tier"] == "personal"
+    assert _active_search_tier(brain, "note.md") == "personal"
+
+
+def _tiered_vault(vault: Path) -> None:
+    nested = vault / "sub"
+    other = vault / "other"
+    nested.mkdir(parents=True)
+    other.mkdir()
+    (vault / "note.md").write_text("# Root\nsynthetic-manifest-root-token\n", encoding="utf-8")
+    (nested / "note.md").write_text("# Nested\nsynthetic-manifest-sub-token\n", encoding="utf-8")
+    (other / "note.md").write_text("# Other\nsynthetic-manifest-other-token\n", encoding="utf-8")
+
+
+def _manifest(tmp_path: Path, document: object) -> Path:
+    path = tmp_path / "privacy-manifest.json"
+    path.write_text(json.dumps(document), encoding="utf-8")
+    return path
+
+
+def test_manifest_per_root_tier_precedence_with_invocation_fallback(
+    tmp_path: Path,
+) -> None:
+    brain = tmp_path / "brain"
+    vault = tmp_path / "vault"
+    _tiered_vault(vault)
+    manifest = _manifest(tmp_path, {"sub": "secret"})
+    engine = _engine(brain)
+    first = engine.markdown_import.import_directory(
+        str(vault),
+        confirm=lambda _: True,
+        privacy_tier=PrivacyTier.WORK,
+        privacy_manifest=str(manifest),
+    )
+    assert first.imported == 3
+    assert _active_capture_privacy(brain, "note.md")["tier"] == "work"
+    assert _active_capture_privacy(brain, "sub/note.md")["tier"] == "secret"
+    assert _active_capture_privacy(brain, "other/note.md")["tier"] == "work"
+    second = engine.markdown_import.import_directory(
+        str(vault), confirm=lambda _: True, privacy_manifest=str(manifest)
+    )
+    # Both non-manifest notes fall back to the default tier; the manifest
+    # root keeps its tier and is unchanged.
+    assert second.updated == 2
+    assert second.unchanged == 1
+    assert _active_capture_privacy(brain, "note.md") == FIXED_LOCAL_PRIVACY
+    assert _active_capture_privacy(brain, "sub/note.md")["tier"] == "secret"
+
+
+@pytest.mark.parametrize(
+    "document",
+    [
+        {"docs": "synthetic-tier"},
+        {"/absolute/synthetic": "work"},
+        {"../outside": "work"},
+        {"docs": "work", "docs/inner": "secret"},
+    ],
+)
+def test_manifest_rejection_leaves_nothing_imported(
+    tmp_path: Path, document: dict[str, str]
+) -> None:
+    brain = tmp_path / "brain"
+    vault = tmp_path / "vault"
+    vault.mkdir()
+    (vault / "note.md").write_text("# Note\nsynthetic-bad-manifest-token\n", encoding="utf-8")
+    manifest = _manifest(tmp_path, document)
+    engine = _engine(brain)
+    with pytest.raises(MarkdownImportFailure) as raised:
+        engine.markdown_import.import_directory(
+            str(vault), confirm=lambda _: True, privacy_manifest=str(manifest)
+        )
+    assert raised.value.code == "invalid_privacy_manifest"
+    assert _count(brain, "captures") == 0
+
+
+def test_a_relative_manifest_path_is_rejected_before_any_import(tmp_path: Path) -> None:
+    brain = tmp_path / "brain"
+    vault = tmp_path / "vault"
+    vault.mkdir()
+    (vault / "note.md").write_text("# Note\nsynthetic-relative-manifest-token\n", encoding="utf-8")
+    engine = _engine(brain)
+    with pytest.raises(MarkdownImportFailure) as raised:
+        engine.markdown_import.import_directory(
+            str(vault), confirm=lambda _: True, privacy_manifest="relative-manifest.json"
+        )
+    assert raised.value.code == "invalid_privacy_manifest"
+    assert _count(brain, "captures") == 0
+
+
+def test_import_delivery_identity_is_unchanged_for_the_default_tier() -> None:
+    from open_brain_engine.core.ids import portable_canonical_json_bytes
+    from open_brain_engine.engine.markdown_import import _delivery_id
+
+    root_id = "import_root_syntheticroot"
+    content_sha = sha256(b"synthetic import identity").hexdigest()
+    legacy = (
+        "markdown-import."
+        + sha256(
+            portable_canonical_json_bytes(
+                {
+                    "domain": "open-brain-markdown-import-v1",
+                    "content_sha256": content_sha,
+                    "relative_path": "notes/synthetic.md",
+                    "root_id": root_id,
+                }
+            )
+        ).hexdigest()
+    )
+    assert _delivery_id(root_id, "notes/synthetic.md", content_sha) == legacy
+    assert _delivery_id(root_id, "notes/synthetic.md", content_sha, None) == legacy
+    assert _delivery_id(root_id, "notes/synthetic.md", content_sha, PrivacyTier.PERSONAL) == legacy
+    assert _delivery_id(root_id, "notes/synthetic.md", content_sha, PrivacyTier.WORK) != legacy
 
 
 @pytest.fixture(autouse=True)

@@ -17,10 +17,12 @@ from urllib.parse import unquote
 
 from open_brain_engine.core.ids import canonicalize_source_url, portable_canonical_json_bytes
 from open_brain_engine.core.models import (
+    Authority,
     CaptureWhyOrigin,
     ContentOrigin,
     Intent,
     PrivacyDecision,
+    PrivacyReason,
     PrivacyTier,
     Provenance,
 )
@@ -45,6 +47,7 @@ from .normalization import (
     _role_claim,
     _text,
 )
+from .privacy_projection import _NARROWED_REASON
 from .t03_contracts import EffectiveAuthority, SourceRouteRequest, SourceRouteResponse
 
 if TYPE_CHECKING:
@@ -1128,6 +1131,7 @@ class MarkdownImportFailure(RuntimeError):
             "import_directory_unavailable",
             "import_root_changed",
             "import_scan_incomplete",
+            "invalid_privacy_manifest",
             "large_vault_confirmation_required",
             "overlapping_import_root",
         }:
@@ -1143,6 +1147,118 @@ class MarkdownImportCancelled(RuntimeError):
 
 class MarkdownImportInterrupted(RuntimeError):
     """Import stopped at a safe point before missing-path finalization."""
+
+
+_MAX_PRIVACY_MANIFEST_BYTES = 65_536
+
+
+def _manifest_root_path(key: object) -> str:
+    """Validate one manifest key as an exact repository-relative root path."""
+    if (
+        not isinstance(key, str)
+        or not key
+        or key.startswith("/")
+        or "\\" in key
+        or any(component in {"", ".", ".."} for component in key.split("/"))
+    ):
+        raise ValueError("invalid privacy manifest root")
+    return key
+
+
+def _manifest_object_pairs(pairs: list[tuple[str, object]]) -> dict[str, object]:
+    result: dict[str, object] = {}
+    for key, value in pairs:
+        if key in result:
+            raise ValueError("duplicate privacy manifest key")
+        result[key] = value
+    return result
+
+
+@dataclass(frozen=True, slots=True)
+class CapturePrivacyManifest:
+    """A validated owner per-root privacy policy for one Markdown import.
+
+    The manifest is one small JSON object passed by absolute path whose exact
+    keys are repository-relative root paths mapping to one privacy tier each.
+    Unknown keys, unknown tiers, paths outside the import root, and
+    overlapping roots are rejected before any note is imported.
+    """
+
+    roots: Mapping[str, PrivacyTier]
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.roots, Mapping):
+            raise ValueError("invalid privacy manifest")
+        for key, tier in self.roots.items():
+            _manifest_root_path(key)
+            if not isinstance(tier, PrivacyTier):
+                raise ValueError("invalid privacy manifest")
+
+    @classmethod
+    def load(cls, path: str | Path) -> CapturePrivacyManifest:
+        location = Path(path)
+        if not location.is_absolute():
+            raise MarkdownImportFailure(
+                "invalid_privacy_manifest", details={"reason": "relative_path"}
+            )
+        try:
+            raw = location.read_bytes()
+        except OSError:
+            raise MarkdownImportFailure(
+                "invalid_privacy_manifest", details={"reason": "unreadable"}
+            ) from None
+        if len(raw) > _MAX_PRIVACY_MANIFEST_BYTES:
+            raise MarkdownImportFailure("invalid_privacy_manifest", details={"reason": "too_large"})
+        try:
+            document = json.loads(raw.decode("utf-8"), object_pairs_hook=_manifest_object_pairs)
+        except UnicodeDecodeError:
+            raise MarkdownImportFailure(
+                "invalid_privacy_manifest", details={"reason": "invalid_json"}
+            ) from None
+        except json.JSONDecodeError:
+            raise MarkdownImportFailure(
+                "invalid_privacy_manifest", details={"reason": "invalid_json"}
+            ) from None
+        except ValueError:
+            # Duplicate keys surface through the object-pairs hook.
+            raise MarkdownImportFailure(
+                "invalid_privacy_manifest", details={"reason": "duplicate_key"}
+            ) from None
+        if not isinstance(document, dict):
+            raise MarkdownImportFailure(
+                "invalid_privacy_manifest", details={"reason": "invalid_shape"}
+            )
+        roots: dict[str, PrivacyTier] = {}
+        for key, value in document.items():
+            try:
+                normalized_key = _manifest_root_path(key)
+            except ValueError:
+                raise MarkdownImportFailure(
+                    "invalid_privacy_manifest", details={"reason": "invalid_root_path"}
+                ) from None
+            try:
+                roots[normalized_key] = PrivacyTier(value)
+            except TypeError, ValueError:
+                raise MarkdownImportFailure(
+                    "invalid_privacy_manifest", details={"reason": "unknown_tier"}
+                ) from None
+        ordered = sorted(roots)
+        for left, right in zip(ordered, ordered[1:], strict=False):
+            if right.startswith(left + "/"):
+                raise MarkdownImportFailure(
+                    "invalid_privacy_manifest", details={"reason": "overlapping_roots"}
+                )
+        return cls(roots=MappingProxyType(roots))
+
+    def tier_for(self, relative_path: str) -> PrivacyTier | None:
+        """The most specific matching root's tier, or None when nothing matches."""
+        best: tuple[str, PrivacyTier] | None = None
+        for root, tier in self.roots.items():
+            if (relative_path == root or relative_path.startswith(root + "/")) and (
+                best is None or len(root) > len(best[0])
+            ):
+                best = (root, tier)
+        return None if best is None else best[1]
 
 
 @dataclass(frozen=True, slots=True)
@@ -1609,6 +1725,7 @@ class CaptureSubmission:
         intent: Intent | str | None = None,
         capture_why: str | None = None,
         title: str | None = None,
+        privacy_tier: PrivacyTier | str | None = None,
     ) -> CaptureSubmission:
         payload_bytes = portable_canonical_json_bytes(payload.to_dict())
         source_origin = (
@@ -1641,7 +1758,9 @@ class CaptureSubmission:
                 content_origin=source_origin,
                 owner_context=capture_why_origin,
             ),
-            privacy=_local_privacy(),
+            privacy=(
+                _local_privacy() if privacy_tier is None else owner_privacy_for_tier(privacy_tier)
+            ),
             tenant_id=profile.tenant_id,
             actor_id=profile.owner_actor_id,
             role_claim=_role_claim(profile),
@@ -1703,6 +1822,7 @@ class CaptureSubmission:
                 intent=self.intent,
                 capture_why=self.capture_why,
                 title=self.title,
+                privacy_tier=self.privacy.tier,
             )
             if self != expected:
                 raise ValueError("capture submission does not match the local profile")
@@ -1766,6 +1886,7 @@ class CaptureTask(Protocol):
         intent: str | None = None,
         capture_why: str | None = None,
         title: str | None = None,
+        privacy_tier: PrivacyTier | None = None,
     ) -> CaptureReceipt: ...
 
     def submit(self, submission: CaptureSubmission) -> CaptureReceipt: ...
@@ -1964,6 +2085,8 @@ class MarkdownImportTask(Protocol):
         confirm: Callable[[MarkdownImportPreflight], bool] | None = None,
         progress: Callable[[MarkdownImportProgress], None] | None = None,
         interrupted: Callable[[], bool] | None = None,
+        privacy_tier: PrivacyTier | str | None = None,
+        privacy_manifest: str | Path | None = None,
     ) -> MarkdownImportSummary: ...
 
 
@@ -2169,6 +2292,41 @@ class _LocalEngineOperations:
 
 def _local_privacy() -> PrivacyDecision:
     return PrivacyDecision.from_dict(_privacy())
+
+
+# The G5 canonical-boundary narrowing reasons cover every tier except PUBLIC
+# (public can never be a narrowing result); the owner explicit tier admits
+# PUBLIC through the closed policy-public reason, so no second mapping of the
+# narrowing-covered tiers exists.
+_OWNER_EXPLICIT_REASON: dict[PrivacyTier, PrivacyReason] = {
+    PrivacyTier.PUBLIC: PrivacyReason.POLICY_PUBLIC,
+    **_NARROWED_REASON,
+}
+
+
+def owner_privacy_for_tier(tier: PrivacyTier | str) -> PrivacyDecision:
+    """The canonical owner decision for one explicit privacy tier.
+
+    The reason is the per-tier canonical reason (the G5 narrowing mapping plus
+    the closed public policy reason), the policy version stays the fixed local
+    one, and the local owner path grants no egress authority, which every
+    local-only reason forbids anyway.
+    """
+    normalized = _privacy_tier(tier)
+    assert normalized is not None
+    return PrivacyDecision.create(
+        tier=normalized,
+        reason=_OWNER_EXPLICIT_REASON[normalized],
+        policy_version=_local_privacy().policy_version,
+        authority=Authority(cloud=False, external_egress=False),
+    )
+
+
+def _privacy_tier(value: PrivacyTier | str | None) -> PrivacyTier | None:
+    try:
+        return None if value is None else PrivacyTier(value)
+    except (TypeError, ValueError) as error:
+        raise ValueError("invalid privacy tier") from error
 
 
 def _capture_role_claim(

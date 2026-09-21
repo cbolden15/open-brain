@@ -21,6 +21,7 @@ from pathlib import Path
 from typing import NoReturn, cast
 
 from open_brain_engine import __version__
+from open_brain_engine.core.models import PrivacyTier
 from open_brain_engine.engine import (
     CaptureReceipt,
     EngineTaskSet,
@@ -235,7 +236,7 @@ def run_cli(
     if parsed.command == "privacy":
         try:
             parsed.privacy_repair_request = _read_privacy_repair_request(parsed.request_file)
-        except (OSError, UnicodeError, ValueError):
+        except OSError, UnicodeError, ValueError:
             return _write_privacy_repair_failure("invalid_request")
     if parsed.command != "import":
         return _run_parsed_command(
@@ -472,6 +473,12 @@ def _parser() -> argparse.ArgumentParser:
     )
     _add_local_options(capture_parser)
     capture_parser.add_argument("text", help="Text to capture.")
+    capture_parser.add_argument(
+        "--privacy-tier",
+        choices=tuple(tier.value for tier in PrivacyTier),
+        default=None,
+        help="Owner-only explicit privacy tier for this capture.",
+    )
     import_parser = subparsers.add_parser(
         "import",
         help="Import a Markdown directory into immutable local history.",
@@ -491,6 +498,18 @@ def _parser() -> argparse.ArgumentParser:
         "--allow-large-vault",
         action="store_true",
         help="Allow aggregate scan bounds; the one-file limit still applies.",
+    )
+    import_parser.add_argument(
+        "--privacy-tier",
+        choices=tuple(tier.value for tier in PrivacyTier),
+        default=None,
+        help="Owner-only explicit privacy tier applied to every imported note.",
+    )
+    import_parser.add_argument(
+        "--privacy-manifest",
+        metavar="PATH",
+        default=None,
+        help="Absolute path to a validated per-root privacy manifest JSON file.",
     )
     search_parser = subparsers.add_parser("search", help="Search the local Brain directly.")
     _add_local_options(search_parser)
@@ -1372,9 +1391,7 @@ def _run_privacy_repair(parsed: argparse.Namespace, tasks: EngineTaskSet) -> int
         raise PrivacyRepairError("operation_pending")
     receipt = repair_task.repair_privacy(
         cast(PrivacyRepairRequest, parsed.privacy_repair_request),
-        authority=cast(
-            EffectiveAuthority, owner_authority(tasks, session_id="owner-cli")
-        ),
+        authority=cast(EffectiveAuthority, owner_authority(tasks, session_id="owner-cli")),
     )
     encoded = receipt.encode()
     if len(encoded.encode("utf-8")) > _MAX_PRIVACY_REPAIR_RECEIPT_BYTES:
@@ -1422,6 +1439,9 @@ def _run_local_command(
             tasks.capture,
             cast(str, parsed.text),
             delivery_id="delivery." + str(uuid.uuid4()),
+            privacy_tier=(
+                None if parsed.privacy_tier is None else PrivacyTier(parsed.privacy_tier)
+            ),
         )
         _write_capture(capture_receipt, json_output=json_output)
         return 0
@@ -1790,6 +1810,8 @@ def _run_markdown_import(
         confirm=confirm,
         progress=progress,
         interrupted=interrupted,
+        privacy_tier=(None if parsed.privacy_tier is None else PrivacyTier(parsed.privacy_tier)),
+        privacy_manifest=cast(str | None, parsed.privacy_manifest),
     )
     _write_import_summary(summary, json_output=json_output)
     return 1 if summary.failed else 0

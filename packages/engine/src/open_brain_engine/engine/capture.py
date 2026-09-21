@@ -150,6 +150,7 @@ class CaptureOperations(_LocalEngineOperations):
         intent: str | None,
         capture_why: str | None,
         title: str | None,
+        privacy_tier: PrivacyTier | None = None,
     ) -> CaptureReceipt:
         return self._submit_capture(
             CaptureSubmission.for_local_owner(
@@ -161,6 +162,7 @@ class CaptureOperations(_LocalEngineOperations):
                 intent=intent,
                 capture_why=capture_why,
                 title=title,
+                privacy_tier=privacy_tier,
             )
         )
 
@@ -758,7 +760,11 @@ class CaptureOperations(_LocalEngineOperations):
                 "actor_id": self.profile.owner_actor_id,
                 "modified_at": row["accepted_at"],
                 "page_id": row["page_id"],
-                "privacy": _privacy(),
+                # The page frontmatter carries the admitted decision from the
+                # capture row, so page, row, and search agree even where
+                # admission narrowed or the owner set an explicit tier. For a
+                # no-flag capture this is byte-identical to the fixed dict.
+                "privacy": _owner_record_privacy(row),
                 "provenance": [row["capture_id"]],
                 "role_claim": _role_claim(self.profile),
                 "schema_version": 1,
@@ -871,6 +877,7 @@ class CaptureTasks:
         intent: str | None = None,
         capture_why: str | None = None,
         title: str | None = None,
+        privacy_tier: PrivacyTier | None = None,
     ) -> CaptureReceipt:
         engine = self._engine
         with engine._writer_lease.acquire_shared_writer():
@@ -882,6 +889,7 @@ class CaptureTasks:
                 intent=intent,
                 capture_why=capture_why,
                 title=title,
+                privacy_tier=privacy_tier,
             )
 
     def submit(self, submission: CaptureSubmission) -> CaptureReceipt:

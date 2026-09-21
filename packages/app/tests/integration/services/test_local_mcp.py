@@ -947,9 +947,7 @@ def test_live_negotiated_grant_describes_only_implemented_contract(
         described = _exchange(process, _call("brain_contract_describe", {}, 3))
         operations = described["result"]["structuredContent"]["operations"]
         assert [operation["name"] for operation in operations] == (
-            ["record.read"]
-            if flag == "--allow-content-read"
-            else ["history.list", "history.show"]
+            ["record.read"] if flag == "--allow-content-read" else ["history.list", "history.show"]
         )
         assert process.stdin is not None
         process.stdin.close()
@@ -970,9 +968,7 @@ def test_live_mcp_engine_retrieval_grants_and_cursor_failures(tasks: Any) -> Non
         for index in range(3)
     ]
     unicode_payload = TextPayload("é🙂é 漢字 actual MCP content\n" * 2000)
-    unicode_capture = tasks.capture.accept(
-        unicode_payload, delivery_id="mcp.retrieval.unicode"
-    )
+    unicode_capture = tasks.capture.accept(unicode_payload, delivery_id="mcp.retrieval.unicode")
     process = _start(
         tasks.profile.root,
         "--allow-search",
@@ -1009,9 +1005,7 @@ def test_live_mcp_engine_retrieval_grants_and_cursor_failures(tasks: Any) -> Non
             ),
         )
         assert cross_session["result"]["isError"] is True
-        assert cross_session["result"]["content"] == [
-            {"type": "text", "text": "cursor_invalid"}
-        ]
+        assert cross_session["result"]["content"] == [{"type": "text", "text": "cursor_invalid"}]
 
         tasks.capture.accept(
             TextPayload("actual MCP changed nebula"),
@@ -1036,9 +1030,9 @@ def test_live_mcp_engine_retrieval_grants_and_cursor_failures(tasks: Any) -> Non
         chunks: list[str] = []
         offset = 0
         while True:
-            read = _exchange(process, _call("brain_read", read_arguments, 6))[
-                "result"
-            ]["structuredContent"]
+            read = _exchange(process, _call("brain_read", read_arguments, 6))["result"][
+                "structuredContent"
+            ]
             assert read["start_byte"] == offset
             text = read["content"]["text"]
             offset += len(text.encode("utf-8"))
@@ -1061,9 +1055,7 @@ def test_live_mcp_engine_retrieval_grants_and_cursor_failures(tasks: Any) -> Non
                 7,
             ),
         )
-        assert denied["result"]["content"] == [
-            {"type": "text", "text": "unsupported_capability"}
-        ]
+        assert denied["result"]["content"] == [{"type": "text", "text": "unsupported_capability"}]
     finally:
         for child in (process, other):
             if child is None:
@@ -1135,9 +1127,7 @@ def test_live_mcp_history_list_show_cursor_and_independent_grant(tasks: Any) -> 
                 4,
             ),
         )
-        assert cross_session["result"]["content"] == [
-            {"type": "text", "text": "cursor_invalid"}
-        ]
+        assert cross_session["result"]["content"] == [{"type": "text", "text": "cursor_invalid"}]
         tail = _exchange(
             process,
             _call(
@@ -1157,9 +1147,9 @@ def test_live_mcp_history_list_show_cursor_and_independent_grant(tasks: Any) -> 
         }
         chunks: list[str] = []
         while True:
-            shown = _exchange(process, _call("brain_history_show", arguments, 6))[
-                "result"
-            ]["structuredContent"]
+            shown = _exchange(process, _call("brain_history_show", arguments, 6))["result"][
+                "structuredContent"
+            ]
             assert shown["record"]["revision_id"] == old_revision
             chunks.append(shown["content"]["text"])
             if shown["complete"]:
@@ -1175,9 +1165,7 @@ def test_live_mcp_history_list_show_cursor_and_independent_grant(tasks: Any) -> 
                 7,
             ),
         )
-        assert denied["result"]["content"] == [
-            {"type": "text", "text": "unsupported_capability"}
-        ]
+        assert denied["result"]["content"] == [{"type": "text", "text": "unsupported_capability"}]
     finally:
         for child in (process, other, content_only):
             if child.stdin is not None and not child.stdin.closed:
@@ -1629,3 +1617,15 @@ def test_malformed_request_metadata_is_rejected(tasks: Any, metadata: object) ->
         _adapter(tasks).call_tool("brain_search", {"query": "Must not be captured"})["results"]
         == []
     )
+
+
+def test_capture_privacy_tier_is_refused_through_the_non_owner_sink(tasks: Any) -> None:
+    adapter = _adapter(tasks, capture=True, search=False)
+    with pytest.raises(McpCallError, match="^capture privacy tier requires owner authority$"):
+        adapter.call_tool(
+            "brain_capture", {"text": "synthetic tiered capture", "privacy_tier": "work"}
+        )
+    with pytest.raises(McpCallError, match="^invalid tool arguments$"):
+        adapter.call_tool("brain_capture", {"text": "synthetic", "privacy_tier": "synthetic-tier"})
+    plain = adapter.call_tool("brain_capture", {"text": "synthetic plain mcp capture"})
+    assert plain["status"] == "captured"

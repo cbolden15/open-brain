@@ -67,10 +67,18 @@ def mcp_capture_sink(tasks: EngineTaskSet) -> PublicJobCaptureSink:
 
 
 def capture_text(
-    capture: CaptureTask | PublicJobCaptureSink, text: str, *, delivery_id: str
+    capture: CaptureTask | PublicJobCaptureSink,
+    text: str,
+    *,
+    delivery_id: str,
+    privacy_tier: PrivacyTier | None = None,
 ) -> CaptureReceipt:
     payload = TextPayload(text)
     if isinstance(capture, PublicJobCaptureSink):
+        if privacy_tier is not None:
+            # The explicit tier is owner-only authority; the non-owner sink
+            # must never carry it.
+            raise ValueError("capture privacy tier requires owner authority")
         # Bind exact input bytes as well as the engine-normalized payload on replay.
         source = "urn:open-brain:mcp:" + sha256(text.encode("utf-8")).hexdigest()
         return capture.submit(
@@ -90,7 +98,7 @@ def capture_text(
                 authority=Authority(cloud=False, external_egress=False),
             ),
         )
-    return capture.accept(payload, delivery_id=delivery_id)
+    return capture.accept(payload, delivery_id=delivery_id, privacy_tier=privacy_tier)
 
 
 def search_brain(
@@ -169,10 +177,8 @@ def graph_suggestions(tasks: EngineTaskSet) -> dict[str, object]:
                 "target_revision_id": suggestion.target_revision_id,
                 "revision_status": (
                     "current"
-                    if revisions.get(suggestion.source_note_id)
-                    == suggestion.source_revision_id
-                    and revisions.get(suggestion.target_note_id)
-                    == suggestion.target_revision_id
+                    if revisions.get(suggestion.source_note_id) == suggestion.source_revision_id
+                    and revisions.get(suggestion.target_note_id) == suggestion.target_revision_id
                     else "stale"
                 ),
             }
@@ -192,9 +198,9 @@ def graph_projection(tasks: EngineTaskSet) -> dict[str, object]:
         }
     try:
         snapshot = tasks.managed_workspace.graph_snapshot(status.workspace_id)
-        structural = GraphProjectionStore(
-            tasks.profile.root, tasks.profile.root_identity
-        ).load(snapshot)
+        structural = GraphProjectionStore(tasks.profile.root, tasks.profile.root_identity).load(
+            snapshot
+        )
     except GraphifyFailure as error:
         return {
             "inferred_suggestions": [],
@@ -217,9 +223,9 @@ def graph_canvas(tasks: EngineTaskSet) -> dict[str, object]:
         return {"status": "unconfigured"}
     snapshot = tasks.managed_workspace.graph_snapshot(status.workspace_id)
     try:
-        structural = GraphProjectionStore(
-            tasks.profile.root, tasks.profile.root_identity
-        ).load(snapshot)
+        structural = GraphProjectionStore(tasks.profile.root, tasks.profile.root_identity).load(
+            snapshot
+        )
     except GraphifyFailure as error:
         return {
             "reason": error.code,

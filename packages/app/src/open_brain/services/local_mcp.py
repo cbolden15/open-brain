@@ -9,6 +9,7 @@ from hashlib import sha256
 from typing import Literal
 
 from open_brain_engine.core.ids import portable_canonical_json_bytes
+from open_brain_engine.core.models import PrivacyTier
 from open_brain_engine.engine import PublicJobCaptureSink, RetrievalResult, TextPayload
 
 from open_brain.services.catalog import CatalogRequestError
@@ -231,6 +232,10 @@ class LocalMcpAdapter:
                                 "type": "string",
                                 "minLength": 1,
                                 "maxLength": MAX_KEY_CHARACTERS,
+                            },
+                            "privacy_tier": {
+                                "type": "string",
+                                "enum": [tier.value for tier in PrivacyTier],
                             },
                         },
                     },
@@ -971,8 +976,9 @@ class LocalMcpAdapter:
     def _capture(self, arguments: Mapping[str, object]) -> dict[str, object]:
         text = arguments.get("text")
         key = arguments.get("idempotency_key")
+        tier = arguments.get("privacy_tier")
         if (
-            set(arguments) - {"text", "idempotency_key"}
+            set(arguments) - {"text", "idempotency_key", "privacy_tier"}
             or not isinstance(text, str)
             or not 1 <= len(text) <= MAX_TEXT_CHARACTERS
             or (
@@ -984,8 +990,19 @@ class LocalMcpAdapter:
                     or "\x00" in key
                 )
             )
+            or (
+                "privacy_tier" in arguments
+                and (
+                    not isinstance(tier, str)
+                    or tier not in {member.value for member in PrivacyTier}
+                )
+            )
         ):
             raise McpCallError("invalid tool arguments")
+        if tier is not None:
+            # The MCP capture capability is the owner-injected non-owner sink;
+            # the explicit tier is owner-only authority and is refused here.
+            raise McpCallError("capture privacy tier requires owner authority")
         try:
             size = len(text.encode("utf-8"))
             TextPayload(text)

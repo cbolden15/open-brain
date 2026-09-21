@@ -631,3 +631,158 @@ def test_owner_path_capture_is_also_narrowed_by_the_boundary_classifier(
     record = next((root / "sources" / "captures").rglob(f"{receipt.capture_id}.json"))
     stored_record = json.loads(record.read_text(encoding="utf-8"))
     assert stored_record["privacy"]["tier"] == "secret"
+
+
+def test_explicit_owner_tier_reaches_the_capture_row_search_and_record(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "brain"
+    engine = _engine(root)
+    receipt = engine.capture.accept(
+        TextPayload("synthetic explicit owner tier"),
+        delivery_id="admission-owner-explicit-1",
+        privacy_tier=PrivacyTier.WORK,
+    )
+    assert receipt.requested_tier is PrivacyTier.WORK
+    assert receipt.final_admitted_tier is PrivacyTier.WORK
+    privacy = json.loads(cast(str, _capture_column(root, receipt.capture_id, "privacy_json")))
+    assert privacy["tier"] == "work"
+    assert privacy["reason"] == "policy_work"
+    assert privacy["policy_version"] == "privacy-v1"
+    assert privacy["authority"] == {"cloud": False, "external_egress": False}
+    assert _search_effective_tier(root, receipt.capture_id) == "work"
+
+
+def test_explicit_public_owner_tier_still_narrows_at_the_boundary(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "brain"
+    engine = _engine(root, boundary_classifier=_classifier_returning(PrivacyTier.SECRET))
+    receipt = engine.capture.accept(
+        TextPayload("synthetic narrowing explicit public"),
+        delivery_id="admission-owner-explicit-narrow-1",
+        privacy_tier=PrivacyTier.PUBLIC,
+    )
+    assert receipt.requested_tier is PrivacyTier.PUBLIC
+    assert receipt.final_admitted_tier is PrivacyTier.SECRET
+    assert _stored_privacy_tier(root, receipt.capture_id) == "secret"
+    assert _search_effective_tier(root, receipt.capture_id) == "secret"
+
+
+def _canonical_note(
+    engine: BrainEngine,
+    root: Path,
+    *,
+    text: str,
+    delivery_id: str,
+    privacy_tier: PrivacyTier | None = None,
+) -> tuple[Path, str]:
+    from open_brain_engine.engine.contracts import CaptureAction
+
+    connection = sqlite3.connect(root / ".open-brain/state/phase1.sqlite3")
+    try:
+        space_id = cast(
+            str, connection.execute("SELECT space_id FROM spaces LIMIT 1").fetchone()[0]
+        )
+    finally:
+        connection.close()
+    receipt = engine.capture.accept(
+        TextPayload(text),
+        delivery_id=delivery_id,
+        action=CaptureAction.CANONICAL_NOTE,
+        space_id=space_id,
+        title="Synthetic canonical note",
+        privacy_tier=privacy_tier,
+    )
+    connection = sqlite3.connect(root / ".open-brain/state/phase1.sqlite3")
+    try:
+        row = connection.execute(
+            "SELECT canonical_path, privacy_json FROM captures WHERE capture_id = ?",
+            (receipt.capture_id,),
+        ).fetchone()
+    finally:
+        connection.close()
+    assert row is not None
+    return root / cast(str, row[0]), cast(str, row[1])
+
+
+def _page_privacy_line(page: Path) -> str:
+    for line in page.read_text(encoding="utf-8").splitlines():
+        if line.startswith("privacy: "):
+            return line
+    raise AssertionError("canonical page carries no privacy frontmatter")
+
+
+_FIXED_LOCAL_PRIVACY_LINE = "privacy: " + json.dumps(
+    {
+        "authority": {"cloud": False, "external_egress": False},
+        "confirmation_ref": None,
+        "policy_version": "privacy-v1",
+        "reason": "personal_local_only",
+        "tier": "personal",
+    },
+    sort_keys=True,
+    separators=(",", ":"),
+    ensure_ascii=False,
+)
+
+
+def test_no_flag_canonical_note_frontmatter_privacy_is_byte_identical_to_today(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "brain"
+    engine = BrainEngine.open(compile_single_user_local(root, starter_spaces=("Synthetic Space",)))
+    page, privacy_json = _canonical_note(
+        engine,
+        root,
+        text="synthetic canonical fixed privacy note",
+        delivery_id="admission-canonical-fixed-1",
+    )
+    assert _page_privacy_line(page) == _FIXED_LOCAL_PRIVACY_LINE
+    assert json.loads(privacy_json) == {
+        "authority": {"cloud": False, "external_egress": False},
+        "confirmation_ref": None,
+        "policy_version": "privacy-v1",
+        "reason": "personal_local_only",
+        "tier": "personal",
+    }
+
+
+def test_narrowed_canonical_note_frontmatter_equals_the_stored_admitted_decision(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "brain"
+    engine = BrainEngine.open(
+        compile_single_user_local(root, starter_spaces=("Synthetic Space",)),
+        boundary_classifier=_classifier_returning(PrivacyTier.SECRET),
+    )
+    page, privacy_json = _canonical_note(
+        engine,
+        root,
+        text="synthetic canonical narrowed privacy note",
+        delivery_id="admission-canonical-narrow-1",
+    )
+    admitted = json.loads(privacy_json)
+    assert admitted["tier"] == "secret"
+    from open_brain_engine.storage.markdown import parse_markdown
+
+    assert parse_markdown(page.read_bytes()).fields["privacy"] == admitted
+
+
+def test_explicit_tier_canonical_note_frontmatter_carries_the_requested_tier(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "brain"
+    engine = BrainEngine.open(compile_single_user_local(root, starter_spaces=("Synthetic Space",)))
+    page, privacy_json = _canonical_note(
+        engine,
+        root,
+        text="synthetic canonical explicit tier note",
+        delivery_id="admission-canonical-explicit-1",
+        privacy_tier=PrivacyTier.WORK,
+    )
+    admitted = json.loads(privacy_json)
+    assert admitted["tier"] == "work"
+    from open_brain_engine.storage.markdown import parse_markdown
+
+    assert parse_markdown(page.read_bytes()).fields["privacy"] == admitted

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+from dataclasses import replace
 from hashlib import sha256
 from pathlib import Path
 from uuid import uuid4
@@ -20,9 +22,11 @@ from open_brain_engine.engine.contracts import (
     AdmissionLimits,
     CaptureAdmissionError,
     CaptureAdmissionResult,
+    CapturePrivacyManifest,
     CaptureReceipt,
     CaptureSubmission,
     LocalEngineContext,
+    MarkdownImportFailure,
     PublicJobCaptureContext,
     TextPayload,
     project_public_capture_receipt,
@@ -366,3 +370,151 @@ def test_redaction_boundary_classifier_reuses_the_approved_detector() -> None:
 
     assert redaction_boundary_classifier(plain) is None
     assert redaction_boundary_classifier(credential) is PrivacyTier.SECRET
+
+
+def test_for_local_owner_accepts_every_explicit_tier_with_the_canonical_reason() -> None:
+    profile = _profile()
+    for tier in PrivacyTier:
+        submission = CaptureSubmission.for_local_owner(
+            profile=profile,
+            payload=TextPayload("Synthetic explicit tier owner capture"),
+            delivery_id=f"delivery.admission.owner.explicit.{tier.value}",
+            privacy_tier=tier,
+        )
+        assert submission.privacy == _privacy(tier)
+        assert submission.requested_tier is tier
+        submission.validate_profile(profile)
+
+
+def test_for_local_owner_without_a_tier_keeps_the_fixed_local_decision() -> None:
+    profile = _profile()
+    fixed = CaptureSubmission.for_local_owner(
+        profile=profile,
+        payload=TextPayload("Synthetic fixed local privacy owner capture"),
+        delivery_id="delivery.admission.owner.fixed",
+    )
+    explicit_personal = CaptureSubmission.for_local_owner(
+        profile=profile,
+        payload=TextPayload("Synthetic fixed local privacy owner capture"),
+        delivery_id="delivery.admission.owner.fixed",
+        privacy_tier=PrivacyTier.PERSONAL,
+    )
+    assert fixed.privacy == _privacy(PrivacyTier.PERSONAL)
+    assert fixed.privacy == explicit_personal.privacy
+    assert fixed == explicit_personal
+    fixed.validate_profile(profile)
+    explicit_personal.validate_profile(profile)
+
+
+def test_owner_explicit_tier_does_not_change_the_owner_request_digest() -> None:
+    profile = _profile()
+    payload = TextPayload("Synthetic owner digest tier stability capture")
+    fixed = CaptureSubmission.for_local_owner(
+        profile=profile,
+        payload=payload,
+        delivery_id="delivery.admission.owner.digest",
+    )
+    tiered = CaptureSubmission.for_local_owner(
+        profile=profile,
+        payload=payload,
+        delivery_id="delivery.admission.owner.digest",
+        privacy_tier=PrivacyTier.WORK,
+    )
+    assert tiered.request_sha256() == fixed.request_sha256()
+
+
+def test_validate_profile_rejects_an_owner_submission_with_a_mismatched_tier() -> None:
+    profile = _profile()
+    submission = CaptureSubmission.for_local_owner(
+        profile=profile,
+        payload=TextPayload("Synthetic mismatched owner tier capture"),
+        delivery_id="delivery.admission.owner.mismatch",
+        privacy_tier=PrivacyTier.WORK,
+    )
+    submission.validate_profile(profile)
+    # POLICY_WORK permits authority, but the owner path never grants any: a
+    # work decision carrying cloud authority is not what the explicit tier
+    # builds, so the re-derivation rejects it.
+    mismatched = replace(
+        submission,
+        privacy=PrivacyDecision.create(
+            tier=PrivacyTier.WORK,
+            reason=PrivacyReason.POLICY_WORK,
+            policy_version="privacy-v1",
+            authority=Authority(cloud=True, external_egress=False),
+        ),
+    )
+    with pytest.raises(ValueError, match="does not match the local profile"):
+        mismatched.validate_profile(profile)
+
+
+def test_for_local_owner_rejects_an_unknown_explicit_tier() -> None:
+    profile = _profile()
+    with pytest.raises(ValueError, match="invalid privacy tier"):
+        CaptureSubmission.for_local_owner(
+            profile=profile,
+            payload=TextPayload("Synthetic invalid tier owner capture"),
+            delivery_id="delivery.admission.owner.invalid-tier",
+            privacy_tier="synthetic-tier",
+        )
+
+
+def _manifest_file(tmp_path: Path, document: str) -> Path:
+    path = tmp_path / "privacy-manifest.json"
+    path.write_text(document, encoding="utf-8")
+    return path
+
+
+def test_privacy_manifest_loads_exact_relative_roots_and_tiers(tmp_path: Path) -> None:
+    manifest = CapturePrivacyManifest.load(
+        _manifest_file(tmp_path, json.dumps({"docs": "work", "notes/private": "secret"}))
+    )
+    assert manifest.tier_for("docs") is PrivacyTier.WORK
+    assert manifest.tier_for("docs/synthetic-note.md") is PrivacyTier.WORK
+    assert manifest.tier_for("notes/private") is PrivacyTier.SECRET
+    assert manifest.tier_for("notes/private/deep/synthetic-note.md") is PrivacyTier.SECRET
+    assert manifest.tier_for("documentation.md") is None
+    assert manifest.tier_for("notes/other.md") is None
+
+    empty = CapturePrivacyManifest.load(_manifest_file(tmp_path, "{}"))
+    assert empty.tier_for("docs/synthetic-note.md") is None
+
+
+@pytest.mark.parametrize(
+    "document",
+    [
+        '{"docs": "synthetic-tier"}',
+        '{"docs": 7}',
+        '{"/absolute/synthetic": "work"}',
+        '{"../outside": "work"}',
+        '{"": "work"}',
+        '{"docs/": "work"}',
+        '{"./docs": "work"}',
+        '{"docs//inner": "work"}',
+        '{"docs/inner": "work", "docs": "secret"}',
+        '{"docs": "work", "docs": "secret"}',
+        '["docs"]',
+        '"docs"',
+    ],
+)
+def test_privacy_manifest_rejects_invalid_documents(tmp_path: Path, document: str) -> None:
+    with pytest.raises(MarkdownImportFailure) as raised:
+        CapturePrivacyManifest.load(_manifest_file(tmp_path, document))
+    assert raised.value.code == "invalid_privacy_manifest"
+
+
+def test_privacy_manifest_requires_an_absolute_readable_bounded_file(tmp_path: Path) -> None:
+    with pytest.raises(MarkdownImportFailure) as raised:
+        CapturePrivacyManifest.load("relative-manifest.json")
+    assert raised.value.code == "invalid_privacy_manifest"
+    with pytest.raises(MarkdownImportFailure) as raised:
+        CapturePrivacyManifest.load(tmp_path / "missing-manifest.json")
+    assert raised.value.code == "invalid_privacy_manifest"
+    oversized = tmp_path / "oversized-manifest.json"
+    oversized.write_text(
+        json.dumps({f"docs/synthetic-{index}": "work" for index in range(6000)}),
+        encoding="utf-8",
+    )
+    with pytest.raises(MarkdownImportFailure) as raised:
+        CapturePrivacyManifest.load(oversized)
+    assert raised.value.code == "invalid_privacy_manifest"

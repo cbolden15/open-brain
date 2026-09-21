@@ -27,6 +27,7 @@ from open_brain_engine.core.models import (
 )
 
 from .contracts import (
+    CapturePrivacyManifest,
     CaptureSubmission,
     FilePayload,
     MarkdownImportCancelled,
@@ -37,6 +38,7 @@ from .contracts import (
     MarkdownImportProgress,
     MarkdownImportSummary,
     PublicJobCaptureContext,
+    owner_privacy_for_tier,
 )
 from .markdown_import_fs import (
     ImportDirectoryUnavailable,
@@ -96,9 +98,18 @@ class MarkdownImportTasks:
         confirm: Callable[[MarkdownImportPreflight], bool] | None = None,
         progress: Callable[[MarkdownImportProgress], None] | None = None,
         interrupted: Callable[[], bool] | None = None,
+        privacy_tier: PrivacyTier | str | None = None,
+        privacy_manifest: str | Path | None = None,
     ) -> MarkdownImportSummary:
         if type(allow_large_vault) is not bool:
             raise ValueError("invalid Markdown import request")
+        try:
+            normalized_tier = None if privacy_tier is None else PrivacyTier(privacy_tier)
+        except (TypeError, ValueError) as error:
+            raise ValueError("invalid Markdown import request") from error
+        manifest = (
+            None if privacy_manifest is None else CapturePrivacyManifest.load(privacy_manifest)
+        )
         if confirm is not None and not callable(confirm):
             raise ValueError("invalid Markdown import confirmation")
         if progress is not None and not callable(progress):
@@ -156,6 +167,8 @@ class MarkdownImportTasks:
                         scan_id=scan_id,
                         should_interrupt=should_interrupt,
                         progress=progress,
+                        privacy_tier=normalized_tier,
+                        privacy_manifest=manifest,
                     )
         except MarkdownImportFailure, MarkdownImportCancelled, MarkdownImportInterrupted:
             raise
@@ -308,6 +321,8 @@ class MarkdownImportTasks:
         scan_id: str,
         should_interrupt: Callable[[], bool],
         progress: Callable[[MarkdownImportProgress], None] | None,
+        privacy_tier: PrivacyTier | None,
+        privacy_manifest: CapturePrivacyManifest | None,
     ) -> MarkdownImportSummary:
         root_id = selection.root_id
         outcomes = [
@@ -414,6 +429,8 @@ class MarkdownImportTasks:
                             payload=payload,
                             text=text,
                             should_interrupt=should_interrupt,
+                            privacy_tier=privacy_tier,
+                            privacy_manifest=privacy_manifest,
                         )
                     )
             processed += 1
@@ -474,9 +491,29 @@ class MarkdownImportTasks:
         payload: bytes,
         text: str,
         should_interrupt: Callable[[], bool],
+        privacy_tier: PrivacyTier | None,
+        privacy_manifest: CapturePrivacyManifest | None,
     ) -> MarkdownImportEntry:
+        tier: PrivacyTier | None = (
+            privacy_manifest.tier_for(candidate.relative_path)
+            if privacy_manifest is not None
+            else None
+        )
+        if tier is None:
+            tier = privacy_tier
+        privacy = (
+            PrivacyDecision.create(
+                tier=PrivacyTier.PERSONAL,
+                reason=PrivacyReason.PERSONAL_LOCAL_ONLY,
+                policy_version="privacy-v1",
+                authority=Authority(cloud=False, external_egress=False),
+            )
+            if tier is None
+            else owner_privacy_for_tier(tier)
+        )
         digest = sha256(payload).hexdigest()
-        delivery_id = _delivery_id(root_id, candidate.relative_path, digest)
+        delivery_id = _delivery_id(root_id, candidate.relative_path, digest, tier)
+        revision_identity = _revision_identity(digest, tier)
         source_reference = (
             f"urn:open-brain:markdown-import:{root_id}:{quote(candidate.relative_path, safe='/')}"
         )
@@ -495,12 +532,7 @@ class MarkdownImportTasks:
                 content_origin=ContentOrigin.UNKNOWN,
                 owner_context=CaptureWhyOrigin.AUTOMATION_ABSENT,
             ),
-            privacy=PrivacyDecision.create(
-                tier=PrivacyTier.PERSONAL,
-                reason=PrivacyReason.PERSONAL_LOCAL_ONLY,
-                policy_version="privacy-v1",
-                authority=Authority(cloud=False, external_egress=False),
-            ),
+            privacy=privacy,
             intent=Intent.HOLD,
             title=extract_markdown_title(text, candidate.relative_path),
         )
@@ -513,7 +545,7 @@ class MarkdownImportTasks:
             root_id=root_id,
             scan_id=scan_id,
             candidate=candidate,
-            content_sha256=digest,
+            content_sha256=revision_identity,
             delivery_id=delivery_id,
             request_sha256=submission.request_sha256(),
         )
@@ -986,14 +1018,40 @@ def _import_context(engine: BrainEngine) -> PublicJobCaptureContext:
     )
 
 
-def _delivery_id(root_id: str, relative_path: str, content_sha256: str) -> str:
-    value = {
+def _delivery_id(
+    root_id: str, relative_path: str, content_sha256: str, tier: PrivacyTier | None = None
+) -> str:
+    """One delivery per root, path, and content — and per explicit tier.
+
+    The fixed default tier (None or PERSONAL) keeps the exact pre-explicit-tier
+    delivery identity, so an upgraded Brain re-imports unchanged notes as
+    unchanged. Any other tier names its own delivery namespace.
+    """
+    value: dict[str, object] = {
         "domain": "open-brain-markdown-import-v1",
         "content_sha256": content_sha256,
         "relative_path": relative_path,
         "root_id": root_id,
     }
+    if tier is not None and tier is not PrivacyTier.PERSONAL:
+        value["privacy_tier"] = tier.value
     return _IMPORT_DELIVERY_PREFIX + sha256(portable_canonical_json_bytes(value)).hexdigest()
+
+
+def _revision_identity(content_sha256: str, tier: PrivacyTier | None) -> str:
+    """The revision-identity digest; tier-free under the fixed default tier.
+
+    The same note imported later under a different tier resolves to a new
+    reservation and revision row instead of an unchanged one, while the
+    default tier keeps today's raw content digest exactly.
+    """
+    if tier is None or tier is PrivacyTier.PERSONAL:
+        return content_sha256
+    return sha256(
+        portable_canonical_json_bytes(
+            {"content_sha256": content_sha256, "privacy_tier": tier.value}
+        )
+    ).hexdigest()
 
 
 def _lexically_overlap(left: Path, right: Path) -> bool:

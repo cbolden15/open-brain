@@ -67,8 +67,7 @@ def _private_home(tmp_path: Path) -> Path:
 
 def _subprocess_cli(root: Path, *arguments: str) -> dict[str, object]:
     program = (
-        "from open_brain.services.local_entrypoints import run_cli;"
-        "raise SystemExit(run_cli())"
+        "from open_brain.services.local_entrypoints import run_cli;raise SystemExit(run_cli())"
     )
     result = subprocess.run(
         [
@@ -193,12 +192,18 @@ def test_owner_privacy_repair_cli_emits_stored_receipt_and_replays_byte_identica
     assert replay_output.err == ""
     assert replay_output.out == first_output.out
     with open_local_database_read_only(profile) as connection:
-        assert connection.execute(
-            "SELECT * FROM privacy_repair_ledger ORDER BY repair_sequence"
-        ).fetchall() == stored_before
-        assert connection.execute(
-            "SELECT retrieval_generation FROM engine_generations WHERE singleton=1"
-        ).fetchone()[0] == generation_before
+        assert (
+            connection.execute(
+                "SELECT * FROM privacy_repair_ledger ORDER BY repair_sequence"
+            ).fetchall()
+            == stored_before
+        )
+        assert (
+            connection.execute(
+                "SELECT retrieval_generation FROM engine_generations WHERE singleton=1"
+            ).fetchone()[0]
+            == generation_before
+        )
 
 
 def test_privacy_repair_cli_rejects_untrusted_or_malformed_request_fields_before_bootstrap(
@@ -227,7 +232,7 @@ def test_privacy_repair_cli_rejects_untrusted_or_malformed_request_fields_before
             json.dumps({key: value for key, value in valid.items() if key != "target_id"}).encode(),
             b'{"target_kind":"source_revision","target_kind":"canonical_revision"}',
             b'["not-an-object"]',
-            b'\xff\xfe',
+            b"\xff\xfe",
             json.dumps(valid)
             .replace('"target_id": "capture_synthetic"', '"target_id": NaN')
             .encode(),
@@ -324,12 +329,9 @@ def test_privacy_repair_cli_uses_profile_owner_local_authority(
         observed.update(tasks=tasks, session_id=session_id, authority=authority)
         return authority
 
-    monkeypatch.setattr(
-        "open_brain.services.local_entrypoints.owner_authority", capture_authority
-    )
+    monkeypatch.setattr("open_brain.services.local_entrypoints.owner_authority", capture_authority)
     assert (
-        run_cli(_privacy_cli_arguments(root, request_file), filesystem_type_probe=_filesystem)
-        == 0
+        run_cli(_privacy_cli_arguments(root, request_file), filesystem_type_probe=_filesystem) == 0
     )
     assert capsys.readouterr().err == ""
     tasks = cast(EngineTaskSet, observed["tasks"])
@@ -372,9 +374,7 @@ def test_privacy_repair_cli_error_codes_are_bounded_and_have_stable_exits(
     request_file = tmp_path / "request.json"
     request_file.write_text(
         json.dumps(
-            _privacy_request(
-                private_values[0], private_values[1], operation_id=private_values[2]
-            )
+            _privacy_request(private_values[0], private_values[1], operation_id=private_values[2])
         ),
         encoding="utf-8",
     )
@@ -1203,9 +1203,7 @@ def test_owner_cli_subprocess_continues_paging_and_unicode_reads_across_invocati
     unicode_payload = TextPayload(
         "".join(part["text"] * part["repeat"] for part in recipe["parts"])
     )
-    unicode_capture = tasks.capture.accept(
-        unicode_payload, delivery_id="cli.retrieval.unicode"
-    )
+    unicode_capture = tasks.capture.accept(unicode_payload, delivery_id="cli.retrieval.unicode")
 
     search_arguments = ["search-page", "nebula", "--limit", "100"]
     found: list[str] = []
@@ -1410,8 +1408,7 @@ def test_owner_cli_relationship_replay_cas_history_and_verified_export(tmp_path:
     assert _subprocess_cli(root, *accept_arguments) == accepted
 
     program = (
-        "from open_brain.services.local_entrypoints import run_cli;"
-        "raise SystemExit(run_cli())"
+        "from open_brain.services.local_entrypoints import run_cli;raise SystemExit(run_cli())"
     )
     stale = subprocess.run(
         [
@@ -1485,6 +1482,7 @@ def test_owner_cli_relationship_replay_cas_history_and_verified_export(tmp_path:
         "accept",
         "remove",
     ]
+
 
 def test_local_search_reconciles_owner_markdown_and_renders_one_safe_line(
     tmp_path: Path,
@@ -1776,3 +1774,84 @@ def test_local_usage_failures_are_bounded_and_redacted(
     for private_value in private_values:
         assert private_value not in output.out
         assert private_value not in output.err
+
+
+def _single_capture_privacy(root: Path) -> dict[str, object]:
+    connection = sqlite3.connect(root / ".open-brain/state/phase1.sqlite3")
+    try:
+        row = connection.execute("SELECT privacy_json FROM captures").fetchone()
+    finally:
+        connection.close()
+    assert row is not None
+    return cast(dict[str, object], json.loads(cast(str, row[0])))
+
+
+def _active_import_privacy(root: Path, relative_path: str) -> dict[str, object]:
+    connection = sqlite3.connect(root / ".open-brain/state/phase1.sqlite3")
+    try:
+        row = connection.execute(
+            """
+            SELECT c.privacy_json
+            FROM captures AS c
+            JOIN markdown_import_revisions AS r ON r.capture_id = c.capture_id
+            JOIN markdown_import_files AS f
+              ON f.file_id = r.file_id AND f.active_revision_id = r.revision_id
+            WHERE f.relative_path = ?
+            """,
+            (relative_path,),
+        ).fetchone()
+    finally:
+        connection.close()
+    assert row is not None
+    return cast(dict[str, object], json.loads(cast(str, row[0])))
+
+
+def test_owner_cli_capture_accepts_an_explicit_privacy_tier(tmp_path: Path) -> None:
+    root = tmp_path / "brain"
+    captured = _subprocess_cli(
+        root, "capture", "synthetic cli explicit tier", "--privacy-tier", "work"
+    )
+    assert captured["status"] == "captured"
+    privacy = _single_capture_privacy(root)
+    assert privacy["tier"] == "work"
+    assert privacy["reason"] == "policy_work"
+    assert privacy["authority"] == {"cloud": False, "external_egress": False}
+
+
+def test_owner_cli_capture_without_flags_keeps_the_fixed_local_privacy(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "brain"
+    captured = _subprocess_cli(root, "capture", "synthetic cli fixed privacy")
+    assert captured["status"] == "captured"
+    assert _single_capture_privacy(root) == {
+        "authority": {"cloud": False, "external_egress": False},
+        "confirmation_ref": None,
+        "policy_version": "privacy-v1",
+        "reason": "personal_local_only",
+        "tier": "personal",
+    }
+
+
+def test_owner_cli_import_accepts_tier_and_manifest_flags(tmp_path: Path) -> None:
+    root = tmp_path / "brain"
+    vault = tmp_path / "vault"
+    nested = vault / "sub"
+    nested.mkdir(parents=True)
+    (vault / "note.md").write_text("# Root\nsynthetic cli manifest root\n", encoding="utf-8")
+    (nested / "note.md").write_text("# Sub\nsynthetic cli manifest sub\n", encoding="utf-8")
+    manifest = tmp_path / "manifest.json"
+    manifest.write_text(json.dumps({"sub": "secret"}), encoding="utf-8")
+    imported = _subprocess_cli(
+        root,
+        "import",
+        str(vault),
+        "--yes",
+        "--privacy-tier",
+        "work",
+        "--privacy-manifest",
+        str(manifest),
+    )
+    assert imported["status"] == "completed"
+    assert _active_import_privacy(root, "note.md")["tier"] == "work"
+    assert _active_import_privacy(root, "sub/note.md")["tier"] == "secret"
