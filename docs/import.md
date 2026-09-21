@@ -3,12 +3,19 @@
 Default Open Brain imports one local Markdown directory through:
 
 ```sh
-open-brain import /absolute/path/to/notes [--yes] [--allow-large-vault]
+open-brain import /absolute/path/to/notes [--yes] [--allow-large-vault] \
+  [--privacy-tier TIER] [--privacy-manifest /absolute/path.json]
 ```
 
 The command reads the selected directory once, captures eligible files through the existing
 Portable Brain record model, and leaves the source tree unchanged. It adds no watcher, plugin,
 daemon, network call, model, YAML dependency, or general importer framework.
+
+The owner may pass `--privacy-tier TIER` to apply one explicit privacy tier to every imported note,
+or `--privacy-manifest /absolute/path.json` to supply a validated per-root tier policy that
+overrides the invocation tier for matching roots. Without either flag the import keeps the existing
+default personal decision. See [privacy model](privacy-model.md) for the manifest schema and
+precedence.
 
 This document specifies OB1-W4 in the [Open Brain product-completion
 plan](plans/2026-09-08-ob1-product-completion.md). It applies only to the five-minute default Open
@@ -270,7 +277,9 @@ ignored for title parsing only:
 
 Each new revision is reserved before capture. Its delivery ID is `markdown-import.` plus SHA-256 of
 canonical JSON containing a domain marker, root ID, normalized relative path, and content digest.
-This makes reruns idempotent without merging identical content at different paths.
+Under a non-default explicit tier the tier joins that canonical JSON, so the same file under a
+different tier resolves to its own delivery. This makes reruns idempotent without merging identical
+content at different paths.
 
 The importer submits through a fixed non-owner, capture-only public-job context. It uses
 `source_origin=unknown`, `provenance.content_origin=unknown`, and
@@ -289,7 +298,11 @@ wrapper that reacquires the non-reentrant lease. The public wrappers retain thei
 lease-acquiring behavior; W4 does not make `FileLease` reentrant.
 
 Every imported capture uses privacy tier `personal`, privacy reason `personal_local_only`,
-local-only authority (`cloud=false` and `external_egress=false`), and intent `hold`. Import cannot
+local-only authority (`cloud=false` and `external_egress=false`), and intent `hold` under the
+default invocation. An explicit `--privacy-tier` or a matching `--privacy-manifest` root replaces
+the tier and its per-tier canonical reason while keeping local-only authority and intent `hold`.
+A non-default tier is part of the revision identity, so the same file imported later under a
+different tier creates a new revision instead of returning `unchanged`. Import cannot
 create an idea, action candidate, review proposal, or network-capable operation.
 
 An import reservation is not searchable. Capture processing recognizes its reserved delivery ID

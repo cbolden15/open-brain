@@ -21,6 +21,7 @@ from pathlib import Path
 from typing import NoReturn, cast
 
 from open_brain_engine import __version__
+from open_brain_engine.core.models import PrivacyTier
 from open_brain_engine.engine import (
     CaptureReceipt,
     EngineTaskSet,
@@ -40,7 +41,7 @@ from open_brain_engine.engine import (
     live_search_is_healthy,
     read_maintenance_snapshot,
 )
-from open_brain_engine.engine.contracts import ManagedWorkspaceFailure
+from open_brain_engine.engine.contracts import CaptureAdmissionError, ManagedWorkspaceFailure
 from open_brain_engine.engine.privacy_repairs import (
     PrivacyRepairError,
     PrivacyRepairRequest,
@@ -62,6 +63,7 @@ from open_brain.services.agent_setup import (
     preview_agent_setup,
     resolve_agent_runtime,
 )
+from open_brain.services.launcher_policy import LauncherPolicyError
 from open_brain.services.local_bootstrap import (
     LocalBrainSession,
     initialize_local_brain,
@@ -71,6 +73,9 @@ from open_brain.services.local_operations import (
     capture_result,
     capture_text,
     database_is_busy,
+    destination_bound_authority,
+    destination_bound_capture_result,
+    destination_bound_capture_submit,
     graph_canvas,
     graph_projection,
     graph_suggestions,
@@ -78,6 +83,7 @@ from open_brain.services.local_operations import (
     refresh_structural_graph,
     search_brain,
     search_result,
+    submit_destination_bound_capture,
 )
 from open_brain.services.local_operations import (
     workspace_status as workspace_status_result,
@@ -123,6 +129,7 @@ _EXPORT_ID = re.compile(
     r"^export_[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
 )
 _MAX_PRIVACY_REPAIR_REQUEST_BYTES = 65_536
+_MAX_STARTUP_POLICY_BYTES = 65_536
 _MAX_PRIVACY_REPAIR_RECEIPT_BYTES = 1_048_576
 _PRIVACY_REPAIR_REQUEST_KEYS = frozenset(
     {
@@ -174,6 +181,7 @@ def run_cli(
     if parsed.command == "mcp" and (
         not (
             parsed.allow_capture
+            or parsed.allow_capture_submit
             or parsed.allow_search
             or parsed.allow_content_read
             or parsed.allow_history_read
@@ -187,6 +195,9 @@ def run_cli(
         )
         or json_output
     ):
+        _write_usage_failure(json_output=False)
+        return 2
+    if parsed.command == "mcp" and parsed.allow_capture_submit and not parsed.capture_policy:
         _write_usage_failure(json_output=False)
         return 2
     if parsed.command == "catalog":
@@ -235,8 +246,14 @@ def run_cli(
     if parsed.command == "privacy":
         try:
             parsed.privacy_repair_request = _read_privacy_repair_request(parsed.request_file)
-        except (OSError, UnicodeError, ValueError):
+        except OSError, UnicodeError, ValueError:
             return _write_privacy_repair_failure("invalid_request")
+    if parsed.command == "capture-submit":
+        try:
+            parsed.startup_policy = _read_startup_policy(parsed.policy)
+        except OSError, UnicodeError, ValueError:
+            _write_usage_failure(json_output=json_output)
+            return 2
     if parsed.command != "import":
         return _run_parsed_command(
             parsed,
@@ -394,6 +411,12 @@ def _run_parsed_command(
         return _write_review_failure(error.code, json_output=json_output)
     except PrivacyRepairError as error:
         return _write_privacy_repair_failure(error.code)
+    except LauncherPolicyError as error:
+        if json_output:
+            _write_json({"error": {"code": error.code, "message": error.code}})
+        else:
+            print(error.code, file=sys.stderr)
+        return 78
     except T03AppError as error:
         if json_output:
             _write_json(error_result(error.code))
@@ -409,6 +432,7 @@ def _run_parsed_command(
             )
         if parsed.command in {
             "capture",
+            "capture-submit",
             "search",
             "mcp",
             "space",
@@ -441,6 +465,7 @@ def _run_parsed_command(
             )
         if parsed.command in {
             "capture",
+            "capture-submit",
             "search",
             "mcp",
             "space",
@@ -472,6 +497,30 @@ def _parser() -> argparse.ArgumentParser:
     )
     _add_local_options(capture_parser)
     capture_parser.add_argument("text", help="Text to capture.")
+    capture_parser.add_argument(
+        "--privacy-tier",
+        choices=tuple(tier.value for tier in PrivacyTier),
+        default=None,
+        help="Owner-only explicit privacy tier for this capture.",
+    )
+    capture_submit_parser = subparsers.add_parser(
+        "capture-submit",
+        help="Submit one destination-bound capture under a trusted startup policy.",
+    )
+    _add_local_options(capture_submit_parser)
+    capture_submit_parser.add_argument("text", help="Text to submit.")
+    capture_submit_parser.add_argument(
+        "--policy",
+        metavar="PATH",
+        required=True,
+        help="Absolute path to the trusted launcher-policy.v1 JSON file.",
+    )
+    capture_submit_parser.add_argument(
+        "--privacy-tier",
+        choices=tuple(tier.value for tier in PrivacyTier),
+        default=None,
+        help="Requested tier; it must be inside the policy's allowed capture tiers.",
+    )
     import_parser = subparsers.add_parser(
         "import",
         help="Import a Markdown directory into immutable local history.",
@@ -491,6 +540,18 @@ def _parser() -> argparse.ArgumentParser:
         "--allow-large-vault",
         action="store_true",
         help="Allow aggregate scan bounds; the one-file limit still applies.",
+    )
+    import_parser.add_argument(
+        "--privacy-tier",
+        choices=tuple(tier.value for tier in PrivacyTier),
+        default=None,
+        help="Owner-only explicit privacy tier applied to every imported note.",
+    )
+    import_parser.add_argument(
+        "--privacy-manifest",
+        metavar="PATH",
+        default=None,
+        help="Absolute path to a validated per-root privacy manifest JSON file.",
     )
     search_parser = subparsers.add_parser("search", help="Search the local Brain directly.")
     _add_local_options(search_parser)
@@ -550,6 +611,20 @@ def _parser() -> argparse.ArgumentParser:
         "--allow-capture",
         action="store_true",
         help="Allow durable automated capture; version 0.1.0 has no selective deletion.",
+    )
+    mcp_parser.add_argument(
+        "--allow-capture-submit",
+        action="store_true",
+        help=(
+            "Allow destination-bound capture submissions under one trusted startup "
+            "policy; requires --capture-policy."
+        ),
+    )
+    mcp_parser.add_argument(
+        "--capture-policy",
+        metavar="PATH",
+        default=None,
+        help="Absolute launcher-policy.v1 JSON path required by --allow-capture-submit.",
     )
     mcp_parser.add_argument(
         "--allow-search",
@@ -1094,6 +1169,16 @@ def _reject_json_constant(_value: str) -> NoReturn:
     raise ValueError("invalid JSON constant")
 
 
+def _read_startup_policy(value: object) -> str:
+    if not isinstance(value, str) or not value:
+        raise ValueError("invalid startup policy path")
+    with Path(value).open("rb") as source:
+        payload = source.read(_MAX_STARTUP_POLICY_BYTES + 1)
+    if len(payload) > _MAX_STARTUP_POLICY_BYTES:
+        raise ValueError("startup policy is too large")
+    return payload.decode("utf-8")
+
+
 def _read_privacy_repair_request(value: object) -> PrivacyRepairRequest:
     if not isinstance(value, str) or not value:
         raise ValueError("invalid request file")
@@ -1372,9 +1457,7 @@ def _run_privacy_repair(parsed: argparse.Namespace, tasks: EngineTaskSet) -> int
         raise PrivacyRepairError("operation_pending")
     receipt = repair_task.repair_privacy(
         cast(PrivacyRepairRequest, parsed.privacy_repair_request),
-        authority=cast(
-            EffectiveAuthority, owner_authority(tasks, session_id="owner-cli")
-        ),
+        authority=cast(EffectiveAuthority, owner_authority(tasks, session_id="owner-cli")),
     )
     encoded = receipt.encode()
     if len(encoded.encode("utf-8")) > _MAX_PRIVACY_REPAIR_RECEIPT_BYTES:
@@ -1422,8 +1505,33 @@ def _run_local_command(
             tasks.capture,
             cast(str, parsed.text),
             delivery_id="delivery." + str(uuid.uuid4()),
+            privacy_tier=(
+                None if parsed.privacy_tier is None else PrivacyTier(parsed.privacy_tier)
+            ),
         )
         _write_capture(capture_receipt, json_output=json_output)
+        return 0
+    if parsed.command == "capture-submit":
+        # The startup policy is owner-selected trusted input; the engine's
+        # constructor refuses any tier outside it before any state exists.
+        authority = destination_bound_authority(tasks, parsed.startup_policy)
+        try:
+            receipt = submit_destination_bound_capture(
+                tasks,
+                authority,
+                cast(str, parsed.text),
+                requested_tier=(
+                    None if parsed.privacy_tier is None else PrivacyTier(parsed.privacy_tier)
+                ),
+                delivery_id="delivery.destination." + str(uuid.uuid4()),
+            )
+        except CaptureAdmissionError as error:
+            return _write_capture_admission_failure(error, json_output=json_output)
+        payload = destination_bound_capture_result(receipt)
+        if json_output:
+            _write_json(payload)
+        else:
+            print(f"Submitted {receipt.capture_id}")
         return 0
     if parsed.command == "import":
         if import_interrupted is None:
@@ -1478,8 +1586,21 @@ def _run_local_command(
             else None
         )
         negotiated = negotiated_candidate
+        capture_submit_capability = None
+        if parsed.allow_capture_submit:
+            # The launcher policy is trusted input read at session start; the
+            # engine refuses stale epochs and foreign Brain IDs before capture.
+            try:
+                policy = _read_startup_policy(parsed.capture_policy)
+            except OSError, UnicodeError, ValueError:
+                _write_usage_failure(json_output=False)
+                return 2
+            capture_submit_capability = destination_bound_capture_submit(
+                tasks, destination_bound_authority(tasks, policy)
+            )
         adapter = LocalMcpAdapter(
             capture=mcp_capture_sink(tasks) if parsed.allow_capture else None,
+            capture_submit=capture_submit_capability,
             search=search if parsed.allow_search else None,
             inbox_list=organization.inbox_list if parsed.allow_inbox_read else None,
             space_list=organization.space_list if parsed.allow_inbox_read else None,
@@ -1790,6 +1911,8 @@ def _run_markdown_import(
         confirm=confirm,
         progress=progress,
         interrupted=interrupted,
+        privacy_tier=(None if parsed.privacy_tier is None else PrivacyTier(parsed.privacy_tier)),
+        privacy_manifest=cast(str | None, parsed.privacy_manifest),
     )
     _write_import_summary(summary, json_output=json_output)
     return 1 if summary.failed else 0
@@ -2327,6 +2450,29 @@ def _write_database_busy(*, json_output: bool) -> None:
         _write_json({"error": {"code": "database_busy", "message": message}, "status": "failed"})
     else:
         print("database_busy: " + message, file=sys.stderr)
+
+
+def _write_capture_admission_failure(error: CaptureAdmissionError, *, json_output: bool) -> int:
+    """Emit the stable admission result and retryable flag, mirroring the MCP surface."""
+    message = (
+        "The capture submission was refused; an identical retry may later be admitted."
+        if error.retryable
+        else "The capture submission was refused."
+    )
+    if json_output:
+        _write_json(
+            {
+                "error": {"code": error.result.value, "message": message},
+                "retryable": error.retryable,
+                "status": "failed",
+            }
+        )
+    else:
+        print(
+            f"{error.result.value} (retryable: {str(error.retryable).lower()}): {message}",
+            file=sys.stderr,
+        )
+    return 75 if error.retryable else 65
 
 
 def _write_managed_recovery_failure(code: str, *, schema_upgraded: bool, json_output: bool) -> int:

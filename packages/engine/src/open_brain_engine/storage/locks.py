@@ -9,8 +9,9 @@ import re
 import stat
 import sys
 import threading
+import time
 from collections.abc import Callable, Iterator
-from contextlib import contextmanager, suppress
+from contextlib import ExitStack, contextmanager, suppress
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -43,6 +44,10 @@ class LockBusyError(LeaseError):
     """The requested kernel-authoritative lease is already held."""
 
 
+class WriterQueueFullError(LeaseError):
+    """The bounded writer-waiter queue is full or its wait deadline passed."""
+
+
 _IDENTITY = re.compile(r"[a-z][a-z0-9-]{0,63}")
 _DISCRIMINATORS = {
     LockScope.SHARED_WRITER: frozenset({"shared-writer"}),
@@ -65,6 +70,11 @@ _LOCK_FILE_NAMES = frozenset(
 )
 _PROCESS_HELD_LOCKS: set[tuple[int, int, str]] = set()
 _PROCESS_HELD_LOCKS_GUARD = threading.Lock()
+# Bounded writer waiters are per process, keyed like the held-lease set. The
+# core runs as one foreground process, so these budgets are per process.
+_PROCESS_WRITER_WAITERS: dict[tuple[int, int, str], int] = {}
+_PROCESS_WRITER_WAITERS_GUARD = threading.Lock()
+_WRITER_POLL_INTERVAL_SECONDS = 0.01
 Clock = Callable[[], datetime]
 
 
@@ -142,7 +152,7 @@ class LeaseDescriptor:
             )
         except LeaseFormatError:
             raise
-        except (KeyError, TypeError, ValueError, UnicodeError, json.JSONDecodeError):
+        except KeyError, TypeError, ValueError, UnicodeError, json.JSONDecodeError:
             raise LeaseFormatError("invalid lease descriptor") from None
         if descriptor.to_bytes() != payload:
             raise LeaseFormatError("invalid lease descriptor")
@@ -250,25 +260,68 @@ class FileLease:
             yield
 
     @contextmanager
+    def acquire_shared_writer_bounded(
+        self,
+        *,
+        max_waiters: int,
+        timeout: float,
+        poll_interval: float | None = None,
+    ) -> Iterator[None]:
+        """Acquire the shared-writer lease by bounded blocking in the caller's thread.
+
+        At most ``max_waiters`` callers may wait for the lease at once; each
+        waits at most ``timeout`` seconds (polling ``poll_interval`` between
+        attempts). A caller beyond the cap or past the deadline raises
+        :class:`WriterQueueFullError` instead of failing fast. All waiting is a
+        polling sleep inside the caller's own thread: no helper thread, daemon,
+        or listener participates. The waiter budget is per process and keyed by
+        the lease file identity, mirroring the process-held lease set.
+        """
+        if type(max_waiters) is not int or max_waiters < 1:
+            raise LeaseFormatError("invalid writer waiter bound")
+        if isinstance(timeout, bool) or not isinstance(timeout, float | int) or timeout < 0:
+            raise LeaseFormatError("invalid writer wait timeout")
+        interval = _WRITER_POLL_INTERVAL_SECONDS if poll_interval is None else poll_interval
+        if isinstance(interval, bool) or not isinstance(interval, float | int) or interval <= 0:
+            raise LeaseFormatError("invalid writer poll interval")
+        if self._validate_acquire is not None:
+            self._validate_acquire()
+        _require_record_lock_support()
+        waiter_key = self._lease_waiter_key(LockScope.SHARED_WRITER)
+        with _PROCESS_WRITER_WAITERS_GUARD:
+            waiting = _PROCESS_WRITER_WAITERS.get(waiter_key, 0)
+            if waiting >= max_waiters:
+                raise WriterQueueFullError("writer waiter queue is full")
+            _PROCESS_WRITER_WAITERS[waiter_key] = waiting + 1
+        deadline = time.monotonic() + timeout
+        try:
+            with ExitStack() as stack:
+                while True:
+                    attempt = self.acquire(LockScope.SHARED_WRITER)
+                    try:
+                        stack.enter_context(attempt)
+                    except LockBusyError:
+                        if time.monotonic() >= deadline:
+                            raise WriterQueueFullError("writer wait deadline passed") from None
+                        time.sleep(interval)
+                        continue
+                    break
+                yield
+        finally:
+            with _PROCESS_WRITER_WAITERS_GUARD:
+                remaining = _PROCESS_WRITER_WAITERS.get(waiter_key, 0) - 1
+                if remaining > 0:
+                    _PROCESS_WRITER_WAITERS[waiter_key] = remaining
+                else:
+                    _PROCESS_WRITER_WAITERS.pop(waiter_key, None)
+
+    @contextmanager
     def acquire(self, scope: LockScope) -> Iterator[None]:
         discriminator = self._discriminator(scope)
         if self._validate_acquire is not None:
             self._validate_acquire()
         _require_record_lock_support()
-        if self._root_identity is not None:
-            root_fd = _open_root(self._state_root, self._root_identity)
-        elif self._parent_root_identity is None:
-            root_fd = _open_root(self._state_root)
-        else:
-            parent_fd = _open_root(self._state_root.parent, self._parent_root_identity)
-            try:
-                root_fd = _open_child_directory(
-                    parent_fd,
-                    self._state_root.name,
-                    create=False,
-                )
-            finally:
-                os.close(parent_fd)
+        root_fd = self._open_lease_root()
         lock_directory_fd = -1
         lock_fd = -1
         held_key: tuple[int, int, str] | None = None
@@ -316,7 +369,7 @@ class FileLease:
             if self._validate_acquire is not None:
                 self._validate_acquire()
             yield
-        except (LeaseError, StorageError):
+        except LeaseError, StorageError:
             raise
         except OSError:
             raise DurabilityError("lease operation failed") from None
@@ -331,6 +384,26 @@ class FileLease:
                 os.close(lock_fd)
             if lock_directory_fd >= 0:
                 os.close(lock_directory_fd)
+            os.close(root_fd)
+
+    def _open_lease_root(self) -> int:
+        if self._root_identity is not None:
+            return _open_root(self._state_root, self._root_identity)
+        if self._parent_root_identity is None:
+            return _open_root(self._state_root)
+        parent_fd = _open_root(self._state_root.parent, self._parent_root_identity)
+        try:
+            return _open_child_directory(parent_fd, self._state_root.name, create=False)
+        finally:
+            os.close(parent_fd)
+
+    def _lease_waiter_key(self, scope: LockScope) -> tuple[int, int, str]:
+        discriminator = self._discriminator(scope)
+        root_fd = self._open_lease_root()
+        try:
+            metadata = os.fstat(root_fd)
+            return (metadata.st_dev, metadata.st_ino, discriminator)
+        finally:
             os.close(root_fd)
 
     def _discriminator(self, scope: LockScope) -> str:
@@ -362,9 +435,7 @@ def inspect_file_leases(state_root: Path) -> LockStateSnapshot:
         names = frozenset(os.listdir(lock_directory))
     except OSError:
         raise DurabilityError("lease inspection failed") from None
-    malformed_count = len(
-        {name for name in names if name.startswith("lease.")} - _LOCK_FILE_NAMES
-    )
+    malformed_count = len({name for name in names if name.startswith("lease.")} - _LOCK_FILE_NAMES)
     held_count = 0
     acquired_at: list[datetime] = []
     held_leases: list[HeldLeaseSnapshot] = []
@@ -538,7 +609,7 @@ def _read_descriptor(file_fd: int, file_name: str) -> LeaseDescriptor | None:
         if file_name != f"lease.{descriptor.discriminator}":
             return None
         return descriptor
-    except (OSError, LeaseFormatError):
+    except OSError, LeaseFormatError:
         return None
 
 

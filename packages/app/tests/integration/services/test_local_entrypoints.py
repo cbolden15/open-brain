@@ -35,7 +35,12 @@ from open_brain_engine.engine import (
     open_local_engine,
 )
 from open_brain_engine.engine.consent_contracts import EgressMode
-from open_brain_engine.engine.contracts import EngineTaskSet, LocalEngineContext
+from open_brain_engine.engine.contracts import (
+    CaptureAdmissionError,
+    CaptureAdmissionResult,
+    EngineTaskSet,
+    LocalEngineContext,
+)
 from open_brain_engine.engine.local_schema import (
     open_local_database,
     open_local_database_read_only,
@@ -67,8 +72,7 @@ def _private_home(tmp_path: Path) -> Path:
 
 def _subprocess_cli(root: Path, *arguments: str) -> dict[str, object]:
     program = (
-        "from open_brain.services.local_entrypoints import run_cli;"
-        "raise SystemExit(run_cli())"
+        "from open_brain.services.local_entrypoints import run_cli;raise SystemExit(run_cli())"
     )
     result = subprocess.run(
         [
@@ -193,12 +197,18 @@ def test_owner_privacy_repair_cli_emits_stored_receipt_and_replays_byte_identica
     assert replay_output.err == ""
     assert replay_output.out == first_output.out
     with open_local_database_read_only(profile) as connection:
-        assert connection.execute(
-            "SELECT * FROM privacy_repair_ledger ORDER BY repair_sequence"
-        ).fetchall() == stored_before
-        assert connection.execute(
-            "SELECT retrieval_generation FROM engine_generations WHERE singleton=1"
-        ).fetchone()[0] == generation_before
+        assert (
+            connection.execute(
+                "SELECT * FROM privacy_repair_ledger ORDER BY repair_sequence"
+            ).fetchall()
+            == stored_before
+        )
+        assert (
+            connection.execute(
+                "SELECT retrieval_generation FROM engine_generations WHERE singleton=1"
+            ).fetchone()[0]
+            == generation_before
+        )
 
 
 def test_privacy_repair_cli_rejects_untrusted_or_malformed_request_fields_before_bootstrap(
@@ -227,7 +237,7 @@ def test_privacy_repair_cli_rejects_untrusted_or_malformed_request_fields_before
             json.dumps({key: value for key, value in valid.items() if key != "target_id"}).encode(),
             b'{"target_kind":"source_revision","target_kind":"canonical_revision"}',
             b'["not-an-object"]',
-            b'\xff\xfe',
+            b"\xff\xfe",
             json.dumps(valid)
             .replace('"target_id": "capture_synthetic"', '"target_id": NaN')
             .encode(),
@@ -324,12 +334,9 @@ def test_privacy_repair_cli_uses_profile_owner_local_authority(
         observed.update(tasks=tasks, session_id=session_id, authority=authority)
         return authority
 
-    monkeypatch.setattr(
-        "open_brain.services.local_entrypoints.owner_authority", capture_authority
-    )
+    monkeypatch.setattr("open_brain.services.local_entrypoints.owner_authority", capture_authority)
     assert (
-        run_cli(_privacy_cli_arguments(root, request_file), filesystem_type_probe=_filesystem)
-        == 0
+        run_cli(_privacy_cli_arguments(root, request_file), filesystem_type_probe=_filesystem) == 0
     )
     assert capsys.readouterr().err == ""
     tasks = cast(EngineTaskSet, observed["tasks"])
@@ -372,9 +379,7 @@ def test_privacy_repair_cli_error_codes_are_bounded_and_have_stable_exits(
     request_file = tmp_path / "request.json"
     request_file.write_text(
         json.dumps(
-            _privacy_request(
-                private_values[0], private_values[1], operation_id=private_values[2]
-            )
+            _privacy_request(private_values[0], private_values[1], operation_id=private_values[2])
         ),
         encoding="utf-8",
     )
@@ -1203,9 +1208,7 @@ def test_owner_cli_subprocess_continues_paging_and_unicode_reads_across_invocati
     unicode_payload = TextPayload(
         "".join(part["text"] * part["repeat"] for part in recipe["parts"])
     )
-    unicode_capture = tasks.capture.accept(
-        unicode_payload, delivery_id="cli.retrieval.unicode"
-    )
+    unicode_capture = tasks.capture.accept(unicode_payload, delivery_id="cli.retrieval.unicode")
 
     search_arguments = ["search-page", "nebula", "--limit", "100"]
     found: list[str] = []
@@ -1410,8 +1413,7 @@ def test_owner_cli_relationship_replay_cas_history_and_verified_export(tmp_path:
     assert _subprocess_cli(root, *accept_arguments) == accepted
 
     program = (
-        "from open_brain.services.local_entrypoints import run_cli;"
-        "raise SystemExit(run_cli())"
+        "from open_brain.services.local_entrypoints import run_cli;raise SystemExit(run_cli())"
     )
     stale = subprocess.run(
         [
@@ -1485,6 +1487,7 @@ def test_owner_cli_relationship_replay_cas_history_and_verified_export(tmp_path:
         "accept",
         "remove",
     ]
+
 
 def test_local_search_reconciles_owner_markdown_and_renders_one_safe_line(
     tmp_path: Path,
@@ -1776,3 +1779,248 @@ def test_local_usage_failures_are_bounded_and_redacted(
     for private_value in private_values:
         assert private_value not in output.out
         assert private_value not in output.err
+
+
+def _single_capture_privacy(root: Path) -> dict[str, object]:
+    connection = sqlite3.connect(root / ".open-brain/state/phase1.sqlite3")
+    try:
+        row = connection.execute("SELECT privacy_json FROM captures").fetchone()
+    finally:
+        connection.close()
+    assert row is not None
+    return cast(dict[str, object], json.loads(cast(str, row[0])))
+
+
+def _active_import_privacy(root: Path, relative_path: str) -> dict[str, object]:
+    connection = sqlite3.connect(root / ".open-brain/state/phase1.sqlite3")
+    try:
+        row = connection.execute(
+            """
+            SELECT c.privacy_json
+            FROM captures AS c
+            JOIN markdown_import_revisions AS r ON r.capture_id = c.capture_id
+            JOIN markdown_import_files AS f
+              ON f.file_id = r.file_id AND f.active_revision_id = r.revision_id
+            WHERE f.relative_path = ?
+            """,
+            (relative_path,),
+        ).fetchone()
+    finally:
+        connection.close()
+    assert row is not None
+    return cast(dict[str, object], json.loads(cast(str, row[0])))
+
+
+def test_owner_cli_capture_accepts_an_explicit_privacy_tier(tmp_path: Path) -> None:
+    root = tmp_path / "brain"
+    captured = _subprocess_cli(
+        root, "capture", "synthetic cli explicit tier", "--privacy-tier", "work"
+    )
+    assert captured["status"] == "captured"
+    privacy = _single_capture_privacy(root)
+    assert privacy["tier"] == "work"
+    assert privacy["reason"] == "policy_work"
+    assert privacy["authority"] == {"cloud": False, "external_egress": False}
+
+
+def test_owner_cli_capture_without_flags_keeps_the_fixed_local_privacy(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "brain"
+    captured = _subprocess_cli(root, "capture", "synthetic cli fixed privacy")
+    assert captured["status"] == "captured"
+    assert _single_capture_privacy(root) == {
+        "authority": {"cloud": False, "external_egress": False},
+        "confirmation_ref": None,
+        "policy_version": "privacy-v1",
+        "reason": "personal_local_only",
+        "tier": "personal",
+    }
+
+
+def test_owner_cli_import_accepts_tier_and_manifest_flags(tmp_path: Path) -> None:
+    root = tmp_path / "brain"
+    vault = tmp_path / "vault"
+    nested = vault / "sub"
+    nested.mkdir(parents=True)
+    (vault / "note.md").write_text("# Root\nsynthetic cli manifest root\n", encoding="utf-8")
+    (nested / "note.md").write_text("# Sub\nsynthetic cli manifest sub\n", encoding="utf-8")
+    manifest = tmp_path / "manifest.json"
+    manifest.write_text(json.dumps({"sub": "secret"}), encoding="utf-8")
+    imported = _subprocess_cli(
+        root,
+        "import",
+        str(vault),
+        "--yes",
+        "--privacy-tier",
+        "work",
+        "--privacy-manifest",
+        str(manifest),
+    )
+    assert imported["status"] == "completed"
+    assert _active_import_privacy(root, "note.md")["tier"] == "work"
+    assert _active_import_privacy(root, "sub/note.md")["tier"] == "secret"
+
+
+def _destination_policy_file(
+    root: Path,
+    *,
+    issuer_epoch: int | None = None,
+    brain_id: str | None = None,
+    allowed_capture_tiers: list[str] | None = None,
+) -> Path:
+    connection = sqlite3.connect(root / ".open-brain/state/phase1.sqlite3")
+    try:
+        row = connection.execute("SELECT brain_id, issuer_epoch FROM brain_identity").fetchone()
+    finally:
+        connection.close()
+    assert row is not None
+    document = {
+        "policy_version": "launcher-policy.v1",
+        "principal_id": "synthetic-destination-principal",
+        "session_id": "synthetic-destination-session",
+        "capabilities": [],
+        "space_ids": None,
+        "allowed_read_tiers": ["public", "work"],
+        "allowed_capture_tiers": (
+            allowed_capture_tiers
+            if allowed_capture_tiers is not None
+            else ["public", "work", "personal", "secret", "unknown"]
+        ),
+        "egress_mode": "owner_local",
+        "provider_id": None,
+        "consent_id": None,
+        "authorization_generation": 0,
+        "brain_id": brain_id if brain_id is not None else cast(str, row[0]),
+        "issuer_epoch": issuer_epoch if issuer_epoch is not None else cast(int, row[1]),
+    }
+    path = root.parent / "destination-policy.json"
+    path.write_text(json.dumps(document), encoding="utf-8")
+    return path
+
+
+def _capture_count(root: Path) -> int:
+    connection = sqlite3.connect(root / ".open-brain/state/phase1.sqlite3")
+    try:
+        return cast(int, connection.execute("SELECT COUNT(*) FROM captures").fetchone()[0])
+    finally:
+        connection.close()
+
+
+def test_cli_capture_submit_uses_a_valid_startup_policy(tmp_path: Path) -> None:
+    root = tmp_path / "brain"
+    assert _subprocess_cli(root, "status")["profile"] == "local"
+    policy = _destination_policy_file(root)
+    submitted = _subprocess_cli(
+        root,
+        "capture-submit",
+        "synthetic cli destination-bound text",
+        "--policy",
+        str(policy),
+        "--privacy-tier",
+        "work",
+    )
+    assert submitted["status"] == "captured"
+    assert submitted["requested_tier"] == "work"
+    assert submitted["final_admitted_tier"] == "work"
+    assert cast(str, submitted["delivery_id"]).startswith("delivery.destination.")
+    assert len(cast(str, submitted["request_sha256"])) == 64
+    assert cast(str, submitted["destination_brain_id"]).startswith("brn_")
+    assert isinstance(submitted["issuer_epoch"], int)
+    assert _capture_count(root) == 1
+    privacy = _single_capture_privacy(root)
+    assert privacy["tier"] == "work"
+
+
+def _failing_cli(root: Path, *arguments: str) -> subprocess.CompletedProcess[str]:
+    program = (
+        "from open_brain.services.local_entrypoints import run_cli;raise SystemExit(run_cli())"
+    )
+    return subprocess.run(
+        [sys.executable, "-c", program, *arguments, "--data-dir", str(root), "--json"],
+        env=os.environ.copy(),
+        capture_output=True,
+        text=True,
+        timeout=30,
+        check=False,
+    )
+
+
+def test_cli_capture_submit_refuses_a_stale_epoch_policy(tmp_path: Path) -> None:
+    root = tmp_path / "brain"
+    assert _subprocess_cli(root, "status")["profile"] == "local"
+    stale = _destination_policy_file(root, issuer_epoch=99)
+    result = _failing_cli(
+        root, "capture-submit", "synthetic stale destination text", "--policy", str(stale)
+    )
+    assert result.returncode == 78
+    assert "issuer_mismatch" in result.stdout + result.stderr
+    assert _capture_count(root) == 0
+
+
+def test_cli_capture_submit_refuses_a_wrong_brain_policy(tmp_path: Path) -> None:
+    root = tmp_path / "brain"
+    assert _subprocess_cli(root, "status")["profile"] == "local"
+    wrong_brain = _destination_policy_file(root, brain_id="brn_" + "q" * 26)
+    result = _failing_cli(
+        root, "capture-submit", "synthetic wrong-brain text", "--policy", str(wrong_brain)
+    )
+    assert result.returncode == 78
+    assert "destination_mismatch" in result.stdout + result.stderr
+    assert _capture_count(root) == 0
+
+
+def test_cli_capture_submit_reports_a_terminal_admission_result(tmp_path: Path) -> None:
+    root = tmp_path / "brain"
+    assert _subprocess_cli(root, "status")["profile"] == "local"
+    narrow = _destination_policy_file(root, allowed_capture_tiers=["public", "work"])
+    result = _failing_cli(
+        root,
+        "capture-submit",
+        "synthetic out-of-set tier text",
+        "--policy",
+        str(narrow),
+        "--privacy-tier",
+        "secret",
+    )
+    assert result.returncode == 65
+    payload = json.loads(result.stdout)
+    assert payload["error"]["code"] == "tier_not_permitted"
+    assert payload["retryable"] is False
+    assert _capture_count(root) == 0
+
+
+def test_cli_capture_submit_reports_a_retryable_admission_result(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    root = tmp_path / "brain"
+    assert _subprocess_cli(root, "status")["profile"] == "local"
+    policy = _destination_policy_file(root)
+
+    def refused(*_args: object, **_kwargs: object) -> None:
+        raise CaptureAdmissionError(CaptureAdmissionResult.RATE_LIMITED)
+
+    monkeypatch.setattr(entrypoints, "submit_destination_bound_capture", refused)
+    code = run_cli(
+        (
+            "capture-submit",
+            "synthetic retryable destination text",
+            "--policy",
+            str(policy),
+            "--data-dir",
+            str(root),
+            "--json",
+        ),
+        filesystem_type_probe=_filesystem,
+    )
+    assert code == 75
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["error"]["code"] == "rate_limited"
+    assert payload["retryable"] is True
+    assert _capture_count(root) == 0
+
+
+def test_mcp_capture_submit_requires_a_policy_path() -> None:
+    assert run_cli(("mcp", "--allow-capture-submit"), environment={}) == 2

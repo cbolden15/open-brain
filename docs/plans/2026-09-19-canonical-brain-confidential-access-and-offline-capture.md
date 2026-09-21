@@ -382,6 +382,13 @@ writer-queue, and storage-watermark limit and prove that no rejected request lea
 an accepted receipt. Finalizer tests cover success, timeout, failure, crash after local commit,
 replay after restart, mismatched acknowledgement, and recovery without duplicate canonical state.
 
+Execution status on 2026-09-21: `OSS-G4` passes on the working branch. Admission limits, stable
+admission results, owner explicit tiers, the import manifest, narrow-only boundary classification,
+and the destination-bound submission bound to the trusted startup policy are implemented with
+synthetic tests; `make verify`, the native audit, and the Homebrew smoke pass. Batch bounds move to
+the outbox phase, and the receipt-protection finalizer remains an optional deployment requirement
+that no shipped path configures.
+
 ### Phase 5: implement the bounded offline outbox
 
 Place the reusable outbox in an optional package, not the base core dependency graph. It stores one

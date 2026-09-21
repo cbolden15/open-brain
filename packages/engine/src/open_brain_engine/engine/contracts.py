@@ -17,10 +17,13 @@ from urllib.parse import unquote
 
 from open_brain_engine.core.ids import canonicalize_source_url, portable_canonical_json_bytes
 from open_brain_engine.core.models import (
+    Authority,
     CaptureWhyOrigin,
     ContentOrigin,
     Intent,
     PrivacyDecision,
+    PrivacyReason,
+    PrivacyTier,
     Provenance,
 )
 from open_brain_engine.providers.base import ProviderMode
@@ -44,6 +47,7 @@ from .normalization import (
     _role_claim,
     _text,
 )
+from .privacy_projection import _NARROWED_REASON
 from .t03_contracts import EffectiveAuthority, SourceRouteRequest, SourceRouteResponse
 
 if TYPE_CHECKING:
@@ -76,6 +80,7 @@ class CaptureAction(StrEnum):
 class CaptureSubmissionPath(StrEnum):
     OWNER = "owner"
     PUBLIC_JOB = "public_job"
+    DESTINATION_BOUND = "destination_bound"
 
 
 class DecisionOutcome(StrEnum):
@@ -298,6 +303,22 @@ class CaptureReceipt:
     space_id: str | None
     canonical_path: str | None
     duplicate: bool = False
+    # An unbound tier fails closed to ``unknown``; constructors that know the
+    # submission always set both, so they differ only when admission narrowed.
+    requested_tier: PrivacyTier = PrivacyTier.UNKNOWN
+    final_admitted_tier: PrivacyTier = PrivacyTier.UNKNOWN
+    # Destination-bound receipts bind their immutable request identity and the
+    # trusted authority's destination Brain and issuer epoch; every other path
+    # leaves them unset so existing receipt bytes stay unchanged.
+    delivery_id: str | None = None
+    request_sha256: str | None = None
+    destination_brain_id: str | None = None
+    issuer_epoch: int | None = None
+
+
+# One canonical-boundary rescan signal for a submission: a tier narrows the
+# admitted decision, and ``None`` means the boundary has no narrowing signal.
+type BoundaryClassifier = Callable[[CaptureSubmission], PrivacyTier | None]
 
 
 @dataclass(frozen=True, slots=True)
@@ -658,6 +679,12 @@ def project_public_capture_receipt(receipt: CaptureReceipt) -> CaptureReceipt:
         space_id=receipt.space_id,
         canonical_path=(receipt.capture_id if receipt.canonical_path is not None else None),
         duplicate=receipt.duplicate,
+        requested_tier=receipt.requested_tier,
+        final_admitted_tier=receipt.final_admitted_tier,
+        delivery_id=receipt.delivery_id,
+        request_sha256=receipt.request_sha256,
+        destination_brain_id=receipt.destination_brain_id,
+        issuer_epoch=receipt.issuer_epoch,
     )
 
 
@@ -1116,6 +1143,7 @@ class MarkdownImportFailure(RuntimeError):
             "import_directory_unavailable",
             "import_root_changed",
             "import_scan_incomplete",
+            "invalid_privacy_manifest",
             "large_vault_confirmation_required",
             "overlapping_import_root",
         }:
@@ -1131,6 +1159,118 @@ class MarkdownImportCancelled(RuntimeError):
 
 class MarkdownImportInterrupted(RuntimeError):
     """Import stopped at a safe point before missing-path finalization."""
+
+
+_MAX_PRIVACY_MANIFEST_BYTES = 65_536
+
+
+def _manifest_root_path(key: object) -> str:
+    """Validate one manifest key as an exact repository-relative root path."""
+    if (
+        not isinstance(key, str)
+        or not key
+        or key.startswith("/")
+        or "\\" in key
+        or any(component in {"", ".", ".."} for component in key.split("/"))
+    ):
+        raise ValueError("invalid privacy manifest root")
+    return key
+
+
+def _manifest_object_pairs(pairs: list[tuple[str, object]]) -> dict[str, object]:
+    result: dict[str, object] = {}
+    for key, value in pairs:
+        if key in result:
+            raise ValueError("duplicate privacy manifest key")
+        result[key] = value
+    return result
+
+
+@dataclass(frozen=True, slots=True)
+class CapturePrivacyManifest:
+    """A validated owner per-root privacy policy for one Markdown import.
+
+    The manifest is one small JSON object passed by absolute path whose exact
+    keys are repository-relative root paths mapping to one privacy tier each.
+    Unknown keys, unknown tiers, paths outside the import root, and
+    overlapping roots are rejected before any note is imported.
+    """
+
+    roots: Mapping[str, PrivacyTier]
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.roots, Mapping):
+            raise ValueError("invalid privacy manifest")
+        for key, tier in self.roots.items():
+            _manifest_root_path(key)
+            if not isinstance(tier, PrivacyTier):
+                raise ValueError("invalid privacy manifest")
+
+    @classmethod
+    def load(cls, path: str | Path) -> CapturePrivacyManifest:
+        location = Path(path)
+        if not location.is_absolute():
+            raise MarkdownImportFailure(
+                "invalid_privacy_manifest", details={"reason": "relative_path"}
+            )
+        try:
+            raw = location.read_bytes()
+        except OSError:
+            raise MarkdownImportFailure(
+                "invalid_privacy_manifest", details={"reason": "unreadable"}
+            ) from None
+        if len(raw) > _MAX_PRIVACY_MANIFEST_BYTES:
+            raise MarkdownImportFailure("invalid_privacy_manifest", details={"reason": "too_large"})
+        try:
+            document = json.loads(raw.decode("utf-8"), object_pairs_hook=_manifest_object_pairs)
+        except UnicodeDecodeError:
+            raise MarkdownImportFailure(
+                "invalid_privacy_manifest", details={"reason": "invalid_json"}
+            ) from None
+        except json.JSONDecodeError:
+            raise MarkdownImportFailure(
+                "invalid_privacy_manifest", details={"reason": "invalid_json"}
+            ) from None
+        except ValueError:
+            # Duplicate keys surface through the object-pairs hook.
+            raise MarkdownImportFailure(
+                "invalid_privacy_manifest", details={"reason": "duplicate_key"}
+            ) from None
+        if not isinstance(document, dict):
+            raise MarkdownImportFailure(
+                "invalid_privacy_manifest", details={"reason": "invalid_shape"}
+            )
+        roots: dict[str, PrivacyTier] = {}
+        for key, value in document.items():
+            try:
+                normalized_key = _manifest_root_path(key)
+            except ValueError:
+                raise MarkdownImportFailure(
+                    "invalid_privacy_manifest", details={"reason": "invalid_root_path"}
+                ) from None
+            try:
+                roots[normalized_key] = PrivacyTier(value)
+            except TypeError, ValueError:
+                raise MarkdownImportFailure(
+                    "invalid_privacy_manifest", details={"reason": "unknown_tier"}
+                ) from None
+        ordered = sorted(roots)
+        for left, right in zip(ordered, ordered[1:], strict=False):
+            if right.startswith(left + "/"):
+                raise MarkdownImportFailure(
+                    "invalid_privacy_manifest", details={"reason": "overlapping_roots"}
+                )
+        return cls(roots=MappingProxyType(roots))
+
+    def tier_for(self, relative_path: str) -> PrivacyTier | None:
+        """The most specific matching root's tier, or None when nothing matches."""
+        best: tuple[str, PrivacyTier] | None = None
+        for root, tier in self.roots.items():
+            if (relative_path == root or relative_path.startswith(root + "/")) and (
+                best is None or len(root) > len(best[0])
+            ):
+                best = (root, tier)
+        return None if best is None else best[1]
 
 
 @dataclass(frozen=True, slots=True)
@@ -1379,6 +1519,101 @@ class PublicJobCaptureContext:
             raise ValueError("public-job role has unsupported authority")
 
 
+class CaptureAdmissionResult(StrEnum):
+    """Stable refusal values for bounded capture admission; no partial state exists."""
+
+    ENVELOPE_TOO_LARGE = "envelope_too_large"
+    BODY_TOO_LARGE = "body_too_large"
+    RATE_LIMITED = "rate_limited"
+    ADMISSION_BUSY = "admission_busy"
+    WRITER_QUEUE_FULL = "writer_queue_full"
+    STORAGE_HIGH = "storage_high"
+    STORAGE_CRITICAL = "storage_critical"
+    TIER_NOT_PERMITTED = "tier_not_permitted"
+
+
+_RETRYABLE_ADMISSION_RESULTS = frozenset(
+    {
+        CaptureAdmissionResult.RATE_LIMITED,
+        CaptureAdmissionResult.ADMISSION_BUSY,
+        CaptureAdmissionResult.WRITER_QUEUE_FULL,
+        CaptureAdmissionResult.STORAGE_HIGH,
+    }
+)
+
+
+class CaptureAdmissionError(ValueError):
+    """A capture request refused before any record, revision, blob, or receipt exists."""
+
+    def __init__(self, result: CaptureAdmissionResult) -> None:
+        self._result = CaptureAdmissionResult(result)
+        super().__init__(f"capture admission refused: {self._result.value}")
+
+    @property
+    def result(self) -> CaptureAdmissionResult:
+        """The stable refusal value bound to this rejection."""
+        return self._result
+
+    @property
+    def retryable(self) -> bool:
+        """True when an identical retry may later be admitted unchanged."""
+        return self._result in _RETRYABLE_ADMISSION_RESULTS
+
+
+@dataclass(frozen=True, slots=True)
+class AdmissionLimits:
+    """Validated capture admission bounds with safe non-zero local defaults."""
+
+    max_envelope_bytes: int = 8 * 1024 * 1024
+    max_body_bytes: int = 4 * 1024 * 1024
+    requests_per_minute_per_principal: int = 120
+    max_concurrent_admissions: int = 8
+    max_writer_waiters: int = 16
+    storage_high_free_bytes: int = 2 * 1024 * 1024 * 1024
+    storage_critical_free_bytes: int = 512 * 1024 * 1024
+
+    def __post_init__(self) -> None:
+        for name in (
+            "max_envelope_bytes",
+            "max_body_bytes",
+            "requests_per_minute_per_principal",
+            "max_concurrent_admissions",
+            "max_writer_waiters",
+            "storage_high_free_bytes",
+            "storage_critical_free_bytes",
+        ):
+            value = getattr(self, name)
+            if type(value) is not int or value <= 0:
+                raise ValueError("invalid admission limits")
+        if not self.storage_critical_free_bytes < self.storage_high_free_bytes:
+            raise ValueError("invalid admission limits")
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "max_envelope_bytes": self.max_envelope_bytes,
+            "max_body_bytes": self.max_body_bytes,
+            "requests_per_minute_per_principal": self.requests_per_minute_per_principal,
+            "max_concurrent_admissions": self.max_concurrent_admissions,
+            "max_writer_waiters": self.max_writer_waiters,
+            "storage_high_free_bytes": self.storage_high_free_bytes,
+            "storage_critical_free_bytes": self.storage_critical_free_bytes,
+        }
+
+    @classmethod
+    def from_dict(cls, value: Mapping[str, object]) -> AdmissionLimits:
+        if not isinstance(value, Mapping) or set(value) != {
+            "max_envelope_bytes",
+            "max_body_bytes",
+            "requests_per_minute_per_principal",
+            "max_concurrent_admissions",
+            "max_writer_waiters",
+            "storage_high_free_bytes",
+            "storage_critical_free_bytes",
+        }:
+            raise ValueError("invalid admission limits")
+        return cls(**cast(dict[str, Any], dict(value)))
+
+
 @dataclass(frozen=True, slots=True)
 class CaptureSubmission:
     """One versioned capture request for an owner or injected public-job capability."""
@@ -1401,6 +1636,10 @@ class CaptureSubmission:
     occurrence_at: str | None = None
     schema_version: int = 1
     submission_path: CaptureSubmissionPath = CaptureSubmissionPath.OWNER
+    # The destination-bound path alone carries the trusted authority binding;
+    # every other path leaves both unset and its digest bytes unchanged.
+    destination_brain_id: str | None = None
+    issuer_epoch: int | None = None
 
     def __post_init__(self) -> None:
         if not isinstance(
@@ -1413,6 +1652,16 @@ class CaptureSubmission:
         object.__setattr__(self, "submission_path", CaptureSubmissionPath(self.submission_path))
         if self.schema_version != 1:
             raise ValueError("invalid capture submission schema version")
+        if (self.destination_brain_id is None) != (self.issuer_epoch is None):
+            raise ValueError("invalid destination binding")
+        if self.destination_brain_id is not None:
+            if self.submission_path is not CaptureSubmissionPath.DESTINATION_BOUND:
+                raise ValueError("destination binding requires the destination-bound path")
+            if (
+                re.fullmatch(r"brn_[a-z2-7]{26}", self.destination_brain_id) is None
+                or type(self.issuer_epoch) is not int
+            ):
+                raise ValueError("invalid destination binding")
         try:
             source_origin = ContentOrigin(self.source_origin)
         except (TypeError, ValueError) as error:
@@ -1471,7 +1720,10 @@ class CaptureSubmission:
         if occurrence_at != payload_occurrence_at:
             raise ValueError("capture occurrence must match the payload")
         object.__setattr__(self, "occurrence_at", occurrence_at)
-        if self.submission_path is CaptureSubmissionPath.PUBLIC_JOB:
+        if self.submission_path in {
+            CaptureSubmissionPath.PUBLIC_JOB,
+            CaptureSubmissionPath.DESTINATION_BOUND,
+        }:
             if source_origin not in {ContentOrigin.THIRD_PARTY, ContentOrigin.UNKNOWN}:
                 raise ValueError("public-job source origin is not allowed")
             if self.action is not CaptureAction.QUICK:
@@ -1493,6 +1745,7 @@ class CaptureSubmission:
         intent: Intent | str | None = None,
         capture_why: str | None = None,
         title: str | None = None,
+        privacy_tier: PrivacyTier | str | None = None,
     ) -> CaptureSubmission:
         payload_bytes = portable_canonical_json_bytes(payload.to_dict())
         source_origin = (
@@ -1525,7 +1778,9 @@ class CaptureSubmission:
                 content_origin=source_origin,
                 owner_context=capture_why_origin,
             ),
-            privacy=_local_privacy(),
+            privacy=(
+                _local_privacy() if privacy_tier is None else owner_privacy_for_tier(privacy_tier)
+            ),
             tenant_id=profile.tenant_id,
             actor_id=profile.owner_actor_id,
             role_claim=_role_claim(profile),
@@ -1576,6 +1831,78 @@ class CaptureSubmission:
             submission_path=CaptureSubmissionPath.PUBLIC_JOB,
         )
 
+    @classmethod
+    def for_destination_bound(
+        cls,
+        *,
+        profile: LocalEngineContext,
+        authority: EffectiveAuthority,
+        payload: Payload,
+        delivery_id: str,
+        requested_tier: PrivacyTier | str | None = None,
+        title: str | None = None,
+    ) -> CaptureSubmission:
+        """Build one destination-bound request under a trusted startup policy.
+
+        The authority's allowed capture tier set is the sole tier authority: a
+        missing tier becomes ``unknown``, and a tier outside the set is refused
+        here, before any engine call, so a refusal can leave no partial state.
+        The requested tier and the authority's destination Brain and issuer
+        epoch bindings all enter this path's immutable request digest.
+        """
+        from .t03_contracts import EffectiveAuthority as _EffectiveAuthority
+
+        if not isinstance(authority, _EffectiveAuthority):
+            raise ValueError("invalid destination-bound authority")
+        if authority.owner:
+            raise ValueError("destination-bound authority cannot be an owner")
+        if authority.brain_id is None or authority.issuer_epoch is None:
+            raise ValueError("destination-bound authority is not destination bound")
+        tier = _privacy_tier(requested_tier)
+        if tier is None:
+            tier = PrivacyTier.UNKNOWN
+        if tier not in authority.allowed_capture_tiers:
+            raise CaptureAdmissionError(CaptureAdmissionResult.TIER_NOT_PERMITTED)
+        payload_bytes = portable_canonical_json_bytes(payload.to_dict())
+        source_reference = "urn:open-brain:destination:" + sha256(payload_bytes).hexdigest()
+        principal_id = authority.principal_id
+        actor_id = "actor_" + _destination_bound_identifier(
+            "actor", profile.tenant_id, principal_id
+        )
+        occurrence_at = (
+            payload.occurrence_at
+            if isinstance(payload, EventPayload | MeasurementPayload)
+            else None
+        )
+        return cls(
+            payload=payload,
+            delivery_id=delivery_id,
+            source_origin=ContentOrigin.THIRD_PARTY,
+            source_reference=source_reference,
+            provenance=Provenance.create(
+                source_ref=source_reference,
+                content_origin=ContentOrigin.THIRD_PARTY,
+                owner_context=CaptureWhyOrigin.AUTOMATION_ABSENT,
+            ),
+            privacy=owner_privacy_for_tier(tier),
+            tenant_id=profile.tenant_id,
+            actor_id=actor_id,
+            role_claim={
+                "actor_id": actor_id,
+                "capabilities": ["capture.accept"],
+                "role_claim_id": "role_claim_"
+                + _destination_bound_identifier("role-claim", profile.tenant_id, principal_id),
+                "role_id": "role_"
+                + _destination_bound_identifier("role", profile.tenant_id, principal_id),
+                "tenant_id": profile.tenant_id,
+            },
+            title=title,
+            occurrence_at=occurrence_at,
+            submission_path=CaptureSubmissionPath.DESTINATION_BOUND,
+            destination_brain_id=authority.brain_id,
+            issuer_epoch=authority.issuer_epoch,
+        )
+
     def validate_profile(self, profile: LocalEngineContext) -> None:
         if self.submission_path is CaptureSubmissionPath.OWNER:
             expected = self.for_local_owner(
@@ -1587,6 +1914,7 @@ class CaptureSubmission:
                 intent=self.intent,
                 capture_why=self.capture_why,
                 title=self.title,
+                privacy_tier=self.privacy.tier,
             )
             if self != expected:
                 raise ValueError("capture submission does not match the local profile")
@@ -1599,6 +1927,11 @@ class CaptureSubmission:
 
     def durable_source_origin(self) -> str:
         return "owner" if self.source_origin is ContentOrigin.OWNER_AUTHORED else "third_party"
+
+    @property
+    def requested_tier(self) -> PrivacyTier:
+        """The tier requested at submission time; admission may still narrow it."""
+        return self.privacy.tier
 
     def request_value(self) -> dict[str, object]:
         """A stable replay value; owner submissions retain the Phase 1 bytes exactly."""
@@ -1613,7 +1946,7 @@ class CaptureSubmission:
         }
         if self.submission_path is CaptureSubmissionPath.OWNER:
             return legacy
-        return {
+        remote: dict[str, object] = {
             "actor_id": self.actor_id,
             "capture_why": self.capture_why,
             "capture_why_origin": self.capture_why_origin.value,
@@ -1629,6 +1962,10 @@ class CaptureSubmission:
             "tenant_id": self.tenant_id,
             "title": self.title,
         }
+        if self.submission_path is CaptureSubmissionPath.DESTINATION_BOUND:
+            remote["destination_brain_id"] = self.destination_brain_id
+            remote["issuer_epoch"] = self.issuer_epoch
+        return remote
 
     def request_sha256(self) -> str:
         return sha256(portable_canonical_json_bytes(self.request_value())).hexdigest()
@@ -1645,6 +1982,7 @@ class CaptureTask(Protocol):
         intent: str | None = None,
         capture_why: str | None = None,
         title: str | None = None,
+        privacy_tier: PrivacyTier | None = None,
     ) -> CaptureReceipt: ...
 
     def submit(self, submission: CaptureSubmission) -> CaptureReceipt: ...
@@ -1843,6 +2181,8 @@ class MarkdownImportTask(Protocol):
         confirm: Callable[[MarkdownImportPreflight], bool] | None = None,
         progress: Callable[[MarkdownImportProgress], None] | None = None,
         interrupted: Callable[[], bool] | None = None,
+        privacy_tier: PrivacyTier | str | None = None,
+        privacy_manifest: str | Path | None = None,
     ) -> MarkdownImportSummary: ...
 
 
@@ -2048,6 +2388,51 @@ class _LocalEngineOperations:
 
 def _local_privacy() -> PrivacyDecision:
     return PrivacyDecision.from_dict(_privacy())
+
+
+# The G5 canonical-boundary narrowing reasons cover every tier except PUBLIC
+# (public can never be a narrowing result); the owner explicit tier admits
+# PUBLIC through the closed policy-public reason, so no second mapping of the
+# narrowing-covered tiers exists.
+_OWNER_EXPLICIT_REASON: dict[PrivacyTier, PrivacyReason] = {
+    PrivacyTier.PUBLIC: PrivacyReason.POLICY_PUBLIC,
+    **_NARROWED_REASON,
+}
+
+
+def owner_privacy_for_tier(tier: PrivacyTier | str) -> PrivacyDecision:
+    """The canonical owner decision for one explicit privacy tier.
+
+    The reason is the per-tier canonical reason (the G5 narrowing mapping plus
+    the closed public policy reason), the policy version stays the fixed local
+    one, and the local owner path grants no egress authority, which every
+    local-only reason forbids anyway.
+    """
+    normalized = _privacy_tier(tier)
+    assert normalized is not None
+    return PrivacyDecision.create(
+        tier=normalized,
+        reason=_OWNER_EXPLICIT_REASON[normalized],
+        policy_version=_local_privacy().policy_version,
+        authority=Authority(cloud=False, external_egress=False),
+    )
+
+
+def _privacy_tier(value: PrivacyTier | str | None) -> PrivacyTier | None:
+    try:
+        return None if value is None else PrivacyTier(value)
+    except (TypeError, ValueError) as error:
+        raise ValueError("invalid privacy tier") from error
+
+
+def _destination_bound_identifier(domain: str, tenant_id: str, principal_id: str) -> str:
+    """One stable UUIDv4-shaped portable identifier for a destination principal."""
+    from uuid import UUID
+
+    digest = sha256(
+        f"open-brain:destination-bound:{domain}:{tenant_id}:{principal_id}".encode()
+    ).digest()
+    return str(UUID(bytes=digest[:16], version=4))
 
 
 def _capture_role_claim(

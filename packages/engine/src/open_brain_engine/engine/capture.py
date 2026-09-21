@@ -5,16 +5,33 @@ from __future__ import annotations
 import base64
 import json
 import sqlite3
+import threading
+from collections import deque
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
+from datetime import datetime, timedelta
 from hashlib import sha256
+from pathlib import Path
 from typing import TYPE_CHECKING, cast
 
+from open_brain_engine.capture.redaction import has_redaction_finding
 from open_brain_engine.core.ids import portable_canonical_json_bytes
-from open_brain_engine.core.models import ContentOrigin
+from open_brain_engine.core.models import (
+    ContentOrigin,
+    PrivacyDecision,
+    PrivacyTier,
+    narrowest_tier,
+)
 from open_brain_engine.providers.base import EnrichmentState
+from open_brain_engine.storage import watermarks
+from open_brain_engine.storage.locks import WriterQueueFullError
 from open_brain_engine.storage.markdown import render_markdown
 
 from .contracts import (
+    BoundaryClassifier,
     CaptureAction,
+    CaptureAdmissionError,
+    CaptureAdmissionResult,
     CaptureFault,
     CaptureReceipt,
     CaptureSubmission,
@@ -48,6 +65,7 @@ from .normalization import (
     _trust,
 )
 from .portability_ports import portable_write_port
+from .privacy_projection import narrow_retained_privacy_decision
 
 if TYPE_CHECKING:
     from .local import BrainEngine
@@ -67,7 +85,61 @@ class DeliveryConflict(ValueError):
         raise AttributeError("delivery conflict is immutable")
 
 
+def _payload_body_length(payload: Payload) -> int:
+    """The raw payload body bytes: text UTF-8 encoded, file bytes as-is."""
+    if isinstance(payload, TextPayload):
+        return len(payload.text.encode("utf-8"))
+    if isinstance(payload, FilePayload):
+        return len(payload.data)
+    return 0
+
+
+# Bounded writer wait for capture paths only. This is a small documented
+# constant rather than an AdmissionLimits field: the milestone fixes the
+# waiter cap and rate/concurrency bounds as configuration, while the wait
+# deadline itself stays a local foreground-runtime constant.
+_WRITER_WAIT_TIMEOUT_SECONDS = 5.0
+_WRITER_POLL_INTERVAL_SECONDS = 0.01
+_RATE_WINDOW = timedelta(seconds=60)
+
+
+def _principal_key(tenant_id: str, actor_id: str) -> str:
+    """One admission principal is tenant plus actor; owner paths share the owner key."""
+    return f"{tenant_id}:{actor_id}"
+
+
+def _boundary_scan_text(submission: CaptureSubmission) -> tuple[str, ...]:
+    """The free-text surfaces one canonical-boundary rescan may classify."""
+    values: list[str] = []
+    if isinstance(submission.payload, TextPayload):
+        values.append(submission.payload.text)
+    if submission.title is not None:
+        values.append(submission.title)
+    return tuple(values)
+
+
+def redaction_boundary_classifier(submission: CaptureSubmission) -> PrivacyTier | None:
+    """Reuse the approved capture redaction policy as one boundary signal.
+
+    Any finding of the deterministic work-tier redaction policy is a secret
+    signal; no finding is no signal. The engine default is no classifier at
+    all, so this runs only where an embedder injects it.
+    """
+    for value in _boundary_scan_text(submission):
+        if has_redaction_finding(value):
+            return PrivacyTier.SECRET
+    return None
+
+
 class CaptureOperations(_LocalEngineOperations):
+    # Engine-owned admission gate state, initialized by BrainEngine; declared
+    # here so typed gate arithmetic on the mixin resolves.
+    _admission_gate_guard: threading.Lock
+    _admission_rate_windows: dict[str, deque[datetime]]
+    _active_admissions: int
+    _storage_probe: Callable[[Path], watermarks.StorageUsage] | None
+    _boundary_classifier: BoundaryClassifier | None
+
     def _accept_capture(
         self,
         payload: Payload,
@@ -78,6 +150,7 @@ class CaptureOperations(_LocalEngineOperations):
         intent: str | None,
         capture_why: str | None,
         title: str | None,
+        privacy_tier: PrivacyTier | None = None,
     ) -> CaptureReceipt:
         return self._submit_capture(
             CaptureSubmission.for_local_owner(
@@ -89,11 +162,140 @@ class CaptureOperations(_LocalEngineOperations):
                 intent=intent,
                 capture_why=capture_why,
                 title=title,
+                privacy_tier=privacy_tier,
             )
+        )
+
+    @contextmanager
+    def _admit_before_writer(self, principal_key: str) -> Iterator[None]:
+        """Per-principal rate and concurrent-admission gate for remote submissions.
+
+        Raises ``CaptureAdmissionError(rate_limited)`` or
+        ``CaptureAdmissionError(admission_busy)`` before the writer lease is
+        touched, so a refusal leaves no capture row, blob, or search document.
+        The sliding window and the counter are per process (the core is one
+        foreground process) and recover in-process: the window ages out and
+        the counter releases on success and on exceptions. Only admitted
+        requests consume rate budget for their principal.
+        """
+        limits = self._admission_limits
+        with self._admission_gate_guard:
+            now = self._clock()
+            window = self._admission_rate_windows.get(principal_key)
+            if window is None:
+                window = deque()
+                self._admission_rate_windows[principal_key] = window
+            else:
+                boundary = now - _RATE_WINDOW
+                while window and window[0] <= boundary:
+                    window.popleft()
+            if len(window) >= limits.requests_per_minute_per_principal:
+                raise CaptureAdmissionError(CaptureAdmissionResult.RATE_LIMITED)
+            if self._active_admissions >= limits.max_concurrent_admissions:
+                raise CaptureAdmissionError(CaptureAdmissionResult.ADMISSION_BUSY)
+            window.append(now)
+            self._active_admissions += 1
+        try:
+            yield
+        finally:
+            with self._admission_gate_guard:
+                self._active_admissions -= 1
+
+    @contextmanager
+    def _admit_submission(self, submission: CaptureSubmission) -> Iterator[None]:
+        """Gate remote-originated submissions; owner paths skip rate and concurrency.
+
+        Outcome 1 keeps existing no-flag local capture and Markdown import
+        behaving exactly as today, so CaptureSubmissionPath.OWNER submissions
+        are never rate limited or concurrency capped. Non-owner submissions
+        (public job today, destination-bound clients later) pass the full
+        per-principal gate before the writer lease.
+        """
+        if submission.submission_path is CaptureSubmissionPath.OWNER:
+            yield
+            return
+        key = _principal_key(submission.tenant_id, submission.actor_id)
+        with self._admit_before_writer(key):
+            yield
+
+    @contextmanager
+    def _writer_lease_bounded(self) -> Iterator[None]:
+        """Bounded writer lease for capture paths; a full queue becomes an admission result."""
+        limits = self._admission_limits
+        try:
+            with self._writer_lease.acquire_shared_writer_bounded(
+                max_waiters=limits.max_writer_waiters,
+                timeout=_WRITER_WAIT_TIMEOUT_SECONDS,
+                poll_interval=_WRITER_POLL_INTERVAL_SECONDS,
+            ):
+                yield
+        except WriterQueueFullError:
+            raise CaptureAdmissionError(CaptureAdmissionResult.WRITER_QUEUE_FULL) from None
+
+    def _refuse_on_storage_watermark(self) -> None:
+        """Classify Brain-root free storage before any write path runs.
+
+        Every submission path (owner, public job, Markdown import) funnels
+        through ``_submit_capture``, so one check before the reservation
+        read, blob write, or SQLite transaction protects the Brain itself
+        and leaves no capture row, revision, blob, search document, or
+        receipt on refusal. The probe runs per submission, so free space
+        returning above a watermark recovers without reopening the engine.
+        """
+        # The default resolves through the watermarks module attribute at
+        # call time so a test conftest can pin one hermetic probe for the
+        # whole suite; an injected engine probe always wins.
+        probe = (
+            self._storage_probe
+            if self._storage_probe is not None
+            else watermarks.probe_storage_usage
+        )
+        result = watermarks.classify_storage(probe(self.profile.root), self._admission_limits)
+        if result is not None:
+            raise CaptureAdmissionError(result)
+
+    def _check_pre_materialization_admission(self, submission: CaptureSubmission) -> None:
+        """Run the size and storage-watermark checks before any durable row exists.
+
+        These are exactly the G2 size checks and the G4 storage check that
+        ``_submit_capture`` enforces; the Markdown import path also calls this
+        helper before it reserves an import revision, so an oversized or
+        storage-refused note is refused before any reservation row is written.
+        """
+        limits = self._admission_limits
+        body_length = _payload_body_length(submission.payload)
+        envelope_length = (
+            len(portable_canonical_json_bytes(submission.request_value())) + body_length
+        )
+        if envelope_length > limits.max_envelope_bytes:
+            raise CaptureAdmissionError(CaptureAdmissionResult.ENVELOPE_TOO_LARGE)
+        if body_length > limits.max_body_bytes:
+            raise CaptureAdmissionError(CaptureAdmissionResult.BODY_TOO_LARGE)
+        self._refuse_on_storage_watermark()
+
+    def _admitted_privacy(self, submission: CaptureSubmission) -> PrivacyDecision:
+        """Canonical-boundary rescan: the classifier may narrow the retained tier.
+
+        ``None`` (the default) or a ``None`` signal keeps the submitted
+        decision exactly; any other signal is folded through the G1
+        ``narrowest_tier`` helper, so admission can only ever narrow. Every
+        submission path (owner, public job, Markdown import) funnels through
+        ``_submit_capture`` and is rescan-narrowed identically here.
+        """
+        classifier = self._boundary_classifier
+        if classifier is None:
+            return submission.privacy
+        signal = classifier(submission)
+        if signal is None:
+            return submission.privacy
+        return narrow_retained_privacy_decision(
+            submission.privacy, narrowest_tier(submission.requested_tier, signal)
         )
 
     def _submit_capture(self, submission: CaptureSubmission) -> CaptureReceipt:
         submission.validate_profile(self.profile)
+        self._check_pre_materialization_admission(submission)
+        admitted_privacy = self._admitted_privacy(submission)
         capture_submission_is_reserved(cast("BrainEngine", self), submission)
         payload = submission.payload
         delivery_id = submission.delivery_id
@@ -171,7 +373,7 @@ class CaptureOperations(_LocalEngineOperations):
                                         "tenant_id": submission.role_claim["tenant_id"],
                                     }
                                 ).decode("utf-8"),
-                                portable_canonical_json_bytes(submission.privacy.to_dict()).decode(
+                                portable_canonical_json_bytes(admitted_privacy.to_dict()).decode(
                                     "utf-8"
                                 ),
                                 portable_canonical_json_bytes(
@@ -244,7 +446,7 @@ class CaptureOperations(_LocalEngineOperations):
                                 "tenant_id": submission.role_claim["tenant_id"],
                             }
                         ).decode("utf-8"),
-                        portable_canonical_json_bytes(submission.privacy.to_dict()).decode("utf-8"),
+                        portable_canonical_json_bytes(admitted_privacy.to_dict()).decode("utf-8"),
                         portable_canonical_json_bytes(submission.provenance.to_dict()).decode(
                             "utf-8"
                         ),
@@ -270,6 +472,22 @@ class CaptureOperations(_LocalEngineOperations):
                 space_id=receipt.space_id,
                 canonical_path=receipt.canonical_path,
                 duplicate=duplicate,
+                requested_tier=submission.requested_tier,
+                final_admitted_tier=admitted_privacy.tier,
+                # Only the destination-bound path publishes its request and
+                # authority binding; every other receipt keeps today's shape.
+                delivery_id=(
+                    delivery_id
+                    if submission.submission_path is CaptureSubmissionPath.DESTINATION_BOUND
+                    else None
+                ),
+                request_sha256=(
+                    request_sha
+                    if submission.submission_path is CaptureSubmissionPath.DESTINATION_BOUND
+                    else None
+                ),
+                destination_brain_id=submission.destination_brain_id,
+                issuer_epoch=submission.issuer_epoch,
             )
         )
 
@@ -424,7 +642,13 @@ class CaptureOperations(_LocalEngineOperations):
         )
         origin = cast(str, row["source_origin"])
         submission_path = cast(str | None, row["submission_path"]) or "owner"
-        public_job = submission_path == "public_job"
+        # Destination-bound rows project from the stored submission exactly like
+        # public-job rows: the durable record must never claim the owner actor
+        # for a non-owner destination principal.
+        public_job = submission_path in (
+            CaptureSubmissionPath.PUBLIC_JOB.value,
+            CaptureSubmissionPath.DESTINATION_BOUND.value,
+        )
         stored_provenance = _stored_submission_value(row, "provenance_json") if public_job else {}
         provenance = (
             {
@@ -458,7 +682,11 @@ class CaptureOperations(_LocalEngineOperations):
                 "payload_sha256": sha256(payload_bytes).hexdigest(),
             },
             "payload_schema_version": 1,
-            "privacy": _stored_submission_value(row, "privacy_json") if public_job else _privacy(),
+            "privacy": (
+                _stored_submission_value(row, "privacy_json")
+                if public_job
+                else _owner_record_privacy(row)
+            ),
             "provenance": provenance,
             "receipt_refs": receipts,
             "role_claim": (
@@ -562,7 +790,11 @@ class CaptureOperations(_LocalEngineOperations):
                 "actor_id": self.profile.owner_actor_id,
                 "modified_at": row["accepted_at"],
                 "page_id": row["page_id"],
-                "privacy": _privacy(),
+                # The page frontmatter carries the admitted decision from the
+                # capture row, so page, row, and search agree even where
+                # admission narrowed or the owner set an explicit tier. For a
+                # no-flag capture this is byte-identical to the fixed dict.
+                "privacy": _owner_record_privacy(row),
                 "provenance": [row["capture_id"]],
                 "role_claim": _role_claim(self.profile),
                 "schema_version": 1,
@@ -586,6 +818,7 @@ class CaptureOperations(_LocalEngineOperations):
             connection.close()
         if row is None:
             return None
+        retained_tier = _retained_privacy_tier(row)
         return CaptureReceipt(
             capture_id=cast(str, row["capture_id"]),
             payload_family=cast(str, row["payload_family"]),
@@ -593,7 +826,39 @@ class CaptureOperations(_LocalEngineOperations):
             enrichment_state=cast(str, row["enrichment_state"]),
             space_id=cast(str | None, row["space_id"]),
             canonical_path=cast(str | None, row["canonical_path"]),
+            requested_tier=retained_tier,
+            final_admitted_tier=retained_tier,
         )
+
+
+def _retained_privacy_tier(row: sqlite3.Row) -> PrivacyTier:
+    """The tier of the retained admitted decision; unreadable evidence is unknown."""
+    raw = row["privacy_json"]
+    if not isinstance(raw, str):
+        return PrivacyTier.UNKNOWN
+    try:
+        value = json.loads(raw)
+    except json.JSONDecodeError:
+        return PrivacyTier.UNKNOWN
+    if not isinstance(value, dict):
+        return PrivacyTier.UNKNOWN
+    try:
+        return PrivacyTier(value["tier"])
+    except KeyError, TypeError, ValueError:
+        return PrivacyTier.UNKNOWN
+
+
+def _owner_record_privacy(row: sqlite3.Row) -> dict[str, object]:
+    """Owner capture records keep the fixed local decision unless admission narrowed it."""
+    raw = row["privacy_json"]
+    if isinstance(raw, str):
+        try:
+            stored = json.loads(raw)
+        except json.JSONDecodeError:
+            stored = None
+        if isinstance(stored, dict) and stored != _privacy():
+            return cast(dict[str, object], stored)
+    return _privacy()
 
 
 def _stored_submission_value(row: sqlite3.Row, column: str) -> dict[str, object]:
@@ -642,9 +907,11 @@ class CaptureTasks:
         intent: str | None = None,
         capture_why: str | None = None,
         title: str | None = None,
+        privacy_tier: PrivacyTier | None = None,
     ) -> CaptureReceipt:
-        with self._engine._writer_lease.acquire_shared_writer():
-            return self._engine._accept_capture(
+        engine = self._engine
+        with engine._writer_lease.acquire_shared_writer():
+            return engine._accept_capture(
                 payload,
                 delivery_id=delivery_id,
                 action=action,
@@ -652,11 +919,21 @@ class CaptureTasks:
                 intent=intent,
                 capture_why=capture_why,
                 title=title,
+                privacy_tier=privacy_tier,
             )
 
     def submit(self, submission: CaptureSubmission) -> CaptureReceipt:
-        with self._engine._writer_lease.acquire_shared_writer():
-            return self._engine._submit_capture(submission)
+        engine = self._engine
+        with engine._admit_submission(submission):
+            # Owner submissions keep today's immediate LockBusyError under a
+            # competing writer; only remote-originated submissions wait boundedly.
+            lease = (
+                engine._writer_lease.acquire_shared_writer()
+                if submission.submission_path is CaptureSubmissionPath.OWNER
+                else engine._writer_lease_bounded()
+            )
+            with lease:
+                return engine._submit_capture(submission)
 
     def public_job_sink(self, context: PublicJobCaptureContext) -> PublicJobCaptureSink:
         context.validate_profile(self._engine.profile)

@@ -947,9 +947,7 @@ def test_live_negotiated_grant_describes_only_implemented_contract(
         described = _exchange(process, _call("brain_contract_describe", {}, 3))
         operations = described["result"]["structuredContent"]["operations"]
         assert [operation["name"] for operation in operations] == (
-            ["record.read"]
-            if flag == "--allow-content-read"
-            else ["history.list", "history.show"]
+            ["record.read"] if flag == "--allow-content-read" else ["history.list", "history.show"]
         )
         assert process.stdin is not None
         process.stdin.close()
@@ -970,9 +968,7 @@ def test_live_mcp_engine_retrieval_grants_and_cursor_failures(tasks: Any) -> Non
         for index in range(3)
     ]
     unicode_payload = TextPayload("é🙂é 漢字 actual MCP content\n" * 2000)
-    unicode_capture = tasks.capture.accept(
-        unicode_payload, delivery_id="mcp.retrieval.unicode"
-    )
+    unicode_capture = tasks.capture.accept(unicode_payload, delivery_id="mcp.retrieval.unicode")
     process = _start(
         tasks.profile.root,
         "--allow-search",
@@ -1009,9 +1005,7 @@ def test_live_mcp_engine_retrieval_grants_and_cursor_failures(tasks: Any) -> Non
             ),
         )
         assert cross_session["result"]["isError"] is True
-        assert cross_session["result"]["content"] == [
-            {"type": "text", "text": "cursor_invalid"}
-        ]
+        assert cross_session["result"]["content"] == [{"type": "text", "text": "cursor_invalid"}]
 
         tasks.capture.accept(
             TextPayload("actual MCP changed nebula"),
@@ -1036,9 +1030,9 @@ def test_live_mcp_engine_retrieval_grants_and_cursor_failures(tasks: Any) -> Non
         chunks: list[str] = []
         offset = 0
         while True:
-            read = _exchange(process, _call("brain_read", read_arguments, 6))[
-                "result"
-            ]["structuredContent"]
+            read = _exchange(process, _call("brain_read", read_arguments, 6))["result"][
+                "structuredContent"
+            ]
             assert read["start_byte"] == offset
             text = read["content"]["text"]
             offset += len(text.encode("utf-8"))
@@ -1061,9 +1055,7 @@ def test_live_mcp_engine_retrieval_grants_and_cursor_failures(tasks: Any) -> Non
                 7,
             ),
         )
-        assert denied["result"]["content"] == [
-            {"type": "text", "text": "unsupported_capability"}
-        ]
+        assert denied["result"]["content"] == [{"type": "text", "text": "unsupported_capability"}]
     finally:
         for child in (process, other):
             if child is None:
@@ -1135,9 +1127,7 @@ def test_live_mcp_history_list_show_cursor_and_independent_grant(tasks: Any) -> 
                 4,
             ),
         )
-        assert cross_session["result"]["content"] == [
-            {"type": "text", "text": "cursor_invalid"}
-        ]
+        assert cross_session["result"]["content"] == [{"type": "text", "text": "cursor_invalid"}]
         tail = _exchange(
             process,
             _call(
@@ -1157,9 +1147,9 @@ def test_live_mcp_history_list_show_cursor_and_independent_grant(tasks: Any) -> 
         }
         chunks: list[str] = []
         while True:
-            shown = _exchange(process, _call("brain_history_show", arguments, 6))[
-                "result"
-            ]["structuredContent"]
+            shown = _exchange(process, _call("brain_history_show", arguments, 6))["result"][
+                "structuredContent"
+            ]
             assert shown["record"]["revision_id"] == old_revision
             chunks.append(shown["content"]["text"])
             if shown["complete"]:
@@ -1175,9 +1165,7 @@ def test_live_mcp_history_list_show_cursor_and_independent_grant(tasks: Any) -> 
                 7,
             ),
         )
-        assert denied["result"]["content"] == [
-            {"type": "text", "text": "unsupported_capability"}
-        ]
+        assert denied["result"]["content"] == [{"type": "text", "text": "unsupported_capability"}]
     finally:
         for child in (process, other, content_only):
             if child.stdin is not None and not child.stdin.closed:
@@ -1629,3 +1617,151 @@ def test_malformed_request_metadata_is_rejected(tasks: Any, metadata: object) ->
         _adapter(tasks).call_tool("brain_search", {"query": "Must not be captured"})["results"]
         == []
     )
+
+
+def test_capture_privacy_tier_is_refused_through_the_non_owner_sink(tasks: Any) -> None:
+    adapter = _adapter(tasks, capture=True, search=False)
+    with pytest.raises(McpCallError, match="^capture privacy tier requires owner authority$"):
+        adapter.call_tool(
+            "brain_capture", {"text": "synthetic tiered capture", "privacy_tier": "work"}
+        )
+    with pytest.raises(McpCallError, match="^invalid tool arguments$"):
+        adapter.call_tool("brain_capture", {"text": "synthetic", "privacy_tier": "synthetic-tier"})
+    plain = adapter.call_tool("brain_capture", {"text": "synthetic plain mcp capture"})
+    assert plain["status"] == "captured"
+
+
+def _destination_policy(
+    tasks: Any,
+    *,
+    allowed_capture_tiers: list[str] | None = None,
+    issuer_epoch: int | None = None,
+    brain_id: str | None = None,
+) -> str:
+    from open_brain_engine.core.access_contracts import derive_brain_id
+
+    root = Path(tasks.profile.root)
+    connection = sqlite3.connect(root / ".open-brain/state/phase1.sqlite3")
+    try:
+        row = connection.execute("SELECT brain_id, issuer_epoch FROM brain_identity").fetchone()
+    finally:
+        connection.close()
+    assert row is not None
+    document = {
+        "policy_version": "launcher-policy.v1",
+        "principal_id": "synthetic-destination-principal",
+        "session_id": "synthetic-destination-session",
+        "capabilities": [],
+        "space_ids": None,
+        "allowed_read_tiers": ["public", "work"],
+        "allowed_capture_tiers": (
+            ["public", "work", "personal", "secret", "unknown"]
+            if allowed_capture_tiers is None
+            else allowed_capture_tiers
+        ),
+        "egress_mode": "owner_local",
+        "provider_id": None,
+        "consent_id": None,
+        "authorization_generation": 0,
+        "brain_id": brain_id if brain_id is not None else cast(str, row[0]),
+        "issuer_epoch": issuer_epoch if issuer_epoch is not None else cast(int, row[1]),
+    }
+    assert document["brain_id"] == derive_brain_id(cast(str, tasks.profile.tenant_id)) or brain_id
+    return json.dumps(document)
+
+
+def _destination_adapter(tasks: Any, policy: str) -> LocalMcpAdapter:
+    from open_brain.services.local_operations import (
+        destination_bound_authority,
+        destination_bound_capture_submit,
+    )
+
+    authority = destination_bound_authority(tasks, policy)
+    return LocalMcpAdapter(capture_submit=destination_bound_capture_submit(tasks, authority))
+
+
+def test_capture_submit_is_listed_only_when_the_grant_is_injected(tasks: Any) -> None:
+    assert "brain_capture_submit" not in {tool["name"] for tool in _adapter(tasks).list_tools()}
+    adapter = _destination_adapter(tasks, _destination_policy(tasks))
+    assert {tool["name"] for tool in adapter.list_tools()} == {
+        "brain_catalog",
+        "brain_capture_submit",
+    }
+    schema = adapter.list_tools()[0]["inputSchema"]
+    assert schema["additionalProperties"] is False
+    assert schema["required"] == ["text"]
+    assert set(schema["properties"]) == {"text", "idempotency_key", "privacy_tier"}
+
+
+def test_capture_submit_binds_the_requested_tier_and_authority(tasks: Any) -> None:
+    from open_brain_engine.core.access_contracts import derive_brain_id
+
+    adapter = _destination_adapter(tasks, _destination_policy(tasks))
+    responses = _wire(
+        adapter,
+        INITIALIZE,
+        _call(
+            "brain_capture_submit",
+            {
+                "text": "synthetic destination-bound mcp token",
+                "idempotency_key": "destination-1",
+                "privacy_tier": "work",
+            },
+        ),
+        _call("brain_capture_submit", {"text": "synthetic destination unkeyed"}),
+    )
+    first = responses[1]["result"]["structuredContent"]
+    assert first["status"] == "captured"
+    assert first["requested_tier"] == "work"
+    assert first["final_admitted_tier"] == "work"
+    assert first["delivery_id"].startswith("delivery.mcp.destination.key.")
+    assert len(cast(str, first["request_sha256"])) == 64
+    assert first["destination_brain_id"] == derive_brain_id(cast(str, tasks.profile.tenant_id))
+    assert isinstance(first["issuer_epoch"], int)
+    second = responses[2]["result"]["structuredContent"]
+    assert second["status"] == "captured"
+    assert second["requested_tier"] == "unknown"
+    assert second["final_admitted_tier"] == "unknown"
+
+
+def test_capture_submit_replay_is_idempotent_and_out_of_set_tiers_are_refused(
+    tasks: Any,
+) -> None:
+    adapter = _destination_adapter(
+        tasks, _destination_policy(tasks, allowed_capture_tiers=["work"])
+    )
+    first = adapter.call_tool(
+        "brain_capture_submit",
+        {
+            "text": "synthetic destination replay token",
+            "idempotency_key": "destination-2",
+            "privacy_tier": "work",
+        },
+    )
+    repeated = adapter.call_tool(
+        "brain_capture_submit",
+        {
+            "text": "synthetic destination replay token",
+            "idempotency_key": "destination-2",
+            "privacy_tier": "work",
+        },
+    )
+    assert first["status"] == "captured"
+    assert repeated == {**first, "duplicate": True}
+    with pytest.raises(McpCallError, match="^tier_not_permitted$"):
+        adapter.call_tool(
+            "brain_capture_submit",
+            {"text": "synthetic destination denied tier", "privacy_tier": "secret"},
+        )
+    with pytest.raises(McpCallError, match="^invalid tool arguments$"):
+        adapter.call_tool("brain_capture_submit", {"text": "synthetic", "privacy_tier": 7})
+
+
+def test_capture_submit_refuses_stale_epoch_and_wrong_brain_policies(tasks: Any) -> None:
+    from open_brain.services.launcher_policy import LauncherPolicyError
+    from open_brain.services.local_operations import destination_bound_authority
+
+    with pytest.raises(LauncherPolicyError, match="issuer_mismatch"):
+        destination_bound_authority(tasks, _destination_policy(tasks, issuer_epoch=99))
+    with pytest.raises(LauncherPolicyError, match="destination_mismatch"):
+        destination_bound_authority(tasks, _destination_policy(tasks, brain_id="brn_" + "q" * 26))

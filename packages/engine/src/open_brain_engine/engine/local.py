@@ -3,17 +3,23 @@
 from __future__ import annotations
 
 import sqlite3
+import threading
+from collections import deque
 from collections.abc import Callable, Collection
 from datetime import datetime
 from hashlib import sha256
+from pathlib import Path
 
 from open_brain_engine.providers.base import ProviderMode
 from open_brain_engine.storage.filesystem import assert_root_identity
 from open_brain_engine.storage.locks import FileLease
 from open_brain_engine.storage.sqlite import SchemaError
+from open_brain_engine.storage.watermarks import StorageUsage
 
 from .capture import CaptureOperations, CaptureTasks
 from .contracts import (
+    AdmissionLimits,
+    BoundaryClassifier,
     CaptureAction,
     CaptureFault,
     CaptureReceipt,
@@ -128,7 +134,16 @@ class BrainEngine(CaptureOperations, SpaceOperations, ReviewOperations, Retrieva
         clock: Callable[[], datetime],
         enrichment_provider: EnrichmentProvider | None,
         validate_mutation_authority: Callable[[], None] | None = None,
+        admission_limits: AdmissionLimits | None = None,
+        storage_probe: Callable[[Path], StorageUsage] | None = None,
+        boundary_classifier: BoundaryClassifier | None = None,
     ) -> None:
+        if admission_limits is not None and not isinstance(admission_limits, AdmissionLimits):
+            raise ValueError("invalid admission limits")
+        if storage_probe is not None and not callable(storage_probe):
+            raise ValueError("invalid storage probe")
+        if boundary_classifier is not None and not callable(boundary_classifier):
+            raise ValueError("invalid boundary classifier")
         if profile.provider_mode is ProviderMode.CLOUD:
             raise ValueError("Phase 1 local engine does not enable cloud enrichment")
         if profile.provider_mode is ProviderMode.NONE and enrichment_provider is not None:
@@ -158,8 +173,7 @@ class BrainEngine(CaptureOperations, SpaceOperations, ReviewOperations, Retrieva
             # The ordinary opener never silently migrates; the explicit
             # coordinator owns the chained source-history and privacy cutover.
             raise StateSchemaUnavailableError(
-                "local state schema is supported_old: source migration requires "
-                "exclusive admission"
+                "local state schema is supported_old: source migration requires exclusive admission"
             )
         if (
             schema.state == "supported_old"
@@ -178,13 +192,31 @@ class BrainEngine(CaptureOperations, SpaceOperations, ReviewOperations, Retrieva
         ):
             # The ordinary opener never silently migrates a schema-eight Brain.
             raise StateSchemaUnavailableError(
-                "local state schema is supported_old: issuer migration requires "
-                "exclusive admission"
+                "local state schema is supported_old: issuer migration requires exclusive admission"
             )
         self.profile = profile
         self._faults = set(faults)
         self._clock = clock
         self._enrichment_provider = enrichment_provider
+        self._admission_limits = (
+            admission_limits if admission_limits is not None else AdmissionLimits()
+        )
+        # Storage watermarks re-probe the Brain root's filesystem on every
+        # submission; ``None`` resolves to the standard statvfs probe of the
+        # root, and an injected probe lets tests fake usage without filling
+        # a disk.
+        self._storage_probe = storage_probe
+        # Canonical-boundary rescan narrows only. ``None`` (the default) means
+        # no classifier is wired and every submission path keeps its submitted
+        # tier, so existing no-flag capture behaves exactly as before.
+        self._boundary_classifier = boundary_classifier
+        # Engine-owned admission gate state. The core is one foreground
+        # process, so the per-principal rate windows and the concurrent
+        # admission counter are per-process and recover in-process without
+        # reopening the engine.
+        self._admission_gate_guard = threading.Lock()
+        self._admission_rate_windows: dict[str, deque[datetime]] = {}
+        self._active_admissions = 0
         lease_identity = "engine-" + sha256(profile.owner_actor_id.encode("utf-8")).hexdigest()[:32]
         self._writer_lease = FileLease(
             profile.root / ".open-brain",
@@ -249,6 +281,9 @@ class BrainEngine(CaptureOperations, SpaceOperations, ReviewOperations, Retrieva
         enrichment_provider: EnrichmentProvider | None = None,
         validate_mutation_authority: Callable[[], None] | None = None,
         recover_abandoned_sessions: bool = True,
+        admission_limits: AdmissionLimits | None = None,
+        storage_probe: Callable[[Path], StorageUsage] | None = None,
+        boundary_classifier: BoundaryClassifier | None = None,
     ) -> BrainEngine:
         if not isinstance(profile, LocalEngineContext):
             raise ValueError("invalid local profile")
@@ -258,6 +293,9 @@ class BrainEngine(CaptureOperations, SpaceOperations, ReviewOperations, Retrieva
             clock=clock or _utc_now,
             enrichment_provider=enrichment_provider,
             validate_mutation_authority=validate_mutation_authority,
+            admission_limits=admission_limits,
+            storage_probe=storage_probe,
+            boundary_classifier=boundary_classifier,
         )
         with engine._writer_lease.acquire_shared_writer():
             engine._recover(startup=recover_abandoned_sessions)

@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from hashlib import sha256
 from pathlib import Path
+from typing import cast
 
 from open_brain_engine.core.models import (
     Authority,
@@ -17,6 +18,7 @@ from open_brain_engine.core.models import (
 )
 from open_brain_engine.engine import (
     CaptureReceipt,
+    CaptureSubmission,
     CaptureTask,
     EngineTaskSet,
     ManagedAccessMode,
@@ -28,8 +30,10 @@ from open_brain_engine.engine import (
     RetrievalTask,
     TextPayload,
 )
+from open_brain_engine.engine.local_schema import PHASE1_STATE_DATABASE
+from open_brain_engine.engine.t03_contracts import EffectiveAuthority
 from open_brain_engine.storage.locks import LockBusyError
-from open_brain_engine.storage.sqlite import is_database_busy
+from open_brain_engine.storage.sqlite import connect_database_read_only, is_database_busy
 
 from open_brain.services.graph_projection_store import (
     GraphProjectionStore,
@@ -40,6 +44,10 @@ from open_brain.services.graphify_projection import (
     GraphifyAdapter,
     GraphifyFailure,
     discover_graphify_executable,
+)
+from open_brain.services.launcher_policy import (
+    LauncherPolicyError,
+    validate_startup_policy,
 )
 from open_brain.services.managed_providers import (
     ManagedGraphProviderResult,
@@ -67,10 +75,18 @@ def mcp_capture_sink(tasks: EngineTaskSet) -> PublicJobCaptureSink:
 
 
 def capture_text(
-    capture: CaptureTask | PublicJobCaptureSink, text: str, *, delivery_id: str
+    capture: CaptureTask | PublicJobCaptureSink,
+    text: str,
+    *,
+    delivery_id: str,
+    privacy_tier: PrivacyTier | None = None,
 ) -> CaptureReceipt:
     payload = TextPayload(text)
     if isinstance(capture, PublicJobCaptureSink):
+        if privacy_tier is not None:
+            # The explicit tier is owner-only authority; the non-owner sink
+            # must never carry it.
+            raise ValueError("capture privacy tier requires owner authority")
         # Bind exact input bytes as well as the engine-normalized payload on replay.
         source = "urn:open-brain:mcp:" + sha256(text.encode("utf-8")).hexdigest()
         return capture.submit(
@@ -90,7 +106,7 @@ def capture_text(
                 authority=Authority(cloud=False, external_egress=False),
             ),
         )
-    return capture.accept(payload, delivery_id=delivery_id)
+    return capture.accept(payload, delivery_id=delivery_id, privacy_tier=privacy_tier)
 
 
 def search_brain(
@@ -98,6 +114,96 @@ def search_brain(
 ) -> tuple[RetrievalResult, ...]:
     reconciliation.reconcile()
     return retrieval.search(query, limit=limit)
+
+
+def destination_bound_authority(
+    tasks: EngineTaskSet, raw_policy: str | bytes | Mapping[str, object]
+) -> EffectiveAuthority:
+    """Validate the trusted startup policy against this Brain's durable identity.
+
+    The durable ``brain_identity`` row is the only source of the current Brain
+    ID and issuer epoch, so a stale-epoch or wrong-Brain policy is refused
+    here, before any submission exists. The destination-bound capture path
+    never grants egress authority, so no provider consent is consulted;
+    external-provider policies fail closed.
+    """
+    profile = tasks.profile
+    connection = connect_database_read_only(
+        root=profile.root,
+        database_name=PHASE1_STATE_DATABASE,
+        expected_root_identity=profile.root_identity,
+    )
+    try:
+        row = connection.execute("SELECT brain_id, issuer_epoch FROM brain_identity").fetchone()
+    finally:
+        connection.close()
+    if row is None:
+        raise LauncherPolicyError("destination_mismatch")
+    return validate_startup_policy(
+        raw_policy,
+        current_brain_id=cast(str, row[0]),
+        current_issuer_epoch=cast(int, row[1]),
+        current_authorization_generation=0,
+        consent_state=None,
+    )
+
+
+def submit_destination_bound_capture(
+    tasks: EngineTaskSet,
+    authority: EffectiveAuthority,
+    text: str,
+    *,
+    requested_tier: PrivacyTier | None,
+    delivery_id: str,
+) -> CaptureReceipt:
+    """Submit one destination-bound capture; the engine owns every admission check."""
+    return tasks.capture.submit(
+        CaptureSubmission.for_destination_bound(
+            profile=tasks.profile,
+            authority=authority,
+            payload=TextPayload(text),
+            delivery_id=delivery_id,
+            requested_tier=requested_tier,
+        )
+    )
+
+
+def destination_bound_capture_result(receipt: CaptureReceipt) -> dict[str, object]:
+    """The public destination-bound receipt projection with its full binding."""
+    return {
+        "capture_id": receipt.capture_id,
+        "delivery_id": receipt.delivery_id,
+        "destination_brain_id": receipt.destination_brain_id,
+        "duplicate": receipt.duplicate,
+        "final_admitted_tier": receipt.final_admitted_tier.value,
+        "issuer_epoch": receipt.issuer_epoch,
+        "payload_family": receipt.payload_family,
+        "request_sha256": receipt.request_sha256,
+        "requested_tier": receipt.requested_tier.value,
+        "state": receipt.state,
+        "status": "captured",
+    }
+
+
+def destination_bound_capture_submit(
+    tasks: EngineTaskSet, authority: EffectiveAuthority
+) -> Callable[[str, PrivacyTier | None, str], dict[str, object]]:
+    """One destination-bound submission capability for a launched MCP session."""
+
+    def submit(
+        text: str, requested_tier: PrivacyTier | None, delivery_id: str
+    ) -> dict[str, object]:
+        return destination_bound_capture_result(
+            submit_destination_bound_capture(
+                tasks,
+                authority,
+                text,
+                requested_tier=requested_tier,
+                delivery_id=delivery_id,
+            )
+        )
+
+    return submit
 
 
 def capture_result(receipt: CaptureReceipt) -> dict[str, object]:
@@ -169,10 +275,8 @@ def graph_suggestions(tasks: EngineTaskSet) -> dict[str, object]:
                 "target_revision_id": suggestion.target_revision_id,
                 "revision_status": (
                     "current"
-                    if revisions.get(suggestion.source_note_id)
-                    == suggestion.source_revision_id
-                    and revisions.get(suggestion.target_note_id)
-                    == suggestion.target_revision_id
+                    if revisions.get(suggestion.source_note_id) == suggestion.source_revision_id
+                    and revisions.get(suggestion.target_note_id) == suggestion.target_revision_id
                     else "stale"
                 ),
             }
@@ -192,9 +296,9 @@ def graph_projection(tasks: EngineTaskSet) -> dict[str, object]:
         }
     try:
         snapshot = tasks.managed_workspace.graph_snapshot(status.workspace_id)
-        structural = GraphProjectionStore(
-            tasks.profile.root, tasks.profile.root_identity
-        ).load(snapshot)
+        structural = GraphProjectionStore(tasks.profile.root, tasks.profile.root_identity).load(
+            snapshot
+        )
     except GraphifyFailure as error:
         return {
             "inferred_suggestions": [],
@@ -217,9 +321,9 @@ def graph_canvas(tasks: EngineTaskSet) -> dict[str, object]:
         return {"status": "unconfigured"}
     snapshot = tasks.managed_workspace.graph_snapshot(status.workspace_id)
     try:
-        structural = GraphProjectionStore(
-            tasks.profile.root, tasks.profile.root_identity
-        ).load(snapshot)
+        structural = GraphProjectionStore(tasks.profile.root, tasks.profile.root_identity).load(
+            snapshot
+        )
     except GraphifyFailure as error:
         return {
             "reason": error.code,

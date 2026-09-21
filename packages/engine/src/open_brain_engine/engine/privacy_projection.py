@@ -16,7 +16,14 @@ from ..core.access_contracts import (
     validate_stored_privacy_decision,
 )
 from ..core.ids import portable_canonical_json_bytes
-from ..core.models import Authority, PrivacyDecision, PrivacyTier, ValidationError
+from ..core.models import (
+    Authority,
+    PrivacyDecision,
+    PrivacyReason,
+    PrivacyTier,
+    ValidationError,
+    narrowest_tier,
+)
 
 __all__ = [
     "InvalidPrivacyEvidenceReason",
@@ -24,6 +31,7 @@ __all__ = [
     "RetainedPrivacyEvidence",
     "apply_privacy_repair",
     "effective_privacy_json",
+    "narrow_retained_privacy_decision",
     "project_retained_privacy_evidence",
 ]
 
@@ -49,6 +57,7 @@ def effective_privacy_json(evidence: RetainedPrivacyEvidence) -> str:
             "invalid_evidence_sha256": evidence.invalid_evidence_sha256,
         }
     ).decode("utf-8")
+
 
 _INVALID_EVIDENCE_DOMAIN = "open-brain.privacy.invalid-evidence.v1"
 _SHA256 = re.compile(r"[0-9a-f]{64}")
@@ -203,6 +212,47 @@ def apply_privacy_repair(
     )
 
 
+# PUBLIC never appears here: it can never be the narrowest tier of a wider
+# submitted decision, so it cannot name a narrowing reason.
+_NARROWED_REASON: dict[PrivacyTier, PrivacyReason] = {
+    PrivacyTier.WORK: PrivacyReason.POLICY_WORK,
+    PrivacyTier.PERSONAL: PrivacyReason.PERSONAL_LOCAL_ONLY,
+    PrivacyTier.SECRET: PrivacyReason.SECRET_DETECTED,
+    PrivacyTier.UNKNOWN: PrivacyReason.CLASSIFICATION_MISSING,
+}
+
+
+def narrow_retained_privacy_decision(
+    decision: PrivacyDecision, final_tier: PrivacyTier
+) -> PrivacyDecision:
+    """Bind one admission-narrowed final tier onto the retained privacy decision.
+
+    The retained decision is returned unchanged unless ``final_tier`` is
+    narrower under :func:`narrowest_tier`, so a wider signal can never broaden
+    tier or egress authority. A narrowed decision keeps the submitted policy
+    version, names the canonical boundary reason for its tier, keeps egress
+    authority only where that closed reason permits it, and drops the
+    confirmation reference, so what is retained stays one valid decision the
+    effective-privacy projection derives unchanged.
+    """
+    if not isinstance(decision, PrivacyDecision) or not isinstance(final_tier, PrivacyTier):
+        raise ValidationError("invalid narrowed privacy decision")
+    if narrowest_tier(decision.tier, final_tier) is decision.tier:
+        return decision
+    reason = _NARROWED_REASON[final_tier]
+    authority = (
+        decision.authority
+        if reason is PrivacyReason.POLICY_WORK
+        else Authority(cloud=False, external_egress=False)
+    )
+    return PrivacyDecision.create(
+        tier=final_tier,
+        reason=reason,
+        policy_version=decision.policy_version,
+        authority=authority,
+    )
+
+
 def project_retained_privacy_evidence(
     retained: Iterable[RetainedPrivacyValue] | RetainedPrivacyValue,
     *,
@@ -258,9 +308,7 @@ def _invalid_projection(
             {
                 "domain": _INVALID_EVIDENCE_DOMAIN,
                 "reason": reason.value,
-                "retained": [
-                    _invalid_evidence_preimage_value(value) for value in values
-                ],
+                "retained": [_invalid_evidence_preimage_value(value) for value in values],
             }
         )
     ).hexdigest()

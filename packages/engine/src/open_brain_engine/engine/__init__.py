@@ -31,6 +31,9 @@ from open_brain_engine.providers.base import ProviderMode
 
 from .capture import DeliveryConflict
 from .contracts import (
+    AdmissionLimits,
+    CaptureAdmissionError,
+    CaptureAdmissionResult,
     CaptureReceipt,
     CaptureTask,
     InboxSpaceTask,
@@ -122,8 +125,11 @@ from .maintenance import (
 )
 
 __all__ = [
+    "AdmissionLimits",
     "BrainEngine",
     "CaptureAction",
+    "CaptureAdmissionError",
+    "CaptureAdmissionResult",
     "CaptureEnvelope",
     "CapturePipeline",
     "CaptureFault",
