@@ -31,6 +31,7 @@ from open_brain_engine.engine.contracts import (
     MarkdownImportFailure,
     PublicJobCaptureContext,
     TextPayload,
+    destination_bound_request_sha256,
     project_public_capture_receipt,
 )
 from open_brain_engine.engine.t03_contracts import EffectiveAuthority
@@ -632,6 +633,59 @@ def test_destination_bound_digest_binds_tier_brain_and_epoch() -> None:
         delivery_id="delivery.admission.owner.boundary",
     )
     assert "destination_brain_id" not in owner.request_value()
+
+
+def test_destination_bound_request_sha256_helper_matches_submissions_without_an_authority() -> None:
+    profile = _profile()
+    authority = _destination_authority(profile, allowed_capture_tiers=frozenset(set(PrivacyTier)))
+    brain_id = derive_brain_id(profile.tenant_id)
+    payload = TextPayload("Synthetic destination-bound digest helper capture")
+    titled = CaptureSubmission.for_destination_bound(
+        profile=profile,
+        authority=authority,
+        payload=payload,
+        delivery_id="delivery.admission.destination.helper-1",
+        requested_tier=PrivacyTier.WORK,
+        title="Synthetic helper title",
+    )
+    tierless = CaptureSubmission.for_destination_bound(
+        profile=profile,
+        authority=authority,
+        payload=payload,
+        delivery_id="delivery.admission.destination.helper-2",
+        requested_tier=None,
+    )
+    assert (
+        destination_bound_request_sha256(
+            destination_brain_id=brain_id,
+            issuer_epoch=1,
+            tenant_id=profile.tenant_id,
+            principal_id=authority.principal_id,
+            payload=payload,
+            requested_tier=PrivacyTier.WORK,
+            title="Synthetic helper title",
+        )
+        == titled.request_sha256()
+    )
+    assert (
+        destination_bound_request_sha256(
+            destination_brain_id=brain_id,
+            issuer_epoch=1,
+            tenant_id=profile.tenant_id,
+            principal_id=authority.principal_id,
+            payload=payload,
+        )
+        == tierless.request_sha256()
+    )
+    other_delivery = CaptureSubmission.for_destination_bound(
+        profile=profile,
+        authority=authority,
+        payload=payload,
+        delivery_id="delivery.admission.destination.helper-3",
+        requested_tier=PrivacyTier.WORK,
+        title="Synthetic helper title",
+    )
+    assert other_delivery.request_sha256() == titled.request_sha256()
 
 
 def test_destination_bound_submissions_carry_the_public_job_restrictions() -> None:

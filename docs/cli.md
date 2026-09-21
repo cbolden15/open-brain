@@ -96,3 +96,76 @@ import returns 130.
 
 Secure Node and predecessor command families are historical source under `archive/`. They are not
 installed commands and are not supported through the Open Brain executable.
+
+## Optional connectors commands
+
+The optional `open-brain-connectors` package installs its own console scripts alongside `open-brain`.
+The source CLI `open-brain-source` is documented per source in the Google Calendar, workspace content,
+and PDF/DOCX import guides. The outbox CLI `open-brain-outbox` is the owner-facing foreground command
+for the offline outbox described in the [capture contract](capture-contract.md). Every subcommand
+takes the shared options `--outbox-dir` (required, the owner-supplied outbox directory), `--max-items`
+(default 1000), `--max-bytes` (default 8 MiB), and `--json` to print one JSON document instead of the
+human-readable line. Output is metadata only and never echoes payload text.
+
+| Subcommand | Purpose |
+|---|---|
+| `enqueue` | Read one JSON request from stdin and store one durable item |
+| `drain` | Run exactly one bounded delivery cycle through the stdio transport |
+| `status` | Print metadata-only counts and capacity by state |
+| `retry DELIVERY_ID` | Requeue one quarantined item under a new bounded window |
+| `discard DELIVERY_ID --confirm` | Owner-confirmed terminal discard |
+| `convert DELIVERY_ID --destination-brain-id ID --issuer-epoch N` | Enqueue a new item for a new destination with lineage |
+
+An enqueue request carries the required keys `destination_brain_id`, `issuer_epoch`, `tenant_id`,
+`principal_id`, `requested_tier`, and `text`, plus the optional keys `delivery_id` (a fresh identifier
+is generated when absent), `policy_ref`, `retry_age_limit_seconds` (default 86400),
+`retry_attempt_limit` (default 8), and `enqueued_at`. The result prints `delivery_id`,
+`request_digest`, and `result`. A drain takes exactly one of `--transport-argv`, a JSON array of
+strings, or `--transport-command-file`, a path holding that array, plus `--max-batch-items`
+(default 16), `--max-batch-bytes` (default 1 MiB), and `--timeout-seconds` (default 60). The drain
+JSON summary carries `result`, `stale_lease_reclaimed`, `admitted_items`, `skipped_items`,
+`delivery_attempts`, `accepted`, `duplicate`, `quarantined_age_exhausted`,
+`quarantined_attempts_exhausted`, `quarantined_receipt_mismatch`, `quarantined_refused`, `retried`,
+`transport_errors`, and `batch_too_large_items`. Status JSON carries the two caps, the reserved
+`headroom_bytes`, and item counts and sizes for the `queued`, `quarantined`, `terminal`, and `corrupt`
+states. Convert additionally accepts `--new-delivery-id` and prints both delivery IDs.
+
+Exit codes are 0 for success, 2 for a usage error including an invalid transport command, 65 for
+terminal refusals such as owner-operation refusals, store or contract failures, malformed requests,
+delivery conflicts, and oversized items (`item_too_large`), and 75 for the temporary failures
+`drain_busy` and `outbox_full`.
+
+The stdio transport is a deployment-supplied command speaking the `capture-submit --json` shape: it
+reads exactly one JSON request document from stdin, writes exactly one JSON result document to
+stdout, and exits 0 for a capture, 75 for a retryable admission refusal, 65 for a terminal admission
+refusal, 78 for a policy failure, or 2 for a usage error. Both documents are bounded to 256 KiB.
+Exit 0 with a parseable receipt becomes a terminal receipt; exit 0 with an unparseable, non-object,
+or shape-invalid success document becomes terminal `receipt_malformed`; exit 75 becomes a retryable
+failure under the reported code; exit 65 becomes a terminal failure under the reported code; exit 78
+becomes terminal `policy_mismatch`; exit 2 becomes terminal `transport_misuse`. A timeout, an
+over-limit result, an unknown exit code, or a command that cannot start becomes a retryable
+`transport_error`. The capture-submit CLI reports every policy-class failure as exit 78, so the
+adapter maps all of them to `policy_mismatch` and a delivery conflict is not distinct on this path.
+The command runs with an empty environment plus one explicit allowlist, a fresh working directory,
+and child process limits, and its process group is killed on timeout or over-limit output. The
+command, its hosts, and its credentials are private deployment inputs.
+
+A synthetic enqueue looks like:
+
+```sh
+open-brain-outbox enqueue --outbox-dir /absolute/path/to/outbox --json <<'JSON'
+{
+  "destination_brain_id": "brn_aaaaaaaaabaabaaaaaaaaaaaae",
+  "issuer_epoch": 1,
+  "tenant_id": "tenant-example",
+  "principal_id": "principal-example",
+  "requested_tier": "work",
+  "text": "synthetic offline capture text"
+}
+JSON
+```
+
+All names in the example are synthetic. The printed `queued` result is reported only after the
+complete item is durably stored, a full outbox prints `outbox_full` and exits 75 instead, and an
+item whose serialized envelope exceeds the per-item limit, 248 KiB by default under the 256 KiB
+request-document cap, prints `item_too_large` and exits 65.

@@ -1863,44 +1863,15 @@ class CaptureSubmission:
             tier = PrivacyTier.UNKNOWN
         if tier not in authority.allowed_capture_tiers:
             raise CaptureAdmissionError(CaptureAdmissionResult.TIER_NOT_PERMITTED)
-        payload_bytes = portable_canonical_json_bytes(payload.to_dict())
-        source_reference = "urn:open-brain:destination:" + sha256(payload_bytes).hexdigest()
-        principal_id = authority.principal_id
-        actor_id = "actor_" + _destination_bound_identifier(
-            "actor", profile.tenant_id, principal_id
-        )
-        occurrence_at = (
-            payload.occurrence_at
-            if isinstance(payload, EventPayload | MeasurementPayload)
-            else None
-        )
-        return cls(
-            payload=payload,
-            delivery_id=delivery_id,
-            source_origin=ContentOrigin.THIRD_PARTY,
-            source_reference=source_reference,
-            provenance=Provenance.create(
-                source_ref=source_reference,
-                content_origin=ContentOrigin.THIRD_PARTY,
-                owner_context=CaptureWhyOrigin.AUTOMATION_ABSENT,
-            ),
-            privacy=owner_privacy_for_tier(tier),
-            tenant_id=profile.tenant_id,
-            actor_id=actor_id,
-            role_claim={
-                "actor_id": actor_id,
-                "capabilities": ["capture.accept"],
-                "role_claim_id": "role_claim_"
-                + _destination_bound_identifier("role-claim", profile.tenant_id, principal_id),
-                "role_id": "role_"
-                + _destination_bound_identifier("role", profile.tenant_id, principal_id),
-                "tenant_id": profile.tenant_id,
-            },
-            title=title,
-            occurrence_at=occurrence_at,
-            submission_path=CaptureSubmissionPath.DESTINATION_BOUND,
+        return _destination_bound_submission(
             destination_brain_id=authority.brain_id,
             issuer_epoch=authority.issuer_epoch,
+            tenant_id=profile.tenant_id,
+            principal_id=authority.principal_id,
+            payload=payload,
+            delivery_id=delivery_id,
+            requested_tier=tier,
+            title=title,
         )
 
     def validate_profile(self, profile: LocalEngineContext) -> None:
@@ -1969,6 +1940,88 @@ class CaptureSubmission:
 
     def request_sha256(self) -> str:
         return sha256(portable_canonical_json_bytes(self.request_value())).hexdigest()
+
+
+def _destination_bound_submission(
+    *,
+    destination_brain_id: str,
+    issuer_epoch: int,
+    tenant_id: str,
+    principal_id: str,
+    payload: Payload,
+    delivery_id: str,
+    requested_tier: PrivacyTier | str | None,
+    title: str | None,
+) -> CaptureSubmission:
+    """The single destination-bound construction shared by every digest caller."""
+    tier = _privacy_tier(requested_tier)
+    if tier is None:
+        tier = PrivacyTier.UNKNOWN
+    payload_bytes = portable_canonical_json_bytes(payload.to_dict())
+    source_reference = "urn:open-brain:destination:" + sha256(payload_bytes).hexdigest()
+    actor_id = "actor_" + _destination_bound_identifier("actor", tenant_id, principal_id)
+    occurrence_at = (
+        payload.occurrence_at if isinstance(payload, EventPayload | MeasurementPayload) else None
+    )
+    return CaptureSubmission(
+        payload=payload,
+        delivery_id=delivery_id,
+        source_origin=ContentOrigin.THIRD_PARTY,
+        source_reference=source_reference,
+        provenance=Provenance.create(
+            source_ref=source_reference,
+            content_origin=ContentOrigin.THIRD_PARTY,
+            owner_context=CaptureWhyOrigin.AUTOMATION_ABSENT,
+        ),
+        privacy=owner_privacy_for_tier(tier),
+        tenant_id=tenant_id,
+        actor_id=actor_id,
+        role_claim={
+            "actor_id": actor_id,
+            "capabilities": ["capture.accept"],
+            "role_claim_id": "role_claim_"
+            + _destination_bound_identifier("role-claim", tenant_id, principal_id),
+            "role_id": "role_" + _destination_bound_identifier("role", tenant_id, principal_id),
+            "tenant_id": tenant_id,
+        },
+        title=title,
+        occurrence_at=occurrence_at,
+        submission_path=CaptureSubmissionPath.DESTINATION_BOUND,
+        destination_brain_id=destination_brain_id,
+        issuer_epoch=issuer_epoch,
+    )
+
+
+def destination_bound_request_sha256(
+    *,
+    destination_brain_id: str,
+    issuer_epoch: int,
+    tenant_id: str,
+    principal_id: str,
+    payload: Payload,
+    requested_tier: PrivacyTier | str | None = None,
+    title: str | None = None,
+) -> str:
+    """The one destination-bound request digest, computable without an authority.
+
+    The preimage is exactly the ``request_value()`` of the destination-bound
+    submission these inputs produce through ``CaptureSubmission
+    .for_destination_bound``: both build through the same shared construction,
+    so there is no second preimage. The delivery ID stays outside the digest
+    because the destination treats it as the replay dedupe key, not as request
+    identity.
+    """
+    submission = _destination_bound_submission(
+        destination_brain_id=destination_brain_id,
+        issuer_epoch=issuer_epoch,
+        tenant_id=tenant_id,
+        principal_id=principal_id,
+        payload=payload,
+        delivery_id="delivery.destination.request-sha256",
+        requested_tier=requested_tier,
+        title=title,
+    )
+    return submission.request_sha256()
 
 
 class CaptureTask(Protocol):

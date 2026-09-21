@@ -1005,6 +1005,22 @@ them and restore would resurrect superseded revisions into search.
 
 Discovered: 2026-09-20, full `make verify` after the CUT-G2C focused suites passed.
 
+### TOOLING-006: Writer-contention timing bounds must allow stacked timeouts
+
+Symptom: CI on macOS fails `test_upgrade_writer_contention_is_bounded_and_retry_safe` with an
+elapsed time just over ten seconds, while the same test takes about five seconds locally and the
+branch never touched the database open path.
+
+Cause: `open_local_database` waits up to five seconds to connect and then up to five more seconds
+on the SQLite busy handler when another connection holds a write transaction. On a slow runner both
+waits elapse, so a `< 10` bound sits exactly on the worst case.
+
+Fix: bound such tests at a value that proves the wait is finite, not short. The test now asserts
+under twenty seconds with a comment naming the stacked timeouts. Do not shorten either timeout to
+make the test faster.
+
+Discovered: 2026-09-21, twice in a row on pull request CI for unrelated branches.
+
 ### TOOLING-004: MyPy recognizes static platform guards
 
 Symptom: A platform-only import passes MyPy on its supported host but fails with `import-not-found`
@@ -2090,6 +2106,25 @@ live sessions for cursor isolation and grant checks, and clean up the first if s
 Use the dedicated contention tests to exercise retryable startup failures.
 
 Discovered: 2026-09-18, full M2 verification; the isolated retrieval recheck passed.
+
+### DESKTOP-001: Bridge tests with fixed two-second deadlines fail under load
+
+Symptom: `make verify` or `make desktop-test` fails in the Rust bridge tests with `DeadlineExceeded`
+where `MalformedResponse` or a successful probe was expected, most often
+`t03_nested_duplicates_close_the_actual_bridge` and
+`graphify_probe_executes_one_bounded_structural_operation`. Each test passes alone.
+
+Cause: those tests spawn a Python child and give it a fixed two-second deadline. Cargo runs the
+26 bridge tests in parallel, so under an already loaded machine (load average above 10 on the
+development Mac while other suites run) child startup can miss the deadline before the child ever
+writes its malformed reply.
+
+Fix: rerun the desktop stage on a quiet machine before treating the failure as real; the branch
+is suspect only if the tests also fail alone. If the flake recurs in CI, loosen the deadline for
+the malformed-response tests or run the bridge tests with a single test thread, since neither test
+is measuring latency.
+
+Discovered: 2026-09-21, twice during the OSS-G5 release gate while GLM workers ran pytest.
 
 ### OBSIDIAN-003: Untrusted previews need display projection, not inbox rejection
 
