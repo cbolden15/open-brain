@@ -536,6 +536,9 @@ class MarkdownImportTasks:
             intent=Intent.HOLD,
             title=extract_markdown_title(text, candidate.relative_path),
         )
+        # Admission runs before the reservation, so a refused note leaves no
+        # markdown_import_files or markdown_import_revisions row behind.
+        self._engine._check_pre_materialization_admission(submission)
         self._before_import_mutation(
             pinned.snapshot,
             selection,

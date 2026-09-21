@@ -176,6 +176,43 @@ def test_markdown_import_of_a_small_note_still_succeeds(tmp_path: Path) -> None:
     assert engine.retrieval.search("synthetic-tiny-token") != ()
 
 
+def test_markdown_import_refusal_leaves_no_reservation_row_for_the_note(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "brain"
+    vault = tmp_path / "vault"
+    vault.mkdir()
+    (vault / "a-admitted.md").write_text("# Admitted\nsynthetic-import-body\n", encoding="utf-8")
+    (vault / "z-refused.md").write_text(
+        "# Refused\n" + "synthetic-import-body " * 12, encoding="utf-8"
+    )
+    engine = _engine(root, limits=BODY_ONLY_LIMITS)
+    with pytest.raises(CaptureAdmissionError) as raised:
+        engine.markdown_import.import_directory(str(vault), confirm=lambda _: True)
+    assert raised.value.result is CaptureAdmissionResult.BODY_TOO_LARGE
+    connection = sqlite3.connect(root / ".open-brain/state/phase1.sqlite3")
+    try:
+        refused_files = connection.execute(
+            "SELECT COUNT(*) FROM markdown_import_files WHERE relative_path = 'z-refused.md'"
+        ).fetchone()[0]
+        refused_revisions = connection.execute(
+            "SELECT COUNT(*) FROM markdown_import_revisions AS r "
+            "JOIN markdown_import_files AS f ON r.file_id = f.file_id "
+            "WHERE f.relative_path = 'z-refused.md'"
+        ).fetchone()[0]
+        admitted_files = connection.execute(
+            "SELECT COUNT(*) FROM markdown_import_files WHERE relative_path = 'a-admitted.md'"
+        ).fetchone()[0]
+    finally:
+        connection.close()
+    assert refused_files == 0
+    assert refused_revisions == 0
+    assert admitted_files == 1
+    assert _count(root, "markdown_import_files") == 1
+    assert _count(root, "markdown_import_revisions") == 1
+    assert _count(root, "captures") == 1
+
+
 PUBLIC_ONCE_LIMITS = AdmissionLimits(requests_per_minute_per_principal=1)
 OWNER_ONCE_LIMITS = AdmissionLimits(requests_per_minute_per_principal=1)
 CONCURRENCY_LIMITS = AdmissionLimits(max_concurrent_admissions=1)

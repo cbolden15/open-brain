@@ -49,7 +49,6 @@ OWNER_REQUEST_VALUE_KEYS = {
 ADMISSION_RESULT_VALUES = {
     "envelope_too_large",
     "body_too_large",
-    "batch_too_large",
     "rate_limited",
     "admission_busy",
     "writer_queue_full",
@@ -153,8 +152,6 @@ def test_admission_limits_defaults_are_safe_non_zero_and_ordered() -> None:
     counts = (
         limits.max_envelope_bytes,
         limits.max_body_bytes,
-        limits.max_batch_items,
-        limits.max_batch_bytes,
         limits.requests_per_minute_per_principal,
         limits.max_concurrent_admissions,
         limits.max_writer_waiters,
@@ -172,8 +169,6 @@ def test_admission_limits_defaults_are_safe_non_zero_and_ordered() -> None:
     [
         {"max_envelope_bytes": 0},
         {"max_body_bytes": -1},
-        {"max_batch_items": True},
-        {"max_batch_bytes": "1024"},
         {"requests_per_minute_per_principal": 0},
         {"max_concurrent_admissions": None},
         {"max_writer_waiters": -5},
@@ -194,8 +189,6 @@ def test_admission_limits_round_trip_and_reject_unknown_or_missing_keys() -> Non
     limits = AdmissionLimits(
         max_envelope_bytes=1024,
         max_body_bytes=512,
-        max_batch_items=3,
-        max_batch_bytes=2048,
         requests_per_minute_per_principal=7,
         max_concurrent_admissions=2,
         max_writer_waiters=4,
@@ -206,7 +199,7 @@ def test_admission_limits_round_trip_and_reject_unknown_or_missing_keys() -> Non
     assert AdmissionLimits.from_dict(encoded) == limits
     with pytest.raises(ValueError):
         AdmissionLimits.from_dict({**encoded, "unexpected": True})
-    dropped = {key: value for key, value in encoded.items() if key != "max_batch_items"}
+    dropped = {key: value for key, value in encoded.items() if key != "max_envelope_bytes"}
     with pytest.raises(ValueError):
         AdmissionLimits.from_dict(dropped)
 
@@ -225,7 +218,6 @@ def test_capture_admission_error_retryability_split() -> None:
     terminal = {
         CaptureAdmissionResult.ENVELOPE_TOO_LARGE,
         CaptureAdmissionResult.BODY_TOO_LARGE,
-        CaptureAdmissionResult.BATCH_TOO_LARGE,
         CaptureAdmissionResult.STORAGE_CRITICAL,
         CaptureAdmissionResult.TIER_NOT_PERMITTED,
     }

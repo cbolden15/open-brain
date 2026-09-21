@@ -90,7 +90,9 @@ MCP process resets only the process limits.
 Invalid usage returns 2. Temporary SQLite writer contention returns 75 for capture, capture-submit,
 search, import, or MCP work. A private-directory or operation failure returns 78 without exposing
 sensitive paths; a refused startup policy returns 78 with `destination_mismatch`, `issuer_mismatch`,
-or `stale_policy`. Interrupted Markdown import returns 130.
+or `stale_policy`. A refused `capture-submit` admission reports the stable result value with a
+`retryable` flag: retryable refusals exit 75 and terminal refusals exit 65. Interrupted Markdown
+import returns 130.
 
 Secure Node and predecessor command families are historical source under `archive/`. They are not
 installed commands and are not supported through the Open Brain executable.

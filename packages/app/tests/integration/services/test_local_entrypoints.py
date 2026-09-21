@@ -35,7 +35,12 @@ from open_brain_engine.engine import (
     open_local_engine,
 )
 from open_brain_engine.engine.consent_contracts import EgressMode
-from open_brain_engine.engine.contracts import EngineTaskSet, LocalEngineContext
+from open_brain_engine.engine.contracts import (
+    CaptureAdmissionError,
+    CaptureAdmissionResult,
+    EngineTaskSet,
+    LocalEngineContext,
+)
 from open_brain_engine.engine.local_schema import (
     open_local_database,
     open_local_database_read_only,
@@ -1862,6 +1867,7 @@ def _destination_policy_file(
     *,
     issuer_epoch: int | None = None,
     brain_id: str | None = None,
+    allowed_capture_tiers: list[str] | None = None,
 ) -> Path:
     connection = sqlite3.connect(root / ".open-brain/state/phase1.sqlite3")
     try:
@@ -1876,7 +1882,11 @@ def _destination_policy_file(
         "capabilities": [],
         "space_ids": None,
         "allowed_read_tiers": ["public", "work"],
-        "allowed_capture_tiers": ["public", "work", "personal", "secret", "unknown"],
+        "allowed_capture_tiers": (
+            allowed_capture_tiers
+            if allowed_capture_tiers is not None
+            else ["public", "work", "personal", "secret", "unknown"]
+        ),
         "egress_mode": "owner_local",
         "provider_id": None,
         "consent_id": None,
@@ -1957,6 +1967,58 @@ def test_cli_capture_submit_refuses_a_wrong_brain_policy(tmp_path: Path) -> None
     )
     assert result.returncode == 78
     assert "destination_mismatch" in result.stdout + result.stderr
+    assert _capture_count(root) == 0
+
+
+def test_cli_capture_submit_reports_a_terminal_admission_result(tmp_path: Path) -> None:
+    root = tmp_path / "brain"
+    assert _subprocess_cli(root, "status")["profile"] == "local"
+    narrow = _destination_policy_file(root, allowed_capture_tiers=["public", "work"])
+    result = _failing_cli(
+        root,
+        "capture-submit",
+        "synthetic out-of-set tier text",
+        "--policy",
+        str(narrow),
+        "--privacy-tier",
+        "secret",
+    )
+    assert result.returncode == 65
+    payload = json.loads(result.stdout)
+    assert payload["error"]["code"] == "tier_not_permitted"
+    assert payload["retryable"] is False
+    assert _capture_count(root) == 0
+
+
+def test_cli_capture_submit_reports_a_retryable_admission_result(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    root = tmp_path / "brain"
+    assert _subprocess_cli(root, "status")["profile"] == "local"
+    policy = _destination_policy_file(root)
+
+    def refused(*_args: object, **_kwargs: object) -> None:
+        raise CaptureAdmissionError(CaptureAdmissionResult.RATE_LIMITED)
+
+    monkeypatch.setattr(entrypoints, "submit_destination_bound_capture", refused)
+    code = run_cli(
+        (
+            "capture-submit",
+            "synthetic retryable destination text",
+            "--policy",
+            str(policy),
+            "--data-dir",
+            str(root),
+            "--json",
+        ),
+        filesystem_type_probe=_filesystem,
+    )
+    assert code == 75
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["error"]["code"] == "rate_limited"
+    assert payload["retryable"] is True
     assert _capture_count(root) == 0
 
 

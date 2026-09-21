@@ -22,8 +22,6 @@ Admission is enforced in the engine's public capture boundary, before durable st
 |---|---|
 | `max_envelope_bytes` | 8 MiB |
 | `max_body_bytes` | 4 MiB |
-| `max_batch_items` | 64 items |
-| `max_batch_bytes` | 32 MiB |
 | `requests_per_minute_per_principal` | 120 requests |
 | `max_concurrent_admissions` | 8 |
 | `max_writer_waiters` | 16 |
@@ -32,15 +30,16 @@ Admission is enforced in the engine's public capture boundary, before durable st
 
 Storage watermarks are absolute free bytes on the Brain root's filesystem, not usage ratios. A ratio threshold would refuse captures on an ordinary laptop whose large disk is mostly full while tens of gibibytes remain free, so both watermarks are byte floors. The probe runs before each submission's write path, so freeing space recovers capture without restarting anything.
 
+Batch bounds are not part of this contract yet: no batch submission path exists, so the contract carries no batch limits, and item and byte batch bounds arrive with the OSS-G5 outbox drain path.
+
 ## Admission results
 
-Every refusal is one of nine stable named values carried by `CaptureAdmissionError`. A refusal leaves no capture row, source revision, blob, search document, or receipt.
+Every refusal is one of eight stable named values carried by `CaptureAdmissionError`. A refusal leaves no capture row, source revision, blob, search document, or receipt.
 
 | Result | Meaning | Retryable |
 |---|---|---|
 | `envelope_too_large` | The canonical request envelope exceeds `max_envelope_bytes` | No |
 | `body_too_large` | The payload body exceeds `max_body_bytes` | No |
-| `batch_too_large` | A submission batch exceeds the item or byte batch bounds | No |
 | `rate_limited` | The principal exceeded `requests_per_minute_per_principal` in the sliding minute | Yes |
 | `admission_busy` | The process is at `max_concurrent_admissions` for this submission path | Yes |
 | `writer_queue_full` | The bounded writer-waiter queue is at `max_writer_waiters` | Yes |
@@ -52,7 +51,7 @@ Retryable means an identical retry may later be admitted unchanged. Recovery nee
 
 ## Which gates apply to which path
 
-Size checks (envelope, body, batch) and storage watermark checks apply to every submission path: owner capture, Markdown import, public-job, and destination-bound. The rate limit, concurrency cap, and bounded writer wait apply only to non-owner submissions, which today are the public-job and destination-bound paths.
+Size checks (envelope and body) and storage watermark checks apply to every submission path: owner capture, Markdown import, public-job, and destination-bound. The rate limit, concurrency cap, and bounded writer wait apply only to non-owner submissions, which today are the public-job and destination-bound paths.
 
 Owner-originated capture and Markdown import are exempt from the rate, concurrency, and bounded-wait gates so existing local behavior is unchanged after upgrade. Owner paths keep their immediate busy behavior under writer contention instead of queueing behind remote submissions.
 

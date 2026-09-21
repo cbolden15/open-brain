@@ -254,6 +254,25 @@ class CaptureOperations(_LocalEngineOperations):
         if result is not None:
             raise CaptureAdmissionError(result)
 
+    def _check_pre_materialization_admission(self, submission: CaptureSubmission) -> None:
+        """Run the size and storage-watermark checks before any durable row exists.
+
+        These are exactly the G2 size checks and the G4 storage check that
+        ``_submit_capture`` enforces; the Markdown import path also calls this
+        helper before it reserves an import revision, so an oversized or
+        storage-refused note is refused before any reservation row is written.
+        """
+        limits = self._admission_limits
+        body_length = _payload_body_length(submission.payload)
+        envelope_length = (
+            len(portable_canonical_json_bytes(submission.request_value())) + body_length
+        )
+        if envelope_length > limits.max_envelope_bytes:
+            raise CaptureAdmissionError(CaptureAdmissionResult.ENVELOPE_TOO_LARGE)
+        if body_length > limits.max_body_bytes:
+            raise CaptureAdmissionError(CaptureAdmissionResult.BODY_TOO_LARGE)
+        self._refuse_on_storage_watermark()
+
     def _admitted_privacy(self, submission: CaptureSubmission) -> PrivacyDecision:
         """Canonical-boundary rescan: the classifier may narrow the retained tier.
 
@@ -275,16 +294,7 @@ class CaptureOperations(_LocalEngineOperations):
 
     def _submit_capture(self, submission: CaptureSubmission) -> CaptureReceipt:
         submission.validate_profile(self.profile)
-        limits = self._admission_limits
-        body_length = _payload_body_length(submission.payload)
-        envelope_length = (
-            len(portable_canonical_json_bytes(submission.request_value())) + body_length
-        )
-        if envelope_length > limits.max_envelope_bytes:
-            raise CaptureAdmissionError(CaptureAdmissionResult.ENVELOPE_TOO_LARGE)
-        if body_length > limits.max_body_bytes:
-            raise CaptureAdmissionError(CaptureAdmissionResult.BODY_TOO_LARGE)
-        self._refuse_on_storage_watermark()
+        self._check_pre_materialization_admission(submission)
         admitted_privacy = self._admitted_privacy(submission)
         capture_submission_is_reserved(cast("BrainEngine", self), submission)
         payload = submission.payload

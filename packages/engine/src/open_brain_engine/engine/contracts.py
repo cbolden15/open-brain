@@ -1524,7 +1524,6 @@ class CaptureAdmissionResult(StrEnum):
 
     ENVELOPE_TOO_LARGE = "envelope_too_large"
     BODY_TOO_LARGE = "body_too_large"
-    BATCH_TOO_LARGE = "batch_too_large"
     RATE_LIMITED = "rate_limited"
     ADMISSION_BUSY = "admission_busy"
     WRITER_QUEUE_FULL = "writer_queue_full"
@@ -1567,8 +1566,6 @@ class AdmissionLimits:
 
     max_envelope_bytes: int = 8 * 1024 * 1024
     max_body_bytes: int = 4 * 1024 * 1024
-    max_batch_items: int = 64
-    max_batch_bytes: int = 32 * 1024 * 1024
     requests_per_minute_per_principal: int = 120
     max_concurrent_admissions: int = 8
     max_writer_waiters: int = 16
@@ -1579,8 +1576,6 @@ class AdmissionLimits:
         for name in (
             "max_envelope_bytes",
             "max_body_bytes",
-            "max_batch_items",
-            "max_batch_bytes",
             "requests_per_minute_per_principal",
             "max_concurrent_admissions",
             "max_writer_waiters",
@@ -1597,8 +1592,6 @@ class AdmissionLimits:
         return {
             "max_envelope_bytes": self.max_envelope_bytes,
             "max_body_bytes": self.max_body_bytes,
-            "max_batch_items": self.max_batch_items,
-            "max_batch_bytes": self.max_batch_bytes,
             "requests_per_minute_per_principal": self.requests_per_minute_per_principal,
             "max_concurrent_admissions": self.max_concurrent_admissions,
             "max_writer_waiters": self.max_writer_waiters,
@@ -1611,8 +1604,6 @@ class AdmissionLimits:
         if not isinstance(value, Mapping) or set(value) != {
             "max_envelope_bytes",
             "max_body_bytes",
-            "max_batch_items",
-            "max_batch_bytes",
             "requests_per_minute_per_principal",
             "max_concurrent_admissions",
             "max_writer_waiters",

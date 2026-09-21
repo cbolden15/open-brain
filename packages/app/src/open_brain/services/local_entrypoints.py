@@ -41,7 +41,7 @@ from open_brain_engine.engine import (
     live_search_is_healthy,
     read_maintenance_snapshot,
 )
-from open_brain_engine.engine.contracts import ManagedWorkspaceFailure
+from open_brain_engine.engine.contracts import CaptureAdmissionError, ManagedWorkspaceFailure
 from open_brain_engine.engine.privacy_repairs import (
     PrivacyRepairError,
     PrivacyRepairRequest,
@@ -1515,15 +1515,18 @@ def _run_local_command(
         # The startup policy is owner-selected trusted input; the engine's
         # constructor refuses any tier outside it before any state exists.
         authority = destination_bound_authority(tasks, parsed.startup_policy)
-        receipt = submit_destination_bound_capture(
-            tasks,
-            authority,
-            cast(str, parsed.text),
-            requested_tier=(
-                None if parsed.privacy_tier is None else PrivacyTier(parsed.privacy_tier)
-            ),
-            delivery_id="delivery.destination." + str(uuid.uuid4()),
-        )
+        try:
+            receipt = submit_destination_bound_capture(
+                tasks,
+                authority,
+                cast(str, parsed.text),
+                requested_tier=(
+                    None if parsed.privacy_tier is None else PrivacyTier(parsed.privacy_tier)
+                ),
+                delivery_id="delivery.destination." + str(uuid.uuid4()),
+            )
+        except CaptureAdmissionError as error:
+            return _write_capture_admission_failure(error, json_output=json_output)
         payload = destination_bound_capture_result(receipt)
         if json_output:
             _write_json(payload)
@@ -2447,6 +2450,29 @@ def _write_database_busy(*, json_output: bool) -> None:
         _write_json({"error": {"code": "database_busy", "message": message}, "status": "failed"})
     else:
         print("database_busy: " + message, file=sys.stderr)
+
+
+def _write_capture_admission_failure(error: CaptureAdmissionError, *, json_output: bool) -> int:
+    """Emit the stable admission result and retryable flag, mirroring the MCP surface."""
+    message = (
+        "The capture submission was refused; an identical retry may later be admitted."
+        if error.retryable
+        else "The capture submission was refused."
+    )
+    if json_output:
+        _write_json(
+            {
+                "error": {"code": error.result.value, "message": message},
+                "retryable": error.retryable,
+                "status": "failed",
+            }
+        )
+    else:
+        print(
+            f"{error.result.value} (retryable: {str(error.retryable).lower()}): {message}",
+            file=sys.stderr,
+        )
+    return 75 if error.retryable else 65
 
 
 def _write_managed_recovery_failure(code: str, *, schema_upgraded: bool, json_output: bool) -> int:
