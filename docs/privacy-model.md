@@ -15,6 +15,14 @@ The live public-safe FTS5 projection is stored in `.open-brain/state/phase1.sqli
 retained for compatibility. It does not indicate a running Phase 1 service. SQLite may use temporary
 operating-system storage for sorter or FTS scratch.
 
+## Offline outbox
+
+The optional connectors outbox holds undelivered capture bodies as owner-only files inside an
+owner-supplied directory, with owner-only permission modes where the platform supports them. It never
+indexes or queries stored bodies: there is no search index, query interface, or model access, and
+delivery is the only consumer. Status and drain output are metadata only, reporting states, counts,
+capacity, and quarantine reasons without payload content.
+
 ## Capture privacy tiers and classification
 
 Every capture receives one immutable privacy decision from the closed tier set `public`, `work`,
