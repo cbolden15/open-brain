@@ -7,12 +7,15 @@ from typing import Any, cast
 
 import pytest
 from open_brain_engine.engine import (
+    CaptureAdmissionError,
+    CaptureAdmissionResult,
     PrivacyDecision,
     PublicJobCaptureContext,
     PublicJobCaptureSink,
     open_local_engine,
 )
-from open_brain_engine.storage.locks import FileLease, LockBusyError
+from open_brain_engine.engine import capture as capture_module
+from open_brain_engine.storage.locks import FileLease
 
 from open_brain.profile import compile_single_user_local
 from open_brain.services.local_entrypoints import run_cli
@@ -33,6 +36,7 @@ from open_brain_connectors.runtime.source_registry import SourceResourceSelectio
 def test_collector_coexists_with_desktop_cli_mcp_and_obsidian_bridge_surface(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     brain_root = tmp_path / "brain"
     state_path = tmp_path / "collector" / "state.json"
@@ -50,12 +54,17 @@ def test_collector_coexists_with_desktop_cli_mcp_and_obsidian_bridge_surface(
     )
 
     desktop_sync = FileLease(brain_root / ".open-brain", owner_identity_id="desktop")
-    with desktop_sync.acquire_shared_writer(), pytest.raises(LockBusyError):
+    # Collector captures take the non-owner bounded writer wait (OSS-G4 slice G3); keep the
+    # wait short here and expect the stable admission result instead of a raw lock error.
+    monkeypatch.setattr(capture_module, "_WRITER_WAIT_TIMEOUT_SECONDS", 0.05)
+    with desktop_sync.acquire_shared_writer(), pytest.raises(CaptureAdmissionError) as refused:
         controller.sync_due(
             source_id="github.fixture.coexist",
             runtime=source,
             capture_sink=collector_capture,
         )
+    assert refused.value.result is CaptureAdmissionResult.WRITER_QUEUE_FULL
+    assert refused.value.retryable
 
     blocked_state = json.loads(state_path.read_text(encoding="utf-8"))
     blocked_source = blocked_state["sources"]["github.fixture.coexist"]
