@@ -110,6 +110,7 @@ from .local import (
     open_local_engine,
     open_local_read_view,
 )
+from .local_migration import coordinate_local_migration
 from .maintenance import (
     PHASE1_STATE_SCHEMA_VERSION,
     LiveSearchState,
@@ -220,6 +221,7 @@ __all__ = [
     "TranscriptState",
     "ValidationError",
     "canonical_json_bytes",
+    "coordinate_local_migration",
     "validate_identifier",
     "inspect_phase1_state",
     "inspect_live_search",

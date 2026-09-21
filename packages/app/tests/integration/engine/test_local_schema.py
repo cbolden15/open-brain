@@ -296,7 +296,11 @@ def test_backfill_projects_text_and_rollback_covers_callback_failure(
 
 
 def test_catalog_checksums_are_frozen() -> None:
-    assert {m.name: m.checksum for m in LOCAL_MIGRATIONS} == json.loads(
+    # The historical schema-six patch pins this module's LOCAL_MIGRATIONS alias; the
+    # freeze must cover the real full catalog, so read the catalog module directly.
+    from open_brain_engine.engine import local_schema_catalog
+
+    assert {m.name: m.checksum for m in local_schema_catalog.LOCAL_MIGRATIONS} == json.loads(
         (FIXTURES / "catalog-checksums.json").read_text()
     )
 

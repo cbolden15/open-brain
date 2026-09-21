@@ -9,10 +9,11 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from hashlib import sha256
 from pathlib import Path
-from typing import cast
+from typing import TYPE_CHECKING, cast
 
 from open_brain_engine.core.ids import portable_canonical_json_bytes
 from open_brain_engine.portable.v1 import PortableSnapshot
+from open_brain_engine.portable.v4 import SOURCE_METADATA_PATH
 from open_brain_engine.providers.base import ProviderMode
 from open_brain_engine.storage.filesystem import RootIdentity
 from open_brain_engine.storage.markdown import MarkdownFormatError, parse_markdown
@@ -20,6 +21,9 @@ from open_brain_engine.storage.markdown import MarkdownFormatError, parse_markdo
 from .contracts import LocalEngineContext
 from .local_store import _LocalStore
 from .search_projection import source_search_title, upsert_search_document
+
+if TYPE_CHECKING:
+    from .portable_v5_restore import V5RestoreBundle
 
 
 @dataclass(frozen=True, slots=True)
@@ -166,11 +170,84 @@ def _decision_bytes(decision: Mapping[str, object], proposal: Mapping[str, objec
     return base64.b64decode(cast(str, content["bytes_base64"]))
 
 
+def portable_capture_content(files: Mapping[str, bytes]) -> list[dict[str, object]]:
+    """Project normalized restored capture content from validated snapshot bytes.
+
+    Materialization and the read-only restore audit share the publication/action
+    linkage and payload rendering here. Current logical-source routing overrides
+    the older route retained in capture artifacts and legacy route history.
+    """
+    proposals = _json_records(files, "history/proposals")
+    decisions = {
+        record["proposal_id"]: record for _, record in _json_records(files, "history/decisions")
+    }
+    publications = {
+        record["decision_id"]: (path, record)
+        for path, record in _json_records(files, "history/publications")
+    }
+    canonical_captures: set[str] = set()
+    owners: dict[str, tuple[str, str, str, str]] = {}
+    for _, proposal in proposals:
+        if proposal.get("supplied_reason") != "explicit canonical-note action":
+            continue
+        capture_id = cast(list[str], proposal["capture_ids"])[0]
+        canonical_captures.add(capture_id)
+        decision = decisions.get(proposal["proposal_id"])
+        publication_entry = None if decision is None else publications.get(decision["decision_id"])
+        if publication_entry is not None:
+            path, publication = publication_entry
+            owners[capture_id] = (
+                cast(str, publication["published_path"]),
+                cast(str, publication["page_id"]),
+                cast(str, publication["publication_id"]),
+                path,
+            )
+    routes = _json_records(files, "history/routes")
+    superseded = {record["supersedes"] for _, record in routes if record["supersedes"] is not None}
+    spaces = {
+        record["capture_id"]: record["space_id"]
+        for _, record in routes
+        if record["route_id"] not in superseded
+    }
+    if SOURCE_METADATA_PATH in files:
+        for source in json.loads(files[SOURCE_METADATA_PATH])["sources"]:
+            spaces[source["head_capture_id"]] = source["space_id"]
+    rows: list[dict[str, object]] = []
+    for _, record in _json_records(files, "sources/captures"):
+        capture_id = cast(str, record["capture_id"])
+        payload = cast(Mapping[str, object], record["payload"])
+        source = cast(Mapping[str, object], record["source"])
+        owner = owners.get(capture_id)
+        rows.append(
+            {
+                "capture_id": capture_id,
+                "payload_family": payload["family"],
+                "payload_json": payload,
+                "search_text": _payload_search_text(payload),
+                "title": None,
+                "source_origin": source["origin"],
+                "source_reference": source["reference"],
+                "provenance_json": record["provenance"],
+                "actor_id": record["actor_id"],
+                "role_claim_json": record["role_claim"],
+                "space_id": spaces.get(capture_id, record["space_id"]),
+                "accepted_at": record["accepted_at"],
+                "action": "canonical_note" if capture_id in canonical_captures else "quick",
+                "canonical_path": None if owner is None else owner[0],
+                "page_id": None if owner is None else owner[1],
+                "publication_id": None if owner is None else owner[2],
+                "publication_path": None if owner is None else owner[3],
+            }
+        )
+    return sorted(rows, key=lambda row: cast(str, row["capture_id"]))
+
+
 def materialize_portable_root(
     root: Path,
     *,
     snapshot: PortableSnapshot,
     expected_root_identity: RootIdentity,
+    _v5_restore: V5RestoreBundle | None = None,
 ) -> Materialization:
     """Create private projections from one already-validated immutable snapshot."""
     if snapshot.root_identity != expected_root_identity:
@@ -208,30 +285,7 @@ def materialize_portable_root(
             )
         elif proposal.get("proposed_kind") == "page_update":
             page_id_by_proposal[proposal_id] = _proposal_page_id(proposal)
-    canonical_captures = {
-        cast(list[str], record["capture_ids"])[0]
-        for _, record in proposals
-        if record.get("supplied_reason") == "explicit canonical-note action"
-    }
-    canonical_owner_by_capture: dict[str, tuple[str, str, str, str]] = {}
-    for proposal_id, proposal in proposal_by_id.items():
-        if proposal.get("supplied_reason") != "explicit canonical-note action":
-            continue
-        decision = decision_by_proposal.get(proposal_id)
-        publication_entry = (
-            None
-            if decision is None
-            else publication_entry_by_decision.get(cast(str, decision["decision_id"]))
-        )
-        if publication_entry is None:
-            continue
-        publication_path, publication = publication_entry
-        canonical_owner_by_capture[cast(list[str], proposal["capture_ids"])[0]] = (
-            cast(str, publication["page_id"]),
-            cast(str, publication["published_path"]),
-            cast(str, publication["publication_id"]),
-            publication_path,
-        )
+    capture_content = {row["capture_id"]: row for row in portable_capture_content(files)}
     space_slugs = {
         cast(str, parse_markdown(payload).fields["space_id"]): cast(
             str, parse_markdown(payload).fields["slug"]
@@ -260,7 +314,9 @@ def materialize_portable_root(
             and proposed.fields.get("space_id") == space_id
             else None
         )
-    store = _LocalStore(profile)
+    store = _LocalStore(
+        profile, issuer_seed=None if _v5_restore is None else _v5_restore.issuer_seed
+    )
     with store.transaction() as connection:
         for table in (
             "review_sources",
@@ -292,9 +348,7 @@ def materialize_portable_root(
         for path, record in captures:
             capture_id = cast(str, record["capture_id"])
             payload = cast(Mapping[str, object], record["payload"])
-            source = cast(Mapping[str, object], record["source"])
-            role_claim = cast(Mapping[str, object], record["role_claim"])
-            canonical_owner = canonical_owner_by_capture.get(capture_id)
+            content = capture_content[capture_id]
             connection.execute(
                 """
                 INSERT INTO captures (
@@ -314,46 +368,47 @@ def materialize_portable_root(
                     sha256(portable_canonical_json_bytes(record)).hexdigest(),
                     capture_id,
                     _receipt_id(record, "capture_accepted"),
-                    payload["family"],
-                    portable_canonical_json_bytes(payload),
-                    _payload_search_text(payload),
+                    content["payload_family"],
+                    portable_canonical_json_bytes(content["payload_json"]),
+                    content["search_text"],
                     None,
-                    source["origin"],
-                    source["reference"],
-                    record["space_id"],
+                    content["source_origin"],
+                    content["source_reference"],
+                    content["space_id"],
                     record["intent"],
                     record["capture_why"],
-                    "canonical_note" if capture_id in canonical_captures else "quick",
-                    None,
-                    record["accepted_at"],
+                    content["action"],
+                    content["title"],
+                    content["accepted_at"],
                     path,
-                    None if canonical_owner is None else canonical_owner[1],
-                    None if canonical_owner is None else canonical_owner[0],
-                    None if canonical_owner is None else canonical_owner[2],
-                    None if canonical_owner is None else canonical_owner[3],
+                    content["canonical_path"],
+                    content["page_id"],
+                    content["publication_id"],
+                    content["publication_path"],
                     "pending_enrichment",
-                    record["actor_id"],
-                    portable_canonical_json_bytes(role_claim).decode(),
+                    content["actor_id"],
+                    portable_canonical_json_bytes(content["role_claim_json"]).decode(),
                     portable_canonical_json_bytes(record["privacy"]).decode(),
-                    portable_canonical_json_bytes(record["provenance"]).decode(),
+                    portable_canonical_json_bytes(content["provenance_json"]).decode(),
                     "import",
                 ),
             )
-            upsert_search_document(
-                connection,
-                result_id=capture_id,
-                capture_id=capture_id,
-                record_type="source",
-                payload_family=cast(str, payload["family"]),
-                space_id=cast(str | None, record["space_id"]),
-                title=source_search_title(
+            if _v5_restore is None:
+                upsert_search_document(
+                    connection,
+                    result_id=capture_id,
+                    capture_id=capture_id,
+                    record_type="source",
                     payload_family=cast(str, payload["family"]),
+                    space_id=cast(str | None, record["space_id"]),
+                    title=source_search_title(
+                        payload_family=cast(str, payload["family"]),
+                        body=_payload_search_text(payload),
+                    ),
                     body=_payload_search_text(payload),
-                ),
-                body=_payload_search_text(payload),
-                canonical_path=None,
-                updated_at=cast(str, record["accepted_at"]),
-            )
+                    canonical_path=None,
+                    updated_at=cast(str, record["accepted_at"]),
+                )
         for _, record in routes:
             route_id = cast(str, record["route_id"])
             capture_id = cast(str, record["capture_id"])
@@ -546,18 +601,19 @@ def materialize_portable_root(
             capture_id = provenance[0]
             capture = next(record for _, record in captures if record["capture_id"] == capture_id)
             payload = cast(Mapping[str, object], capture["payload"])
-            upsert_search_document(
-                connection,
-                result_id=page_id,
-                capture_id=capture_id,
-                record_type="canonical",
-                payload_family=cast(str, payload["family"]),
-                space_id=cast(str, fields["space_id"]),
-                title=cast(str, fields["title"]),
-                body=body,
-                canonical_path=page_path,
-                updated_at=cast(str, fields["modified_at"]),
-            )
+            if _v5_restore is None:
+                upsert_search_document(
+                    connection,
+                    result_id=page_id,
+                    capture_id=capture_id,
+                    record_type="canonical",
+                    payload_family=cast(str, payload["family"]),
+                    space_id=cast(str, fields["space_id"]),
+                    title=cast(str, fields["title"]),
+                    body=body,
+                    canonical_path=page_path,
+                    updated_at=cast(str, fields["modified_at"]),
+                )
         superseded_routes = {
             cast(str, record["supersedes"])
             for _, record in routes
@@ -574,6 +630,8 @@ def materialize_portable_root(
                 "UPDATE search_documents SET space_id = ?, updated_at = ? WHERE capture_id = ?",
                 (record["space_id"], record["recorded_at"], record["capture_id"]),
             )
+        if _v5_restore is not None:
+            _v5_restore.install(connection, profile=profile)
     batch_count = sum(
         path.startswith("sources/batches/") and path.endswith(".jsonl") for path in files
     )

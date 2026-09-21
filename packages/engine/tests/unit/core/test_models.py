@@ -242,6 +242,19 @@ def test_privacy_decision_round_trips_and_only_narrows() -> None:
         Authority(cloud=False, external_egress=False).narrow(cloud=True, external_egress=False)
 
 
+def test_privacy_decision_normalizes_confirmation_reference_to_nfc() -> None:
+    decision = PrivacyDecision.create(
+        tier=PrivacyTier.PERSONAL,
+        reason=PrivacyReason.PERSONAL_CONFIRMED,
+        policy_version="privacy-v1",
+        authority=Authority(cloud=True, external_egress=True),
+        confirmation_ref="confirmation.synthetic-cafe\u0301",
+    )
+
+    assert decision.confirmation_ref == "confirmation.synthetic-caf\u00e9"
+    assert PrivacyDecision.from_dict(decision.to_dict()) == decision
+
+
 def test_privacy_decision_rejects_every_unlisted_reason_tier_confirmation_authority_combo() -> None:
     local_only = Authority(cloud=False, external_egress=False)
     confirmations = (None, "confirmation-v1")

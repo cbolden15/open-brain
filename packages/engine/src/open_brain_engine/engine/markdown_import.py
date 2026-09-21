@@ -692,6 +692,9 @@ class MarkdownImportTasks:
                     "DELETE FROM search_documents WHERE result_id = ?",
                     (previous_capture["capture_id"],),
                 )
+                _set_source_availability(
+                    connection, cast(str, previous_capture["capture_id"]), "missing"
+                )
             connection.execute(
                 "UPDATE markdown_import_revisions SET capture_id = ? WHERE revision_id = ?",
                 (capture_id, reservation.revision_id),
@@ -716,6 +719,7 @@ class MarkdownImportTasks:
             ).fetchone()
             if capture is None:
                 raise RuntimeError("Markdown import capture is unavailable")
+            _set_source_availability(connection, capture_id, "available")
             self._engine._upsert_source_search(connection, capture)
 
     def _mark_existing_path_observed(
@@ -778,6 +782,7 @@ class MarkdownImportTasks:
                     connection.execute(
                         "DELETE FROM search_documents WHERE result_id = ?", (capture_id,)
                     )
+                    _set_source_availability(connection, capture_id, "missing")
                     connection.execute(
                         "UPDATE markdown_import_files SET active_revision_id = NULL "
                         "WHERE file_id = ?",
@@ -852,6 +857,24 @@ def capture_submission_is_reserved(
     ):
         raise ValueError("invalid reserved capture delivery")
     return True
+
+
+def _set_source_availability(
+    connection: sqlite3.Connection, capture_id: str, availability: str
+) -> None:
+    """Keep the durable source head's availability aligned with the live projection.
+
+    Portable Brain derives search coverage from logical source heads, so a
+    superseded or missing imported revision must leave the available set and a
+    reactivated revision must rejoin it.
+    """
+    if connection.execute("PRAGMA user_version").fetchone()[0] < 7:
+        return
+    connection.execute(
+        "UPDATE logical_sources SET availability = ? "
+        "WHERE head_capture_id = ? AND availability <> ?",
+        (availability, capture_id, availability),
+    )
 
 
 def capture_projection_is_active(

@@ -9,6 +9,13 @@ from dataclasses import dataclass, field, fields
 from types import MappingProxyType
 from typing import Any, ClassVar, cast
 
+from open_brain_engine.core.access_contracts import (
+    validate_authorization_generation,
+    validate_issuer_epoch,
+)
+from open_brain_engine.core.models import PrivacyTier, ValidationError
+
+from .consent_contracts import EgressMode
 from .t03_validation import CONTRACT, parse, validate
 
 
@@ -45,8 +52,17 @@ class EffectiveAuthority:
     session_id: str
     capabilities: frozenset[str]
     space_ids: frozenset[str] | None
-    authorization_epoch: int = 0
+    authorization_generation: int = 0
     owner: bool = False
+    allowed_read_tiers: frozenset[PrivacyTier] = frozenset(
+        {PrivacyTier.PUBLIC, PrivacyTier.WORK, PrivacyTier.PERSONAL}
+    )
+    allowed_capture_tiers: frozenset[PrivacyTier] = frozenset()
+    egress_mode: EgressMode = EgressMode.OWNER_LOCAL
+    provider_id: str | None = None
+    consent_id: str | None = None
+    brain_id: str | None = None
+    issuer_epoch: int | None = None
 
     def __post_init__(self) -> None:
         if (
@@ -59,14 +75,44 @@ class EffectiveAuthority:
             or type(self.capabilities) is not frozenset
             or self.space_ids is not None
             and type(self.space_ids) is not frozenset
-            or type(self.authorization_epoch) is not int
-            or self.authorization_epoch < 0
             or type(self.owner) is not bool
+            or type(self.allowed_read_tiers) is not frozenset
+            or type(self.allowed_capture_tiers) is not frozenset
+            or any(not isinstance(tier, PrivacyTier) for tier in self.allowed_read_tiers)
+            or any(not isinstance(tier, PrivacyTier) for tier in self.allowed_capture_tiers)
+            or not isinstance(self.egress_mode, EgressMode)
         ):
             raise ValueError("invalid effective authority")
+        try:
+            validate_authorization_generation(self.authorization_generation)
+            if self.issuer_epoch is not None:
+                validate_issuer_epoch(self.issuer_epoch)
+        except ValidationError:
+            raise ValueError("invalid effective authority") from None
         if any(
             type(capability) is not str or re.fullmatch(r"[a-z][a-z-]{0,63}", capability) is None
             for capability in self.capabilities
+        ):
+            raise ValueError("invalid effective authority")
+        if not self.owner and self.allowed_read_tiers & {
+            PrivacyTier.SECRET,
+            PrivacyTier.UNKNOWN,
+        }:
+            raise ValueError("invalid effective authority")
+        if (self.brain_id is None) != (self.issuer_epoch is None) or (
+            self.brain_id is not None
+            and re.fullmatch(r"brn_[a-z2-7]{26}", self.brain_id) is None
+        ):
+            raise ValueError("invalid effective authority")
+        if self.egress_mode is EgressMode.OWNER_LOCAL:
+            if self.provider_id is not None or self.consent_id is not None:
+                raise ValueError("invalid effective authority")
+        elif (
+            self.provider_id is None
+            or re.fullmatch(r"[a-z][a-z0-9._-]{0,63}", self.provider_id) is None
+            or self.consent_id is None
+            or re.fullmatch(r"consent_[0-9a-f]{32}", self.consent_id) is None
+            or self.brain_id is None
         ):
             raise ValueError("invalid effective authority")
         if self.space_ids is not None and (
@@ -89,6 +135,12 @@ class EffectiveAuthority:
 
     def permits_space(self, space_id: str | None) -> bool:
         return self.space_ids is None or space_id in self.space_ids
+
+    def permits_read_tier(self, tier: PrivacyTier) -> bool:
+        return tier in self.allowed_read_tiers
+
+    def permits_capture_tier(self, tier: PrivacyTier) -> bool:
+        return tier in self.allowed_capture_tiers
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)

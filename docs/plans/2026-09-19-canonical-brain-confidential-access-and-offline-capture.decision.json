@@ -1,0 +1,137 @@
+{
+  "id": "2026-09-19-canonical-brain-confidential-access-and-offline-capture-notes",
+  "title": "Implementation notes — Canonical Brain, confidential access, and offline capture",
+  "subtitle": "CUT-G2 execution started · 2026-09-19 23:09 CDT",
+  "introTitle": "How to use",
+  "intro": "<p>Each item is a decision, deviation, or tradeoff made during implementation. <strong>Acknowledge</strong> if fine. <strong>Discuss</strong> to write what should change. <strong>Revert</strong> to flag for undo.</p>",
+  "actions": [
+    "acknowledge",
+    "discuss",
+    "revert"
+  ],
+  "groups": [
+    {
+      "id": "cut-g1",
+      "label": "CUT-G1 — Inventory and contract freeze",
+      "badge": "G1"
+    },
+    {
+      "id": "oss-g2",
+      "label": "OSS-G2 — Persist and project effective privacy",
+      "badge": "G2"
+    },
+    {
+      "id": "oss-g3",
+      "label": "OSS-G3 — Enforce authorization before retrieval",
+      "badge": "G3"
+    },
+    {
+      "id": "oss-g4",
+      "label": "OSS-G4 — Capture classification and admission",
+      "badge": "G4"
+    },
+    {
+      "id": "oss-g5",
+      "label": "OSS-G5 — Bounded offline outbox",
+      "badge": "G5"
+    },
+    {
+      "id": "oss-g6",
+      "label": "OSS-G6 — Documentation and release verification",
+      "badge": "G6"
+    }
+  ],
+  "items": [
+    {
+      "id": "N1",
+      "group": "cut-g1",
+      "title": "Derive the durable Brain ID from the Portable tenant ID",
+      "where": "ADR 0018, identity and generation vocabulary",
+      "default": "acknowledge",
+      "body": {
+        "Spec said": "Use a placement-independent durable Brain ID, but did not choose its encoding.",
+        "What I did": "Froze the ADR 0014 role-distinct brn_ Base32 re-encoding of the existing canonical tenant_<uuid>.",
+        "Why": "It is deterministic, one-to-one, portable, and avoids adding a second persisted identity.",
+        "Risk": "Malformed or noncanonical tenant IDs now fail closed instead of receiving a generated replacement."
+      }
+    },
+    {
+      "id": "N2",
+      "group": "cut-g1",
+      "title": "Separate issuer epoch from authorization generation",
+      "where": "ADR 0018, identity and generation vocabulary",
+      "default": "acknowledge",
+      "body": {
+        "Spec said": "Bind stationary issuer authority and generation-changing consent without conflating them.",
+        "What I did": "Reserved issuer_epoch for commit authority and authorization_generation for grant, consent, and launcher-policy changes; existing control_epoch and fencing_epoch retain their meanings.",
+        "Why": "Each value has a different lifecycle and invalidation boundary.",
+        "Risk": "Later migrations must remove ambiguous serialized epoch names without reinterpreting existing storage fields."
+      }
+    },
+    {
+      "id": "N3",
+      "group": "cut-g1",
+      "title": "Bind legacy epochs to exact Portable artifacts",
+      "where": "ADR 0018, Portable Brain v5 and legacy issuer evidence",
+      "default": "acknowledge",
+      "body": {
+        "Spec said": "Assign pre-cutover commits to a legacy epoch without rewriting historical payloads or digests.",
+        "What I did": "Defined append-only evidence by normalized manifest path, optional JSONL ordinal, exact payload SHA-256, and positive issuer_epoch.",
+        "Why": "The active product has no single generic commit identity across every historical family.",
+        "Risk": "Portable v5 migration must enumerate every declared artifact and row exactly once."
+      }
+    },
+    {
+      "id": "N4",
+      "group": "cut-g1",
+      "title": "Bind the final admitted tier in the receipt",
+      "where": "ADR 0018 and outbox.v1 contract",
+      "default": "acknowledge",
+      "body": {
+        "Spec said": "Keep offline delivery immutable while binding the tier that the canonical Brain finally admits.",
+        "What I did": "The request digest covers the requested tier and the rest of the immutable envelope. The terminal receipt separately binds the final admitted tier.",
+        "Why": "The sender cannot know the server's final admission decision when it creates the request digest.",
+        "Risk": "Every dequeue path must verify the full receipt binding before removing a body."
+      }
+    },
+    {
+      "id": "N5",
+      "group": "cut-g1",
+      "title": "Keep malformed input inside closed error boundaries",
+      "where": "Consent, launcher-policy.v1, and outbox.v1 contract tests",
+      "default": "acknowledge",
+      "body": {
+        "Spec said": "Malformed consent, startup policy, and delivery evidence must fail closed.",
+        "What I did": "Added adversarial cases for mutable mappings, Unicode surrogates, malformed runtime state, and invalid typed values, then normalized every failure to its contract error.",
+        "Why": "Leaking implementation exceptions makes fail-closed behavior dependent on the caller.",
+        "Risk": "Persistence and transport adapters added in later phases must preserve the same boundaries."
+      }
+    },
+    {
+      "id": "N6",
+      "group": "cut-g1",
+      "title": "Make admission and rollback behavior explicit before implementation",
+      "where": "Fixed decisions and public Phases 4 through 6",
+      "default": "acknowledge",
+      "body": {
+        "Spec said": "Offline delivery and remote capture must remain bounded, destination-bound, and receipt-safe under failure.",
+        "What I did": "Added canonical size/rate/concurrency/writer-queue/storage limits, durable enqueue success, non-evicting outbox_full behavior, and explicit new-ID destination conversion to the implementation gates.",
+        "Why": "A bounded envelope alone does not define behavior under server pressure, local capacity exhaustion, crash boundaries, or rollback to another destination.",
+        "Risk": "OSS-G4 through OSS-G6 cannot pass until the implementation and crash/admission tests prove these requirements. Existing OSS-G1 value-contract tests remain valid but do not claim queue storage or server admission implementation."
+      }
+    },
+    {
+      "id": "N7",
+      "group": "cut-g1",
+      "title": "Expose a zero-loss receipt-protection boundary",
+      "where": "Fixed decisions and public Phases 4 through 6",
+      "default": "acknowledge",
+      "body": {
+        "Spec said": "The owner selected the architecture in which client body-removal receipts wait for independently durable protection.",
+        "What I did": "Added a transport-neutral receipt-protection finalizer, a stable recovery_pending result, acknowledgement binding, idempotent protection replay, and outbox crash tests that retain the body until a protected terminal receipt arrives.",
+        "Why": "A locally durable commit can otherwise be lost with its primary host after the client has already deleted the only replayable body.",
+        "Risk": "This expands OSS-G4 through OSS-G6. The private deployment must still prove that its independent failure domain meets the required synchronous latency and availability before cutover."
+      }
+    }
+  ]
+}

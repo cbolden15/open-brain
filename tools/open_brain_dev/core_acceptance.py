@@ -34,6 +34,11 @@ PROTECTED_INPUTS: Final = (
     "uv.lock",
     "tools",
 )
+PORTABLE_V5_SIDECARS: Final = {
+    "history/issuer/legacy-bindings-v1.json",
+    "history/issuer/migration-v1.json",
+    "history/privacy/effective-privacy-v1.json",
+}
 ALLOWED_ARTIFACT_SOURCE_DRIFT: Final = ("tools/open_brain_dev/documentation_examples.py",)
 
 
@@ -320,9 +325,9 @@ def validate_search_result(payload: Mapping[str, Any], capture_id: str) -> None:
 def validate_export_result(payload: Mapping[str, Any], operation: str) -> None:
     expected = {
         "captures": 1,
-        "history_records": 0,
-        "portable_files": 3,
-        "schema_version": 4,
+        "history_records": 3,
+        "portable_files": 6,
+        "schema_version": 5,
         "status": "exported",
         "verification": "verified",
     }
@@ -375,7 +380,13 @@ def _portable_inventory(root: Path, capture_id: str) -> dict[str, str]:
         if path.is_file()
     }
     captures = [relative for relative in files if capture_pattern.fullmatch(relative)]
-    expected = {"brain.toml", "portable-manifest.json", "sources/logical-sources.json", *captures}
+    expected = {
+        "brain.toml",
+        "portable-manifest.json",
+        "sources/logical-sources.json",
+        *PORTABLE_V5_SIDECARS,
+        *captures,
+    }
     if len(captures) != 1 or set(files) != expected:
         raise AcceptanceError("Portable Brain file-role inventory mismatch")
     # The manifest alone carries a new export ID/time and binds the otherwise immutable files.

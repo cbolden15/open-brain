@@ -11,6 +11,7 @@ from open_brain_engine.engine import (
     EngineTaskSet,
     LocalEngineContext,
     StateSchemaUnavailableError,
+    coordinate_local_migration,
     inspect_phase1_state,
     open_local_engine,
 )
@@ -96,6 +97,9 @@ def open_local_brain(
                 raise LocalRuntimeCompatibilityError(
                     "state migration requires exclusive runtime admission"
                 )
+            # The owner product bootstrap owns the explicit chained migration;
+            # hold_local_runtime_session's registry admission spans both phases.
+            coordinate_local_migration(profile)
             tasks = open_local_engine(
                 profile,
                 validate_before_write=validate_direct_write,

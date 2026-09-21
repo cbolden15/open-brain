@@ -37,6 +37,11 @@ _RESOURCE_DESTINATIONS: Final = {
     "base": "bin/open-brain",
     "graphify": "libexec/open-brain-graphify",
 }
+_PORTABLE_V5_SIDECARS: Final = (
+    "history/issuer/legacy-bindings-v1.json",
+    "history/issuer/migration-v1.json",
+    "history/privacy/effective-privacy-v1.json",
+)
 _REQUIRED_MODULES: Final = frozenset(
     {
         "open_brain.local_data",
@@ -710,9 +715,10 @@ def _smoke_local_journey(
     if (
         exported.get("status") != "exported"
         or exported.get("verification") != "verified"
-        or exported.get("schema_version") != 4
+        or exported.get("schema_version") != 5
         or not (export / "portable-manifest.json").is_file()
         or not (export / "sources/logical-sources.json").is_file()
+        or not all((export / relative).is_file() for relative in _PORTABLE_V5_SIDECARS)
         or not any(
             token.encode("utf-8") in path.read_bytes()
             for path in export.rglob("*")
@@ -881,11 +887,14 @@ def _smoke_markdown_import(
     if (
         exported.get("status") != "exported"
         or exported.get("verification") != "verified"
-        or exported.get("schema_version") != 4
+        or exported.get("schema_version") != 5
         or not (export / "sources/logical-sources.json").is_file()
+        or not all((export / relative).is_file() for relative in _PORTABLE_V5_SIDECARS)
         or not blob.is_file()
         or blob.read_bytes() != source_bytes
         or len(captures) != 1
+        or any(".open-brain" in path.parts for path in export.rglob("*"))
+        or any(path.suffix in {".sqlite", ".sqlite3"} for path in export.rglob("*"))
     ):
         raise BaseNativeError("native Markdown export failed")
     capture = cast(dict[str, object], json.loads(captures[0].read_bytes()))
@@ -1200,9 +1209,9 @@ def _smoke_catalog(executable: Path, environment: Mapping[str, str]) -> None:
         != {
             "bridge_protocol": 1,
             "catalog_schema": 2,
-            "portable_metadata": 4,
-            "runtime_session": 2,
-            "state_schema": 7,
+            "portable_metadata": 5,
+            "runtime_session": 4,
+            "state_schema": 9,
             "task_contract": "t03.v1",
         }
         or not isinstance(product, dict)

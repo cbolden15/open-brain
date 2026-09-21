@@ -6,7 +6,12 @@ from pathlib import Path
 from typing import Any, cast
 
 import pytest
+from open_brain_engine.core.access_contracts import derive_brain_id
+from open_brain_engine.core.models import PrivacyTier
 from open_brain_engine.engine import BrainEngine, TextPayload
+from open_brain_engine.engine.consent_contracts import EgressMode
+from open_brain_engine.engine.cursors import binding_digest
+from open_brain_engine.engine.paging import authority_binding
 from open_brain_engine.engine.t03_contracts import (
     EffectiveAuthority,
     RecordReadRequest,
@@ -23,6 +28,73 @@ def wire(value: Any) -> dict[str, Any]:
 
 def authority(session: str = "session") -> EffectiveAuthority:
     return EffectiveAuthority("owner", session, frozenset({"search", "content-read"}), None)
+
+
+def test_cursor_authority_binding_names_and_binds_every_policy_dimension() -> None:
+    brain_id = derive_brain_id("tenant_00000000-0000-4000-8000-000000000001")
+    other_brain_id = derive_brain_id("tenant_00000000-0000-4000-8000-000000000002")
+    baseline = EffectiveAuthority(
+        "synthetic-principal",
+        "synthetic-session",
+        frozenset({"search"}),
+        None,
+        authorization_generation=1,
+        allowed_read_tiers=frozenset({PrivacyTier.PUBLIC, PrivacyTier.WORK}),
+        allowed_capture_tiers=frozenset({PrivacyTier.PERSONAL}),
+        brain_id=brain_id,
+        issuer_epoch=7,
+    )
+    binding = authority_binding(baseline)
+    assert set(binding) == {
+        "principal_id",
+        "session_id",
+        "capabilities",
+        "owner",
+        "space_ids",
+        "allowed_read_tiers",
+        "allowed_capture_tiers",
+        "egress_mode",
+        "provider_id",
+        "consent_id",
+        "authorization_generation",
+        "brain_id",
+        "issuer_epoch",
+    }
+    assert "epoch" not in binding
+    external = replace(
+        baseline,
+        egress_mode=EgressMode.EXTERNAL_PROVIDER,
+        provider_id="synthetic-provider",
+        consent_id="consent_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    )
+    variants = {
+        "principal_id": replace(baseline, principal_id="other-principal"),
+        "session_id": replace(baseline, session_id="other-session"),
+        "capabilities": replace(baseline, capabilities=frozenset({"content-read"})),
+        "owner": replace(baseline, owner=True),
+        "space_ids": replace(
+            baseline, space_ids=frozenset({"space_00000000-0000-4000-8000-000000000001"})
+        ),
+        "allowed_read_tiers": replace(
+            baseline, allowed_read_tiers=frozenset({PrivacyTier.PUBLIC})
+        ),
+        "allowed_capture_tiers": replace(
+            baseline, allowed_capture_tiers=frozenset({PrivacyTier.WORK})
+        ),
+        "egress_mode": external,
+        "provider_id": replace(external, provider_id="other-provider"),
+        "consent_id": replace(
+            external, consent_id="consent_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+        ),
+        "authorization_generation": replace(baseline, authorization_generation=2),
+        "brain_id": replace(baseline, brain_id=other_brain_id),
+        "issuer_epoch": replace(baseline, issuer_epoch=8),
+    }
+    baseline_digest = binding_digest(binding)
+    for field, variant in variants.items():
+        changed = authority_binding(variant)
+        assert changed[field] != binding[field]
+        assert binding_digest(changed) != baseline_digest
 
 
 def test_equal_score_keyset_traversal_and_restart(tmp_path: Path) -> None:

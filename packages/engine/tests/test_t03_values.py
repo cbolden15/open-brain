@@ -1,11 +1,15 @@
 from __future__ import annotations
 
 import json
+from dataclasses import replace
 from pathlib import Path
 from typing import Any, cast
 from uuid import UUID
 
 import pytest
+from open_brain_engine.core.access_contracts import derive_brain_id
+from open_brain_engine.core.models import PrivacyTier
+from open_brain_engine.engine.consent_contracts import EgressMode
 from open_brain_engine.engine.t03_contracts import (
     EffectiveAuthority,
     SearchPageRequest,
@@ -119,3 +123,55 @@ def test_effective_scope_uses_authority_bound(count: int) -> None:
             EffectiveAuthority("synthetic", "session", frozenset({"search"}), spaces).space_ids
             == spaces
         )
+
+
+def test_effective_authority_has_safe_compatibility_defaults() -> None:
+    authority = EffectiveAuthority("synthetic", "session", frozenset({"search"}), None)
+    assert authority.authorization_generation == 0
+    assert authority.allowed_read_tiers == frozenset(
+        {PrivacyTier.PUBLIC, PrivacyTier.WORK, PrivacyTier.PERSONAL}
+    )
+    assert authority.allowed_capture_tiers == frozenset()
+    assert authority.egress_mode is EgressMode.OWNER_LOCAL
+    assert authority.brain_id is None and authority.issuer_epoch is None
+    assert not authority.permits_read_tier(PrivacyTier.UNKNOWN)
+    assert not authority.permits_capture_tier(PrivacyTier.PUBLIC)
+    with pytest.raises(TypeError):
+        EffectiveAuthority(  # type: ignore[call-arg]
+            "synthetic",
+            "session",
+            frozenset({"search"}),
+            None,
+            authorization_epoch=1,
+        )
+
+
+def test_effective_authority_validates_scoped_privacy_and_egress_fields() -> None:
+    brain_id = derive_brain_id("tenant_00000000-0000-4000-8000-000000000001")
+    authority = EffectiveAuthority(
+        "synthetic",
+        "session",
+        frozenset({"search"}),
+        None,
+        authorization_generation=2,
+        allowed_read_tiers=frozenset({PrivacyTier.PUBLIC}),
+        allowed_capture_tiers=frozenset({PrivacyTier.PERSONAL}),
+        egress_mode=EgressMode.EXTERNAL_PROVIDER,
+        provider_id="synthetic-provider",
+        consent_id="consent_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        brain_id=brain_id,
+        issuer_epoch=7,
+    )
+    assert authority.permits_read_tier(PrivacyTier.PUBLIC)
+    assert authority.permits_capture_tier(PrivacyTier.PERSONAL)
+    for changes in (
+        {"allowed_read_tiers": frozenset({PrivacyTier.SECRET})},
+        {"allowed_read_tiers": frozenset({PrivacyTier.UNKNOWN})},
+        {"allowed_capture_tiers": {PrivacyTier.PUBLIC}},
+        {"authorization_generation": -1},
+        {"issuer_epoch": 0},
+        {"provider_id": None},
+        {"consent_id": "malformed"},
+    ):
+        with pytest.raises(ValueError, match="invalid effective authority"):
+            replace(authority, **changes)

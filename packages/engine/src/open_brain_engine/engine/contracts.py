@@ -47,6 +47,7 @@ from .normalization import (
 from .t03_contracts import EffectiveAuthority, SourceRouteRequest, SourceRouteResponse
 
 if TYPE_CHECKING:
+    from .privacy_repairs import PrivacyRepairReceipt, PrivacyRepairRequest
     from .source_intake import SourceRevisionReceipt, SourceRevisionSubmission
     from .t03_contracts import (
         DecisionHistoryRequest,
@@ -686,7 +687,7 @@ class PortabilityReceipt:
         ):
             if type(value) is not int or value < 0:
                 raise ValueError("invalid portability receipt count")
-        if self.schema_version not in {1, 2, 3, 4}:
+        if self.schema_version not in {1, 2, 3, 4, 5}:
             raise ValueError("invalid portability receipt schema version")
         if self.index_generation is not None and (
             type(self.index_generation) is not int or self.index_generation < 1
@@ -2004,6 +2005,15 @@ class RelationshipTask(Protocol):
     ) -> DecisionHistoryResponse: ...
 
 
+class PrivacyRepairTask(Protocol):
+    def repair_privacy(
+        self,
+        request: PrivacyRepairRequest,
+        *,
+        authority: EffectiveAuthority,
+    ) -> PrivacyRepairReceipt: ...
+
+
 @dataclass(frozen=True, slots=True)
 class EngineTaskSet:
     """The public task identities exposed by one opened local engine root."""
@@ -2022,6 +2032,7 @@ class EngineTaskSet:
     sources: SourceTask | None = None
     history: HistoryTask | None = None
     relationships: RelationshipTask | None = None
+    privacy_repair: PrivacyRepairTask | None = None
 
     @property
     def spaces(self) -> InboxSpaceTask:

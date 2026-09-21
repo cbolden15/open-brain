@@ -41,6 +41,11 @@ from open_brain_engine.engine import (
     read_maintenance_snapshot,
 )
 from open_brain_engine.engine.contracts import ManagedWorkspaceFailure
+from open_brain_engine.engine.privacy_repairs import (
+    PrivacyRepairError,
+    PrivacyRepairRequest,
+)
+from open_brain_engine.engine.t03_contracts import EffectiveAuthority
 from open_brain_engine.storage.locks import LockBusyError
 from open_brain_engine.storage.operational import (
     StorageError,
@@ -116,6 +121,18 @@ _LOCAL_EXPORT_EVIDENCE = ".open-brain/state/local-export-evidence.json"
 _HEX64 = re.compile(r"^[0-9a-f]{64}$")
 _EXPORT_ID = re.compile(
     r"^export_[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+)
+_MAX_PRIVACY_REPAIR_REQUEST_BYTES = 65_536
+_MAX_PRIVACY_REPAIR_RECEIPT_BYTES = 1_048_576
+_PRIVACY_REPAIR_REQUEST_KEYS = frozenset(
+    {
+        "target_kind",
+        "target_id",
+        "invalid_evidence_sha256",
+        "replacement_privacy",
+        "operation_id",
+        "supersedes_repair_id",
+    }
 )
 
 
@@ -215,6 +232,11 @@ def run_cli(
         except ReviewPublicationError:
             _write_usage_failure(json_output=json_output)
             return 2
+    if parsed.command == "privacy":
+        try:
+            parsed.privacy_repair_request = _read_privacy_repair_request(parsed.request_file)
+        except (OSError, UnicodeError, ValueError):
+            return _write_privacy_repair_failure("invalid_request")
     if parsed.command != "import":
         return _run_parsed_command(
             parsed,
@@ -370,6 +392,8 @@ def _run_parsed_command(
         return _write_space_inbox_failure(error.code, json_output=json_output)
     except ReviewPublicationError as error:
         return _write_review_failure(error.code, json_output=json_output)
+    except PrivacyRepairError as error:
+        return _write_privacy_repair_failure(error.code)
     except T03AppError as error:
         if json_output:
             _write_json(error_result(error.code))
@@ -383,7 +407,15 @@ def _run_parsed_command(
                 schema_upgraded=False,
                 json_output=json_output,
             )
-        if parsed.command in {"capture", "search", "mcp", "space", "inbox", "review"}:
+        if parsed.command in {
+            "capture",
+            "search",
+            "mcp",
+            "space",
+            "inbox",
+            "review",
+            "privacy",
+        }:
             _write_database_busy(json_output=json_output)
             return 75
         if parsed.command == "import":
@@ -414,6 +446,7 @@ def _run_parsed_command(
             "space",
             "inbox",
             "review",
+            "privacy",
         } and database_is_busy(error):
             _write_database_busy(json_output=json_output)
             return 75
@@ -473,6 +506,17 @@ def _parser() -> argparse.ArgumentParser:
     _add_t03_parsers(subparsers)
     _add_space_inbox_parsers(subparsers)
     _add_review_parsers(subparsers)
+    privacy_parser = subparsers.add_parser(
+        "privacy", help="Perform owner-local privacy maintenance."
+    )
+    privacy_children = privacy_parser.add_subparsers(dest="privacy_action", required=True)
+    privacy_repair = privacy_children.add_parser(
+        "repair", help="Append one owner-authorized privacy repair."
+    )
+    privacy_repair.add_argument("--request-file", required=True)
+    privacy_repair.add_argument("--json", action="store_true", required=True)
+    privacy_repair.add_argument("--data-dir", default=argparse.SUPPRESS)
+    privacy_repair.set_defaults(_catalog_discoverable=False)
     mcp_parser = subparsers.add_parser(
         "mcp",
         help="Serve explicitly selected local tools over stdio until EOF.",
@@ -1037,6 +1081,49 @@ def _review_arguments(parsed: argparse.Namespace) -> tuple[str, dict[str, object
     return operation, arguments
 
 
+def _strict_json_object(pairs: list[tuple[str, object]]) -> dict[str, object]:
+    result: dict[str, object] = {}
+    for key, value in pairs:
+        if key in result:
+            raise ValueError("duplicate JSON key")
+        result[key] = value
+    return result
+
+
+def _reject_json_constant(_value: str) -> NoReturn:
+    raise ValueError("invalid JSON constant")
+
+
+def _read_privacy_repair_request(value: object) -> PrivacyRepairRequest:
+    if not isinstance(value, str) or not value:
+        raise ValueError("invalid request file")
+    if value == "-":
+        payload = sys.stdin.buffer.read(_MAX_PRIVACY_REPAIR_REQUEST_BYTES + 1)
+    else:
+        with Path(value).open("rb") as source:
+            payload = source.read(_MAX_PRIVACY_REPAIR_REQUEST_BYTES + 1)
+    if len(payload) > _MAX_PRIVACY_REPAIR_REQUEST_BYTES:
+        raise ValueError("privacy repair request is too large")
+    decoded = cast(
+        object,
+        json.loads(
+            payload.decode("utf-8"),
+            object_pairs_hook=_strict_json_object,
+            parse_constant=_reject_json_constant,
+        ),
+    )
+    if not isinstance(decoded, dict) or set(decoded) != _PRIVACY_REPAIR_REQUEST_KEYS:
+        raise ValueError("invalid privacy repair request shape")
+    return PrivacyRepairRequest(
+        target_kind=cast(str, decoded["target_kind"]),
+        target_id=cast(str, decoded["target_id"]),
+        invalid_evidence_sha256=cast(str, decoded["invalid_evidence_sha256"]),
+        replacement=cast(Mapping[str, object], decoded["replacement_privacy"]),
+        operation_id=cast(str, decoded["operation_id"]),
+        supersedes_repair_id=cast(str | None, decoded["supersedes_repair_id"]),
+    )
+
+
 def _read_review_markdown(value: object) -> str:
     if not isinstance(value, str) or not value or "\x00" in value:
         raise ReviewPublicationError("invalid_arguments")
@@ -1279,6 +1366,23 @@ def _run_t03_cli(
     return 0
 
 
+def _run_privacy_repair(parsed: argparse.Namespace, tasks: EngineTaskSet) -> int:
+    repair_task = tasks.privacy_repair
+    if repair_task is None:
+        raise PrivacyRepairError("operation_pending")
+    receipt = repair_task.repair_privacy(
+        cast(PrivacyRepairRequest, parsed.privacy_repair_request),
+        authority=cast(
+            EffectiveAuthority, owner_authority(tasks, session_id="owner-cli")
+        ),
+    )
+    encoded = receipt.encode()
+    if len(encoded.encode("utf-8")) > _MAX_PRIVACY_REPAIR_RECEIPT_BYTES:
+        raise PrivacyRepairError("ledger_corrupt")
+    sys.stdout.write(encoded + "\n")
+    return 0
+
+
 def _run_local_command(
     parsed: argparse.Namespace,
     session: LocalBrainSession,
@@ -1296,6 +1400,8 @@ def _run_local_command(
             json_output=json_output,
         )
     tasks = session.tasks
+    if parsed.command == "privacy":
+        return _run_privacy_repair(parsed, tasks)
     if parsed.command in {
         "search-page",
         "read",
@@ -2065,7 +2171,7 @@ def _record_verified_export(
         manifest_version = cast(dict[str, object], manifest_value)["schema_version"]
     except UnicodeDecodeError, json.JSONDecodeError, KeyError, TypeError:
         raise ValueError("Portable export manifest is unavailable") from None
-    if type(manifest_version) is not int or manifest_version not in {1, 2, 3, 4}:
+    if type(manifest_version) is not int or manifest_version not in {1, 2, 3, 4, 5}:
         raise ValueError("Portable export manifest is unavailable")
     session.prepared.revalidate()
     atomic_replace(
@@ -2104,7 +2210,7 @@ def _verified_export_state(session: LocalBrainSession) -> str:
                 "manifest_digest_sha256",
                 "schema_version",
             }
-            or value["schema_version"] not in {1, 2, 3, 4}
+            or value["schema_version"] not in {1, 2, 3, 4, 5}
             or canonical_json_bytes(value) != payload
             or not isinstance(value["created_at"], str)
             or not isinstance(value["export_id"], str)
@@ -2190,6 +2296,29 @@ def _write_usage_failure(*, json_output: bool) -> None:
         )
     else:
         print("Open Brain could not parse the command.", file=sys.stderr)
+
+
+def _write_privacy_repair_failure(code: str) -> int:
+    messages = {
+        "invalid_request": "The privacy repair request is invalid.",
+        "not_found": "The repair target or matching evidence marker is unavailable.",
+        "evidence_mismatch": "The retained privacy evidence does not match the repair request.",
+        "operation_conflict": "The operation ID belongs to a different privacy repair request.",
+        "supersession_invalid": "The requested supersession is not the active repair head.",
+        "operation_pending": "The privacy repair is temporarily unavailable; retry.",
+        "owner_required": "Owner-local privacy repair authority is required.",
+        "issuer_mismatch": "The Brain issuer evidence could not be verified.",
+        "ledger_corrupt": "The privacy repair ledger could not be verified.",
+    }
+    message = messages[code]
+    _write_json({"error": {"code": code, "message": message}, "status": "failed"})
+    if code == "invalid_request":
+        return 2
+    if code == "operation_pending":
+        return 75
+    if code in {"owner_required", "issuer_mismatch", "ledger_corrupt"}:
+        return 78
+    return 1
 
 
 def _write_database_busy(*, json_output: bool) -> None:

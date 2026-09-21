@@ -57,7 +57,9 @@ permission boundaries.
 
 The Core v0.1 candidate includes [paged search, complete reads and retained history](docs/records-and-history.md),
 including owner-CLI revision relationships and publication workflows in both clients. Its
-[Portable v4 exports](docs/portable-brain-v4.md) preserve source and decision evidence. These changes
+[Portable v5 exports](docs/portable-brain-v5.md) preserve source, decision, privacy-repair, and
+issuer-migration evidence. The [Portable v4 document](docs/portable-brain-v4.md) remains available
+for the historical format. These changes
 require this candidate's surfaces; local verification does not publish a new Homebrew release.
 
 ## Use Open Brain
@@ -67,8 +69,8 @@ includes executable examples; reference pages use uppercase placeholders for you
 
 The first capture creates the private data directory, owner identity, Brain identity, and SQLite
 state automatically. Existing supported local databases upgrade transactionally when opened for
-writing. This candidate uses local state schema **7**, runtime session **2**, and Portable metadata
-**4**. These are separate from product version `0.1.0`, catalog schema 2, task contract `t03.v1`,
+writing. This candidate uses local state schema **9**, runtime session **4**, and Portable metadata
+**5**. These are separate from product version `0.1.0`, catalog schema 2, task contract `t03.v1`,
 and plugin bridge protocol 1. Stop older sessions before upgrading and update clients together;
 older runtimes must refuse incompatible state. See [schema migrations](docs/schema-migrations.md) for supported
 older layouts, refusal behavior, and interrupted-transaction recovery.

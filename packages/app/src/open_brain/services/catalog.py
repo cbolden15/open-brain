@@ -80,6 +80,8 @@ def cli_registrations(parser: argparse.ArgumentParser) -> tuple[dict[str, object
     leaves: list[dict[str, object]] = []
 
     def visit(current: argparse.ArgumentParser, words: tuple[str, ...]) -> None:
+        if current.get_default("_catalog_discoverable") is False:
+            return
         subparser_actions = [
             action for action in current._actions if isinstance(action, argparse._SubParsersAction)
         ]
@@ -176,7 +178,7 @@ def build_catalog(
         "compatibility": {
             "bridge_protocol": 1,
             "catalog_schema": CATALOG_SCHEMA_VERSION,
-            "portable_metadata": 4,
+            "portable_metadata": 5,
             "runtime_session": RUNTIME_SESSION_VERSION,
             "state_schema": PHASE1_STATE_SCHEMA_VERSION,
             "task_contract": "t03.v1",

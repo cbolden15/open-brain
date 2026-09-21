@@ -20,6 +20,7 @@ from open_brain_engine.portable.managed_v2 import PORTABLE_V2_SCHEMA_CATALOG_DIG
 from open_brain_engine.portable.relationships_v1 import RELATIONSHIP_METADATA_PATH
 from open_brain_engine.portable.v1 import PortableSnapshot
 from open_brain_engine.portable.v4 import SOURCE_METADATA_PATH, catalog_digest
+from open_brain_engine.portable.v5 import V5_SIDECAR_PATHS, manifest_v5
 from open_brain_engine.portable.versioned import validate_portable_root, validated_portable_snapshot
 from open_brain_engine.storage.filesystem import RootIdentity, capture_root_identity, read_confined
 from open_brain_engine.storage.locks import FileLease
@@ -36,6 +37,8 @@ from .managed_portability import export_managed_workspace_state, import_managed_
 from .materializer import Materialization, _profile, materialize_portable_root
 from .portability_ports import LocalPortableWrites, LocalTenantStorage, local_portability_ports
 from .portable_index import IndexBuild, rebuild_portable_index
+from .portable_v5_evidence import serialize_portable_v5_state, verify_portable_v5_semantic_state
+from .portable_v5_restore import audit_restored_v5, restore_portable_v5_root
 
 if TYPE_CHECKING:
     from .local import BrainEngine
@@ -65,6 +68,7 @@ def _receipt(
         2,
         3,
         4,
+        5,
     }:
         raise ValueError("unsupported Portable Brain schema")
     entries = cast(list[dict[str, object]], manifest["files"])
@@ -90,6 +94,10 @@ def _manifest(
     tenant_id: str,
     version: int = 1,
 ) -> dict[str, object]:
+    if version == 5:
+        return manifest_v5(
+            dict(files), tenant_id=tenant_id, export_id=export_id, created_at=created_at
+        )
     if version not in {1, 2, 3, 4}:
         raise ValueError("unsupported Portable Brain schema")
     return {
@@ -140,7 +148,7 @@ def _ready_record(
     materialization: Materialization,
     index: IndexBuild,
 ) -> dict[str, object]:
-    return {
+    ready: dict[str, object] = {
         "import_id": import_id,
         "index": {"generation": index.generation, "state": "complete"},
         "materialization": {
@@ -159,6 +167,78 @@ def _ready_record(
             "tenant_id": manifest["tenant_id"],
         },
     }
+    if manifest["schema_version"] == 5:
+        from .local_schema import open_local_database_read_only
+
+        connection = open_local_database_read_only(materialization.profile)
+        try:
+            evidence = serialize_portable_v5_state(
+                connection,
+                tenant_id=materialization.profile.tenant_id,
+                relationship_sidecar_present=_has_relationships(manifest),
+            )
+            ready.update(
+                schema_version=2,
+                authoritative_counts=_authoritative_counts(connection),
+                semantic_state_sha256=evidence.semantic_state_sha256,
+                index={
+                    "generation": index.generation,
+                    "documents": index.documents,
+                    "state": "complete",
+                },
+            )
+        finally:
+            connection.close()
+    return ready
+
+
+# Portable durable rows and their authoritative search projection. Local replay,
+# migration bookkeeping, FTS identities and index generations are not portable.
+_AUTHORITATIVE_TABLES = (
+    "captures",
+    "spaces",
+    "proposal_sets",
+    "proposals",
+    "decisions",
+    "review_contexts",
+    "review_sources",
+    "review_page_heads",
+    "logical_sources",
+    "source_revisions",
+    "canonical_revision_members",
+    "revision_relationships",
+    "relationship_decisions",
+    "source_revision_privacy",
+    "canonical_revision_privacy",
+    "privacy_invalid_evidence",
+    "privacy_repair_ledger",
+    "brain_identity",
+    "legacy_issuer_bindings",
+    "issuer_migration_marker",
+    "search_documents",
+    "managed_workspaces",
+    "managed_notes",
+    "managed_note_revisions",
+    "managed_links",
+    "managed_conflicts",
+    "managed_consents",
+    "managed_exclusions",
+    "managed_inference_budgets",
+)
+
+
+def _authoritative_counts(connection: sqlite3.Connection) -> dict[str, int]:
+    return {
+        table: connection.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]  # noqa: S608
+        for table in _AUTHORITATIVE_TABLES
+    }
+
+
+def _has_relationships(manifest: dict[str, object]) -> bool:
+    return any(
+        entry["path"] == RELATIONSHIP_METADATA_PATH
+        for entry in cast(list[dict[str, object]], manifest["files"])
+    )
 
 
 def _read_ready_record(
@@ -193,6 +273,8 @@ def _materialization_counts(manifest: dict[str, object]) -> dict[str, int]:
 def _validate_ready_record(
     manifest: dict[str, object], *, import_id: str, ready: dict[str, object]
 ) -> tuple[dict[str, int], int]:
+    v5 = manifest["schema_version"] == 5
+    extra_keys = {"authoritative_counts", "semantic_state_sha256"} if v5 else set()
     if (
         set(ready)
         != {
@@ -202,8 +284,10 @@ def _validate_ready_record(
             "schema_version",
             "source_manifest",
         }
+        | extra_keys
         or ready.get("import_id") != import_id
-        or ready.get("schema_version") != 1
+        or type(ready.get("schema_version")) is not int
+        or ready.get("schema_version") != (2 if v5 else 1)
     ):
         raise ValueError("portable import retry evidence is invalid")
     source_manifest = ready.get("source_manifest")
@@ -218,7 +302,7 @@ def _validate_ready_record(
             "tenant_id": manifest["tenant_id"],
         }
         or not isinstance(index, dict)
-        or set(index) != {"generation", "state"}
+        or set(index) != ({"generation", "state", "documents"} if v5 else {"generation", "state"})
         or type(index.get("generation")) is not int
         or index["generation"] < 1
         or index.get("state") != "complete"
@@ -228,6 +312,20 @@ def _validate_ready_record(
         or materialization.get("counts") != _materialization_counts(manifest)
     ):
         raise ValueError("portable import retry evidence is invalid")
+    if v5:
+        counts = ready["authoritative_counts"]
+        digest = ready["semantic_state_sha256"]
+        if (
+            not isinstance(counts, dict)
+            or set(counts) != set(_AUTHORITATIVE_TABLES)
+            or any(type(value) is not int or value < 0 for value in counts.values())
+            or type(index.get("documents")) is not int
+            or index["documents"] != counts["search_documents"]
+            or not isinstance(digest, str)
+            or len(digest) != 64
+            or any(character not in "0123456789abcdef" for character in digest)
+        ):
+            raise ValueError("portable import retry evidence is invalid")
     return _materialization_counts(manifest), cast(int, index["generation"])
 
 
@@ -336,12 +434,49 @@ def _validate_reopened_import(
     profile = _profile(destination, snapshot)
     if profile.tenant_id != manifest["tenant_id"]:
         raise ValueError("portable import retry evidence is invalid")
+    if manifest["schema_version"] == 5:
+        # Reject archive-bound drift before engine recovery can rewrite it.
+        audit_restored_v5(profile, snapshot=snapshot)
     from .local import BrainEngine
 
     reopened = BrainEngine.open(profile)
     connection = reopened._store.connect()
     try:
         row = connection.execute("SELECT COUNT(*) FROM captures").fetchone()
+        if manifest["schema_version"] == 5:
+            verify_portable_v5_semantic_state(
+                connection,
+                tenant_id=profile.tenant_id,
+                relationship_sidecar_present=_has_relationships(manifest),
+                expected_sha256=cast(str, expected_ready["semantic_state_sha256"]),
+            )
+            if _authoritative_counts(connection) != expected_ready["authoritative_counts"]:
+                raise ValueError("portable import retry authoritative counts differ")
+            managed = export_managed_workspace_state(reopened, connection=connection)
+            expected_managed = [
+                (path, payload)
+                for path, payload in snapshot.files.items()
+                if path.startswith("history/managed-workspace/")
+            ]
+            if ([] if managed is None else [managed]) != expected_managed:
+                raise ValueError("portable import retry managed evidence differs")
+            index_connection = connect_database_read_only(
+                root=destination,
+                database_name=".open-brain/indexes/search.sqlite3",
+                expected_root_identity=expected_root_identity,
+            )
+            try:
+                query = (
+                    "SELECT result_id, capture_id, record_type, payload_family, space_id, "
+                    "title, body, trust, provenance_json, canonical_path, updated_at "
+                    "FROM search_documents ORDER BY result_id"
+                )
+                authoritative = [tuple(item) for item in connection.execute(query)]
+                indexed = [tuple(item) for item in index_connection.execute(query)]
+                if indexed != authoritative:
+                    raise ValueError("portable import retry index evidence differs")
+            finally:
+                index_connection.close()
     finally:
         connection.close()
     if row is None:
@@ -448,16 +583,22 @@ class PortabilityTasks:
         ]
         if not files or files[0][0] != "brain.toml":
             raise ValueError("local Portable profile is unavailable")
-        managed = export_managed_workspace_state(self._engine)
-        if managed is not None:
-            files.append(managed)
+        # connect() starts one explicit read transaction; every database-backed
+        # payload below is derived from that view while the writer fence is held.
         connection = self._engine._store.connect()
         try:
-            if connection.execute("PRAGMA user_version").fetchone()[0] >= 7:
+            schema_version = connection.execute("PRAGMA user_version").fetchone()[0]
+            managed = export_managed_workspace_state(self._engine, connection=connection)
+            if managed is not None:
+                files.append(managed)
+            if schema_version >= 7:
                 from .relationship_store import relationship_metadata
                 from .source_store import source_metadata
 
                 relation = relationship_metadata(connection)
+                relationship_present = any(path == RELATIONSHIP_METADATA_PATH for path, _ in files)
+                if schema_version == 9 and relationship_present and relation is None:
+                    relation = {"schema_version": 1, "relationships": [], "decisions": []}
                 files = [(path, data) for path, data in files if path != RELATIONSHIP_METADATA_PATH]
                 if relation is not None:
                     files.append(
@@ -470,6 +611,14 @@ class PortabilityTasks:
                         portable_canonical_json_bytes(source_metadata(connection)),
                     )
                 )
+                if schema_version == 9:
+                    evidence = serialize_portable_v5_state(
+                        connection,
+                        tenant_id=self._engine.profile.tenant_id,
+                        relationship_sidecar_present=relation is not None,
+                    )
+                    files = [(path, data) for path, data in files if path not in V5_SIDECAR_PATHS]
+                    files.extend(evidence.sidecars.items())
         finally:
             connection.close()
         files.sort(key=lambda item: item[0])
@@ -481,7 +630,9 @@ class PortabilityTasks:
             export_id=export_id,
             created_at=_timestamp(self._engine._clock()),
             tenant_id=self._engine.profile.tenant_id,
-            version=4
+            version=5
+            if schema_version == 9
+            else 4
             if any(path == SOURCE_METADATA_PATH for path, _ in files)
             else 3
             if has_review_bindings
@@ -627,12 +778,22 @@ class PortabilityTasks:
                     raise ValueError("portable import stage differs from its source snapshot")
                 stage.assert_identity()
                 self._engine._fault(PortabilityFault.AFTER_PROFILE)
-                materialization = materialize_portable_root(
+                restore = (
+                    restore_portable_v5_root
+                    if manifest["schema_version"] == 5
+                    else materialize_portable_root
+                )
+                materialization = restore(
                     stage_root,
                     snapshot=stage_snapshot,
                     expected_root_identity=stage_identity,
                 )
-                if manifest["schema_version"] in {2, 3}:
+                if manifest["schema_version"] == 5:
+                    materialization = replace(
+                        materialization,
+                        history_records=_materialization_counts(manifest)["history_records"],
+                    )
+                if manifest["schema_version"] in {2, 3, 5}:
                     managed_paths = [
                         path
                         for path in stage_snapshot.files
@@ -650,10 +811,11 @@ class PortabilityTasks:
                             staged_engine,
                             stage_snapshot.files[managed_paths[0]],
                         )
-                        materialization = replace(
-                            materialization,
-                            history_records=materialization.history_records + 1,
-                        )
+                        if manifest["schema_version"] != 5:
+                            materialization = replace(
+                                materialization,
+                                history_records=materialization.history_records + 1,
+                            )
                 stage.assert_identity()
                 self._engine._fault(PortabilityFault.AFTER_MATERIALIZATION)
                 index = rebuild_portable_index(materialization.profile)
@@ -677,12 +839,15 @@ class PortabilityTasks:
                 )
                 stage.assert_identity()
                 self._engine._fault(PortabilityFault.AFTER_READY)
+                self._engine._fault(PortabilityFault.BEFORE_PROMOTION)
 
                 def verify_staged_import() -> None:
-                    _matching_portable_snapshot(
+                    _validate_reopened_import(
                         stage_root,
+                        stage_snapshot,
+                        import_id=import_id,
+                        expected_ready=ready,
                         expected_root_identity=stage_identity,
-                        expected_snapshot=stage_snapshot,
                     )
 
                 stage.promote(pre_rename=verify_staged_import)
@@ -734,7 +899,9 @@ class PortabilityTasks:
             created_at="1970-01-01T00:00:00Z",
             tenant_id=self._engine.profile.tenant_id,
             version=(
-                4
+                5
+                if all(any(path == sidecar for path, _ in files) for sidecar in V5_SIDECAR_PATHS)
+                else 4
                 if any(path == SOURCE_METADATA_PATH for path, _ in files)
                 else 3
                 if any(relative.startswith("history/review-bindings/") for relative, _ in files)

@@ -13,8 +13,13 @@ from open_brain_engine.portable.managed_v2 import (
     managed_workspace_path,
     validate_managed_workspace_record,
 )
-from open_brain_engine.storage.filesystem import read_confined
+from open_brain_engine.storage.filesystem import (
+    RootConfinementError,
+    assert_root_identity,
+    read_confined,
+)
 
+from .contracts import ManagedWorkspaceFailure
 from .managed_workspace import _digest, _timestamp
 from .markdown_import_fs import MAX_FILE_BYTES
 
@@ -22,9 +27,13 @@ if TYPE_CHECKING:
     from .local import BrainEngine
 
 
-def export_managed_workspace_state(engine: BrainEngine) -> tuple[str, bytes] | None:
+def export_managed_workspace_state(
+    engine: BrainEngine, *, connection: sqlite3.Connection | None = None
+) -> tuple[str, bytes] | None:
     """Serialize one stable workspace without any device-local filesystem identity."""
-    connection = engine._store.connect()
+    owns_connection = connection is None
+    if connection is None:
+        connection = engine._store.connect()
     try:
         workspaces = tuple(
             connection.execute("SELECT * FROM managed_workspaces ORDER BY workspace_id")
@@ -51,7 +60,11 @@ def export_managed_workspace_state(engine: BrainEngine) -> tuple[str, bytes] | N
             )
         )
         if workspace["root_path"] is not None:
-            managed = engine.managed_workspace._workspace(workspace_id)
+            managed = engine.managed_workspace._workspace_value(workspace)
+            try:
+                assert_root_identity(managed.root, managed.root_identity)
+            except (RootConfinementError, ValueError, OSError):
+                raise ManagedWorkspaceFailure("unsafe_workspace") from None
             for note in notes:
                 if not bool(note["active"]):
                     continue
@@ -91,7 +104,8 @@ def export_managed_workspace_state(engine: BrainEngine) -> tuple[str, bytes] | N
         )
         return managed_workspace_path(workspace_id), payload
     finally:
-        connection.close()
+        if owns_connection:
+            connection.close()
 
 
 def import_managed_workspace_state(engine: BrainEngine, payload: bytes) -> str:
