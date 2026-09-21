@@ -73,6 +73,34 @@ class PrivacyTier(StrEnum):
     UNKNOWN = "unknown"
 
 
+_PRIVACY_TIER_RESTRICTIVENESS: dict[PrivacyTier, int] = {
+    PrivacyTier.PUBLIC: 0,
+    PrivacyTier.WORK: 1,
+    PrivacyTier.PERSONAL: 2,
+    PrivacyTier.SECRET: 3,
+    PrivacyTier.UNKNOWN: 4,
+}
+
+
+def narrowest_tier(current: PrivacyTier, candidate: PrivacyTier) -> PrivacyTier:
+    """Return the narrower of two privacy tiers without ever widening.
+
+    Restrictiveness is ordered public < work < personal < secret, and unknown is
+    treated as at least as restrictive as secret for reads, so unknown outranks
+    every other tier. The result is never wider than ``current``: a wider
+    ``candidate`` is ignored, and any pair that includes unknown stays unknown.
+    The helper is pure and performs no I/O.
+    """
+    normalized_current = cast(PrivacyTier, _enum(PrivacyTier, current))
+    normalized_candidate = cast(PrivacyTier, _enum(PrivacyTier, candidate))
+    if (
+        _PRIVACY_TIER_RESTRICTIVENESS[normalized_candidate]
+        > _PRIVACY_TIER_RESTRICTIVENESS[normalized_current]
+    ):
+        return normalized_candidate
+    return normalized_current
+
+
 class PrivacyReason(StrEnum):
     POLICY_PUBLIC = "policy_public"
     POLICY_WORK = "policy_work"

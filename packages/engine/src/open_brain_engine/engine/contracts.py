@@ -21,6 +21,7 @@ from open_brain_engine.core.models import (
     ContentOrigin,
     Intent,
     PrivacyDecision,
+    PrivacyTier,
     Provenance,
 )
 from open_brain_engine.providers.base import ProviderMode
@@ -1379,6 +1380,114 @@ class PublicJobCaptureContext:
             raise ValueError("public-job role has unsupported authority")
 
 
+class CaptureAdmissionResult(StrEnum):
+    """Stable refusal values for bounded capture admission; no partial state exists."""
+
+    ENVELOPE_TOO_LARGE = "envelope_too_large"
+    BODY_TOO_LARGE = "body_too_large"
+    BATCH_TOO_LARGE = "batch_too_large"
+    RATE_LIMITED = "rate_limited"
+    ADMISSION_BUSY = "admission_busy"
+    WRITER_QUEUE_FULL = "writer_queue_full"
+    STORAGE_HIGH = "storage_high"
+    STORAGE_CRITICAL = "storage_critical"
+    TIER_NOT_PERMITTED = "tier_not_permitted"
+
+
+_RETRYABLE_ADMISSION_RESULTS = frozenset(
+    {
+        CaptureAdmissionResult.RATE_LIMITED,
+        CaptureAdmissionResult.ADMISSION_BUSY,
+        CaptureAdmissionResult.WRITER_QUEUE_FULL,
+        CaptureAdmissionResult.STORAGE_HIGH,
+    }
+)
+
+
+class CaptureAdmissionError(ValueError):
+    """A capture request refused before any record, revision, blob, or receipt exists."""
+
+    def __init__(self, result: CaptureAdmissionResult) -> None:
+        self._result = CaptureAdmissionResult(result)
+        super().__init__(f"capture admission refused: {self._result.value}")
+
+    @property
+    def result(self) -> CaptureAdmissionResult:
+        """The stable refusal value bound to this rejection."""
+        return self._result
+
+    @property
+    def retryable(self) -> bool:
+        """True when an identical retry may later be admitted unchanged."""
+        return self._result in _RETRYABLE_ADMISSION_RESULTS
+
+
+@dataclass(frozen=True, slots=True)
+class AdmissionLimits:
+    """Validated capture admission bounds with safe non-zero local defaults."""
+
+    max_envelope_bytes: int = 8 * 1024 * 1024
+    max_body_bytes: int = 4 * 1024 * 1024
+    max_batch_items: int = 64
+    max_batch_bytes: int = 32 * 1024 * 1024
+    requests_per_minute_per_principal: int = 120
+    max_concurrent_admissions: int = 8
+    max_writer_waiters: int = 16
+    storage_high_watermark_ratio: float = 0.8
+    storage_critical_watermark_ratio: float = 0.95
+
+    def __post_init__(self) -> None:
+        for name in (
+            "max_envelope_bytes",
+            "max_body_bytes",
+            "max_batch_items",
+            "max_batch_bytes",
+            "requests_per_minute_per_principal",
+            "max_concurrent_admissions",
+            "max_writer_waiters",
+        ):
+            value = getattr(self, name)
+            if type(value) is not int or value <= 0:
+                raise ValueError("invalid admission limits")
+        for ratio in (
+            self.storage_high_watermark_ratio,
+            self.storage_critical_watermark_ratio,
+        ):
+            if not isinstance(ratio, int | float) or not 0 < ratio < 1:
+                raise ValueError("invalid admission limits")
+        if not self.storage_high_watermark_ratio < self.storage_critical_watermark_ratio:
+            raise ValueError("invalid admission limits")
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "max_envelope_bytes": self.max_envelope_bytes,
+            "max_body_bytes": self.max_body_bytes,
+            "max_batch_items": self.max_batch_items,
+            "max_batch_bytes": self.max_batch_bytes,
+            "requests_per_minute_per_principal": self.requests_per_minute_per_principal,
+            "max_concurrent_admissions": self.max_concurrent_admissions,
+            "max_writer_waiters": self.max_writer_waiters,
+            "storage_high_watermark_ratio": self.storage_high_watermark_ratio,
+            "storage_critical_watermark_ratio": self.storage_critical_watermark_ratio,
+        }
+
+    @classmethod
+    def from_dict(cls, value: Mapping[str, object]) -> AdmissionLimits:
+        if not isinstance(value, Mapping) or set(value) != {
+            "max_envelope_bytes",
+            "max_body_bytes",
+            "max_batch_items",
+            "max_batch_bytes",
+            "requests_per_minute_per_principal",
+            "max_concurrent_admissions",
+            "max_writer_waiters",
+            "storage_high_watermark_ratio",
+            "storage_critical_watermark_ratio",
+        }:
+            raise ValueError("invalid admission limits")
+        return cls(**cast(dict[str, Any], dict(value)))
+
+
 @dataclass(frozen=True, slots=True)
 class CaptureSubmission:
     """One versioned capture request for an owner or injected public-job capability."""
@@ -1599,6 +1708,11 @@ class CaptureSubmission:
 
     def durable_source_origin(self) -> str:
         return "owner" if self.source_origin is ContentOrigin.OWNER_AUTHORED else "third_party"
+
+    @property
+    def requested_tier(self) -> PrivacyTier:
+        """The tier requested at submission time; admission may still narrow it."""
+        return self.privacy.tier
 
     def request_value(self) -> dict[str, object]:
         """A stable replay value; owner submissions retain the Phase 1 bytes exactly."""
