@@ -20,10 +20,12 @@ from open_brain_engine.engine.contracts import (
     AdmissionLimits,
     CaptureAdmissionError,
     CaptureAdmissionResult,
+    CaptureReceipt,
     CaptureSubmission,
     LocalEngineContext,
     PublicJobCaptureContext,
     TextPayload,
+    project_public_capture_receipt,
 )
 from open_brain_engine.providers.base import ProviderMode
 
@@ -318,3 +320,49 @@ def test_engine_package_reexports_the_admission_contracts() -> None:
     assert engine_package.AdmissionLimits is AdmissionLimits
     assert engine_package.CaptureAdmissionError is CaptureAdmissionError
     assert engine_package.CaptureAdmissionResult is CaptureAdmissionResult
+
+
+def test_capture_receipt_defaults_fail_closed_to_equal_unknown_tiers() -> None:
+    receipt = CaptureReceipt("capture_synthetic", "text", "inbox", "pending_enrichment", None, None)
+    assert receipt.duplicate is False
+    assert receipt.requested_tier is PrivacyTier.UNKNOWN
+    assert receipt.final_admitted_tier is PrivacyTier.UNKNOWN
+
+
+def test_public_capture_receipt_projection_keeps_both_bound_tiers() -> None:
+    receipt = CaptureReceipt(
+        capture_id="capture_synthetic",
+        payload_family="text",
+        state="inbox",
+        enrichment_state="pending_enrichment",
+        space_id=None,
+        canonical_path="sources/captures/2026/09/20/capture_synthetic.md",
+        duplicate=False,
+        requested_tier=PrivacyTier.WORK,
+        final_admitted_tier=PrivacyTier.SECRET,
+    )
+
+    projected = project_public_capture_receipt(receipt)
+
+    assert projected.canonical_path == receipt.capture_id
+    assert projected.requested_tier is PrivacyTier.WORK
+    assert projected.final_admitted_tier is PrivacyTier.SECRET
+
+
+def test_redaction_boundary_classifier_reuses_the_approved_detector() -> None:
+    from open_brain_engine.engine.capture import redaction_boundary_classifier
+
+    profile = _profile()
+    plain = CaptureSubmission.for_local_owner(
+        profile=profile,
+        payload=TextPayload("Synthetic plain owner capture"),
+        delivery_id="delivery.redaction.plain",
+    )
+    credential = CaptureSubmission.for_local_owner(
+        profile=profile,
+        payload=TextPayload("Synthetic password: hunter2-specimen capture"),
+        delivery_id="delivery.redaction.credential",
+    )
+
+    assert redaction_boundary_classifier(plain) is None
+    assert redaction_boundary_classifier(credential) is PrivacyTier.SECRET

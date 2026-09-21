@@ -19,6 +19,7 @@ from open_brain_engine.storage.watermarks import StorageUsage
 from .capture import CaptureOperations, CaptureTasks
 from .contracts import (
     AdmissionLimits,
+    BoundaryClassifier,
     CaptureAction,
     CaptureFault,
     CaptureReceipt,
@@ -135,11 +136,14 @@ class BrainEngine(CaptureOperations, SpaceOperations, ReviewOperations, Retrieva
         validate_mutation_authority: Callable[[], None] | None = None,
         admission_limits: AdmissionLimits | None = None,
         storage_probe: Callable[[Path], StorageUsage] | None = None,
+        boundary_classifier: BoundaryClassifier | None = None,
     ) -> None:
         if admission_limits is not None and not isinstance(admission_limits, AdmissionLimits):
             raise ValueError("invalid admission limits")
         if storage_probe is not None and not callable(storage_probe):
             raise ValueError("invalid storage probe")
+        if boundary_classifier is not None and not callable(boundary_classifier):
+            raise ValueError("invalid boundary classifier")
         if profile.provider_mode is ProviderMode.CLOUD:
             raise ValueError("Phase 1 local engine does not enable cloud enrichment")
         if profile.provider_mode is ProviderMode.NONE and enrichment_provider is not None:
@@ -202,6 +206,10 @@ class BrainEngine(CaptureOperations, SpaceOperations, ReviewOperations, Retrieva
         # root, and an injected probe lets tests fake usage without filling
         # a disk.
         self._storage_probe = storage_probe
+        # Canonical-boundary rescan narrows only. ``None`` (the default) means
+        # no classifier is wired and every submission path keeps its submitted
+        # tier, so existing no-flag capture behaves exactly as before.
+        self._boundary_classifier = boundary_classifier
         # Engine-owned admission gate state. The core is one foreground
         # process, so the per-principal rate windows and the concurrent
         # admission counter are per-process and recover in-process without
@@ -275,6 +283,7 @@ class BrainEngine(CaptureOperations, SpaceOperations, ReviewOperations, Retrieva
         recover_abandoned_sessions: bool = True,
         admission_limits: AdmissionLimits | None = None,
         storage_probe: Callable[[Path], StorageUsage] | None = None,
+        boundary_classifier: BoundaryClassifier | None = None,
     ) -> BrainEngine:
         if not isinstance(profile, LocalEngineContext):
             raise ValueError("invalid local profile")
@@ -286,6 +295,7 @@ class BrainEngine(CaptureOperations, SpaceOperations, ReviewOperations, Retrieva
             validate_mutation_authority=validate_mutation_authority,
             admission_limits=admission_limits,
             storage_probe=storage_probe,
+            boundary_classifier=boundary_classifier,
         )
         with engine._writer_lease.acquire_shared_writer():
             engine._recover(startup=recover_abandoned_sessions)

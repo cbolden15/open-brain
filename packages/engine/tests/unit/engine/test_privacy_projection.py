@@ -19,6 +19,7 @@ from open_brain_engine.core.models import (
 from open_brain_engine.engine.privacy_projection import (
     InvalidPrivacyEvidenceReason,
     RetainedPrivacyEvidence,
+    narrow_retained_privacy_decision,
     project_retained_privacy_evidence,
 )
 from open_brain_engine.engine.search_projection import project_search_privacy
@@ -71,9 +72,7 @@ def _preimage_value(value: object) -> object:
     raise AssertionError(f"unsupported digest fixture value: {value!r}")
 
 
-def _invalid_digest(
-    reason: InvalidPrivacyEvidenceReason, values: Sequence[object]
-) -> str:
+def _invalid_digest(reason: InvalidPrivacyEvidenceReason, values: Sequence[object]) -> str:
     return sha256(
         portable_canonical_json_bytes(
             {
@@ -117,9 +116,7 @@ def test_derived_decision_intersects_authority_and_unions_lineage() -> None:
         PrivacyTier.PERSONAL, cloud=True, external_egress=False, confirmation_ref="confirm-1"
     )
 
-    projected = project_retained_privacy_evidence(
-        [_stored(public_egress), _stored(personal)]
-    )
+    projected = project_retained_privacy_evidence([_stored(public_egress), _stored(personal)])
 
     assert projected.valid
     assert projected.tier is PrivacyTier.PERSONAL
@@ -239,9 +236,7 @@ def test_internally_inconsistent_decision_fails_closed() -> None:
 def test_caller_declared_inconsistency_fails_closed_despite_valid_values() -> None:
     stored = [_stored(_privacy(PrivacyTier.WORK)), _stored(_privacy(PrivacyTier.PUBLIC))]
 
-    projected = project_retained_privacy_evidence(
-        stored, caller_declared_inconsistent=True
-    )
+    projected = project_retained_privacy_evidence(stored, caller_declared_inconsistent=True)
 
     assert not projected.valid
     assert projected.tier is PrivacyTier.UNKNOWN
@@ -255,9 +250,7 @@ def test_caller_declared_inconsistency_fails_closed_despite_valid_values() -> No
 
 
 def test_malformed_evidence_beats_declared_inconsistency() -> None:
-    projected = project_retained_privacy_evidence(
-        ["not json"], caller_declared_inconsistent=True
-    )
+    projected = project_retained_privacy_evidence(["not json"], caller_declared_inconsistent=True)
 
     assert projected.invalid_reason is InvalidPrivacyEvidenceReason.MALFORMED
 
@@ -293,9 +286,7 @@ def test_invalid_evidence_digest_is_domain_separated_and_stable() -> None:
         InvalidPrivacyEvidenceReason.MALFORMED, ["not json"]
     )
 
-    inconsistent = project_retained_privacy_evidence(
-        [stored], caller_declared_inconsistent=True
-    )
+    inconsistent = project_retained_privacy_evidence([stored], caller_declared_inconsistent=True)
     assert inconsistent.invalid_evidence_sha256 is not None
     assert inconsistent.invalid_evidence_sha256 != malformed.invalid_evidence_sha256
     assert (
@@ -548,3 +539,58 @@ def test_apply_privacy_repair_rejects_valid_base_and_secret_egress() -> None:
             applied_repair_id="repair_1",
             applied_repair_sequence=0,
         )
+
+
+def test_narrow_retained_privacy_decision_names_canonical_reasons_per_tier() -> None:
+    work = _privacy(PrivacyTier.WORK, cloud=True, external_egress=True)
+
+    secret = narrow_retained_privacy_decision(work, PrivacyTier.SECRET)
+    assert secret.tier is PrivacyTier.SECRET
+    assert secret.reason is PrivacyReason.SECRET_DETECTED
+    assert secret.policy_version == work.policy_version
+    assert secret.authority == Authority(cloud=False, external_egress=False)
+
+    unknown = narrow_retained_privacy_decision(work, PrivacyTier.UNKNOWN)
+    assert unknown.tier is PrivacyTier.UNKNOWN
+    assert unknown.reason is PrivacyReason.CLASSIFICATION_MISSING
+    assert unknown.authority == Authority(cloud=False, external_egress=False)
+
+    personal = narrow_retained_privacy_decision(work, PrivacyTier.PERSONAL)
+    assert personal.tier is PrivacyTier.PERSONAL
+    assert personal.reason is PrivacyReason.PERSONAL_LOCAL_ONLY
+    assert personal.authority == Authority(cloud=False, external_egress=False)
+
+    public_to_work = narrow_retained_privacy_decision(
+        _privacy(PrivacyTier.PUBLIC, cloud=True, external_egress=True), PrivacyTier.WORK
+    )
+    assert public_to_work.tier is PrivacyTier.WORK
+    assert public_to_work.reason is PrivacyReason.POLICY_WORK
+    assert public_to_work.authority == Authority(cloud=True, external_egress=True)
+
+    confirmed = narrow_retained_privacy_decision(
+        _privacy(PrivacyTier.PERSONAL, confirmation_ref="confirm-1"), PrivacyTier.SECRET
+    )
+    assert confirmed.confirmation_ref is None
+
+
+def test_narrow_retained_privacy_decision_never_widens() -> None:
+    work = _privacy(PrivacyTier.WORK)
+    secret = _privacy(PrivacyTier.SECRET)
+    unknown = _privacy(PrivacyTier.UNKNOWN)
+    assert narrow_retained_privacy_decision(work, PrivacyTier.PUBLIC) is work
+    assert narrow_retained_privacy_decision(secret, PrivacyTier.PERSONAL) is secret
+    assert narrow_retained_privacy_decision(unknown, PrivacyTier.SECRET) is unknown
+    with pytest.raises(ValidationError):
+        narrow_retained_privacy_decision("not-a-decision", PrivacyTier.SECRET)  # type: ignore[arg-type]
+
+
+def test_narrowed_evidence_projects_through_the_existing_projection() -> None:
+    work = _privacy(PrivacyTier.WORK, cloud=True, external_egress=True)
+    narrowed = narrow_retained_privacy_decision(work, PrivacyTier.SECRET)
+
+    projected = project_retained_privacy_evidence([_stored(narrowed)])
+
+    assert projected.valid
+    assert projected.tier is PrivacyTier.SECRET
+    assert projected.authority == Authority(cloud=False, external_egress=False)
+    assert projected.source_decision_sha256s == (privacy_decision_sha256(narrowed),)

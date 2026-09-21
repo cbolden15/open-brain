@@ -299,6 +299,15 @@ class CaptureReceipt:
     space_id: str | None
     canonical_path: str | None
     duplicate: bool = False
+    # An unbound tier fails closed to ``unknown``; constructors that know the
+    # submission always set both, so they differ only when admission narrowed.
+    requested_tier: PrivacyTier = PrivacyTier.UNKNOWN
+    final_admitted_tier: PrivacyTier = PrivacyTier.UNKNOWN
+
+
+# One canonical-boundary rescan signal for a submission: a tier narrows the
+# admitted decision, and ``None`` means the boundary has no narrowing signal.
+type BoundaryClassifier = Callable[[CaptureSubmission], PrivacyTier | None]
 
 
 @dataclass(frozen=True, slots=True)
@@ -659,6 +668,8 @@ def project_public_capture_receipt(receipt: CaptureReceipt) -> CaptureReceipt:
         space_id=receipt.space_id,
         canonical_path=(receipt.capture_id if receipt.canonical_path is not None else None),
         duplicate=receipt.duplicate,
+        requested_tier=receipt.requested_tier,
+        final_admitted_tier=receipt.final_admitted_tier,
     )
 
 

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 import sqlite3
 import subprocess
@@ -53,12 +54,14 @@ def _engine(
     limits: AdmissionLimits | None = None,
     clock: Callable[[], datetime] | None = None,
     storage_probe: Callable[[Path], StorageUsage] | None = None,
+    boundary_classifier: Callable[[CaptureSubmission], PrivacyTier | None] | None = None,
 ) -> BrainEngine:
     return BrainEngine.open(
         compile_single_user_local(root),
         admission_limits=limits,
         clock=clock,
         storage_probe=storage_probe,
+        boundary_classifier=boundary_classifier,
     )
 
 
@@ -527,3 +530,104 @@ def test_free_space_returning_above_high_admits_without_reopening_the_engine(
     assert receipt.duplicate is False
     assert _count(root, "captures") == 1
     assert _count(root, "search_documents") >= 1
+
+
+def _classifier_returning(
+    tier: PrivacyTier | None,
+) -> Callable[[CaptureSubmission], PrivacyTier | None]:
+    def classify(submission: CaptureSubmission) -> PrivacyTier | None:
+        return tier
+
+    return classify
+
+
+def _capture_column(root: Path, capture_id: str, column: str) -> object:
+    connection = sqlite3.connect(root / ".open-brain/state/phase1.sqlite3")
+    try:
+        row = connection.execute(
+            f"SELECT {column} FROM captures WHERE capture_id = ?", (capture_id,)
+        ).fetchone()
+    finally:
+        connection.close()
+    assert row is not None
+    return row[0]
+
+
+def _stored_privacy_tier(root: Path, capture_id: str) -> str:
+    privacy = json.loads(cast(str, _capture_column(root, capture_id, "privacy_json")))
+    assert isinstance(privacy, dict)
+    return cast(str, privacy["tier"])
+
+
+def _search_effective_tier(root: Path, capture_id: str) -> str:
+    connection = sqlite3.connect(root / ".open-brain/state/phase1.sqlite3")
+    try:
+        row = connection.execute(
+            "SELECT effective_tier FROM search_documents "
+            "WHERE capture_id = ? AND record_type = 'source'",
+            (capture_id,),
+        ).fetchone()
+    finally:
+        connection.close()
+    assert row is not None
+    return cast(str, row[0])
+
+
+def test_secret_boundary_signal_narrows_a_work_public_job_capture(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "brain"
+    engine = _engine(root, boundary_classifier=_classifier_returning(PrivacyTier.SECRET))
+    submission = _public_job_submission(engine, "admission-narrow-public-1")
+    requested_digest = submission.request_sha256()
+
+    receipt = engine.capture.submit(submission)
+
+    assert receipt.requested_tier is PrivacyTier.WORK
+    assert receipt.final_admitted_tier is PrivacyTier.SECRET
+    assert _stored_privacy_tier(root, receipt.capture_id) == "secret"
+    assert _search_effective_tier(root, receipt.capture_id) == "secret"
+    # The immutable request digest still binds the requested WORK decision.
+    assert _capture_column(root, receipt.capture_id, "request_sha256") == requested_digest
+
+
+def test_public_boundary_signal_never_widens_a_personal_capture(tmp_path: Path) -> None:
+    root = tmp_path / "brain"
+    engine = _engine(root, boundary_classifier=_classifier_returning(PrivacyTier.PUBLIC))
+    receipt = engine.capture.accept(
+        TextPayload("synthetic"), delivery_id="admission-narrow-owner-public-1"
+    )
+    assert receipt.requested_tier is PrivacyTier.PERSONAL
+    assert receipt.final_admitted_tier is PrivacyTier.PERSONAL
+    assert _stored_privacy_tier(root, receipt.capture_id) == "personal"
+    assert _search_effective_tier(root, receipt.capture_id) == "personal"
+
+
+def test_without_a_classifier_receipts_carry_equal_requested_and_final_tiers(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "brain"
+    engine = _engine(root)
+    owner = engine.capture.accept(TextPayload("synthetic"), delivery_id="admission-tiers-owner-1")
+    public = engine.capture.submit(_public_job_submission(engine, "admission-tiers-public-1"))
+    assert owner.requested_tier is PrivacyTier.PERSONAL
+    assert owner.final_admitted_tier is PrivacyTier.PERSONAL
+    assert public.requested_tier is PrivacyTier.WORK
+    assert public.final_admitted_tier is PrivacyTier.WORK
+
+
+def test_owner_path_capture_is_also_narrowed_by_the_boundary_classifier(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "brain"
+    engine = _engine(root, boundary_classifier=_classifier_returning(PrivacyTier.SECRET))
+    receipt = engine.capture.accept(
+        TextPayload("synthetic owner narrowing"), delivery_id="admission-narrow-owner-1"
+    )
+    assert receipt.requested_tier is PrivacyTier.PERSONAL
+    assert receipt.final_admitted_tier is PrivacyTier.SECRET
+    assert _stored_privacy_tier(root, receipt.capture_id) == "secret"
+    assert _search_effective_tier(root, receipt.capture_id) == "secret"
+    record = next((root / "sources" / "captures").rglob(f"{receipt.capture_id}.json"))
+    stored_record = json.loads(record.read_text(encoding="utf-8"))
+    assert stored_record["privacy"]["tier"] == "secret"

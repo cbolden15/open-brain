@@ -14,14 +14,21 @@ from hashlib import sha256
 from pathlib import Path
 from typing import TYPE_CHECKING, cast
 
+from open_brain_engine.capture.redaction import has_redaction_finding
 from open_brain_engine.core.ids import portable_canonical_json_bytes
-from open_brain_engine.core.models import ContentOrigin
+from open_brain_engine.core.models import (
+    ContentOrigin,
+    PrivacyDecision,
+    PrivacyTier,
+    narrowest_tier,
+)
 from open_brain_engine.providers.base import EnrichmentState
 from open_brain_engine.storage import watermarks
 from open_brain_engine.storage.locks import WriterQueueFullError
 from open_brain_engine.storage.markdown import render_markdown
 
 from .contracts import (
+    BoundaryClassifier,
     CaptureAction,
     CaptureAdmissionError,
     CaptureAdmissionResult,
@@ -58,6 +65,7 @@ from .normalization import (
     _trust,
 )
 from .portability_ports import portable_write_port
+from .privacy_projection import narrow_retained_privacy_decision
 
 if TYPE_CHECKING:
     from .local import BrainEngine
@@ -100,6 +108,29 @@ def _principal_key(tenant_id: str, actor_id: str) -> str:
     return f"{tenant_id}:{actor_id}"
 
 
+def _boundary_scan_text(submission: CaptureSubmission) -> tuple[str, ...]:
+    """The free-text surfaces one canonical-boundary rescan may classify."""
+    values: list[str] = []
+    if isinstance(submission.payload, TextPayload):
+        values.append(submission.payload.text)
+    if submission.title is not None:
+        values.append(submission.title)
+    return tuple(values)
+
+
+def redaction_boundary_classifier(submission: CaptureSubmission) -> PrivacyTier | None:
+    """Reuse the approved capture redaction policy as one boundary signal.
+
+    Any finding of the deterministic work-tier redaction policy is a secret
+    signal; no finding is no signal. The engine default is no classifier at
+    all, so this runs only where an embedder injects it.
+    """
+    for value in _boundary_scan_text(submission):
+        if has_redaction_finding(value):
+            return PrivacyTier.SECRET
+    return None
+
+
 class CaptureOperations(_LocalEngineOperations):
     # Engine-owned admission gate state, initialized by BrainEngine; declared
     # here so typed gate arithmetic on the mixin resolves.
@@ -107,6 +138,7 @@ class CaptureOperations(_LocalEngineOperations):
     _admission_rate_windows: dict[str, deque[datetime]]
     _active_admissions: int
     _storage_probe: Callable[[Path], watermarks.StorageUsage] | None
+    _boundary_classifier: BoundaryClassifier | None
 
     def _accept_capture(
         self,
@@ -220,6 +252,25 @@ class CaptureOperations(_LocalEngineOperations):
         if result is not None:
             raise CaptureAdmissionError(result)
 
+    def _admitted_privacy(self, submission: CaptureSubmission) -> PrivacyDecision:
+        """Canonical-boundary rescan: the classifier may narrow the retained tier.
+
+        ``None`` (the default) or a ``None`` signal keeps the submitted
+        decision exactly; any other signal is folded through the G1
+        ``narrowest_tier`` helper, so admission can only ever narrow. Every
+        submission path (owner, public job, Markdown import) funnels through
+        ``_submit_capture`` and is rescan-narrowed identically here.
+        """
+        classifier = self._boundary_classifier
+        if classifier is None:
+            return submission.privacy
+        signal = classifier(submission)
+        if signal is None:
+            return submission.privacy
+        return narrow_retained_privacy_decision(
+            submission.privacy, narrowest_tier(submission.requested_tier, signal)
+        )
+
     def _submit_capture(self, submission: CaptureSubmission) -> CaptureReceipt:
         submission.validate_profile(self.profile)
         limits = self._admission_limits
@@ -232,6 +283,7 @@ class CaptureOperations(_LocalEngineOperations):
         if body_length > limits.max_body_bytes:
             raise CaptureAdmissionError(CaptureAdmissionResult.BODY_TOO_LARGE)
         self._refuse_on_storage_watermark()
+        admitted_privacy = self._admitted_privacy(submission)
         capture_submission_is_reserved(cast("BrainEngine", self), submission)
         payload = submission.payload
         delivery_id = submission.delivery_id
@@ -309,7 +361,7 @@ class CaptureOperations(_LocalEngineOperations):
                                         "tenant_id": submission.role_claim["tenant_id"],
                                     }
                                 ).decode("utf-8"),
-                                portable_canonical_json_bytes(submission.privacy.to_dict()).decode(
+                                portable_canonical_json_bytes(admitted_privacy.to_dict()).decode(
                                     "utf-8"
                                 ),
                                 portable_canonical_json_bytes(
@@ -382,7 +434,7 @@ class CaptureOperations(_LocalEngineOperations):
                                 "tenant_id": submission.role_claim["tenant_id"],
                             }
                         ).decode("utf-8"),
-                        portable_canonical_json_bytes(submission.privacy.to_dict()).decode("utf-8"),
+                        portable_canonical_json_bytes(admitted_privacy.to_dict()).decode("utf-8"),
                         portable_canonical_json_bytes(submission.provenance.to_dict()).decode(
                             "utf-8"
                         ),
@@ -408,6 +460,8 @@ class CaptureOperations(_LocalEngineOperations):
                 space_id=receipt.space_id,
                 canonical_path=receipt.canonical_path,
                 duplicate=duplicate,
+                requested_tier=submission.requested_tier,
+                final_admitted_tier=admitted_privacy.tier,
             )
         )
 
@@ -596,7 +650,11 @@ class CaptureOperations(_LocalEngineOperations):
                 "payload_sha256": sha256(payload_bytes).hexdigest(),
             },
             "payload_schema_version": 1,
-            "privacy": _stored_submission_value(row, "privacy_json") if public_job else _privacy(),
+            "privacy": (
+                _stored_submission_value(row, "privacy_json")
+                if public_job
+                else _owner_record_privacy(row)
+            ),
             "provenance": provenance,
             "receipt_refs": receipts,
             "role_claim": (
@@ -724,6 +782,7 @@ class CaptureOperations(_LocalEngineOperations):
             connection.close()
         if row is None:
             return None
+        retained_tier = _retained_privacy_tier(row)
         return CaptureReceipt(
             capture_id=cast(str, row["capture_id"]),
             payload_family=cast(str, row["payload_family"]),
@@ -731,7 +790,39 @@ class CaptureOperations(_LocalEngineOperations):
             enrichment_state=cast(str, row["enrichment_state"]),
             space_id=cast(str | None, row["space_id"]),
             canonical_path=cast(str | None, row["canonical_path"]),
+            requested_tier=retained_tier,
+            final_admitted_tier=retained_tier,
         )
+
+
+def _retained_privacy_tier(row: sqlite3.Row) -> PrivacyTier:
+    """The tier of the retained admitted decision; unreadable evidence is unknown."""
+    raw = row["privacy_json"]
+    if not isinstance(raw, str):
+        return PrivacyTier.UNKNOWN
+    try:
+        value = json.loads(raw)
+    except json.JSONDecodeError:
+        return PrivacyTier.UNKNOWN
+    if not isinstance(value, dict):
+        return PrivacyTier.UNKNOWN
+    try:
+        return PrivacyTier(value["tier"])
+    except KeyError, TypeError, ValueError:
+        return PrivacyTier.UNKNOWN
+
+
+def _owner_record_privacy(row: sqlite3.Row) -> dict[str, object]:
+    """Owner capture records keep the fixed local decision unless admission narrowed it."""
+    raw = row["privacy_json"]
+    if isinstance(raw, str):
+        try:
+            stored = json.loads(raw)
+        except json.JSONDecodeError:
+            stored = None
+        if isinstance(stored, dict) and stored != _privacy():
+            return cast(dict[str, object], stored)
+    return _privacy()
 
 
 def _stored_submission_value(row: sqlite3.Row, column: str) -> dict[str, object]:
