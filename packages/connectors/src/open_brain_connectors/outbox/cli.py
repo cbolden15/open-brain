@@ -10,7 +10,7 @@ messages are the fixed labels of the underlying modules.
 
 Exit codes: 0 success, 2 usage, 65 terminal refusals (owner-operation
 refusals, store or contract failures, malformed requests, delivery
-conflicts), 75 for ``drain_busy`` and ``outbox_full``.
+conflicts, oversized items), 75 for ``drain_busy`` and ``outbox_full``.
 """
 
 from __future__ import annotations
@@ -241,6 +241,8 @@ def _command_enqueue(args: argparse.Namespace) -> int:
         return EXIT_TEMPFAIL
     if result is EnqueueResult.DELIVERY_CONFLICT:
         return EXIT_REFUSED
+    if result is EnqueueResult.ITEM_TOO_LARGE:
+        return EXIT_REFUSED
     return EXIT_OK
 
 
@@ -320,6 +322,8 @@ def _command_convert(args: argparse.Namespace) -> int:
     if conversion.result is EnqueueResult.OUTBOX_FULL:
         return EXIT_TEMPFAIL
     if conversion.result is EnqueueResult.DELIVERY_CONFLICT:
+        return EXIT_REFUSED
+    if conversion.result is EnqueueResult.ITEM_TOO_LARGE:
         return EXIT_REFUSED
     return EXIT_OK
 

@@ -29,6 +29,7 @@ __all__ = [
     "TRANSPORT_MISUSE",
     "delivery_conflict_failure",
     "failure_from_admission_error",
+    "receipt_malformed_failure",
     "terminal_receipt_from_capture_receipt",
     "terminal_receipt_from_result_document",
 ]
@@ -59,6 +60,11 @@ _RESULT_DOCUMENT_KEYS = frozenset(
 def failure_from_admission_error(error: CaptureAdmissionError) -> DeliveryFailure:
     """One admission refusal with its stable code and retryable flag unchanged."""
     return DeliveryFailure(code=error.result.value, retryable=error.retryable)
+
+
+def receipt_malformed_failure() -> DeliveryFailure:
+    """One receipt document that cannot parse into the terminal contract."""
+    return DeliveryFailure(code=RECEIPT_MALFORMED, retryable=False)
 
 
 def delivery_conflict_failure() -> DeliveryFailure:

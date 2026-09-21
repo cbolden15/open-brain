@@ -8,6 +8,8 @@ from pathlib import Path
 
 from open_brain_engine.core.access_contracts import derive_brain_id
 
+from open_brain_connectors.outbox.store import DEFAULT_MAX_ITEM_BYTES
+
 TENANT_ID = "tenant_123e4567-e89b-42d3-a456-426614174000"
 BRAIN_ID = derive_brain_id(TENANT_ID)
 OTHER_BRAIN_ID = derive_brain_id("tenant_00000000-0000-4000-8000-000000000000")
@@ -207,6 +209,22 @@ def test_outbox_full_exits_75(tmp_path: Path) -> None:
     )
     assert full.returncode == 75
     assert json.loads(full.stdout)["result"] == "outbox_full"
+
+
+def test_enqueue_item_too_large_exits_65_without_writing(tmp_path: Path) -> None:
+    outbox = tmp_path / "outbox"
+    request = json.loads(_request("delivery.cli-001"))
+    # Four-byte UTF-8 characters keep the text inside the engine's 65,536
+    # character payload cap while pushing the serialized envelope over the
+    # store's per-item byte limit.
+    request["text"] = "\U0010ffff" * (DEFAULT_MAX_ITEM_BYTES // 4 + 64)
+
+    refused = _run(outbox, "enqueue", "--json", request=json.dumps(request))
+
+    assert refused.returncode == 65
+    assert json.loads(refused.stdout)["result"] == "item_too_large"
+    assert os.listdir(outbox) == []
+    assert _status_json(outbox)["items"] == 0
 
 
 def test_drain_busy_exits_75(tmp_path: Path) -> None:

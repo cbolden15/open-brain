@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import sys
 import threading
 import time
@@ -14,10 +15,19 @@ from open_brain_connectors.outbox.contracts import (
     TerminalReceipt,
     TerminalReceiptStatus,
 )
-from open_brain_connectors.outbox.drain import DeliveryFailure
+from open_brain_connectors.outbox.drain import DeliveryFailure, DrainResult, run_drain_cycle
 from open_brain_connectors.outbox.stdio_transport import (
+    MAX_DOCUMENT_BYTES,
     OutboxTransportError,
     StdioProcessTransport,
+    _request_document,
+)
+from open_brain_connectors.outbox.store import (
+    DEFAULT_MAX_ITEM_BYTES,
+    EnqueueResult,
+    OutboxItemState,
+    OutboxStore,
+    _canonical_bytes,
 )
 
 TENANT_ID = "tenant_123e4567-e89b-42d3-a456-426614174000"
@@ -34,7 +44,9 @@ _EMPTY_ENVIRONMENT_ASSERT = (
 )
 
 
-def _envelope(*, delivery_id: str = "delivery.stdio-001") -> DeliveryEnvelope:
+def _envelope(
+    *, delivery_id: str = "delivery.stdio-001", payload_text: str = PAYLOAD_TEXT
+) -> DeliveryEnvelope:
     return DeliveryEnvelope.create(
         destination_brain_id=BRAIN_ID,
         expected_issuer_epoch=EPOCH,
@@ -43,7 +55,7 @@ def _envelope(*, delivery_id: str = "delivery.stdio-001") -> DeliveryEnvelope:
         delivery_id=delivery_id,
         requested_tier=PrivacyTier.WORK,
         policy_ref="policy.synthetic-v1",
-        payload={"family": "text", "text": PAYLOAD_TEXT},
+        payload={"family": "text", "text": payload_text},
         enqueued_at="2026-09-21T12:00:00Z",
         retry_age_limit_seconds=86400,
         retry_attempt_limit=8,
@@ -221,15 +233,27 @@ def test_timeout_kills_the_group_and_reports_retryable_transport_error(
     assert outcome.retryable is True
 
 
-def test_malformed_output_is_a_retryable_transport_error(tmp_path: Path) -> None:
-    argv = _write_script(tmp_path, "malformed", "import sys\nsys.stdout.write('not json\\n')\n")
+@pytest.mark.parametrize(
+    "stdout_source",
+    [
+        "import sys\nsys.stdout.write('not json\\n')\n",
+        "import sys\nsys.stdout.write('[]\\n')\n",
+        "import sys\nsys.stdout.write('5\\n')\n",
+        "import json\nimport sys\nsys.stdout.write(json.dumps({'unexpected': True}) + '\\n')\n",
+        "import json\nimport sys\nsys.stdout.write(json.dumps({'status': 'captured'}) + '\\n')\n",
+    ],
+)
+def test_exit_zero_malformed_success_document_is_terminal_receipt_malformed(
+    tmp_path: Path, stdout_source: str
+) -> None:
+    argv = _write_script(tmp_path, "malformed", stdout_source)
     transport = StdioProcessTransport(argv)
 
     outcome = _no_new_threads(transport(_envelope()))
 
     assert isinstance(outcome, DeliveryFailure)
-    assert outcome.code == "transport_error"
-    assert outcome.retryable is True
+    assert outcome.code == "receipt_malformed"
+    assert outcome.retryable is False
 
 
 def test_oversize_stdout_is_a_retryable_transport_error(tmp_path: Path) -> None:
@@ -286,3 +310,66 @@ def test_invalid_constructor_inputs_are_refused(tmp_path: Path) -> None:
         StdioProcessTransport(argv, max_stdout_bytes=0)
     with pytest.raises(OutboxTransportError):
         StdioProcessTransport(argv, environment_allowlist=("OUTBOX_STDIO_TEST", "BAD NAME"))
+
+
+def test_drain_over_malformed_stdio_success_quarantines_and_keeps_the_body(
+    tmp_path: Path,
+) -> None:
+    argv = _write_script(tmp_path, "malformed", "import sys\nsys.stdout.write('not json\\n')\n")
+    transport = StdioProcessTransport(argv)
+    store = OutboxStore(tmp_path / "outbox", max_items=8, max_bytes=1024 * 1024)
+    envelope = _envelope()
+    assert store.enqueue(envelope) is EnqueueResult.QUEUED
+
+    summary = run_drain_cycle(store, transport, max_batch_items=4, max_batch_bytes=1024 * 1024)
+
+    assert summary.result is DrainResult.COMPLETED
+    assert summary.transport_errors == 0
+    assert summary.quarantined_refused == 1
+    assert summary.accepted == 0
+    entries = store.scan()
+    assert [entry.state for entry in entries] == [OutboxItemState.QUARANTINED]
+    assert entries[0].quarantine_reason == "receipt_malformed"
+    raw = (store.directory / "delivery.stdio-001.json").read_bytes()
+    assert PAYLOAD_TEXT.encode("utf-8") in raw
+    reparsed = DeliveryEnvelope.from_dict(json.loads(raw.decode("utf-8")))
+    assert reparsed.payload == {"family": "text", "text": PAYLOAD_TEXT}
+    assert reparsed.request_digest == envelope.request_digest
+
+
+def _item_at_limit(*, delivery_id: str = "delivery.stdio-limit-001") -> DeliveryEnvelope:
+    """One envelope whose serialized document is exactly ``DEFAULT_MAX_ITEM_BYTES``.
+
+    Text is capped at 65,536 characters by the engine payload contract, so the
+    padding uses four-byte UTF-8 characters to reach the byte limit exactly.
+    """
+    probe = _envelope(delivery_id=delivery_id, payload_text="x")
+    fixed_overhead = len(_canonical_bytes(probe.to_dict())) - 1
+    target = DEFAULT_MAX_ITEM_BYTES - fixed_overhead
+    wide, narrow = divmod(target, 4)
+    assert wide + narrow <= 65_536
+    return _envelope(delivery_id=delivery_id, payload_text="\U0010ffff" * wide + "x" * narrow)
+
+
+def test_item_at_the_store_limit_serializes_under_the_request_document_cap() -> None:
+    envelope = _item_at_limit()
+
+    assert len(_canonical_bytes(envelope.to_dict())) == DEFAULT_MAX_ITEM_BYTES
+    assert len(_request_document(envelope)) <= MAX_DOCUMENT_BYTES
+
+
+def test_item_at_the_store_limit_enqueues_and_drains_without_transport_error(
+    tmp_path: Path,
+) -> None:
+    argv = _write_script(tmp_path, "receipt", _receipt_script(duplicate=False))
+    store = OutboxStore(tmp_path / "outbox", max_items=8, max_bytes=1024 * 1024)
+    envelope = _item_at_limit()
+    assert store.enqueue(envelope) is EnqueueResult.QUEUED
+
+    summary = run_drain_cycle(
+        store, StdioProcessTransport(argv), max_batch_items=4, max_batch_bytes=1024 * 1024
+    )
+
+    assert summary.transport_errors == 0
+    assert summary.accepted == 1
+    assert store.status().terminal_items == 1

@@ -15,6 +15,12 @@ injection seam between their internal steps and would add a lock file to the
 item directory. ``enqueue`` reports ``queued`` only after the rename and the
 directory fsync complete.
 
+Per-item limit: an envelope whose encoded document exceeds ``max_item_bytes``
+(default ``DEFAULT_MAX_ITEM_BYTES``, held under the stdio request document cap
+with margin) is refused with the stable ``item_too_large`` result before any
+temporary file exists, so every accepted item can always be serialized into
+one bounded stdio request document.
+
 Capacity headroom rule: admission reserves a fixed
 ``TERMINAL_METADATA_HEADROOM_BYTES`` (2048) beyond the encoded item size, so
 the attempt and quarantine metadata that a later state transition appends to
@@ -64,6 +70,9 @@ from .contracts import (
 )
 
 __all__ = [
+    "DEFAULT_MAX_ITEM_BYTES",
+    "MAX_ITEM_MARGIN_BYTES",
+    "MAX_REQUEST_DOCUMENT_BYTES",
     "TERMINAL_METADATA_HEADROOM_BYTES",
     "EnqueueResult",
     "OutboxItem",
@@ -74,6 +83,15 @@ __all__ = [
 ]
 
 TERMINAL_METADATA_HEADROOM_BYTES = 2048
+
+# The single source for the stdio transport's request document byte cap:
+# ``stdio_transport.MAX_DOCUMENT_BYTES`` binds to this value, and the default
+# per-item limit below is derived from it here, in one place. The request
+# document carries a subset of the envelope's fields, so an envelope within
+# the derived limit always serializes into a request document within the cap.
+MAX_REQUEST_DOCUMENT_BYTES = 256 * 1024
+MAX_ITEM_MARGIN_BYTES = 8 * 1024
+DEFAULT_MAX_ITEM_BYTES = MAX_REQUEST_DOCUMENT_BYTES - MAX_ITEM_MARGIN_BYTES
 
 _ITEM_SUFFIX = ".json"
 _TERMINAL_RECORD_VERSION = "outbox.terminal.v1"
@@ -98,6 +116,7 @@ class EnqueueResult(StrEnum):
     ALREADY_QUEUED = "already_queued"
     DELIVERY_CONFLICT = "delivery_conflict"
     OUTBOX_FULL = "outbox_full"
+    ITEM_TOO_LARGE = "item_too_large"
 
 
 class OutboxItemState(StrEnum):
@@ -390,13 +409,22 @@ def _item_name(delivery_id: str) -> str:
 class OutboxStore:
     """Foreground, single-process durable item store for one outbox."""
 
-    def __init__(self, directory: Path, *, max_items: int, max_bytes: int) -> None:
+    def __init__(
+        self,
+        directory: Path,
+        *,
+        max_items: int,
+        max_bytes: int,
+        max_item_bytes: int = DEFAULT_MAX_ITEM_BYTES,
+    ) -> None:
         if not isinstance(directory, Path):
             raise OutboxStoreError("invalid outbox directory")
         if type(max_items) is not int or max_items < 1:
             raise OutboxStoreError("invalid outbox item capacity")
         if type(max_bytes) is not int or max_bytes < 1:
             raise OutboxStoreError("invalid outbox byte capacity")
+        if type(max_item_bytes) is not int or max_item_bytes < 1:
+            raise OutboxStoreError("invalid outbox item byte limit")
         try:
             directory.mkdir(mode=0o700, parents=True, exist_ok=True)
         except OSError as error:
@@ -404,6 +432,7 @@ class OutboxStore:
         self._directory = directory
         self._max_items = max_items
         self._max_bytes = max_bytes
+        self._max_item_bytes = max_item_bytes
 
     @property
     def directory(self) -> Path:
@@ -423,6 +452,8 @@ class OutboxStore:
             if existing == data:
                 return EnqueueResult.ALREADY_QUEUED
             return EnqueueResult.DELIVERY_CONFLICT
+        if len(data) > self._max_item_bytes:
+            return EnqueueResult.ITEM_TOO_LARGE
         scanned = self._scan()
         if len(scanned) + 1 > self._max_items:
             return EnqueueResult.OUTBOX_FULL

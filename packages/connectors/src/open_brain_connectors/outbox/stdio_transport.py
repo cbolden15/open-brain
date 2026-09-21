@@ -9,7 +9,9 @@ request document carries the delivery's immutable binding (delivery ID,
 destination Brain, issuer epoch, tenant, principal, policy reference,
 requested tier, and the client's claimed request digest) plus the text
 payload; both the written request and the read result are bounded by
-``MAX_DOCUMENT_BYTES``, the documented byte cap.
+``MAX_DOCUMENT_BYTES``, the documented byte cap; the store derives its
+default per-item limit beneath that cap so every stored envelope
+serializes into one bounded request document.
 
 Process mechanics follow the connector worker precedent without importing
 its classes and without any thread: ``subprocess.Popen`` with pipes and
@@ -19,11 +21,13 @@ no credentials, no ``PATH``), rlimits applied in the child, one bounded
 ``selectors`` exchange with per-stream byte caps and a wall-clock deadline,
 and a SIGKILL to the process group on timeout or over-limit output.
 
-Exit-code mapping: 0 with a parseable receipt is a ``TerminalReceipt``; 75
-is a retryable ``DeliveryFailure`` under the reported code; 65 is a
-terminal failure under the reported code; 78 is terminal
-``policy_mismatch``; 2 is terminal ``transport_misuse``; a timeout, a
-malformed or over-limit result, an unknown exit code, or a command that
+Exit-code mapping: 0 with a parseable receipt is a ``TerminalReceipt``; 0
+with a malformed success document (unparseable JSON, a non-object document,
+or a shape-invalid receipt) is a terminal ``receipt_malformed`` refusal
+matching the synthetic transport; 75 is a retryable ``DeliveryFailure``
+under the reported code; 65 is a terminal failure under the reported code;
+78 is terminal ``policy_mismatch``; 2 is terminal ``transport_misuse``; a
+timeout, an over-limit result, an unknown exit code, or a command that
 cannot start is a retryable ``transport_error``. Every outcome reaches the
 drain, which classifies it; the transport never drops a body.
 """
@@ -46,9 +50,11 @@ from .destination import (
     POLICY_MISMATCH,
     TRANSPORT_ERROR,
     TRANSPORT_MISUSE,
+    receipt_malformed_failure,
     terminal_receipt_from_result_document,
 )
 from .drain import DeliveryFailure
+from .store import MAX_REQUEST_DOCUMENT_BYTES
 from .transport import OutboxTransportError
 
 __all__ = [
@@ -57,7 +63,9 @@ __all__ = [
     "StdioProcessTransport",
 ]
 
-MAX_DOCUMENT_BYTES = 256 * 1024
+# The single shared cap: the store derives its default per-item byte limit
+# from this value (store.MAX_REQUEST_DOCUMENT_BYTES), in one place.
+MAX_DOCUMENT_BYTES = MAX_REQUEST_DOCUMENT_BYTES
 DEFAULT_TIMEOUT_SECONDS = 30.0
 DEFAULT_MAX_STDERR_BYTES = 8192
 DEFAULT_CPU_SECONDS = 60
@@ -293,7 +301,7 @@ def _map_exit_code(returncode: int | None, stdout: bytes) -> TerminalReceipt | D
         receipt = _parse_success_document(stdout)
         if receipt is not None:
             return receipt
-        return DeliveryFailure(code=TRANSPORT_ERROR, retryable=True)
+        return receipt_malformed_failure()
     if returncode in (65, 75):
         reported = _reported_failure_code(stdout)
         return DeliveryFailure(

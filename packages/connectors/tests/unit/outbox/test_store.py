@@ -13,7 +13,11 @@ from open_brain_engine.core.models import PrivacyTier
 import open_brain_connectors.outbox.store as outbox_store
 from open_brain_connectors.outbox import DeliveryEnvelope, TerminalReceipt, TerminalReceiptStatus
 from open_brain_connectors.outbox.contracts import OutboxContractError, verify_terminal_receipt
+from open_brain_connectors.outbox.stdio_transport import MAX_DOCUMENT_BYTES
 from open_brain_connectors.outbox.store import (
+    DEFAULT_MAX_ITEM_BYTES,
+    MAX_ITEM_MARGIN_BYTES,
+    MAX_REQUEST_DOCUMENT_BYTES,
     TERMINAL_METADATA_HEADROOM_BYTES,
     EnqueueResult,
     OutboxItemState,
@@ -537,6 +541,63 @@ def test_invalid_capacity_configuration_is_refused(tmp_path: Path) -> None:
         OutboxStore(tmp_path / "outbox-b", max_items=4, max_bytes=0)
     with pytest.raises(OutboxStoreError):
         OutboxStore(tmp_path / "outbox-c", max_items=4, max_bytes=-1)
+    with pytest.raises(OutboxStoreError):
+        OutboxStore(tmp_path / "outbox-d", max_items=4, max_bytes=1024, max_item_bytes=0)
+
+
+def test_item_limit_default_derives_from_the_shared_request_document_cap() -> None:
+    assert MAX_DOCUMENT_BYTES == MAX_REQUEST_DOCUMENT_BYTES
+    assert DEFAULT_MAX_ITEM_BYTES == MAX_REQUEST_DOCUMENT_BYTES - MAX_ITEM_MARGIN_BYTES
+    assert DEFAULT_MAX_ITEM_BYTES < MAX_REQUEST_DOCUMENT_BYTES
+
+
+def _limit_sized_envelope(*, delivery_id: str, extra: int = 0) -> DeliveryEnvelope:
+    """One envelope whose serialized document is exactly the default item limit plus ``extra``.
+
+    Text is capped at 65,536 characters by the engine payload contract, so the
+    padding uses four-byte UTF-8 characters to reach the byte limit exactly.
+    """
+    probe = _envelope(delivery_id=delivery_id, payload_text="x")
+    fixed_overhead = len(outbox_store._canonical_bytes(probe.to_dict())) - 1
+    target = DEFAULT_MAX_ITEM_BYTES + extra - fixed_overhead
+    wide, narrow = divmod(target, 4)
+    assert wide + narrow <= 65_536
+    return _envelope(delivery_id=delivery_id, payload_text="\U0010ffff" * wide + "x" * narrow)
+
+
+def test_item_at_the_size_limit_enqueues(tmp_path: Path) -> None:
+    store = _store(tmp_path)
+    envelope = _limit_sized_envelope(delivery_id="delivery.store-limit-001")
+
+    assert store.enqueue(envelope) is EnqueueResult.QUEUED
+    assert (store.directory / "delivery.store-limit-001.json").stat().st_size == (
+        DEFAULT_MAX_ITEM_BYTES
+    )
+
+
+def test_item_over_the_size_limit_is_refused_before_any_write(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    store = _store(tmp_path)
+    monkeypatch.setattr(
+        outbox_store,
+        "_write_hooks",
+        {
+            stage: _crash_hook()
+            for stage in (
+                "after_temp_write",
+                "after_temp_fsync",
+                "after_rename",
+                "after_directory_fsync",
+            )
+        },
+    )
+    oversized = _limit_sized_envelope(delivery_id="delivery.store-limit-001", extra=1)
+
+    assert store.enqueue(oversized) is EnqueueResult.ITEM_TOO_LARGE
+
+    assert _item_files(store.directory) == []
+    assert os.listdir(store.directory) == []
 
 
 def test_verify_terminal_receipt_still_binds_against_the_original_envelope(
