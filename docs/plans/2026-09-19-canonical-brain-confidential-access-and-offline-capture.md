@@ -436,6 +436,13 @@ false queued result, including across restart at every atomic-write boundary. Wh
 is required, crash tests also prove that a locally committed but unprotected delivery retains its
 client body and becomes removable only after replay obtains a protected terminal receipt.
 
+Execution status on 2026-09-21: `OSS-G5` passes on the working branch. The optional connectors
+distribution ships the durable per-item outbox with capacity caps, the one-cycle owner-invoked drain
+with an exclusive lease and bounded retry window, receipt verification before body removal, owner
+retry, discard, and conversion, synthetic and stdio transports over the `capture-submit` contract,
+and a crash matrix covering every gate clause; `make verify`, the native audit, and the Homebrew
+smoke pass. Protection-required crash cases remain deferred with the finalizer.
+
 ### Phase 6: documentation and release verification
 
 - Update `docs/product-family.md`, `docs/privacy-model.md`, `docs/capture-contract.md`,
