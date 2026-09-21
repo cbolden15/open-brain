@@ -172,7 +172,7 @@ def bounded_entries(
     entries: list[dict[str, Any]],
     identity_key: str,
 ) -> dict[str, Any]:
-    generation = generations(connection)
+    generation = generations(connection, authority=authority, visible_state={"entries": entries})
     now = engine._clock().timestamp()
     store = CursorStore(engine.profile)
     binding = binding_digest(

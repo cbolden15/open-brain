@@ -7,6 +7,7 @@ import sqlite3
 import struct
 from collections.abc import Iterator
 from contextlib import contextmanager
+from hashlib import sha256
 from typing import TYPE_CHECKING, Any, cast
 
 from open_brain_engine.core.ids import portable_canonical_json_bytes
@@ -67,11 +68,86 @@ def read_snapshot(engine: BrainEngine) -> Iterator[sqlite3.Connection]:
             connection.close()
 
 
-def generations(connection: sqlite3.Connection) -> dict[str, Any]:
+def _authorized_retrieval_digest(
+    connection: sqlite3.Connection,
+    authority: EffectiveAuthority,
+    *,
+    visible_state: object | None,
+) -> str:
+    readable_tiers = tuple(
+        tier.value for tier in PrivacyTier if authority.permits_read_tier(tier)
+    )
+    clauses: list[str] = []
+    parameters: list[Any] = []
+    if readable_tiers:
+        clauses.append(
+            "d.effective_tier IN (" + ",".join("?" for _ in readable_tiers) + ")"
+        )
+        parameters.extend(readable_tiers)
+    else:
+        clauses.append("0")
+    if authority.space_ids is not None:
+        spaces = sorted(authority.space_ids)
+        if spaces:
+            clauses.append("d.space_id IN (" + ",".join("?" for _ in spaces) + ")")
+            parameters.extend(spaces)
+        else:
+            clauses.append("0")
+    rows = connection.execute(
+        f"""
+        WITH authorized AS MATERIALIZED (
+            SELECT d.* FROM search_documents d WHERE {" AND ".join(clauses)}
+        )
+        SELECT a.*,
+            s.source_id AS logical_source_id,
+            s.head_capture_id AS logical_head_capture_id,
+            s.historical_only AS logical_historical_only,
+            s.space_id AS logical_space_id,
+            s.route_version AS logical_route_version,
+            s.head_version AS logical_head_version,
+            s.lifecycle AS logical_lifecycle,
+            s.availability AS logical_availability
+        FROM authorized a
+        LEFT JOIN logical_sources s
+          ON a.record_type='source' AND s.head_capture_id=a.result_id
+        ORDER BY a.result_id COLLATE BINARY
+        """,
+        parameters,
+    )
+    digest = sha256(b"open-brain-authorization-visible-generation-v1\0")
+
+    def update(value: object) -> None:
+        encoded = portable_canonical_json_bytes(value)
+        digest.update(len(encoded).to_bytes(8, "big"))
+        digest.update(encoded)
+
+    for row in rows:
+        update({"kind": "search_document", "value": dict(row)})
+    if visible_state is not None:
+        update({"kind": "operation_state", "value": visible_state})
+    return digest.hexdigest()
+
+
+def generations(
+    connection: sqlite3.Connection,
+    *,
+    authority: EffectiveAuthority | None = None,
+    visible_state: object | None = None,
+) -> dict[str, Any]:
     row = connection.execute("SELECT * FROM engine_generations WHERE singleton=1").fetchone()
     if row is None:
         raise T03Error("operation_pending")
-    return dict(row)
+    if authority is None or authority.owner:
+        return dict(row)
+    return {
+        "incarnation": row["incarnation"],
+        "authorization_epoch": row["authorization_epoch"],
+        "projection_policy_version": row["projection_policy_version"],
+        "fencing_epoch": row["fencing_epoch"],
+        "visible_retrieval_digest": _authorized_retrieval_digest(
+            connection, authority, visible_state=visible_state
+        ),
+    }
 
 
 def continuation(
@@ -142,7 +218,7 @@ def search_page(
         }
     )
     with read_snapshot(engine) as connection:
-        generation = generations(connection)
+        generation = generations(connection, authority=authority)
         now = engine._clock().timestamp()
         store = CursorStore(engine.profile)
         prior = continuation(
@@ -310,7 +386,14 @@ def read_record(
                 "authority": authority_binding(authority),
             }
         )
-        generation = generations(connection)
+        generation = generations(
+            connection,
+            authority=authority,
+            visible_state={
+                "record": projected.summary,
+                "content_sha256": sha256(body).hexdigest(),
+            },
+        )
         now = engine._clock().timestamp()
         store = CursorStore(engine.profile)
         prior = continuation(

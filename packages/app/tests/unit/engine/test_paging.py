@@ -188,6 +188,70 @@ def test_hidden_tiers_do_not_change_visible_ranking_or_page_boundaries(tmp_path:
     assert [paired_first["complete"], paired_second["complete"]] == [False, True]
 
 
+def test_scoped_cursor_survives_hidden_mutation_but_stales_on_visible_mutation(
+    tmp_path: Path,
+) -> None:
+    engine = BrainEngine.open(
+        compile_single_user_local(tmp_path / "brain", starter_spaces=("Visible", "Hidden"))
+    )
+    spaces = {space.name: space.space_id for space in engine.inbox.spaces()}
+    for index in range(2):
+        engine.capture.accept(
+            TextPayload("cursor visibility nebula"),
+            delivery_id=f"cursor.visible.{index}",
+            space_id=spaces["Visible"],
+            privacy_tier=PrivacyTier.PUBLIC,
+        )
+    request = SearchPageRequest(query="cursor visibility nebula", limit=1)
+    public = replace(
+        scoped_authority(PrivacyTier.PUBLIC), space_ids=frozenset({spaces["Visible"]})
+    )
+
+    scoped_first = wire(engine.retrieval.search_page(request, authority=public))
+    expected_second = wire(
+        engine.retrieval.search_page(
+            replace(request, cursor=scoped_first["next_cursor"]), authority=public
+        )
+    )
+    owner = replace(authority(), owner=True)
+    owner_first = wire(engine.retrieval.search_page(request, authority=owner))
+
+    engine.capture.accept(
+        TextPayload("cursor visibility nebula"),
+        delivery_id="cursor.hidden.personal",
+        space_id=spaces["Visible"],
+        privacy_tier=PrivacyTier.PERSONAL,
+    )
+    engine.capture.accept(
+        TextPayload("cursor visibility nebula"),
+        delivery_id="cursor.hidden.space",
+        space_id=spaces["Hidden"],
+        privacy_tier=PrivacyTier.PUBLIC,
+    )
+
+    assert wire(
+        engine.retrieval.search_page(
+            replace(request, cursor=scoped_first["next_cursor"]), authority=public
+        )
+    ) == expected_second
+    with pytest.raises(T03Error, match="cursor_stale"):
+        engine.retrieval.search_page(
+            replace(request, cursor=owner_first["next_cursor"]), authority=owner
+        )
+
+    refreshed = wire(engine.retrieval.search_page(request, authority=public))
+    engine.capture.accept(
+        TextPayload("cursor visibility nebula"),
+        delivery_id="cursor.visible.new",
+        space_id=spaces["Visible"],
+        privacy_tier=PrivacyTier.PUBLIC,
+    )
+    with pytest.raises(T03Error, match="cursor_stale"):
+        engine.retrieval.search_page(
+            replace(request, cursor=refreshed["next_cursor"]), authority=public
+        )
+
+
 def test_record_projector_denies_disallowed_source_and_canonical_before_content_reads(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -299,6 +363,12 @@ def test_full_unicode_chunk_reconstruction_and_grant(tmp_path: Path) -> None:
         assert response["end_byte"] == offset + len(text.encode())
         chunks.append(text)
         offset = response["end_byte"]
+        if len(chunks) == 1:
+            engine.capture.accept(
+                TextPayload("hidden chunk mutation"),
+                delivery_id="unicode.hidden.secret",
+                privacy_tier=PrivacyTier.SECRET,
+            )
         if response["complete"]:
             break
         request = replace(request, cursor=response["next_cursor"])

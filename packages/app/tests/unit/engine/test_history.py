@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Any, cast
 
 import pytest
+from open_brain_engine.core.models import PrivacyTier
 from open_brain_engine.engine import (
     BrainEngine,
     DecisionOutcome,
@@ -66,6 +67,11 @@ def test_source_history_exact_revision_grant_and_current_scope(tmp_path: Path) -
     page = wire(engine.history.list_history(request, authority=authority()))
     assert [entry["revision_id"] for entry in page["entries"]] == ids[::-1][:2]
     assert [entry["is_current"] for entry in page["entries"]] == [True, False]
+    engine.capture.accept(
+        TextPayload("hidden history mutation"),
+        delivery_id="history.hidden.secret",
+        privacy_tier=PrivacyTier.SECRET,
+    )
     tail = wire(
         engine.history.list_history(
             replace(request, cursor=page["next_cursor"]), authority=authority()
