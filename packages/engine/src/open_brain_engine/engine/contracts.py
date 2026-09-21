@@ -80,6 +80,7 @@ class CaptureAction(StrEnum):
 class CaptureSubmissionPath(StrEnum):
     OWNER = "owner"
     PUBLIC_JOB = "public_job"
+    DESTINATION_BOUND = "destination_bound"
 
 
 class DecisionOutcome(StrEnum):
@@ -306,6 +307,13 @@ class CaptureReceipt:
     # submission always set both, so they differ only when admission narrowed.
     requested_tier: PrivacyTier = PrivacyTier.UNKNOWN
     final_admitted_tier: PrivacyTier = PrivacyTier.UNKNOWN
+    # Destination-bound receipts bind their immutable request identity and the
+    # trusted authority's destination Brain and issuer epoch; every other path
+    # leaves them unset so existing receipt bytes stay unchanged.
+    delivery_id: str | None = None
+    request_sha256: str | None = None
+    destination_brain_id: str | None = None
+    issuer_epoch: int | None = None
 
 
 # One canonical-boundary rescan signal for a submission: a tier narrows the
@@ -673,6 +681,10 @@ def project_public_capture_receipt(receipt: CaptureReceipt) -> CaptureReceipt:
         duplicate=receipt.duplicate,
         requested_tier=receipt.requested_tier,
         final_admitted_tier=receipt.final_admitted_tier,
+        delivery_id=receipt.delivery_id,
+        request_sha256=receipt.request_sha256,
+        destination_brain_id=receipt.destination_brain_id,
+        issuer_epoch=receipt.issuer_epoch,
     )
 
 
@@ -1633,6 +1645,10 @@ class CaptureSubmission:
     occurrence_at: str | None = None
     schema_version: int = 1
     submission_path: CaptureSubmissionPath = CaptureSubmissionPath.OWNER
+    # The destination-bound path alone carries the trusted authority binding;
+    # every other path leaves both unset and its digest bytes unchanged.
+    destination_brain_id: str | None = None
+    issuer_epoch: int | None = None
 
     def __post_init__(self) -> None:
         if not isinstance(
@@ -1645,6 +1661,16 @@ class CaptureSubmission:
         object.__setattr__(self, "submission_path", CaptureSubmissionPath(self.submission_path))
         if self.schema_version != 1:
             raise ValueError("invalid capture submission schema version")
+        if (self.destination_brain_id is None) != (self.issuer_epoch is None):
+            raise ValueError("invalid destination binding")
+        if self.destination_brain_id is not None:
+            if self.submission_path is not CaptureSubmissionPath.DESTINATION_BOUND:
+                raise ValueError("destination binding requires the destination-bound path")
+            if (
+                re.fullmatch(r"brn_[a-z2-7]{26}", self.destination_brain_id) is None
+                or type(self.issuer_epoch) is not int
+            ):
+                raise ValueError("invalid destination binding")
         try:
             source_origin = ContentOrigin(self.source_origin)
         except (TypeError, ValueError) as error:
@@ -1703,7 +1729,10 @@ class CaptureSubmission:
         if occurrence_at != payload_occurrence_at:
             raise ValueError("capture occurrence must match the payload")
         object.__setattr__(self, "occurrence_at", occurrence_at)
-        if self.submission_path is CaptureSubmissionPath.PUBLIC_JOB:
+        if self.submission_path in {
+            CaptureSubmissionPath.PUBLIC_JOB,
+            CaptureSubmissionPath.DESTINATION_BOUND,
+        }:
             if source_origin not in {ContentOrigin.THIRD_PARTY, ContentOrigin.UNKNOWN}:
                 raise ValueError("public-job source origin is not allowed")
             if self.action is not CaptureAction.QUICK:
@@ -1811,6 +1840,78 @@ class CaptureSubmission:
             submission_path=CaptureSubmissionPath.PUBLIC_JOB,
         )
 
+    @classmethod
+    def for_destination_bound(
+        cls,
+        *,
+        profile: LocalEngineContext,
+        authority: EffectiveAuthority,
+        payload: Payload,
+        delivery_id: str,
+        requested_tier: PrivacyTier | str | None = None,
+        title: str | None = None,
+    ) -> CaptureSubmission:
+        """Build one destination-bound request under a trusted startup policy.
+
+        The authority's allowed capture tier set is the sole tier authority: a
+        missing tier becomes ``unknown``, and a tier outside the set is refused
+        here, before any engine call, so a refusal can leave no partial state.
+        The requested tier and the authority's destination Brain and issuer
+        epoch bindings all enter this path's immutable request digest.
+        """
+        from .t03_contracts import EffectiveAuthority as _EffectiveAuthority
+
+        if not isinstance(authority, _EffectiveAuthority):
+            raise ValueError("invalid destination-bound authority")
+        if authority.owner:
+            raise ValueError("destination-bound authority cannot be an owner")
+        if authority.brain_id is None or authority.issuer_epoch is None:
+            raise ValueError("destination-bound authority is not destination bound")
+        tier = _privacy_tier(requested_tier)
+        if tier is None:
+            tier = PrivacyTier.UNKNOWN
+        if tier not in authority.allowed_capture_tiers:
+            raise CaptureAdmissionError(CaptureAdmissionResult.TIER_NOT_PERMITTED)
+        payload_bytes = portable_canonical_json_bytes(payload.to_dict())
+        source_reference = "urn:open-brain:destination:" + sha256(payload_bytes).hexdigest()
+        principal_id = authority.principal_id
+        actor_id = "actor_" + _destination_bound_identifier(
+            "actor", profile.tenant_id, principal_id
+        )
+        occurrence_at = (
+            payload.occurrence_at
+            if isinstance(payload, EventPayload | MeasurementPayload)
+            else None
+        )
+        return cls(
+            payload=payload,
+            delivery_id=delivery_id,
+            source_origin=ContentOrigin.THIRD_PARTY,
+            source_reference=source_reference,
+            provenance=Provenance.create(
+                source_ref=source_reference,
+                content_origin=ContentOrigin.THIRD_PARTY,
+                owner_context=CaptureWhyOrigin.AUTOMATION_ABSENT,
+            ),
+            privacy=owner_privacy_for_tier(tier),
+            tenant_id=profile.tenant_id,
+            actor_id=actor_id,
+            role_claim={
+                "actor_id": actor_id,
+                "capabilities": ["capture.accept"],
+                "role_claim_id": "role_claim_"
+                + _destination_bound_identifier("role-claim", profile.tenant_id, principal_id),
+                "role_id": "role_"
+                + _destination_bound_identifier("role", profile.tenant_id, principal_id),
+                "tenant_id": profile.tenant_id,
+            },
+            title=title,
+            occurrence_at=occurrence_at,
+            submission_path=CaptureSubmissionPath.DESTINATION_BOUND,
+            destination_brain_id=authority.brain_id,
+            issuer_epoch=authority.issuer_epoch,
+        )
+
     def validate_profile(self, profile: LocalEngineContext) -> None:
         if self.submission_path is CaptureSubmissionPath.OWNER:
             expected = self.for_local_owner(
@@ -1854,7 +1955,7 @@ class CaptureSubmission:
         }
         if self.submission_path is CaptureSubmissionPath.OWNER:
             return legacy
-        return {
+        remote: dict[str, object] = {
             "actor_id": self.actor_id,
             "capture_why": self.capture_why,
             "capture_why_origin": self.capture_why_origin.value,
@@ -1870,6 +1971,10 @@ class CaptureSubmission:
             "tenant_id": self.tenant_id,
             "title": self.title,
         }
+        if self.submission_path is CaptureSubmissionPath.DESTINATION_BOUND:
+            remote["destination_brain_id"] = self.destination_brain_id
+            remote["issuer_epoch"] = self.issuer_epoch
+        return remote
 
     def request_sha256(self) -> str:
         return sha256(portable_canonical_json_bytes(self.request_value())).hexdigest()
@@ -2327,6 +2432,16 @@ def _privacy_tier(value: PrivacyTier | str | None) -> PrivacyTier | None:
         return None if value is None else PrivacyTier(value)
     except (TypeError, ValueError) as error:
         raise ValueError("invalid privacy tier") from error
+
+
+def _destination_bound_identifier(domain: str, tenant_id: str, principal_id: str) -> str:
+    """One stable UUIDv4-shaped portable identifier for a destination principal."""
+    from uuid import UUID
+
+    digest = sha256(
+        f"open-brain:destination-bound:{domain}:{tenant_id}:{principal_id}".encode()
+    ).digest()
+    return str(UUID(bytes=digest[:16], version=4))
 
 
 def _capture_role_claim(

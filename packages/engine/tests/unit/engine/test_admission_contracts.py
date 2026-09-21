@@ -7,6 +7,7 @@ from pathlib import Path
 from uuid import uuid4
 
 import pytest
+from open_brain_engine.core.access_contracts import derive_brain_id
 from open_brain_engine.core.ids import portable_canonical_json_bytes
 from open_brain_engine.core.models import (
     Authority,
@@ -25,12 +26,14 @@ from open_brain_engine.engine.contracts import (
     CapturePrivacyManifest,
     CaptureReceipt,
     CaptureSubmission,
+    CaptureSubmissionPath,
     LocalEngineContext,
     MarkdownImportFailure,
     PublicJobCaptureContext,
     TextPayload,
     project_public_capture_receipt,
 )
+from open_brain_engine.engine.t03_contracts import EffectiveAuthority
 from open_brain_engine.providers.base import ProviderMode
 
 SYNTHETIC_SOURCE_REFERENCE = "https://example.test/synthetic-admission"
@@ -518,3 +521,158 @@ def test_privacy_manifest_requires_an_absolute_readable_bounded_file(tmp_path: P
     with pytest.raises(MarkdownImportFailure) as raised:
         CapturePrivacyManifest.load(oversized)
     assert raised.value.code == "invalid_privacy_manifest"
+
+
+def _destination_authority(
+    profile: LocalEngineContext,
+    *,
+    allowed_capture_tiers: frozenset[PrivacyTier],
+    issuer_epoch: int = 1,
+) -> EffectiveAuthority:
+    return EffectiveAuthority(
+        principal_id="synthetic-destination-principal",
+        session_id="synthetic-destination-session",
+        capabilities=frozenset(),
+        space_ids=None,
+        allowed_read_tiers=frozenset({PrivacyTier.PUBLIC, PrivacyTier.WORK, PrivacyTier.PERSONAL}),
+        allowed_capture_tiers=allowed_capture_tiers,
+        brain_id=derive_brain_id(profile.tenant_id),
+        issuer_epoch=issuer_epoch,
+    )
+
+
+def _destination_submission(
+    profile: LocalEngineContext,
+    *,
+    delivery_id: str = "delivery.admission.destination",
+    requested_tier: PrivacyTier | None = PrivacyTier.WORK,
+    authority: EffectiveAuthority | None = None,
+) -> CaptureSubmission:
+    if authority is None:
+        authority = _destination_authority(
+            profile, allowed_capture_tiers=frozenset(set(PrivacyTier))
+        )
+    return CaptureSubmission.for_destination_bound(
+        profile=profile,
+        authority=authority,
+        payload=TextPayload("Synthetic destination-bound capture"),
+        delivery_id=delivery_id,
+        requested_tier=requested_tier,
+    )
+
+
+def test_for_destination_bound_without_a_tier_defaults_to_unknown() -> None:
+    profile = _profile()
+    submission = _destination_submission(profile, requested_tier=None)
+    assert submission.submission_path is CaptureSubmissionPath.DESTINATION_BOUND
+    assert submission.requested_tier is PrivacyTier.UNKNOWN
+    assert submission.privacy == _privacy(PrivacyTier.UNKNOWN)
+    assert submission.capture_why is None
+    assert submission.capture_why_origin is CaptureWhyOrigin.AUTOMATION_ABSENT
+    submission.validate_profile(profile)
+
+
+def test_for_destination_bound_accepts_every_tier_inside_the_policy_set() -> None:
+    profile = _profile()
+    for tier in PrivacyTier:
+        submission = _destination_submission(profile, requested_tier=tier)
+        assert submission.requested_tier is tier
+        assert submission.privacy == _privacy(tier)
+        assert submission.privacy.authority.cloud is False
+        assert submission.privacy.authority.external_egress is False
+        submission.validate_profile(profile)
+
+
+def test_for_destination_bound_rejects_a_tier_outside_the_policy_set() -> None:
+    profile = _profile()
+    authority = _destination_authority(profile, allowed_capture_tiers=frozenset({PrivacyTier.WORK}))
+    with pytest.raises(CaptureAdmissionError) as raised:
+        _destination_submission(profile, requested_tier=PrivacyTier.PUBLIC, authority=authority)
+    assert raised.value.result is CaptureAdmissionResult.TIER_NOT_PERMITTED
+    assert raised.value.retryable is False
+
+
+def test_for_destination_bound_rejects_owner_or_unbound_authority() -> None:
+    profile = _profile()
+    owner = EffectiveAuthority(
+        principal_id="synthetic-owner-principal",
+        session_id="synthetic-owner-session",
+        capabilities=frozenset(),
+        space_ids=None,
+        owner=True,
+        allowed_capture_tiers=frozenset({PrivacyTier.WORK}),
+        brain_id=derive_brain_id(profile.tenant_id),
+        issuer_epoch=1,
+    )
+    with pytest.raises(ValueError, match="owner"):
+        _destination_submission(profile, authority=owner)
+    unbound = EffectiveAuthority(
+        principal_id="synthetic-unbound-principal",
+        session_id="synthetic-unbound-session",
+        capabilities=frozenset(),
+        space_ids=None,
+    )
+    with pytest.raises(ValueError, match="destination"):
+        _destination_submission(profile, authority=unbound)
+
+
+def test_destination_bound_digest_binds_tier_brain_and_epoch() -> None:
+    profile = _profile()
+    work = _destination_submission(profile, requested_tier=PrivacyTier.WORK)
+    work_repeat = _destination_submission(profile, requested_tier=PrivacyTier.WORK)
+    personal = _destination_submission(profile, requested_tier=PrivacyTier.PERSONAL)
+    later_epoch_authority = _destination_authority(
+        profile, allowed_capture_tiers=frozenset(set(PrivacyTier)), issuer_epoch=2
+    )
+    later_epoch = _destination_submission(
+        profile, requested_tier=PrivacyTier.WORK, authority=later_epoch_authority
+    )
+    assert work.request_sha256() == work_repeat.request_sha256()
+    assert work.request_sha256() != personal.request_sha256()
+    assert work.request_sha256() != later_epoch.request_sha256()
+    value = work.request_value()
+    assert "privacy" in value
+    assert value["destination_brain_id"] == derive_brain_id(profile.tenant_id)
+    assert value["issuer_epoch"] == 1
+    owner = CaptureSubmission.for_local_owner(
+        profile=profile,
+        payload=TextPayload("Synthetic owner digest boundary capture"),
+        delivery_id="delivery.admission.owner.boundary",
+    )
+    assert "destination_brain_id" not in owner.request_value()
+
+
+def test_destination_bound_submissions_carry_the_public_job_restrictions() -> None:
+    profile = _profile()
+    submission = _destination_submission(profile)
+    assert submission.action.value == "quick"
+    assert submission.space_id is None
+    with pytest.raises(ValueError, match="public-job capture cannot route to a space"):
+        replace(submission, space_id=f"space_{uuid4()}")
+    with pytest.raises(ValueError, match="public-job source origin is not allowed"):
+        replace(
+            submission,
+            source_origin=ContentOrigin.OWNER_AUTHORED,
+            provenance=Provenance.create(
+                source_ref=submission.source_reference,
+                content_origin=ContentOrigin.OWNER_AUTHORED,
+                owner_context=CaptureWhyOrigin.AUTOMATION_ABSENT,
+            ),
+        )
+    with pytest.raises(ValueError, match="destination binding"):
+        replace(submission, submission_path=CaptureSubmissionPath.PUBLIC_JOB)
+
+
+def test_destination_binding_is_refused_on_other_submission_paths() -> None:
+    profile = _profile()
+    owner = CaptureSubmission.for_local_owner(
+        profile=profile,
+        payload=TextPayload("Synthetic owner binding refusal capture"),
+        delivery_id="delivery.admission.owner.binding",
+    )
+    with pytest.raises(ValueError, match="destination binding"):
+        replace(
+            owner,
+            destination_brain_id=derive_brain_id(profile.tenant_id),
+            issuer_epoch=1,
+        )

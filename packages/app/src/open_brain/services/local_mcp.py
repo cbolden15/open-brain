@@ -6,11 +6,16 @@ import uuid
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from hashlib import sha256
-from typing import Literal
+from typing import Literal, cast
 
 from open_brain_engine.core.ids import portable_canonical_json_bytes
 from open_brain_engine.core.models import PrivacyTier
-from open_brain_engine.engine import PublicJobCaptureSink, RetrievalResult, TextPayload
+from open_brain_engine.engine import (
+    CaptureAdmissionError,
+    PublicJobCaptureSink,
+    RetrievalResult,
+    TextPayload,
+)
 
 from open_brain.services.catalog import CatalogRequestError
 from open_brain.services.local_operations import (
@@ -57,6 +62,7 @@ _UUID4_PATTERN = "[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f
 GraphRefresh = Callable[[int, int], tuple[dict[str, object], int, int]]
 OrganizationOperation = Callable[[Mapping[str, object]], dict[str, object]]
 ReviewOperation = Callable[[Mapping[str, object]], dict[str, object]]
+DestinationBoundSubmit = Callable[[str, PrivacyTier | None, str], dict[str, object]]
 
 MCP_REGISTERED_TOOLS: tuple[dict[str, object], ...] = (
     {"name": "brain_catalog", "required_grants": []},
@@ -70,6 +76,7 @@ MCP_REGISTERED_TOOLS: tuple[dict[str, object], ...] = (
     {"name": "brain_history_show", "required_grants": ["history-read"]},
     {"name": "brain_source_route", "required_grants": ["organize"]},
     {"name": "brain_capture", "required_grants": ["capture"]},
+    {"name": "brain_capture_submit", "required_grants": ["capture-submit"]},
     {"name": "brain_search", "required_grants": ["search"]},
     {"name": "brain_inbox_list", "required_grants": ["inbox-read"]},
     {"name": "brain_space_list", "required_grants": ["inbox-read"]},
@@ -99,6 +106,7 @@ class LocalMcpAdapter:
     """Explicitly injected, bounded local capabilities without owner authority."""
 
     capture: PublicJobCaptureSink | None = None
+    capture_submit: DestinationBoundSubmit | None = None
     search: Callable[[str, int], tuple[RetrievalResult, ...]] | None = None
     workspace_status: Callable[[], dict[str, object]] | None = None
     graph_suggestions: Callable[[], dict[str, object]] | None = None
@@ -137,6 +145,7 @@ class LocalMcpAdapter:
             capability is None
             for capability in (
                 self.capture,
+                self.capture_submit,
                 self.search,
                 self.workspace_status,
                 self.graph_suggestions,
@@ -159,6 +168,8 @@ class LocalMcpAdapter:
             raise ValueError("no MCP capability selected")
         if self.capture is not None and not isinstance(self.capture, PublicJobCaptureSink):
             raise ValueError("invalid MCP capture capability")
+        if self.capture_submit is not None and not callable(self.capture_submit):
+            raise ValueError("invalid MCP capture-submit capability")
         if self.search is not None and not callable(self.search):
             raise ValueError("invalid MCP search capability")
         for capability in (
@@ -217,6 +228,41 @@ class LocalMcpAdapter:
                         "Store durable unverified text. "
                         "Version 0.1.0 cannot selectively delete it. "
                         "No publication, actions, or connector authority."
+                    ),
+                    "inputSchema": {
+                        "type": "object",
+                        "additionalProperties": False,
+                        "required": ["text"],
+                        "properties": {
+                            "text": {
+                                "type": "string",
+                                "minLength": 1,
+                                "maxLength": MAX_TEXT_CHARACTERS,
+                            },
+                            "idempotency_key": {
+                                "type": "string",
+                                "minLength": 1,
+                                "maxLength": MAX_KEY_CHARACTERS,
+                            },
+                            "privacy_tier": {
+                                "type": "string",
+                                "enum": [tier.value for tier in PrivacyTier],
+                            },
+                        },
+                    },
+                }
+            )
+        if self.capture_submit is not None:
+            tools.append(
+                {
+                    "name": "brain_capture_submit",
+                    "description": (
+                        "Submit one destination-bound capture under the trusted startup "
+                        "policy selected at launch. The requested privacy tier must be "
+                        "inside that policy's allowed capture tiers; a missing tier "
+                        "becomes unknown. Captures are durable unverified content; "
+                        "version 0.1.0 cannot selectively delete them. No publication, "
+                        "actions, or connector authority."
                     ),
                     "inputSchema": {
                         "type": "object",
@@ -792,6 +838,8 @@ class LocalMcpAdapter:
                     raise McpCallError(error.code) from None
             if name == "brain_capture" and self.capture is not None:
                 return self._capture(arguments)
+            if name == "brain_capture_submit" and self.capture_submit is not None:
+                return self._capture_submit(arguments)
             if name == "brain_search" and self.search is not None:
                 return self._search(arguments)
             if name == "brain_inbox_list" and self.inbox_list is not None:
@@ -876,6 +924,8 @@ class LocalMcpAdapter:
         except Exception as error:
             if database_is_busy(error):
                 raise McpCallError("database_busy") from None
+            if isinstance(error, CaptureAdmissionError):
+                raise McpCallError(error.result.value) from None
             if isinstance(error, ValueError) and str(error) == "conflicting delivery":
                 raise McpCallError("idempotency_conflict") from None
             raise McpCallError("tool call failed") from None
@@ -1021,6 +1071,52 @@ class LocalMcpAdapter:
         self._capture_bytes += size
         assert self.capture is not None
         return capture_result(capture_text(self.capture, text, delivery_id=delivery))
+
+    def _capture_submit(self, arguments: Mapping[str, object]) -> dict[str, object]:
+        text = arguments.get("text")
+        key = arguments.get("idempotency_key")
+        tier = arguments.get("privacy_tier")
+        if (
+            set(arguments) - {"text", "idempotency_key", "privacy_tier"}
+            or not isinstance(text, str)
+            or not 1 <= len(text) <= MAX_TEXT_CHARACTERS
+            or (
+                "idempotency_key" in arguments
+                and (
+                    not isinstance(key, str)
+                    or not 1 <= len(key) <= MAX_KEY_CHARACTERS
+                    or not key.strip()
+                    or "\x00" in key
+                )
+            )
+            or (
+                "privacy_tier" in arguments
+                and (
+                    not isinstance(tier, str)
+                    or tier not in {member.value for member in PrivacyTier}
+                )
+            )
+        ):
+            raise McpCallError("invalid tool arguments")
+        try:
+            size = len(text.encode("utf-8"))
+            TextPayload(text)
+            requested_tier = None if tier is None else PrivacyTier(cast(str, tier))
+            delivery = (
+                "delivery.mcp.destination.key." + sha256(key.encode("utf-8")).hexdigest()
+                if isinstance(key, str)
+                else "delivery.mcp.destination.random." + str(uuid.uuid4())
+            )
+        except ValueError, UnicodeError:
+            raise McpCallError("invalid tool arguments") from None
+        if self._capture_calls >= MAX_CAPTURE_CALLS:
+            raise McpCallError("session_capture_limit")
+        self._capture_calls += 1
+        if self._capture_bytes + size > MAX_CAPTURE_BYTES:
+            raise McpCallError("session_capture_limit")
+        self._capture_bytes += size
+        assert self.capture_submit is not None
+        return self.capture_submit(text, requested_tier, delivery)
 
     def _search(self, arguments: Mapping[str, object]) -> dict[str, object]:
         query = arguments.get("query")

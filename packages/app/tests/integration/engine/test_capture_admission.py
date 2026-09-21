@@ -35,6 +35,7 @@ from open_brain_engine.engine import (
 from open_brain_engine.engine import (
     capture as capture_module,
 )
+from open_brain_engine.engine.t03_contracts import EffectiveAuthority
 from open_brain_engine.storage.locks import (
     _PROCESS_WRITER_WAITERS,
     FileLease,
@@ -667,6 +668,165 @@ def test_explicit_public_owner_tier_still_narrows_at_the_boundary(
     assert receipt.final_admitted_tier is PrivacyTier.SECRET
     assert _stored_privacy_tier(root, receipt.capture_id) == "secret"
     assert _search_effective_tier(root, receipt.capture_id) == "secret"
+
+
+def _engine_brain_id(root: Path) -> str:
+    connection = sqlite3.connect(root / ".open-brain/state/phase1.sqlite3")
+    try:
+        row = connection.execute("SELECT brain_id FROM brain_identity").fetchone()
+    finally:
+        connection.close()
+    assert row is not None
+    return cast(str, row[0])
+
+
+def _engine_issuer_epoch(root: Path) -> int:
+    connection = sqlite3.connect(root / ".open-brain/state/phase1.sqlite3")
+    try:
+        row = connection.execute("SELECT issuer_epoch FROM brain_identity").fetchone()
+    finally:
+        connection.close()
+    assert row is not None
+    return cast(int, row[0])
+
+
+def _destination_authority(
+    root: Path,
+    *,
+    allowed_capture_tiers: frozenset[PrivacyTier] | None = None,
+    issuer_epoch: int | None = None,
+) -> EffectiveAuthority:
+    return EffectiveAuthority(
+        principal_id="synthetic-destination-principal",
+        session_id="synthetic-destination-session",
+        capabilities=frozenset(),
+        space_ids=None,
+        allowed_read_tiers=frozenset({PrivacyTier.PUBLIC, PrivacyTier.WORK, PrivacyTier.PERSONAL}),
+        allowed_capture_tiers=(
+            frozenset(set(PrivacyTier)) if allowed_capture_tiers is None else allowed_capture_tiers
+        ),
+        brain_id=_engine_brain_id(root),
+        issuer_epoch=_engine_issuer_epoch(root) if issuer_epoch is None else issuer_epoch,
+    )
+
+
+def _destination_submission(
+    engine: BrainEngine,
+    root: Path,
+    delivery_id: str,
+    *,
+    text: str = "synthetic destination-bound capture",
+    requested_tier: PrivacyTier | None = PrivacyTier.WORK,
+    allowed_capture_tiers: frozenset[PrivacyTier] | None = None,
+) -> CaptureSubmission:
+    return CaptureSubmission.for_destination_bound(
+        profile=engine.profile,
+        authority=_destination_authority(root, allowed_capture_tiers=allowed_capture_tiers),
+        payload=TextPayload(text),
+        delivery_id=delivery_id,
+        requested_tier=requested_tier,
+    )
+
+
+@pytest.mark.parametrize(
+    "requested_tier",
+    [
+        PrivacyTier.PUBLIC,
+        PrivacyTier.WORK,
+        PrivacyTier.PERSONAL,
+        PrivacyTier.SECRET,
+        PrivacyTier.UNKNOWN,
+        None,
+    ],
+)
+def test_destination_bound_submissions_produce_the_expected_durable_tiers(
+    tmp_path: Path, requested_tier: PrivacyTier | None
+) -> None:
+    root = tmp_path / "brain"
+    engine = _engine(root)
+    submission = _destination_submission(
+        engine, root, "admission-destination-tier-1", requested_tier=requested_tier
+    )
+    receipt = engine.capture.submit(submission)
+    expected = PrivacyTier.UNKNOWN if requested_tier is None else requested_tier
+    assert receipt.requested_tier is expected
+    assert receipt.final_admitted_tier is expected
+    assert _stored_privacy_tier(root, receipt.capture_id) == expected.value
+    assert _search_effective_tier(root, receipt.capture_id) == expected.value
+
+
+def test_destination_bound_replay_is_idempotent(tmp_path: Path) -> None:
+    root = tmp_path / "brain"
+    engine = _engine(root)
+    first = engine.capture.submit(
+        _destination_submission(engine, root, "admission-destination-replay-1")
+    )
+    second = engine.capture.submit(
+        _destination_submission(engine, root, "admission-destination-replay-1")
+    )
+    assert first.duplicate is False
+    assert second.duplicate is True
+    assert second.capture_id == first.capture_id
+    assert _count(root, "captures") == 1
+
+
+def test_destination_bound_reused_delivery_id_with_different_bytes_conflicts(
+    tmp_path: Path,
+) -> None:
+    from open_brain_engine.engine.capture import DeliveryConflict
+
+    root = tmp_path / "brain"
+    engine = _engine(root)
+    engine.capture.submit(
+        _destination_submission(
+            engine, root, "admission-destination-conflict-1", text="synthetic first bytes"
+        )
+    )
+    with pytest.raises(DeliveryConflict):
+        engine.capture.submit(
+            _destination_submission(
+                engine,
+                root,
+                "admission-destination-conflict-1",
+                text="synthetic different bytes",
+            )
+        )
+    assert _count(root, "captures") == 1
+
+
+def test_destination_bound_submissions_share_the_admission_rate_gate(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "brain"
+    engine = _engine(root, limits=AdmissionLimits(requests_per_minute_per_principal=1))
+    first = engine.capture.submit(
+        _destination_submission(engine, root, "admission-destination-rate-1")
+    )
+    assert first.duplicate is False
+    with pytest.raises(CaptureAdmissionError) as raised:
+        engine.capture.submit(_destination_submission(engine, root, "admission-destination-rate-2"))
+    assert raised.value.result is CaptureAdmissionResult.RATE_LIMITED
+    assert raised.value.retryable is True
+    assert _count(root, "captures") == 1
+
+
+def test_destination_bound_receipt_carries_the_public_binding(tmp_path: Path) -> None:
+    from open_brain_engine.core.access_contracts import derive_brain_id
+
+    root = tmp_path / "brain"
+    engine = _engine(root)
+    submission = _destination_submission(
+        engine, root, "admission-destination-binding-1", requested_tier=PrivacyTier.PERSONAL
+    )
+    digest = submission.request_sha256()
+    receipt = engine.capture.submit(submission)
+    assert receipt.delivery_id == "admission-destination-binding-1"
+    assert receipt.request_sha256 == digest
+    assert receipt.destination_brain_id == derive_brain_id(engine.profile.tenant_id)
+    assert receipt.issuer_epoch == _engine_issuer_epoch(root)
+    assert receipt.requested_tier is PrivacyTier.PERSONAL
+    assert receipt.final_admitted_tier is PrivacyTier.PERSONAL
+    assert _capture_column(root, receipt.capture_id, "request_sha256") == digest
 
 
 def _canonical_note(

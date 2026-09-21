@@ -104,7 +104,7 @@ def test_cli_catalog_uses_parser_registration_before_root_selection(
     }
     obsidian = next(item for item in commands if item["command"] == ["obsidian-plugin", "install"])
     assert obsidian["positional_choices"] == {"action": "install"}
-    assert len(commands) == 52
+    assert len(commands) == 53
     assert run_cli(("catalog", "--json", "--schema-version", "1")) == 2
     assert run_cli(("catalog", "--json", "--unknown")) == 2
 
@@ -116,13 +116,11 @@ def test_owner_privacy_repair_is_installed_but_excluded_from_every_catalog_conte
 ) -> None:
     import open_brain.services.t03_adapters as t03
 
-    parsed = _parser().parse_args(
-        ("privacy", "repair", "--request-file", "-", "--json")
-    )
+    parsed = _parser().parse_args(("privacy", "repair", "--request-file", "-", "--json"))
     assert parsed.command == "privacy"
     assert parsed.privacy_action == "repair"
     commands = cli_registrations(_parser())
-    assert len(commands) == 52
+    assert len(commands) == 53
     assert ("privacy", "repair") not in {
         tuple(cast(list[str], command["command"])) for command in commands
     }
@@ -218,9 +216,14 @@ def test_registered_mcp_catalog_matches_all_injected_tools() -> None:
         review_approve=operations,
         review_reject=operations,
         review_edit_and_approve=operations,
+        capture_submit=lambda _text, _tier, _delivery: {"status": "captured"},
     )
     # Capture and negotiated tools need concrete engine adapters; account for their names here.
-    actual = {tool["name"] for tool in adapter.list_tools()} | {"brain_capture"}
+    actual = (
+        {tool["name"] for tool in adapter.list_tools()}
+        | {"brain_capture"}
+        | {"brain_capture_submit"}
+    )
     registered = {cast(str, tool["name"]) for tool in MCP_REGISTERED_TOOLS}
     contract = next(
         tool for tool in MCP_REGISTERED_TOOLS if tool["name"] == "brain_contract_describe"

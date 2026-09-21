@@ -1855,3 +1855,110 @@ def test_owner_cli_import_accepts_tier_and_manifest_flags(tmp_path: Path) -> Non
     assert imported["status"] == "completed"
     assert _active_import_privacy(root, "note.md")["tier"] == "work"
     assert _active_import_privacy(root, "sub/note.md")["tier"] == "secret"
+
+
+def _destination_policy_file(
+    root: Path,
+    *,
+    issuer_epoch: int | None = None,
+    brain_id: str | None = None,
+) -> Path:
+    connection = sqlite3.connect(root / ".open-brain/state/phase1.sqlite3")
+    try:
+        row = connection.execute("SELECT brain_id, issuer_epoch FROM brain_identity").fetchone()
+    finally:
+        connection.close()
+    assert row is not None
+    document = {
+        "policy_version": "launcher-policy.v1",
+        "principal_id": "synthetic-destination-principal",
+        "session_id": "synthetic-destination-session",
+        "capabilities": [],
+        "space_ids": None,
+        "allowed_read_tiers": ["public", "work"],
+        "allowed_capture_tiers": ["public", "work", "personal", "secret", "unknown"],
+        "egress_mode": "owner_local",
+        "provider_id": None,
+        "consent_id": None,
+        "authorization_generation": 0,
+        "brain_id": brain_id if brain_id is not None else cast(str, row[0]),
+        "issuer_epoch": issuer_epoch if issuer_epoch is not None else cast(int, row[1]),
+    }
+    path = root.parent / "destination-policy.json"
+    path.write_text(json.dumps(document), encoding="utf-8")
+    return path
+
+
+def _capture_count(root: Path) -> int:
+    connection = sqlite3.connect(root / ".open-brain/state/phase1.sqlite3")
+    try:
+        return cast(int, connection.execute("SELECT COUNT(*) FROM captures").fetchone()[0])
+    finally:
+        connection.close()
+
+
+def test_cli_capture_submit_uses_a_valid_startup_policy(tmp_path: Path) -> None:
+    root = tmp_path / "brain"
+    assert _subprocess_cli(root, "status")["profile"] == "local"
+    policy = _destination_policy_file(root)
+    submitted = _subprocess_cli(
+        root,
+        "capture-submit",
+        "synthetic cli destination-bound text",
+        "--policy",
+        str(policy),
+        "--privacy-tier",
+        "work",
+    )
+    assert submitted["status"] == "captured"
+    assert submitted["requested_tier"] == "work"
+    assert submitted["final_admitted_tier"] == "work"
+    assert cast(str, submitted["delivery_id"]).startswith("delivery.destination.")
+    assert len(cast(str, submitted["request_sha256"])) == 64
+    assert cast(str, submitted["destination_brain_id"]).startswith("brn_")
+    assert isinstance(submitted["issuer_epoch"], int)
+    assert _capture_count(root) == 1
+    privacy = _single_capture_privacy(root)
+    assert privacy["tier"] == "work"
+
+
+def _failing_cli(root: Path, *arguments: str) -> subprocess.CompletedProcess[str]:
+    program = (
+        "from open_brain.services.local_entrypoints import run_cli;raise SystemExit(run_cli())"
+    )
+    return subprocess.run(
+        [sys.executable, "-c", program, *arguments, "--data-dir", str(root), "--json"],
+        env=os.environ.copy(),
+        capture_output=True,
+        text=True,
+        timeout=30,
+        check=False,
+    )
+
+
+def test_cli_capture_submit_refuses_a_stale_epoch_policy(tmp_path: Path) -> None:
+    root = tmp_path / "brain"
+    assert _subprocess_cli(root, "status")["profile"] == "local"
+    stale = _destination_policy_file(root, issuer_epoch=99)
+    result = _failing_cli(
+        root, "capture-submit", "synthetic stale destination text", "--policy", str(stale)
+    )
+    assert result.returncode == 78
+    assert "issuer_mismatch" in result.stdout + result.stderr
+    assert _capture_count(root) == 0
+
+
+def test_cli_capture_submit_refuses_a_wrong_brain_policy(tmp_path: Path) -> None:
+    root = tmp_path / "brain"
+    assert _subprocess_cli(root, "status")["profile"] == "local"
+    wrong_brain = _destination_policy_file(root, brain_id="brn_" + "q" * 26)
+    result = _failing_cli(
+        root, "capture-submit", "synthetic wrong-brain text", "--policy", str(wrong_brain)
+    )
+    assert result.returncode == 78
+    assert "destination_mismatch" in result.stdout + result.stderr
+    assert _capture_count(root) == 0
+
+
+def test_mcp_capture_submit_requires_a_policy_path() -> None:
+    assert run_cli(("mcp", "--allow-capture-submit"), environment={}) == 2

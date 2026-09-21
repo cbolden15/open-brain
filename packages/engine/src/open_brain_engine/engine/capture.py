@@ -464,6 +464,20 @@ class CaptureOperations(_LocalEngineOperations):
                 duplicate=duplicate,
                 requested_tier=submission.requested_tier,
                 final_admitted_tier=admitted_privacy.tier,
+                # Only the destination-bound path publishes its request and
+                # authority binding; every other receipt keeps today's shape.
+                delivery_id=(
+                    delivery_id
+                    if submission.submission_path is CaptureSubmissionPath.DESTINATION_BOUND
+                    else None
+                ),
+                request_sha256=(
+                    request_sha
+                    if submission.submission_path is CaptureSubmissionPath.DESTINATION_BOUND
+                    else None
+                ),
+                destination_brain_id=submission.destination_brain_id,
+                issuer_epoch=submission.issuer_epoch,
             )
         )
 
@@ -618,7 +632,13 @@ class CaptureOperations(_LocalEngineOperations):
         )
         origin = cast(str, row["source_origin"])
         submission_path = cast(str | None, row["submission_path"]) or "owner"
-        public_job = submission_path == "public_job"
+        # Destination-bound rows project from the stored submission exactly like
+        # public-job rows: the durable record must never claim the owner actor
+        # for a non-owner destination principal.
+        public_job = submission_path in (
+            CaptureSubmissionPath.PUBLIC_JOB.value,
+            CaptureSubmissionPath.DESTINATION_BOUND.value,
+        )
         stored_provenance = _stored_submission_value(row, "provenance_json") if public_job else {}
         provenance = (
             {

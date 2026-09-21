@@ -1629,3 +1629,139 @@ def test_capture_privacy_tier_is_refused_through_the_non_owner_sink(tasks: Any) 
         adapter.call_tool("brain_capture", {"text": "synthetic", "privacy_tier": "synthetic-tier"})
     plain = adapter.call_tool("brain_capture", {"text": "synthetic plain mcp capture"})
     assert plain["status"] == "captured"
+
+
+def _destination_policy(
+    tasks: Any,
+    *,
+    allowed_capture_tiers: list[str] | None = None,
+    issuer_epoch: int | None = None,
+    brain_id: str | None = None,
+) -> str:
+    from open_brain_engine.core.access_contracts import derive_brain_id
+
+    root = Path(tasks.profile.root)
+    connection = sqlite3.connect(root / ".open-brain/state/phase1.sqlite3")
+    try:
+        row = connection.execute("SELECT brain_id, issuer_epoch FROM brain_identity").fetchone()
+    finally:
+        connection.close()
+    assert row is not None
+    document = {
+        "policy_version": "launcher-policy.v1",
+        "principal_id": "synthetic-destination-principal",
+        "session_id": "synthetic-destination-session",
+        "capabilities": [],
+        "space_ids": None,
+        "allowed_read_tiers": ["public", "work"],
+        "allowed_capture_tiers": (
+            ["public", "work", "personal", "secret", "unknown"]
+            if allowed_capture_tiers is None
+            else allowed_capture_tiers
+        ),
+        "egress_mode": "owner_local",
+        "provider_id": None,
+        "consent_id": None,
+        "authorization_generation": 0,
+        "brain_id": brain_id if brain_id is not None else cast(str, row[0]),
+        "issuer_epoch": issuer_epoch if issuer_epoch is not None else cast(int, row[1]),
+    }
+    assert document["brain_id"] == derive_brain_id(cast(str, tasks.profile.tenant_id)) or brain_id
+    return json.dumps(document)
+
+
+def _destination_adapter(tasks: Any, policy: str) -> LocalMcpAdapter:
+    from open_brain.services.local_operations import (
+        destination_bound_authority,
+        destination_bound_capture_submit,
+    )
+
+    authority = destination_bound_authority(tasks, policy)
+    return LocalMcpAdapter(capture_submit=destination_bound_capture_submit(tasks, authority))
+
+
+def test_capture_submit_is_listed_only_when_the_grant_is_injected(tasks: Any) -> None:
+    assert "brain_capture_submit" not in {tool["name"] for tool in _adapter(tasks).list_tools()}
+    adapter = _destination_adapter(tasks, _destination_policy(tasks))
+    assert {tool["name"] for tool in adapter.list_tools()} == {
+        "brain_catalog",
+        "brain_capture_submit",
+    }
+    schema = adapter.list_tools()[0]["inputSchema"]
+    assert schema["additionalProperties"] is False
+    assert schema["required"] == ["text"]
+    assert set(schema["properties"]) == {"text", "idempotency_key", "privacy_tier"}
+
+
+def test_capture_submit_binds_the_requested_tier_and_authority(tasks: Any) -> None:
+    from open_brain_engine.core.access_contracts import derive_brain_id
+
+    adapter = _destination_adapter(tasks, _destination_policy(tasks))
+    responses = _wire(
+        adapter,
+        INITIALIZE,
+        _call(
+            "brain_capture_submit",
+            {
+                "text": "synthetic destination-bound mcp token",
+                "idempotency_key": "destination-1",
+                "privacy_tier": "work",
+            },
+        ),
+        _call("brain_capture_submit", {"text": "synthetic destination unkeyed"}),
+    )
+    first = responses[1]["result"]["structuredContent"]
+    assert first["status"] == "captured"
+    assert first["requested_tier"] == "work"
+    assert first["final_admitted_tier"] == "work"
+    assert first["delivery_id"].startswith("delivery.mcp.destination.key.")
+    assert len(cast(str, first["request_sha256"])) == 64
+    assert first["destination_brain_id"] == derive_brain_id(cast(str, tasks.profile.tenant_id))
+    assert isinstance(first["issuer_epoch"], int)
+    second = responses[2]["result"]["structuredContent"]
+    assert second["status"] == "captured"
+    assert second["requested_tier"] == "unknown"
+    assert second["final_admitted_tier"] == "unknown"
+
+
+def test_capture_submit_replay_is_idempotent_and_out_of_set_tiers_are_refused(
+    tasks: Any,
+) -> None:
+    adapter = _destination_adapter(
+        tasks, _destination_policy(tasks, allowed_capture_tiers=["work"])
+    )
+    first = adapter.call_tool(
+        "brain_capture_submit",
+        {
+            "text": "synthetic destination replay token",
+            "idempotency_key": "destination-2",
+            "privacy_tier": "work",
+        },
+    )
+    repeated = adapter.call_tool(
+        "brain_capture_submit",
+        {
+            "text": "synthetic destination replay token",
+            "idempotency_key": "destination-2",
+            "privacy_tier": "work",
+        },
+    )
+    assert first["status"] == "captured"
+    assert repeated == {**first, "duplicate": True}
+    with pytest.raises(McpCallError, match="^tier_not_permitted$"):
+        adapter.call_tool(
+            "brain_capture_submit",
+            {"text": "synthetic destination denied tier", "privacy_tier": "secret"},
+        )
+    with pytest.raises(McpCallError, match="^invalid tool arguments$"):
+        adapter.call_tool("brain_capture_submit", {"text": "synthetic", "privacy_tier": 7})
+
+
+def test_capture_submit_refuses_stale_epoch_and_wrong_brain_policies(tasks: Any) -> None:
+    from open_brain.services.launcher_policy import LauncherPolicyError
+    from open_brain.services.local_operations import destination_bound_authority
+
+    with pytest.raises(LauncherPolicyError, match="issuer_mismatch"):
+        destination_bound_authority(tasks, _destination_policy(tasks, issuer_epoch=99))
+    with pytest.raises(LauncherPolicyError, match="destination_mismatch"):
+        destination_bound_authority(tasks, _destination_policy(tasks, brain_id="brn_" + "q" * 26))
