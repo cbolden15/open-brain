@@ -2091,6 +2091,25 @@ Use the dedicated contention tests to exercise retryable startup failures.
 
 Discovered: 2026-09-18, full M2 verification; the isolated retrieval recheck passed.
 
+### DESKTOP-001: Bridge tests with fixed two-second deadlines fail under load
+
+Symptom: `make verify` or `make desktop-test` fails in the Rust bridge tests with `DeadlineExceeded`
+where `MalformedResponse` or a successful probe was expected, most often
+`t03_nested_duplicates_close_the_actual_bridge` and
+`graphify_probe_executes_one_bounded_structural_operation`. Each test passes alone.
+
+Cause: those tests spawn a Python child and give it a fixed two-second deadline. Cargo runs the
+26 bridge tests in parallel, so under an already loaded machine (load average above 10 on the
+development Mac while other suites run) child startup can miss the deadline before the child ever
+writes its malformed reply.
+
+Fix: rerun the desktop stage on a quiet machine before treating the failure as real; the branch
+is suspect only if the tests also fail alone. If the flake recurs in CI, loosen the deadline for
+the malformed-response tests or run the bridge tests with a single test thread, since neither test
+is measuring latency.
+
+Discovered: 2026-09-21, twice during the OSS-G5 release gate while GLM workers ran pytest.
+
 ### OBSIDIAN-003: Untrusted previews need display projection, not inbox rejection
 
 Symptom: One capture with terminal control characters prevents the entire publication capture
