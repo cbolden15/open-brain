@@ -14,6 +14,7 @@ from open_brain_engine.storage.sqlite import SchemaError
 
 from .capture import CaptureOperations, CaptureTasks
 from .contracts import (
+    AdmissionLimits,
     CaptureAction,
     CaptureFault,
     CaptureReceipt,
@@ -128,7 +129,10 @@ class BrainEngine(CaptureOperations, SpaceOperations, ReviewOperations, Retrieva
         clock: Callable[[], datetime],
         enrichment_provider: EnrichmentProvider | None,
         validate_mutation_authority: Callable[[], None] | None = None,
+        admission_limits: AdmissionLimits | None = None,
     ) -> None:
+        if admission_limits is not None and not isinstance(admission_limits, AdmissionLimits):
+            raise ValueError("invalid admission limits")
         if profile.provider_mode is ProviderMode.CLOUD:
             raise ValueError("Phase 1 local engine does not enable cloud enrichment")
         if profile.provider_mode is ProviderMode.NONE and enrichment_provider is not None:
@@ -185,6 +189,9 @@ class BrainEngine(CaptureOperations, SpaceOperations, ReviewOperations, Retrieva
         self._faults = set(faults)
         self._clock = clock
         self._enrichment_provider = enrichment_provider
+        self._admission_limits = (
+            admission_limits if admission_limits is not None else AdmissionLimits()
+        )
         lease_identity = "engine-" + sha256(profile.owner_actor_id.encode("utf-8")).hexdigest()[:32]
         self._writer_lease = FileLease(
             profile.root / ".open-brain",
@@ -249,6 +256,7 @@ class BrainEngine(CaptureOperations, SpaceOperations, ReviewOperations, Retrieva
         enrichment_provider: EnrichmentProvider | None = None,
         validate_mutation_authority: Callable[[], None] | None = None,
         recover_abandoned_sessions: bool = True,
+        admission_limits: AdmissionLimits | None = None,
     ) -> BrainEngine:
         if not isinstance(profile, LocalEngineContext):
             raise ValueError("invalid local profile")
@@ -258,6 +266,7 @@ class BrainEngine(CaptureOperations, SpaceOperations, ReviewOperations, Retrieva
             clock=clock or _utc_now,
             enrichment_provider=enrichment_provider,
             validate_mutation_authority=validate_mutation_authority,
+            admission_limits=admission_limits,
         )
         with engine._writer_lease.acquire_shared_writer():
             engine._recover(startup=recover_abandoned_sessions)

@@ -15,6 +15,8 @@ from open_brain_engine.storage.markdown import render_markdown
 
 from .contracts import (
     CaptureAction,
+    CaptureAdmissionError,
+    CaptureAdmissionResult,
     CaptureFault,
     CaptureReceipt,
     CaptureSubmission,
@@ -67,6 +69,15 @@ class DeliveryConflict(ValueError):
         raise AttributeError("delivery conflict is immutable")
 
 
+def _payload_body_length(payload: Payload) -> int:
+    """The raw payload body bytes: text UTF-8 encoded, file bytes as-is."""
+    if isinstance(payload, TextPayload):
+        return len(payload.text.encode("utf-8"))
+    if isinstance(payload, FilePayload):
+        return len(payload.data)
+    return 0
+
+
 class CaptureOperations(_LocalEngineOperations):
     def _accept_capture(
         self,
@@ -94,6 +105,15 @@ class CaptureOperations(_LocalEngineOperations):
 
     def _submit_capture(self, submission: CaptureSubmission) -> CaptureReceipt:
         submission.validate_profile(self.profile)
+        limits = self._admission_limits
+        body_length = _payload_body_length(submission.payload)
+        envelope_length = (
+            len(portable_canonical_json_bytes(submission.request_value())) + body_length
+        )
+        if envelope_length > limits.max_envelope_bytes:
+            raise CaptureAdmissionError(CaptureAdmissionResult.ENVELOPE_TOO_LARGE)
+        if body_length > limits.max_body_bytes:
+            raise CaptureAdmissionError(CaptureAdmissionResult.BODY_TOO_LARGE)
         capture_submission_is_reserved(cast("BrainEngine", self), submission)
         payload = submission.payload
         delivery_id = submission.delivery_id
