@@ -1,7 +1,7 @@
 {
   "id": "2026-09-22-durable-ingestion-journal-notes",
   "title": "Implementation notes — Durable ingestion journal",
-  "subtitle": "phase 1 of 5 complete · 2026-09-22 15:25 CDT",
+  "subtitle": "phase 2 of 5 complete · 2026-09-22 17:05 CDT",
   "introTitle": "How to use",
   "intro": "<p>Each item is a decision, deviation, or tradeoff made during implementation. <strong>Acknowledge</strong> if fine. <strong>Discuss</strong> to write what should change. <strong>Revert</strong> to flag for undo.</p>",
   "actions": [
@@ -72,6 +72,55 @@
         "What I did": "Completed the journal and custody contracts, schema-10 catalog and exclusive migration, Portable Brain v5 export gate, runtime compatibility bump, and regression coverage.",
         "Why": "The Phase 1 exit gate is satisfied and the repository's full verification command passes.",
         "Followup": "Phase 2 implements journal storage, bounded drain, recovery, terminalization, and compaction."
+      }
+    },
+    {
+      "id": "N4",
+      "group": "phase-2",
+      "title": "Public capture routing stays with Phase 3",
+      "where": "packages/engine/src/open_brain_engine/engine/capture.py:966",
+      "default": "acknowledge",
+      "body": {
+        "Spec said": "Phase 2 builds the journal and writer recovery; Phase 3 routes CaptureTasks and adapters through it.",
+        "What I did": "Kept CaptureTasks.accept, CaptureTasks.submit, source revision capture, and Markdown import on their existing terminal-only writer path. Phase 2 exercises enqueue directly and drains it through engine recovery.",
+        "Why": "Routing the public surfaces here would pull Phase 3 forward, widen the live return protocol early, and mix adapter cutover with the journal correctness boundary.",
+        "Risk": "The journal is durable and recoverable but ordinary capture calls do not use it until Phase 3."
+      }
+    },
+    {
+      "id": "N5",
+      "group": "phase-2",
+      "title": "Canonical overlap preserves active custody replay",
+      "where": "packages/engine/src/open_brain_engine/engine/ingestion.py:380",
+      "default": "acknowledge",
+      "body": {
+        "What I did": "When a crash leaves both an active journal item and its same-digest captures row, replay resolves through the active journal item. It returns the original custody receipt until the writer records the terminal receipt and compacts the payload.",
+        "Why": "That overlap is an expected crash state after capture reservation or canonical completion, not ambiguous storage. Different digests or a tombstone overlap still fail closed.",
+        "Risk": "A replay during this short window may receive queued even if canonical stages have finished; the next bounded writer drain terminalizes it without creating another capture."
+      }
+    },
+    {
+      "id": "N6",
+      "group": "phase-2",
+      "title": "Quarantine and byte bounds stop automatic overrun",
+      "where": "packages/engine/src/open_brain_engine/engine/ingestion.py:171",
+      "default": "acknowledge",
+      "body": {
+        "What I did": "Excluded quarantined entries from automatic drain, enforced the aggregate batch-byte ceiling from the first item, and rejected limit configurations where one permitted item cannot fit in one permitted batch.",
+        "Why": "Quarantine requires owner action, and a byte bound must remain exact without creating an undrainable first item.",
+        "Risk": "Deployments must configure max_journal_batch_bytes at least as large as max_journal_item_bytes."
+      }
+    },
+    {
+      "id": "N7",
+      "group": "phase-2",
+      "title": "Implementation complete — Phase 2",
+      "where": "phase-2 exit gate",
+      "default": "acknowledge",
+      "body": {
+        "What I did": "Implemented durable enqueue and exact receipt replay, bounded FIFO drain, capture materialization under the existing writer fence, terminalization, guarded compaction, retry, quarantine, discard, metadata-only status, and capture-first startup recovery.",
+        "Why": "Crash-boundary, overlap, quarantine, batch-bound, schema, and contention coverage pass. The repository's full verification command is green: 3,336 Python tests with 5 expected skips, 291 Obsidian tests, 259 desktop tests, and 26 Rust tests.",
+        "Followup": "Phase 3 routes every capture entrypoint and upstream custody adapter through the journal while preserving explicit EffectiveAuthority."
       }
     }
   ]

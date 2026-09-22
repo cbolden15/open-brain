@@ -10,7 +10,9 @@ from uuid import uuid4
 import pytest
 from open_brain_engine.core.access_contracts import derive_brain_id
 from open_brain_engine.engine import (
+    AdmissionLimits,
     BrainEngine,
+    CaptureAction,
     CaptureCustodyReceipt,
     CaptureFault,
     CaptureSubmission,
@@ -181,8 +183,13 @@ def test_journal_crash_boundaries_recover_once_without_pending_content(
     )
     engine = BrainEngine.open(profile, faults={fault})
 
-    with pytest.raises(InjectedFault):
-        engine.capture.submit(submission)
+    if fault is CaptureFault.AFTER_JOURNAL_COMMIT:
+        with pytest.raises(InjectedFault):
+            engine.ingestion.enqueue(submission)
+    else:
+        engine.ingestion.enqueue(submission)
+        with pytest.raises(InjectedFault):
+            engine.recover()
 
     with sqlite3.connect(profile.root / PHASE1_STATE_DATABASE) as connection:
         expected_searches = (
@@ -203,3 +210,86 @@ def test_journal_crash_boundaries_recover_once_without_pending_content(
             0,
         )
         assert connection.execute("SELECT count(*) FROM capture_ingestion_items").fetchone() == (0,)
+
+
+def test_replay_during_canonical_terminalization_returns_original_custody(
+    tmp_path: Path,
+) -> None:
+    profile = compile_single_user_local(tmp_path / "brain")
+    submission = CaptureSubmission.for_local_owner(
+        profile=profile,
+        payload=TextPayload("canonical overlap replay"),
+        delivery_id="journal.overlap",
+    )
+    engine = BrainEngine.open(profile, faults={CaptureFault.AFTER_CANONICAL_COMPLETION})
+    custody = engine.ingestion.enqueue(submission)
+
+    with pytest.raises(InjectedFault):
+        engine.recover()
+
+    assert engine.ingestion.enqueue(submission) == custody
+    recovered = BrainEngine.open(profile)
+    assert len(recovered.retrieval.search("canonical overlap replay")) == 1
+
+
+def test_quarantined_item_is_not_retried_without_owner_action(tmp_path: Path) -> None:
+    profile = compile_single_user_local(tmp_path / "brain")
+    engine = BrainEngine.open(profile)
+    submission = CaptureSubmission.for_local_owner(
+        profile=profile,
+        payload=TextPayload("invalid canonical destination"),
+        delivery_id="journal.quarantine",
+        action=CaptureAction.CANONICAL_NOTE,
+        space_id="space_00000000-0000-4000-8000-000000000099",
+    )
+    engine.ingestion.enqueue(submission)
+
+    assert engine.recover() == 0
+    status = engine.ingestion.status()
+    assert len(status) == 1
+    assert status[0].state == "quarantined"
+    with sqlite3.connect(profile.root / PHASE1_STATE_DATABASE) as connection:
+        event_count = connection.execute(
+            "SELECT count(*) FROM capture_ingestion_events WHERE delivery_id = ?",
+            (submission.delivery_id,),
+        ).fetchone()[0]
+
+    assert engine.recover() == 0
+    with sqlite3.connect(profile.root / PHASE1_STATE_DATABASE) as connection:
+        assert connection.execute(
+            "SELECT count(*) FROM capture_ingestion_events WHERE delivery_id = ?",
+            (submission.delivery_id,),
+        ).fetchone() == (event_count,)
+
+
+def test_writer_drain_respects_aggregate_batch_bytes(tmp_path: Path) -> None:
+    profile = compile_single_user_local(tmp_path / "brain")
+    submissions = tuple(
+        CaptureSubmission.for_local_owner(
+            profile=profile,
+            payload=TextPayload(f"bounded journal item {index}"),
+            delivery_id=f"journal.batch.{index}",
+        )
+        for index in range(2)
+    )
+    item_bytes = max(
+        len(JournalEnvelope(submission, submission.privacy).to_bytes())
+        for submission in submissions
+    )
+    engine = BrainEngine.open(
+        profile,
+        admission_limits=AdmissionLimits(
+            max_journal_item_bytes=item_bytes,
+            max_journal_batch_bytes=item_bytes,
+        ),
+    )
+    for submission in submissions:
+        engine.ingestion.enqueue(submission)
+
+    assert engine.recover() == 1
+    with sqlite3.connect(profile.root / PHASE1_STATE_DATABASE) as connection:
+        assert connection.execute("SELECT count(*) FROM captures").fetchone() == (1,)
+        assert connection.execute("SELECT count(*) FROM capture_ingestion_pending").fetchone() == (
+            1,
+        )
+    assert engine.recover() == 1

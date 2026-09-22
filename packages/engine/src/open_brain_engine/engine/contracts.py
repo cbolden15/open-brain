@@ -1606,6 +1606,8 @@ class AdmissionLimits:
             raise ValueError("invalid admission limits")
         if self.max_journal_item_bytes > self.max_journal_bytes:
             raise ValueError("invalid admission limits")
+        if self.max_journal_item_bytes > self.max_journal_batch_bytes:
+            raise ValueError("invalid admission limits")
         if self.max_journal_batch_bytes > self.max_journal_bytes:
             raise ValueError("invalid admission limits")
 
@@ -2436,9 +2438,9 @@ class CaptureTask(Protocol):
         capture_why: str | None = None,
         title: str | None = None,
         privacy_tier: PrivacyTier | None = None,
-    ) -> CaptureOutcome: ...
+    ) -> CaptureReceipt: ...
 
-    def submit(self, submission: CaptureSubmission) -> CaptureOutcome: ...
+    def submit(self, submission: CaptureSubmission) -> CaptureReceipt: ...
 
     def public_job_sink(self, context: PublicJobCaptureContext) -> PublicJobCaptureSink: ...
 

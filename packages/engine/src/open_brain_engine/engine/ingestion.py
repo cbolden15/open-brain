@@ -31,9 +31,6 @@ if TYPE_CHECKING:
     from .local import BrainEngine
 
 
-_TERMINAL = frozenset({"accepted", "duplicate", "discarded"})
-
-
 class JournalCapacityError(ValueError):
     """The Brain retained every existing journal item and has no ingress capacity."""
 
@@ -181,7 +178,13 @@ class IngestionJournal:
                 connection.execute(
                     """
                     SELECT journal_sequence, delivery_id, envelope_sha256, byte_count
-                    FROM capture_ingestion_pending
+                    FROM capture_ingestion_pending AS pending
+                    WHERE COALESCE(
+                        (SELECT event_kind FROM capture_ingestion_events
+                         WHERE delivery_id = pending.delivery_id
+                         ORDER BY event_sequence DESC LIMIT 1),
+                        'queued'
+                    ) <> 'quarantined'
                     ORDER BY journal_sequence
                     LIMIT ?
                     """,
@@ -194,7 +197,7 @@ class IngestionJournal:
         used = 0
         for row in rows:
             size = cast(int, row["byte_count"])
-            if receipts and used + size > limits.max_journal_batch_bytes:
+            if used + size > limits.max_journal_batch_bytes:
                 break
             used += size
             result = self._drain_one(
@@ -385,6 +388,12 @@ class IngestionJournal:
             (delivery_id, delivery_id, delivery_id),
         ).fetchall()
         if len(row) > 1:
+            locations = {cast(str, item["location"]) for item in row}
+            digests = {cast(str, item["request_sha256"]) for item in row}
+            if locations == {"item", "capture"} and len(digests) == 1:
+                return next(
+                    cast(sqlite3.Row, item) for item in row if item["location"] == "item"
+                )
             raise RuntimeError("ambiguous journal replay state")
         return None if not row else cast(sqlite3.Row, row[0])
 

@@ -156,6 +156,12 @@ def test_admission_limits_defaults_are_safe_non_zero_and_ordered() -> None:
         limits.requests_per_minute_per_principal,
         limits.max_concurrent_admissions,
         limits.max_writer_waiters,
+        limits.max_journal_items,
+        limits.max_journal_bytes,
+        limits.max_journal_item_bytes,
+        limits.max_journal_batch_items,
+        limits.max_journal_batch_bytes,
+        limits.max_journal_attempts,
     )
     assert all(type(count) is int and count > 0 for count in counts)
     assert type(limits.storage_high_free_bytes) is int
@@ -173,6 +179,11 @@ def test_admission_limits_defaults_are_safe_non_zero_and_ordered() -> None:
         {"requests_per_minute_per_principal": 0},
         {"max_concurrent_admissions": None},
         {"max_writer_waiters": -5},
+        {"max_journal_items": 0},
+        {"max_journal_bytes": 1024, "max_journal_item_bytes": 2048},
+        {"max_journal_batch_bytes": 1024, "max_journal_item_bytes": 2048},
+        {"max_journal_bytes": 1024, "max_journal_batch_bytes": 2048},
+        {"max_journal_attempts": True},
         {"storage_high_free_bytes": 0},
         {"storage_critical_free_bytes": -1},
         {"storage_high_free_bytes": True},

@@ -33,7 +33,6 @@ from .contracts import (
     CaptureAdmissionError,
     CaptureAdmissionResult,
     CaptureFault,
-    CaptureOutcome,
     CaptureReceipt,
     CaptureSubmission,
     CaptureSubmissionPath,
@@ -41,6 +40,7 @@ from .contracts import (
     EnrichmentRequest,
     EnrichmentUnavailable,
     FilePayload,
+    JournalEnvelope,
     Payload,
     ProposalRecord,
     PublicJobCaptureContext,
@@ -152,7 +152,7 @@ class CaptureOperations(_LocalEngineOperations):
         capture_why: str | None,
         title: str | None,
         privacy_tier: PrivacyTier | None = None,
-    ) -> CaptureOutcome:
+    ) -> CaptureReceipt:
         return self._submit_capture(
             CaptureSubmission.for_local_owner(
                 profile=self.profile,
@@ -305,28 +305,20 @@ class CaptureOperations(_LocalEngineOperations):
             submission.privacy, narrowest_tier(submission.requested_tier, signal)
         )
 
-    def _prepare_journal_submission(self, submission: CaptureSubmission):
+    def _prepare_journal_submission(self, submission: CaptureSubmission) -> JournalEnvelope:
         """Perform all no-write capture admission before the journal transaction."""
         submission.validate_profile(self.profile)
         self._check_static_capture_admission(submission)
         admitted_privacy = self._admitted_privacy(submission)
-        from .contracts import JournalEnvelope
-
         return JournalEnvelope(submission, admitted_privacy)
 
-    def _submit_capture(self, submission: CaptureSubmission) -> CaptureOutcome:
-        """Journal-facing compatibility entrypoint for writer-held internal callers."""
-        result = cast("BrainEngine", self).ingestion.enqueue(submission)
-        if isinstance(result, CaptureReceipt):
-            return result
-        receipts = cast("BrainEngine", self).ingestion.drain_locked()
-        for receipt in receipts:
-            if receipt.delivery_id == submission.delivery_id or (
-                receipt.delivery_id is None
-                and self._capture_row(receipt.capture_id)["delivery_id"] == submission.delivery_id
-            ):
-                return receipt
-        return result
+    def _submit_capture(self, submission: CaptureSubmission) -> CaptureReceipt:
+        """Materialize a submission for legacy writer-held callers during Phase 2."""
+        envelope = self._prepare_journal_submission(submission)
+        self._refuse_on_storage_watermark()
+        return self._materialize_capture_locked(
+            submission, admitted_privacy=envelope.admitted_privacy
+        )
 
     def _materialize_capture_locked(
         self,
@@ -957,11 +949,11 @@ class CaptureTasks:
         capture_why: str | None = None,
         title: str | None = None,
         privacy_tier: PrivacyTier | None = None,
-    ) -> CaptureOutcome:
-        return self.submit(
-            CaptureSubmission.for_local_owner(
-                profile=self._engine.profile,
-                payload=payload,
+    ) -> CaptureReceipt:
+        engine = self._engine
+        with engine._writer_lease.acquire_shared_writer():
+            return engine._accept_capture(
+                payload,
                 delivery_id=delivery_id,
                 action=action,
                 space_id=space_id,
@@ -970,48 +962,19 @@ class CaptureTasks:
                 title=title,
                 privacy_tier=privacy_tier,
             )
-        )
 
-    def submit(self, submission: CaptureSubmission) -> CaptureOutcome:
+    def submit(self, submission: CaptureSubmission) -> CaptureReceipt:
         engine = self._engine
-        connection = engine._store.connect()
-        try:
-            schema_version = connection.execute("PRAGMA user_version").fetchone()[0]
-        finally:
-            connection.close()
-        if schema_version < 10:
-            # Schema-nine compatibility is intentionally materializer-only;
-            # the explicit cutover installs the journal before this branch can
-            # see any new durable ingress state.
-            envelope = engine._prepare_journal_submission(submission)
-            engine._refuse_on_storage_watermark()
-            with engine._admit_submission(submission), engine._writer_lease.acquire_shared_writer():
-                return engine._materialize_capture_locked(
-                    submission, admitted_privacy=envelope.admitted_privacy
-                )
-        # A known delivery replays before rate/concurrency gates. New remote
-        # deliveries consume the existing bounded admission budget only while
-        # their short journal transaction is being admitted.
-        if engine.ingestion.known(submission):
-            result = engine.ingestion.enqueue(submission)
-        else:
-            with engine._admit_submission(submission):
-                result = engine.ingestion.enqueue(submission)
-        if isinstance(result, CaptureReceipt):
-            return result
-        try:
-            with engine._writer_lease.acquire_shared_writer_bounded(
-                max_waiters=engine._admission_limits.max_writer_waiters,
-                timeout=_WRITER_WAIT_TIMEOUT_SECONDS,
-                poll_interval=_WRITER_POLL_INTERVAL_SECONDS,
-            ):
-                receipts = engine.ingestion.drain_locked()
-        except WriterQueueFullError:
-            return result
-        for receipt in receipts:
-            if engine._capture_row(receipt.capture_id)["delivery_id"] == submission.delivery_id:
-                return receipt
-        return engine.ingestion.enqueue(submission)
+        with engine._admit_submission(submission):
+            # Phase 3 routes these entrypoints through durable enqueue. Until
+            # then, retain the established owner and remote writer behavior.
+            lease = (
+                engine._writer_lease.acquire_shared_writer()
+                if submission.submission_path is CaptureSubmissionPath.OWNER
+                else engine._writer_lease_bounded()
+            )
+            with lease:
+                return engine._submit_capture(submission)
 
     def public_job_sink(self, context: PublicJobCaptureContext) -> PublicJobCaptureSink:
         context.validate_profile(self._engine.profile)
