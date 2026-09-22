@@ -2212,7 +2212,13 @@ class RetrievalTask(Protocol):
 class PortabilityTask(Protocol):
     def validate(self, source: Path) -> PortabilityReceipt: ...
 
-    def export(self, destination: Path, *, export_id: str) -> PortabilityReceipt: ...
+    def export(
+        self,
+        destination: Path,
+        *,
+        export_id: str,
+        authority: EffectiveAuthority | None = None,
+    ) -> PortabilityReceipt: ...
 
     def import_clean(
         self, source: Path, destination: Path, *, import_id: str

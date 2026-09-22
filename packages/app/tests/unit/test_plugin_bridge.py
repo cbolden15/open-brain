@@ -5,7 +5,7 @@ import sqlite3
 import uuid
 from io import BytesIO
 from pathlib import Path
-from typing import cast
+from typing import Any, cast
 
 import pytest
 from open_brain_engine.engine import (
@@ -18,6 +18,7 @@ from open_brain_engine.engine import (
     TextPayload,
     canonical_json_bytes,
 )
+from open_brain_engine.engine.t03_contracts import EffectiveAuthority
 
 import open_brain.services.plugin_bridge as plugin_bridge_module
 from open_brain.local_data import LocalRootSelection, select_local_root
@@ -111,6 +112,31 @@ def test_handshake_is_bounded_and_does_not_initialize_the_brain(tmp_path: Path) 
     assert "contract.describe" in cast(list[str], result["operations"])
     assert "record.read" not in cast(list[str], result["operations"])
     assert not selection.brain_root.exists()
+
+
+def test_scoped_plugin_operation_matrix_denies_before_task_lookup() -> None:
+    class NoTaskSession:
+        @property
+        def tasks(self) -> object:
+            raise AssertionError("scoped plugin operation reached task lookup")
+
+    authority = EffectiveAuthority(
+        principal_id="scoped-plugin",
+        session_id="scoped-plugin-session",
+        capabilities=frozenset(),
+        space_ids=None,
+        allowed_read_tiers=frozenset(),
+    )
+    for operation in plugin_bridge_module._OPERATIONS:
+        with pytest.raises(PluginBridgeFailure, match="^unsupported_capability$"):
+            dispatch_plugin_request(
+                cast(Any, NoTaskSession()),
+                operation,
+                {},
+                authority=authority,
+                request_id=f"plugin_{uuid.uuid4()}",
+                base_executable=None,
+            )
 
 
 def test_contract_discovery_exposes_only_implemented_negotiated_tasks(tmp_path: Path) -> None:

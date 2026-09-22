@@ -39,6 +39,7 @@ from .portability_ports import LocalPortableWrites, LocalTenantStorage, local_po
 from .portable_index import IndexBuild, rebuild_portable_index
 from .portable_v5_evidence import serialize_portable_v5_state, verify_portable_v5_semantic_state
 from .portable_v5_restore import audit_restored_v5, restore_portable_v5_root
+from .t03_contracts import EffectiveAuthority, T03Error
 
 if TYPE_CHECKING:
     from .local import BrainEngine
@@ -519,7 +520,15 @@ class PortabilityTasks:
         manifest = validate_portable_root(source)
         return _receipt(manifest, status="validated")
 
-    def export(self, destination: Path, *, export_id: str) -> PortabilityReceipt:
+    def export(
+        self,
+        destination: Path,
+        *,
+        export_id: str,
+        authority: EffectiveAuthority | None = None,
+    ) -> PortabilityReceipt:
+        if authority is not None and not authority.owner:
+            raise T03Error("unsupported_capability")
         self._engine._assert_root()
         _portable_id(export_id, "export")
         _reject_containment(self._engine.profile.root, destination)

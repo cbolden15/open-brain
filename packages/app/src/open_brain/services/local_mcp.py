@@ -16,6 +16,7 @@ from open_brain_engine.engine import (
     RetrievalResult,
     TextPayload,
 )
+from open_brain_engine.engine.t03_contracts import EffectiveAuthority
 
 from open_brain.services.catalog import CatalogRequestError
 from open_brain.services.local_operations import (
@@ -100,11 +101,27 @@ MCP_REGISTERED_TOOLS: tuple[dict[str, object], ...] = (
     },
 )
 
+_SCOPED_NEGOTIATED_OPERATIONS = frozenset(
+    {"search.page", "record.read", "history.list", "history.show"}
+)
+_SCOPED_MCP_TOOLS = frozenset(
+    {
+        "brain_catalog",
+        "brain_contract_describe",
+        "brain_search_page",
+        "brain_read",
+        "brain_history_list",
+        "brain_history_show",
+        "brain_capture_submit",
+    }
+)
+
 
 @dataclass(slots=True)
 class LocalMcpAdapter:
     """Explicitly injected, bounded local capabilities without owner authority."""
 
+    authority: EffectiveAuthority | None = None
     capture: PublicJobCaptureSink | None = None
     capture_submit: DestinationBoundSubmit | None = None
     search: Callable[[str, int], tuple[RetrievalResult, ...]] | None = None
@@ -141,6 +158,8 @@ class LocalMcpAdapter:
     _review_response_bytes: int = field(default=0, init=False)
 
     def __post_init__(self) -> None:
+        if self.authority is not None and not isinstance(self.authority, EffectiveAuthority):
+            raise ValueError("invalid MCP authority")
         if all(
             capability is None
             for capability in (
@@ -166,7 +185,11 @@ class LocalMcpAdapter:
             )
         ):
             raise ValueError("no MCP capability selected")
-        if self.capture is not None and not isinstance(self.capture, PublicJobCaptureSink):
+        if (
+            self.capture is not None
+            and not self._scoped
+            and not isinstance(self.capture, PublicJobCaptureSink)
+        ):
             raise ValueError("invalid MCP capture capability")
         if self.capture_submit is not None and not callable(self.capture_submit):
             raise ValueError("invalid MCP capture-submit capability")
@@ -201,6 +224,16 @@ class LocalMcpAdapter:
                 raise ValueError("invalid MCP review capability")
         if self.negotiated is not None and not isinstance(self.negotiated, T03AppAdapter):
             raise ValueError("invalid MCP negotiated capability")
+        if (
+            self._scoped
+            and self.negotiated is not None
+            and self.negotiated.authority != self.authority
+        ):
+            raise ValueError("invalid MCP negotiated authority")
+
+    @property
+    def _scoped(self) -> bool:
+        return self.authority is not None and not self.authority.owner
 
     @property
     def transport(self) -> Literal["stdio"]:
@@ -586,6 +619,8 @@ class LocalMcpAdapter:
                 },
             }
         )
+        if self._scoped:
+            tools = [tool for tool in tools if tool["name"] in _SCOPED_MCP_TOOLS]
         return tuple(tools)
 
     @staticmethod
@@ -791,6 +826,8 @@ class LocalMcpAdapter:
         maximum_response_bytes: int = MAX_MESSAGE_BYTES,
     ) -> dict[str, object]:
         try:
+            if self._scoped and name not in {tool["name"] for tool in self.list_tools()}:
+                raise McpCallError("unknown tool")
             if name == "brain_catalog":
                 try:
                     from open_brain.services.catalog import build_catalog, cli_registrations
@@ -828,12 +865,23 @@ class LocalMcpAdapter:
             if name in negotiated_names and self.negotiated is not None:
                 operation = negotiated_names[name]
                 try:
-                    return self.negotiated.invoke(
+                    result = self.negotiated.invoke(
                         operation,
                         arguments,
                         maximum_response_bytes=maximum_response_bytes,
                         encoded_size=lambda result: encoded_tool_response_size(request_id, result),
                     )
+                    if self._scoped and operation == "contract.describe":
+                        described = cast(list[dict[str, object]], result["operations"])
+                        result = {
+                            **result,
+                            "operations": [
+                                item
+                                for item in described
+                                if item.get("name") in _SCOPED_NEGOTIATED_OPERATIONS
+                            ],
+                        }
+                    return result
                 except T03AppError as error:
                     raise McpCallError(error.code) from None
             if name == "brain_capture" and self.capture is not None:

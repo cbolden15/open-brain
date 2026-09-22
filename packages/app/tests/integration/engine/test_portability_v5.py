@@ -20,6 +20,7 @@ from open_brain_engine.engine import (
 )
 from open_brain_engine.engine.materializer import _profile
 from open_brain_engine.engine.reconciliation import rederive_live_search_projection
+from open_brain_engine.engine.t03_contracts import EffectiveAuthority, T03Error
 from open_brain_engine.portable import v5
 from open_brain_engine.portable.relationships_v1 import RELATIONSHIP_METADATA_PATH
 from open_brain_engine.portable.v4 import SOURCE_METADATA_PATH
@@ -41,6 +42,28 @@ IMPORT = "import_123e4567-e89b-42d3-a456-426614174031"
 
 def _engine(root: Path) -> BrainEngine:
     return BrainEngine.open(compile_single_user_local(root, starter_spaces=("Notes",)))
+
+
+def test_export_denies_scoped_authority_before_root_or_destination_lookup(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    engine = _engine(tmp_path / "brain")
+    destination = tmp_path / "must-not-exist"
+    scoped = EffectiveAuthority(
+        principal_id="scoped-export",
+        session_id="scoped-export-session",
+        capabilities=frozenset(),
+        space_ids=None,
+    )
+    monkeypatch.setattr(
+        engine,
+        "_assert_root",
+        lambda: pytest.fail("scoped export reached root lookup"),
+    )
+
+    with pytest.raises(T03Error, match="^unsupported_capability$"):
+        engine.portability.export(destination, export_id=EXPORT, authority=scoped)
+    assert not destination.exists()
 
 
 def test_fresh_export_import_reexport(tmp_path: Path) -> None:

@@ -8,9 +8,11 @@ from typing import Any, cast
 
 import pytest
 from jsonschema import Draft202012Validator, ValidationError  # type: ignore[import-untyped]
+from open_brain_engine.core.models import PrivacyTier
 from open_brain_engine.engine.t03_contracts import EffectiveAuthority, T03Error, validate_wire
 
-from open_brain.services.local_mcp import LocalMcpAdapter
+from open_brain.services.local_mcp import MCP_REGISTERED_TOOLS, LocalMcpAdapter
+from open_brain.services.mcp_protocol import McpCallError
 from open_brain.services.t03_adapters import (
     MAX_CONTENT_BYTES,
     MAX_CONTENT_CALLS,
@@ -100,6 +102,79 @@ def test_discovery_intersects_implementation_and_independent_grants() -> None:
             "record.read",
             {"dto_version": 1, "record_id": CAPTURE_ID, "expected_revision_id": CAPTURE_ID},
         )
+
+
+def test_scoped_mcp_operation_matrix_denies_admin_and_materialization_callbacks() -> None:
+    calls: list[str] = []
+
+    def touched(*_args: object, **_kwargs: object) -> dict[str, object]:
+        calls.append("touched")
+        return {}
+
+    authority = EffectiveAuthority(
+        principal_id="scoped_fixture",
+        session_id="scoped_session",
+        capabilities=frozenset({"search", "content-read", "history-read", "organize"}),
+        space_ids=None,
+        allowed_read_tiers=frozenset({PrivacyTier.PUBLIC}),
+    )
+    negotiated = T03AppAdapter(
+        SimpleNamespace(
+            retrieval=SimpleNamespace(search_page=touched, read_record=touched),
+            history=SimpleNamespace(list_history=touched, read_history=touched),
+            sources=SimpleNamespace(route=touched),
+        ),
+        authority,
+        authority.capabilities,
+    )
+    adapter = LocalMcpAdapter(
+        authority=authority,
+        capture=cast(Any, touched),
+        capture_submit=cast(Any, touched),
+        search=cast(Any, touched),
+        workspace_status=touched,
+        graph_suggestions=touched,
+        graph_projection=touched,
+        graph_refresh=cast(Any, touched),
+        inbox_list=touched,
+        space_list=touched,
+        space_create=touched,
+        space_rename=touched,
+        inbox_route=touched,
+        review_list=touched,
+        review_show=touched,
+        review_propose=touched,
+        review_approve=touched,
+        review_reject=touched,
+        review_edit_and_approve=touched,
+        negotiated=negotiated,
+    )
+    allowed = {
+        "brain_catalog",
+        "brain_contract_describe",
+        "brain_search_page",
+        "brain_read",
+        "brain_history_list",
+        "brain_history_show",
+        "brain_capture_submit",
+    }
+    registered = {cast(str, tool["name"]) for tool in MCP_REGISTERED_TOOLS}
+    assert {tool["name"] for tool in adapter.list_tools()} == allowed
+    assert allowed <= registered
+    described = cast(
+        list[dict[str, object]],
+        adapter.call_tool("brain_contract_describe", {})["operations"],
+    )
+    assert {operation["name"] for operation in described} == {
+        "search.page",
+        "record.read",
+        "history.list",
+        "history.show",
+    }
+    for name in sorted(registered - allowed | {"brain_export", "brain_consent_replace"}):
+        with pytest.raises(McpCallError, match="^unknown tool$"):
+            adapter.call_tool(name, {})
+    assert calls == []
 
 
 def test_dispatch_uses_engine_parser_serializer_and_untrusted_content_slot() -> None:
