@@ -1,7 +1,7 @@
 {
   "id": "2026-09-22-durable-ingestion-journal-notes",
   "title": "Implementation notes — Durable ingestion journal",
-  "subtitle": "starting · 2026-09-22 14:27 CDT",
+  "subtitle": "phase 1 of 5 complete · 2026-09-22 15:25 CDT",
   "introTitle": "How to use",
   "intro": "<p>Each item is a decision, deviation, or tradeoff made during implementation. <strong>Acknowledge</strong> if fine. <strong>Discuss</strong> to write what should change. <strong>Revert</strong> to flag for undo.</p>",
   "actions": [
@@ -36,5 +36,43 @@
       "badge": "P5"
     }
   ],
-  "items": []
+  "items": [
+    {
+      "id": "N1",
+      "group": "phase-1",
+      "title": "Queued outcome exposure stays with Phase 3",
+      "where": "packages/engine/src/open_brain_engine/engine/contracts.py:2309",
+      "default": "acknowledge",
+      "body": {
+        "Spec said": "Define CaptureOutcome now, then route capture surfaces through queued outcomes in Phase 3.",
+        "What I did": "Added and exported the closed CaptureOutcome union, but kept the current CaptureTask protocol and public-job sink typed as returning CaptureReceipt until queued outcomes are implemented and routed.",
+        "Why": "No Phase 1 implementation can return a queued outcome yet. Exposing the union through the live task protocol early produced 86 MyPy failures across consumers that correctly assume today's terminal-only behavior.",
+        "Risk": "Phase 3 must widen the task protocol and update every consumer in the same verified change."
+      }
+    },
+    {
+      "id": "N2",
+      "group": "phase-1",
+      "title": "Made expired outbox fixtures deterministic",
+      "where": "packages/connectors/tests/unit/outbox/test_stdio_transport.py:322",
+      "default": "acknowledge",
+      "body": {
+        "What I did": "Injected a fixed drain clock into fixed-timestamp tests and used a fresh enqueue time for the real subprocess lease test.",
+        "Why": "The baseline fixtures crossed their 24-hour retry-age boundary during verification on September 22. They quarantined before transport and failed independently of the journal changes.",
+        "Risk": "None to production behavior; this only removes wall-clock dependence from tests."
+      }
+    },
+    {
+      "id": "N3",
+      "group": "phase-1",
+      "title": "Implementation complete — Phase 1",
+      "where": "phase-1 exit gate",
+      "default": "acknowledge",
+      "body": {
+        "What I did": "Completed the journal and custody contracts, schema-10 catalog and exclusive migration, Portable Brain v5 export gate, runtime compatibility bump, and regression coverage.",
+        "Why": "The Phase 1 exit gate is satisfied and the repository's full verification command passes.",
+        "Followup": "Phase 2 implements journal storage, bounded drain, recovery, terminalization, and compaction."
+      }
+    }
+  ]
 }

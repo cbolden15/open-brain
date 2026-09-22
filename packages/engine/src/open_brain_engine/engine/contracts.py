@@ -2131,7 +2131,11 @@ def _submission_from_journal_value(value: object) -> CaptureSubmission:
             role_claim=cast(Mapping[str, object], data["role_claim"]),
             action=CaptureAction(cast(str, data["action"])),
             space_id=cast(str | None, data["space_id"]),
-            intent=cast(str | None, data["intent"]),
+            intent=(
+                None
+                if data["intent"] is None
+                else Intent(cast(str, data["intent"]))
+            ),
             capture_why=cast(str | None, data["capture_why"]),
             capture_why_origin=CaptureWhyOrigin(cast(str, data["capture_why_origin"])),
             title=cast(str | None, data["title"]),
@@ -2289,6 +2293,8 @@ def verify_capture_custody_receipt(value: Mapping[str, object] | bytes) -> Captu
         else:
             decoded = value
         data = _exact_mapping(decoded, _CUSTODY_RECEIPT_KEYS, label="capture custody receipt")
+        if data["protection_acknowledgement"] is not None:
+            raise ValueError("invalid capture custody receipt")
         return CaptureCustodyReceipt(
             ingestion_id=cast(str, data["ingestion_id"]),
             brain_id=cast(str, data["brain_id"]),
@@ -2298,7 +2304,7 @@ def verify_capture_custody_receipt(value: Mapping[str, object] | bytes) -> Captu
             requested_tier=PrivacyTier(cast(str, data["requested_tier"])),
             final_admitted_tier=PrivacyTier(cast(str, data["final_admitted_tier"])),
             queued_at=cast(str, data["queued_at"]),
-            protection_acknowledgement=data["protection_acknowledgement"],
+            protection_acknowledgement=None,
             contract_version=cast(str, data["contract_version"]),
             status=cast(str, data["status"]),
         )
@@ -2403,9 +2409,9 @@ class CaptureTask(Protocol):
         capture_why: str | None = None,
         title: str | None = None,
         privacy_tier: PrivacyTier | None = None,
-    ) -> CaptureOutcome: ...
+    ) -> CaptureReceipt: ...
 
-    def submit(self, submission: CaptureSubmission) -> CaptureOutcome: ...
+    def submit(self, submission: CaptureSubmission) -> CaptureReceipt: ...
 
     def public_job_sink(self, context: PublicJobCaptureContext) -> PublicJobCaptureSink: ...
 
@@ -2462,7 +2468,7 @@ class PublicJobCaptureSink:
         privacy: PrivacyDecision,
         intent: Intent | str | None = None,
         title: str | None = None,
-    ) -> CaptureOutcome:
+    ) -> CaptureReceipt:
         return self._capture.submit(
             CaptureSubmission.for_public_job(
                 context=self._context,

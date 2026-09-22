@@ -4,6 +4,7 @@ import json
 import sys
 import threading
 import time
+from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
@@ -321,7 +322,13 @@ def test_drain_over_malformed_stdio_success_quarantines_and_keeps_the_body(
     envelope = _envelope()
     assert store.enqueue(envelope) is EnqueueResult.QUEUED
 
-    summary = run_drain_cycle(store, transport, max_batch_items=4, max_batch_bytes=1024 * 1024)
+    summary = run_drain_cycle(
+        store,
+        transport,
+        max_batch_items=4,
+        max_batch_bytes=1024 * 1024,
+        clock=lambda: datetime(2026, 9, 21, 12, 30, tzinfo=UTC),
+    )
 
     assert summary.result is DrainResult.COMPLETED
     assert summary.transport_errors == 0
@@ -367,7 +374,11 @@ def test_item_at_the_store_limit_enqueues_and_drains_without_transport_error(
     assert store.enqueue(envelope) is EnqueueResult.QUEUED
 
     summary = run_drain_cycle(
-        store, StdioProcessTransport(argv), max_batch_items=4, max_batch_bytes=1024 * 1024
+        store,
+        StdioProcessTransport(argv),
+        max_batch_items=4,
+        max_batch_bytes=1024 * 1024,
+        clock=lambda: datetime(2026, 9, 21, 12, 30, tzinfo=UTC),
     )
 
     assert summary.transport_errors == 0

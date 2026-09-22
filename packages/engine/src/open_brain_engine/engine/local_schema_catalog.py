@@ -948,7 +948,7 @@ INSERT INTO runtime_compatibility (
     """.strip(),
 )
 
-IDENTITY_AND_REPAIR_SCHEMA = (
+IDENTITY_AND_REPAIR_SCHEMA: tuple[str, ...] = (
     """
 CREATE TABLE brain_identity (
     singleton INTEGER PRIMARY KEY CHECK (singleton = 1),

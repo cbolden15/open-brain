@@ -652,7 +652,7 @@ def test_scenario_08_second_drain_during_a_held_lease_returns_busy(
     tmp_path: Path,
 ) -> None:
     store = _store(tmp_path)
-    envelope = _envelope()
+    envelope = _envelope(enqueued_at=_stamp())
     assert store.enqueue(envelope) is EnqueueResult.QUEUED
     before = _item_path(store, envelope.delivery_id).read_bytes()
     ready = tmp_path / "lease-held"

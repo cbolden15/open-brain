@@ -2195,3 +2195,18 @@ create event, and check again to close the lookup-to-listener race. Bound the wa
 listener and timer on success, timeout, or plugin unload. Never bypass the vault to open the file.
 
 Discovered: 2026-09-18, Obsidian 1.13.7 GUI publication acceptance and delayed Quick Switcher proof.
+
+### TESTING-002: Fixed enqueue times can expire during later test runs
+
+Symptom: Outbox drain tests report `age_exhausted`, or a lease-holder test never reaches its
+transport callback, even though the transport and lease code did not change.
+
+Cause: The fixture uses a fixed enqueue timestamp with a 24-hour retry-age limit, while the drain
+uses the real clock. The test changes meaning once wall time crosses that boundary.
+
+Fix: Pass a deterministic clock when a test depends on fixed timestamps. Tests that exercise real
+subprocess concurrency should enqueue at the current time unless the age boundary is the behavior
+under test.
+
+Discovered: 2026-09-22, full durable-ingestion Phase 1 verification after the fixture's retry window
+expired.

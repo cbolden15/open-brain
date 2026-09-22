@@ -806,7 +806,7 @@ def test_local_init_creates_exact_default_once_without_daemon_or_environment_roo
         "brain_count": 1,
         "daemon_running": False,
         "profile": "local",
-        "state_schema_version": 9,
+        "state_schema_version": 10,
         "status": "initialized",
         "storage": "sqlite",
     }
