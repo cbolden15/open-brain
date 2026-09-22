@@ -15,6 +15,7 @@ from open_brain_engine.engine import (
     open_local_engine,
 )
 from open_brain_engine.engine import capture as capture_module
+from open_brain_engine.engine.t03_contracts import EffectiveAuthority
 from open_brain_engine.storage.locks import FileLease
 
 from open_brain.profile import compile_single_user_local
@@ -87,6 +88,13 @@ def test_collector_coexists_with_desktop_cli_mcp_and_obsidian_bridge_surface(
 
     tasks = open_local_engine(compile_single_user_local(brain_root))
     adapter = LocalMcpAdapter(
+        authority=EffectiveAuthority(
+            "collector-coexistence-owner",
+            "collector-coexistence-session",
+            frozenset(),
+            None,
+            owner=True,
+        ),
         search=lambda query, limit: search_brain(
             tasks.retrieval,
             tasks.reconciliation,

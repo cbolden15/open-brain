@@ -129,6 +129,20 @@ Fix: Reject arbitrary injection until a concrete adapter passes its gate; use on
 
 Discovered: 2026-08-13.
 
+### SECURITY-002: Authorize before every special-case protocol handler
+
+Symptom: A scoped session's discovery omits an owner operation, but a direct wire request still
+reaches its bootstrap or status handler.
+
+Cause: Special-case handlers ran before the shared operation registry and dispatch authority gate.
+Discovery and the main dispatcher were correct, but the early branch bypassed both.
+
+Fix: Derive one session operation registry from authority and injected implementations, then reject
+unavailable known operations before any handler, credential lookup, Brain initialization, or task
+access. Exercise the complete stdio path, not only the downstream dispatcher.
+
+Discovered: 2026-09-21, independent session-authority review.
+
 ### MEDIA-001: Resource limits must be enforceable
 
 Symptom: A command object lists timeout, memory, or process limits that the runtime never applies.
@@ -2106,6 +2120,20 @@ live sessions for cursor isolation and grant checks, and clean up the first if s
 Use the dedicated contention tests to exercise retryable startup failures.
 
 Discovered: 2026-09-18, full M2 verification; the isolated retrieval recheck passed.
+
+### MCP-002: Paged search projections change after organization writes
+
+Symptom: A native MCP smoke test finds the same capture after routing but rejects the later search
+response as unequal to the earlier response.
+
+Cause: The negotiated search projection includes current organization state such as `space_id`.
+Routing correctly changes that projection even though the record identity, trust, and provenance
+remain stable.
+
+Fix: Across organization writes, compare stable record identity and safety fields, then assert the
+expected new organization state. Do not require byte-for-byte equality with the pre-write page.
+
+Discovered: 2026-09-22, final native session-authority contributor check.
 
 ### DESKTOP-001: Bridge tests with fixed two-second deadlines fail under load
 

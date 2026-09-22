@@ -20,6 +20,7 @@ from open_brain_engine.engine.t03_contracts import EffectiveAuthority
 
 from open_brain.services.catalog import CatalogRequestError
 from open_brain.services.local_operations import (
+    DestinationBoundCaptureCapability,
     capture_result,
     capture_text,
     database_is_busy,
@@ -63,7 +64,6 @@ _UUID4_PATTERN = "[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f
 GraphRefresh = Callable[[int, int], tuple[dict[str, object], int, int]]
 OrganizationOperation = Callable[[Mapping[str, object]], dict[str, object]]
 ReviewOperation = Callable[[Mapping[str, object]], dict[str, object]]
-DestinationBoundSubmit = Callable[[str, PrivacyTier | None, str], dict[str, object]]
 
 MCP_REGISTERED_TOOLS: tuple[dict[str, object], ...] = (
     {"name": "brain_catalog", "required_grants": []},
@@ -101,29 +101,14 @@ MCP_REGISTERED_TOOLS: tuple[dict[str, object], ...] = (
     },
 )
 
-_SCOPED_NEGOTIATED_OPERATIONS = frozenset(
-    {"search.page", "record.read", "history.list", "history.show"}
-)
-_SCOPED_MCP_TOOLS = frozenset(
-    {
-        "brain_catalog",
-        "brain_contract_describe",
-        "brain_search_page",
-        "brain_read",
-        "brain_history_list",
-        "brain_history_show",
-        "brain_capture_submit",
-    }
-)
-
 
 @dataclass(slots=True)
 class LocalMcpAdapter:
     """Explicitly injected, bounded local capabilities without owner authority."""
 
-    authority: EffectiveAuthority | None = None
+    authority: EffectiveAuthority
     capture: PublicJobCaptureSink | None = None
-    capture_submit: DestinationBoundSubmit | None = None
+    capture_submit: DestinationBoundCaptureCapability | None = None
     search: Callable[[str, int], tuple[RetrievalResult, ...]] | None = None
     workspace_status: Callable[[], dict[str, object]] | None = None
     graph_suggestions: Callable[[], dict[str, object]] | None = None
@@ -158,7 +143,7 @@ class LocalMcpAdapter:
     _review_response_bytes: int = field(default=0, init=False)
 
     def __post_init__(self) -> None:
-        if self.authority is not None and not isinstance(self.authority, EffectiveAuthority):
+        if not isinstance(self.authority, EffectiveAuthority):
             raise ValueError("invalid MCP authority")
         if all(
             capability is None
@@ -185,14 +170,14 @@ class LocalMcpAdapter:
             )
         ):
             raise ValueError("no MCP capability selected")
-        if (
-            self.capture is not None
-            and not self._scoped
-            and not isinstance(self.capture, PublicJobCaptureSink)
-        ):
+        if self.capture is not None and not isinstance(self.capture, PublicJobCaptureSink):
             raise ValueError("invalid MCP capture capability")
-        if self.capture_submit is not None and not callable(self.capture_submit):
+        if self.capture_submit is not None and not isinstance(
+            self.capture_submit, DestinationBoundCaptureCapability
+        ):
             raise ValueError("invalid MCP capture-submit capability")
+        if self.capture_submit is not None and self.capture_submit.authority is not self.authority:
+            raise ValueError("invalid MCP capture-submit authority")
         if self.search is not None and not callable(self.search):
             raise ValueError("invalid MCP search capability")
         for capability in (
@@ -224,16 +209,12 @@ class LocalMcpAdapter:
                 raise ValueError("invalid MCP review capability")
         if self.negotiated is not None and not isinstance(self.negotiated, T03AppAdapter):
             raise ValueError("invalid MCP negotiated capability")
-        if (
-            self._scoped
-            and self.negotiated is not None
-            and self.negotiated.authority != self.authority
-        ):
+        if self.negotiated is not None and self.negotiated.authority is not self.authority:
             raise ValueError("invalid MCP negotiated authority")
 
     @property
     def _scoped(self) -> bool:
-        return self.authority is not None and not self.authority.owner
+        return not self.authority.owner
 
     @property
     def transport(self) -> Literal["stdio"]:
@@ -242,8 +223,11 @@ class LocalMcpAdapter:
     def list_tools(self) -> tuple[McpToolDefinition, ...]:
         tools: list[McpToolDefinition] = []
         if self.negotiated is not None:
-            tools.append(self._empty_tool("brain_contract_describe", "Describe negotiated reads."))
             available = set(self.negotiated.available_operations())
+            if available:
+                tools.append(
+                    self._empty_tool("brain_contract_describe", "Describe negotiated reads.")
+                )
             for operation in (
                 "search.page",
                 "record.read",
@@ -619,9 +603,34 @@ class LocalMcpAdapter:
                 },
             }
         )
-        if self._scoped:
-            tools = [tool for tool in tools if tool["name"] in _SCOPED_MCP_TOOLS]
-        return tuple(tools)
+        return tuple(tool for tool in tools if self._tool_authorized(tool["name"]))
+
+    def _tool_authorized(self, name: str) -> bool:
+        """Intersect trusted authority with the injected, scoped-safe operation matrix."""
+        if self.authority.owner:
+            return True
+        if name == "brain_catalog":
+            return True
+        if name == "brain_capture":
+            return (
+                "capture" in self.authority.capabilities
+                and PrivacyTier.PERSONAL in self.authority.allowed_capture_tiers
+            )
+        if name == "brain_capture_submit":
+            return bool(self.authority.allowed_capture_tiers)
+        if self.negotiated is None:
+            return False
+        operation = {
+            "brain_contract_describe": "contract.describe",
+            "brain_search_page": "search.page",
+            "brain_read": "record.read",
+            "brain_history_list": "history.list",
+            "brain_history_show": "history.show",
+            "brain_source_route": "source.route",
+        }.get(name)
+        if operation == "contract.describe":
+            return bool(self.negotiated.available_operations())
+        return operation in self.negotiated.available_operations()
 
     @staticmethod
     def _empty_tool(name: str, description: str) -> McpToolDefinition:
@@ -826,7 +835,7 @@ class LocalMcpAdapter:
         maximum_response_bytes: int = MAX_MESSAGE_BYTES,
     ) -> dict[str, object]:
         try:
-            if self._scoped and name not in {tool["name"] for tool in self.list_tools()}:
+            if name not in {tool["name"] for tool in self.list_tools()}:
                 raise McpCallError("unknown tool")
             if name == "brain_catalog":
                 try:
@@ -871,16 +880,6 @@ class LocalMcpAdapter:
                         maximum_response_bytes=maximum_response_bytes,
                         encoded_size=lambda result: encoded_tool_response_size(request_id, result),
                     )
-                    if self._scoped and operation == "contract.describe":
-                        described = cast(list[dict[str, object]], result["operations"])
-                        result = {
-                            **result,
-                            "operations": [
-                                item
-                                for item in described
-                                if item.get("name") in _SCOPED_NEGOTIATED_OPERATIONS
-                            ],
-                        }
                     return result
                 except T03AppError as error:
                     raise McpCallError(error.code) from None
@@ -1164,6 +1163,9 @@ class LocalMcpAdapter:
             raise McpCallError("session_capture_limit")
         self._capture_bytes += size
         assert self.capture_submit is not None
+        effective_tier = PrivacyTier.UNKNOWN if requested_tier is None else requested_tier
+        if not self.authority.permits_capture_tier(effective_tier):
+            raise McpCallError("tier_not_permitted")
         return self.capture_submit(text, requested_tier, delivery)
 
     def _search(self, arguments: Mapping[str, object]) -> dict[str, object]:

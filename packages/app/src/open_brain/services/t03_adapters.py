@@ -11,6 +11,9 @@ from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from typing import Any, Protocol, cast
 
+from open_brain_engine.core.models import PrivacyTier
+from open_brain_engine.engine.t03_contracts import EffectiveAuthority
+
 CONTRACT_VERSION = "t03.v1"
 DTO_VERSION = 1
 MAX_REQUEST_BYTES = 65_536
@@ -38,12 +41,12 @@ SAFE_ERROR_CODES = frozenset(
     }
 )
 
-_NEGOTIATED: dict[str, tuple[str, str, str]] = {
-    "search.page": ("search", "retrieval", "search_page"),
-    "record.read": ("content-read", "retrieval", "read_record"),
-    "history.list": ("history-read", "history", "list_history"),
-    "history.show": ("history-read", "history", "read_history"),
-    "source.route": ("organize", "sources", "route"),
+_NEGOTIATED: dict[str, tuple[str, str, str, bool]] = {
+    "search.page": ("search", "retrieval", "search_page", True),
+    "record.read": ("content-read", "retrieval", "read_record", True),
+    "history.list": ("history-read", "history", "list_history", True),
+    "history.show": ("history-read", "history", "read_history", True),
+    "source.route": ("organize", "sources", "route", False),
 }
 
 _OWNER_ONLY: dict[str, tuple[str, str]] = {
@@ -106,14 +109,14 @@ class T03AppAdapter:
     """Grant-filtered dispatch over engine-owned typed task methods."""
 
     tasks: object
-    authority: object
-    grants: frozenset[str]
-    owner: bool = False
+    authority: EffectiveAuthority
     budget: T03SessionBudget = field(default_factory=T03SessionBudget)
     parse_request: _WireParser | None = None
     serialize_response: _WireSerializer | None = None
 
     def __post_init__(self) -> None:
+        if not isinstance(self.authority, EffectiveAuthority):
+            raise ValueError("invalid T03 authority")
         if self.parse_request is None or self.serialize_response is None:
             try:
                 from open_brain_engine.engine.t03_contracts import (
@@ -128,10 +131,11 @@ class T03AppAdapter:
     def available_operations(self) -> tuple[str, ...]:
         operations = [
             operation
-            for operation, (grant, component, method) in _NEGOTIATED.items()
-            if grant in self.grants and self._method(component, method) is not None
+            for operation, (grant, component, method, scoped_safe) in _NEGOTIATED.items()
+            if self._method(component, method) is not None
+            and (self.authority.owner or scoped_safe and grant in self.authority.capabilities)
         ]
-        if self.owner:
+        if self.authority.owner:
             operations.extend(
                 operation
                 for operation, (component, method) in _OWNER_ONLY.items()
@@ -152,7 +156,7 @@ class T03AppAdapter:
                     "dto_version": DTO_VERSION,
                     "required_grants": [grant],
                 }
-                for operation, (grant, _component, _method) in _NEGOTIATED.items()
+                for operation, (grant, _component, _method, _scoped_safe) in _NEGOTIATED.items()
                 if operation in available
             ],
             "limits": {
@@ -182,7 +186,7 @@ class T03AppAdapter:
         if self.parse_request is None or self.serialize_response is None:
             raise T03AppError("unsupported_capability")
         if operation in _NEGOTIATED:
-            _grant, component, method_name = _NEGOTIATED[operation]
+            _grant, component, method_name, _scoped_safe = _NEGOTIATED[operation]
         else:
             component, method_name = _OWNER_ONLY[operation]
         method = self._method(component, method_name)
@@ -227,13 +231,18 @@ class T03AppAdapter:
         return size
 
 
-def owner_authority(tasks: object, *, session_id: str) -> object:
+def owner_authority(tasks: object, *, session_id: str) -> EffectiveAuthority:
     """Construct trusted owner authority without accepting any wire-supplied fields."""
-    from open_brain_engine.engine.t03_contracts import EffectiveAuthority
-
     profile = cast(Any, tasks).profile
+    return owner_authority_for_principal(
+        principal_id=str(profile.owner_actor_id), session_id=session_id
+    )
+
+
+def owner_authority_for_principal(*, principal_id: str, session_id: str) -> EffectiveAuthority:
+    """Construct owner authority only from trusted local entrypoint identity."""
     return EffectiveAuthority(
-        principal_id=str(profile.owner_actor_id),
+        principal_id=principal_id,
         session_id=session_id,
         capabilities=frozenset({"search", "content-read", "history-read", "organize"}),
         space_ids=None,
@@ -243,16 +252,17 @@ def owner_authority(tasks: object, *, session_id: str) -> object:
 
 def agent_authority(
     *, principal_id: str, session_id: str, grants: frozenset[str]
-) -> object:
+) -> EffectiveAuthority:
     """Construct one explicitly granted, unscoped local-agent authority."""
-    from open_brain_engine.engine.t03_contracts import EffectiveAuthority
-
     return EffectiveAuthority(
         principal_id=principal_id,
         session_id=session_id,
         capabilities=grants,
         space_ids=None,
         owner=False,
+        allowed_capture_tiers=(
+            frozenset({PrivacyTier.PERSONAL}) if "capture" in grants else frozenset()
+        ),
     )
 
 
@@ -273,4 +283,5 @@ __all__ = [
     "agent_authority",
     "error_result",
     "owner_authority",
+    "owner_authority_for_principal",
 ]

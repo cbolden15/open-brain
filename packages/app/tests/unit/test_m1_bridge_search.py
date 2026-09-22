@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import cast
 
 from open_brain_engine.engine import ReferencePayload
+from open_brain_engine.engine.t03_contracts import EffectiveAuthority
 from open_brain_engine.storage.markdown import parse_markdown
 
 from open_brain.local_data import select_local_root
@@ -17,6 +18,7 @@ from open_brain.services.local_bootstrap import open_local_brain
 from open_brain.services.plugin_bridge import (
     OPEN_BRAIN_CLIENT_PROTOCOL,
     OPEN_BRAIN_CLIENT_PROTOCOL_VERSION,
+    PluginRuntimeState,
     dispatch_plugin_request,
     serve_plugin_stdio,
 )
@@ -26,6 +28,12 @@ from open_brain.services.space_inbox import SpaceInboxService
 
 def _filesystem(_path: Path, platform_name: str) -> str:
     return "apfs" if platform_name == "darwin" else "ext4"
+
+
+def _owner_authority() -> EffectiveAuthority:
+    return EffectiveAuthority(
+        "m1-plugin-owner", "bridge-" + str(uuid.uuid4()), frozenset(), None, owner=True
+    )
 
 
 def test_multi_source_bridge_and_desktop_service_refresh_preserve_provenance(
@@ -50,6 +58,7 @@ def test_multi_source_bridge_and_desktop_service_refresh_preserve_provenance(
         assert (
             serve_plugin_stdio(
                 selection,
+                authority=_owner_authority(),
                 input_stream=BytesIO(json.dumps(request).encode()),
                 output_stream=output,
                 filesystem_type_probe=_filesystem,
@@ -88,6 +97,7 @@ def test_multi_source_bridge_and_desktop_service_refresh_preserve_provenance(
     relative_path: str | None = None
     for stage, selected in enumerate((captures[:2], captures[2:]), start=1):
         with open_local_brain(selection, filesystem_type_probe=_filesystem) as session:
+            runtime = PluginRuntimeState(None, _owner_authority())
             review = ReviewPublicationService(session.tasks.review)
             arguments: dict[str, object] = {
                 "capture_ids": selected,
@@ -120,6 +130,7 @@ def test_multi_source_bridge_and_desktop_service_refresh_preserve_provenance(
                     {"query": query, "limit": 30},
                     request_id=f"plugin_{uuid.uuid4()}",
                     base_executable=None,
+                    runtime=runtime,
                 )
                 assert [
                     hit["result_id"] for hit in cast(list[dict[str, object]], desktop["results"])

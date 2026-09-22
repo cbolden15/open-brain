@@ -315,7 +315,7 @@ def test_organization_grants_are_explicit_preview_bound_and_documented(tmp_path:
     instructions = (project / "CLAUDE.md").read_text(encoding="utf-8")
     for tool in (
         "brain_capture",
-        "brain_search",
+        "brain_search_page",
         "brain_inbox_list",
         "brain_space_list",
         "brain_space_create",

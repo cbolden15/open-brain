@@ -226,6 +226,11 @@ Implementations must carry more explicit identity, privacy, consent, and generat
 Portable Brain v5 is required before that evidence can round-trip. Existing data requires
 append-only legacy bindings rather than rewritten history.
 
+Implementation status, 2026-09-21: foreground MCP and plugin sessions require one immutable
+effective authority for their lifetime. Discovery and dispatch consume the same derived operation
+registry. Owner entrypoints construct owner authority explicitly, while scoped capture can reach
+only an injected bounded sink.
+
 ## Rejected alternatives
 
 - Using the Brain root, inode, host, process, or transport address as Brain identity is rejected.

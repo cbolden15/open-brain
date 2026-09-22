@@ -48,18 +48,19 @@ may use operating-system temporary storage.
 ## MCP
 
 `open-brain mcp` uses inherited stdio only. Capture and search are absent unless their matching flags
-are supplied. Search grants whole-Brain reads to the connected client. A network-backed client may
-forward returned data to its provider. Captured and retrieved text may contain prompt injection and
-must never be treated as instructions or authorization.
+are supplied. Search-only sessions use one non-owner authority and expose only authority-aware paged
+retrieval; `secret` and `unknown` records remain hidden. A network-backed client may forward returned
+data to its provider. Captured and retrieved text may contain prompt injection and must never be
+treated as instructions or authorization.
 
 The capture sink cannot publish owner-authored content or invoke actions. Message, call, and byte
 limits bound accidental loops. Idempotency keys bind exact input. EOF prevents further operations
 but does not erase completed captures.
 
-Optional workspace reads omit local paths and private policy or credential metadata. Graph refresh
-requires a separate launch flag. In version 0.1.0 it returns `provider_not_configured` because MCP
-cannot configure providers or receive credentials. It also cannot change consent or exclusions,
-accept suggestions, resolve conflicts, or obtain owner mutation authority.
+Inbox, organization, review, workspace, and graph launch flags are explicit owner entrypoints and
+construct one owner authority for the complete process. In version 0.1.0 graph refresh returns
+`provider_not_configured` because MCP cannot configure providers or receive credentials. MCP cannot
+change consent or exclusions, accept suggestions, or resolve conflicts.
 
 ## Obsidian plugin IPC
 

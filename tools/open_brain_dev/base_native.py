@@ -929,7 +929,7 @@ def _smoke_local_mcp(executable: Path, home: Path, environment: Mapping[str, str
         inspect_catalog: bool = False,
     ) -> dict[str, object]:
         expected_tools = _expected_mcp_tools(flag, name, tools)
-        denied_name = "brain_search" if name == "brain_capture" else "brain_capture"
+        denied_name = "brain_search_page" if name == "brain_capture" else "brain_capture"
         requests = _mcp_exchange_requests(
             initialize,
             name,
@@ -975,25 +975,21 @@ def _smoke_local_mcp(executable: Path, home: Path, environment: Mapping[str, str
     )
     if capture.get("status") != "captured" or repeated != {**capture, "duplicate": True}:
         raise BaseNativeError("native MCP replay failed")
-    search = exchange("--allow-search", "brain_search", {"query": token})
-    cli_search = json.loads(
-        _run((os.fspath(executable), "search", token, "--json"), environment).stdout
-    )
-    results = cast(list[dict[str, object]], search.get("results"))
-    if (
-        search != cli_search
-        or len(results) != 1
-        or results[0].get("capture_id") != capture.get("capture_id")
-        or results[0].get("trust") != "unverified"
-        or results[0].get("source_origin") != "unknown"
-    ):
-        raise BaseNativeError("native MCP search failed")
-    paged = exchange(
+    search = exchange(
         "--allow-search",
         "brain_search_page",
         {"dto_version": 1, "query": token},
-        tools={"brain_search", "brain_search_page", "brain_contract_describe"},
     )
+    results = cast(list[dict[str, object]], search.get("results"))
+    if (
+        len(results) != 1
+        or results[0].get("record_id") != capture.get("capture_id")
+        or results[0].get("trust") != "unverified"
+        or cast(dict[str, object], results[0].get("provenance")).get("source_origin")
+        != "unknown"
+    ):
+        raise BaseNativeError("native MCP search failed")
+    paged = search
     read = exchange(
         "--allow-content-read",
         "brain_read",
@@ -1093,6 +1089,12 @@ def _smoke_local_mcp(executable: Path, home: Path, environment: Mapping[str, str
             environment,
         ).stdout
     )
+    post_route_search = exchange(
+        "--allow-search",
+        "brain_search_page",
+        {"dto_version": 1, "query": token},
+    )
+    post_route_results = cast(list[dict[str, object]], post_route_search["results"])
     if (
         routed != repeated_route
         or any(
@@ -1103,7 +1105,10 @@ def _smoke_local_mcp(executable: Path, home: Path, environment: Mapping[str, str
             item["capture_id"] == capture["capture_id"] and item["space_id"] == space_id
             for item in assigned["items"]
         )
-        or exchange("--allow-search", "brain_search", {"query": token}) != search
+        or len(post_route_results) != 1
+        or post_route_results[0].get("record_id") != capture["capture_id"]
+        or post_route_results[0].get("space_id") != space_id
+        or post_route_results[0].get("trust") != "unverified"
     ):
         raise BaseNativeError("native organization routing failed")
     run_root = _brain_root(home) / ".open-brain/run"

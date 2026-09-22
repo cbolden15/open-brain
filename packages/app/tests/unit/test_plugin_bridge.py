@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any, cast
 
 import pytest
+from open_brain_engine.core.models import PrivacyTier
 from open_brain_engine.engine import (
     CaptureAction,
     DecisionOutcome,
@@ -15,6 +16,7 @@ from open_brain_engine.engine import (
     ManagedProvider,
     ManagedWorkspaceFailure,
     ProposalDraft,
+    PublicJobCaptureSink,
     TextPayload,
     canonical_json_bytes,
 )
@@ -24,7 +26,7 @@ import open_brain.services.plugin_bridge as plugin_bridge_module
 from open_brain.local_data import LocalRootSelection, select_local_root
 from open_brain.profile import open_existing_single_user_local
 from open_brain.services.local_bootstrap import open_local_brain
-from open_brain.services.local_operations import refresh_graph
+from open_brain.services.local_operations import mcp_capture_sink, refresh_graph
 from open_brain.services.local_runtime_session import (
     LocalRuntimeCompatibilityError,
     hold_local_runtime_session,
@@ -34,10 +36,68 @@ from open_brain.services.plugin_bridge import (
     OPEN_BRAIN_CLIENT_PROTOCOL,
     OPEN_BRAIN_CLIENT_PROTOCOL_VERSION,
     PluginBridgeFailure,
-    PluginRuntimeState,
-    dispatch_plugin_request,
-    serve_plugin_stdio,
 )
+from open_brain.services.plugin_bridge import PluginRuntimeState as _PluginRuntimeState
+from open_brain.services.plugin_bridge import (
+    dispatch_plugin_request as _dispatch_plugin_request,
+)
+from open_brain.services.plugin_bridge import serve_plugin_stdio as _serve_plugin_stdio
+
+
+def _owner_authority() -> EffectiveAuthority:
+    return EffectiveAuthority(
+        "plugin-test-owner",
+        "bridge-" + str(uuid.uuid4()),
+        frozenset(),
+        None,
+        owner=True,
+    )
+
+
+class PluginRuntimeState(_PluginRuntimeState):
+    """Test runtime with explicit owner authority unless a scoped one is supplied."""
+
+    def __init__(
+        self,
+        credential_store: object,
+        authority: EffectiveAuthority | None = None,
+        *,
+        capture: PublicJobCaptureSink | None = None,
+    ) -> None:
+        super().__init__(
+            cast(Any, credential_store),
+            _owner_authority() if authority is None else authority,
+            capture=capture,
+        )
+
+
+def dispatch_plugin_request(
+    session: Any,
+    operation: str,
+    arguments: dict[str, object],
+    *,
+    request_id: str,
+    base_executable: Path | None,
+    environment: dict[str, object] | None = None,
+    runtime: _PluginRuntimeState | None = None,
+) -> dict[str, object]:
+    return _dispatch_plugin_request(
+        session,
+        operation,
+        arguments,
+        request_id=request_id,
+        base_executable=base_executable,
+        environment=environment,
+        runtime=PluginRuntimeState(None) if runtime is None else runtime,
+    )
+
+
+def serve_plugin_stdio(selection: LocalRootSelection, **arguments: Any) -> int:
+    return _serve_plugin_stdio(
+        selection,
+        authority=_owner_authority(),
+        **arguments,
+    )
 
 
 def _filesystem(_path: Path, platform_name: str) -> str:
@@ -110,8 +170,22 @@ def test_handshake_is_bounded_and_does_not_initialize_the_brain(tmp_path: Path) 
     assert "system.status" in cast(list[str], result["operations"])
     assert "agent.setup.preview" in cast(list[str], result["operations"])
     assert "contract.describe" in cast(list[str], result["operations"])
-    assert "record.read" not in cast(list[str], result["operations"])
+    assert "record.read" in cast(list[str], result["operations"])
     assert not selection.brain_root.exists()
+
+
+def test_plugin_session_constructors_reject_missing_authority(tmp_path: Path) -> None:
+    selection = _selection(tmp_path)
+    with pytest.raises(ValueError, match="^invalid plugin authority$"):
+        _PluginRuntimeState(None, cast(Any, None))
+    with pytest.raises(ValueError, match="^invalid plugin authority$"):
+        _serve_plugin_stdio(
+            selection,
+            authority=cast(Any, None),
+            input_stream=BytesIO(),
+            output_stream=BytesIO(),
+            filesystem_type_probe=_filesystem,
+        )
 
 
 def test_scoped_plugin_operation_matrix_denies_before_task_lookup() -> None:
@@ -128,14 +202,150 @@ def test_scoped_plugin_operation_matrix_denies_before_task_lookup() -> None:
         allowed_read_tiers=frozenset(),
     )
     for operation in plugin_bridge_module._OPERATIONS:
+        runtime = PluginRuntimeState(None, authority=authority)
         with pytest.raises(PluginBridgeFailure, match="^unsupported_capability$"):
             dispatch_plugin_request(
                 cast(Any, NoTaskSession()),
                 operation,
                 {},
-                authority=authority,
                 request_id=f"plugin_{uuid.uuid4()}",
                 base_executable=None,
+                runtime=runtime,
+            )
+
+
+def test_scoped_plugin_stdio_gates_owner_bootstrap_operations_before_handlers(
+    tmp_path: Path,
+) -> None:
+    selection = _selection(tmp_path)
+    authority = EffectiveAuthority(
+        principal_id="scoped-plugin",
+        session_id="scoped-plugin-stdio",
+        capabilities=frozenset({"search"}),
+        space_ids=None,
+        allowed_read_tiers=frozenset(),
+    )
+
+    def call(operation: str, arguments: dict[str, object]) -> dict[str, object]:
+        request = {
+            "arguments": arguments,
+            "operation": operation,
+            "protocol": OPEN_BRAIN_CLIENT_PROTOCOL,
+            "protocol_version": OPEN_BRAIN_CLIENT_PROTOCOL_VERSION,
+            "request_id": f"plugin_{uuid.uuid4()}",
+        }
+        output = BytesIO()
+        assert (
+            _serve_plugin_stdio(
+                selection,
+                authority=authority,
+                input_stream=BytesIO(json.dumps(request).encode()),
+                output_stream=output,
+                filesystem_type_probe=_filesystem,
+                environment={"HOME": str(tmp_path)},
+            )
+            == 0
+        )
+        return cast(dict[str, object], json.loads(output.getvalue()))
+
+    handshake = call("system.handshake", {})
+    assert handshake["ok"] is True
+    assert cast(dict[str, object], handshake["result"])["operations"] == [
+        "catalog.describe",
+        "contract.describe",
+        "system.handshake",
+        "search.page",
+    ]
+    assert call("catalog.describe", {"schema_version": 2})["ok"] is True
+    for operation in (
+        "agent.setup.apply",
+        "agent.setup.preview",
+        "brain.initialize",
+        "system.status",
+    ):
+        response = call(operation, {})
+        assert response["ok"] is False
+        assert cast(dict[str, object], response["error"])["code"] == ("unsupported_capability")
+    assert not selection.brain_root.exists()
+
+
+def test_scoped_plugin_capture_uses_only_the_injected_bounded_sink(tmp_path: Path) -> None:
+    selection = _selection(tmp_path)
+    assert _call(selection, "brain.initialize")["ok"] is True
+    with open_local_brain(selection, filesystem_type_probe=_filesystem) as owner_session:
+        authority = EffectiveAuthority(
+            principal_id="scoped-plugin",
+            session_id="scoped-plugin-capture",
+            capabilities=frozenset({"capture"}),
+            space_ids=None,
+            allowed_capture_tiers=frozenset({PrivacyTier.PERSONAL}),
+        )
+        runtime = PluginRuntimeState(
+            None,
+            authority=authority,
+            capture=mcp_capture_sink(owner_session.tasks),
+        )
+        assert plugin_bridge_module._available_operations(
+            {}, authority, capture_available=True
+        ) == ["catalog.describe", "capture.create", "system.handshake"]
+        assert plugin_bridge_module._available_operations(
+            {}, authority, capture_available=False
+        ) == ["catalog.describe", "system.handshake"]
+
+        secret_only = EffectiveAuthority(
+            principal_id="scoped-plugin",
+            session_id="scoped-plugin-secret-only",
+            capabilities=frozenset({"capture"}),
+            space_ids=None,
+            allowed_capture_tiers=frozenset({PrivacyTier.SECRET}),
+        )
+        assert plugin_bridge_module._available_operations(
+            {}, secret_only, capture_available=True
+        ) == ["catalog.describe", "system.handshake"]
+        with pytest.raises(PluginBridgeFailure, match="^unsupported_capability$"):
+            dispatch_plugin_request(
+                cast(Any, object()),
+                "capture.create",
+                {"text": "wrong fixed tier"},
+                request_id=f"plugin_{uuid.uuid4()}",
+                base_executable=None,
+                runtime=PluginRuntimeState(
+                    None,
+                    authority=secret_only,
+                    capture=mcp_capture_sink(owner_session.tasks),
+                ),
+            )
+
+        class OwnerTasksMustNotBeUsed:
+            @property
+            def capture(self) -> object:
+                raise AssertionError("scoped capture reached the owner capture task")
+
+        class ScopedSession:
+            tasks = OwnerTasksMustNotBeUsed()
+
+        result = dispatch_plugin_request(
+            cast(Any, ScopedSession()),
+            "capture.create",
+            {"text": "scoped plugin capture"},
+            request_id=f"plugin_{uuid.uuid4()}",
+            base_executable=None,
+            runtime=runtime,
+        )
+
+        assert result["status"] == "captured"
+        assert runtime.authority is authority
+        assert [item.preview for item in owner_session.tasks.inbox.list()] == [
+            "scoped plugin capture"
+        ]
+        with pytest.raises(PluginBridgeFailure, match="^invalid_arguments$"):
+            dispatch_plugin_request(
+                cast(Any, ScopedSession()),
+                "capture.create",
+                {"text": "scoped tier override", "privacy_tier": "secret"},
+                request_id=f"plugin_{uuid.uuid4()}",
+                base_executable=None,
+                runtime=runtime,
             )
 
 
@@ -173,7 +383,7 @@ def test_contract_discovery_exposes_only_implemented_negotiated_tasks(tmp_path: 
             "dto_version": 1,
             "name": "source.route",
             "required_grants": ["organize"],
-        }
+        },
     ]
 
 
@@ -188,9 +398,7 @@ def test_bridge_pages_201_and_reconstructs_frozen_unicode_in_one_real_session(
             / "tests/fixtures/new-user-t03/security-boundaries.json"
         ).read_bytes()
     )["long_text_recipe"]
-    unicode_body = "".join(
-        part["text"] * part["repeat"] for part in recipe["parts"]
-    )
+    unicode_body = "".join(part["text"] * part["repeat"] for part in recipe["parts"])
     with open_local_brain(selection, filesystem_type_probe=_filesystem) as session:
         expected = [
             session.tasks.capture.accept(
@@ -401,9 +609,9 @@ def test_bridge_lists_and_reads_actual_history_with_session_bound_cursor(
                 base_executable=None,
                 runtime=runtime,
             )
-            assert cast(dict[str, object], shown["record"])["revision_id"] == historical[
-                "revision_id"
-            ]
+            assert (
+                cast(dict[str, object], shown["record"])["revision_id"] == historical["revision_id"]
+            )
             chunks.append(cast(str, cast(dict[str, object], shown["content"])["text"]))
             if shown["complete"]:
                 break
@@ -422,9 +630,7 @@ def test_bridge_dispatches_implemented_source_route(tmp_path: Path) -> None:
     )
     space = cast(
         dict[str, object],
-        _call(selection, "space.create", {"dto_version": 1, "name": "Routed"})[
-            "result"
-        ],
+        _call(selection, "space.create", {"dto_version": 1, "name": "Routed"})["result"],
     )
     database = selection.brain_root / ".open-brain/state/phase1.sqlite3"
     with sqlite3.connect(database) as connection:
@@ -506,17 +712,13 @@ def test_bridge_uses_shared_organization_and_publication_services(tmp_path: Path
     ]
     space = cast(
         dict[str, object],
-        _call(
-            selection, "space.create", {"dto_version": 1, "name": "Synthetic space"}
-        )["result"],
+        _call(selection, "space.create", {"dto_version": 1, "name": "Synthetic space"})["result"],
     )
     assert_fixture_shape("space.create", space)
     space_id = cast(dict[str, object], space["space"])["space_id"]
     spaces = cast(
         dict[str, object],
-        _call(selection, "space.list", {"dto_version": 1, "limit": 50, "offset": 0})[
-            "result"
-        ],
+        _call(selection, "space.list", {"dto_version": 1, "limit": 50, "offset": 0})["result"],
     )
     assert_fixture_shape("space.list", spaces)
     for index, capture in enumerate(captures):
@@ -908,7 +1110,7 @@ def test_plugin_bridge_sync_now_persists_due_request_without_executing_collector
     assert cast(dict[str, object], result["source"])["next_run_epoch"] == source["next_run_epoch"]
 
 
-def test_plugin_bridge_sync_now_requires_optional_collector_runtime(
+def test_plugin_bridge_sync_now_matches_discovery_without_collector_runtime(
     tmp_path: Path,
 ) -> None:
     selection = _selection(tmp_path)
@@ -944,7 +1146,7 @@ def test_plugin_bridge_sync_now_requires_optional_collector_runtime(
     response = _call(selection, "collector.sync_now", {"source_id": "github.fixture.closed"})
 
     assert response["ok"] is False
-    assert cast(dict[str, object], response["error"])["code"] == "collector_unavailable"
+    assert cast(dict[str, object], response["error"])["code"] == "unsupported_capability"
 
 
 def test_plugin_agent_setup_uses_known_runtime_and_never_initializes_brain(
@@ -1215,11 +1417,12 @@ def test_v3_migration_waits_until_an_older_registered_runtime_exits(
     profile = open_existing_single_user_local(selection.brain_root)
     with (
         hold_local_runtime_session(
-        profile.root,
-        profile.root_identity,
-        legacy_state_exists=True,
-        recover_abandoned_sessions=lambda: None,
-    ), pytest.raises(LocalRuntimeCompatibilityError, match="exclusive runtime"),
+            profile.root,
+            profile.root_identity,
+            legacy_state_exists=True,
+            recover_abandoned_sessions=lambda: None,
+        ),
+        pytest.raises(LocalRuntimeCompatibilityError, match="exclusive runtime"),
         open_local_brain(selection, filesystem_type_probe=_filesystem),
     ):
         pass
@@ -1298,9 +1501,7 @@ def test_bridge_reports_session_exhaustion(monkeypatch: pytest.MonkeyPatch, tmp_
         serve_plugin_stdio(
             selection,
             input_stream=BytesIO(
-                b"".join(
-                    json.dumps(request).encode("utf-8") + b"\n" for request in requests
-                )
+                b"".join(json.dumps(request).encode("utf-8") + b"\n" for request in requests)
             ),
             output_stream=output,
             filesystem_type_probe=_filesystem,
@@ -1358,10 +1559,7 @@ def test_stale_client_marker_runs_crash_recovery_and_revokes_consent(tmp_path: P
             timeout_seconds=30,
         )
         session_id = "b" * 32
-        marker = (
-            selection.brain_root
-            / f".open-brain/runtime-sessions/session-{session_id}.lock"
-        )
+        marker = selection.brain_root / f".open-brain/runtime-sessions/session-{session_id}.lock"
         marker.write_bytes(
             canonical_json_bytes({"pid": 12345, "session_id": session_id, "version": 1})
         )
@@ -1453,9 +1651,7 @@ def test_plugin_capture_search_workspace_and_reconciliation_flow(tmp_path: Path)
         )
         assert excluded["duplicate"] is False
         assert replayed["duplicate"] is True
-        assert listed["exclusions"] == [
-            {"kind": "note", "relative_path": source.relative_path}
-        ]
+        assert listed["exclusions"] == [{"kind": "note", "relative_path": source.relative_path}]
         included = dispatch_plugin_request(
             session,
             "policy.set_exclusion",

@@ -80,13 +80,13 @@ tools in an interactive client session. Open Brain setup leaves that execution p
 
 Ask the client: “Please save this to Open Brain: my synthetic project is called Copper Orchard.”
 Start a fresh session and ask: “Search Open Brain for the name of my synthetic project.” The result
-should come from `brain_search`, after `brain_capture` saved the fact. A failed MCP connection is a
+should come from `brain_search_page`, after `brain_capture` saved the fact. A failed MCP connection is a
 setup failure, not evidence that memory was saved.
 
 ## What the permissions mean
 
-Capture stores explicit memories as durable, unverified content. Search reads the whole Brain and may
-send returned content to the connected client's model provider. The generated instructions request
+Capture stores explicit memories as durable, unverified content. Search reads content authorized for
+that session and may send returned content to the connected client's model provider. The generated instructions request
 relevant retrieval and explicit saves; they do not enable full transcript capture or automatic
 summaries. Open Brain does not collect the client's authentication credentials.
 

@@ -153,7 +153,8 @@ cmp "$EXPECTED_VAULT_BODY" "$VAULT_BODY"
 
 MCP grants are independent and default off. These are the exact capture-only, search-only, and
 combined argument sets used by the agent configurations. The catalog tool is always present; the
-search grant also negotiates paged search and contract discovery. The exchange checks catalog
+search grant exposes paged search and contract discovery. The legacy owner search tool stays hidden
+from this scoped session. The exchange checks catalog
 authorization and proves a capture call is hidden from a search-only session.
 
 <!-- open-brain-example:mcp-grant-isolation -->
@@ -171,11 +172,11 @@ mcp_exchange() {
 mcp_exchange capture-only --allow-capture
 test "$(jq -sr '.[1].result.tools | map(.name) | sort == ["brain_capture","brain_catalog"]' "$RUN_ROOT/mcp-capture-only.jsonl")" = true
 mcp_exchange search-only --allow-search
-test "$(jq -sr '.[1].result.tools | map(.name) | sort == ["brain_catalog","brain_contract_describe","brain_search","brain_search_page"]' "$RUN_ROOT/mcp-search-only.jsonl")" = true
-test "$(jq -sr '.[2].result.structuredContent.surfaces.mcp.authorized_tools == ["brain_catalog","brain_contract_describe","brain_search","brain_search_page"]' "$RUN_ROOT/mcp-search-only.jsonl")" = true
+test "$(jq -sr '.[1].result.tools | map(.name) | sort == ["brain_catalog","brain_contract_describe","brain_search_page"]' "$RUN_ROOT/mcp-search-only.jsonl")" = true
+test "$(jq -sr '.[2].result.structuredContent.surfaces.mcp.authorized_tools == ["brain_catalog","brain_contract_describe","brain_search_page"]' "$RUN_ROOT/mcp-search-only.jsonl")" = true
 test "$(jq -sr '.[3].result.isError and .[3].result.content[0].text == "unknown tool"' "$RUN_ROOT/mcp-search-only.jsonl")" = true
 mcp_exchange combined --allow-capture --allow-search
-test "$(jq -sr '.[1].result.tools | map(.name) | sort == ["brain_capture","brain_catalog","brain_contract_describe","brain_search","brain_search_page"]' "$RUN_ROOT/mcp-combined.jsonl")" = true
+test "$(jq -sr '.[1].result.tools | map(.name) | sort == ["brain_capture","brain_catalog","brain_contract_describe","brain_search_page"]' "$RUN_ROOT/mcp-combined.jsonl")" = true
 if "$OPEN_BRAIN" mcp --data-dir "$DATA_DIR" </dev/null >/dev/null 2>&1; then exit 1; fi
 ```
 
