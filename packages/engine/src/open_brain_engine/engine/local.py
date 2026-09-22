@@ -54,6 +54,7 @@ from .contracts import (
     SpaceRecord,
     TextPayload,
 )
+from .ingestion import IngestionJournal
 from .local_schema import open_local_database_read_only
 from .local_store import _LocalStore, live_search_schema_is_available
 from .maintenance import inspect_phase1_state
@@ -251,6 +252,7 @@ class BrainEngine(CaptureOperations, SpaceOperations, ReviewOperations, Retrieva
             finally:
                 connection.close()
         self.capture = CaptureTasks(self)
+        self.ingestion = IngestionJournal(self)
         self.inbox = InboxSpaceTasks(self)
         self.sources = SourceTasks(self)
         self.review = ReviewTasks(self)
@@ -344,7 +346,8 @@ class BrainEngine(CaptureOperations, SpaceOperations, ReviewOperations, Retrieva
     def _recover(self, *, startup: bool = False) -> int:
         connection = self._store.connect()
         try:
-            source_history = connection.execute("PRAGMA user_version").fetchone()[0] >= 7
+            schema_version = connection.execute("PRAGMA user_version").fetchone()[0]
+            source_history = schema_version >= 7
         finally:
             connection.close()
         if source_history:
@@ -370,6 +373,12 @@ class BrainEngine(CaptureOperations, SpaceOperations, ReviewOperations, Retrieva
             for row in rows:
                 processor(row)
                 recovered += 1
+        if schema_version >= 10:
+            # Existing canonical rows always resume before ingress. A journal
+            # replay after a crash therefore observes the durable capture row
+            # and terminalizes as a duplicate instead of creating another
+            # capture. Historical schema compatibility opens have no journal.
+            recovered += len(self.ingestion.drain_locked())
         self.sources._recover_locked()
         recovered += self.managed_workspace._recover_locked()
         if startup:

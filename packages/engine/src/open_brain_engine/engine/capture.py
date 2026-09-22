@@ -33,6 +33,7 @@ from .contracts import (
     CaptureAdmissionError,
     CaptureAdmissionResult,
     CaptureFault,
+    CaptureOutcome,
     CaptureReceipt,
     CaptureSubmission,
     CaptureSubmissionPath,
@@ -151,7 +152,7 @@ class CaptureOperations(_LocalEngineOperations):
         capture_why: str | None,
         title: str | None,
         privacy_tier: PrivacyTier | None = None,
-    ) -> CaptureReceipt:
+    ) -> CaptureOutcome:
         return self._submit_capture(
             CaptureSubmission.for_local_owner(
                 profile=self.profile,
@@ -273,6 +274,18 @@ class CaptureOperations(_LocalEngineOperations):
             raise CaptureAdmissionError(CaptureAdmissionResult.BODY_TOO_LARGE)
         self._refuse_on_storage_watermark()
 
+    def _check_static_capture_admission(self, submission: CaptureSubmission) -> None:
+        """Validate bounded request bytes without consuming storage or writer state."""
+        limits = self._admission_limits
+        body_length = _payload_body_length(submission.payload)
+        envelope_length = (
+            len(portable_canonical_json_bytes(submission.request_value())) + body_length
+        )
+        if envelope_length > limits.max_envelope_bytes:
+            raise CaptureAdmissionError(CaptureAdmissionResult.ENVELOPE_TOO_LARGE)
+        if body_length > limits.max_body_bytes:
+            raise CaptureAdmissionError(CaptureAdmissionResult.BODY_TOO_LARGE)
+
     def _admitted_privacy(self, submission: CaptureSubmission) -> PrivacyDecision:
         """Canonical-boundary rescan: the classifier may narrow the retained tier.
 
@@ -292,10 +305,36 @@ class CaptureOperations(_LocalEngineOperations):
             submission.privacy, narrowest_tier(submission.requested_tier, signal)
         )
 
-    def _submit_capture(self, submission: CaptureSubmission) -> CaptureReceipt:
+    def _prepare_journal_submission(self, submission: CaptureSubmission):
+        """Perform all no-write capture admission before the journal transaction."""
         submission.validate_profile(self.profile)
-        self._check_pre_materialization_admission(submission)
+        self._check_static_capture_admission(submission)
         admitted_privacy = self._admitted_privacy(submission)
+        from .contracts import JournalEnvelope
+
+        return JournalEnvelope(submission, admitted_privacy)
+
+    def _submit_capture(self, submission: CaptureSubmission) -> CaptureOutcome:
+        """Journal-facing compatibility entrypoint for writer-held internal callers."""
+        result = cast("BrainEngine", self).ingestion.enqueue(submission)
+        if isinstance(result, CaptureReceipt):
+            return result
+        receipts = cast("BrainEngine", self).ingestion.drain_locked()
+        for receipt in receipts:
+            if receipt.delivery_id == submission.delivery_id or (
+                receipt.delivery_id is None
+                and self._capture_row(receipt.capture_id)["delivery_id"] == submission.delivery_id
+            ):
+                return receipt
+        return result
+
+    def _materialize_capture_locked(
+        self,
+        submission: CaptureSubmission,
+        *,
+        admitted_privacy: PrivacyDecision,
+    ) -> CaptureReceipt:
+        """Run the established capture stage machine under an already-held writer lease."""
         capture_submission_is_reserved(cast("BrainEngine", self), submission)
         payload = submission.payload
         delivery_id = submission.delivery_id
@@ -830,6 +869,16 @@ class CaptureOperations(_LocalEngineOperations):
             final_admitted_tier=retained_tier,
         )
 
+    def _receipt_for_delivery(self, delivery_id: str) -> CaptureReceipt | None:
+        connection = self._store.connect()
+        try:
+            row = connection.execute(
+                "SELECT capture_id FROM captures WHERE delivery_id = ?", (delivery_id,)
+            ).fetchone()
+        finally:
+            connection.close()
+        return None if row is None else self._capture_receipt(cast(str, row["capture_id"]))
+
 
 def _retained_privacy_tier(row: sqlite3.Row) -> PrivacyTier:
     """The tier of the retained admitted decision; unreadable evidence is unknown."""
@@ -908,11 +957,11 @@ class CaptureTasks:
         capture_why: str | None = None,
         title: str | None = None,
         privacy_tier: PrivacyTier | None = None,
-    ) -> CaptureReceipt:
-        engine = self._engine
-        with engine._writer_lease.acquire_shared_writer():
-            return engine._accept_capture(
-                payload,
+    ) -> CaptureOutcome:
+        return self.submit(
+            CaptureSubmission.for_local_owner(
+                profile=self._engine.profile,
+                payload=payload,
                 delivery_id=delivery_id,
                 action=action,
                 space_id=space_id,
@@ -921,19 +970,48 @@ class CaptureTasks:
                 title=title,
                 privacy_tier=privacy_tier,
             )
+        )
 
-    def submit(self, submission: CaptureSubmission) -> CaptureReceipt:
+    def submit(self, submission: CaptureSubmission) -> CaptureOutcome:
         engine = self._engine
-        with engine._admit_submission(submission):
-            # Owner submissions keep today's immediate LockBusyError under a
-            # competing writer; only remote-originated submissions wait boundedly.
-            lease = (
-                engine._writer_lease.acquire_shared_writer()
-                if submission.submission_path is CaptureSubmissionPath.OWNER
-                else engine._writer_lease_bounded()
-            )
-            with lease:
-                return engine._submit_capture(submission)
+        connection = engine._store.connect()
+        try:
+            schema_version = connection.execute("PRAGMA user_version").fetchone()[0]
+        finally:
+            connection.close()
+        if schema_version < 10:
+            # Schema-nine compatibility is intentionally materializer-only;
+            # the explicit cutover installs the journal before this branch can
+            # see any new durable ingress state.
+            envelope = engine._prepare_journal_submission(submission)
+            engine._refuse_on_storage_watermark()
+            with engine._admit_submission(submission), engine._writer_lease.acquire_shared_writer():
+                return engine._materialize_capture_locked(
+                    submission, admitted_privacy=envelope.admitted_privacy
+                )
+        # A known delivery replays before rate/concurrency gates. New remote
+        # deliveries consume the existing bounded admission budget only while
+        # their short journal transaction is being admitted.
+        if engine.ingestion.known(submission):
+            result = engine.ingestion.enqueue(submission)
+        else:
+            with engine._admit_submission(submission):
+                result = engine.ingestion.enqueue(submission)
+        if isinstance(result, CaptureReceipt):
+            return result
+        try:
+            with engine._writer_lease.acquire_shared_writer_bounded(
+                max_waiters=engine._admission_limits.max_writer_waiters,
+                timeout=_WRITER_WAIT_TIMEOUT_SECONDS,
+                poll_interval=_WRITER_POLL_INTERVAL_SECONDS,
+            ):
+                receipts = engine.ingestion.drain_locked()
+        except WriterQueueFullError:
+            return result
+        for receipt in receipts:
+            if engine._capture_row(receipt.capture_id)["delivery_id"] == submission.delivery_id:
+                return receipt
+        return engine.ingestion.enqueue(submission)
 
     def public_job_sink(self, context: PublicJobCaptureContext) -> PublicJobCaptureSink:
         context.validate_profile(self._engine.profile)

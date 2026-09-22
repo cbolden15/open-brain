@@ -92,7 +92,10 @@ class DecisionOutcome(StrEnum):
 
 
 class CaptureFault(StrEnum):
+    AFTER_JOURNAL_COMMIT = "after_journal_commit"
     AFTER_CAPTURE_RESERVATION = "after_capture_reservation"
+    AFTER_CANONICAL_COMPLETION = "after_canonical_completion"
+    AFTER_JOURNAL_TERMINAL_EVENT = "after_journal_terminal_event"
     AFTER_BLOB_WRITE = "after_blob_write"
     AFTER_SOURCE_WRITE = "after_source_write"
     AFTER_AUTOMATIC_PROPOSAL_WRITE = "after_automatic_proposal_write"
@@ -1571,6 +1574,12 @@ class AdmissionLimits:
     requests_per_minute_per_principal: int = 120
     max_concurrent_admissions: int = 8
     max_writer_waiters: int = 16
+    max_journal_items: int = 4_096
+    max_journal_bytes: int = 64 * 1024 * 1024
+    max_journal_item_bytes: int = 8 * 1024 * 1024
+    max_journal_batch_items: int = 32
+    max_journal_batch_bytes: int = 16 * 1024 * 1024
+    max_journal_attempts: int = 3
     storage_high_free_bytes: int = 2 * 1024 * 1024 * 1024
     storage_critical_free_bytes: int = 512 * 1024 * 1024
 
@@ -1581,6 +1590,12 @@ class AdmissionLimits:
             "requests_per_minute_per_principal",
             "max_concurrent_admissions",
             "max_writer_waiters",
+            "max_journal_items",
+            "max_journal_bytes",
+            "max_journal_item_bytes",
+            "max_journal_batch_items",
+            "max_journal_batch_bytes",
+            "max_journal_attempts",
             "storage_high_free_bytes",
             "storage_critical_free_bytes",
         ):
@@ -1588,6 +1603,10 @@ class AdmissionLimits:
             if type(value) is not int or value <= 0:
                 raise ValueError("invalid admission limits")
         if not self.storage_critical_free_bytes < self.storage_high_free_bytes:
+            raise ValueError("invalid admission limits")
+        if self.max_journal_item_bytes > self.max_journal_bytes:
+            raise ValueError("invalid admission limits")
+        if self.max_journal_batch_bytes > self.max_journal_bytes:
             raise ValueError("invalid admission limits")
 
     def to_dict(self) -> dict[str, object]:
@@ -1597,6 +1616,12 @@ class AdmissionLimits:
             "requests_per_minute_per_principal": self.requests_per_minute_per_principal,
             "max_concurrent_admissions": self.max_concurrent_admissions,
             "max_writer_waiters": self.max_writer_waiters,
+            "max_journal_items": self.max_journal_items,
+            "max_journal_bytes": self.max_journal_bytes,
+            "max_journal_item_bytes": self.max_journal_item_bytes,
+            "max_journal_batch_items": self.max_journal_batch_items,
+            "max_journal_batch_bytes": self.max_journal_batch_bytes,
+            "max_journal_attempts": self.max_journal_attempts,
             "storage_high_free_bytes": self.storage_high_free_bytes,
             "storage_critical_free_bytes": self.storage_critical_free_bytes,
         }
@@ -1609,6 +1634,12 @@ class AdmissionLimits:
             "requests_per_minute_per_principal",
             "max_concurrent_admissions",
             "max_writer_waiters",
+            "max_journal_items",
+            "max_journal_bytes",
+            "max_journal_item_bytes",
+            "max_journal_batch_items",
+            "max_journal_batch_bytes",
+            "max_journal_attempts",
             "storage_high_free_bytes",
             "storage_critical_free_bytes",
         }:
@@ -2131,11 +2162,7 @@ def _submission_from_journal_value(value: object) -> CaptureSubmission:
             role_claim=cast(Mapping[str, object], data["role_claim"]),
             action=CaptureAction(cast(str, data["action"])),
             space_id=cast(str | None, data["space_id"]),
-            intent=(
-                None
-                if data["intent"] is None
-                else Intent(cast(str, data["intent"]))
-            ),
+            intent=(None if data["intent"] is None else Intent(cast(str, data["intent"]))),
             capture_why=cast(str | None, data["capture_why"]),
             capture_why_origin=CaptureWhyOrigin(cast(str, data["capture_why_origin"])),
             title=cast(str | None, data["title"]),
@@ -2409,9 +2436,9 @@ class CaptureTask(Protocol):
         capture_why: str | None = None,
         title: str | None = None,
         privacy_tier: PrivacyTier | None = None,
-    ) -> CaptureReceipt: ...
+    ) -> CaptureOutcome: ...
 
-    def submit(self, submission: CaptureSubmission) -> CaptureReceipt: ...
+    def submit(self, submission: CaptureSubmission) -> CaptureOutcome: ...
 
     def public_job_sink(self, context: PublicJobCaptureContext) -> PublicJobCaptureSink: ...
 

@@ -12,7 +12,9 @@ from open_brain_engine.core.access_contracts import derive_brain_id
 from open_brain_engine.engine import (
     BrainEngine,
     CaptureCustodyReceipt,
+    CaptureFault,
     CaptureSubmission,
+    InjectedFault,
     JournalEnvelope,
     StateSchemaUnavailableError,
     TextPayload,
@@ -157,3 +159,47 @@ def test_portable_export_refuses_active_journal_payload(tmp_path: Path) -> None:
         engine.portability.export(
             tmp_path / "portable", export_id="export_00000000-0000-4000-8000-000000000010"
         )
+
+
+@pytest.mark.parametrize(
+    "fault",
+    (
+        CaptureFault.AFTER_JOURNAL_COMMIT,
+        CaptureFault.AFTER_CAPTURE_RESERVATION,
+        CaptureFault.AFTER_CANONICAL_COMPLETION,
+        CaptureFault.AFTER_JOURNAL_TERMINAL_EVENT,
+    ),
+)
+def test_journal_crash_boundaries_recover_once_without_pending_content(
+    tmp_path: Path, fault: CaptureFault
+) -> None:
+    profile = compile_single_user_local(tmp_path / "brain")
+    submission = CaptureSubmission.for_local_owner(
+        profile=profile,
+        payload=TextPayload("journal crash boundary needle"),
+        delivery_id="journal.crash." + fault.value,
+    )
+    engine = BrainEngine.open(profile, faults={fault})
+
+    with pytest.raises(InjectedFault):
+        engine.capture.submit(submission)
+
+    with sqlite3.connect(profile.root / PHASE1_STATE_DATABASE) as connection:
+        expected_searches = (
+            0
+            if fault in {CaptureFault.AFTER_JOURNAL_COMMIT, CaptureFault.AFTER_CAPTURE_RESERVATION}
+            else 1
+        )
+        assert connection.execute("SELECT count(*) FROM search_documents").fetchone() == (
+            expected_searches,
+        )
+        assert connection.execute("SELECT count(*) FROM capture_ingestion_items").fetchone() == (1,)
+
+    recovered = BrainEngine.open(profile)
+    assert len(recovered.retrieval.search("journal crash boundary needle")) == 1
+    with sqlite3.connect(profile.root / PHASE1_STATE_DATABASE) as connection:
+        assert connection.execute("SELECT count(*) FROM captures").fetchone() == (1,)
+        assert connection.execute("SELECT count(*) FROM capture_ingestion_pending").fetchone() == (
+            0,
+        )
+        assert connection.execute("SELECT count(*) FROM capture_ingestion_items").fetchone() == (0,)

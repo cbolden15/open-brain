@@ -27,6 +27,7 @@ from open_brain_engine.engine import (
     BrainEngine,
     CaptureAdmissionError,
     CaptureAdmissionResult,
+    CaptureCustodyReceipt,
     CaptureSubmission,
     FilePayload,
     PublicJobCaptureContext,
@@ -39,7 +40,6 @@ from open_brain_engine.engine.t03_contracts import EffectiveAuthority
 from open_brain_engine.storage.locks import (
     _PROCESS_WRITER_WAITERS,
     FileLease,
-    LockBusyError,
 )
 from open_brain_engine.storage.watermarks import StorageUsage
 
@@ -405,7 +405,7 @@ def test_capture_waits_for_the_writer_lease_and_then_succeeds(
     assert _count(root, "captures") == 2
 
 
-def test_capture_past_the_wait_deadline_is_writer_queue_full(
+def test_capture_past_the_wait_deadline_returns_durable_custody(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setattr(capture_module, "_WRITER_WAIT_TIMEOUT_SECONDS", 0.05)
@@ -414,13 +414,12 @@ def test_capture_past_the_wait_deadline_is_writer_queue_full(
     engine.capture.submit(_public_job_submission(engine, "admission-queue-1"))
     holder = _hold_engine_writer(root, 0.8)
     try:
-        with pytest.raises(CaptureAdmissionError) as raised:
-            engine.capture.submit(_public_job_submission(engine, "admission-queue-2"))
-        assert raised.value.result is CaptureAdmissionResult.WRITER_QUEUE_FULL
-        assert raised.value.retryable is True
+        result = engine.capture.submit(_public_job_submission(engine, "admission-queue-2"))
+        assert isinstance(result, CaptureCustodyReceipt)
         assert _count(root, "captures") == 1
         assert _count(root, "search_documents") == 1
         assert _capture_artifacts(root) == 1
+        assert _count(root, "capture_ingestion_pending") == 1
     finally:
         _finish_holder(holder)
     engine.capture.submit(_public_job_submission(engine, "admission-queue-2"))
@@ -451,23 +450,23 @@ def test_writer_waiters_beyond_the_cap_are_rejected_and_earlier_waiters_complete
         for thread in threads:
             thread.start()
         _wait_for_engine_waiters(root, 2)
-        with pytest.raises(CaptureAdmissionError) as raised:
-            engine.capture.submit(_public_job_submission(engine, "admission-cap-4"))
-        assert raised.value.result is CaptureAdmissionResult.WRITER_QUEUE_FULL
+        result = engine.capture.submit(_public_job_submission(engine, "admission-cap-4"))
+        assert isinstance(result, CaptureCustodyReceipt)
     finally:
         for thread in threads:
             thread.join()
         _finish_holder(holder)
     assert failures == []
     assert not _PROCESS_WRITER_WAITERS
-    assert _count(root, "captures") == 3
+    assert _count(root, "captures") == 4
     engine.capture.submit(_public_job_submission(engine, "admission-cap-4"))
     assert _count(root, "captures") == 4
 
 
-def test_owner_submit_fails_fast_while_a_competing_writer_holds_the_root(
-    tmp_path: Path,
+def test_owner_submit_returns_custody_while_a_competing_writer_holds_the_root(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    monkeypatch.setattr(capture_module, "_WRITER_WAIT_TIMEOUT_SECONDS", 0.05)
     root = tmp_path / "brain"
     engine = _engine(root)
     owner_submission = CaptureSubmission.for_local_owner(
@@ -475,14 +474,13 @@ def test_owner_submit_fails_fast_while_a_competing_writer_holds_the_root(
         payload=TextPayload("synthetic owner submit"),
         delivery_id="admission-owner-lease-1",
     )
-    started = time.monotonic()
     with (
         FileLease(root / ".open-brain", "admission-competing-writer").acquire_shared_writer(),
-        pytest.raises(LockBusyError, match="lease already held"),
     ):
-        engine.capture.submit(owner_submission)
-    assert time.monotonic() - started < 0.5
-    _assert_nothing_was_admitted(root)
+        result = engine.capture.submit(owner_submission)
+    assert isinstance(result, CaptureCustodyReceipt)
+    assert _count(root, "captures") == 0
+    assert _count(root, "capture_ingestion_pending") == 1
 
 
 class _FakeUsageProbe:
