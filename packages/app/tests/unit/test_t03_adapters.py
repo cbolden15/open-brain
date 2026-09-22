@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, cast
@@ -12,6 +12,7 @@ from open_brain_engine.core.models import PrivacyTier
 from open_brain_engine.engine.t03_contracts import EffectiveAuthority, T03Error, validate_wire
 
 from open_brain.services.local_mcp import MCP_REGISTERED_TOOLS, LocalMcpAdapter
+from open_brain.services.local_operations import DestinationBoundCaptureCapability
 from open_brain.services.mcp_protocol import McpCallError
 from open_brain.services.t03_adapters import (
     MAX_CONTENT_BYTES,
@@ -88,10 +89,27 @@ def _authority(*capabilities: str, owner: bool = False) -> EffectiveAuthority:
     )
 
 
+def test_t03_adapter_requires_authority_as_its_only_grant_and_owner_source() -> None:
+    tasks = SimpleNamespace(
+        retrieval=_Retrieval(),
+        sources=SimpleNamespace(route=lambda *_args, **_kwargs: {}),
+        relationships=SimpleNamespace(list_relationships=lambda *_args, **_kwargs: {}),
+    )
+    with pytest.raises(ValueError, match="^invalid T03 authority$"):
+        T03AppAdapter(tasks, cast(Any, None))
+
+    scoped = T03AppAdapter(tasks, _authority("search", "organize"))
+    assert scoped.available_operations() == ("search.page",)
+
+    owner = T03AppAdapter(tasks, _authority(owner=True))
+    assert "source.route" in owner.available_operations()
+    assert "relationship.list" in owner.available_operations()
+
+
 def test_discovery_intersects_implementation_and_independent_grants() -> None:
     tasks = SimpleNamespace(retrieval=_Retrieval())
-    search = T03AppAdapter(tasks, _authority("search"), frozenset({"search"}))
-    content = T03AppAdapter(tasks, _authority("content-read"), frozenset({"content-read"}))
+    search = T03AppAdapter(tasks, _authority("search"))
+    content = T03AppAdapter(tasks, _authority("content-read"))
 
     assert search.available_operations() == ("search.page",)
     operations = cast(list[dict[str, object]], search.describe({})["operations"])
@@ -117,6 +135,9 @@ def test_scoped_mcp_operation_matrix_denies_admin_and_materialization_callbacks(
         capabilities=frozenset({"search", "content-read", "history-read", "organize"}),
         space_ids=None,
         allowed_read_tiers=frozenset({PrivacyTier.PUBLIC}),
+        allowed_capture_tiers=frozenset({PrivacyTier.PUBLIC}),
+        brain_id="brn_" + "a" * 26,
+        issuer_epoch=1,
     )
     negotiated = T03AppAdapter(
         SimpleNamespace(
@@ -125,12 +146,10 @@ def test_scoped_mcp_operation_matrix_denies_admin_and_materialization_callbacks(
             sources=SimpleNamespace(route=touched),
         ),
         authority,
-        authority.capabilities,
     )
     adapter = LocalMcpAdapter(
         authority=authority,
-        capture=cast(Any, touched),
-        capture_submit=cast(Any, touched),
+        capture_submit=DestinationBoundCaptureCapability(cast(Any, object()), authority),
         search=cast(Any, touched),
         workspace_status=touched,
         graph_suggestions=touched,
@@ -182,11 +201,8 @@ def test_dispatch_uses_engine_parser_serializer_and_untrusted_content_slot() -> 
     adapter = T03AppAdapter(
         SimpleNamespace(retrieval=retrieval),
         _authority("search", "content-read"),
-        frozenset({"search", "content-read"}),
     )
-    searched = adapter.invoke(
-        "search.page", {"dto_version": 1, "query": "synthetic launch"}
-    )
+    searched = adapter.invoke("search.page", {"dto_version": 1, "query": "synthetic launch"})
     read = adapter.invoke(
         "record.read",
         {"dto_version": 1, "record_id": CAPTURE_ID, "expected_revision_id": CAPTURE_ID},
@@ -205,7 +221,6 @@ def test_invalid_arguments_domain_errors_and_response_limits_are_safe() -> None:
     adapter = T03AppAdapter(
         SimpleNamespace(retrieval=FailingRetrieval()),
         _authority("search"),
-        frozenset({"search"}),
     )
     with pytest.raises(T03AppError, match="^invalid_arguments$"):
         adapter.invoke("search.page", {"dto_version": 1, "query": "x", "extra": True})
@@ -215,7 +230,6 @@ def test_invalid_arguments_domain_errors_and_response_limits_are_safe() -> None:
     working = T03AppAdapter(
         SimpleNamespace(retrieval=_Retrieval()),
         _authority("search"),
-        frozenset({"search"}),
     )
     with pytest.raises(T03AppError, match="^response_too_large$"):
         working.invoke(
@@ -227,24 +241,30 @@ def test_invalid_arguments_domain_errors_and_response_limits_are_safe() -> None:
 
 def test_session_content_budgets_survive_errors_and_restart_with_new_adapter() -> None:
     tasks: Any = SimpleNamespace(retrieval=_Retrieval())
-    adapter = T03AppAdapter(tasks, _authority("search"), frozenset({"search"}))
+    adapter = T03AppAdapter(tasks, _authority("search"))
     adapter.budget.content_calls = MAX_CONTENT_CALLS
     with pytest.raises(T03AppError, match="^operation_pending$"):
         adapter.invoke("search.page", {"dto_version": 1, "query": "synthetic launch"})
 
-    restarted = T03AppAdapter(tasks, _authority("search"), frozenset({"search"}))
+    restarted = T03AppAdapter(tasks, _authority("search"))
     restarted.budget.content_bytes = MAX_CONTENT_BYTES
     with pytest.raises(T03AppError, match="^response_too_large$"):
         restarted.invoke("search.page", {"dto_version": 1, "query": "synthetic launch"})
 
 
 def test_mcp_registry_lists_only_negotiated_tools_and_keeps_content_typed() -> None:
+    authority = _authority("search", "content-read")
     negotiated = T03AppAdapter(
         SimpleNamespace(retrieval=_Retrieval()),
-        _authority("search", "content-read"),
-        frozenset({"search", "content-read"}),
+        authority,
     )
-    adapter = LocalMcpAdapter(negotiated=negotiated)
+    adapter = LocalMcpAdapter(authority=authority, negotiated=negotiated)
+
+    with pytest.raises(ValueError, match="^invalid MCP negotiated authority$"):
+        LocalMcpAdapter(
+            authority=replace(authority),
+            negotiated=negotiated,
+        )
 
     assert {tool["name"] for tool in adapter.list_tools()} == {
         "brain_catalog",
@@ -252,9 +272,7 @@ def test_mcp_registry_lists_only_negotiated_tools_and_keeps_content_typed() -> N
         "brain_search_page",
         "brain_read",
     }
-    search_tool = next(
-        tool for tool in adapter.list_tools() if tool["name"] == "brain_search_page"
-    )
+    search_tool = next(tool for tool in adapter.list_tools() if tool["name"] == "brain_search_page")
     properties = search_tool["inputSchema"]["properties"]
     filters = cast(dict[str, object], properties["filters"])
     assert filters["required"] == ["space_ids", "payload_families", "record_types"]
@@ -267,10 +285,7 @@ def test_mcp_registry_lists_only_negotiated_tools_and_keeps_content_typed() -> N
                 "type": "string",
                 "minLength": 42,
                 "maxLength": 42,
-                "pattern": (
-                    "^space_[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-"
-                    "[0-9a-f]{4}-[0-9a-f]{12}$"
-                ),
+                "pattern": ("^space_[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"),
             },
             "minItems": 0,
             "maxItems": 100,

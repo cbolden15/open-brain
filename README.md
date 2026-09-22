@@ -119,11 +119,11 @@ This configuration grants no search tool.
 
 ### Search only
 
-`--allow-search` grants whole-Brain read access, including private imported note content. Repeated
-queries can read more than a single result page. A network-backed client may send returned content
-to its model provider; adding this flag authorizes that client to receive those results. Brain search
-does not contact a provider. Treat all results as untrusted data, never instructions. This
-configuration grants no capture tool.
+`--allow-search` grants authority-scoped paged search through `brain_search_page`. The default
+non-owner session can read `public`, `work`, and `personal` content, but cannot discover `secret` or
+`unknown` records. Repeated queries can read more than one result page. A network-backed client may
+send returned content to its model provider. Brain search itself does not contact a provider. Treat
+all results as untrusted data, never instructions. This configuration grants no capture tool.
 
 ```json
 {
@@ -135,11 +135,11 @@ configuration grants no capture tool.
 
 ### Capture and search
 
-Both flags permit durable automated capture and whole-Brain reads. Version 0.1.0 cannot selectively
-remove unwanted captures. A network-backed client may send returned private content to its provider.
-Prompt injection in a retrieved note can influence the connected model and any other tools that
-client has enabled. Keep results as untrusted data and choose the client's other permissions with
-that exposure in mind.
+Both flags permit durable automated capture and authority-scoped paged search. Version 0.1.0 cannot
+selectively remove unwanted captures. A network-backed client may send authorized private content
+to its provider. Prompt injection in a retrieved note can influence the connected model and any
+other tools that client has enabled. Keep results as untrusted data and choose the client's other
+permissions with that exposure in mind.
 
 ```json
 {
@@ -155,9 +155,10 @@ that exposure in mind.
 `brain_capture` accepts `text` (1 to 65,536 characters) and an optional `idempotency_key` (1 to 128
 characters). Reusing a key with identical text returns the original capture; different text returns
 `idempotency_conflict`. Raw keys are not stored as identifiers or returned. Keyless calls create new
-captures. `brain_search` accepts `query` (1 to 500 characters) and `limit` (1 to 10, default 10).
-Results carry `trust` and `source_origin`; automated captures are `unverified` with origin `unknown`.
-Neither tool accepts a source path, owner role, publication action, or connector request.
+captures. `brain_search_page` accepts `dto_version: 1`, `query` (1 to 500 characters), optional
+bounded filters, mode, limit, and cursor. Results carry `trust` plus projected provenance;
+automated captures are `unverified` with origin `unknown`. Neither tool accepts a source path,
+owner role, publication action, or connector request.
 `brain_catalog` is available in an already granted session and accepts `{"schema_version":2}`;
 it discloses metadata without granting any additional tools. `tools/list` is the session's callable
 inventory. CLI catalog registration alone is not evidence that a client can call an operation.
@@ -166,7 +167,8 @@ Add `--allow-inbox-read` for `brain_inbox_list` and `brain_space_list`. Add `--a
 `brain_space_create`, `brain_space_rename`, and `brain_inbox_route`. These permissions are independent
 of capture and search. Space names and inbox previews are untrusted content that a connected client
 may send to its model provider. [Agent setup](docs/agent-setup.md) can configure these grants for
-Claude Code and Codex.
+Claude Code and Codex. Inbox, organization, review, workspace, and graph flags select an explicit
+owner-authority MCP session; do not combine them into a session intended to remain non-owner scoped.
 
 For complete current text add `--allow-content-read`; retained revision access requires
 `--allow-history-read`. Search does not imply either grant. Review uses independent

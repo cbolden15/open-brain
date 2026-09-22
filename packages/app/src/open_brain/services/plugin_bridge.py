@@ -7,13 +7,13 @@ import os
 import re
 import stat
 import time
-import uuid
 from collections.abc import Mapping
 from contextlib import ExitStack
 from pathlib import Path
 from typing import BinaryIO, cast
 
 from open_brain_engine import __version__
+from open_brain_engine.core.models import PrivacyTier
 from open_brain_engine.engine import (
     PHASE1_STATE_SCHEMA_VERSION,
     EngineTaskSet,
@@ -24,6 +24,7 @@ from open_brain_engine.engine import (
     ManagedWorkspaceFailure,
     ManagedWorkspaceReceipt,
     ManagedWorkspaceStatus,
+    PublicJobCaptureSink,
     StateSchemaUnavailableError,
     canonical_json_bytes,
     inspect_phase1_state,
@@ -81,7 +82,6 @@ from open_brain.services.t03_adapters import MAX_RESPONSE_BYTES as MAX_NEGOTIATE
 from open_brain.services.t03_adapters import (
     T03AppAdapter,
     T03AppError,
-    owner_authority,
 )
 
 OPEN_BRAIN_CLIENT_PROTOCOL = "open-brain-client"
@@ -158,6 +158,7 @@ _SCOPED_OPERATION_GRANTS: dict[str, frozenset[str]] = {
     "history.list": frozenset({"history-read"}),
     "history.show": frozenset({"history-read"}),
 }
+_SCOPED_PUBLIC_OPERATIONS = frozenset({"catalog.describe", "system.handshake"})
 
 _DIRECT_PROVIDERS = (
     ManagedProvider.OPENAI_API,
@@ -230,6 +231,8 @@ class PluginRuntimeState:
 
     __slots__ = (
         "credential_store",
+        "authority",
+        "capture",
         "remaining_attempts",
         "remaining_input_bytes",
         "session_id",
@@ -239,11 +242,23 @@ class PluginRuntimeState:
         "t03_adapter",
     )
 
-    def __init__(self, credential_store: OsCredentialStore | None) -> None:
+    def __init__(
+        self,
+        credential_store: OsCredentialStore | None,
+        authority: EffectiveAuthority,
+        *,
+        capture: PublicJobCaptureSink | None = None,
+    ) -> None:
+        if not isinstance(authority, EffectiveAuthority):
+            raise ValueError("invalid plugin authority")
+        if capture is not None and not isinstance(capture, PublicJobCaptureSink):
+            raise ValueError("invalid plugin capture capability")
         self.credential_store = credential_store
+        self.authority = authority
+        self.capture = capture
         self.remaining_attempts = _MAX_PROVIDER_ATTEMPTS
         self.remaining_input_bytes = _MAX_PROVIDER_INPUT_BYTES
-        self.session_id = "bridge-" + str(uuid.uuid4())
+        self.session_id = authority.session_id
         self.selected_provider: ManagedProvider | None = None
         self.selected_custody: str | None = None
         self.session_credentials: dict[ManagedProvider, str] = {}
@@ -260,6 +275,8 @@ class PluginRuntimeState:
 def serve_plugin_stdio(
     selection: LocalRootSelection,
     *,
+    authority: EffectiveAuthority,
+    capture: PublicJobCaptureSink | None = None,
     input_stream: BinaryIO,
     output_stream: BinaryIO,
     filesystem_type_probe: FilesystemTypeProbe | None = None,
@@ -268,6 +285,10 @@ def serve_plugin_stdio(
     credential_store: OsCredentialStore | None = None,
 ) -> int:
     """Serve bounded newline-framed requests for the lifetime of one plugin child."""
+    if not isinstance(authority, EffectiveAuthority):
+        raise ValueError("invalid plugin authority")
+    if capture is not None and not isinstance(capture, PublicJobCaptureSink):
+        raise ValueError("invalid plugin capture capability")
     selected_environment = os.environ if environment is None else environment
     runtime: PluginRuntimeState | None = None
     with ExitStack() as stack:
@@ -287,12 +308,19 @@ def serve_plugin_stdio(
                 request_id = cast(str, request["request_id"])
                 operation = cast(str, request["operation"])
                 arguments = cast(dict[str, object], request["arguments"])
+                available_operations = _available_operations(
+                    selected_environment,
+                    authority,
+                    capture_available=capture is not None,
+                )
+                if operation in _OPERATIONS and operation not in available_operations:
+                    raise PluginBridgeFailure("unsupported_capability")
                 if operation == "system.handshake":
                     _require_keys(arguments, frozenset())
                     result: dict[str, object] = {
                         "brain_root": os.fspath(selection.brain_root),
                         "desktop_only": True,
-                        "operations": _available_operations(selected_environment),
+                        "operations": available_operations,
                         "product_version": __version__,
                         "protocol": OPEN_BRAIN_CLIENT_PROTOCOL,
                         "protocol_version": OPEN_BRAIN_CLIENT_PROTOCOL_VERSION,
@@ -319,7 +347,7 @@ def serve_plugin_stdio(
                             bridge_base=_BASE_OPERATIONS,
                             bridge_negotiated=_NEGOTIATED_OPERATIONS,
                             bridge_optional=_COLLECTOR_OPERATIONS,
-                            bridge_available=_available_operations(selected_environment),
+                            bridge_available=available_operations,
                             base_executable=base_executable,
                             platform_name=selection.platform_name,
                         )
@@ -362,7 +390,9 @@ def serve_plugin_stdio(
                             if credential_store is not None
                             else discover_credential_store(
                                 selection.platform_name, selected_environment
-                            )
+                            ),
+                            authority,
+                            capture=capture,
                         )
                     if session is None:
                         session = stack.enter_context(
@@ -421,19 +451,29 @@ def dispatch_plugin_request(
     *,
     request_id: str,
     base_executable: Path | None,
-    authority: EffectiveAuthority | None = None,
     environment: Mapping[str, object] | None = None,
-    runtime: PluginRuntimeState | None = None,
+    runtime: PluginRuntimeState,
 ) -> dict[str, object]:
-    if authority is not None and not authority.owner:
-        required = _SCOPED_OPERATION_GRANTS.get(operation)
-        if required is None or not required & authority.capabilities:
-            raise PluginBridgeFailure("unsupported_capability")
+    if not isinstance(runtime, PluginRuntimeState):
+        raise ValueError("invalid plugin runtime")
+    selected_environment = os.environ if environment is None else environment
+    available = _available_operations(
+        selected_environment,
+        runtime.authority,
+        capture_available=runtime.capture is not None,
+    )
+    if operation in _OPERATIONS and operation not in available:
+        raise PluginBridgeFailure("unsupported_capability")
+    if operation in _SCOPED_PUBLIC_OPERATIONS:
+        raise PluginBridgeFailure("unsupported_capability")
     tasks = session.tasks
     if operation == "capture.create":
         _require_keys(arguments, frozenset({"text"}))
         text = _bounded_text(arguments["text"], maximum_bytes=16 * 1024)
-        return capture_result(capture_text(tasks.capture, text, delivery_id=request_id))
+        capture = tasks.capture if runtime.authority.owner else runtime.capture
+        if capture is None:
+            raise PluginBridgeFailure("unsupported_capability")
+        return capture_result(capture_text(capture, text, delivery_id=request_id))
     if operation == "search.query":
         _require_keys(arguments, frozenset({"limit", "query"}))
         query = _bounded_text(arguments["query"], maximum_bytes=4096)
@@ -452,7 +492,7 @@ def dispatch_plugin_request(
         "history.show",
         "source.route",
     }:
-        adapter = _t03_bridge_adapter(tasks, _runtime(runtime), authority=authority)
+        adapter = _t03_bridge_adapter(tasks, runtime)
         try:
             return adapter.invoke(
                 operation,
@@ -570,9 +610,7 @@ def dispatch_plugin_request(
         return {
             "choice": choice,
             "duplicate": resolved.duplicate,
-            "materialized_duplicate": (
-                None if materialized is None else materialized.duplicate
-            ),
+            "materialized_duplicate": (None if materialized is None else materialized.duplicate),
             "note_id": note_id,
             "status": "resolved",
         }
@@ -593,16 +631,16 @@ def dispatch_plugin_request(
         return result
     if operation == "provider.status":
         _require_keys(arguments, frozenset())
-        return _provider_status(_runtime(runtime))
+        return _provider_status(runtime)
     if operation == "provider.configure":
         _require_keys(
             arguments,
             frozenset({"credential", "custody", "provider", "scope_ack"}),
         )
-        return _configure_provider(tasks, _runtime(runtime), arguments, request_id=request_id)
+        return _configure_provider(tasks, runtime, arguments, request_id=request_id)
     if operation == "provider.remove":
         _require_keys(arguments, frozenset({"custody", "provider"}))
-        return _remove_provider(tasks, _runtime(runtime), arguments, request_id=request_id)
+        return _remove_provider(tasks, runtime, arguments, request_id=request_id)
     if operation == "policy.exclusions":
         _require_keys(arguments, frozenset())
         status = _configured_status(tasks)
@@ -648,7 +686,7 @@ def dispatch_plugin_request(
         }
     if operation == "graph.refresh_semantic":
         _require_keys(arguments, frozenset())
-        return _refresh_semantic(tasks, _runtime(runtime), request_id=request_id)
+        return _refresh_semantic(tasks, runtime, request_id=request_id)
     if operation == "graph.refresh_structural":
         _require_keys(arguments, frozenset())
         return refresh_structural_graph(tasks, base_executable=base_executable)
@@ -964,10 +1002,7 @@ def _collector_source(sources: dict[str, object], source_id: str) -> dict[str, o
         or not 1 <= cast(int, source.get("interval_seconds")) <= _COLLECTOR_MAX_INTERVAL
         or (
             last_success_epoch is not None
-            and (
-                type(last_success_epoch) is not int
-                or last_success_epoch < 0
-            )
+            and (type(last_success_epoch) is not int or last_success_epoch < 0)
         )
     ):
         raise PluginBridgeFailure("operation_failed")
@@ -1040,10 +1075,29 @@ def _collector_success_epoch(last_run: object) -> int | None:
     return value
 
 
-def _available_operations(environment: Mapping[str, object]) -> list[str]:
-    operations = list(_BASE_OPERATIONS)
+def _available_operations(
+    environment: Mapping[str, object],
+    authority: EffectiveAuthority,
+    *,
+    capture_available: bool,
+) -> list[str]:
+    operations = [
+        operation
+        for operation in _BASE_OPERATIONS + _NEGOTIATED_OPERATIONS
+        if authority.owner
+        or operation in _SCOPED_PUBLIC_OPERATIONS
+        or (
+            operation in _SCOPED_OPERATION_GRANTS
+            and _SCOPED_OPERATION_GRANTS[operation] & authority.capabilities
+            and (
+                operation != "capture.create"
+                or capture_available
+                and PrivacyTier.PERSONAL in authority.allowed_capture_tiers
+            )
+        )
+    ]
     if _collector_runtime_available(environment):
-        operations.extend(_COLLECTOR_OPERATIONS)
+        operations.extend(operation for operation in _COLLECTOR_OPERATIONS if authority.owner)
     return operations
 
 
@@ -1316,51 +1370,35 @@ def _refresh_semantic(
     return result
 
 
-def _runtime(value: PluginRuntimeState | None) -> PluginRuntimeState:
-    if value is None:
-        raise PluginBridgeFailure("setup_required")
-    return value
-
-
 def _t03_bridge_adapter(
     tasks: EngineTaskSet,
     runtime: PluginRuntimeState,
-    *,
-    authority: EffectiveAuthority | None = None,
 ) -> T03AppAdapter:
-    selected_authority = (
-        cast(EffectiveAuthority, owner_authority(tasks, session_id=runtime.session_id))
-        if authority is None
-        else authority
-    )
-    grants = frozenset({"search", "content-read", "history-read", "organize"})
-    if not selected_authority.owner:
-        grants &= selected_authority.capabilities
-        grants -= {"organize"}
     if runtime.t03_adapter is None:
         runtime.t03_adapter = T03AppAdapter(
             tasks,
-            selected_authority,
-            grants,
-            owner=selected_authority.owner,
+            runtime.authority,
         )
-    elif runtime.t03_adapter.authority != selected_authority:
+    elif runtime.t03_adapter.authority is not runtime.authority:
         raise PluginBridgeFailure("unsupported_capability")
     return runtime.t03_adapter
 
 
 def _plugin_result_size(request_id: str, result: Mapping[str, object]) -> int:
-    return len(
-        canonical_json_bytes(
-            {
-                "ok": True,
-                "protocol": OPEN_BRAIN_CLIENT_PROTOCOL,
-                "protocol_version": OPEN_BRAIN_CLIENT_PROTOCOL_VERSION,
-                "request_id": request_id,
-                "result": dict(result),
-            }
+    return (
+        len(
+            canonical_json_bytes(
+                {
+                    "ok": True,
+                    "protocol": OPEN_BRAIN_CLIENT_PROTOCOL,
+                    "protocol_version": OPEN_BRAIN_CLIENT_PROTOCOL_VERSION,
+                    "request_id": request_id,
+                    "result": dict(result),
+                }
+            )
         )
-    ) + 1
+        + 1
+    )
 
 
 def _direct_provider(value: object) -> ManagedProvider:
@@ -1368,7 +1406,7 @@ def _direct_provider(value: object) -> ManagedProvider:
         raise PluginBridgeFailure("invalid_arguments")
     try:
         provider = ManagedProvider(value)
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         raise PluginBridgeFailure("invalid_arguments") from None
     if provider is ManagedProvider.CLAUDE_SUBSCRIPTION:
         raise PluginBridgeFailure("subscription_unavailable")

@@ -1,6 +1,6 @@
 # Add confidentiality-scoped access and offline delivery to one canonical Brain
 
-Status: planned
+Status: implementation in progress; phases 1-5 landed, final release verification remains
 
 Date: 2026-09-19
 
@@ -352,6 +352,13 @@ Execution status on 2026-09-21: `OSS-G3` passes on the working branch. Retrieval
 before matching and rechecks it before materialization; scoped cursor freshness follows visible
 state. Shared reader leases, exclusive writer fencing, independent cursor allocation, owner-only
 export, and the scoped MCP/plugin operation matrices are covered by synthetic tests.
+
+Session-boundary follow-up on 2026-09-21: MCP and plugin sessions now require one immutable
+`EffectiveAuthority`, reuse that exact object through their adapters, and derive discovery and
+dispatch from the same authority-aware registry. Search-only MCP exposes the negotiated paged
+retrieval path rather than the legacy owner search callback. Owner MCP administration and the
+desktop plugin construct explicit owner authority. Scoped capture is available only when its grant,
+bounded sink implementation, and scoped-safe matrix entry all exist.
 
 ### Phase 4: add explicit capture classification and remote admission
 

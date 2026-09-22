@@ -12,6 +12,7 @@ from open_brain_engine.engine import (
     TextPayload,
     open_local_engine,
 )
+from open_brain_engine.engine.t03_contracts import EffectiveAuthority
 
 from open_brain.profile import open_existing_single_user_local
 from open_brain.services.local_entrypoints import run_cli
@@ -31,6 +32,10 @@ from open_brain.services.local_operations import (
 )
 from open_brain.services.managed_providers import ManagedGraphProviderResult
 from open_brain.services.mcp_protocol import McpCallError
+
+
+def _owner_authority() -> EffectiveAuthority:
+    return EffectiveAuthority("managed-owner", "managed-session", frozenset(), None, owner=True)
 
 
 def _filesystem(_path: Path, platform_name: str) -> str:
@@ -137,7 +142,7 @@ def test_owner_cli_workspace_flow_uses_path_free_shared_read_projection(
     assert not tuple(workspace.rglob("*.canvas"))
 
 
-def test_mcp_workspace_capabilities_are_opt_in_bounded_and_non_owner() -> None:
+def test_mcp_workspace_capabilities_are_opt_in_bounded_with_explicit_owner() -> None:
     refresh_caps: list[tuple[int, int]] = []
 
     def refresh(attempts: int, input_bytes: int) -> tuple[dict[str, object], int, int]:
@@ -145,6 +150,7 @@ def test_mcp_workspace_capabilities_are_opt_in_bounded_and_non_owner() -> None:
         return {"status": "refreshed"}, 2, 1024
 
     adapter = LocalMcpAdapter(
+        authority=_owner_authority(),
         workspace_status=lambda: {"status": "ok"},
         graph_suggestions=lambda: {"status": "ok", "suggestions": []},
         graph_projection=lambda: {"status": "missing", "structural_links": []},
@@ -197,6 +203,7 @@ def test_shared_workspace_reads_match_mcp_projection(tmp_path: Path) -> None:
     assert run_cli(("init", "--data-dir", str(root)), filesystem_type_probe=_filesystem) == 0
     tasks = open_local_engine(open_existing_single_user_local(root))
     adapter = LocalMcpAdapter(
+        authority=_owner_authority(),
         workspace_status=lambda: workspace_status(tasks),
         graph_suggestions=lambda: graph_suggestions(tasks),
         graph_projection=lambda: graph_projection(tasks),
@@ -261,6 +268,7 @@ def test_deterministic_fake_provider_runs_through_shared_refresh_contract(
         )
 
     adapter = LocalMcpAdapter(
+        authority=_owner_authority(),
         graph_refresh=lambda attempts, input_bytes: refresh_graph(
             tasks,
             provider=ManagedProvider.OPENAI_API,

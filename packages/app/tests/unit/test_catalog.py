@@ -10,6 +10,7 @@ from types import SimpleNamespace
 from typing import Any, cast
 
 import pytest
+from open_brain_engine.engine.t03_contracts import EffectiveAuthority
 
 import open_brain.services.local_entrypoints as entrypoints
 import open_brain.services.plugin_bridge as bridge
@@ -22,6 +23,10 @@ from open_brain.services.catalog import (
 from open_brain.services.local_entrypoints import _parser, run_cli
 from open_brain.services.local_mcp import MCP_REGISTERED_TOOLS, LocalMcpAdapter
 from open_brain.services.mcp_protocol import McpCallError
+
+
+def _owner_authority() -> EffectiveAuthority:
+    return EffectiveAuthority("catalog-owner", "catalog-session", frozenset(), None, owner=True)
 
 
 def _catalog(**overrides: object) -> dict[str, object]:
@@ -131,7 +136,7 @@ def test_owner_privacy_repair_is_installed_but_excluded_from_every_catalog_conte
     monkeypatch.setattr(entrypoints, "select_local_root", forbidden)
     assert run_cli(("catalog", "--json")) == 0
     direct = json.loads(capsys.readouterr().out)
-    adapter = LocalMcpAdapter(search=lambda _query, _limit: ())
+    adapter = LocalMcpAdapter(authority=_owner_authority(), search=lambda _query, _limit: ())
     mcp = adapter.call_tool("brain_catalog", {"schema_version": 2})
 
     selection = select_local_root(
@@ -150,6 +155,7 @@ def test_owner_privacy_repair_is_installed_but_excluded_from_every_catalog_conte
     assert (
         bridge.serve_plugin_stdio(
             selection,
+            authority=_owner_authority(),
             input_stream=io.BytesIO(json.dumps(request).encode()),
             output_stream=output,
             base_executable=tmp_path / "missing/open-brain",
@@ -171,7 +177,7 @@ def test_owner_privacy_repair_is_installed_but_excluded_from_every_catalog_conte
             *bridge._BASE_OPERATIONS,
             *bridge._NEGOTIATED_OPERATIONS,
             *bridge._COLLECTOR_OPERATIONS,
-            *bridge._available_operations({}),
+            *bridge._available_operations({}, _owner_authority(), capture_available=False),
             *t03._NEGOTIATED,
             *t03._OWNER_ONLY,
         )
@@ -179,7 +185,7 @@ def test_owner_privacy_repair_is_installed_but_excluded_from_every_catalog_conte
 
 
 def test_mcp_catalog_uses_actual_authorized_session_registry() -> None:
-    adapter = LocalMcpAdapter(search=lambda _query, _limit: ())
+    adapter = LocalMcpAdapter(authority=_owner_authority(), search=lambda _query, _limit: ())
     names = [tool["name"] for tool in adapter.list_tools()]
     assert names == ["brain_search", "brain_catalog"]
     payload = adapter.call_tool("brain_catalog", {"schema_version": 2})
@@ -200,6 +206,7 @@ def test_registered_mcp_catalog_matches_all_injected_tools() -> None:
         return {"status": "ok"}
 
     adapter = LocalMcpAdapter(
+        authority=_owner_authority(),
         search=lambda _query, _limit: (),
         workspace_status=empty,
         graph_suggestions=empty,
@@ -216,7 +223,6 @@ def test_registered_mcp_catalog_matches_all_injected_tools() -> None:
         review_approve=operations,
         review_reject=operations,
         review_edit_and_approve=operations,
-        capture_submit=lambda _text, _tier, _delivery: {"status": "captured"},
     )
     # Capture and negotiated tools need concrete engine adapters; account for their names here.
     actual = (
@@ -329,7 +335,7 @@ def test_public_cli_and_mcp_do_not_disclose_untrusted_version_metadata(
     assert "SYNTHETIC_TOKEN" not in output.out + output.err
     assert len(output.out) < 100_000
 
-    adapter = LocalMcpAdapter(search=lambda _query, _limit: ())
+    adapter = LocalMcpAdapter(authority=_owner_authority(), search=lambda _query, _limit: ())
     payload = adapter.call_tool("brain_catalog", {"schema_version": 2})
     serialized = json.dumps(payload)
     assert unsafe not in serialized
@@ -492,6 +498,7 @@ def test_bridge_catalog_bypasses_brain_and_credential_discovery(
     assert (
         bridge.serve_plugin_stdio(
             selection,
+            authority=_owner_authority(),
             input_stream=io.BytesIO(json.dumps(request).encode()),
             output_stream=output,
             base_executable=tmp_path / "missing/open-brain",
@@ -508,6 +515,7 @@ def test_bridge_catalog_bypasses_brain_and_credential_discovery(
     output = io.BytesIO()
     bridge.serve_plugin_stdio(
         selection,
+        authority=_owner_authority(),
         input_stream=io.BytesIO(json.dumps(request).encode()),
         output_stream=output,
         base_executable=tmp_path / "missing/open-brain",
@@ -517,7 +525,11 @@ def test_bridge_catalog_bypasses_brain_and_credential_discovery(
 
 
 def test_bridge_registry_catalog_is_exact_and_deferred_operation_is_refused(tmp_path: Path) -> None:
-    payload = _catalog(bridge_available=bridge._available_operations({}))
+    payload = _catalog(
+        bridge_available=bridge._available_operations(
+            {}, _owner_authority(), capture_available=False
+        )
+    )
     surface = cast(dict[str, object], cast(dict[str, object], payload["surfaces"])["plugin_bridge"])
     assert surface["base_operations"] == sorted(bridge._BASE_OPERATIONS)
     assert surface["negotiated_operations"] == sorted(bridge._NEGOTIATED_OPERATIONS)
@@ -532,4 +544,5 @@ def test_bridge_registry_catalog_is_exact_and_deferred_operation_is_refused(tmp_
             {},
             request_id=f"plugin_{uuid.uuid4()}",
             base_executable=tmp_path / "missing/open-brain",
+            runtime=bridge.PluginRuntimeState(None, _owner_authority()),
         )

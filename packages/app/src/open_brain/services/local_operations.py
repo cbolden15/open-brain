@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping
+from dataclasses import dataclass
 from hashlib import sha256
 from pathlib import Path
 from typing import cast
@@ -185,25 +186,41 @@ def destination_bound_capture_result(receipt: CaptureReceipt) -> dict[str, objec
     }
 
 
-def destination_bound_capture_submit(
-    tasks: EngineTaskSet, authority: EffectiveAuthority
-) -> Callable[[str, PrivacyTier | None, str], dict[str, object]]:
-    """One destination-bound submission capability for a launched MCP session."""
+@dataclass(frozen=True, slots=True)
+class DestinationBoundCaptureCapability:
+    """Authority-bearing destination submission capability for one MCP session."""
 
-    def submit(
-        text: str, requested_tier: PrivacyTier | None, delivery_id: str
+    tasks: EngineTaskSet
+    authority: EffectiveAuthority
+
+    def __post_init__(self) -> None:
+        if (
+            not isinstance(self.authority, EffectiveAuthority)
+            or self.authority.owner
+            or self.authority.brain_id is None
+            or self.authority.issuer_epoch is None
+        ):
+            raise ValueError("invalid destination-bound capture authority")
+
+    def __call__(
+        self, text: str, requested_tier: PrivacyTier | None, delivery_id: str
     ) -> dict[str, object]:
         return destination_bound_capture_result(
             submit_destination_bound_capture(
-                tasks,
-                authority,
+                self.tasks,
+                self.authority,
                 text,
                 requested_tier=requested_tier,
                 delivery_id=delivery_id,
             )
         )
 
-    return submit
+
+def destination_bound_capture_submit(
+    tasks: EngineTaskSet, authority: EffectiveAuthority
+) -> DestinationBoundCaptureCapability:
+    """One destination-bound submission capability for a launched MCP session."""
+    return DestinationBoundCaptureCapability(tasks, authority)
 
 
 def capture_result(receipt: CaptureReceipt) -> dict[str, object]:

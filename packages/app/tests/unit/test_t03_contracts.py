@@ -30,6 +30,16 @@ CORPUS = json.loads((FIXTURES / "strict-cases.json").read_text())
 COMPAT = json.loads((FIXTURES / "compatibility.json").read_text())
 
 
+def _owner_authority() -> EffectiveAuthority:
+    return EffectiveAuthority(
+        "compatibility-owner",
+        "compatibility-owner-session",
+        frozenset(),
+        None,
+        owner=True,
+    )
+
+
 @pytest.mark.parametrize("case", CORPUS["cases"], ids=lambda case: case["id"])
 def test_t03_strict_contract(case: dict[str, Any]) -> None:
     if case["accept"]:
@@ -69,22 +79,29 @@ def test_t03_actual_legacy_bridge(case: dict[str, Any]) -> None:
             None,
         )
         granted = LocalMcpAdapter(
+            authority=authority,
             negotiated=T03AppAdapter(
                 SimpleNamespace(retrieval=Retrieval()),
                 authority,
-                frozenset({"content-read"}),
             )
         )
         with pytest.raises(McpCallError, match="^invalid_arguments$"):
             granted.call_tool("brain_read", case["request"]["arguments"])
         assert calls == 0
 
+        denied_authority = EffectiveAuthority(
+            "compatibility-test",
+            "compatibility-session-denied",
+            frozenset(),
+            None,
+        )
         denied = LocalMcpAdapter(
+            authority=denied_authority,
             negotiated=T03AppAdapter(
-                SimpleNamespace(retrieval=Retrieval()), authority, frozenset()
+                SimpleNamespace(retrieval=Retrieval()), denied_authority
             )
         )
-        with pytest.raises(McpCallError, match="^unsupported_capability$"):
+        with pytest.raises(McpCallError, match="^unknown tool$"):
             denied.call_tool(
                 "brain_read",
                 {
@@ -101,7 +118,9 @@ def test_t03_actual_legacy_bridge(case: dict[str, Any]) -> None:
 
 @pytest.mark.parametrize("case", COMPAT["baseline_mcp_cases"], ids=lambda case: case["id"])
 def test_t03_actual_legacy_mcp(case: dict[str, Any]) -> None:
-    adapter = LocalMcpAdapter(search=lambda _query, _limit: ())
+    adapter = LocalMcpAdapter(
+        authority=_owner_authority(), search=lambda _query, _limit: ()
+    )
     if case["expected"] == "accept":
         assert adapter.call_tool(case["tool"], case["arguments"]) is not None
     else:

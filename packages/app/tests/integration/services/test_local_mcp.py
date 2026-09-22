@@ -9,10 +9,12 @@ import subprocess
 import sys
 import time
 from collections.abc import Buffer, Mapping
+from dataclasses import replace
 from pathlib import Path
 from typing import Any, cast
 
 import pytest
+from open_brain_engine.core.models import PrivacyTier
 from open_brain_engine.engine import (
     CaptureReceipt,
     CaptureTask,
@@ -22,6 +24,7 @@ from open_brain_engine.engine import (
     TextPayload,
     open_local_engine,
 )
+from open_brain_engine.engine.t03_contracts import EffectiveAuthority
 from open_brain_engine.portable.v5 import V5_SIDECAR_PATHS
 from open_brain_engine.storage.operational import FileLease
 
@@ -36,8 +39,8 @@ from open_brain.services.local_mcp import (
     MAX_REVIEW_PROPOSAL_CALLS,
     MAX_REVIEW_READ_CALLS,
     MAX_REVIEW_RESPONSE_BYTES,
-    LocalMcpAdapter,
 )
+from open_brain.services.local_mcp import LocalMcpAdapter as _LocalMcpAdapter
 from open_brain.services.local_operations import mcp_capture_sink, search_brain
 from open_brain.services.mcp_protocol import (
     McpCallError,
@@ -80,6 +83,21 @@ assert not any(
 )
 raise SystemExit(result)
 """
+
+
+def _owner_authority() -> EffectiveAuthority:
+    return EffectiveAuthority("mcp-test-owner", "mcp-test-session", frozenset(), None, owner=True)
+
+
+class LocalMcpAdapter(_LocalMcpAdapter):
+    """Test constructor that makes legacy owner-only fixtures explicit."""
+
+    def __init__(self, **capabilities: Any) -> None:
+        authority = cast(
+            EffectiveAuthority,
+            capabilities.pop("authority", _owner_authority()),
+        )
+        super().__init__(authority=authority, **capabilities)
 
 
 def _call(name: str, arguments: dict[str, object], identifier: int = 2) -> dict[str, object]:
@@ -149,6 +167,78 @@ def test_capabilities_are_independently_listed_and_enforced(
         result = responses[3]["result"]["structuredContent"]["results"][0]
         assert result["trust"] == "unverified"
         assert result["source_origin"] == "unknown"
+
+
+def test_scoped_capture_registry_requires_grant_safe_operation_and_injection(
+    tasks: Any,
+) -> None:
+    sink = mcp_capture_sink(tasks)
+    granted_authority = EffectiveAuthority(
+        "scoped-mcp",
+        "scoped-mcp-granted",
+        frozenset({"capture"}),
+        None,
+        allowed_capture_tiers=frozenset({PrivacyTier.PERSONAL}),
+    )
+    granted = LocalMcpAdapter(authority=granted_authority, capture=sink)
+    assert {tool["name"] for tool in granted.list_tools()} == {
+        "brain_capture",
+        "brain_catalog",
+    }
+    assert (
+        granted.call_tool("brain_capture", {"text": "scoped registry capture"})["status"]
+        == "captured"
+    )
+    with pytest.raises(McpCallError, match="capture privacy tier requires owner authority"):
+        granted.call_tool(
+            "brain_capture",
+            {"text": "scoped tier override", "privacy_tier": "secret"},
+        )
+
+    denied = LocalMcpAdapter(
+        authority=EffectiveAuthority(
+            "scoped-mcp",
+            "scoped-mcp-denied",
+            frozenset(),
+            None,
+        ),
+        capture=sink,
+    )
+    assert {tool["name"] for tool in denied.list_tools()} == {"brain_catalog"}
+    with pytest.raises(McpCallError, match="^unknown tool$"):
+        denied.call_tool("brain_capture", {"text": "denied"})
+
+    for allowed_tiers in (
+        frozenset(),
+        frozenset({PrivacyTier.PUBLIC}),
+        frozenset({PrivacyTier.SECRET}),
+    ):
+        wrong_tier = LocalMcpAdapter(
+            authority=EffectiveAuthority(
+                "scoped-mcp",
+                "scoped-mcp-wrong-tier-" + str(len(allowed_tiers)),
+                frozenset({"capture"}),
+                None,
+                allowed_capture_tiers=allowed_tiers,
+            ),
+            capture=sink,
+        )
+        assert {tool["name"] for tool in wrong_tier.list_tools()} == {"brain_catalog"}
+        with pytest.raises(McpCallError, match="^unknown tool$"):
+            wrong_tier.call_tool("brain_capture", {"text": "wrong tier"})
+
+    unsafe_legacy_search = LocalMcpAdapter(
+        authority=EffectiveAuthority(
+            "scoped-mcp",
+            "scoped-mcp-unsafe",
+            frozenset({"search"}),
+            None,
+        ),
+        search=lambda _query, _limit: (),
+    )
+    assert {tool["name"] for tool in unsafe_legacy_search.list_tools()} == {"brain_catalog"}
+    with pytest.raises(McpCallError, match="^unknown tool$"):
+        unsafe_legacy_search.call_tool("brain_search", {"query": "denied"})
 
 
 def test_organization_capabilities_are_explicitly_injected_with_bounded_schemas() -> None:
@@ -595,7 +685,7 @@ def test_help_discloses_both_choices_without_bootstrap(capsys: pytest.CaptureFix
     assert run_cli(("mcp", "--help"), environment={}) == 0
     output = capsys.readouterr().out
     for phrase in (
-        "whole-Brain",
+        "authority-scoped",
         "network-backed",
         "provider",
         "durable",
@@ -917,6 +1007,8 @@ def test_entrypoint_admits_standalone_negotiated_read_grants(
         "brain_contract_describe",
         tool_name,
     }
+    assert observed["adapter"].negotiated is not None
+    assert observed["adapter"].negotiated.authority is observed["adapter"].authority
 
 
 @pytest.mark.parametrize(
@@ -1055,7 +1147,7 @@ def test_live_mcp_engine_retrieval_grants_and_cursor_failures(tasks: Any) -> Non
                 7,
             ),
         )
-        assert denied["result"]["content"] == [{"type": "text", "text": "unsupported_capability"}]
+        assert denied["result"]["content"] == [{"type": "text", "text": "unknown tool"}]
     finally:
         for child in (process, other):
             if child is None:
@@ -1165,7 +1257,7 @@ def test_live_mcp_history_list_show_cursor_and_independent_grant(tasks: Any) -> 
                 7,
             ),
         )
-        assert denied["result"]["content"] == [{"type": "text", "text": "unsupported_capability"}]
+        assert denied["result"]["content"] == [{"type": "text", "text": "unknown tool"}]
     finally:
         for child in (process, other, content_only):
             if child.stdin is not None and not child.stdin.closed:
@@ -1474,9 +1566,13 @@ def test_live_cli_and_mcp_share_brain_and_bound_contention(
         finally:
             connection.close()
         assert (
-            _exchange(process, _call("brain_search", {"query": "sqlite-blocked-token"}))["result"][
-                "structuredContent"
-            ]["results"]
+            _exchange(
+                process,
+                _call(
+                    "brain_search_page",
+                    {"dto_version": 1, "query": "sqlite-blocked-token"},
+                ),
+            )["result"]["structuredContent"]["results"]
             == []
         )
         assert process.stdin is not None
@@ -1677,7 +1773,88 @@ def _destination_adapter(tasks: Any, policy: str) -> LocalMcpAdapter:
     )
 
     authority = destination_bound_authority(tasks, policy)
-    return LocalMcpAdapter(capture_submit=destination_bound_capture_submit(tasks, authority))
+    return LocalMcpAdapter(
+        authority=authority,
+        capture_submit=destination_bound_capture_submit(tasks, authority),
+    )
+
+
+def test_capture_submit_entrypoint_reuses_one_policy_authority(
+    tasks: Any,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    observed: dict[str, object] = {}
+    policy_path = tmp_path / "launcher-policy.json"
+    policy_path.write_text(_destination_policy(tasks), encoding="utf-8")
+
+    def capture_submit(_tasks: object, authority: object) -> object:
+        from open_brain.services.local_operations import (
+            DestinationBoundCaptureCapability,
+        )
+
+        observed["capture_authority"] = authority
+        return DestinationBoundCaptureCapability(
+            cast(Any, _tasks), cast(EffectiveAuthority, authority)
+        )
+
+    def serve(adapter: LocalMcpAdapter, **_arguments: object) -> None:
+        observed["adapter"] = adapter
+
+    monkeypatch.setattr(
+        "open_brain.services.local_entrypoints.destination_bound_capture_submit",
+        capture_submit,
+    )
+    monkeypatch.setattr("open_brain.services.mcp_protocol.serve_stdio_mcp", serve)
+
+    assert (
+        run_cli(
+            (
+                "mcp",
+                "--allow-capture-submit",
+                "--capture-policy",
+                str(policy_path),
+                "--data-dir",
+                str(tasks.profile.root),
+            ),
+            environment={"HOME": str(tasks.profile.root.parent)},
+        )
+        == 0
+    )
+    adapter = cast(LocalMcpAdapter, observed["adapter"])
+    assert adapter.authority is observed["capture_authority"]
+
+
+def test_capture_submit_rejects_distinct_or_broader_injected_authority(tasks: Any) -> None:
+    from open_brain.services.local_operations import (
+        destination_bound_authority,
+        destination_bound_capture_submit,
+    )
+
+    authority = destination_bound_authority(
+        tasks, _destination_policy(tasks, allowed_capture_tiers=["public"])
+    )
+    equal_but_distinct = replace(authority)
+    with pytest.raises(ValueError, match="invalid MCP capture-submit authority"):
+        LocalMcpAdapter(
+            authority=authority,
+            capture_submit=destination_bound_capture_submit(tasks, equal_but_distinct),
+        )
+
+    broader = replace(
+        authority,
+        allowed_capture_tiers=frozenset({PrivacyTier.PUBLIC, PrivacyTier.SECRET}),
+    )
+    with pytest.raises(ValueError, match="invalid MCP capture-submit authority"):
+        LocalMcpAdapter(
+            authority=authority,
+            capture_submit=destination_bound_capture_submit(tasks, broader),
+        )
+
+
+def test_local_mcp_rejects_missing_authority(tasks: Any) -> None:
+    with pytest.raises(ValueError, match="invalid MCP authority"):
+        LocalMcpAdapter(authority=cast(Any, None), capture=mcp_capture_sink(tasks))
 
 
 def test_capture_submit_is_listed_only_when_the_grant_is_injected(tasks: Any) -> None:

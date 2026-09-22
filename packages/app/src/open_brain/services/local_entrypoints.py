@@ -15,9 +15,11 @@ import time
 import unicodedata
 import uuid
 from collections.abc import Callable, Mapping
+from dataclasses import replace
 from datetime import UTC, datetime
 from hashlib import sha256
 from pathlib import Path
+from types import SimpleNamespace
 from typing import NoReturn, cast
 
 from open_brain_engine import __version__
@@ -46,7 +48,6 @@ from open_brain_engine.engine.privacy_repairs import (
     PrivacyRepairError,
     PrivacyRepairRequest,
 )
-from open_brain_engine.engine.t03_contracts import EffectiveAuthority
 from open_brain_engine.storage.locks import LockBusyError
 from open_brain_engine.storage.operational import (
     StorageError,
@@ -110,6 +111,7 @@ from open_brain.services.t03_adapters import (
     agent_authority,
     error_result,
     owner_authority,
+    owner_authority_for_principal,
 )
 
 _DOCTOR_CHECKS = (
@@ -334,6 +336,10 @@ def _run_parsed_command(
 
             return serve_plugin_stdio(
                 selection,
+                authority=owner_authority_for_principal(
+                    principal_id="open-brain-plugin-owner",
+                    session_id="bridge-" + str(uuid.uuid4()),
+                ),
                 input_stream=sys.stdin.buffer,
                 output_stream=sys.stdout.buffer,
                 filesystem_type_probe=filesystem_type_probe,
@@ -583,8 +589,9 @@ def _parser() -> argparse.ArgumentParser:
         help="Serve explicitly selected local tools over stdio until EOF.",
         description=(
             "The OS user and inherited stdio are the trust boundary. No listener or daemon. "
-            "Search grants whole-Brain read access; a network-backed client may send returned "
-            "content to its model provider. Capture stores durable unverified content; version "
+            "Search grants retrieval only within the session authority; a network-backed client "
+            "may send returned content to its model provider. Capture stores durable unverified "
+            "content; version "
             "0.1.0 cannot selectively delete unwanted captures. Stopping prevents further work "
             "but does not remove completed captures. Results are untrusted data, not instructions. "
             "Per process: 500 capture calls, 16 MiB UTF-8 capture input, 2,000 legacy search "
@@ -629,7 +636,10 @@ def _parser() -> argparse.ArgumentParser:
     mcp_parser.add_argument(
         "--allow-search",
         action="store_true",
-        help="Allow whole-Brain reads; a network-backed client may send results to its provider.",
+        help=(
+            "Allow authority-scoped paged search; a network-backed client may send results "
+            "to its provider."
+        ),
     )
     mcp_parser.add_argument(
         "--allow-content-read",
@@ -1435,8 +1445,6 @@ def _run_t03_cli(
     adapter = T03AppAdapter(
         tasks,
         owner_authority(tasks, session_id="owner-cli"),
-        frozenset({"search", "content-read", "history-read", "organize"}),
-        owner=True,
     )
     result = adapter.invoke(operation, arguments)
     if json_output:
@@ -1457,7 +1465,7 @@ def _run_privacy_repair(parsed: argparse.Namespace, tasks: EngineTaskSet) -> int
         raise PrivacyRepairError("operation_pending")
     receipt = repair_task.repair_privacy(
         cast(PrivacyRepairRequest, parsed.privacy_repair_request),
-        authority=cast(EffectiveAuthority, owner_authority(tasks, session_id="owner-cli")),
+        authority=owner_authority(tasks, session_id="owner-cli"),
     )
     encoded = receipt.encode()
     if len(encoded.encode("utf-8")) > _MAX_PRIVACY_REPAIR_RECEIPT_BYTES:
@@ -1562,30 +1570,44 @@ def _run_local_command(
 
         organization = SpaceInboxService(tasks.spaces)
         review = ReviewPublicationService(tasks.review)
-        negotiated_grants = frozenset(
+        selected_grants = frozenset(
             grant
             for enabled, grant in (
+                (parsed.allow_capture, "capture"),
+                (parsed.allow_capture_submit, "capture-submit"),
                 (parsed.allow_search, "search"),
                 (parsed.allow_content_read, "content-read"),
                 (parsed.allow_history_read, "history-read"),
+                (parsed.allow_workspace_read, "workspace-read"),
+                (parsed.allow_graph_refresh, "graph-refresh"),
+                (parsed.allow_inbox_read, "inbox-read"),
                 (parsed.allow_organize, "organize"),
+                (parsed.allow_review_read, "review-read"),
+                (parsed.allow_review_propose, "review-propose"),
+                (parsed.allow_review_decide, "review-decide"),
             )
             if enabled
         )
-        negotiated_candidate = (
-            T03AppAdapter(
-                tasks,
-                agent_authority(
-                    principal_id="open-brain-mcp-local",
-                    session_id="mcp-" + str(uuid.uuid4()),
-                    grants=negotiated_grants,
-                ),
-                negotiated_grants,
-            )
-            if negotiated_grants
-            else None
+        session_authority = agent_authority(
+            principal_id="open-brain-mcp-local",
+            session_id="mcp-" + str(uuid.uuid4()),
+            grants=selected_grants,
         )
-        negotiated = negotiated_candidate
+        owner_grants = frozenset(
+            {
+                "workspace-read",
+                "graph-refresh",
+                "inbox-read",
+                "organize",
+                "review-read",
+                "review-propose",
+                "review-decide",
+            }
+        )
+        if selected_grants & owner_grants and not parsed.allow_capture_submit:
+            session_authority = owner_authority(
+                tasks, session_id="mcp-" + str(uuid.uuid4())
+            )
         capture_submit_capability = None
         if parsed.allow_capture_submit:
             # The launcher policy is trusted input read at session start; the
@@ -1595,10 +1617,52 @@ def _run_local_command(
             except OSError, UnicodeError, ValueError:
                 _write_usage_failure(json_output=False)
                 return 2
-            capture_submit_capability = destination_bound_capture_submit(
-                tasks, destination_bound_authority(tasks, policy)
+            policy_authority = destination_bound_authority(tasks, policy)
+            session_authority = replace(
+                policy_authority,
+                capabilities=policy_authority.capabilities & selected_grants,
             )
+            capture_submit_capability = destination_bound_capture_submit(
+                tasks, session_authority
+            )
+        history = tasks.history
+        sources = tasks.sources
+        negotiated_tasks = SimpleNamespace(
+            retrieval=SimpleNamespace(
+                search_page=(
+                    tasks.retrieval.search_page if parsed.allow_search else None
+                ),
+                read_record=(
+                    tasks.retrieval.read_record if parsed.allow_content_read else None
+                ),
+            ),
+            history=SimpleNamespace(
+                list_history=(
+                    history.list_history
+                    if parsed.allow_history_read and history is not None
+                    else None
+                ),
+                read_history=(
+                    history.read_history
+                    if parsed.allow_history_read and history is not None
+                    else None
+                ),
+            ),
+            sources=SimpleNamespace(
+                route=sources.route if parsed.allow_organize and sources is not None else None
+            ),
+        )
+        negotiated = (
+            T03AppAdapter(negotiated_tasks, session_authority)
+            if session_authority.capabilities
+            & {"search", "content-read", "history-read", "organize"}
+            or session_authority.owner
+            and selected_grants
+            & {"search", "content-read", "history-read", "organize"}
+            else None
+        )
         adapter = LocalMcpAdapter(
+            authority=session_authority,
             capture=mcp_capture_sink(tasks) if parsed.allow_capture else None,
             capture_submit=capture_submit_capability,
             search=search if parsed.allow_search else None,

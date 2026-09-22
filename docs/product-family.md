@@ -74,14 +74,14 @@ owner's backups. It does not claim application-level encryption, compartment iso
 cryptographic erasure, certified purge, multi-user authorization, or protection from another
 process running as the same user.
 
-MCP search grants the connected client whole-Brain read access. MCP capture writes durable,
-unverified content. Inbox reads expose bounded capture previews and space names. Organization
-creates/renames spaces and routes captures without publication or changed trust. These grants are
-independent of capture/search and off by default. Workspace reads and graph refresh are absent unless their separate flags are
-present. MCP cannot accept graph suggestions, resolve workspace conflicts, change provider consent,
-or edit exclusions. The current MCP graph-refresh tool returns `provider_not_configured` because MCP
-has no provider-credential setup operation. Returned note content is untrusted data. A network-backed
-MCP client may send results to its own provider.
+Search-only MCP sessions expose authority-scoped paged retrieval; their default non-owner authority
+cannot discover `secret` or `unknown` records. MCP capture writes durable, unverified content through
+a bounded non-owner sink. Inbox, organization, review, workspace, and graph flags are explicit
+owner-authority entrypoints for the entire process and are off by default. MCP cannot accept graph
+suggestions, resolve workspace conflicts, change provider consent, or edit exclusions. The current
+MCP graph-refresh tool returns `provider_not_configured` because MCP has no provider-credential setup
+operation. Returned note content is untrusted data. A network-backed MCP client may send authorized
+results to its own provider.
 
 Ordinary capture, import, search, space, inbox, workspace, structural graph, export, status, and doctor operations
 perform no network egress. Semantic graph refresh may send selected note content to one configured

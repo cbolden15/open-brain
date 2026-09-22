@@ -103,7 +103,10 @@ def test_empty_brain_cli_publication_and_mcp_search_journey(
                     "jsonrpc": "2.0",
                     "id": index,
                     "method": "tools/call",
-                    "params": {"name": "brain_search", "arguments": {"query": query, "limit": 10}},
+                    "params": {
+                        "name": "brain_search_page",
+                        "arguments": {"dto_version": 1, "query": query, "limit": 10},
+                    },
                 }
                 for index, query in enumerate(("nebula", "unrelatedquasar"), start=2)
             ),
@@ -128,7 +131,23 @@ def test_empty_brain_cli_publication_and_mcp_search_journey(
         responses = [json.loads(line) for line in outgoing.buffer.readlines()]
         assert len(responses) == 3
         assert all(not response["result"].get("isError") for response in responses)
-        return [response["result"]["structuredContent"] for response in responses[1:]]
+        projected = []
+        for response in responses[1:]:
+            result = response["result"]["structuredContent"]
+            projected.append(
+                {
+                    "status": result["status"],
+                    "results": [
+                        {
+                            "capture_id": hit["provenance"]["representative_capture_id"],
+                            "result_id": hit["record_id"],
+                            "trust": hit["trust"],
+                        }
+                        for hit in result["results"]
+                    ],
+                }
+            )
+        return projected
 
     space = cast(dict[str, object], cli("space", "create", "Synthetic")["space"])
     captures = []

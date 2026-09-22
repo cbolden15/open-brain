@@ -66,18 +66,21 @@ The owner explicitly launches `open-brain mcp` with capture, search, or both. In
 invoking OS account are the trust boundary. EOF stops the process. No listener, token service,
 daemon, connector, or background process is created.
 
-Search grants the connected client whole-Brain read access. A network-backed client may send results
-to its provider, even though Open Brain itself does not. Returned note content is untrusted data and
-may contain prompt injection.
+Search-only sessions expose the authority-aware paged search tool. The default non-owner authority
+can read `public`, `work`, and `personal` content, but cannot discover `secret` or `unknown` records.
+A network-backed client may send results to its provider, even though Open Brain itself does not.
+Returned note content is untrusted data and may contain prompt injection.
 
 Capture uses a non-owner sink limited to durable, unverified text. Version 0.1.0 has no selective
 deletion, session rollback, or certified purge. Session call and byte limits reduce accidental loops
 but do not constrain hostile same-user code.
 
-Workspace status, graph suggestions, and graph projection are separate read capabilities. Semantic
-refresh is a separate launch capability, but version 0.1.0 returns `provider_not_configured` because
-MCP exposes no provider-credential setup operation. MCP also cannot alter consent or exclusions,
-accept a suggestion, resolve a conflict, or write an owner-authored revision.
+Inbox, organization, review, workspace, and graph flags are owner-only entrypoints and construct an
+explicit owner authority for the complete MCP process. Do not combine them into a process intended
+to remain non-owner scoped. Semantic refresh is a separate owner launch capability, but version
+0.1.0 returns `provider_not_configured` because MCP exposes no provider-credential setup operation.
+MCP also cannot alter consent or exclusions, accept a suggestion, resolve a conflict, or write an
+owner-authored revision.
 
 ## Managed vault and plugin
 
