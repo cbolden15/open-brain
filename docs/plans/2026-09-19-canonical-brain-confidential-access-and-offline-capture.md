@@ -348,6 +348,11 @@ scoped principal is denied export, and owner exports preserve original and effec
 evidence. Consent tests cover absent state, grant, inspection, idempotent duplicate, atomic
 replacement, revocation, restart, multiple-active corruption, active sessions, and stale cursors.
 
+Execution status on 2026-09-21: `OSS-G3` passes on the working branch. Retrieval filters privacy
+before matching and rechecks it before materialization; scoped cursor freshness follows visible
+state. Shared reader leases, exclusive writer fencing, independent cursor allocation, owner-only
+export, and the scoped MCP/plugin operation matrices are covered by synthetic tests.
+
 ### Phase 4: add explicit capture classification and remote admission
 
 - Keep current no-flag local capture and Markdown import behavior compatible. Existing callers must

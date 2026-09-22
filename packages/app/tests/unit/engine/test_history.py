@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Any, cast
 
 import pytest
+from open_brain_engine.core.models import PrivacyTier
 from open_brain_engine.engine import (
     BrainEngine,
     DecisionOutcome,
@@ -66,6 +67,11 @@ def test_source_history_exact_revision_grant_and_current_scope(tmp_path: Path) -
     page = wire(engine.history.list_history(request, authority=authority()))
     assert [entry["revision_id"] for entry in page["entries"]] == ids[::-1][:2]
     assert [entry["is_current"] for entry in page["entries"]] == [True, False]
+    engine.capture.accept(
+        TextPayload("hidden history mutation"),
+        delivery_id="history.hidden.secret",
+        privacy_tier=PrivacyTier.SECRET,
+    )
     tail = wire(
         engine.history.list_history(
             replace(request, cursor=page["next_cursor"]), authority=authority()
@@ -179,9 +185,10 @@ def test_migrated_ungrouped_orphan_is_history_only(
 
     coordinate_local_migration(profile)
     current = BrainEngine.open(profile)
+    owner = replace(authority(), owner=True)
     page = wire(
         current.history.list_history(
-            HistoryListRequest(record_id=orphan.capture_id), authority=authority()
+            HistoryListRequest(record_id=orphan.capture_id), authority=owner
         )
     )
     assert len(page["entries"]) == 1 and not page["entries"][0]["is_current"]
@@ -190,7 +197,7 @@ def test_migrated_ungrouped_orphan_is_history_only(
     request = RecordReadRequest(record_id=orphan.capture_id, expected_revision_id=orphan.capture_id)
     assert (
         "Synthetic public-job capture"
-        in wire(current.history.read_history(request, authority=authority()))["content"]["text"]
+        in wire(current.history.read_history(request, authority=owner))["content"]["text"]
     )
     with pytest.raises(T03Error, match="not_found"):
         current.retrieval.read_record(

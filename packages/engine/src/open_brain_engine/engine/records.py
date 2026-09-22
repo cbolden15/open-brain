@@ -9,6 +9,7 @@ from dataclasses import dataclass
 from hashlib import sha256
 from typing import Any, cast
 
+from open_brain_engine.core.models import PrivacyTier
 from open_brain_engine.portable.v1 import validate_portable_write
 from open_brain_engine.portable.v4 import canonical_revision_id
 from open_brain_engine.storage.filesystem import StorageError, read_confined
@@ -38,6 +39,44 @@ class RecordProjector:
         self.profile = profile
         self.connection = connection
         self.authority = authority
+
+    def _require_tier(self, value: object) -> None:
+        try:
+            if not isinstance(value, str):
+                raise ValueError
+            tier = PrivacyTier(value)
+        except (TypeError, ValueError):
+            tier = PrivacyTier.UNKNOWN
+        if not self.authority.permits_read_tier(tier):
+            raise T03Error("not_found")
+
+    def _require_effective_privacy(self, raw: object) -> None:
+        try:
+            value = json.loads(raw) if isinstance(raw, str) else None
+            if not isinstance(value, dict):
+                raise ValueError
+            tier = value["tier"]
+        except (json.JSONDecodeError, KeyError, TypeError, ValueError):
+            tier = PrivacyTier.UNKNOWN
+        self._require_tier(tier)
+
+    def _require_source_revision_privacy(self, capture_id: str) -> None:
+        row = self.connection.execute(
+            "SELECT effective_privacy_json FROM source_revision_privacy WHERE capture_id=?",
+            (capture_id,),
+        ).fetchone()
+        if row is None:
+            raise T03Error("not_found")
+        self._require_effective_privacy(row["effective_privacy_json"])
+
+    def _require_canonical_revision_privacy(self, publication_id: str) -> None:
+        row = self.connection.execute(
+            "SELECT effective_privacy_json FROM canonical_revision_privacy WHERE revision_id=?",
+            (canonical_revision_id(publication_id),),
+        ).fetchone()
+        if row is None:
+            raise T03Error("not_found")
+        self._require_effective_privacy(row["effective_privacy_json"])
 
     def _capture(self, capture_id: str) -> tuple[sqlite3.Row, dict[str, Any]]:
         revision = self.connection.execute(
@@ -91,6 +130,7 @@ class RecordProjector:
             head = expected
         elif expected is not None and expected != head:
             raise T03Error("revision_changed")
+        self._require_source_revision_privacy(head)
         _revision, record = self._capture(head)
         reference = record["source"]["reference"]
         payload = record["payload"]
@@ -158,6 +198,7 @@ class RecordProjector:
         ).fetchone()
         if document is None or not self.authority.permits_space(document["space_id"]):
             raise T03Error("not_found")
+        self._require_tier(document["effective_tier"])
         head = self.connection.execute(
             "SELECT publication_id FROM review_page_heads WHERE page_id=?", (page_id,)
         ).fetchone()
@@ -287,6 +328,7 @@ class RecordProjector:
         return ProjectedRecord(summary, body, indexed_text)
 
     def _publication(self, publication_id: str) -> tuple[dict[str, Any], bytes]:
+        self._require_canonical_revision_privacy(publication_id)
         rows = list(
             self.connection.execute(
                 "SELECT publication_path FROM captures WHERE publication_id=? "

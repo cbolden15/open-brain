@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import threading
 from dataclasses import replace
 from datetime import UTC
 from pathlib import Path
@@ -28,6 +29,18 @@ def wire(value: Any) -> dict[str, Any]:
 
 def authority(session: str = "session") -> EffectiveAuthority:
     return EffectiveAuthority("owner", session, frozenset({"search", "content-read"}), None)
+
+
+def scoped_authority(
+    *tiers: PrivacyTier, session: str = "scoped-session"
+) -> EffectiveAuthority:
+    return EffectiveAuthority(
+        "synthetic-principal",
+        session,
+        frozenset({"search", "content-read"}),
+        None,
+        allowed_read_tiers=frozenset(tiers),
+    )
 
 
 def test_cursor_authority_binding_names_and_binds_every_policy_dimension() -> None:
@@ -97,6 +110,290 @@ def test_cursor_authority_binding_names_and_binds_every_policy_dimension() -> No
         assert binding_digest(changed) != baseline_digest
 
 
+def test_paged_search_enforces_the_principal_tier_matrix_and_owner_access(
+    tmp_path: Path,
+) -> None:
+    engine = BrainEngine.open(compile_single_user_local(tmp_path / "brain"))
+    captured = {
+        tier: engine.capture.accept(
+            TextPayload(f"tier matrix nebula {tier.value}"),
+            delivery_id=f"tier.matrix.{tier.value}",
+            title=f"Tier {tier.value}",
+            privacy_tier=tier,
+        ).capture_id
+        for tier in PrivacyTier
+    }
+    request = SearchPageRequest(query="tier matrix nebula", limit=100)
+    permitted_tiers = (PrivacyTier.PUBLIC, PrivacyTier.WORK, PrivacyTier.PERSONAL)
+
+    for mask in range(1 << len(permitted_tiers)):
+        allowed = tuple(
+            tier for index, tier in enumerate(permitted_tiers) if mask & (1 << index)
+        )
+        results = wire(
+            engine.retrieval.search_page(request, authority=scoped_authority(*allowed))
+        )["results"]
+        assert {row["record_id"] for row in results} == {captured[tier] for tier in allowed}
+
+    owner = EffectiveAuthority(
+        "synthetic-owner",
+        "owner-session",
+        frozenset({"search", "content-read"}),
+        None,
+        owner=True,
+    )
+    assert {
+        row["record_id"]
+        for row in wire(engine.retrieval.search_page(request, authority=owner))["results"]
+    } == set(captured.values())
+
+
+def test_hidden_tiers_do_not_change_visible_ranking_or_page_boundaries(tmp_path: Path) -> None:
+    engine = BrainEngine.open(compile_single_user_local(tmp_path / "brain"))
+    visible = {
+        engine.capture.accept(
+            TextPayload(term),
+            delivery_id=f"ranking.visible.{term}",
+            title=term,
+            privacy_tier=PrivacyTier.PUBLIC,
+        ).capture_id: term
+        for term in ("alpha", "beta")
+    }
+    request = SearchPageRequest(query="alpha beta", limit=1)
+    public = scoped_authority(PrivacyTier.PUBLIC)
+
+    first = wire(engine.retrieval.search_page(request, authority=public))
+    second = wire(
+        engine.retrieval.search_page(
+            replace(request, cursor=first["next_cursor"]), authority=public
+        )
+    )
+    baseline = [first["results"], second["results"]]
+    flooded_term = visible[first["results"][0]["record_id"]]
+
+    for index in range(20):
+        engine.capture.accept(
+            TextPayload(" ".join([flooded_term] * 4)),
+            delivery_id=f"ranking.hidden.{index}",
+            title=flooded_term,
+            privacy_tier=PrivacyTier.PERSONAL,
+        )
+
+    paired_first = wire(engine.retrieval.search_page(request, authority=public))
+    paired_second = wire(
+        engine.retrieval.search_page(
+            replace(request, cursor=paired_first["next_cursor"]), authority=public
+        )
+    )
+    assert [paired_first["results"], paired_second["results"]] == baseline
+    assert [paired_first["complete"], paired_second["complete"]] == [False, True]
+
+
+def test_scoped_cursor_survives_hidden_mutation_but_stales_on_visible_mutation(
+    tmp_path: Path,
+) -> None:
+    engine = BrainEngine.open(
+        compile_single_user_local(tmp_path / "brain", starter_spaces=("Visible", "Hidden"))
+    )
+    spaces = {space.name: space.space_id for space in engine.inbox.spaces()}
+    for index in range(2):
+        engine.capture.accept(
+            TextPayload("cursor visibility nebula"),
+            delivery_id=f"cursor.visible.{index}",
+            space_id=spaces["Visible"],
+            privacy_tier=PrivacyTier.PUBLIC,
+        )
+    request = SearchPageRequest(query="cursor visibility nebula", limit=1)
+    public = replace(
+        scoped_authority(PrivacyTier.PUBLIC), space_ids=frozenset({spaces["Visible"]})
+    )
+
+    scoped_first = wire(engine.retrieval.search_page(request, authority=public))
+    expected_second = wire(
+        engine.retrieval.search_page(
+            replace(request, cursor=scoped_first["next_cursor"]), authority=public
+        )
+    )
+    owner = replace(authority(), owner=True)
+    owner_first = wire(engine.retrieval.search_page(request, authority=owner))
+
+    engine.capture.accept(
+        TextPayload("cursor visibility nebula"),
+        delivery_id="cursor.hidden.personal",
+        space_id=spaces["Visible"],
+        privacy_tier=PrivacyTier.PERSONAL,
+    )
+    engine.capture.accept(
+        TextPayload("cursor visibility nebula"),
+        delivery_id="cursor.hidden.space",
+        space_id=spaces["Hidden"],
+        privacy_tier=PrivacyTier.PUBLIC,
+    )
+
+    assert wire(
+        engine.retrieval.search_page(
+            replace(request, cursor=scoped_first["next_cursor"]), authority=public
+        )
+    ) == expected_second
+    with pytest.raises(T03Error, match="cursor_stale"):
+        engine.retrieval.search_page(
+            replace(request, cursor=owner_first["next_cursor"]), authority=owner
+        )
+
+    refreshed = wire(engine.retrieval.search_page(request, authority=public))
+    engine.capture.accept(
+        TextPayload("cursor visibility nebula"),
+        delivery_id="cursor.visible.new",
+        space_id=spaces["Visible"],
+        privacy_tier=PrivacyTier.PUBLIC,
+    )
+    with pytest.raises(T03Error, match="cursor_stale"):
+        engine.retrieval.search_page(
+            replace(request, cursor=refreshed["next_cursor"]), authority=public
+        )
+
+
+def test_retrieval_readers_overlap_and_fence_writer_through_materialization(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from open_brain_engine.engine import records as records_module
+    from open_brain_engine.storage.filesystem import read_confined as original_read
+    from open_brain_engine.storage.locks import LockBusyError
+
+    engine = BrainEngine.open(compile_single_user_local(tmp_path / "brain"))
+    capture = engine.capture.accept(
+        TextPayload("reader snapshot nebula"), delivery_id="reader.snapshot"
+    )
+    request = RecordReadRequest(
+        record_id=capture.capture_id,
+        expected_revision_id=capture.capture_id,
+    )
+    readers_entered = threading.Barrier(3)
+    release_readers = threading.Event()
+    results: list[dict[str, Any]] = []
+    failures: list[BaseException] = []
+
+    def paused_read(*args: Any, **kwargs: Any) -> bytes | None:
+        readers_entered.wait(timeout=3)
+        if not release_readers.wait(timeout=3):
+            raise AssertionError("reader release timed out")
+        return original_read(*args, **kwargs)
+
+    def read() -> None:
+        try:
+            results.append(wire(engine.retrieval.read_record(request, authority=authority())))
+        except BaseException as error:  # noqa: BLE001
+            failures.append(error)
+
+    monkeypatch.setattr(records_module, "read_confined", paused_read)
+    threads = [threading.Thread(target=read) for _ in range(2)]
+    for thread in threads:
+        thread.start()
+    try:
+        readers_entered.wait(timeout=3)
+        with pytest.raises(LockBusyError, match="already held by this process"):
+            engine.capture.accept(
+                TextPayload("must wait for readers"), delivery_id="reader.blocked.writer"
+            )
+    finally:
+        release_readers.set()
+        for thread in threads:
+            thread.join(timeout=3)
+    assert not any(thread.is_alive() for thread in threads)
+    assert failures == []
+    assert [result["content"]["text"] for result in results] == [
+        "reader snapshot nebula",
+        "reader snapshot nebula",
+    ]
+    engine.capture.accept(
+        TextPayload("writer after readers"), delivery_id="reader.released.writer"
+    )
+
+
+def test_concurrent_cursor_allocation_is_unique(tmp_path: Path) -> None:
+    engine = BrainEngine.open(compile_single_user_local(tmp_path / "brain"))
+    for index in range(3):
+        engine.capture.accept(
+            TextPayload("concurrent cursor nebula"), delivery_id=f"cursor.concurrent.{index}"
+        )
+    request = SearchPageRequest(query="concurrent cursor nebula", limit=1)
+    start = threading.Barrier(9)
+    cursors: list[str] = []
+    failures: list[BaseException] = []
+
+    def search() -> None:
+        try:
+            start.wait(timeout=3)
+            response = wire(engine.retrieval.search_page(request, authority=authority()))
+            cursors.append(cast(str, response["next_cursor"]))
+        except BaseException as error:  # noqa: BLE001
+            failures.append(error)
+
+    threads = [threading.Thread(target=search) for _ in range(8)]
+    for thread in threads:
+        thread.start()
+    start.wait(timeout=3)
+    for thread in threads:
+        thread.join(timeout=5)
+    assert not any(thread.is_alive() for thread in threads)
+    assert failures == []
+    assert len(cursors) == len(set(cursors)) == 8
+
+
+def test_record_projector_denies_disallowed_source_and_canonical_before_content_reads(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from open_brain_engine.engine import CaptureAction
+    from open_brain_engine.engine import records as records_module
+
+    engine = BrainEngine.open(
+        compile_single_user_local(tmp_path / "brain", starter_spaces=("Notes",))
+    )
+    space = engine.inbox.spaces()[0]
+    capture = engine.capture.accept(
+        TextPayload("classified canonical nebula"),
+        delivery_id="tier.projector.personal",
+        action=CaptureAction.CANONICAL_NOTE,
+        space_id=space.space_id,
+        privacy_tier=PrivacyTier.PERSONAL,
+    )
+    personal = scoped_authority(PrivacyTier.PERSONAL)
+    canonical = wire(
+        engine.retrieval.search_page(
+            SearchPageRequest(
+                query="classified canonical nebula",
+                filters={"space_ids": [], "payload_families": [], "record_types": ["canonical"]},
+            ),
+            authority=personal,
+        )
+    )["results"][0]
+    requests = (
+        RecordReadRequest(
+            record_id=capture.capture_id,
+            expected_revision_id=capture.capture_id,
+        ),
+        RecordReadRequest(
+            record_id=canonical["record_id"],
+            expected_revision_id=canonical["revision_id"],
+        ),
+    )
+    for request in requests:
+        assert wire(engine.retrieval.read_record(request, authority=personal))["content"]["text"]
+
+    reads: list[str] = []
+
+    def read_if_called(*_args: object, **_kwargs: object) -> None:
+        reads.append("content read")
+        return None
+
+    monkeypatch.setattr(records_module, "read_confined", read_if_called)
+    public = scoped_authority(PrivacyTier.PUBLIC)
+    for request in requests:
+        with pytest.raises(T03Error, match="not_found"):
+            engine.retrieval.read_record(request, authority=public)
+    assert reads == []
+
+
 def test_equal_score_keyset_traversal_and_restart(tmp_path: Path) -> None:
     profile = compile_single_user_local(tmp_path / "brain")
     engine = BrainEngine.open(profile)
@@ -154,6 +451,12 @@ def test_full_unicode_chunk_reconstruction_and_grant(tmp_path: Path) -> None:
         assert response["end_byte"] == offset + len(text.encode())
         chunks.append(text)
         offset = response["end_byte"]
+        if len(chunks) == 1:
+            engine.capture.accept(
+                TextPayload("hidden chunk mutation"),
+                delivery_id="unicode.hidden.secret",
+                privacy_tier=PrivacyTier.SECRET,
+            )
         if response["complete"]:
             break
         request = replace(request, cursor=response["next_cursor"])

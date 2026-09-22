@@ -7,9 +7,11 @@ import sqlite3
 import struct
 from collections.abc import Iterator
 from contextlib import contextmanager
+from hashlib import sha256
 from typing import TYPE_CHECKING, Any, cast
 
 from open_brain_engine.core.ids import portable_canonical_json_bytes
+from open_brain_engine.core.models import PrivacyTier
 from open_brain_engine.storage.filesystem import StorageError
 
 from .cursors import CursorStore, binding_digest
@@ -26,7 +28,7 @@ from .t03_contracts import (
 if TYPE_CHECKING:
     from .local import BrainEngine
 
-RANKING_VERSION = "fts5-bm25-0-10-1-binary-v1"
+RANKING_VERSION = "fts5-match-tier-binary-v2"
 # Leave transport framing and duplicate JSON string escaping room below 1 MiB.
 MAX_RESPONSE_BYTES = 240_000
 
@@ -52,8 +54,8 @@ def authority_binding(authority: EffectiveAuthority) -> dict[str, Any]:
 @contextmanager
 def read_snapshot(engine: BrainEngine) -> Iterator[sqlite3.Connection]:
     engine._assert_root()
-    with engine._writer_lease.acquire_shared_writer():
-        CursorStore(engine.profile).bind_root(engine)
+    with engine._reader_lease.acquire_shared_reader():
+        CursorStore(engine.profile).verify_custody()
         connection = engine._store.connect()
         try:
             if connection.execute("PRAGMA user_version").fetchone()[0] != 9:
@@ -66,11 +68,86 @@ def read_snapshot(engine: BrainEngine) -> Iterator[sqlite3.Connection]:
             connection.close()
 
 
-def generations(connection: sqlite3.Connection) -> dict[str, Any]:
+def _authorized_retrieval_digest(
+    connection: sqlite3.Connection,
+    authority: EffectiveAuthority,
+    *,
+    visible_state: object | None,
+) -> str:
+    readable_tiers = tuple(
+        tier.value for tier in PrivacyTier if authority.permits_read_tier(tier)
+    )
+    clauses: list[str] = []
+    parameters: list[Any] = []
+    if readable_tiers:
+        clauses.append(
+            "d.effective_tier IN (" + ",".join("?" for _ in readable_tiers) + ")"
+        )
+        parameters.extend(readable_tiers)
+    else:
+        clauses.append("0")
+    if authority.space_ids is not None:
+        spaces = sorted(authority.space_ids)
+        if spaces:
+            clauses.append("d.space_id IN (" + ",".join("?" for _ in spaces) + ")")
+            parameters.extend(spaces)
+        else:
+            clauses.append("0")
+    rows = connection.execute(
+        f"""
+        WITH authorized AS MATERIALIZED (
+            SELECT d.* FROM search_documents d WHERE {" AND ".join(clauses)}
+        )
+        SELECT a.*,
+            s.source_id AS logical_source_id,
+            s.head_capture_id AS logical_head_capture_id,
+            s.historical_only AS logical_historical_only,
+            s.space_id AS logical_space_id,
+            s.route_version AS logical_route_version,
+            s.head_version AS logical_head_version,
+            s.lifecycle AS logical_lifecycle,
+            s.availability AS logical_availability
+        FROM authorized a
+        LEFT JOIN logical_sources s
+          ON a.record_type='source' AND s.head_capture_id=a.result_id
+        ORDER BY a.result_id COLLATE BINARY
+        """,
+        parameters,
+    )
+    digest = sha256(b"open-brain-authorization-visible-generation-v1\0")
+
+    def update(value: object) -> None:
+        encoded = portable_canonical_json_bytes(value)
+        digest.update(len(encoded).to_bytes(8, "big"))
+        digest.update(encoded)
+
+    for row in rows:
+        update({"kind": "search_document", "value": dict(row)})
+    if visible_state is not None:
+        update({"kind": "operation_state", "value": visible_state})
+    return digest.hexdigest()
+
+
+def generations(
+    connection: sqlite3.Connection,
+    *,
+    authority: EffectiveAuthority | None = None,
+    visible_state: object | None = None,
+) -> dict[str, Any]:
     row = connection.execute("SELECT * FROM engine_generations WHERE singleton=1").fetchone()
     if row is None:
         raise T03Error("operation_pending")
-    return dict(row)
+    if authority is None or authority.owner:
+        return dict(row)
+    return {
+        "incarnation": row["incarnation"],
+        "authorization_epoch": row["authorization_epoch"],
+        "projection_policy_version": row["projection_policy_version"],
+        "fencing_epoch": row["fencing_epoch"],
+        "visible_retrieval_digest": _authorized_retrieval_digest(
+            connection, authority, visible_state=visible_state
+        ),
+    }
 
 
 def continuation(
@@ -141,7 +218,7 @@ def search_page(
         }
     )
     with read_snapshot(engine) as connection:
-        generation = generations(connection)
+        generation = generations(connection, authority=authority)
         now = engine._clock().timestamp()
         store = CursorStore(engine.profile)
         prior = continuation(
@@ -159,6 +236,16 @@ def search_page(
             "WHERE s.head_capture_id=d.result_id AND s.historical_only=0 "
             "AND s.lifecycle='active' AND s.availability='available'))"
         ]
+        readable_tiers = tuple(
+            tier.value for tier in PrivacyTier if authority.permits_read_tier(tier)
+        )
+        if readable_tiers:
+            clauses.append(
+                "d.effective_tier IN (" + ",".join("?" for _ in readable_tiers) + ")"
+            )
+            parameters.extend(readable_tiers)
+        else:
+            clauses.append("0")
         if authority.space_ids is not None:
             values = sorted(authority.space_ids)
             clauses.append("d.space_id IN (" + ",".join("?" for _ in values) + ")")
@@ -172,7 +259,15 @@ def search_page(
             if values:
                 clauses.append(f"d.{column} IN (" + ",".join("?" for _ in values) + ")")
                 parameters.extend(values)
-        parameters.append(compiled.disjunction)
+        parameters.extend(
+            (
+                compiled.title_phrase,
+                compiled.title_all,
+                compiled.phrase_any,
+                compiled.all_any,
+                compiled.disjunction,
+            )
+        )
         seek = ""
         if last is not None:
             seek = "WHERE (score,record_type COLLATE BINARY,result_id COLLATE BINARY) > (?,?,?)"
@@ -181,11 +276,33 @@ def search_page(
             WITH authorized AS MATERIALIZED (
                 SELECT d.*,i.fts_rowid FROM search_documents d
                 JOIN search_fts_identity i USING(result_id) WHERE {" AND ".join(clauses)}
+            ), title_phrase AS MATERIALIZED (
+                SELECT rowid AS fts_rowid FROM search_documents_fts
+                WHERE search_documents_fts MATCH ?
+            ), title_all AS MATERIALIZED (
+                SELECT rowid AS fts_rowid FROM search_documents_fts
+                WHERE search_documents_fts MATCH ?
+            ), phrase_any AS MATERIALIZED (
+                SELECT rowid AS fts_rowid FROM search_documents_fts
+                WHERE search_documents_fts MATCH ?
+            ), all_any AS MATERIALIZED (
+                SELECT rowid AS fts_rowid FROM search_documents_fts
+                WHERE search_documents_fts MATCH ?
             ), hits AS MATERIALIZED (
-                SELECT a.*,bm25(search_documents_fts,0.0,10.0,1.0) AS score
+                SELECT a.*,CAST(CASE
+                    WHEN tp.fts_rowid IS NOT NULL THEN 1
+                    WHEN ta.fts_rowid IS NOT NULL THEN 2
+                    WHEN pa.fts_rowid IS NOT NULL THEN 3
+                    WHEN aa.fts_rowid IS NOT NULL THEN 4
+                    ELSE 5
+                END AS REAL) AS score
                 FROM authorized a JOIN search_documents_fts ON
                   search_documents_fts.rowid=a.fts_rowid AND
                   search_documents_fts.result_id=a.result_id
+                LEFT JOIN title_phrase tp USING(fts_rowid)
+                LEFT JOIN title_all ta USING(fts_rowid)
+                LEFT JOIN phrase_any pa USING(fts_rowid)
+                LEFT JOIN all_any aa USING(fts_rowid)
                 WHERE search_documents_fts MATCH ?
             )
             SELECT * FROM hits {seek}
@@ -269,7 +386,14 @@ def read_record(
                 "authority": authority_binding(authority),
             }
         )
-        generation = generations(connection)
+        generation = generations(
+            connection,
+            authority=authority,
+            visible_state={
+                "record": projected.summary,
+                "content_sha256": sha256(body).hexdigest(),
+            },
+        )
         now = engine._clock().timestamp()
         store = CursorStore(engine.profile)
         prior = continuation(

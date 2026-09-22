@@ -51,6 +51,7 @@ class WriterQueueFullError(LeaseError):
 _IDENTITY = re.compile(r"[a-z][a-z0-9-]{0,63}")
 _DISCRIMINATORS = {
     LockScope.SHARED_WRITER: frozenset({"shared-writer"}),
+    LockScope.CURSOR_STATE: frozenset({"cursor-state"}),
     LockScope.INDEX: frozenset({"index"}),
     LockScope.PORTABILITY_PROMOTION: frozenset({"portability-promotion"}),
 }
@@ -64,13 +65,25 @@ _LOCK_FILE_NAMES = frozenset(
         "lease.daemon-authority",
         "lease.appliance-lifecycle",
         "lease.shared-writer",
+        "lease.cursor-state",
         "lease.index",
         "lease.portability-promotion",
     }
 )
 _PROCESS_HELD_LOCKS: set[tuple[int, int, str]] = set()
 _PROCESS_HELD_LOCKS_GUARD = threading.Lock()
-# Bounded writer waiters are per process, keyed like the held-lease set. The
+
+
+@dataclass(slots=True)
+class _ProcessReaderLease:
+    count: int
+    root_fd: int
+    directory_fd: int
+    lock_fd: int
+
+
+_PROCESS_READER_LEASES: dict[tuple[int, int, str], _ProcessReaderLease] = {}
+# Bounded exclusive waiters are per process, keyed like the held-lease set. The
 # core runs as one foreground process, so these budgets are per process.
 _PROCESS_WRITER_WAITERS: dict[tuple[int, int, str], int] = {}
 _PROCESS_WRITER_WAITERS_GUARD = threading.Lock()
@@ -256,8 +269,120 @@ class FileLease:
     @contextmanager
     def acquire_shared_writer(self) -> Iterator[None]:
         """Acquire the one canonical-writer lease without exporting its lock enum."""
+        with self.acquire_exclusive_writer():
+            yield
+
+    @contextmanager
+    def acquire_exclusive_writer(self) -> Iterator[None]:
+        """Acquire exclusive mutation authority for the Brain."""
         with self.acquire(LockScope.SHARED_WRITER):
             yield
+
+    @contextmanager
+    def acquire_shared_reader(self) -> Iterator[None]:
+        """Share the Brain fence with readers while excluding every writer."""
+        if self._validate_acquire is not None:
+            self._validate_acquire()
+        _require_record_lock_support()
+        root_fd = self._open_lease_root()
+        lock_directory_fd = -1
+        lock_fd = -1
+        held_key: tuple[int, int, str] | None = None
+        registered = False
+        try:
+            root_metadata = os.fstat(root_fd)
+            if (
+                self._required_root_mode is not None
+                and stat.S_IMODE(root_metadata.st_mode) != self._required_root_mode
+            ):
+                raise RootConfinementError("unsafe lease root mode")
+            discriminator = self._discriminator(LockScope.SHARED_WRITER)
+            held_key = (root_metadata.st_dev, root_metadata.st_ino, discriminator)
+            with _PROCESS_HELD_LOCKS_GUARD:
+                if held_key in _PROCESS_HELD_LOCKS:
+                    raise LockBusyError("lease already held by this process")
+                existing = _PROCESS_READER_LEASES.get(held_key)
+                if existing is not None:
+                    existing.count += 1
+                    registered = True
+                else:
+                    try:
+                        lock_directory_fd = _open_child_directory(
+                            root_fd,
+                            _LOCK_DIRECTORY,
+                            create=True,
+                        )
+                        _validate_lock_directory(lock_directory_fd)
+                        lock_fd, _created = _open_lock_file(
+                            lock_directory_fd, discriminator
+                        )
+                        try:
+                            fcntl.lockf(lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                        except OSError as error:
+                            if error.errno not in {errno.EACCES, errno.EAGAIN}:
+                                raise
+                            try:
+                                fcntl.lockf(lock_fd, fcntl.LOCK_SH | fcntl.LOCK_NB)
+                            except OSError as shared_error:
+                                if shared_error.errno in {errno.EACCES, errno.EAGAIN}:
+                                    raise LockBusyError(
+                                        "lease held by another process"
+                                    ) from None
+                                raise
+                        else:
+                            descriptor = LeaseDescriptor(
+                                version=1,
+                                scope=LockScope.SHARED_WRITER,
+                                discriminator=discriminator,
+                                owner_identity_id=self._owner_identity_id,
+                                pid=os.getpid(),
+                                acquired_at=self._clock(),
+                            )
+                            _replace_descriptor(
+                                lock_fd, lock_directory_fd, descriptor.to_bytes()
+                            )
+                            fcntl.lockf(lock_fd, fcntl.LOCK_SH | fcntl.LOCK_NB)
+                    except BaseException:
+                        # POSIX record locks are process-wide: close this file
+                        # before another local holder can register its lock.
+                        if lock_fd >= 0:
+                            os.close(lock_fd)
+                            lock_fd = -1
+                        raise
+                    _PROCESS_READER_LEASES[held_key] = _ProcessReaderLease(
+                        count=1,
+                        root_fd=root_fd,
+                        directory_fd=lock_directory_fd,
+                        lock_fd=lock_fd,
+                    )
+                    root_fd = lock_directory_fd = lock_fd = -1
+                    registered = True
+            if self._validate_acquire is not None:
+                self._validate_acquire()
+            yield
+        except LeaseError, StorageError:
+            raise
+        except OSError:
+            raise DurabilityError("lease operation failed") from None
+        finally:
+            with _PROCESS_HELD_LOCKS_GUARD:
+                if registered and held_key is not None:
+                    active = _PROCESS_READER_LEASES.get(held_key)
+                    if active is not None:
+                        active.count -= 1
+                        if active.count == 0:
+                            with suppress(OSError):
+                                fcntl.lockf(active.lock_fd, fcntl.LOCK_UN)
+                            os.close(active.lock_fd)
+                            os.close(active.directory_fd)
+                            os.close(active.root_fd)
+                            _PROCESS_READER_LEASES.pop(held_key)
+                if lock_fd >= 0:
+                    os.close(lock_fd)
+                    lock_fd = -1
+            for open_fd in (lock_directory_fd, root_fd):
+                if open_fd >= 0:
+                    os.close(open_fd)
 
     @contextmanager
     def acquire_shared_writer_bounded(
@@ -267,7 +392,42 @@ class FileLease:
         timeout: float,
         poll_interval: float | None = None,
     ) -> Iterator[None]:
-        """Acquire the shared-writer lease by bounded blocking in the caller's thread.
+        """Acquire the shared-writer lease by bounded blocking in the caller's thread."""
+        with self._acquire_bounded(
+            LockScope.SHARED_WRITER,
+            max_waiters=max_waiters,
+            timeout=timeout,
+            poll_interval=poll_interval,
+        ):
+            yield
+
+    @contextmanager
+    def acquire_cursor_state_bounded(
+        self,
+        *,
+        max_waiters: int,
+        timeout: float,
+        poll_interval: float | None = None,
+    ) -> Iterator[None]:
+        """Acquire the independent cursor-state lease with bounded waiting."""
+        with self._acquire_bounded(
+            LockScope.CURSOR_STATE,
+            max_waiters=max_waiters,
+            timeout=timeout,
+            poll_interval=poll_interval,
+        ):
+            yield
+
+    @contextmanager
+    def _acquire_bounded(
+        self,
+        scope: LockScope,
+        *,
+        max_waiters: int,
+        timeout: float,
+        poll_interval: float | None,
+    ) -> Iterator[None]:
+        """Bound waiting in the caller's thread for one exclusive lease scope.
 
         At most ``max_waiters`` callers may wait for the lease at once; each
         waits at most ``timeout`` seconds (polling ``poll_interval`` between
@@ -287,7 +447,7 @@ class FileLease:
         if self._validate_acquire is not None:
             self._validate_acquire()
         _require_record_lock_support()
-        waiter_key = self._lease_waiter_key(LockScope.SHARED_WRITER)
+        waiter_key = self._lease_waiter_key(scope)
         with _PROCESS_WRITER_WAITERS_GUARD:
             waiting = _PROCESS_WRITER_WAITERS.get(waiter_key, 0)
             if waiting >= max_waiters:
@@ -297,7 +457,7 @@ class FileLease:
         try:
             with ExitStack() as stack:
                 while True:
-                    attempt = self.acquire(LockScope.SHARED_WRITER)
+                    attempt = self.acquire(scope)
                     try:
                         stack.enter_context(attempt)
                     except LockBusyError:
@@ -336,19 +496,27 @@ class FileLease:
                 raise RootConfinementError("unsafe lease root mode")
             held_key = (root_metadata.st_dev, root_metadata.st_ino, discriminator)
             with _PROCESS_HELD_LOCKS_GUARD:
-                if held_key in _PROCESS_HELD_LOCKS:
+                if held_key in _PROCESS_HELD_LOCKS or held_key in _PROCESS_READER_LEASES:
                     raise LockBusyError("lease already held by this process")
-                lock_directory_fd = _open_child_directory(
-                    root_fd,
-                    _LOCK_DIRECTORY,
-                    create=True,
-                )
-                _validate_lock_directory(lock_directory_fd)
-                lock_fd, created = _open_lock_file(lock_directory_fd, discriminator)
                 try:
+                    lock_directory_fd = _open_child_directory(
+                        root_fd,
+                        _LOCK_DIRECTORY,
+                        create=True,
+                    )
+                    _validate_lock_directory(lock_directory_fd)
+                    lock_fd, created = _open_lock_file(lock_directory_fd, discriminator)
                     fcntl.lockf(lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
-                except OSError as error:
-                    if error.errno in {errno.EACCES, errno.EAGAIN}:
+                except BaseException as error:
+                    # POSIX record locks are process-wide: close this file
+                    # before another local holder can register its lock.
+                    if lock_fd >= 0:
+                        os.close(lock_fd)
+                        lock_fd = -1
+                    if isinstance(error, OSError) and error.errno in {
+                        errno.EACCES,
+                        errno.EAGAIN,
+                    }:
                         raise LockBusyError("lease held by another process") from None
                     raise
                 kernel_lock_acquired = True
@@ -374,14 +542,15 @@ class FileLease:
         except OSError:
             raise DurabilityError("lease operation failed") from None
         finally:
-            if kernel_lock_acquired and lock_fd >= 0:
-                with suppress(OSError):
-                    fcntl.lockf(lock_fd, fcntl.LOCK_UN)
-            if process_lock_registered and held_key is not None:
-                with _PROCESS_HELD_LOCKS_GUARD:
+            with _PROCESS_HELD_LOCKS_GUARD:
+                if kernel_lock_acquired and lock_fd >= 0:
+                    with suppress(OSError):
+                        fcntl.lockf(lock_fd, fcntl.LOCK_UN)
+                if lock_fd >= 0:
+                    os.close(lock_fd)
+                    lock_fd = -1
+                if process_lock_registered and held_key is not None:
                     _PROCESS_HELD_LOCKS.discard(held_key)
-            if lock_fd >= 0:
-                os.close(lock_fd)
             if lock_directory_fd >= 0:
                 os.close(lock_directory_fd)
             os.close(root_fd)
@@ -417,6 +586,10 @@ def inspect_file_leases(state_root: Path) -> LockStateSnapshot:
     _require_record_lock_support()
     if not isinstance(state_root, Path) or not state_root.is_absolute():
         raise RootConfinementError("unsafe lease root")
+    try:
+        root_metadata = os.lstat(state_root)
+    except OSError:
+        raise DurabilityError("lease inspection failed") from None
     lock_directory = state_root / _LOCK_DIRECTORY
     try:
         directory_metadata = os.lstat(lock_directory)
@@ -440,41 +613,56 @@ def inspect_file_leases(state_root: Path) -> LockStateSnapshot:
     acquired_at: list[datetime] = []
     held_leases: list[HeldLeaseSnapshot] = []
     for name in sorted(names & _LOCK_FILE_NAMES):
-        file_fd = -1
-        try:
-            file_fd = os.open(
-                lock_directory / name,
-                os.O_RDWR | getattr(os, "O_NOFOLLOW", 0),
+        discriminator = name.removeprefix("lease.")
+        held_key = (root_metadata.st_dev, root_metadata.st_ino, discriminator)
+        with _PROCESS_HELD_LOCKS_GUARD:
+            locally_held = (
+                held_key in _PROCESS_HELD_LOCKS or held_key in _PROCESS_READER_LEASES
             )
-            metadata = os.fstat(file_fd)
-            if (
-                not stat.S_ISREG(metadata.st_mode)
-                or stat.S_IMODE(metadata.st_mode) != 0o600
-                or metadata.st_nlink != 1
-            ):
-                malformed_count += 1
-                continue
-            held = _record_lock_is_held(file_fd)
-            descriptor = _read_descriptor(file_fd, name)
-            if held:
+            if locally_held:
+                try:
+                    scope = LockScope(discriminator)
+                except ValueError:
+                    malformed_count += 1
+                    continue
                 held_count += 1
-                scope, discriminator = _scope_for_file_name(name)
-                if descriptor is not None:
-                    acquired_at.append(descriptor.acquired_at)
-                held_leases.append(
-                    HeldLeaseSnapshot(
-                        scope=scope,
-                        discriminator=discriminator,
-                        acquired_at=None if descriptor is None else descriptor.acquired_at,
-                    )
+                held_leases.append(HeldLeaseSnapshot(scope, discriminator, None))
+                continue
+            file_fd = -1
+            try:
+                file_fd = os.open(
+                    lock_directory / name,
+                    os.O_RDWR | getattr(os, "O_NOFOLLOW", 0),
                 )
-            elif descriptor is None:
+                metadata = os.fstat(file_fd)
+                if (
+                    not stat.S_ISREG(metadata.st_mode)
+                    or stat.S_IMODE(metadata.st_mode) != 0o600
+                    or metadata.st_nlink != 1
+                ):
+                    malformed_count += 1
+                    continue
+                held = _record_lock_is_held(file_fd)
+                descriptor = _read_descriptor(file_fd, name)
+                if held:
+                    held_count += 1
+                    scope, discriminator = _scope_for_file_name(name)
+                    if descriptor is not None:
+                        acquired_at.append(descriptor.acquired_at)
+                    held_leases.append(
+                        HeldLeaseSnapshot(
+                            scope=scope,
+                            discriminator=discriminator,
+                            acquired_at=None if descriptor is None else descriptor.acquired_at,
+                        )
+                    )
+                elif descriptor is None:
+                    malformed_count += 1
+            except OSError:
                 malformed_count += 1
-        except OSError:
-            malformed_count += 1
-        finally:
-            if file_fd >= 0:
-                os.close(file_fd)
+            finally:
+                if file_fd >= 0:
+                    os.close(file_fd)
     return LockStateSnapshot(
         held_count=held_count,
         malformed_count=malformed_count,
@@ -507,6 +695,7 @@ def _require_record_lock_support() -> None:
         or not hasattr(fcntl, "lockf")
         or not hasattr(fcntl, "F_GETLK")
         or not hasattr(fcntl, "LOCK_EX")
+        or not hasattr(fcntl, "LOCK_SH")
         or not hasattr(fcntl, "LOCK_NB")
     ):
         raise StorageUnsupportedPlatformError("record locks unsupported")

@@ -28,6 +28,7 @@ from open_brain_engine.engine import (
     canonical_json_bytes,
     inspect_phase1_state,
 )
+from open_brain_engine.engine.t03_contracts import EffectiveAuthority
 from open_brain_engine.storage.locks import LockBusyError
 
 from open_brain.local_data import FilesystemTypeProbe, LocalDataError, LocalRootSelection
@@ -148,6 +149,15 @@ _COLLECTOR_OPERATIONS = (
     "collector.sync_now",
 )
 _OPERATIONS = _BASE_OPERATIONS + _NEGOTIATED_OPERATIONS + _COLLECTOR_OPERATIONS
+
+_SCOPED_OPERATION_GRANTS: dict[str, frozenset[str]] = {
+    "capture.create": frozenset({"capture"}),
+    "contract.describe": frozenset({"search", "content-read", "history-read"}),
+    "search.page": frozenset({"search"}),
+    "record.read": frozenset({"content-read"}),
+    "history.list": frozenset({"history-read"}),
+    "history.show": frozenset({"history-read"}),
+}
 
 _DIRECT_PROVIDERS = (
     ManagedProvider.OPENAI_API,
@@ -411,9 +421,14 @@ def dispatch_plugin_request(
     *,
     request_id: str,
     base_executable: Path | None,
+    authority: EffectiveAuthority | None = None,
     environment: Mapping[str, object] | None = None,
     runtime: PluginRuntimeState | None = None,
 ) -> dict[str, object]:
+    if authority is not None and not authority.owner:
+        required = _SCOPED_OPERATION_GRANTS.get(operation)
+        if required is None or not required & authority.capabilities:
+            raise PluginBridgeFailure("unsupported_capability")
     tasks = session.tasks
     if operation == "capture.create":
         _require_keys(arguments, frozenset({"text"}))
@@ -437,7 +452,7 @@ def dispatch_plugin_request(
         "history.show",
         "source.route",
     }:
-        adapter = _t03_bridge_adapter(tasks, _runtime(runtime))
+        adapter = _t03_bridge_adapter(tasks, _runtime(runtime), authority=authority)
         try:
             return adapter.invoke(
                 operation,
@@ -1310,15 +1325,27 @@ def _runtime(value: PluginRuntimeState | None) -> PluginRuntimeState:
 def _t03_bridge_adapter(
     tasks: EngineTaskSet,
     runtime: PluginRuntimeState,
+    *,
+    authority: EffectiveAuthority | None = None,
 ) -> T03AppAdapter:
+    selected_authority = (
+        cast(EffectiveAuthority, owner_authority(tasks, session_id=runtime.session_id))
+        if authority is None
+        else authority
+    )
+    grants = frozenset({"search", "content-read", "history-read", "organize"})
+    if not selected_authority.owner:
+        grants &= selected_authority.capabilities
+        grants -= {"organize"}
     if runtime.t03_adapter is None:
-        grants = frozenset({"search", "content-read", "history-read", "organize"})
         runtime.t03_adapter = T03AppAdapter(
             tasks,
-            owner_authority(tasks, session_id=runtime.session_id),
+            selected_authority,
             grants,
-            owner=True,
+            owner=selected_authority.owner,
         )
+    elif runtime.t03_adapter.authority != selected_authority:
+        raise PluginBridgeFailure("unsupported_capability")
     return runtime.t03_adapter
 
 
