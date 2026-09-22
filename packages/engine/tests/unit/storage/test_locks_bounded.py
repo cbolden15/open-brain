@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import subprocess
 import sys
 import threading
@@ -9,12 +10,15 @@ import time
 from pathlib import Path
 
 import pytest
+from open_brain_engine.core.locks import LockScope
+from open_brain_engine.storage import locks as locks_module
 from open_brain_engine.storage.locks import (
     _PROCESS_WRITER_WAITERS,
     FileLease,
     LeaseFormatError,
     LockBusyError,
     WriterQueueFullError,
+    inspect_file_leases,
 )
 
 _HOLDER_SCRIPT = """
@@ -23,6 +27,19 @@ with open(sys.argv[1], "r+b") as handle:
     fcntl.lockf(handle, fcntl.LOCK_EX)
     print("held", flush=True)
     time.sleep(float(sys.argv[2]))
+"""
+
+_TRY_EXCLUSIVE_SCRIPT = """
+import errno, fcntl, sys
+with open(sys.argv[1], "r+b") as handle:
+    try:
+        fcntl.lockf(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError as error:
+        if error.errno not in {errno.EACCES, errno.EAGAIN}:
+            raise
+        print("busy")
+    else:
+        print("acquired")
 """
 
 
@@ -66,6 +83,124 @@ def test_nonblocking_acquire_still_fails_fast_inside_one_process(tmp_path: Path)
         pytest.raises(LockBusyError, match="already held by this process"),
         lease.acquire_shared_writer(),
     ):
+        pass
+
+
+def test_shared_readers_overlap_and_fence_exclusive_writers(tmp_path: Path) -> None:
+    lease = _lease(tmp_path)
+    with lease.acquire_shared_writer():
+        pass
+    with lease.acquire_shared_reader(), lease.acquire_shared_reader():
+        with (
+            pytest.raises(LockBusyError, match="already held by this process"),
+            lease.acquire_exclusive_writer(),
+        ):
+            pass
+        child = subprocess.run(
+            [sys.executable, "-c", _TRY_EXCLUSIVE_SCRIPT, str(_lock_path(tmp_path))],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        assert child.stdout.strip() == "busy"
+        snapshot = inspect_file_leases(tmp_path)
+        assert snapshot.held_count == 1
+        child = subprocess.run(
+            [sys.executable, "-c", _TRY_EXCLUSIVE_SCRIPT, str(_lock_path(tmp_path))],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        assert child.stdout.strip() == "busy"
+    with (
+        lease.acquire_exclusive_writer(),
+        pytest.raises(LockBusyError, match="already held by this process"),
+        lease.acquire_shared_reader(),
+    ):
+        pass
+
+
+def test_lock_file_closes_before_another_local_holder_registers(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    lease = _lease(tmp_path)
+    close_started = threading.Event()
+    allow_close = threading.Event()
+    reader_entered = threading.Event()
+    release_reader = threading.Event()
+    writer_fds: list[int] = []
+    failures: list[BaseException] = []
+    real_open_lock_file = locks_module._open_lock_file
+    real_close = os.close
+
+    def capture_writer_fd(directory_fd: int, discriminator: str) -> tuple[int, bool]:
+        file_fd, created = real_open_lock_file(directory_fd, discriminator)
+        if threading.current_thread().name == "closing-writer":
+            writer_fds.append(file_fd)
+        return file_fd, created
+
+    def pause_writer_close(file_fd: int) -> None:
+        if (
+            threading.current_thread().name == "closing-writer"
+            and writer_fds
+            and file_fd == writer_fds[0]
+        ):
+            close_started.set()
+            if not allow_close.wait(2.0):
+                raise AssertionError("writer close was not released")
+        real_close(file_fd)
+
+    def use_writer() -> None:
+        try:
+            with lease.acquire_exclusive_writer():
+                pass
+        except BaseException as error:  # noqa: BLE001
+            failures.append(error)
+
+    def use_reader() -> None:
+        try:
+            with lease.acquire_shared_reader():
+                reader_entered.set()
+                if not release_reader.wait(2.0):
+                    raise AssertionError("reader was not released")
+        except BaseException as error:  # noqa: BLE001
+            failures.append(error)
+
+    monkeypatch.setattr(locks_module, "_open_lock_file", capture_writer_fd)
+    monkeypatch.setattr(os, "close", pause_writer_close)
+    writer = threading.Thread(target=use_writer, name="closing-writer")
+    reader = threading.Thread(target=use_reader, name="next-reader")
+    writer.start()
+    assert close_started.wait(2.0)
+    reader.start()
+    try:
+        assert not reader_entered.wait(0.05)
+        allow_close.set()
+        assert reader_entered.wait(2.0)
+        child = subprocess.run(
+            [sys.executable, "-c", _TRY_EXCLUSIVE_SCRIPT, str(_lock_path(tmp_path))],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        assert child.stdout.strip() == "busy"
+    finally:
+        allow_close.set()
+        release_reader.set()
+        writer.join()
+        reader.join()
+    assert failures == []
+
+
+def test_cursor_state_lock_has_a_separate_bounded_waiter_budget(tmp_path: Path) -> None:
+    lease = _lease(tmp_path)
+    with (
+        lease.acquire(LockScope.CURSOR_STATE),
+        pytest.raises(WriterQueueFullError, match="deadline"),
+        lease.acquire_cursor_state_bounded(max_waiters=1, timeout=0.01),
+    ):
+        pass
+    with lease.acquire_cursor_state_bounded(max_waiters=1, timeout=0.1):
         pass
 
 

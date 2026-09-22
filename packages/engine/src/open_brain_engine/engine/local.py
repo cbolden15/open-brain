@@ -225,6 +225,12 @@ class BrainEngine(CaptureOperations, SpaceOperations, ReviewOperations, Retrieva
             validate_acquire=validate_mutation_authority,
             parent_root_identity=profile.root_identity,
         )
+        self._reader_lease = FileLease(
+            profile.root / ".open-brain",
+            lease_identity,
+            clock=clock,
+            parent_root_identity=profile.root_identity,
+        )
         with self._writer_lease.acquire_shared_writer():
             self._store = _LocalStore(profile, clock=self._clock)
             from .source_store import publish_source_metadata
@@ -312,6 +318,17 @@ class BrainEngine(CaptureOperations, SpaceOperations, ReviewOperations, Retrieva
         with self._writer_lease.acquire_shared_writer():
             return self._recover()
 
+    def _bind_cursor_root(self) -> None:
+        from contextlib import suppress
+
+        from .cursors import CursorStore
+        from .t03_contracts import T03Error
+
+        # Rebuildable cursor custody cannot block unrelated legacy tasks.
+        # Versioned reads verify this binding and refuse before access.
+        with suppress(T03Error):
+            CursorStore(self.profile).bind_root(self)
+
     def _rederive_live_search_projection(self) -> None:
         rederive_live_search_projection(self)
 
@@ -322,16 +339,7 @@ class BrainEngine(CaptureOperations, SpaceOperations, ReviewOperations, Retrieva
         finally:
             connection.close()
         if source_history:
-            if startup:
-                from contextlib import suppress
-
-                from .cursors import CursorStore
-                from .t03_contracts import T03Error
-
-                # Rebuildable cursor custody cannot block unrelated legacy tasks.
-                # Versioned reads retry this binding and refuse before access.
-                with suppress(T03Error):
-                    CursorStore(self.profile).bind_root(self)
+            self._bind_cursor_root()
             from .source_intake import quarantine_stale_intakes
 
             quarantine_stale_intakes(self)

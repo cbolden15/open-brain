@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import threading
 from dataclasses import replace
 from datetime import UTC
 from pathlib import Path
@@ -250,6 +251,93 @@ def test_scoped_cursor_survives_hidden_mutation_but_stales_on_visible_mutation(
         engine.retrieval.search_page(
             replace(request, cursor=refreshed["next_cursor"]), authority=public
         )
+
+
+def test_retrieval_readers_overlap_and_fence_writer_through_materialization(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from open_brain_engine.engine import records as records_module
+    from open_brain_engine.storage.filesystem import read_confined as original_read
+    from open_brain_engine.storage.locks import LockBusyError
+
+    engine = BrainEngine.open(compile_single_user_local(tmp_path / "brain"))
+    capture = engine.capture.accept(
+        TextPayload("reader snapshot nebula"), delivery_id="reader.snapshot"
+    )
+    request = RecordReadRequest(
+        record_id=capture.capture_id,
+        expected_revision_id=capture.capture_id,
+    )
+    readers_entered = threading.Barrier(3)
+    release_readers = threading.Event()
+    results: list[dict[str, Any]] = []
+    failures: list[BaseException] = []
+
+    def paused_read(*args: Any, **kwargs: Any) -> bytes | None:
+        readers_entered.wait(timeout=3)
+        if not release_readers.wait(timeout=3):
+            raise AssertionError("reader release timed out")
+        return original_read(*args, **kwargs)
+
+    def read() -> None:
+        try:
+            results.append(wire(engine.retrieval.read_record(request, authority=authority())))
+        except BaseException as error:  # noqa: BLE001
+            failures.append(error)
+
+    monkeypatch.setattr(records_module, "read_confined", paused_read)
+    threads = [threading.Thread(target=read) for _ in range(2)]
+    for thread in threads:
+        thread.start()
+    try:
+        readers_entered.wait(timeout=3)
+        with pytest.raises(LockBusyError, match="already held by this process"):
+            engine.capture.accept(
+                TextPayload("must wait for readers"), delivery_id="reader.blocked.writer"
+            )
+    finally:
+        release_readers.set()
+        for thread in threads:
+            thread.join(timeout=3)
+    assert not any(thread.is_alive() for thread in threads)
+    assert failures == []
+    assert [result["content"]["text"] for result in results] == [
+        "reader snapshot nebula",
+        "reader snapshot nebula",
+    ]
+    engine.capture.accept(
+        TextPayload("writer after readers"), delivery_id="reader.released.writer"
+    )
+
+
+def test_concurrent_cursor_allocation_is_unique(tmp_path: Path) -> None:
+    engine = BrainEngine.open(compile_single_user_local(tmp_path / "brain"))
+    for index in range(3):
+        engine.capture.accept(
+            TextPayload("concurrent cursor nebula"), delivery_id=f"cursor.concurrent.{index}"
+        )
+    request = SearchPageRequest(query="concurrent cursor nebula", limit=1)
+    start = threading.Barrier(9)
+    cursors: list[str] = []
+    failures: list[BaseException] = []
+
+    def search() -> None:
+        try:
+            start.wait(timeout=3)
+            response = wire(engine.retrieval.search_page(request, authority=authority()))
+            cursors.append(cast(str, response["next_cursor"]))
+        except BaseException as error:  # noqa: BLE001
+            failures.append(error)
+
+    threads = [threading.Thread(target=search) for _ in range(8)]
+    for thread in threads:
+        thread.start()
+    start.wait(timeout=3)
+    for thread in threads:
+        thread.join(timeout=5)
+    assert not any(thread.is_alive() for thread in threads)
+    assert failures == []
+    assert len(cursors) == len(set(cursors)) == 8
 
 
 def test_record_projector_denies_disallowed_source_and_canonical_before_content_reads(

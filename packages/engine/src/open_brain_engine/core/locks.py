@@ -6,5 +6,6 @@ from enum import StrEnum
 class LockScope(StrEnum):
     NONE = "none"
     SHARED_WRITER = "shared-writer"
+    CURSOR_STATE = "cursor-state"
     INDEX = "index"
     PORTABILITY_PROMOTION = "portability-promotion"

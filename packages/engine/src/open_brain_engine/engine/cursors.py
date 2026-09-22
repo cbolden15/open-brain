@@ -22,6 +22,7 @@ from open_brain_engine.storage.filesystem import (
     _open_child_directory,
     _open_root,
 )
+from open_brain_engine.storage.locks import FileLease, WriterQueueFullError
 
 from .contracts import LocalEngineContext
 from .t03_contracts import T03Error
@@ -34,13 +35,58 @@ _DOMAIN = b"open-brain-cursor-v1"
 _RECORD = re.compile(r"[0-9a-f]{64}\.json")
 MAX_HANDLES = 2000
 TTL_SECONDS = 900
+MAX_LOCK_WAITERS = 16
+LOCK_TIMEOUT_SECONDS = 5.0
+LOCK_POLL_INTERVAL_SECONDS = 0.01
 
 
 class CursorStore:
-    """All callers hold the unchanged Brain writer lease during access and allocation."""
+    """Root-bound cursor custody serialized independently from Brain readers."""
 
     def __init__(self, profile: LocalEngineContext) -> None:
         self.profile = profile
+        identity = "cursor-" + sha256(profile.owner_actor_id.encode("utf-8")).hexdigest()[:32]
+        self._lease = FileLease(
+            profile.root / ".open-brain",
+            identity,
+            parent_root_identity=profile.root_identity,
+        )
+
+    @contextmanager
+    def _locked(self) -> Iterator[None]:
+        try:
+            with self._lease.acquire_cursor_state_bounded(
+                max_waiters=MAX_LOCK_WAITERS,
+                timeout=LOCK_TIMEOUT_SECONDS,
+                poll_interval=LOCK_POLL_INTERVAL_SECONDS,
+            ):
+                yield
+        except WriterQueueFullError, StorageError:
+            raise T03Error("operation_pending") from None
+
+    def verify_custody(self) -> None:
+        """Validate operational cursor storage without touching Brain state."""
+        try:
+            with self._locked(), self._directory(create=False) as directory:
+                raw = self._read(directory, "identity.json", maximum=1024)
+                if raw is None:
+                    raise T03Error("operation_pending")
+                identity = json.loads(raw)
+                location = str(self.profile.root.resolve(strict=True))
+                if (
+                    not isinstance(identity, dict)
+                    or set(identity) != {"root", "incarnation", "location"}
+                    or identity["root"] != list(self.profile.root_identity)
+                    or type(identity["incarnation"]) is not str
+                    or identity["location"] != location
+                ):
+                    raise T03Error("operation_pending")
+                self._read(directory, "key.json", maximum=1024)
+                self._write("identity.json", raw)
+        except T03Error:
+            raise
+        except ValueError, TypeError, KeyError, OSError, StorageError:
+            raise T03Error("operation_pending") from None
 
     @contextmanager
     def _directory(self, *, create: bool) -> Iterator[int]:
@@ -90,8 +136,8 @@ class CursorStore:
             os.close(descriptor)
 
     def _write(self, name: str, data: bytes) -> None:
-        # The caller already owns the Brain writer lease. Keep cursor writes and
-        # their temporary files wholly inside operational storage (no root lock).
+        # The caller owns the cursor-state lease. Keep temporary files wholly
+        # inside operational storage without taking the Brain writer lease.
         with self._directory(create=True) as directory:
             self._read(directory, name)
             temporary = ".write-" + secrets.token_hex(16)
@@ -188,6 +234,10 @@ class CursorStore:
         return key
 
     def bind_root(self, engine: BrainEngine) -> None:
+        with self._locked():
+            self._bind_root(engine)
+
+    def _bind_root(self, engine: BrainEngine) -> None:
         """Persist an operational root binding; a copied root gets a fresh incarnation.
 
         The old binding stays until both SQL and key rotation are durable. Recovery
@@ -241,7 +291,7 @@ class CursorStore:
                 finally:
                     connection.close()
                 if moved:
-                    self.rotate()
+                    self._rotate()
                     for name in os.listdir(directory):
                         if _RECORD.fullmatch(name):
                             self._read(directory, name)
@@ -263,6 +313,10 @@ class CursorStore:
             raise T03Error("operation_pending") from None
 
     def rotate(self) -> int:
+        with self._locked():
+            return self._rotate()
+
+    def _rotate(self) -> int:
         """Called only through explicit trusted-owner recovery/rotation authority."""
         try:
             with self._directory(create=True) as directory:
@@ -304,6 +358,10 @@ class CursorStore:
         return value
 
     def allocate(self, record: dict[str, Any], *, now: float) -> str:
+        with self._locked():
+            return self._allocate(record, now=now)
+
+    def _allocate(self, record: dict[str, Any], *, now: float) -> str:
         try:
             with self._directory(create=True) as directory:
                 key = self._key(directory, create=True)
@@ -340,6 +398,10 @@ class CursorStore:
             raise T03Error("operation_pending") from None
 
     def resolve(self, cursor: str, *, now: float) -> dict[str, Any]:
+        with self._locked():
+            return self._resolve(cursor, now=now)
+
+    def _resolve(self, cursor: str, *, now: float) -> dict[str, Any]:
         try:
             if (
                 not isinstance(cursor, str)

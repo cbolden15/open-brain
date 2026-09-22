@@ -54,8 +54,8 @@ def authority_binding(authority: EffectiveAuthority) -> dict[str, Any]:
 @contextmanager
 def read_snapshot(engine: BrainEngine) -> Iterator[sqlite3.Connection]:
     engine._assert_root()
-    with engine._writer_lease.acquire_shared_writer():
-        CursorStore(engine.profile).bind_root(engine)
+    with engine._reader_lease.acquire_shared_reader():
+        CursorStore(engine.profile).verify_custody()
         connection = engine._store.connect()
         try:
             if connection.execute("PRAGMA user_version").fetchone()[0] != 9:
