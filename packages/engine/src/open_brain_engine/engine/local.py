@@ -194,6 +194,15 @@ class BrainEngine(CaptureOperations, SpaceOperations, ReviewOperations, Retrieva
             raise StateSchemaUnavailableError(
                 "local state schema is supported_old: issuer migration requires exclusive admission"
             )
+        if (
+            schema.state == "supported_old"
+            and schema.version == 9
+            and local_schema.PHASE1_STATE_SCHEMA_VERSION >= 10
+        ):
+            raise StateSchemaUnavailableError(
+                "local state schema is supported_old: ingestion migration requires "
+                "exclusive admission"
+            )
         self.profile = profile
         self._faults = set(faults)
         self._clock = clock

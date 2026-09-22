@@ -1,0 +1,40 @@
+{
+  "id": "2026-09-22-durable-ingestion-journal-notes",
+  "title": "Implementation notes — Durable ingestion journal",
+  "subtitle": "starting · 2026-09-22 14:27 CDT",
+  "introTitle": "How to use",
+  "intro": "<p>Each item is a decision, deviation, or tradeoff made during implementation. <strong>Acknowledge</strong> if fine. <strong>Discuss</strong> to write what should change. <strong>Revert</strong> to flag for undo.</p>",
+  "actions": [
+    "acknowledge",
+    "discuss",
+    "revert"
+  ],
+  "groups": [
+    {
+      "id": "phase-1",
+      "label": "Phase 1 — Freeze the contract and add schema 10",
+      "badge": "P1"
+    },
+    {
+      "id": "phase-2",
+      "label": "Phase 2 — Implement journal storage and writer recovery",
+      "badge": "P2"
+    },
+    {
+      "id": "phase-3",
+      "label": "Phase 3 — Route every capture surface through the journal",
+      "badge": "P3"
+    },
+    {
+      "id": "phase-4",
+      "label": "Phase 4 — Add owner operations and adversarial tests",
+      "badge": "P4"
+    },
+    {
+      "id": "phase-5",
+      "label": "Phase 5 — Document, verify, and cut over the Mac Mini",
+      "badge": "P5"
+    }
+  ],
+  "items": []
+}

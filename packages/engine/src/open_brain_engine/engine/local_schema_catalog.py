@@ -960,6 +960,165 @@ CREATE TABLE brain_identity (
     CHECK (legacy_issuer_epoch IS NULL OR legacy_issuer_epoch < issuer_epoch)
 )
     """.strip(),
+)
+
+INGESTION_JOURNAL_SCHEMA = (
+    """
+CREATE TABLE capture_ingestion_items (
+    journal_sequence INTEGER PRIMARY KEY AUTOINCREMENT CHECK (journal_sequence > 0),
+    ingestion_id TEXT NOT NULL UNIQUE CHECK (length(ingestion_id) > 0),
+    delivery_id TEXT NOT NULL UNIQUE CHECK (length(delivery_id) > 0),
+    request_sha256 TEXT NOT NULL CHECK (length(request_sha256) = 64),
+    envelope_sha256 TEXT NOT NULL CHECK (length(envelope_sha256) = 64),
+    submission_path TEXT NOT NULL CHECK (
+        submission_path IN ('owner', 'public_job', 'destination_bound')
+    ),
+    byte_count INTEGER NOT NULL CHECK (byte_count > 0),
+    queued_at TEXT NOT NULL CHECK (length(queued_at) > 0)
+)
+    """.strip(),
+    """
+CREATE TABLE capture_ingestion_payloads (
+    delivery_id TEXT PRIMARY KEY REFERENCES capture_ingestion_items(delivery_id) ON DELETE CASCADE,
+    envelope_bytes BLOB NOT NULL CHECK (
+        typeof(envelope_bytes) = 'blob' AND length(envelope_bytes) > 0
+    )
+)
+    """.strip(),
+    """
+CREATE TABLE capture_ingestion_events (
+    event_sequence INTEGER PRIMARY KEY AUTOINCREMENT CHECK (event_sequence > 0),
+    delivery_id TEXT NOT NULL REFERENCES capture_ingestion_items(delivery_id) ON DELETE CASCADE,
+    event_kind TEXT NOT NULL CHECK (
+        event_kind IN (
+            'queued', 'attempt_failed', 'accepted', 'duplicate', 'quarantined', 'discarded'
+        )
+    ),
+    attempt_number INTEGER NOT NULL CHECK (attempt_number >= 0),
+    receipt_json TEXT NOT NULL CHECK (
+        typeof(receipt_json) = 'text' AND json_valid(receipt_json)
+        AND json_type(receipt_json) = 'object'
+    ),
+    recorded_at TEXT NOT NULL CHECK (length(recorded_at) > 0)
+)
+    """.strip(),
+    """
+CREATE TABLE capture_ingestion_tombstones (
+    delivery_id TEXT PRIMARY KEY CHECK (length(delivery_id) > 0),
+    request_sha256 TEXT NOT NULL CHECK (length(request_sha256) = 64),
+    result_json TEXT NOT NULL CHECK (
+        typeof(result_json) = 'text' AND json_valid(result_json)
+        AND json_type(result_json) = 'object'
+    ),
+    decided_at TEXT NOT NULL CHECK (length(decided_at) > 0)
+)
+    """.strip(),
+    """
+CREATE INDEX capture_ingestion_items_pending_order_idx
+ON capture_ingestion_items(journal_sequence)
+    """.strip(),
+    """
+CREATE INDEX capture_ingestion_events_delivery_idx
+ON capture_ingestion_events(delivery_id, event_sequence DESC)
+    """.strip(),
+    """
+CREATE TRIGGER capture_ingestion_items_update_immutable
+BEFORE UPDATE ON capture_ingestion_items
+BEGIN
+    SELECT RAISE(ABORT, 'ingestion item is immutable');
+END
+    """.strip(),
+    """
+CREATE TRIGGER capture_ingestion_payloads_update_immutable
+BEFORE UPDATE ON capture_ingestion_payloads
+BEGIN
+    SELECT RAISE(ABORT, 'ingestion payload is immutable');
+END
+    """.strip(),
+    """
+CREATE TRIGGER capture_ingestion_events_update_immutable
+BEFORE UPDATE ON capture_ingestion_events
+BEGIN
+    SELECT RAISE(ABORT, 'ingestion event is append-only');
+END
+    """.strip(),
+    """
+CREATE TRIGGER capture_ingestion_tombstones_update_immutable
+BEFORE UPDATE ON capture_ingestion_tombstones
+BEGIN
+    SELECT RAISE(ABORT, 'ingestion tombstone is immutable');
+END
+    """.strip(),
+    """
+CREATE TRIGGER capture_ingestion_tombstones_delete_immutable
+BEFORE DELETE ON capture_ingestion_tombstones
+BEGIN
+    SELECT RAISE(ABORT, 'ingestion tombstone is immutable');
+END
+    """.strip(),
+    """
+CREATE TRIGGER capture_ingestion_payloads_delete_guarded
+BEFORE DELETE ON capture_ingestion_payloads
+WHEN NOT EXISTS (
+    SELECT 1 FROM capture_ingestion_events
+    WHERE delivery_id = OLD.delivery_id
+    AND event_kind IN ('accepted', 'duplicate', 'discarded')
+)
+BEGIN
+    SELECT RAISE(ABORT, 'ingestion payload requires a terminal event');
+END
+    """.strip(),
+    """
+CREATE TRIGGER capture_ingestion_items_delete_guarded
+BEFORE DELETE ON capture_ingestion_items
+WHEN NOT (
+    EXISTS (
+        SELECT 1 FROM capture_ingestion_events
+        WHERE delivery_id = OLD.delivery_id AND event_kind IN ('accepted', 'duplicate')
+    )
+    AND EXISTS (
+        SELECT 1 FROM captures
+        WHERE delivery_id = OLD.delivery_id AND request_sha256 = OLD.request_sha256
+    )
+) AND NOT EXISTS (
+    SELECT 1 FROM capture_ingestion_tombstones
+    WHERE delivery_id = OLD.delivery_id AND request_sha256 = OLD.request_sha256
+)
+BEGIN
+    SELECT RAISE(ABORT, 'ingestion item requires durable terminal replay');
+END
+    """.strip(),
+    """
+CREATE VIEW capture_ingestion_pending AS
+SELECT item.journal_sequence, item.ingestion_id, item.delivery_id, item.request_sha256,
+       item.envelope_sha256, item.submission_path, item.byte_count, item.queued_at
+FROM capture_ingestion_items AS item
+JOIN capture_ingestion_payloads AS payload USING (delivery_id)
+WHERE COALESCE(
+    (SELECT event.event_kind FROM capture_ingestion_events AS event
+     WHERE event.delivery_id = item.delivery_id
+     ORDER BY event.event_sequence DESC LIMIT 1),
+    'queued'
+) NOT IN ('accepted', 'duplicate', 'discarded')
+    """.strip(),
+    "DROP TABLE runtime_compatibility",
+    """
+CREATE TABLE runtime_compatibility (
+    singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
+    minimum_runtime_session_version INTEGER NOT NULL CHECK (
+        minimum_runtime_session_version = 5
+    ),
+    state_schema_version INTEGER NOT NULL CHECK (state_schema_version = 10)
+)
+    """.strip(),
+    """
+INSERT INTO runtime_compatibility (
+    singleton, minimum_runtime_session_version, state_schema_version
+) VALUES (1, 5, 10)
+    """.strip(),
+)
+
+IDENTITY_AND_REPAIR_SCHEMA += (
     """
 CREATE TRIGGER brain_identity_update_immutable BEFORE UPDATE ON brain_identity
 BEGIN
@@ -1176,4 +1335,5 @@ LOCAL_MIGRATIONS = (
     _migration(7, "immutable_source_history", SOURCE_HISTORY_SCHEMA),
     _migration(8, "effective_privacy_projection", PRIVACY_SCHEMA),
     _migration(9, "issuer_identity_and_owner_repair", IDENTITY_AND_REPAIR_SCHEMA),
+    _migration(10, "durable_capture_ingestion_journal", INGESTION_JOURNAL_SCHEMA),
 )

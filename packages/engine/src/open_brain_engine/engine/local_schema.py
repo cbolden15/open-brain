@@ -33,6 +33,7 @@ from .local_schema_catalog import (
     BASELINE,
     IDENTITY_AND_REPAIR_SCHEMA,
     IMPORT_SCHEMA,
+    INGESTION_JOURNAL_SCHEMA,
     LIVE_SEARCH_SCHEMA,
     LOCAL_MIGRATIONS,
     MANAGED_RECOVERY_SCHEMA,
@@ -50,7 +51,7 @@ if TYPE_CHECKING:
     from .portable_v5_restore import ValidatedV5IssuerSeed
 
 PHASE1_STATE_DATABASE = ".open-brain/state/phase1.sqlite3"
-PHASE1_STATE_SCHEMA_VERSION = 9
+PHASE1_STATE_SCHEMA_VERSION = 10
 
 
 class LocalRecoveryRequiredError(SchemaError):
@@ -122,6 +123,9 @@ def _expected_shape(era: int, nullable: bool, ledger: bool) -> tuple[tuple[str, 
         if era >= 11:
             for statement in IDENTITY_AND_REPAIR_SCHEMA:
                 connection.execute(statement)
+        if era >= 12:
+            for statement in INGESTION_JOURNAL_SCHEMA:
+                connection.execute(statement)
         if ledger:
             connection.execute(_SCHEMA_MIGRATIONS_SQL)
         return _shape(connection)
@@ -144,7 +148,7 @@ def classify_local_schema(connection: sqlite3.Connection) -> SchemaState:
             ).fetchall()
             if any(type(row[0]) is int and row[0] > PHASE1_STATE_SCHEMA_VERSION for row in rows):
                 return SchemaState("newer", version)
-            if version not in (1, 2, 3, 4, 5, 6, 7, 8, 9) or len(rows) != version:
+            if version not in (1, 2, 3, 4, 5, 6, 7, 8, 9, 10) or len(rows) != version:
                 return SchemaState("invalid", version)
             for row, migration in zip(rows, LOCAL_MIGRATIONS[:version], strict=True):
                 if tuple(row[:3]) != (migration.version, migration.name, migration.checksum):
@@ -162,6 +166,7 @@ def classify_local_schema(connection: sqlite3.Connection) -> SchemaState:
                 7: _expected_shape(9, False, True),
                 8: _expected_shape(10, False, True),
                 9: _expected_shape(11, False, True),
+                10: _expected_shape(12, False, True),
             }[version]
             if shape == expected:
                 if version >= 4:
@@ -170,7 +175,7 @@ def classify_local_schema(connection: sqlite3.Connection) -> SchemaState:
                         "FROM runtime_compatibility"
                     ).fetchall()
                     if [tuple(row) for row in compatibility] != [
-                        (1, {7: 2, 8: 3, 9: 4}.get(version, 1), version)
+                        (1, {7: 2, 8: 3, 9: 4, 10: 5}.get(version, 1), version)
                     ]:
                         return SchemaState("invalid", version)
                 return SchemaState(
@@ -279,9 +284,9 @@ def _validate_upgrade_data(connection: sqlite3.Connection) -> None:
             "FROM runtime_compatibility"
         ).fetchall()
         state_version = connection.execute("PRAGMA user_version").fetchone()[0]
-        compatibility_version = state_version if state_version in (5, 6, 7, 8, 9) else 4
+        compatibility_version = state_version if state_version in (5, 6, 7, 8, 9, 10) else 4
         if [tuple(row) for row in compatibility] != [
-            (1, {7: 2, 8: 3, 9: 4}.get(state_version, 1), compatibility_version)
+            (1, {7: 2, 8: 3, 9: 4, 10: 5}.get(state_version, 1), compatibility_version)
         ]:
             raise SchemaError("local runtime compatibility floor is invalid")
     if (
@@ -378,8 +383,8 @@ def _prepare_local_schema(
 ) -> None:
     target_version = PHASE1_STATE_SCHEMA_VERSION if schema_version is None else schema_version
     try:
-        if issuer_seed is not None and (not created or target_version != 9):
-            raise SchemaError("v5 issuer seed requires genuinely empty schema-9 creation")
+        if issuer_seed is not None and (not created or target_version < 9):
+            raise SchemaError("v5 issuer seed requires genuinely empty post-issuer creation")
         if not setup_required:
             connection.execute("BEGIN")
             state = classify_local_schema(connection)
@@ -391,7 +396,7 @@ def _prepare_local_schema(
         state = classify_local_schema(connection)
         empty = created and state.version == 0 and not _shape(connection)
         if issuer_seed is not None and not empty:
-            raise SchemaError("v5 issuer seed requires genuinely empty schema-9 creation")
+            raise SchemaError("v5 issuer seed requires genuinely empty post-issuer creation")
         if not empty:
             _require_supported(state)
             if state.version is not None and state.version > target_version:
@@ -403,6 +408,8 @@ def _prepare_local_schema(
             _validate_upgrade_data(connection)
             if target_version >= 9 and state.version == 8:
                 raise SchemaError("issuer migration requires exclusive admission")
+            if target_version >= 10 and state.version == 9:
+                raise SchemaError("ingestion migration requires exclusive admission")
             if target_version >= 8 and state.version == 7:
                 raise SchemaError("privacy migration requires exclusive admission")
             if target_version >= 7:

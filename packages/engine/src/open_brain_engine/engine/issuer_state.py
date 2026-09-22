@@ -249,7 +249,10 @@ def _migrate_issuer(
     )
     try:
         state = classify_local_schema(connection)
-        if state.state == "current" and state.version == ISSUER_STATE_SCHEMA_VERSION:
+        if state.state in {"current", "supported_old"} and state.version in {
+            ISSUER_STATE_SCHEMA_VERSION,
+            ISSUER_STATE_SCHEMA_VERSION + 1,
+        }:
             # Re-entry on committed schema nine verifies the stored evidence only;
             # the vault legitimately changes after the cutover and is never re-read.
             verify_issuer_evidence(connection, tenant_id=profile.tenant_id)
@@ -321,7 +324,10 @@ def _migrate_issuer(
         connection.execute("COMMIT")
         checkpoint("issuer_committed")
         state = classify_local_schema(connection)
-        if state.state != "current" or state.version != ISSUER_STATE_SCHEMA_VERSION:
+        if (
+            state.state not in {"current", "supported_old"}
+            or state.version != ISSUER_STATE_SCHEMA_VERSION
+        ):
             raise T03Error("operation_pending")
         verify_issuer_evidence(connection, tenant_id=profile.tenant_id)
         checkpoint("issuer_validated")

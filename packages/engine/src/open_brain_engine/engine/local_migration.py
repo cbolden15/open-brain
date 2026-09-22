@@ -30,13 +30,17 @@ def _needs_issuer_phase(state_version: int | None) -> bool:
     return state_version == 8
 
 
+def _needs_ingestion_phase(state_version: int | None) -> bool:
+    return state_version == 9
+
+
 def coordinate_local_migration(
     profile: LocalEngineContext,
     *,
     clock: Callable[[], datetime] | None = None,
     checkpoint: Callable[[str], None] = lambda _stage: None,
 ) -> None:
-    """Resume the source, privacy, and issuer cutovers in order, re-inspecting between.
+    """Resume the source, privacy, issuer, and ingestion cutovers in order, re-inspecting between.
 
     The whole chain runs under one exclusive runtime admission and ends only at the
     current state schema. The ordinary opener never performs any of these phases.
@@ -47,11 +51,7 @@ def coordinate_local_migration(
     privacy_pending = privacy_migration_pending(profile)
     target = local_schema.PHASE1_STATE_SCHEMA_VERSION
 
-    if (
-        schema.state in {"invalid", "newer"}
-        and not source_pending
-        and not privacy_pending
-    ):
+    if schema.state in {"invalid", "newer"} and not source_pending and not privacy_pending:
         raise StateSchemaUnavailableError(f"local state schema is {schema.state}")
 
     source_phase = source_pending or (
@@ -60,16 +60,15 @@ def coordinate_local_migration(
         and _needs_source_phase(schema.version)
     )
     privacy_phase = privacy_pending or (
-        schema.state == "supported_old"
-        and _needs_privacy_phase(schema.version)
-        and target >= 8
+        schema.state == "supported_old" and _needs_privacy_phase(schema.version) and target >= 8
     )
     issuer_phase = (
-        schema.state == "supported_old"
-        and _needs_issuer_phase(schema.version)
-        and target >= 9
+        schema.state == "supported_old" and _needs_issuer_phase(schema.version) and target >= 9
     )
-    if not source_phase and not privacy_phase and not issuer_phase:
+    ingestion_phase = (
+        schema.state == "supported_old" and _needs_ingestion_phase(schema.version) and target >= 10
+    )
+    if not source_phase and not privacy_phase and not issuer_phase and not ingestion_phase:
         return
 
     with exclusive_runtime_admission(profile) as admission:
@@ -99,6 +98,18 @@ def coordinate_local_migration(
             from .issuer_state import migrate_issuer
 
             migrate_issuer(
+                profile, admission=admission, clock=resolved_clock, checkpoint=checkpoint
+            )
+            schema = inspect_phase1_state(profile)
+            ingestion_phase = (
+                schema.state == "supported_old"
+                and _needs_ingestion_phase(schema.version)
+                and target >= 10
+            )
+        if ingestion_phase:
+            from .ingestion_migration import migrate_ingestion_journal
+
+            migrate_ingestion_journal(
                 profile, admission=admission, clock=resolved_clock, checkpoint=checkpoint
             )
             schema = inspect_phase1_state(profile)

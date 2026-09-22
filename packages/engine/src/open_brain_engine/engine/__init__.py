@@ -34,9 +34,12 @@ from .contracts import (
     AdmissionLimits,
     CaptureAdmissionError,
     CaptureAdmissionResult,
+    CaptureCustodyReceipt,
+    CaptureOutcome,
     CaptureReceipt,
     CaptureTask,
     InboxSpaceTask,
+    JournalEnvelope,
     ManagedAccessMode,
     ManagedExclusion,
     ManagedGraphSnapshot,
@@ -83,6 +86,7 @@ from .contracts import (
     ScopedRetrievalTask,
     project_public_result_text,
     project_public_space,
+    verify_capture_custody_receipt,
 )
 from .local import (
     BrainEngine,
@@ -130,6 +134,8 @@ __all__ = [
     "CaptureAction",
     "CaptureAdmissionError",
     "CaptureAdmissionResult",
+    "CaptureCustodyReceipt",
+    "CaptureOutcome",
     "CaptureEnvelope",
     "CapturePipeline",
     "CaptureFault",
@@ -153,6 +159,7 @@ __all__ = [
     "EventPayload",
     "FilePayload",
     "InjectedFault",
+    "JournalEnvelope",
     "InboxSpaceTask",
     "LocalEngineContext",
     "LiveSearchState",
@@ -238,4 +245,5 @@ __all__ = [
     "classify_privacy",
     "project_public_result_text",
     "project_public_space",
+    "verify_capture_custody_receipt",
 ]

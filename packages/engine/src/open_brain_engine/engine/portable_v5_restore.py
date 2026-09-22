@@ -118,7 +118,7 @@ class V5RestoreBundle:
             value = decode_retained_privacy_value(row["privacy_json"])
             if type(value) in (int, float):
                 raise ValueError(
-                    "Portable v5 numeric retained privacy cannot be restored to schema 9: "
+                    "Portable v5 numeric retained privacy cannot be restored to current state: "
                     "captures.privacy_json has TEXT affinity"
                 )
         return cls(
@@ -464,7 +464,7 @@ def restore_portable_v5_root(
     expected_root_identity: RootIdentity,
     checkpoint: Callable[[str], None] = lambda _stage: None,
 ) -> Materialization:
-    """Restore one validated, copied v5 snapshot into a new hidden schema-9 stage."""
+    """Restore one validated, copied v5 snapshot into a new hidden current-schema stage."""
     from .materializer import materialize_portable_root
 
     bundle = V5RestoreBundle.decode(snapshot, checkpoint=checkpoint)

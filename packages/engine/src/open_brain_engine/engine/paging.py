@@ -15,6 +15,7 @@ from open_brain_engine.core.models import PrivacyTier
 from open_brain_engine.storage.filesystem import StorageError
 
 from .cursors import CursorStore, binding_digest
+from .local_schema import PHASE1_STATE_SCHEMA_VERSION
 from .records import RecordProjector
 from .t03_contracts import (
     EffectiveAuthority,
@@ -58,7 +59,10 @@ def read_snapshot(engine: BrainEngine) -> Iterator[sqlite3.Connection]:
         CursorStore(engine.profile).verify_custody()
         connection = engine._store.connect()
         try:
-            if connection.execute("PRAGMA user_version").fetchone()[0] != 9:
+            if (
+                connection.execute("PRAGMA user_version").fetchone()[0]
+                != PHASE1_STATE_SCHEMA_VERSION
+            ):
                 raise T03Error("incompatible_runtime")
             yield connection
         except sqlite3.Error, StorageError:
@@ -74,15 +78,11 @@ def _authorized_retrieval_digest(
     *,
     visible_state: object | None,
 ) -> str:
-    readable_tiers = tuple(
-        tier.value for tier in PrivacyTier if authority.permits_read_tier(tier)
-    )
+    readable_tiers = tuple(tier.value for tier in PrivacyTier if authority.permits_read_tier(tier))
     clauses: list[str] = []
     parameters: list[Any] = []
     if readable_tiers:
-        clauses.append(
-            "d.effective_tier IN (" + ",".join("?" for _ in readable_tiers) + ")"
-        )
+        clauses.append("d.effective_tier IN (" + ",".join("?" for _ in readable_tiers) + ")")
         parameters.extend(readable_tiers)
     else:
         clauses.append("0")
@@ -240,9 +240,7 @@ def search_page(
             tier.value for tier in PrivacyTier if authority.permits_read_tier(tier)
         )
         if readable_tiers:
-            clauses.append(
-                "d.effective_tier IN (" + ",".join("?" for _ in readable_tiers) + ")"
-            )
+            clauses.append("d.effective_tier IN (" + ",".join("?" for _ in readable_tiers) + ")")
             parameters.extend(readable_tiers)
         else:
             clauses.append("0")
