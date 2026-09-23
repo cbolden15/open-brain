@@ -2147,10 +2147,9 @@ Cause: those tests spawn a Python child and give it a fixed two-second deadline.
 development Mac while other suites run) child startup can miss the deadline before the child ever
 writes its malformed reply.
 
-Fix: rerun the desktop stage on a quiet machine before treating the failure as real; the branch
-is suspect only if the tests also fail alone. If the flake recurs in CI, loosen the deadline for
-the malformed-response tests or run the bridge tests with a single test thread, since neither test
-is measuring latency.
+Fix: the contributor check runs the Rust suite with one test thread. These tests exercise process
+lifecycle and protocol behavior, not latency, so resource contention between fixtures should not
+decide the result. A branch is suspect when the relevant test also fails alone.
 
 Discovered: 2026-09-21, twice during the OSS-G5 release gate while GLM workers ran pytest.
 
@@ -2195,6 +2194,20 @@ create event, and check again to close the lookup-to-listener race. Bound the wa
 listener and timer on success, timeout, or plugin unload. Never bypass the vault to open the file.
 
 Discovered: 2026-09-18, Obsidian 1.13.7 GUI publication acceptance and delayed Quick Switcher proof.
+
+### OBSIDIAN-006: Wait on the registration event, not a one-second polling window
+
+Symptom: the managed-file unload test reports that no vault listener was registered, while the same
+test passes immediately when run alone.
+
+Cause: the test waits up to one second for a real child bridge to start, handshake, validate the
+vault, and register the listener. Machine load can consume that window before the behavior under
+test starts.
+
+Fix: have the test harness expose a promise resolved by listener registration. Await that event and
+let the test runner's overall timeout catch a bridge that never reaches it.
+
+Discovered: 2026-09-23, CUT-G2 full release verification on the development Mac.
 
 ### TESTING-002: Fixed enqueue times can expire during later test runs
 

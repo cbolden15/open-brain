@@ -224,7 +224,7 @@ describe("actual T07 modals", () => {
     void opening.catch(() => undefined);
 
     try {
-      await vi.waitFor(() => expect(harness.on).toHaveBeenCalledOnce());
+      await harness.listenerRegistered;
       const file = new harness.TFile(relativePath);
       harness.register(file);
       await opening;
@@ -260,7 +260,7 @@ describe("actual T07 modals", () => {
     const harness = await managedFileHarness(vaultPath, executable);
     const opening = harness.plugin.openManagedFile("spaces/synthetic/notes/pending.md");
     void opening.catch(() => undefined);
-    await vi.waitFor(() => expect(harness.on).toHaveBeenCalledOnce());
+    await harness.listenerRegistered;
 
     harness.plugin.onunload();
 
@@ -432,9 +432,14 @@ async function managedFileHarness(
   type File = InstanceType<typeof obsidian.TFile>;
   const listeners = new Map<object, (file: File) => void>();
   let current: File | null = null;
+  let signalListenerRegistered!: () => void;
+  const listenerRegistered = new Promise<void>((resolve) => {
+    signalListenerRegistered = resolve;
+  });
   const on = vi.fn((_name: string, callback: (file: File) => void) => {
     const ref = {};
     listeners.set(ref, callback);
+    signalListenerRegistered();
     return ref;
   });
   const offref = vi.fn((ref: object) => { listeners.delete(ref); });
@@ -456,7 +461,7 @@ async function managedFileHarness(
   const plugin = new OpenBrainPlugin(app as never, {} as never);
   plugin.settings = { executablePath: executable, inferencePaused: false };
   return {
-    TFile: obsidian.TFile, offref, on, openFile, plugin,
+    TFile: obsidian.TFile, listenerRegistered, offref, on, openFile, plugin,
     makeCurrent(file: File): void { current = file; },
     register(file: File): void {
       current = file;
