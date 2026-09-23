@@ -28,6 +28,7 @@ from open_brain_engine.core.models import (
 
 from .contracts import (
     CapturePrivacyManifest,
+    CaptureReceipt,
     CaptureSubmission,
     FilePayload,
     MarkdownImportCancelled,
@@ -561,7 +562,26 @@ class MarkdownImportTasks:
                 selection,
                 should_interrupt=should_interrupt,
             )
-            capture_id = self._engine._submit_capture(submission).capture_id
+            # The reservation intentionally remains inactive while its
+            # capture is only journaled.  Activation (and therefore search
+            # visibility) happens only after the locked drain has produced a
+            # canonical receipt for this exact delivery.
+            connection = self._engine._store.connect()
+            try:
+                journal_available = connection.execute("PRAGMA user_version").fetchone()[0] >= 10
+            finally:
+                connection.close()
+            if journal_available:
+                outcome = self._engine.ingestion.enqueue(submission)
+                if not isinstance(outcome, CaptureReceipt):
+                    self._engine._recover_captures_locked()
+                    self._engine.ingestion.drain_locked()
+                    outcome = self._engine.ingestion.enqueue(submission)
+            else:
+                outcome = self._engine._submit_capture(submission)
+            if not isinstance(outcome, CaptureReceipt):
+                raise RuntimeError("Markdown import capture remains pending")
+            capture_id = outcome.capture_id
         self._before_import_mutation(
             pinned.snapshot,
             selection,

@@ -10,6 +10,7 @@ from uuid import uuid4
 
 from open_brain_engine.core.ids import portable_canonical_json_bytes
 
+from .contracts import CaptureReceipt
 from .normalization import _timestamp
 from .source_intake import (
     SourceRevisionReceipt,
@@ -208,7 +209,25 @@ class SourceTasks:
                     )
         if conflict:
             raise T03Error("source_revision_conflict")
-        self._engine._submit_capture(replace(submission.capture, delivery_id=delivery_id))
+        # Source compare-and-swap owns the surrounding writer fence.  The
+        # capture itself still crosses the durable ingress boundary before
+        # the lock-aware materializer is allowed to touch canonical storage.
+        journaled = replace(submission.capture, delivery_id=delivery_id)
+        connection = self._engine._store.connect()
+        try:
+            journal_available = connection.execute("PRAGMA user_version").fetchone()[0] >= 10
+        finally:
+            connection.close()
+        if journal_available:
+            outcome = self._engine.ingestion.enqueue(journaled)
+            if not isinstance(outcome, CaptureReceipt):
+                self._engine._recover_captures_locked()
+                self._engine.ingestion.drain_locked()
+                outcome = self._engine.ingestion.enqueue(journaled)
+        else:
+            outcome = self._engine._submit_capture(journaled)
+        if not isinstance(outcome, CaptureReceipt):
+            raise T03Error("operation_pending")
         connection = self._engine._store.connect()
         try:
             receipt = connection.execute(

@@ -8,7 +8,7 @@ import sqlite3
 import threading
 from collections import deque
 from collections.abc import Callable, Iterator
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
 from datetime import datetime, timedelta
 from hashlib import sha256
 from pathlib import Path
@@ -33,6 +33,7 @@ from .contracts import (
     CaptureAdmissionError,
     CaptureAdmissionResult,
     CaptureFault,
+    CaptureOutcome,
     CaptureReceipt,
     CaptureSubmission,
     CaptureSubmissionPath,
@@ -307,6 +308,11 @@ class CaptureOperations(_LocalEngineOperations):
 
     def _prepare_journal_submission(self, submission: CaptureSubmission) -> JournalEnvelope:
         """Perform all no-write capture admission before the journal transaction."""
+        # The Markdown import delivery namespace is private to a matching
+        # pending revision.  Validate it before accepting durable custody so
+        # an arbitrary caller cannot reserve an importer delivery in the
+        # journal and block the real import later.
+        capture_submission_is_reserved(cast("BrainEngine", self), submission)
         submission.validate_profile(self.profile)
         self._check_static_capture_admission(submission)
         admitted_privacy = self._admitted_privacy(submission)
@@ -494,6 +500,27 @@ class CaptureOperations(_LocalEngineOperations):
         receipt = self._capture_receipt(capture_id)
         if receipt is None:
             raise RuntimeError("capture state unavailable")
+        bound_submission = submission.submission_path in {
+            CaptureSubmissionPath.DESTINATION_BOUND,
+            CaptureSubmissionPath.PUBLIC_JOB,
+        }
+        destination_brain_id: str | None
+        issuer_epoch: int | None
+        if bound_submission and submission.destination_brain_id is None:
+            connection = self._store.connect()
+            try:
+                identity = connection.execute(
+                    "SELECT brain_id, issuer_epoch FROM brain_identity WHERE singleton = 1"
+                ).fetchone()
+            finally:
+                connection.close()
+            if identity is None:
+                raise RuntimeError("brain identity unavailable")
+            destination_brain_id = cast(str, identity["brain_id"])
+            issuer_epoch = cast(int, identity["issuer_epoch"])
+        else:
+            destination_brain_id = submission.destination_brain_id
+            issuer_epoch = submission.issuer_epoch
         return project_public_capture_receipt(
             CaptureReceipt(
                 capture_id=receipt.capture_id,
@@ -505,20 +532,22 @@ class CaptureOperations(_LocalEngineOperations):
                 duplicate=duplicate,
                 requested_tier=submission.requested_tier,
                 final_admitted_tier=admitted_privacy.tier,
-                # Only the destination-bound path publishes its request and
-                # authority binding; every other receipt keeps today's shape.
+                # A public-job receipt may release source custody, so it has
+                # the same exact Brain and request binding as the
+                # destination-bound receipt.  Owner display receipts retain
+                # their legacy unbound shape.
                 delivery_id=(
                     delivery_id
-                    if submission.submission_path is CaptureSubmissionPath.DESTINATION_BOUND
+                    if bound_submission
                     else None
                 ),
                 request_sha256=(
                     request_sha
-                    if submission.submission_path is CaptureSubmissionPath.DESTINATION_BOUND
+                    if bound_submission
                     else None
                 ),
-                destination_brain_id=submission.destination_brain_id,
-                issuer_epoch=submission.issuer_epoch,
+                destination_brain_id=destination_brain_id,
+                issuer_epoch=issuer_epoch,
             )
         )
 
@@ -865,11 +894,44 @@ class CaptureOperations(_LocalEngineOperations):
         connection = self._store.connect()
         try:
             row = connection.execute(
-                "SELECT capture_id FROM captures WHERE delivery_id = ?", (delivery_id,)
+                "SELECT * FROM captures WHERE delivery_id = ?", (delivery_id,)
             ).fetchone()
         finally:
             connection.close()
-        return None if row is None else self._capture_receipt(cast(str, row["capture_id"]))
+        if row is None:
+            return None
+        receipt = self._capture_receipt(cast(str, row["capture_id"]))
+        if receipt is None:
+            return None
+        if cast(str | None, row["submission_path"]) not in {
+            CaptureSubmissionPath.DESTINATION_BOUND.value,
+            CaptureSubmissionPath.PUBLIC_JOB.value,
+        }:
+            return receipt
+        connection = self._store.connect()
+        try:
+            identity = connection.execute(
+                "SELECT brain_id, issuer_epoch FROM brain_identity WHERE singleton = 1"
+            ).fetchone()
+        finally:
+            connection.close()
+        if identity is None:
+            raise RuntimeError("brain identity unavailable")
+        return CaptureReceipt(
+            capture_id=receipt.capture_id,
+            payload_family=receipt.payload_family,
+            state=receipt.state,
+            enrichment_state=receipt.enrichment_state,
+            space_id=receipt.space_id,
+            canonical_path=receipt.canonical_path,
+            duplicate=receipt.duplicate,
+            requested_tier=receipt.requested_tier,
+            final_admitted_tier=receipt.final_admitted_tier,
+            delivery_id=delivery_id,
+            request_sha256=cast(str, row["request_sha256"]),
+            destination_brain_id=cast(str, identity["brain_id"]),
+            issuer_epoch=cast(int, identity["issuer_epoch"]),
+        )
 
 
 def _retained_privacy_tier(row: sqlite3.Row) -> PrivacyTier:
@@ -949,11 +1011,11 @@ class CaptureTasks:
         capture_why: str | None = None,
         title: str | None = None,
         privacy_tier: PrivacyTier | None = None,
-    ) -> CaptureReceipt:
-        engine = self._engine
-        with engine._writer_lease.acquire_shared_writer():
-            return engine._accept_capture(
-                payload,
+    ) -> CaptureOutcome:
+        return self.submit(
+            CaptureSubmission.for_local_owner(
+                profile=self._engine.profile,
+                payload=payload,
                 delivery_id=delivery_id,
                 action=action,
                 space_id=space_id,
@@ -962,19 +1024,53 @@ class CaptureTasks:
                 title=title,
                 privacy_tier=privacy_tier,
             )
+        )
 
-    def submit(self, submission: CaptureSubmission) -> CaptureReceipt:
+    def submit(self, submission: CaptureSubmission) -> CaptureOutcome:
+        """Transfer durable custody, then make one best-effort foreground drain.
+
+        The writer fence deliberately starts *after* enqueue.  A busy writer
+        is therefore a successful queued custody result, not a second queue
+        admission failure.
+        """
         engine = self._engine
-        with engine._admit_submission(submission):
-            # Phase 3 routes these entrypoints through durable enqueue. Until
-            # then, retain the established owner and remote writer behavior.
-            lease = (
-                engine._writer_lease.acquire_shared_writer()
-                if submission.submission_path is CaptureSubmissionPath.OWNER
-                else engine._writer_lease_bounded()
-            )
-            with lease:
+        connection = engine._store.connect()
+        try:
+            journal_available = connection.execute("PRAGMA user_version").fetchone()[0] >= 10
+        finally:
+            connection.close()
+        # Historical compatibility targets predate the Brain-owned journal.
+        # They keep their established writer-held materialization until the
+        # schema-10 coordinator performs the explicit cutover.
+        if not journal_available:
+            with engine._admit_submission(submission), engine._writer_lease.acquire_shared_writer():
                 return engine._submit_capture(submission)
+        # Replays never consume a new-delivery admission slot.  The check is
+        # advisory only; enqueue remains the atomic identity authority.
+        admission = (
+            nullcontext()
+            if engine.ingestion.known(submission)
+            else engine._admit_submission(submission)
+        )
+        with admission:
+            outcome = engine.ingestion.enqueue(submission)
+        if isinstance(outcome, CaptureReceipt):
+            return outcome
+        try:
+            with engine._writer_lease_bounded():
+                engine._recover_captures_locked()
+                receipts = engine.ingestion.drain_locked()
+        except CaptureAdmissionError as error:
+            if error.result is not CaptureAdmissionResult.WRITER_QUEUE_FULL:
+                raise
+            return outcome
+        expected = engine._receipt_for_delivery(submission.delivery_id)
+        if expected is not None:
+            for receipt in receipts:
+                if receipt.capture_id == expected.capture_id:
+                    return receipt
+        replay = engine.ingestion.enqueue(submission)
+        return replay
 
     def public_job_sink(self, context: PublicJobCaptureContext) -> PublicJobCaptureSink:
         context.validate_profile(self._engine.profile)
@@ -982,10 +1078,21 @@ class CaptureTasks:
         fingerprint = PublicJobCaptureSink.fingerprint_for(
             str(profile.root), profile.root_identity, profile.tenant_id
         )
+        connection = self._engine._store.connect()
+        try:
+            identity = connection.execute(
+                "SELECT brain_id, issuer_epoch FROM brain_identity WHERE singleton = 1"
+            ).fetchone()
+        finally:
+            connection.close()
+        if identity is None:
+            raise RuntimeError("brain identity unavailable")
         return PublicJobCaptureSink(
             self,
             context=context,
             brain_fingerprint=fingerprint,
+            brain_id=cast(str, identity["brain_id"]),
+            issuer_epoch=cast(int, identity["issuer_epoch"]),
         )
 
     def get(self, capture_id: str) -> CaptureReceipt | None:

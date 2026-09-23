@@ -2438,9 +2438,9 @@ class CaptureTask(Protocol):
         capture_why: str | None = None,
         title: str | None = None,
         privacy_tier: PrivacyTier | None = None,
-    ) -> CaptureReceipt: ...
+    ) -> CaptureOutcome: ...
 
-    def submit(self, submission: CaptureSubmission) -> CaptureReceipt: ...
+    def submit(self, submission: CaptureSubmission) -> CaptureOutcome: ...
 
     def public_job_sink(self, context: PublicJobCaptureContext) -> PublicJobCaptureSink: ...
 
@@ -2454,15 +2454,24 @@ class PublicJobCaptureSink:
         *,
         context: PublicJobCaptureContext,
         brain_fingerprint: str | None = None,
+        brain_id: str | None = None,
+        issuer_epoch: int | None = None,
     ) -> None:
         if not isinstance(context, PublicJobCaptureContext) or (
             brain_fingerprint is not None
             and re.fullmatch(r"[0-9a-f]{64}", brain_fingerprint) is None
+            or brain_id is not None
+            and re.fullmatch(r"brn_[a-z2-7]{26}", brain_id) is None
+            or issuer_epoch is not None
+            and (type(issuer_epoch) is not int or issuer_epoch < 1)
+            or (brain_id is None) != (issuer_epoch is None)
         ):
             raise ValueError("invalid public-job context")
         self._capture = capture
         self._context = context
         self._brain_fingerprint = brain_fingerprint
+        self._brain_id = brain_id
+        self._issuer_epoch = issuer_epoch
 
     @property
     def context(self) -> PublicJobCaptureContext:
@@ -2473,6 +2482,13 @@ class PublicJobCaptureSink:
     def brain_fingerprint(self) -> str | None:
         """Opaque identity of the exact Brain that created this capability."""
         return self._brain_fingerprint
+
+    @property
+    def brain_identity(self) -> tuple[str, int] | None:
+        """Destination identity used to verify a custody receipt before release."""
+        if self._brain_id is None or self._issuer_epoch is None:
+            return None
+        return (self._brain_id, self._issuer_epoch)
 
     @staticmethod
     def fingerprint_for(root: str, root_identity: tuple[int, int], tenant_id: str) -> str:
@@ -2497,7 +2513,7 @@ class PublicJobCaptureSink:
         privacy: PrivacyDecision,
         intent: Intent | str | None = None,
         title: str | None = None,
-    ) -> CaptureReceipt:
+    ) -> CaptureOutcome:
         return self._capture.submit(
             CaptureSubmission.for_public_job(
                 context=self._context,

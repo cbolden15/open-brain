@@ -329,6 +329,19 @@ class BrainEngine(CaptureOperations, SpaceOperations, ReviewOperations, Retrieva
         with self._writer_lease.acquire_shared_writer():
             return self._recover()
 
+    def _recover_captures_locked(self) -> int:
+        """Resume canonical capture stages before draining newer ingress."""
+        connection = self._store.connect()
+        try:
+            rows = tuple(
+                connection.execute("SELECT * FROM captures WHERE stage < ?", (_done("captures"),))
+            )
+        finally:
+            connection.close()
+        for row in rows:
+            self._process_capture(row)
+        return len(rows)
+
     def _bind_cursor_root(self) -> None:
         from contextlib import suppress
 
@@ -356,9 +369,9 @@ class BrainEngine(CaptureOperations, SpaceOperations, ReviewOperations, Retrieva
 
             quarantine_stale_intakes(self)
         recovered = 0
+        recovered += self._recover_captures_locked()
         for table, processor in (
             ("space_operations", self._process_space_operation),
-            ("captures", self._process_capture),
             ("route_operations", self._process_route),
             ("proposal_sets", self._process_proposal_set),
             ("decisions", self._process_decision),

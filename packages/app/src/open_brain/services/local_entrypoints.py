@@ -25,6 +25,7 @@ from typing import NoReturn, cast
 from open_brain_engine import __version__
 from open_brain_engine.core.models import PrivacyTier
 from open_brain_engine.engine import (
+    CaptureCustodyReceipt,
     CaptureReceipt,
     EngineTaskSet,
     ManagedAccessMode,
@@ -1539,7 +1540,10 @@ def _run_local_command(
         if json_output:
             _write_json(payload)
         else:
-            print(f"Submitted {receipt.capture_id}")
+            if isinstance(receipt, CaptureCustodyReceipt):
+                print(f"Queued {receipt.ingestion_id}")
+            else:
+                print(f"Submitted {receipt.capture_id}")
         return 0
     if parsed.command == "import":
         if import_interrupted is None:
@@ -2161,12 +2165,15 @@ def _import_failure_message(code: str, details: Mapping[str, object]) -> str:
     raise ValueError("invalid Markdown import failure")
 
 
-def _write_capture(receipt: CaptureReceipt, *, json_output: bool) -> None:
+def _write_capture(receipt: CaptureReceipt | CaptureCustodyReceipt, *, json_output: bool) -> None:
     payload = capture_result(receipt)
     if json_output:
         _write_json(payload)
     else:
-        print(f"Captured {receipt.capture_id}")
+        if isinstance(receipt, CaptureCustodyReceipt):
+            print(f"Queued {receipt.ingestion_id}")
+        else:
+            print(f"Captured {receipt.capture_id}")
 
 
 def _write_search(results: tuple[RetrievalResult, ...], *, json_output: bool) -> None:

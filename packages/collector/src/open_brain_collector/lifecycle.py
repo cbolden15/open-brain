@@ -16,7 +16,14 @@ from pathlib import Path
 from tempfile import NamedTemporaryFile
 from typing import Protocol, cast, runtime_checkable
 
-from open_brain_engine.engine import DeliveryConflict, PublicJobCaptureSink
+from open_brain_engine.engine import (
+    CaptureCustodyReceipt,
+    CaptureReceipt,
+    CaptureSubmission,
+    DeliveryConflict,
+    PublicJobCaptureSink,
+    verify_capture_custody_receipt,
+)
 from open_brain_engine.engine.t03_contracts import T03Error
 
 from open_brain_collector.custody import CustodyStore, intake_digest
@@ -1134,7 +1141,18 @@ class EngineCaptureSink:
     def submit(self, intake: SourceRecordIntake) -> object:
         if type(intake) is not SourceRecordIntake:
             raise ConnectorContractError("invalid collector capture")
-        return self._sink.submit(
+        submission = CaptureSubmission.for_public_job(
+            context=self._sink.context,
+            payload=intake.payload(),
+            delivery_id=intake.key.delivery_id(),
+            source_origin="third_party",
+            source_reference=intake.source_reference,
+            provenance=intake.provenance(),
+            privacy=intake.privacy,
+            intent="reference",
+            title=intake.title,
+        )
+        receipt = self._sink.submit(
             intake.payload(),
             delivery_id=intake.key.delivery_id(),
             source_origin="third_party",
@@ -1144,6 +1162,34 @@ class EngineCaptureSink:
             intent="reference",
             title=intake.title,
         )
+        if isinstance(receipt, CaptureCustodyReceipt):
+            # A queued journal receipt releases collector custody only when it
+            # binds the exact collector delivery to this Brain and narrows,
+            # never widens, the admitted privacy tier.
+            checked = verify_capture_custody_receipt(receipt.to_dict())
+            identity = self._sink.brain_identity
+            if (
+                identity is None
+                or checked.brain_id != identity[0]
+                or checked.issuer_epoch != identity[1]
+                or checked.delivery_id != intake.key.delivery_id()
+                or checked.requested_tier != intake.privacy.tier
+            ):
+                raise LiveSourceError("collector_invalid_custody_receipt")
+        elif isinstance(receipt, CaptureReceipt):
+            identity = self._sink.brain_identity
+            if (
+                identity is None
+                or receipt.destination_brain_id != identity[0]
+                or receipt.issuer_epoch != identity[1]
+                or receipt.delivery_id != submission.delivery_id
+                or receipt.request_sha256 != submission.request_sha256()
+                or receipt.requested_tier != intake.privacy.tier
+            ):
+                raise LiveSourceError("collector_invalid_custody_receipt")
+        else:
+            raise LiveSourceError("collector_invalid_custody_receipt")
+        return receipt
 
 
 def _result(

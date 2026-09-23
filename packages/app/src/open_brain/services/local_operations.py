@@ -18,7 +18,8 @@ from open_brain_engine.core.models import (
     Provenance,
 )
 from open_brain_engine.engine import (
-    CaptureReceipt,
+    CaptureCustodyReceipt,
+    CaptureOutcome,
     CaptureSubmission,
     CaptureTask,
     EngineTaskSet,
@@ -81,7 +82,7 @@ def capture_text(
     *,
     delivery_id: str,
     privacy_tier: PrivacyTier | None = None,
-) -> CaptureReceipt:
+) -> CaptureOutcome:
     payload = TextPayload(text)
     if isinstance(capture, PublicJobCaptureSink):
         if privacy_tier is not None:
@@ -156,7 +157,7 @@ def submit_destination_bound_capture(
     *,
     requested_tier: PrivacyTier | None,
     delivery_id: str,
-) -> CaptureReceipt:
+) -> CaptureOutcome:
     """Submit one destination-bound capture; the engine owns every admission check."""
     return tasks.capture.submit(
         CaptureSubmission.for_destination_bound(
@@ -169,8 +170,10 @@ def submit_destination_bound_capture(
     )
 
 
-def destination_bound_capture_result(receipt: CaptureReceipt) -> dict[str, object]:
+def destination_bound_capture_result(receipt: CaptureOutcome) -> dict[str, object]:
     """The public destination-bound receipt projection with its full binding."""
+    if isinstance(receipt, CaptureCustodyReceipt):
+        return receipt.to_dict()
     return {
         "capture_id": receipt.capture_id,
         "delivery_id": receipt.delivery_id,
@@ -223,7 +226,9 @@ def destination_bound_capture_submit(
     return DestinationBoundCaptureCapability(tasks, authority)
 
 
-def capture_result(receipt: CaptureReceipt) -> dict[str, object]:
+def capture_result(receipt: CaptureOutcome) -> dict[str, object]:
+    if isinstance(receipt, CaptureCustodyReceipt):
+        return receipt.to_dict()
     return {
         "capture_id": receipt.capture_id,
         "duplicate": receipt.duplicate,
