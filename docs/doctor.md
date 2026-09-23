@@ -4,6 +4,11 @@
 below use the synthetic Brain created by [First use](first-use.md). Each runnable block is included
 in the exact-artifact documentation gate.
 
+Every JSON doctor response also includes `ingestion_journal` with `pending_count`,
+`quarantined_count`, `oldest_age_seconds`, `retained_bytes`, and a bounded last failure code. These
+fields are metadata-only. A nonzero pending or quarantined count is an operator condition, not a
+search or record-read result; inspect it with the owner-only `open-brain journal status` command.
+
 <!-- open-brain-example:doctor-private-data-directory -->
 ```sh
 DOCTOR_PRIVATE="$("$OPEN_BRAIN" doctor --check private-data-directory --data-dir "$DATA_DIR" --json)"

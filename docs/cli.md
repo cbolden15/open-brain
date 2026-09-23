@@ -15,6 +15,7 @@ opening a Brain. See the [feature/version matrix](core-v01-features.md).
 |---|---|
 | `init`, `capture`, `import`, `status`, `export` | Local storage lifecycle; [first-use](first-use.md), [install](install.md) |
 | `capture-submit` | Destination-bound capture under a trusted startup policy; [capture contract](capture-contract.md) |
+| `journal status/drain/retry/discard` | Owner-only durable ingress inspection and recovery; [operations](operations.md) |
 | `catalog` | Versioned metadata; no grants or public certification |
 | `search`, `search-page`, `read` | Lexical retrieval and complete projected text; [records](records-and-history.md) |
 | `history list/show`, `relationship list/decide`, `decision history` | Retained evidence; owner relationship mutations |
@@ -52,6 +53,25 @@ work. Observation, acceptance,
 materialization, deactivation, restoration, conflict resolution, consent, exclusions, and suggested
 link acceptance are explicit owner operations. State-only actions do not rewrite Markdown.
 
+## Journal operations
+
+Journal commands are owner-local only and return metadata, never envelope content. `status` shows
+opaque ingestion IDs, delivery IDs, attempt counts, journal sequence for the owner, state, and
+bounded summary fields. The sequence is never exposed to scoped capture adapters.
+
+```sh
+open-brain journal status --data-dir /absolute/brain --json
+open-brain journal drain --data-dir /absolute/brain --json
+open-brain journal retry DELIVERY_ID --data-dir /absolute/brain --json
+open-brain journal discard DELIVERY_ID --reason 'owner-confirmed discard' \
+  --confirm --data-dir /absolute/brain --json
+```
+
+`drain` first resumes incomplete canonical captures and then processes a bounded journal batch.
+`retry` applies only to quarantined items. `discard` requires explicit confirmation and writes a
+durable tombstone before removing the retained payload. A writer-busy result is retryable; it does
+not mean that acknowledged custody was refused.
+
 ## Status and doctor
 
 Status reports profile `local`, storage `sqlite`, daemon false, and application encryption false.
@@ -84,6 +104,31 @@ Per process, workspace reads are limited to 500 calls and 16 MiB of serialized r
 is limited to 20 requests, 40 actual model attempts, and 1 MiB of selected note input. These limits are
 in addition to the engine's durable per-workspace provider budget. Restarting an explicitly launched
 MCP process resets only the process limits.
+
+A successful `brain_capture` or `brain_capture_submit` tool result may be either an existing
+terminal capture receipt or a `capture-custody.v1` receipt with `status: "queued"`. MCP treats the
+queued variant as a successful tool result, not an error. A scoped client may verify only the
+receipt bindings and opaque `ingestion_id`; it cannot inspect journal sequence, queue depth,
+payload, or owner journal status.
+
+```json
+{
+  "contract_version": "capture-custody.v1",
+  "status": "queued",
+  "ingestion_id": "ingestion_opaque-synthetic-id",
+  "brain_id": "brain_synthetic-id",
+  "issuer_epoch": 7,
+  "delivery_id": "delivery.synthetic-1",
+  "request_sha256": "synthetic-request-digest",
+  "requested_tier": "work",
+  "final_admitted_tier": "work",
+  "queued_at": "2026-09-22T12:00:00Z",
+  "protection_acknowledgement": null
+}
+```
+
+The identifiers and digest above are illustrative placeholders, not valid credentials or live
+references.
 
 ## Exit behavior
 
