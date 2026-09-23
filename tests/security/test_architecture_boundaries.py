@@ -65,6 +65,8 @@ def test_application_package_contains_only_foreground_local_surfaces() -> None:
         "services/plugin_bridge.py",
         "services/provider_credentials.py",
         "services/review_publication.py",
+        "services/session_authority.py",
+        "services/session_consent.py",
         "services/space_inbox.py",
         "services/t03_adapters.py",
     }

@@ -118,17 +118,8 @@ def search_brain(
     return retrieval.search(query, limit=limit)
 
 
-def destination_bound_authority(
-    tasks: EngineTaskSet, raw_policy: str | bytes | Mapping[str, object]
-) -> EffectiveAuthority:
-    """Validate the trusted startup policy against this Brain's durable identity.
-
-    The durable ``brain_identity`` row is the only source of the current Brain
-    ID and issuer epoch, so a stale-epoch or wrong-Brain policy is refused
-    here, before any submission exists. The destination-bound capture path
-    never grants egress authority, so no provider consent is consulted;
-    external-provider policies fail closed.
-    """
+def current_brain_identity(tasks: EngineTaskSet) -> tuple[str, int]:
+    """Read the durable Brain ID and stationary issuer epoch from trusted storage."""
     profile = tasks.profile
     connection = connect_database_read_only(
         root=profile.root,
@@ -141,10 +132,25 @@ def destination_bound_authority(
         connection.close()
     if row is None:
         raise LauncherPolicyError("destination_mismatch")
+    return cast(str, row[0]), cast(int, row[1])
+
+
+def destination_bound_authority(
+    tasks: EngineTaskSet, raw_policy: str | bytes | Mapping[str, object]
+) -> EffectiveAuthority:
+    """Validate the trusted startup policy against this Brain's durable identity.
+
+    The durable ``brain_identity`` row is the only source of the current Brain
+    ID and issuer epoch, so a stale-epoch or wrong-Brain policy is refused
+    here, before any submission exists. The destination-bound capture path
+    never grants egress authority, so no provider consent is consulted;
+    external-provider policies fail closed.
+    """
+    brain_id, issuer_epoch = current_brain_identity(tasks)
     return validate_startup_policy(
         raw_policy,
-        current_brain_id=cast(str, row[0]),
-        current_issuer_epoch=cast(int, row[1]),
+        current_brain_id=brain_id,
+        current_issuer_epoch=issuer_epoch,
         current_authorization_generation=0,
         consent_state=None,
     )

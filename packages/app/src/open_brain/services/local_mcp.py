@@ -19,6 +19,7 @@ from open_brain_engine.engine import (
 from open_brain_engine.engine.t03_contracts import EffectiveAuthority
 
 from open_brain.services.catalog import CatalogRequestError
+from open_brain.services.launcher_policy import LauncherPolicyError
 from open_brain.services.local_operations import (
     DestinationBoundCaptureCapability,
     capture_result,
@@ -107,6 +108,7 @@ class LocalMcpAdapter:
     """Explicitly injected, bounded local capabilities without owner authority."""
 
     authority: EffectiveAuthority
+    revalidate_authority: Callable[[], EffectiveAuthority] | None = None
     capture: PublicJobCaptureSink | None = None
     capture_submit: DestinationBoundCaptureCapability | None = None
     search: Callable[[str, int], tuple[RetrievalResult, ...]] | None = None
@@ -145,6 +147,10 @@ class LocalMcpAdapter:
     def __post_init__(self) -> None:
         if not isinstance(self.authority, EffectiveAuthority):
             raise ValueError("invalid MCP authority")
+        if self.revalidate_authority is not None and not callable(
+            self.revalidate_authority
+        ):
+            raise ValueError("invalid MCP authority revalidator")
         if all(
             capability is None
             for capability in (
@@ -221,6 +227,7 @@ class LocalMcpAdapter:
         return "stdio"
 
     def list_tools(self) -> tuple[McpToolDefinition, ...]:
+        self._revalidate()
         tools: list[McpToolDefinition] = []
         if self.negotiated is not None:
             available = set(self.negotiated.available_operations())
@@ -605,6 +612,12 @@ class LocalMcpAdapter:
         )
         return tuple(tool for tool in tools if self._tool_authorized(tool["name"]))
 
+    def _revalidate(self) -> None:
+        if self.revalidate_authority is None:
+            return
+        if self.revalidate_authority() is not self.authority:
+            raise ValueError("MCP session authority changed")
+
     def _tool_authorized(self, name: str) -> bool:
         """Intersect trusted authority with the injected, scoped-safe operation matrix."""
         if self.authority.owner:
@@ -967,6 +980,8 @@ class LocalMcpAdapter:
                 return self._refresh(arguments)
             raise McpCallError("unknown tool")
         except McpCallError:
+            raise
+        except LauncherPolicyError:
             raise
         except Exception as error:
             if database_is_busy(error):
