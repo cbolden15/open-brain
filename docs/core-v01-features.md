@@ -11,15 +11,16 @@ Local documentation checks do not promote catalog acceptance.
 | Coordinate | Candidate value | Meaning |
 |---|---|---|
 | Core / engine package | `0.1.0` / exactly `0.1.0` | Core requires the matching engine |
-| Local state schema | `7` | Older incompatible writers must refuse |
-| Runtime session | `2` | Stop old sessions and upgrade clients together |
+| Local state schema | `10` | Older incompatible writers must refuse |
+| Runtime session | `5` | Stop old sessions and upgrade clients together |
 | Task contract | `t03.v1` | Negotiated search/read/history/source-route DTOs |
 | Catalog schema | `2` | Joined implementation, package, authorization and acceptance metadata |
 | Plugin bridge | `1` | Existing bounded inherited-stdio envelope |
-| Portable metadata | `4` | Versioned evidence; distinct from live database schema |
+| Portable metadata | `5` | Versioned evidence; distinct from live database schema |
 
-Supported Portable 1–3 imports remain implementation compatibility; Portable 4 restore is outside
-this scope. A catalog version is not a protocol or database upgrade instruction.
+Supported Portable 1–3 imports remain implementation compatibility; standalone Portable 4 import
+is refused. Portable 5 clean restore preserves current identity, privacy, issuer and managed
+evidence. A catalog version is not a protocol or database upgrade instruction.
 
 ## Surface and claim boundaries
 

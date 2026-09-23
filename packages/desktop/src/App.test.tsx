@@ -6,7 +6,7 @@ import { App } from "./App";
 
 vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
 const mockedInvoke = vi.mocked(invoke);
-const status = { status: "ok", brain_root: "/synthetic/brain", initialized: false, state_schema_version: 7, runtime_session_version: 2 };
+const status = { status: "ok", brain_root: "/synthetic/brain", initialized: false, state_schema_version: 10, runtime_session_version: 5 };
 const contract = {
   status: "ok", contract_version: "t03.v1",
   operations: ["search.page", "record.read"].map(name => ({ name, dto_version: 1, required_grants: [name === "record.read" ? "content-read" : "search"] })),

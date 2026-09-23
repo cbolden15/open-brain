@@ -11,8 +11,8 @@ use std::time::Duration;
 use tauri::{AppHandle, Manager, State, path::BaseDirectory};
 use uuid::Uuid;
 
-const SUPPORTED_STATE_SCHEMA: u64 = 7;
-const SUPPORTED_RUNTIME_SESSION: u64 = 2;
+const SUPPORTED_STATE_SCHEMA: u64 = 10;
+const SUPPORTED_RUNTIME_SESSION: u64 = 5;
 const BASE_OPERATIONS: &[&str] = &[
     "system.status",
     "capture.create",
@@ -504,8 +504,8 @@ mod tests {
             "protocol": PROTOCOL,
             "protocol_version": PROTOCOL_VERSION,
             "product_version": "0.1.0",
-            "runtime_session_version": 2,
-            "state_schema_version": 7,
+            "runtime_session_version": 5,
+            "state_schema_version": 10,
             "brain_root": "/synthetic/brain",
             "operations": BASE_OPERATIONS,
         })
@@ -530,7 +530,7 @@ mod tests {
 
     #[test]
     fn unknown_schema_and_relative_brain_are_rejected() {
-        for unsupported in [4, 5, 6, 8] {
+        for unsupported in [4, 5, 6, 7, 8, 9, 11] {
             let mut wrong_version = handshake();
             wrong_version["state_schema_version"] = json!(unsupported);
             assert!(validate_handshake(&wrong_version).is_err());
@@ -540,27 +540,19 @@ mod tests {
         assert!(validate_handshake(&relative).is_err());
     }
     #[test]
-    fn t03_desktop_admits_only_the_frozen_new_runtime() {
-        let fixture: Value = serde_json::from_str(include_str!(
-            "../../../../tests/fixtures/new-user-t03/compatibility.json"
-        ))
-        .unwrap();
-        let mut next = handshake();
-        next["state_schema_version"] = fixture["versions"]["proposed"]["storage"].clone();
-        next["runtime_session_version"] =
-            fixture["versions"]["proposed"]["runtime_session"].clone();
+    fn desktop_admits_only_the_current_runtime() {
+        let next = handshake();
         assert!(validate_handshake(&next).is_ok());
         let raw = serde_json::to_string(&next).unwrap().replace(
-            "\"runtime_session_version\":2",
-            "\"runtime_session_version\":2.0",
+            "\"runtime_session_version\":5",
+            "\"runtime_session_version\":5.0",
         );
         let fractional = crate::strict_json::from_slice(raw.as_bytes()).unwrap();
         assert!(validate_handshake(&fractional).is_err());
-        for version in ["baseline", "current"] {
+        for (state_schema, runtime_session) in [(5, 1), (6, 1), (7, 2), (8, 3), (9, 4)] {
             let mut old = next.clone();
-            old["state_schema_version"] = fixture["versions"][version]["storage"].clone();
-            old["runtime_session_version"] =
-                fixture["versions"][version]["runtime_session"].clone();
+            old["state_schema_version"] = json!(state_schema);
+            old["runtime_session_version"] = json!(runtime_session);
             assert_eq!(
                 validate_handshake(&old),
                 Err("incompatible_runtime".to_owned())

@@ -41,7 +41,7 @@ DOCTOR_IDS: Final = (
     "doctor-search-index",
 )
 EXPECTED_EXAMPLE_SHA256: Final = {
-    "first-use-environment": "42f1e9bbbcf1fb62e6f240ca90d9ae7a1835828966c25ea2d3a2e73b7745e569",
+    "first-use-environment": "dcee9e65ddda2004f938b4fb7d8c29142cf334441e86933997fd0a746a540e0e",
     "capture-and-import": "38deda7e462191d3821b9585095483b15a77d8d52b743759a256fec37c7edd4d",
     "route-review-publish": "8163294560e11ca41c2537d3205de564b4870374e8608816b46a347fdf3cf7eb",
     "workspace-search-and-complete-read": (
@@ -72,12 +72,12 @@ AGENT_SETUP_GRANTS: Final = {
 }
 COMPATIBILITY_COORDINATES: Final = {
     "Core / engine package": "0.1.0 / exactly 0.1.0",
-    "Local state schema": "7",
-    "Runtime session": "2",
+    "Local state schema": "10",
+    "Runtime session": "5",
     "Task contract": "t03.v1",
     "Catalog schema": "2",
     "Plugin bridge": "1",
-    "Portable metadata": "4",
+    "Portable metadata": "5",
 }
 README_MCP_CONFIGS: Final = (
     ("Capture only", ("mcp", "--allow-capture")),
