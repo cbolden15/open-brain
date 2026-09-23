@@ -1,7 +1,7 @@
 {
   "id": "2026-09-22-durable-ingestion-journal-notes",
   "title": "Implementation notes — Durable ingestion journal",
-  "subtitle": "phase 4 of 5 complete · 2026-09-22 21:54 CDT",
+  "subtitle": "phase 5 of 5 software complete · live Mac Mini cutover pending · 2026-09-22 23:08 CDT",
   "introTitle": "How to use",
   "intro": "<p>Each item is a decision, deviation, or tradeoff made during implementation. <strong>Acknowledge</strong> if fine. <strong>Discuss</strong> to write what should change. <strong>Revert</strong> to flag for undo.</p>",
   "actions": [
@@ -205,6 +205,30 @@
         "What I did": "Completed owner journal operations, status and doctor telemetry, pagination across all non-terminal items, receipt custody hardening, and adversarial coverage for concurrency, FIFO drain, corruption, capacity, watermark refusal, replay, conflict, compaction, quarantine, and authority boundaries.",
         "Why": "The Phase 4 exit gate is satisfied. Full verification is green: 3,350 Python tests with 5 expected skips, 291 Obsidian tests, 259 desktop tests, 1 desktop Python test, and 26 Rust tests. Ruff, MyPy, TypeScript, builds, and Rust formatting also pass.",
         "Followup": "Phase 5 documents the operator workflow, runs the final cutover checks, and performs the Mac Mini migration."
+      }
+    },
+    {
+      "id": "N15",
+      "group": "phase-5",
+      "title": "Native release smoke now tracks schema-10 compatibility",
+      "where": "tools/open_brain_dev/base_native.py:735",
+      "default": "acknowledge",
+      "body": {
+        "What I did": "Updated the packaged-binary smoke contract from runtime session 4 and state schema 9 to runtime session 5 and state schema 10. The smoke now also requires the metadata-only journal summary in status and doctor output.",
+        "Why": "The first independent native run built a correct binary but failed because the release verifier still asserted the pre-journal catalog and status shapes. Focused release coverage, native audit, and Homebrew install smoke pass after correcting that drift.",
+        "Risk": "This changes only release verification expectations. It does not weaken the native journey or alter runtime behavior."
+      }
+    },
+    {
+      "id": "N16",
+      "group": "phase-5",
+      "title": "Implementation complete",
+      "where": "phase-5 exit gate",
+      "default": "acknowledge",
+      "body": {
+        "What I did": "Documented the schema-10 capture boundary, owner journal commands, MCP queued outcome, migration compatibility, Portable export gate, and guarded Mac Mini cutover and rollback sequence. Verified synthetic migration and crash recovery, the full repository suite, native artifacts, and Homebrew installation.",
+        "Why": "The public implementation and release-readiness checks are complete without placing private host identifiers or live captured content in the repository.",
+        "Followup": "The real Mac Mini migration remains an operator cutover: stop launchers, take and verify the supported backup, install this verified build, migrate once, run the documented acceptance checks, and retain the snapshot until all custody smokes pass."
       }
     }
   ]

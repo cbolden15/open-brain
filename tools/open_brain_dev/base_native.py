@@ -736,6 +736,13 @@ def _smoke_local_journey(
         "application_encryption": False,
         "brain_count": 1,
         "daemon_running": False,
+        "ingestion_journal": {
+            "last_failure_code": None,
+            "oldest_age_seconds": None,
+            "pending_count": 0,
+            "quarantined_count": 0,
+            "retained_bytes": 0,
+        },
         "live_search": {
             "authoritative": True,
             "contents_agree": True,
@@ -764,7 +771,7 @@ def _smoke_local_journey(
         "search-index",
     ):
         checked = _run((os.fspath(executable), "doctor", "--check", check), environment)
-        if checked.stdout != f"{check}: ok\n":
+        if checked.stdout != f"{check}: ok. Journal pending: 0; quarantined: 0.\n":
             raise BaseNativeError("native doctor failed")
     run_root = brain_root / ".open-brain/run"
     if run_root.is_dir() and any(run_root.iterdir()):
@@ -1214,8 +1221,8 @@ def _smoke_catalog(executable: Path, environment: Mapping[str, str]) -> None:
             "bridge_protocol": 1,
             "catalog_schema": 2,
             "portable_metadata": 5,
-            "runtime_session": 4,
-            "state_schema": 9,
+            "runtime_session": 5,
+            "state_schema": 10,
             "task_contract": "t03.v1",
         }
         or not isinstance(product, dict)
