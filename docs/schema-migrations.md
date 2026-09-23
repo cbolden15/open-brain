@@ -2,7 +2,7 @@
 
 ## Current catalog
 
-The current local schema is **10**, with runtime session version **1**. The frozen catalog is
+The current local schema is **10**, with runtime session version **5**. The frozen catalog is
 `packages/engine/src/open_brain_engine/engine/local_schema_catalog.py`; its checksum fixture is
 `tests/fixtures/local-schema/catalog-checksums.json`. Migrations 1 through 5 remain unchanged.
 Migrations 6 through 9 add versioned managed-write authority, owner-recovery decision records,

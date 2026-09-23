@@ -45,7 +45,7 @@ desktop-test: desktop-install
 	npm --prefix $(DESKTOP_DIR) run build
 	uv run --frozen pytest -q $(DESKTOP_DIR)/tests
 	cargo fmt --manifest-path $(DESKTOP_TAURI_DIR)/Cargo.toml -- --check
-	cargo test --locked --manifest-path $(DESKTOP_TAURI_DIR)/Cargo.toml
+	cargo test --locked --manifest-path $(DESKTOP_TAURI_DIR)/Cargo.toml -- --test-threads=1
 
 desktop-runtime: native
 	node $(DESKTOP_DIR)/scripts/prepare-runtime.mjs $(NATIVE_ARTIFACT) $(NATIVE_GRAPHIFY_ARTIFACT) $(NATIVE_MANIFEST) $(DESKTOP_TAURI_DIR)/binaries $(DESKTOP_TARGET)
