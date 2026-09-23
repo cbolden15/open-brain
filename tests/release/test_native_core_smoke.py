@@ -55,8 +55,8 @@ def _catalog() -> dict[str, object]:
             "bridge_protocol": 1,
             "catalog_schema": 2,
             "portable_metadata": 5,
-            "runtime_session": 4,
-            "state_schema": 9,
+            "runtime_session": 5,
+            "state_schema": 10,
             "task_contract": "t03.v1",
         },
         "packages": [
@@ -152,11 +152,11 @@ def test_grantless_catalog_probe_requires_core_coordinates_and_no_optional_claim
     compatibility["runtime_session"] = 2
     with pytest.raises(BaseNativeError, match="native catalog discovery failed"):
         base_native._smoke_catalog(tmp_path / "open-brain", environment)
-    compatibility["runtime_session"] = 4
+    compatibility["runtime_session"] = 5
     compatibility["state_schema"] = 7
     with pytest.raises(BaseNativeError, match="native catalog discovery failed"):
         base_native._smoke_catalog(tmp_path / "open-brain", environment)
-    compatibility["state_schema"] = 9
+    compatibility["state_schema"] = 10
 
     packages = catalog["packages"]
     assert isinstance(packages, list)

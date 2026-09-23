@@ -182,35 +182,35 @@ def _read_only(profile: SingleUserLocalProfile) -> sqlite3.Connection:
 def test_privacy_migration_is_cataloged() -> None:
     from open_brain_engine.engine import local_schema_catalog
 
-    assert [migration.name for migration in local_schema_catalog.LOCAL_MIGRATIONS][-3:] == [
+    assert [migration.name for migration in local_schema_catalog.LOCAL_MIGRATIONS][-4:] == [
         "immutable_source_history",
         "effective_privacy_projection",
         "issuer_identity_and_owner_repair",
+        "durable_capture_ingestion_journal",
     ]
-    assert local_schema_catalog.LOCAL_MIGRATIONS[8].version == 9
-    assert len(local_schema_catalog.LOCAL_MIGRATIONS) == 9
+    assert local_schema_catalog.LOCAL_MIGRATIONS[9].version == 10
+    assert len(local_schema_catalog.LOCAL_MIGRATIONS) == 10
 
 
-def test_fresh_brain_is_schema_nine_current(tmp_path: Path) -> None:
+def test_fresh_brain_is_schema_ten_current(tmp_path: Path) -> None:
     profile = compile_single_user_local(tmp_path / "brain")
     BrainEngine.open(profile)
-    assert inspect_phase1_state(profile) == local_schema.SchemaState("current", 9)
+    assert inspect_phase1_state(profile) == local_schema.SchemaState("current", 10)
     with _read_only(profile) as connection:
-        assert connection.execute("PRAGMA user_version").fetchone()[0] == 9
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 10
         assert [
             tuple(row)
             for row in connection.execute(
                 "SELECT singleton, minimum_runtime_session_version, state_schema_version "
                 "FROM runtime_compatibility"
             )
-        ] == [(1, 4, 9)]
+        ] == [(1, 5, 10)]
         # Fresh post-cutover state provisions identity atomically with the schema:
         # current epoch one, no legacy epoch, no bindings, and no migration marker.
         assert [
             tuple(row)
             for row in connection.execute(
-                "SELECT tenant_id, brain_id, issuer_epoch, legacy_issuer_epoch "
-                "FROM brain_identity"
+                "SELECT tenant_id, brain_id, issuer_epoch, legacy_issuer_epoch FROM brain_identity"
             )
         ] == [(profile.tenant_id, derive_brain_id(profile.tenant_id), 1, None)]
         for table in ("legacy_issuer_bindings", "issuer_migration_marker"):
@@ -238,9 +238,7 @@ def test_schema_eight_brain_classifies_supported_old_and_awaits_issuer_migration
     with monkeypatch.context() as schema_eight:
         use_schema_eight_runtime(schema_eight)
         engine = BrainEngine.open(profile)
-        accepted = engine.capture.accept(
-            TextPayload("schema eight"), delivery_id="issuer.eight"
-        )
+        accepted = engine.capture.accept(TextPayload("schema eight"), delivery_id="issuer.eight")
         assert accepted.capture_id
     assert inspect_phase1_state(profile) == local_schema.SchemaState("supported_old", 8)
     with pytest.raises(SchemaError, match="issuer migration requires exclusive admission"):
@@ -251,15 +249,15 @@ def test_schema_eight_brain_classifies_supported_old_and_awaits_issuer_migration
         pass
 
 
-def test_schema_newer_than_nine_fails_closed(tmp_path: Path) -> None:
+def test_schema_newer_than_ten_fails_closed(tmp_path: Path) -> None:
     profile = compile_single_user_local(tmp_path / "brain")
     BrainEngine.open(profile)
     connection = open_local_database(profile, clock=lambda: datetime.now(UTC))
     try:
-        connection.execute("PRAGMA user_version=10")
+        connection.execute("PRAGMA user_version=11")
     finally:
         connection.close()
-    assert inspect_phase1_state(profile) == local_schema.SchemaState("newer", 10)
+    assert inspect_phase1_state(profile) == local_schema.SchemaState("newer", 11)
     with pytest.raises(SchemaError, match="newer"):
         open_local_database(profile, clock=lambda: datetime.now(UTC))
 
@@ -274,8 +272,7 @@ def test_schema_nine_identity_evidence_is_durable_and_append_only(tmp_path: Path
         assert [
             tuple(row)
             for row in connection.execute(
-                "SELECT tenant_id, brain_id, issuer_epoch, legacy_issuer_epoch "
-                "FROM brain_identity"
+                "SELECT tenant_id, brain_id, issuer_epoch, legacy_issuer_epoch FROM brain_identity"
             )
         ] == [(profile.tenant_id, derive_brain_id(profile.tenant_id), 1, None)]
         for table in ("legacy_issuer_bindings", "issuer_migration_marker"):
@@ -698,9 +695,7 @@ def test_privacy_migration_backfills_every_evidence_class(
             == expected_missing.invalid_evidence_sha256
         )
         assert source_rows[evidence.malformed.capture_id]["effective_tier"] == "unknown"
-        assert (
-            source_rows[evidence.malformed.capture_id]["invalid_evidence_reason"] == "malformed"
-        )
+        assert source_rows[evidence.malformed.capture_id]["invalid_evidence_reason"] == "malformed"
         # Derived canonical page: most restrictive tier plus intersected egress authority.
         page = search[evidence.page_id]
         assert page["record_type"] == "canonical"
@@ -825,15 +820,19 @@ def test_privacy_migration_resumes_from_every_checkpoint(
     assert inspect_phase1_state(profile) == local_schema.SchemaState("current", 8)
     assert json.loads((profile.root / JOURNAL).read_bytes())["stage"] == "complete"
     with _read_only(profile) as connection:
-        assert connection.execute("SELECT count(*) FROM source_revision_privacy").fetchone()[0] == (
-            connection.execute("SELECT count(*) FROM source_revisions").fetchone()[0]
+        assert (
+            connection.execute("SELECT count(*) FROM source_revision_privacy").fetchone()[0]
+            == (connection.execute("SELECT count(*) FROM source_revisions").fetchone()[0])
         )
         canonical_count = connection.execute(
             "SELECT count(*) FROM canonical_revision_privacy"
         ).fetchone()[0]
-        assert canonical_count == connection.execute(
-            "SELECT count(DISTINCT revision_id) FROM canonical_revision_members"
-        ).fetchone()[0]
+        assert (
+            canonical_count
+            == connection.execute(
+                "SELECT count(DISTINCT revision_id) FROM canonical_revision_members"
+            ).fetchone()[0]
+        )
         assert (
             connection.execute(
                 """SELECT 1 FROM search_documents d
@@ -897,14 +896,16 @@ def test_live_writes_keep_revision_privacy_coverage(
 
     with _read_only(profile) as connection:
         # Kimi P1 probe: revision counts must always equal their projection counts.
-        assert connection.execute("SELECT count(*) FROM source_revisions").fetchone()[0] == (
-            connection.execute("SELECT count(*) FROM source_revision_privacy").fetchone()[0]
+        assert (
+            connection.execute("SELECT count(*) FROM source_revisions").fetchone()[0]
+            == (connection.execute("SELECT count(*) FROM source_revision_privacy").fetchone()[0])
         )
-        assert connection.execute(
-            "SELECT count(DISTINCT revision_id) FROM canonical_revision_members"
-        ).fetchone()[0] == connection.execute(
-            "SELECT count(*) FROM canonical_revision_privacy"
-        ).fetchone()[0]
+        assert (
+            connection.execute(
+                "SELECT count(DISTINCT revision_id) FROM canonical_revision_members"
+            ).fetchone()[0]
+            == connection.execute("SELECT count(*) FROM canonical_revision_privacy").fetchone()[0]
+        )
         # Live source rows carry the exact complete effective JSON and lineage the
         # migration backfill encoding produces for the same retained evidence.
         stored = connection.execute(
@@ -930,9 +931,7 @@ def test_live_writes_keep_revision_privacy_coverage(
         assert connection.execute(
             "SELECT effective_privacy_json FROM canonical_revision_privacy WHERE revision_id = ?",
             (revision_id,),
-        ).fetchone()[0] == effective_privacy_json(
-            project_retained_privacy_evidence(values)
-        )
+        ).fetchone()[0] == effective_privacy_json(project_retained_privacy_evidence(values))
 
 
 def test_live_revision_registration_projects_invalid_evidence_with_markers(
@@ -1190,9 +1189,7 @@ def test_live_search_row_invalid_a_to_b_to_healed_retains_both_markers(
                 (fresh.capture_id,),
             ).fetchone()
         ) == ("missing", expected_missing.invalid_evidence_sha256)
-        assert search_markers(connection) == {
-            ("missing", expected_missing.invalid_evidence_sha256)
-        }
+        assert search_markers(connection) == {("missing", expected_missing.invalid_evidence_sha256)}
         # Invalid-B: distinct evidence for the same mutable target must append a
         # second retained marker, not silently keep only the first.
         connection.execute(
@@ -1335,14 +1332,16 @@ def test_stale_complete_journal_resumes_migration_on_restored_v7_brain(
     assert inspect_phase1_state(profile) == local_schema.SchemaState("current", 8)
     assert json.loads((profile.root / JOURNAL).read_bytes())["stage"] == "complete"
     with _read_only(profile) as connection:
-        assert connection.execute("SELECT count(*) FROM source_revisions").fetchone()[0] == (
-            connection.execute("SELECT count(*) FROM source_revision_privacy").fetchone()[0]
+        assert (
+            connection.execute("SELECT count(*) FROM source_revisions").fetchone()[0]
+            == (connection.execute("SELECT count(*) FROM source_revision_privacy").fetchone()[0])
         )
-        assert connection.execute(
-            "SELECT count(DISTINCT revision_id) FROM canonical_revision_members"
-        ).fetchone()[0] == connection.execute(
-            "SELECT count(*) FROM canonical_revision_privacy"
-        ).fetchone()[0]
+        assert (
+            connection.execute(
+                "SELECT count(DISTINCT revision_id) FROM canonical_revision_members"
+            ).fetchone()[0]
+            == connection.execute("SELECT count(*) FROM canonical_revision_privacy").fetchone()[0]
+        )
     # The completed journal unblocks the ordinary opener.
     open_local_database(profile, clock=lambda: datetime.now(UTC)).close()
 
@@ -1369,8 +1368,7 @@ def test_verify_privacy_projections_requires_exact_revision_marker_agreement(
         ).fetchone()[0]
         missing_payload = json.loads(
             connection.execute(
-                "SELECT effective_privacy_json FROM source_revision_privacy "
-                "WHERE capture_id = ?",
+                "SELECT effective_privacy_json FROM source_revision_privacy WHERE capture_id = ?",
                 (evidence.missing.capture_id,),
             ).fetchone()[0]
         )
@@ -1378,8 +1376,7 @@ def test_verify_privacy_projections_requires_exact_revision_marker_agreement(
     # The table CHECK admits any JSON object, so a payload that drops its digest
     # while keeping its reason is storable drift only verification can reject.
     unpaired_payload = {
-        key: value for key, value in missing_payload.items()
-        if key != "invalid_evidence_sha256"
+        key: value for key, value in missing_payload.items() if key != "invalid_evidence_sha256"
     }
 
     def rejects(statement: str, parameters: tuple[object, ...]) -> None:
@@ -1564,7 +1561,9 @@ class _RepairedSchemaNineBrain:
             connection.execute(
                 "UPDATE captures SET privacy_json=? WHERE capture_id=?",
                 (
-                    _stored(_privacy(PrivacyTier.PERSONAL, confirmation_ref="confirmation://repair")),
+                    _stored(
+                        _privacy(PrivacyTier.PERSONAL, confirmation_ref="confirmation://repair")
+                    ),
                     self.valid.capture_id,
                 ),
             )
@@ -1670,9 +1669,7 @@ def test_schema_eight_migration_verifier_still_requires_an_empty_ledger(
     connection = open_local_database(profile, clock=lambda: datetime.now(UTC))
     try:
         connection.execute("BEGIN IMMEDIATE")
-        assert connection.execute(
-            "SELECT count(*) FROM privacy_repair_ledger"
-        ).fetchone()[0] == 0
+        assert connection.execute("SELECT count(*) FROM privacy_repair_ledger").fetchone()[0] == 0
         # The schema-eight ledger shape predates sequences and receipts, but the
         # schema-eight verifier still refuses any ledger row at all.
         connection.execute(

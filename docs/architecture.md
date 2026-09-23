@@ -31,6 +31,37 @@ envelope implementation.
 The SQLite filename `.open-brain/state/phase1.sqlite3` is retained as an on-disk compatibility name.
 It does not identify an active Phase 1 service or runtime profile.
 
+## Capture custody and the single writer
+
+The canonical Brain is one schema-10 SQLite root on the Mac Mini. Laptops, collectors, and
+connector outboxes may hold bounded upstream custody, but they are not alternate Brain stores.
+Every normalized capture crosses the same durable boundary before canonical work begins:
+
+```mermaid
+flowchart LR
+    Sources[CLI / MCP / import / collector / outbox]
+      --> Admit[Normalize, authorize, narrow privacy, bound, digest]
+    Admit --> Journal[(Brain SQLite schema 10\nimmutable journal.v1 envelope)]
+    Journal --> Receipt[capture-custody.v1\nopaque ingestion ID]
+    Journal --> Fence{Brain writer fence}
+    Fence --> Recover[Recover incomplete captures]
+    Recover --> Drain[Drain journal sequence order]
+    Drain --> Capture[captures reservation and stages]
+    Capture --> Canonical[Raw archive, ledger, projections]
+    Canonical --> Terminal[accepted / duplicate event and guarded compaction]
+```
+
+Enqueue is a short transaction and may return `queued` without the writer fence. Canonical
+materialization and terminal journal events run under one Brain-scoped writer epoch. A crash can
+leave a pending or quarantined item, but replay observes the durable delivery identity and produces
+one canonical capture or one visible recovery state.
+
+Schema compatibility is one-way at this boundary: schema 9 can be migrated to schema 10 by the
+supported guarded migration, while older binaries refuse schema 10 before writing. Schema 10 has
+no payload backfill because schema 9 had no acknowledged ingress custody. The core remains
+foreground-only; opening a Brain, submitting a capture, or running `journal drain` performs bounded
+work, and no daemon, scheduler, listener, or background thread is required.
+
 ## Application
 
 `packages/app/src/open_brain` is intentionally small:

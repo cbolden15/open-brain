@@ -10,6 +10,33 @@ Share intake accepts an owner-authored URL, reason, and optional shared text. Au
 
 Retries resume from durable boundaries. A capture with an existing extraction event retries only distillation queueing instead of fetching mutable source content again.
 
+## Durable ingress journal
+
+After normalization, authority evaluation, privacy narrowing, size checks, and digest calculation,
+every capture path writes one complete `journal.v1` envelope to the Brain-owned SQLite ingress
+journal before canonical materialization. The enqueue transaction does not take the canonical
+writer fence. It commits immutable delivery metadata, the payload, a `capture-custody.v1` receipt,
+and the `queued` event together before a successful custody response is returned.
+
+The journal is schema 10 and is drained only by the existing Brain-scoped exclusive writer. The
+writer recovers incomplete `captures` rows first, then processes journal sequence in increasing
+order. A retryable failure remains pending; an undecodable or otherwise unsafe item is quarantined
+with its payload retained. `accepted`, `duplicate`, and owner-confirmed `discarded` events are
+terminal. Guarded compaction removes an accepted or duplicate payload only after the canonical
+capture row can answer future replay; discard writes a tombstone before removing active history.
+
+The public outcome is a closed union. Existing accepted and duplicate receipt bytes remain stable.
+A queued custody receipt contains only the contract version, `queued` status, opaque ingestion ID,
+Brain ID, issuer epoch, delivery ID, request digest, requested and final privacy tiers, enqueue
+time, and nullable protection acknowledgement. It never contains payload, title, source reference,
+capture ID, queue depth, or the global journal sequence. A queued result transfers local custody to
+the Brain's documented disk boundary; it does not claim independent backup or replication.
+
+Pending and quarantined journal payloads are owner-only operational state. They do not appear in
+search, record reads, exports, published Markdown, or scoped adapter responses. A client outbox or
+collector may replace its body only after verifying the exact custody receipt bindings (or a bound
+terminal receipt). If verification fails, the upstream body stays retained or is quarantined.
+
 ## Privacy tiers
 
 Every capture carries one privacy tier from the closed set `public`, `work`, `personal`, `secret`, and `unknown`. The immutable privacy decision is recorded before persistence. Local owner capture and Markdown import keep their existing default decision unless the owner passes an explicit tier, and the owner-only explicit tier authority is never merged with the remote startup-policy tier set described below. See [privacy model](privacy-model.md).

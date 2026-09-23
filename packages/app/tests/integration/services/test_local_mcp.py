@@ -1515,42 +1515,43 @@ def test_live_cli_and_mcp_share_brain_and_bound_contention(
         assert "result" in _exchange(process, INITIALIZE)
         # Hold the actual cross-process mutation lease after MCP startup.
         lease = FileLease(root / ".open-brain", owner_identity_id="w6-test")
+        blocked_arguments: dict[str, object] = {
+            "text": "blocked-token",
+            "idempotency_key": "blocked-token",
+        }
         with lease.acquire_shared_writer():
             started = time.monotonic()
-            busy = _exchange(process, _call("brain_capture", {"text": "blocked-token"}))
-            assert busy["result"]["content"][0]["text"] == "database_busy"
-            assert run_cli(("capture", "blocked-cli", "--data-dir", str(root), "--json")) == 75
-            assert json.loads(capsys.readouterr().out)["error"]["code"] == "database_busy"
-            assert time.monotonic() - started < 10
+            queued = _exchange(process, _call("brain_capture", blocked_arguments))
+            assert queued["result"]["structuredContent"]["status"] == "queued"
+            cli_queued = subprocess.run(
+                [
+                    sys.executable,
+                    "-c",
+                    PROGRAM,
+                    "capture",
+                    "blocked-cli",
+                    "--data-dir",
+                    str(root),
+                    "--json",
+                ],
+                capture_output=True,
+                text=True,
+                timeout=15,
+                check=False,
+            )
+            assert cli_queued.returncode == 0, cli_queued.stderr
+            assert json.loads(cli_queued.stdout)["status"] == "queued"
+            assert time.monotonic() - started < 15
         assert tasks.inbox.list() == ()
-        cli = subprocess.Popen(
-            [
-                sys.executable,
-                "-c",
-                PROGRAM,
-                "capture",
-                "cli-parallel-nebula",
-                "--data-dir",
-                str(root),
-                "--json",
-            ],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-        )
-        mcp = _exchange(process, _call("brain_capture", {"text": "mcp-parallel-nebula"}))
-        output, error = cli.communicate(timeout=15)
-        assert cli.returncode in (0, 75), error
-        assert mcp["result"].get("isError") is not True or (
-            mcp["result"]["content"][0]["text"] == "database_busy"
-        )
-        if cli.returncode == 75:
-            assert json.loads(output)["error"]["code"] == "database_busy"
-        if mcp["result"].get("isError"):
-            mcp = _exchange(process, _call("brain_capture", {"text": "mcp-parallel-nebula"}))
+        mcp = _exchange(process, _call("brain_capture", blocked_arguments))
         assert mcp["result"]["structuredContent"]["status"] == "captured"
-        assert run_cli(("search", "mcp-parallel-nebula", "--data-dir", str(root), "--json")) == 0
+        assert run_cli(("search", "blocked-token", "--data-dir", str(root), "--json")) == 0
         assert json.loads(capsys.readouterr().out)["results"][0]["source_origin"] == "unknown"
+        assert run_cli(("search", "blocked-cli", "--data-dir", str(root), "--json")) == 0
+        assert (
+            json.loads(capsys.readouterr().out)["results"][0]["source_origin"]
+            == "owner_authored"
+        )
         # An external SQLite writer exercises the real five-second busy timeout.
         connection = sqlite3.connect(
             root / ".open-brain/state/phase1.sqlite3", isolation_level=None

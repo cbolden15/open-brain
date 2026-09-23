@@ -20,6 +20,7 @@ from open_brain_connectors.runtime.connectors import (
     ConnectorFailureCode,
     ConnectorOutcome,
     ConnectorRunReceipt,
+    capture_outcome_is_duplicate,
 )
 from open_brain_connectors.runtime.source_intake import SourceRecordIntake, SourceRecordKey
 from open_brain_connectors.runtime.source_registry import (
@@ -117,14 +118,11 @@ class _SelectedPage:
         if status is MailPageStatus.READY:
             if type(self.preview) is not SourcePreviewPage or self.retry_after_seconds is not None:
                 raise ConnectorContractError(f"invalid {self.connector_name} page")
-        elif (
-            self.preview is not None
-            or (
-                self.retry_after_seconds is not None
-                and (
-                    type(self.retry_after_seconds) is not int
-                    or not 1 <= self.retry_after_seconds <= 86_400
-                )
+        elif self.preview is not None or (
+            self.retry_after_seconds is not None
+            and (
+                type(self.retry_after_seconds) is not int
+                or not 1 <= self.retry_after_seconds <= 86_400
             )
         ):
             raise ConnectorContractError(f"invalid {self.connector_name} page")
@@ -161,14 +159,12 @@ class _SelectedCheckpoint:
             or (
                 self.next_cursor is not None
                 and (
-                    type(self.next_cursor) is not str
-                    or _CURSOR.fullmatch(self.next_cursor) is None
+                    type(self.next_cursor) is not str or _CURSOR.fullmatch(self.next_cursor) is None
                 )
             )
             or not isinstance(self.committed_delivery_ids, tuple)
             or any(
-                type(value) is not str
-                or not value.startswith(f"connector.{self.connector_name}.")
+                type(value) is not str or not value.startswith(f"connector.{self.connector_name}.")
                 for value in self.committed_delivery_ids
             )
             or len(self.committed_delivery_ids) != len(set(self.committed_delivery_ids))
@@ -791,8 +787,10 @@ def _import_page[CheckpointT: _SelectedCheckpoint](
             extracted_count=len(selected),
             submitted_count=len(receipts),
             stubbed_count=0,
-            created_count=sum(1 for receipt in receipts if not receipt.duplicate),
-            duplicate_count=sum(1 for receipt in receipts if receipt.duplicate),
+            created_count=sum(
+                1 for receipt in receipts if not capture_outcome_is_duplicate(receipt)
+            ),
+            duplicate_count=sum(1 for receipt in receipts if capture_outcome_is_duplicate(receipt)),
             checkpoint_committed=True,
             metadata_count=len(preview.records),
         ),

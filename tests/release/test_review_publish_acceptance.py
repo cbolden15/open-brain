@@ -59,7 +59,7 @@ def test_source_executable_passes_required_review_publication_checks(tmp_path: P
     assert not any(".open-brain" in path.parts for path in export.rglob("*"))
     assert not any(path.suffix in {".sqlite", ".sqlite3"} for path in export.rglob("*"))
     with sqlite3.connect(synthetic_root / "brain/.open-brain/state/phase1.sqlite3") as state:
-        assert state.execute("PRAGMA user_version").fetchone()[0] == 9
+        assert state.execute("PRAGMA user_version").fetchone()[0] == 10
 
 
 def test_candidate_failure_is_reported_and_returns_nonzero(tmp_path: Path) -> None:

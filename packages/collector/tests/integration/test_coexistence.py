@@ -2,13 +2,17 @@ from __future__ import annotations
 
 import io
 import json
+import sqlite3
 from pathlib import Path
 from typing import Any, cast
+from uuid import uuid4
 
 import pytest
+from open_brain_engine.core.models import PrivacyTier
 from open_brain_engine.engine import (
-    CaptureAdmissionError,
-    CaptureAdmissionResult,
+    CaptureCustodyReceipt,
+    CaptureReceipt,
+    CaptureSubmission,
     PrivacyDecision,
     PublicJobCaptureContext,
     PublicJobCaptureSink,
@@ -30,6 +34,7 @@ from open_brain_collector.lifecycle import (
     CollectorStateStore,
     EngineCaptureSink,
 )
+from open_brain_connectors.runtime.live_common import LiveSourceError
 from open_brain_connectors.runtime.source_intake import SourceRecordIntake, SourceRecordKey
 from open_brain_connectors.runtime.source_registry import SourceResourceSelection
 
@@ -55,38 +60,32 @@ def test_collector_coexists_with_desktop_cli_mcp_and_obsidian_bridge_surface(
     )
 
     desktop_sync = FileLease(brain_root / ".open-brain", owner_identity_id="desktop")
-    # Collector captures take the non-owner bounded writer wait (OSS-G4 slice G3); keep the
-    # wait short here and expect the stable admission result instead of a raw lock error.
+    # The collector transfers custody before attempting the bounded writer
+    # wait, so writer contention is a successful queued result.
     monkeypatch.setattr(capture_module, "_WRITER_WAIT_TIMEOUT_SECONDS", 0.05)
-    with desktop_sync.acquire_shared_writer(), pytest.raises(CaptureAdmissionError) as refused:
-        controller.sync_due(
+    with desktop_sync.acquire_shared_writer():
+        queued = controller.sync_due(
             source_id="github.fixture.coexist",
             runtime=source,
             capture_sink=collector_capture,
         )
-    assert refused.value.result is CaptureAdmissionResult.WRITER_QUEUE_FULL
-    assert refused.value.retryable
+        assert queued.outcome == "completed"
+        assert queued.captured_count == 1
+        with sqlite3.connect(
+            brain_root / ".open-brain/state/phase1.sqlite3"
+        ) as connection:
+            assert connection.execute(
+                "SELECT count(*) FROM capture_ingestion_items"
+            ).fetchone() == (1,)
+            assert connection.execute("SELECT count(*) FROM search_documents").fetchone() == (0,)
 
-    blocked_state = json.loads(state_path.read_text(encoding="utf-8"))
-    blocked_source = blocked_state["sources"]["github.fixture.coexist"]
-    assert blocked_source["committed_revisions"] == {}
-    assert blocked_source["last_run"]["failure_code"] == "capture_failed"
-    assert run_cli(("search", "coexistence-token", "--data-dir", str(brain_root), "--json")) == 0
-    assert json.loads(capsys.readouterr().out)["results"] == []
-
-    completed = controller.sync_due(
-        source_id="github.fixture.coexist",
-        runtime=source,
-        capture_sink=collector_capture,
-    )
-    assert completed.outcome == "completed"
-    assert completed.captured_count == 1
-
+    # Opening the Brain after the contending writer exits drains the accepted
+    # journal item without asking the collector to retain or resend its body.
+    tasks = open_local_engine(compile_single_user_local(brain_root))
     assert run_cli(("search", "coexistence-token", "--data-dir", str(brain_root), "--json")) == 0
     cli_results = json.loads(capsys.readouterr().out)["results"]
     assert cli_results[0]["source_origin"] == "third_party"
 
-    tasks = open_local_engine(compile_single_user_local(brain_root))
     adapter = LocalMcpAdapter(
         authority=EffectiveAuthority(
             "collector-coexistence-owner",
@@ -123,6 +122,144 @@ def test_collector_coexists_with_desktop_cli_mcp_and_obsidian_bridge_surface(
     mcp_result = cast(dict[str, Any], responses[1]["result"]["structuredContent"])
     assert mcp_result["results"][0]["source_origin"] == "third_party"
     assert "coexistence-token" in json.dumps(mcp_result)
+
+
+def test_collector_rejects_changed_digest_custody_receipt(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    public_sink = _capture_sink(tmp_path / "brain")
+    identity = public_sink.brain_identity
+    assert identity is not None
+    intake = _Source(_selection())._intake()
+    receipt = CaptureCustodyReceipt(
+        ingestion_id="ingestion_" + str(uuid4()),
+        brain_id=identity[0],
+        issuer_epoch=identity[1],
+        delivery_id=intake.key.delivery_id(),
+        request_sha256="0" * 64,
+        requested_tier=intake.privacy.tier,
+        final_admitted_tier=intake.privacy.tier,
+        queued_at="2026-09-22T12:00:00Z",
+    )
+    monkeypatch.setattr(public_sink, "submit", lambda *_args, **_kwargs: receipt)
+
+    with pytest.raises(LiveSourceError, match="collector_invalid_custody_receipt"):
+        EngineCaptureSink(public_sink).submit(intake)
+
+
+@pytest.mark.parametrize("invalid_binding", ("request_digest", "protection"))
+def test_collector_custody_retains_body_after_invalid_custody_receipt(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    invalid_binding: str,
+) -> None:
+    brain_root = tmp_path / "brain"
+    public_sink = _capture_sink(brain_root)
+    identity = public_sink.brain_identity
+    assert identity is not None
+    selection = _selection()
+    source = _Source(selection)
+    intake = source._intake()
+    submission = CaptureSubmission.for_public_job(
+        context=public_sink.context,
+        payload=intake.payload(),
+        delivery_id=intake.key.delivery_id(),
+        source_origin="third_party",
+        source_reference=intake.source_reference,
+        provenance=intake.provenance(),
+        privacy=intake.privacy,
+        intent="reference",
+        title=intake.title,
+    )
+    receipt = CaptureCustodyReceipt(
+        ingestion_id="ingestion_" + str(uuid4()),
+        brain_id=identity[0],
+        issuer_epoch=identity[1],
+        delivery_id=intake.key.delivery_id(),
+        request_sha256=submission.request_sha256(),
+        requested_tier=intake.privacy.tier,
+        final_admitted_tier=intake.privacy.tier,
+        queued_at="2026-09-22T12:00:00Z",
+    )
+    if invalid_binding == "request_digest":
+        object.__setattr__(receipt, "request_sha256", "0" * 64)
+    else:
+        object.__setattr__(receipt, "protection_acknowledgement", "synthetic-unprotected")
+    monkeypatch.setattr(public_sink, "submit", lambda *_args, **_kwargs: receipt)
+
+    controller = CollectorController(
+        CollectorStateStore(tmp_path / "collector" / "state.json"),
+        clock=_Clock(100),
+        brain_root=brain_root,
+    )
+    source_id = "github.fixture.invalid-receipt"
+    controller.enable(source_id=source_id, selection=selection, interval_seconds=60)
+    with pytest.raises(LiveSourceError, match="collector_invalid_custody_receipt"):
+        controller.sync_due(
+            source_id=source_id,
+            runtime=source,
+            capture_sink=EngineCaptureSink(public_sink),
+        )
+
+    custody = controller.custody_status(source_id)
+    assert custody["retained_items"] == 1
+    receipt_id = cast(list[str], custody["receipt_ids"])[0]
+    assert controller._custody.intake(receipt_id) == intake
+
+
+def test_collector_rejects_terminal_receipt_that_widens_privacy(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    public_sink = _capture_sink(tmp_path / "brain")
+    identity = public_sink.brain_identity
+    assert identity is not None
+    base = _Source(_selection())._intake()
+    intake = SourceRecordIntake(
+        key=base.key,
+        url=base.url,
+        title=base.title,
+        text=base.text,
+        privacy=PrivacyDecision.from_dict(
+            {
+                "authority": {"cloud": False, "external_egress": False},
+                "confirmation_ref": None,
+                "policy_version": "privacy-v1",
+                "reason": "personal_local_only",
+                "tier": "personal",
+            }
+        ),
+    )
+    submission = CaptureSubmission.for_public_job(
+        context=public_sink.context,
+        payload=intake.payload(),
+        delivery_id=intake.key.delivery_id(),
+        source_origin="third_party",
+        source_reference=intake.source_reference,
+        provenance=intake.provenance(),
+        privacy=intake.privacy,
+        intent="reference",
+        title=intake.title,
+    )
+    receipt = CaptureReceipt(
+        capture_id="capture_synthetic",
+        payload_family="reference",
+        state="inbox",
+        enrichment_state="pending_enrichment",
+        space_id=None,
+        canonical_path=None,
+        requested_tier=PrivacyTier.PERSONAL,
+        final_admitted_tier=PrivacyTier.WORK,
+        delivery_id=submission.delivery_id,
+        request_sha256=submission.request_sha256(),
+        destination_brain_id=identity[0],
+        issuer_epoch=identity[1],
+    )
+    monkeypatch.setattr(public_sink, "submit", lambda *_args, **_kwargs: receipt)
+
+    with pytest.raises(LiveSourceError, match="collector_invalid_custody_receipt"):
+        EngineCaptureSink(public_sink).submit(intake)
 
 
 class _Clock:

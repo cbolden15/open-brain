@@ -211,6 +211,23 @@ def quarantine_stale_intakes(engine: BrainEngine) -> None:
                 "UPDATE source_intakes SET receipt_json=? WHERE delivery_id=?",
                 (json.dumps(receipt, sort_keys=True), intake["delivery_id"]),
             )
+            # A fenced source revision may have been accepted into the
+            # ingress journal before its canonical stage faulted.  Its source
+            # custody is now explicitly quarantined, so it must not later
+            # re-enter canonical materialization as an ordinary queued item.
+            if connection.execute("PRAGMA user_version").fetchone()[0] >= 10:
+                journal = connection.execute(
+                    "SELECT 1 FROM capture_ingestion_items WHERE delivery_id=?",
+                    (intake["delivery_id"],),
+                ).fetchone()
+                if journal is not None:
+                    engine.ingestion._append_event(
+                        connection,
+                        intake["delivery_id"],
+                        "quarantined",
+                        0,
+                        {"status": "quarantined", "reason": "source_fenced"},
+                    )
 
 
 def register_intake(

@@ -2,10 +2,11 @@
 
 ## Current catalog
 
-The current local schema is **6**, with runtime session version **1**. The frozen catalog is
+The current local schema is **10**, with runtime session version **1**. The frozen catalog is
 `packages/engine/src/open_brain_engine/engine/local_schema_catalog.py`; its checksum fixture is
 `tests/fixtures/local-schema/catalog-checksums.json`. Migrations 1 through 5 remain unchanged.
-Migration 6 adds versioned managed-write authority and owner-recovery decision records. It marks
+Migrations 6 through 9 add versioned managed-write authority, owner-recovery decision records,
+privacy and issuer evidence, and the Portable v5 compatibility state. Migration 6 marks
 every preexisting setup or materialize operation as version 0 without fabricating a descriptor,
 and updates the exact runtime compatibility marker to 6 while retaining session version 1.
 
@@ -14,7 +15,7 @@ predecessors. Its captures, routes, pending and terminal proposals, decision ide
 files stay intact. Historical setup and materialize operations receive null-descriptor version-0
 markers, including terminal operations; all other operation rows remain unchanged. The recovery
 decision table is empty after migration. Ordinary read-only access refuses an older schema without
-upgrading it; older runtimes refuse schema 6. The dedicated owner-recovery preview is a narrow
+upgrading it; older runtimes refuse the current schema. The dedicated owner-recovery preview is a narrow
 exception: it inspects recognized schema 5 or 6 read-only and treats old writes as virtual version-0
 markers. It never initializes, migrates, or performs application recovery.
 
@@ -24,6 +25,16 @@ of the version-0 marker. Its audit decision and terminal cancellation commit tog
 committed schema upgrade is reported with `schema_upgraded` even when later recovery fails.
 The hot-journal refusal and guarded SQLite recovery boundary remains unchanged. See
 [managed workspace recovery](managed-workspace-recovery.md) for the operator flow.
+
+Migration 10 adds the Brain-owned durable capture-ingestion journal. It installs immutable item
+metadata, complete `journal.v1` envelopes, append-only lifecycle events, guarded compaction
+constraints, discard tombstones, and the owner-only pending view. Schema 9 contains no acknowledged
+ingress custody, so migration 10 performs no payload backfill and succeeds only when the journal is
+empty. The migration requires exclusive runtime admission and is idempotent after commit.
+
+Older binaries refuse schema 10 before mutation. A failed migration rolls back its DDL and ledger
+change; a successful migration is a one-way compatibility boundary. Use a verified Portable export
+before upgrading and restore that snapshot with the prior binary if acceptance fails.
 
 `test_managed_recovery_schema.py` restores an independent schema-5 fixture from source commit
 `a67f65d6c9931843df89edc2e9ce46b5b67726c8` and checks populated migration, rollback,

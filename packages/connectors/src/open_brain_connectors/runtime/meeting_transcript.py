@@ -23,6 +23,7 @@ from open_brain_connectors.runtime.connectors import (
     ConnectorFailureCode,
     ConnectorOutcome,
     ConnectorRunReceipt,
+    capture_outcome_is_duplicate,
 )
 from open_brain_connectors.runtime.source_intake import SourceRecordIntake, SourceRecordKey
 from open_brain_connectors.runtime.source_registry import (
@@ -429,9 +430,8 @@ class MeetingTranscriptSourceAdapter:
                 page.preview.next_cursor is None
                 or page.preview.next_cursor in checkpoint.observed_page_cursors
             )
-            if (
-                selected_delivery_ids != checkpoint.committed_delivery_ids
-                and (not duplicate_only_known_page or stale_duplicate_page)
+            if selected_delivery_ids != checkpoint.committed_delivery_ids and (
+                not duplicate_only_known_page or stale_duplicate_page
             ):
                 return checkpoint, ConnectorRunReceipt.empty(
                     D5_MEETING_TRANSCRIPT_SOURCE,
@@ -501,8 +501,12 @@ class MeetingTranscriptSourceAdapter:
                 extracted_count=len(selected),
                 submitted_count=len(receipts),
                 stubbed_count=0,
-                created_count=sum(1 for receipt in receipts if not receipt.duplicate),
-                duplicate_count=sum(1 for receipt in receipts if receipt.duplicate),
+                created_count=sum(
+                    1 for receipt in receipts if not capture_outcome_is_duplicate(receipt)
+                ),
+                duplicate_count=sum(
+                    1 for receipt in receipts if capture_outcome_is_duplicate(receipt)
+                ),
                 checkpoint_committed=True,
                 metadata_count=len(page.preview.records),
             ),

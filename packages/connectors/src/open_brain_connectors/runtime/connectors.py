@@ -16,14 +16,19 @@ from enum import StrEnum
 from importlib.metadata import entry_points
 from typing import Protocol, cast, runtime_checkable
 
+from open_brain_engine.core.models import narrowest_tier
 from open_brain_engine.engine import (
+    CaptureCustodyReceipt,
+    CaptureOutcome,
     CaptureReceipt,
+    CaptureSubmission,
     ContentOrigin,
     Payload,
     PrivacyDecision,
     Provenance,
     PublicJobCaptureContext,
     PublicJobCaptureSink,
+    verify_capture_custody_receipt,
 )
 
 CONNECTOR_API_STATUS = "provisional"
@@ -50,6 +55,8 @@ __all__ = [
     "ConnectorRunEvidence",
     "ConnectorRunReceipt",
     "ConnectorTransport",
+    "capture_outcome_id",
+    "capture_outcome_is_duplicate",
 ]
 
 _CONNECTOR_NAME = re.compile(r"[a-z][a-z0-9_-]{0,63}")
@@ -164,8 +171,7 @@ class ConnectorManifest:
         secrets = value["secrets"]
         action_authorities = value["action_authorities"]
         if not all(
-            isinstance(item, list)
-            for item in (payloads, schedules, secrets, action_authorities)
+            isinstance(item, list) for item in (payloads, schedules, secrets, action_authorities)
         ):
             raise ConnectorContractError("invalid connector manifest")
         return cls(
@@ -422,20 +428,20 @@ class ConnectorRunEvidence:
         self,
         delivery_id: str,
         source_reference: str,
-        receipt: CaptureReceipt,
+        receipt: CaptureOutcome,
     ) -> None:
         if (
             type(delivery_id) is not str
             or not delivery_id
             or type(source_reference) is not str
             or not source_reference
-            or type(receipt) is not CaptureReceipt
+            or not isinstance(receipt, (CaptureReceipt, CaptureCustodyReceipt))
         ):
             raise ConnectorContractError("invalid connector capture evidence")
         self.__capture_receipts[delivery_id] = (
             id(receipt),
-            receipt.capture_id,
-            receipt.duplicate,
+            capture_outcome_id(receipt),
+            capture_outcome_is_duplicate(receipt),
             source_reference,
         )
 
@@ -443,20 +449,38 @@ class ConnectorRunEvidence:
         self,
         delivery_id: str,
         source_reference: str,
-        receipt: CaptureReceipt,
+        receipt: CaptureOutcome,
     ) -> bool:
         if (
             type(delivery_id) is not str
             or type(source_reference) is not str
-            or type(receipt) is not CaptureReceipt
+            or not isinstance(receipt, (CaptureReceipt, CaptureCustodyReceipt))
         ):
             return False
         return self.__capture_receipts.get(delivery_id) == (
             id(receipt),
-            receipt.capture_id,
-            receipt.duplicate,
+            capture_outcome_id(receipt),
+            capture_outcome_is_duplicate(receipt),
             source_reference,
         )
+
+
+def capture_outcome_id(receipt: CaptureOutcome) -> str:
+    """Return the opaque terminal identifier for canonical or queued acceptance."""
+    if isinstance(receipt, CaptureReceipt):
+        return receipt.capture_id
+    if isinstance(receipt, CaptureCustodyReceipt):
+        return receipt.ingestion_id
+    raise ConnectorContractError("invalid connector capture receipt")
+
+
+def capture_outcome_is_duplicate(receipt: CaptureOutcome) -> bool:
+    """Queued custody is a new accepted delivery, never a canonical duplicate."""
+    if isinstance(receipt, CaptureReceipt):
+        return receipt.duplicate
+    if isinstance(receipt, CaptureCustodyReceipt):
+        return False
+    raise ConnectorContractError("invalid connector capture receipt")
 
 
 class ConnectorCaptureSink:
@@ -515,9 +539,20 @@ class ConnectorCaptureSink:
         privacy: PrivacyDecision,
         intent: str | None = None,
         title: str | None = None,
-    ) -> CaptureReceipt:
+    ) -> CaptureOutcome:
         if not self.__budget._consume_submission():
             raise ConnectorContractError("connector submission budget exhausted")
+        expected = CaptureSubmission.for_public_job(
+            context=self.__sink.context,
+            payload=payload,
+            delivery_id=delivery_id,
+            source_origin=source_origin,
+            source_reference=source_reference,
+            provenance=provenance,
+            privacy=privacy,
+            intent=intent,
+            title=title,
+        )
         receipt = self.__sink.submit(
             payload,
             delivery_id=delivery_id,
@@ -528,8 +563,39 @@ class ConnectorCaptureSink:
             intent=intent,
             title=title,
         )
+        identity = self.__sink.brain_identity
+        if identity is None:
+            # The isolated conformance harness intentionally has no durable
+            # Brain identity.  It may exercise only its legacy in-memory
+            # terminal receipt, never release real source custody.
+            valid = isinstance(receipt, CaptureReceipt)
+        elif isinstance(receipt, CaptureCustodyReceipt):
+            checked = verify_capture_custody_receipt(receipt.to_dict())
+            valid = (
+                checked.brain_id == identity[0]
+                and checked.issuer_epoch == identity[1]
+                and checked.delivery_id == expected.delivery_id
+                and checked.request_sha256 == expected.request_sha256()
+                and checked.requested_tier == expected.requested_tier
+                and narrowest_tier(checked.requested_tier, checked.final_admitted_tier)
+                == checked.final_admitted_tier
+            )
+        elif isinstance(receipt, CaptureReceipt):
+            valid = (
+                receipt.destination_brain_id == identity[0]
+                and receipt.issuer_epoch == identity[1]
+                and receipt.delivery_id == expected.delivery_id
+                and receipt.request_sha256 == expected.request_sha256()
+                and receipt.requested_tier == expected.requested_tier
+                and narrowest_tier(receipt.requested_tier, receipt.final_admitted_tier)
+                == receipt.final_admitted_tier
+            )
+        else:
+            valid = False
+        if not valid:
+            raise ConnectorContractError("invalid connector capture receipt")
         self.__evidence.record_capture(delivery_id, source_reference, receipt)
-        if receipt.duplicate:
+        if isinstance(receipt, CaptureReceipt) and receipt.duplicate:
             self.__duplicate_count += 1
         else:
             self.__created_count += 1
@@ -651,17 +717,15 @@ class ConnectorRunReceipt:
                 and failure_code is not ConnectorFailureCode.EGRESS_DISABLED
             )
             or (
-                outcome not in {
+                outcome
+                not in {
                     ConnectorOutcome.COMPLETED,
                     ConnectorOutcome.EMPTY,
                     ConnectorOutcome.DEFERRED,
                 }
                 and failure_code is None
             )
-            or (
-                outcome is ConnectorOutcome.DEFERRED
-                and (any(counts) or self.checkpoint_committed)
-            )
+            or (outcome is ConnectorOutcome.DEFERRED and (any(counts) or self.checkpoint_committed))
             or (outcome is ConnectorOutcome.FAILED and self.checkpoint_committed)
         ):
             raise ConnectorContractError("invalid connector receipt")
@@ -901,10 +965,7 @@ class ConnectorRegistry:
     def discover(self, profile: ConnectorProfile) -> tuple[ConnectorEntryPointMetadata, ...]:
         try:
             selected_profile = _snapshot_profile(profile)
-            return tuple(
-                metadata
-                for metadata, _entry in self._validated_entries(selected_profile)
-            )
+            return tuple(metadata for metadata, _entry in self._validated_entries(selected_profile))
         except ConnectorDiscoveryError:
             raise
         except Exception as error:
@@ -1043,9 +1104,7 @@ class ConnectorHost:
             )
             return ConnectorRunReceipt.failed(connector_name, failure)
         except Exception:
-            return ConnectorRunReceipt.failed(
-                connector_name, ConnectorFailureCode.RUNTIME_FAILED
-            )
+            return ConnectorRunReceipt.failed(connector_name, ConnectorFailureCode.RUNTIME_FAILED)
         budget = ConnectorBudget(selected_profile.budget_limits)
         logger = ConnectorMetadataLogger()
         try:
@@ -1053,9 +1112,7 @@ class ConnectorHost:
                 _snapshot_manifest(connector.manifest), budget, logger
             )
         except Exception:
-            return ConnectorRunReceipt.failed(
-                connector_name, ConnectorFailureCode.RUNTIME_FAILED
-            )
+            return ConnectorRunReceipt.failed(connector_name, ConnectorFailureCode.RUNTIME_FAILED)
         try:
             context_valid = _run_context_is_valid(
                 candidate_context,
@@ -1081,9 +1138,7 @@ class ConnectorHost:
         try:
             receipt = connector.run(context)
         except Exception:
-            return ConnectorRunReceipt.failed(
-                connector_name, ConnectorFailureCode.RUNTIME_FAILED
-            )
+            return ConnectorRunReceipt.failed(connector_name, ConnectorFailureCode.RUNTIME_FAILED)
         try:
             if type(receipt) is not ConnectorRunReceipt:
                 raise ConnectorContractError("invalid connector receipt")
@@ -1217,8 +1272,7 @@ def _run_context_is_valid(
     sink = context.capture_sink
     actor = identity.actor
     sink_is_valid = (
-        type(sink) is ConnectorCaptureSink
-        and sink.budget is budget
+        type(sink) is ConnectorCaptureSink and sink.budget is budget
         if bounded
         else type(sink) is PublicJobCaptureSink
     )

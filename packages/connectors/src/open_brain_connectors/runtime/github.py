@@ -21,6 +21,7 @@ from open_brain_connectors.runtime.connectors import (
     ConnectorFailureCode,
     ConnectorOutcome,
     ConnectorRunReceipt,
+    capture_outcome_is_duplicate,
 )
 from open_brain_connectors.runtime.source_intake import SourceRecordIntake, SourceRecordKey
 from open_brain_connectors.runtime.source_registry import (
@@ -48,9 +49,7 @@ __all__ = [
 _OWNER = re.compile(r"[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?")
 _REPO = re.compile(r"[A-Za-z0-9_.-]{1,100}")
 _ISOISH = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9:.]+Z")
-_CONNECTION_ID = re.compile(
-    r"account:[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?"
-)
+_CONNECTION_ID = re.compile(r"account:[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?")
 _CREDENTIAL_REF = re.compile(r"(?:keychain|session):[A-Za-z0-9][A-Za-z0-9._:/-]{0,180}")
 _SECRET_SHAPED_REF = re.compile(r"(?:ghp_|github_pat_|ghu_|ghr_|sk_)", re.IGNORECASE)
 _CURSOR = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:/#?=&%@,+~|-]{0,511}")
@@ -217,22 +216,25 @@ class GitHubUserTokenStore:
         )
         self._root.mkdir(mode=0o700, parents=True, exist_ok=True)
         path = self._path(session.credential_ref)
-        payload = json.dumps(
-            {
-                "access_token": access_token,
-                "account_login": account_login,
-                "app_type": "github_app",
-                "expires_at_epoch": session.expires_at_epoch,
-                "permission_model": "github_app_permissions",
-                "refresh_expires_at_epoch": session.refresh_expires_at_epoch,
-                "refresh_token": refresh_token,
-                "schema_version": 1,
-                "scope": scope,
-                "token_type": token_type,
-            },
-            sort_keys=True,
-            separators=(",", ":"),
-        ) + "\n"
+        payload = (
+            json.dumps(
+                {
+                    "access_token": access_token,
+                    "account_login": account_login,
+                    "app_type": "github_app",
+                    "expires_at_epoch": session.expires_at_epoch,
+                    "permission_model": "github_app_permissions",
+                    "refresh_expires_at_epoch": session.refresh_expires_at_epoch,
+                    "refresh_token": refresh_token,
+                    "schema_version": 1,
+                    "scope": scope,
+                    "token_type": token_type,
+                },
+                sort_keys=True,
+                separators=(",", ":"),
+            )
+            + "\n"
+        )
         with NamedTemporaryFile(
             "w",
             delete=False,
@@ -387,11 +389,15 @@ class GitHubRepositoryListPage:
                 )
             ):
                 raise ConnectorContractError("invalid github repository list")
-        elif self.repositories or self.next_cursor is not None or (
-            self.retry_after_seconds is not None
-            and (
-                type(self.retry_after_seconds) is not int
-                or not 1 <= self.retry_after_seconds <= 86_400
+        elif (
+            self.repositories
+            or self.next_cursor is not None
+            or (
+                self.retry_after_seconds is not None
+                and (
+                    type(self.retry_after_seconds) is not int
+                    or not 1 <= self.retry_after_seconds <= 86_400
+                )
             )
         ):
             raise ConnectorContractError("invalid github repository list")
@@ -427,8 +433,7 @@ class GitHubRepositoryCheckpoint:
             or (
                 self.next_cursor is not None
                 and (
-                    type(self.next_cursor) is not str
-                    or _CURSOR.fullmatch(self.next_cursor) is None
+                    type(self.next_cursor) is not str or _CURSOR.fullmatch(self.next_cursor) is None
                 )
             )
             or not isinstance(self.committed_delivery_ids, tuple)
@@ -628,14 +633,11 @@ class GitHubRepositoryPage:
         if status is GitHubPageStatus.READY:
             if type(self.preview) is not SourcePreviewPage or self.retry_after_seconds is not None:
                 raise ConnectorContractError("invalid github page")
-        elif (
-            self.preview is not None
-            or (
-                self.retry_after_seconds is not None
-                and (
-                    type(self.retry_after_seconds) is not int
-                    or not 1 <= self.retry_after_seconds <= 86_400
-                )
+        elif self.preview is not None or (
+            self.retry_after_seconds is not None
+            and (
+                type(self.retry_after_seconds) is not int
+                or not 1 <= self.retry_after_seconds <= 86_400
             )
         ):
             raise ConnectorContractError("invalid github page")
@@ -929,8 +931,12 @@ class GitHubSourceAdapter:
                 extracted_count=len(selected),
                 submitted_count=len(receipts),
                 stubbed_count=0,
-                created_count=sum(1 for receipt in receipts if not receipt.duplicate),
-                duplicate_count=sum(1 for receipt in receipts if receipt.duplicate),
+                created_count=sum(
+                    1 for receipt in receipts if not capture_outcome_is_duplicate(receipt)
+                ),
+                duplicate_count=sum(
+                    1 for receipt in receipts if capture_outcome_is_duplicate(receipt)
+                ),
                 checkpoint_committed=True,
                 metadata_count=len(preview.records),
             ),

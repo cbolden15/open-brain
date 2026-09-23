@@ -234,14 +234,11 @@ class PollRecord:
             if not capture_why.strip():
                 raise ValueError("invalid poll record")
         elif (
-            (capture_id is not None and normalized_state is not PollItemState.ACCEPTED)
-            or capture_why
-        ):
+            capture_id is not None and normalized_state is not PollItemState.ACCEPTED
+        ) or capture_why:
             raise ValueError("invalid poll record")
         if reclassification is not None:
-            if capture_id is None or not isinstance(
-                reclassification, PrivacyReclassificationProof
-            ):
+            if capture_id is None or not isinstance(reclassification, PrivacyReclassificationProof):
                 raise ValueError("invalid poll record")
             try:
                 reclassification.validate_for(
@@ -278,7 +275,9 @@ class PollRecord:
                 or lease_expires_at is not None
                 or (
                     normalized_state is PollItemState.ACCEPTED
-                    and (capture_id is None or not capture_id.startswith("capture_"))
+                    and (
+                        capture_id is None or not capture_id.startswith(("capture_", "ingestion_"))
+                    )
                 )
             ):
                 raise ValueError("invalid poll record")
@@ -334,23 +333,27 @@ class PollRecord:
 
     @classmethod
     def from_dict(cls, value: Mapping[str, object]) -> PollRecord:
-        if set(value) != {
-            "schema_version",
-            "video_id",
-            "source_url",
-            "state",
-            "origin",
-            "requested_at",
-            "capture_id",
-            "capture_why",
-            "privacy",
-            "reclassification",
-            "lease_id",
-            "lease_expires_at",
-            "attempt_count",
-            "failure_code",
-            "extraction",
-        } or value["schema_version"] != 1:
+        if (
+            set(value)
+            != {
+                "schema_version",
+                "video_id",
+                "source_url",
+                "state",
+                "origin",
+                "requested_at",
+                "capture_id",
+                "capture_why",
+                "privacy",
+                "reclassification",
+                "lease_id",
+                "lease_expires_at",
+                "attempt_count",
+                "failure_code",
+                "extraction",
+            }
+            or value["schema_version"] != 1
+        ):
             raise ValueError("invalid poll record")
         extraction = value["extraction"]
         return cls.create(
@@ -365,9 +368,7 @@ class PollRecord:
             reclassification=(
                 None
                 if value["reclassification"] is None
-                else PrivacyReclassificationProof.from_dict(
-                    _mapping(value["reclassification"])
-                )
+                else PrivacyReclassificationProof.from_dict(_mapping(value["reclassification"]))
             ),
             lease_id=_optional_string(value["lease_id"]),
             lease_expires_at=(

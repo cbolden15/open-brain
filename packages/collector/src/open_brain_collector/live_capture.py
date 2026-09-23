@@ -10,7 +10,12 @@ from dataclasses import asdict
 from pathlib import Path
 from typing import Protocol, cast
 
-from open_brain_engine.engine import DeliveryConflict, PrivacyDecision, ReferencePayload
+from open_brain_engine.engine import (
+    CaptureCustodyReceipt,
+    CaptureReceipt,
+    DeliveryConflict,
+    PrivacyDecision,
+)
 from open_brain_engine.engine.t03_contracts import T03Error
 
 from open_brain_collector.custody import CustodyStore, intake_digest
@@ -47,9 +52,7 @@ class LiveRuntime(Protocol):
     ) -> LiveBatch: ...
 
 
-PostApply = Callable[
-    [SourceResourceSelection, tuple[tuple[SourceRecordIntake, str], ...]], None
-]
+PostApply = Callable[[SourceResourceSelection, tuple[tuple[SourceRecordIntake, str], ...]], None]
 
 
 def _digest(value: object) -> str:
@@ -606,9 +609,24 @@ class LiveCaptureService:
         if len(text) > 65_536:
             raise LiveSourceError("source_content_too_large")
         sink = collector_capture_sink(self._brain_root)
-        kwargs = intake.capture_kwargs()
-        kwargs["payload"] = ReferencePayload(url=intake.url, supplied_text=text)
-        receipt = sink.submit(**kwargs)  # type: ignore[arg-type]
+        # Rebuild the intake with the revision marker before handing it to the
+        # shared verifier. A queued receipt releases provider custody only
+        # after that verifier binds Brain, epoch, delivery, request digest,
+        # and narrowed privacy to these exact bytes.
+        revised = SourceRecordIntake(
+            key=intake.key,
+            url=intake.url,
+            text=text,
+            privacy=intake.privacy,
+            title=intake.title,
+        )
+        from open_brain_collector.lifecycle import EngineCaptureSink
+
+        receipt = EngineCaptureSink(sink).submit(revised)
+        if isinstance(receipt, CaptureCustodyReceipt):
+            return ("captured", receipt.ingestion_id)
+        if not isinstance(receipt, CaptureReceipt):
+            raise LiveSourceError("collector_invalid_custody_receipt")
         return ("duplicate" if receipt.duplicate else "captured", receipt.capture_id)
 
     @staticmethod

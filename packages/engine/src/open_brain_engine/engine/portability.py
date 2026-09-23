@@ -597,6 +597,11 @@ class PortabilityTasks:
         connection = self._engine._store.connect()
         try:
             schema_version = connection.execute("PRAGMA user_version").fetchone()[0]
+            if (
+                schema_version >= 10
+                and connection.execute("SELECT 1 FROM capture_ingestion_pending LIMIT 1").fetchone()
+            ):
+                raise ValueError("ingestion_pending")
             managed = export_managed_workspace_state(self._engine, connection=connection)
             if managed is not None:
                 files.append(managed)
@@ -606,7 +611,7 @@ class PortabilityTasks:
 
                 relation = relationship_metadata(connection)
                 relationship_present = any(path == RELATIONSHIP_METADATA_PATH for path, _ in files)
-                if schema_version == 9 and relationship_present and relation is None:
+                if schema_version >= 9 and relationship_present and relation is None:
                     relation = {"schema_version": 1, "relationships": [], "decisions": []}
                 files = [(path, data) for path, data in files if path != RELATIONSHIP_METADATA_PATH]
                 if relation is not None:
@@ -620,7 +625,7 @@ class PortabilityTasks:
                         portable_canonical_json_bytes(source_metadata(connection)),
                     )
                 )
-                if schema_version == 9:
+                if schema_version >= 9:
                     evidence = serialize_portable_v5_state(
                         connection,
                         tenant_id=self._engine.profile.tenant_id,
@@ -640,7 +645,7 @@ class PortabilityTasks:
             created_at=_timestamp(self._engine._clock()),
             tenant_id=self._engine.profile.tenant_id,
             version=5
-            if schema_version == 9
+            if schema_version >= 9
             else 4
             if any(path == SOURCE_METADATA_PATH for path, _ in files)
             else 3

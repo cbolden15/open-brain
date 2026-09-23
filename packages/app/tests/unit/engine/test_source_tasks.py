@@ -100,9 +100,7 @@ def test_standalone_v4_import_refusal_uses_valid_v4_fixture(tmp_path: Path) -> N
         export_id="export_" + str(uuid4()),
         created_at=str(snapshot.manifest["created_at"]),
     )
-    (legacy / "portable-manifest.json").write_bytes(
-        portable_canonical_json_bytes(manifest)
-    )
+    (legacy / "portable-manifest.json").write_bytes(portable_canonical_json_bytes(manifest))
     assert validated_portable_snapshot(legacy).manifest["schema_version"] == 4
     with pytest.raises(ValueError, match="Portable v4 import is not supported"):
         tasks.portability.import_clean(
@@ -226,8 +224,9 @@ def test_fenced_reservation_enters_custody_without_new_source_writes_or_startup_
         assert connection.execute("SELECT count(*) FROM source_quarantine").fetchone()[0] == 1
         assert connection.execute("SELECT count(*) FROM captures WHERE stage<3").fetchone()[0] == 0
     exported = tmp_path / "export"
-    reopened.portability.export(exported, export_id="export_" + str(uuid4()))
-    validated_portable_snapshot(exported)
+    with pytest.raises(ValueError, match="^ingestion_pending$"):
+        reopened.portability.export(exported, export_id="export_" + str(uuid4()))
+    assert not exported.exists()
 
 
 @pytest.mark.parametrize("schema", [5, 6])
@@ -328,7 +327,7 @@ def test_schema_seven_imports_legacy_portable_without_changing_evidence(
     assert validated_portable_snapshot(destination).files == snapshot.files
     imported = open_local_engine(compile_single_user_local(destination))
     with open_local_database_read_only(imported.profile) as connection:
-        assert connection.execute("PRAGMA user_version").fetchone()[0] == 9
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 10
         assert connection.execute("SELECT count(*) FROM source_revisions").fetchone()[0] > 0
 
 
@@ -355,9 +354,9 @@ def test_schema_seven_owner_recovery_retains_current_writer_floor(tmp_path: Path
     assert moved.read_bytes() == before
     reopened = open_local_engine(engine.profile)
     with open_local_database_read_only(reopened.profile) as connection:
-        assert connection.execute("PRAGMA user_version").fetchone()[0] == 9
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 10
         assert tuple(connection.execute("SELECT * FROM runtime_compatibility").fetchone()) == (
             1,
-            4,
-            9,
+            5,
+            10,
         )

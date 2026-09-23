@@ -12,7 +12,7 @@ from pathlib import Path
 
 from open_brain_engine.providers.base import ProviderMode
 from open_brain_engine.storage.filesystem import assert_root_identity
-from open_brain_engine.storage.locks import FileLease
+from open_brain_engine.storage.locks import FileLease, LockBusyError
 from open_brain_engine.storage.sqlite import SchemaError
 from open_brain_engine.storage.watermarks import StorageUsage
 
@@ -54,6 +54,8 @@ from .contracts import (
     SpaceRecord,
     TextPayload,
 )
+from .ingestion import IngestionJournal
+from .journal_ops import JournalTasks
 from .local_schema import open_local_database_read_only
 from .local_store import _LocalStore, live_search_schema_is_available
 from .maintenance import inspect_phase1_state
@@ -194,6 +196,15 @@ class BrainEngine(CaptureOperations, SpaceOperations, ReviewOperations, Retrieva
             raise StateSchemaUnavailableError(
                 "local state schema is supported_old: issuer migration requires exclusive admission"
             )
+        if (
+            schema.state == "supported_old"
+            and schema.version == 9
+            and local_schema.PHASE1_STATE_SCHEMA_VERSION >= 10
+        ):
+            raise StateSchemaUnavailableError(
+                "local state schema is supported_old: ingestion migration requires "
+                "exclusive admission"
+            )
         self.profile = profile
         self._faults = set(faults)
         self._clock = clock
@@ -231,17 +242,23 @@ class BrainEngine(CaptureOperations, SpaceOperations, ReviewOperations, Retrieva
             clock=clock,
             parent_root_identity=profile.root_identity,
         )
-        with self._writer_lease.acquire_shared_writer():
-            self._store = _LocalStore(profile, clock=self._clock)
-            from .source_store import publish_source_metadata
+        try:
+            with self._writer_lease.acquire_shared_writer():
+                self._store = _LocalStore(profile, clock=self._clock)
+                from .source_store import publish_source_metadata
 
-            connection = self._store.connect()
-            try:
-                if connection.execute("PRAGMA user_version").fetchone()[0] >= 7:
-                    publish_source_metadata(connection, profile)
-            finally:
-                connection.close()
+                connection = self._store.connect()
+                try:
+                    if connection.execute("PRAGMA user_version").fetchone()[0] >= 7:
+                        publish_source_metadata(connection, profile)
+                finally:
+                    connection.close()
+        except LockBusyError:
+            if schema.state != "current" or schema.version != 10:
+                raise
+            self._store = _LocalStore(profile, clock=self._clock, initialize=False)
         self.capture = CaptureTasks(self)
+        self.ingestion = IngestionJournal(self)
         self.inbox = InboxSpaceTasks(self)
         self.sources = SourceTasks(self)
         self.review = ReviewTasks(self)
@@ -259,6 +276,7 @@ class BrainEngine(CaptureOperations, SpaceOperations, ReviewOperations, Retrieva
         self.managed_policy = ManagedPolicyTasks(self, self.managed_workspace)
         self.managed_inference = ManagedInferenceTasks(self, self.managed_workspace)
         self.privacy_repair = PrivacyRepairTasks(self)
+        self.journal = JournalTasks(self)
         self._task_set = EngineTaskSet(
             profile=profile,
             capture=self.capture,
@@ -275,6 +293,7 @@ class BrainEngine(CaptureOperations, SpaceOperations, ReviewOperations, Retrieva
             history=self.history,
             relationships=self.relationships,
             privacy_repair=self.privacy_repair,
+            journal=self.journal,
         )
 
     @classmethod
@@ -303,11 +322,24 @@ class BrainEngine(CaptureOperations, SpaceOperations, ReviewOperations, Retrieva
             storage_probe=storage_probe,
             boundary_classifier=boundary_classifier,
         )
-        with engine._writer_lease.acquire_shared_writer():
-            engine._recover(startup=recover_abandoned_sessions)
-            for name in profile.starter_spaces:
-                key = sha256(name.encode("utf-8")).hexdigest()
-                engine._space_operation("create", None, name, f"starter.{key}")
+        try:
+            with engine._writer_lease.acquire_shared_writer():
+                engine._recover(startup=recover_abandoned_sessions)
+                for name in profile.starter_spaces:
+                    key = sha256(name.encode("utf-8")).hexdigest()
+                    engine._space_operation("create", None, name, f"starter.{key}")
+        except LockBusyError:
+            connection = engine._store.connect()
+            try:
+                schema_version = connection.execute("PRAGMA user_version").fetchone()[0]
+            finally:
+                connection.close()
+            # Schema 10 can safely admit ingress before writer recovery. The
+            # operation itself will either acquire the writer or return its
+            # durable custody receipt; older schemas still require startup
+            # recovery before exposing mutation tasks.
+            if schema_version < 10:
+                raise
         return engine
 
     @property
@@ -317,6 +349,19 @@ class BrainEngine(CaptureOperations, SpaceOperations, ReviewOperations, Retrieva
     def recover(self) -> int:
         with self._writer_lease.acquire_shared_writer():
             return self._recover()
+
+    def _recover_captures_locked(self) -> int:
+        """Resume canonical capture stages before draining newer ingress."""
+        connection = self._store.connect()
+        try:
+            rows = tuple(
+                connection.execute("SELECT * FROM captures WHERE stage < ?", (_done("captures"),))
+            )
+        finally:
+            connection.close()
+        for row in rows:
+            self._process_capture(row)
+        return len(rows)
 
     def _bind_cursor_root(self) -> None:
         from contextlib import suppress
@@ -335,7 +380,8 @@ class BrainEngine(CaptureOperations, SpaceOperations, ReviewOperations, Retrieva
     def _recover(self, *, startup: bool = False) -> int:
         connection = self._store.connect()
         try:
-            source_history = connection.execute("PRAGMA user_version").fetchone()[0] >= 7
+            schema_version = connection.execute("PRAGMA user_version").fetchone()[0]
+            source_history = schema_version >= 7
         finally:
             connection.close()
         if source_history:
@@ -344,9 +390,9 @@ class BrainEngine(CaptureOperations, SpaceOperations, ReviewOperations, Retrieva
 
             quarantine_stale_intakes(self)
         recovered = 0
+        recovered += self._recover_captures_locked()
         for table, processor in (
             ("space_operations", self._process_space_operation),
-            ("captures", self._process_capture),
             ("route_operations", self._process_route),
             ("proposal_sets", self._process_proposal_set),
             ("decisions", self._process_decision),
@@ -361,6 +407,12 @@ class BrainEngine(CaptureOperations, SpaceOperations, ReviewOperations, Retrieva
             for row in rows:
                 processor(row)
                 recovered += 1
+        if schema_version >= 10:
+            # Existing canonical rows always resume before ingress. A journal
+            # replay after a crash therefore observes the durable capture row
+            # and terminalizes as a duplicate instead of creating another
+            # capture. Historical schema compatibility opens have no journal.
+            recovered += len(self.ingestion.drain_locked())
         self.sources._recover_locked()
         recovered += self.managed_workspace._recover_locked()
         if startup:

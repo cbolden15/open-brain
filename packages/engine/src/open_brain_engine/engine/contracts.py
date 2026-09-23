@@ -5,6 +5,8 @@ from __future__ import annotations
 import json
 import re
 import unicodedata
+from base64 import b64decode, b64encode
+from binascii import Error as BinasciiError
 from collections.abc import Callable, Iterator, Mapping, Sequence
 from dataclasses import dataclass
 from enum import StrEnum
@@ -12,7 +14,7 @@ from hashlib import sha256
 from html import unescape
 from pathlib import Path, PurePosixPath
 from types import MappingProxyType
-from typing import TYPE_CHECKING, Any, Protocol, cast
+from typing import TYPE_CHECKING, Any, Never, Protocol, cast
 from urllib.parse import unquote
 
 from open_brain_engine.core.ids import canonicalize_source_url, portable_canonical_json_bytes
@@ -90,7 +92,10 @@ class DecisionOutcome(StrEnum):
 
 
 class CaptureFault(StrEnum):
+    AFTER_JOURNAL_COMMIT = "after_journal_commit"
     AFTER_CAPTURE_RESERVATION = "after_capture_reservation"
+    AFTER_CANONICAL_COMPLETION = "after_canonical_completion"
+    AFTER_JOURNAL_TERMINAL_EVENT = "after_journal_terminal_event"
     AFTER_BLOB_WRITE = "after_blob_write"
     AFTER_SOURCE_WRITE = "after_source_write"
     AFTER_AUTOMATIC_PROPOSAL_WRITE = "after_automatic_proposal_write"
@@ -1569,6 +1574,12 @@ class AdmissionLimits:
     requests_per_minute_per_principal: int = 120
     max_concurrent_admissions: int = 8
     max_writer_waiters: int = 16
+    max_journal_items: int = 4_096
+    max_journal_bytes: int = 64 * 1024 * 1024
+    max_journal_item_bytes: int = 8 * 1024 * 1024
+    max_journal_batch_items: int = 32
+    max_journal_batch_bytes: int = 16 * 1024 * 1024
+    max_journal_attempts: int = 3
     storage_high_free_bytes: int = 2 * 1024 * 1024 * 1024
     storage_critical_free_bytes: int = 512 * 1024 * 1024
 
@@ -1579,6 +1590,12 @@ class AdmissionLimits:
             "requests_per_minute_per_principal",
             "max_concurrent_admissions",
             "max_writer_waiters",
+            "max_journal_items",
+            "max_journal_bytes",
+            "max_journal_item_bytes",
+            "max_journal_batch_items",
+            "max_journal_batch_bytes",
+            "max_journal_attempts",
             "storage_high_free_bytes",
             "storage_critical_free_bytes",
         ):
@@ -1586,6 +1603,12 @@ class AdmissionLimits:
             if type(value) is not int or value <= 0:
                 raise ValueError("invalid admission limits")
         if not self.storage_critical_free_bytes < self.storage_high_free_bytes:
+            raise ValueError("invalid admission limits")
+        if self.max_journal_item_bytes > self.max_journal_bytes:
+            raise ValueError("invalid admission limits")
+        if self.max_journal_item_bytes > self.max_journal_batch_bytes:
+            raise ValueError("invalid admission limits")
+        if self.max_journal_batch_bytes > self.max_journal_bytes:
             raise ValueError("invalid admission limits")
 
     def to_dict(self) -> dict[str, object]:
@@ -1595,6 +1618,12 @@ class AdmissionLimits:
             "requests_per_minute_per_principal": self.requests_per_minute_per_principal,
             "max_concurrent_admissions": self.max_concurrent_admissions,
             "max_writer_waiters": self.max_writer_waiters,
+            "max_journal_items": self.max_journal_items,
+            "max_journal_bytes": self.max_journal_bytes,
+            "max_journal_item_bytes": self.max_journal_item_bytes,
+            "max_journal_batch_items": self.max_journal_batch_items,
+            "max_journal_batch_bytes": self.max_journal_batch_bytes,
+            "max_journal_attempts": self.max_journal_attempts,
             "storage_high_free_bytes": self.storage_high_free_bytes,
             "storage_critical_free_bytes": self.storage_critical_free_bytes,
         }
@@ -1607,6 +1636,12 @@ class AdmissionLimits:
             "requests_per_minute_per_principal",
             "max_concurrent_admissions",
             "max_writer_waiters",
+            "max_journal_items",
+            "max_journal_bytes",
+            "max_journal_item_bytes",
+            "max_journal_batch_items",
+            "max_journal_batch_bytes",
+            "max_journal_attempts",
             "storage_high_free_bytes",
             "storage_critical_free_bytes",
         }:
@@ -1942,6 +1977,433 @@ class CaptureSubmission:
         return sha256(portable_canonical_json_bytes(self.request_value())).hexdigest()
 
 
+_JOURNAL_V1_KEYS = frozenset({"contract_version", "submission", "admitted_privacy"})
+_CAPTURE_SUBMISSION_KEYS = frozenset(
+    {
+        "schema_version",
+        "payload",
+        "delivery_id",
+        "source_origin",
+        "source_reference",
+        "provenance",
+        "privacy",
+        "tenant_id",
+        "actor_id",
+        "role_claim",
+        "action",
+        "space_id",
+        "intent",
+        "capture_why",
+        "capture_why_origin",
+        "title",
+        "occurrence_at",
+        "submission_path",
+        "destination_brain_id",
+        "issuer_epoch",
+    }
+)
+_CUSTODY_RECEIPT_KEYS = frozenset(
+    {
+        "contract_version",
+        "status",
+        "ingestion_id",
+        "brain_id",
+        "issuer_epoch",
+        "delivery_id",
+        "request_sha256",
+        "requested_tier",
+        "final_admitted_tier",
+        "queued_at",
+        "protection_acknowledgement",
+    }
+)
+_PRIVACY_RESTRICTIVENESS = {
+    PrivacyTier.PUBLIC: 0,
+    PrivacyTier.WORK: 1,
+    PrivacyTier.PERSONAL: 2,
+    PrivacyTier.SECRET: 3,
+    PrivacyTier.UNKNOWN: 4,
+}
+
+
+def _exact_mapping(value: object, keys: frozenset[str], *, label: str) -> dict[str, object]:
+    if not isinstance(value, Mapping) or set(value) != keys:
+        raise ValueError(f"invalid {label}")
+    return dict(value)
+
+
+def _journal_payload_value(payload: Payload) -> dict[str, object]:
+    value = payload.to_dict()
+    if isinstance(payload, FilePayload):
+        value["data_base64"] = b64encode(payload.data).decode("ascii")
+    return value
+
+
+def _payload_from_journal_value(value: object) -> Payload:
+    payload = _exact_mapping(
+        value,
+        frozenset(value) if isinstance(value, Mapping) else frozenset(),
+        label="journal payload",
+    )
+    family = payload.get("family")
+    try:
+        if family == "text" and set(payload) == {"family", "text"}:
+            return TextPayload(cast(str, payload["text"]))
+        if (
+            family == "reference_or_file"
+            and payload.get("kind") == "reference"
+            and set(payload)
+            in (
+                {"family", "kind", "url"},
+                {"family", "kind", "url", "supplied_text"},
+            )
+        ):
+            return ReferencePayload(
+                cast(str, payload["url"]), cast(str | None, payload.get("supplied_text"))
+            )
+        if (
+            family == "reference_or_file"
+            and payload.get("kind") == "file"
+            and set(payload)
+            == {"family", "kind", "file_name", "media_type", "blob_sha256", "data_base64"}
+        ):
+            encoded = payload["data_base64"]
+            if not isinstance(encoded, str):
+                raise ValueError("invalid journal file payload")
+            data = b64decode(encoded.encode("ascii"), validate=True)
+            result = FilePayload(
+                cast(str, payload["file_name"]), cast(str, payload["media_type"]), data
+            )
+            if result.digest != payload["blob_sha256"]:
+                raise ValueError("invalid journal file payload")
+            return result
+        if family == "event" and set(payload) == {
+            "family",
+            "event_type",
+            "occurrence_at",
+            "attributes",
+        }:
+            attributes = payload["attributes"]
+            if not isinstance(attributes, list):
+                raise ValueError("invalid journal event payload")
+            pairs: dict[str, str] = {}
+            for row in attributes:
+                item = _exact_mapping(row, frozenset({"name", "value"}), label="journal attribute")
+                name, text = item["name"], item["value"]
+                if not isinstance(name, str) or not isinstance(text, str) or name in pairs:
+                    raise ValueError("invalid journal event payload")
+                pairs[name] = text
+            return EventPayload(
+                cast(str, payload["event_type"]), cast(str | None, payload["occurrence_at"]), pairs
+            )
+        if family == "measurement" and set(payload) == {
+            "family",
+            "value",
+            "unit",
+            "occurrence_at",
+            "dimensions",
+        }:
+            dimensions = payload["dimensions"]
+            if not isinstance(dimensions, list):
+                raise ValueError("invalid journal measurement payload")
+            pairs = {}
+            for row in dimensions:
+                item = _exact_mapping(row, frozenset({"name", "value"}), label="journal dimension")
+                name, text = item["name"], item["value"]
+                if not isinstance(name, str) or not isinstance(text, str) or name in pairs:
+                    raise ValueError("invalid journal measurement payload")
+                pairs[name] = text
+            return MeasurementPayload(
+                cast(str, payload["value"]),
+                cast(str, payload["unit"]),
+                cast(str | None, payload["occurrence_at"]),
+                pairs,
+            )
+    except BinasciiError, UnicodeError, TypeError, ValueError:
+        raise ValueError("invalid journal payload") from None
+    raise ValueError("invalid journal payload")
+
+
+def _journal_submission_value(submission: CaptureSubmission) -> dict[str, object]:
+    return {
+        "schema_version": submission.schema_version,
+        "payload": _journal_payload_value(submission.payload),
+        "delivery_id": submission.delivery_id,
+        "source_origin": submission.source_origin.value,
+        "source_reference": submission.source_reference,
+        "provenance": submission.provenance.to_dict(),
+        "privacy": submission.privacy.to_dict(),
+        "tenant_id": submission.tenant_id,
+        "actor_id": submission.actor_id,
+        "role_claim": _mutable_role_claim(submission.role_claim),
+        "action": submission.action.value,
+        "space_id": submission.space_id,
+        "intent": None if submission.intent is None else submission.intent.value,
+        "capture_why": submission.capture_why,
+        "capture_why_origin": submission.capture_why_origin.value,
+        "title": submission.title,
+        "occurrence_at": submission.occurrence_at,
+        "submission_path": submission.submission_path.value,
+        "destination_brain_id": submission.destination_brain_id,
+        "issuer_epoch": submission.issuer_epoch,
+    }
+
+
+def _submission_from_journal_value(value: object) -> CaptureSubmission:
+    data = _exact_mapping(value, _CAPTURE_SUBMISSION_KEYS, label="journal submission")
+    try:
+        return CaptureSubmission(
+            payload=_payload_from_journal_value(data["payload"]),
+            delivery_id=cast(str, data["delivery_id"]),
+            source_origin=ContentOrigin(cast(str, data["source_origin"])),
+            source_reference=cast(str, data["source_reference"]),
+            provenance=Provenance.from_dict(cast(Mapping[str, object], data["provenance"])),
+            privacy=PrivacyDecision.from_dict(cast(Mapping[str, object], data["privacy"])),
+            tenant_id=cast(str, data["tenant_id"]),
+            actor_id=cast(str, data["actor_id"]),
+            role_claim=cast(Mapping[str, object], data["role_claim"]),
+            action=CaptureAction(cast(str, data["action"])),
+            space_id=cast(str | None, data["space_id"]),
+            intent=(None if data["intent"] is None else Intent(cast(str, data["intent"]))),
+            capture_why=cast(str | None, data["capture_why"]),
+            capture_why_origin=CaptureWhyOrigin(cast(str, data["capture_why_origin"])),
+            title=cast(str | None, data["title"]),
+            occurrence_at=cast(str | None, data["occurrence_at"]),
+            schema_version=cast(int, data["schema_version"]),
+            submission_path=CaptureSubmissionPath(cast(str, data["submission_path"])),
+            destination_brain_id=cast(str | None, data["destination_brain_id"]),
+            issuer_epoch=cast(int | None, data["issuer_epoch"]),
+        )
+    except TypeError, ValueError:
+        raise ValueError("invalid journal submission") from None
+
+
+@dataclass(frozen=True, slots=True)
+class JournalEnvelope:
+    """Exact `journal.v1` bytes for a fully normalized admitted capture."""
+
+    submission: CaptureSubmission
+    admitted_privacy: PrivacyDecision
+    contract_version: str = "journal.v1"
+
+    def __post_init__(self) -> None:
+        if self.contract_version != "journal.v1" or not isinstance(
+            self.submission, CaptureSubmission
+        ):
+            raise ValueError("invalid journal envelope")
+        if not isinstance(self.admitted_privacy, PrivacyDecision):
+            raise ValueError("invalid journal envelope")
+        if (
+            _PRIVACY_RESTRICTIVENESS[self.admitted_privacy.tier]
+            < _PRIVACY_RESTRICTIVENESS[self.submission.requested_tier]
+        ):
+            raise ValueError("journal admission cannot widen privacy")
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "contract_version": self.contract_version,
+            "submission": _journal_submission_value(self.submission),
+            "admitted_privacy": self.admitted_privacy.to_dict(),
+        }
+
+    def to_bytes(self) -> bytes:
+        return portable_canonical_json_bytes(self.to_dict())
+
+    @property
+    def sha256(self) -> str:
+        return sha256(self.to_bytes()).hexdigest()
+
+    @classmethod
+    def from_bytes(cls, value: bytes) -> JournalEnvelope:
+        if not isinstance(value, bytes) or not value:
+            raise ValueError("invalid journal envelope")
+        try:
+            decoded = json.loads(
+                value.decode("utf-8"), object_pairs_hook=_reject_duplicate_json_keys
+            )
+            data = _exact_mapping(decoded, _JOURNAL_V1_KEYS, label="journal envelope")
+            if data["contract_version"] != "journal.v1":
+                raise ValueError("invalid journal envelope")
+            result = cls(
+                submission=_submission_from_journal_value(data["submission"]),
+                admitted_privacy=PrivacyDecision.from_dict(
+                    cast(Mapping[str, object], data["admitted_privacy"])
+                ),
+            )
+            if result.to_bytes() != value:
+                raise ValueError("invalid journal envelope")
+            return result
+        except UnicodeDecodeError, json.JSONDecodeError, TypeError, ValueError:
+            raise ValueError("invalid journal envelope") from None
+
+
+def _reject_duplicate_json_keys(pairs: list[tuple[str, object]]) -> dict[str, object]:
+    result: dict[str, object] = {}
+    for key, value in pairs:
+        if key in result:
+            raise ValueError("duplicate JSON key")
+        result[key] = value
+    return result
+
+
+@dataclass(frozen=True, slots=True)
+class CaptureCustodyReceipt:
+    """The bounded durable-custody receipt returned before canonical capture."""
+
+    ingestion_id: str
+    brain_id: str
+    issuer_epoch: int
+    delivery_id: str
+    request_sha256: str
+    requested_tier: PrivacyTier
+    final_admitted_tier: PrivacyTier
+    queued_at: str
+    protection_acknowledgement: None = None
+    contract_version: str = "capture-custody.v1"
+    status: str = "queued"
+
+    def __post_init__(self) -> None:
+        if self.contract_version != "capture-custody.v1" or self.status != "queued":
+            raise ValueError("invalid capture custody receipt")
+        _portable_id(self.ingestion_id, "ingestion")
+        if (
+            re.fullmatch(r"brn_[a-z2-7]{26}", self.brain_id) is None
+            or type(self.issuer_epoch) is not int
+            or self.issuer_epoch <= 0
+        ):
+            raise ValueError("invalid capture custody receipt")
+        _delivery_id(self.delivery_id)
+        if (
+            not isinstance(self.request_sha256, str)
+            or _HEX64.fullmatch(self.request_sha256) is None
+        ):
+            raise ValueError("invalid capture custody receipt")
+        try:
+            requested = PrivacyTier(self.requested_tier)
+            admitted = PrivacyTier(self.final_admitted_tier)
+        except (TypeError, ValueError) as error:
+            raise ValueError("invalid capture custody receipt") from error
+        if _PRIVACY_RESTRICTIVENESS[admitted] < _PRIVACY_RESTRICTIVENESS[requested]:
+            raise ValueError("capture custody receipt widens privacy")
+        if (
+            _optional_timestamp(self.queued_at) is None
+            or self.protection_acknowledgement is not None
+        ):
+            raise ValueError("invalid capture custody receipt")
+        object.__setattr__(self, "requested_tier", requested)
+        object.__setattr__(self, "final_admitted_tier", admitted)
+        object.__setattr__(self, "queued_at", _optional_timestamp(self.queued_at))
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "contract_version": self.contract_version,
+            "status": self.status,
+            "ingestion_id": self.ingestion_id,
+            "brain_id": self.brain_id,
+            "issuer_epoch": self.issuer_epoch,
+            "delivery_id": self.delivery_id,
+            "request_sha256": self.request_sha256,
+            "requested_tier": self.requested_tier.value,
+            "final_admitted_tier": self.final_admitted_tier.value,
+            "queued_at": self.queued_at,
+            "protection_acknowledgement": self.protection_acknowledgement,
+        }
+
+    # These terminal-only accessors intentionally carry no value. They keep
+    # existing code that has already established immediate canonical success
+    # type-safe during the CaptureOutcome migration, while failing loudly if a
+    # queued result reaches that code without an explicit branch. They do not
+    # add fields to the closed custody receipt or its serialized contract.
+    @property
+    def capture_id(self) -> Never:
+        raise AttributeError("queued custody receipt has no capture ID")
+
+    @property
+    def duplicate(self) -> Never:
+        raise AttributeError("queued custody receipt has no duplicate state")
+
+    @property
+    def canonical_path(self) -> Never:
+        raise AttributeError("queued custody receipt has no canonical path")
+
+    @property
+    def destination_brain_id(self) -> Never:
+        raise AttributeError("queued custody receipt uses brain_id")
+
+    @property
+    def enrichment_state(self) -> Never:
+        raise AttributeError("queued custody receipt has no enrichment state")
+
+    @property
+    def state(self) -> Never:
+        raise AttributeError("queued custody receipt has no canonical state")
+
+
+def verify_capture_custody_receipt(value: Mapping[str, object] | bytes) -> CaptureCustodyReceipt:
+    """Decode the closed v1 receipt, rejecting unknown fields and altered bytes."""
+    try:
+        if isinstance(value, bytes):
+            decoded = json.loads(
+                value.decode("utf-8"), object_pairs_hook=_reject_duplicate_json_keys
+            )
+            if portable_canonical_json_bytes(decoded) != value:
+                raise ValueError("noncanonical receipt")
+        else:
+            decoded = value
+        data = _exact_mapping(decoded, _CUSTODY_RECEIPT_KEYS, label="capture custody receipt")
+        if data["protection_acknowledgement"] is not None:
+            raise ValueError("invalid capture custody receipt")
+        return CaptureCustodyReceipt(
+            ingestion_id=cast(str, data["ingestion_id"]),
+            brain_id=cast(str, data["brain_id"]),
+            issuer_epoch=cast(int, data["issuer_epoch"]),
+            delivery_id=cast(str, data["delivery_id"]),
+            request_sha256=cast(str, data["request_sha256"]),
+            requested_tier=PrivacyTier(cast(str, data["requested_tier"])),
+            final_admitted_tier=PrivacyTier(cast(str, data["final_admitted_tier"])),
+            queued_at=cast(str, data["queued_at"]),
+            protection_acknowledgement=None,
+            contract_version=cast(str, data["contract_version"]),
+            status=cast(str, data["status"]),
+        )
+    except UnicodeDecodeError, json.JSONDecodeError, TypeError, ValueError:
+        raise ValueError("invalid capture custody receipt") from None
+
+
+type CaptureOutcome = CaptureReceipt | CaptureCustodyReceipt
+
+
+@dataclass(frozen=True, slots=True)
+class IngestionStatus:
+    """One metadata-only active journal item, visible only to the owner."""
+
+    journal_sequence: int
+    delivery_id: str
+    ingestion_id: str
+    state: str
+    attempt_number: int
+    queued_at: str
+
+
+@dataclass(frozen=True, slots=True)
+class IngestionSummary:
+    """Bounded aggregate journal telemetry with no envelope content."""
+
+    pending_count: int
+    quarantined_count: int
+    oldest_age_seconds: int | None
+    retained_bytes: int
+    last_failure_code: str | None
+
+
+@dataclass(frozen=True, slots=True)
+class IngestionDrainResult:
+    """Metadata-only result of one owner-requested bounded journal drain."""
+
+    materialized_count: int
+    receipts: tuple[CaptureReceipt, ...]
+
+
 def _destination_bound_submission(
     *,
     destination_brain_id: str,
@@ -2036,9 +2498,9 @@ class CaptureTask(Protocol):
         capture_why: str | None = None,
         title: str | None = None,
         privacy_tier: PrivacyTier | None = None,
-    ) -> CaptureReceipt: ...
+    ) -> CaptureOutcome: ...
 
-    def submit(self, submission: CaptureSubmission) -> CaptureReceipt: ...
+    def submit(self, submission: CaptureSubmission) -> CaptureOutcome: ...
 
     def public_job_sink(self, context: PublicJobCaptureContext) -> PublicJobCaptureSink: ...
 
@@ -2052,15 +2514,24 @@ class PublicJobCaptureSink:
         *,
         context: PublicJobCaptureContext,
         brain_fingerprint: str | None = None,
+        brain_id: str | None = None,
+        issuer_epoch: int | None = None,
     ) -> None:
         if not isinstance(context, PublicJobCaptureContext) or (
             brain_fingerprint is not None
             and re.fullmatch(r"[0-9a-f]{64}", brain_fingerprint) is None
+            or brain_id is not None
+            and re.fullmatch(r"brn_[a-z2-7]{26}", brain_id) is None
+            or issuer_epoch is not None
+            and (type(issuer_epoch) is not int or issuer_epoch < 1)
+            or (brain_id is None) != (issuer_epoch is None)
         ):
             raise ValueError("invalid public-job context")
         self._capture = capture
         self._context = context
         self._brain_fingerprint = brain_fingerprint
+        self._brain_id = brain_id
+        self._issuer_epoch = issuer_epoch
 
     @property
     def context(self) -> PublicJobCaptureContext:
@@ -2071,6 +2542,13 @@ class PublicJobCaptureSink:
     def brain_fingerprint(self) -> str | None:
         """Opaque identity of the exact Brain that created this capability."""
         return self._brain_fingerprint
+
+    @property
+    def brain_identity(self) -> tuple[str, int] | None:
+        """Destination identity used to verify a custody receipt before release."""
+        if self._brain_id is None or self._issuer_epoch is None:
+            return None
+        return (self._brain_id, self._issuer_epoch)
 
     @staticmethod
     def fingerprint_for(root: str, root_identity: tuple[int, int], tenant_id: str) -> str:
@@ -2095,7 +2573,7 @@ class PublicJobCaptureSink:
         privacy: PrivacyDecision,
         intent: Intent | str | None = None,
         title: str | None = None,
-    ) -> CaptureReceipt:
+    ) -> CaptureOutcome:
         return self._capture.submit(
             CaptureSubmission.for_public_job(
                 context=self._context,
@@ -2413,6 +2891,26 @@ class PrivacyRepairTask(Protocol):
     ) -> PrivacyRepairReceipt: ...
 
 
+class JournalTask(Protocol):
+    """Owner-only ingress inspection and recovery operations."""
+
+    def status(
+        self,
+        *,
+        authority: EffectiveAuthority,
+        limit: int = 100,
+        after_sequence: int | None = None,
+    ) -> tuple[IngestionStatus, ...]: ...
+
+    def summary(self, *, authority: EffectiveAuthority) -> IngestionSummary: ...
+
+    def drain(self, *, authority: EffectiveAuthority) -> IngestionDrainResult: ...
+
+    def retry(self, delivery_id: str, *, authority: EffectiveAuthority) -> None: ...
+
+    def discard(self, delivery_id: str, *, reason: str, authority: EffectiveAuthority) -> None: ...
+
+
 @dataclass(frozen=True, slots=True)
 class EngineTaskSet:
     """The public task identities exposed by one opened local engine root."""
@@ -2432,6 +2930,7 @@ class EngineTaskSet:
     history: HistoryTask | None = None
     relationships: RelationshipTask | None = None
     privacy_repair: PrivacyRepairTask | None = None
+    journal: JournalTask | None = None
 
     @property
     def spaces(self) -> InboxSpaceTask:

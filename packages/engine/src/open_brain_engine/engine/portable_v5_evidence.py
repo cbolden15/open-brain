@@ -1,4 +1,4 @@
-"""Deterministic schema-nine evidence for Portable Brain v5.
+"""Deterministic current-state evidence for unchanged Portable Brain v5.
 
 The caller owns both the connection and its read transaction.  This module
 never opens a second database view and never treats mutable search rows as the
@@ -46,7 +46,7 @@ from .relationship_store import relationship_metadata
 from .source_store import source_metadata
 from .t03_contracts import T03Error
 
-_SCHEMA_VERSION = 9
+_SUPPORTED_STATE_SCHEMA_VERSIONS = frozenset({9, 10})
 _EVIDENCE_SCHEMA_VERSION = 1
 _VALID_INVALID_REASONS = frozenset({"missing", "malformed", "inconsistent"})
 
@@ -69,7 +69,7 @@ def _canonical_object(payload: object, *, label: str) -> dict[str, Any]:
         _fail(f"{label} is not canonical JSON text")
     try:
         value = json.loads(payload)
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         _fail(f"{label} is not canonical JSON")
     if type(value) is not dict or portable_canonical_json_bytes(value) != payload.encode("utf-8"):
         _fail(f"{label} is not canonical JSON")
@@ -91,7 +91,7 @@ def _canonical_json_value(
     raw = payload.encode("utf-8") if isinstance(payload, str) else payload
     try:
         value: object = json.loads(raw.decode("utf-8"))
-    except (UnicodeDecodeError, ValueError):
+    except UnicodeDecodeError, ValueError:
         _fail(f"{label} is not canonical JSON")
     if require_canonical and portable_canonical_json_bytes(value) != raw:
         _fail(f"{label} is not canonical JSON")
@@ -123,8 +123,12 @@ def _validate_snapshot_boundary(connection: sqlite3.Connection) -> None:
     if not connection.in_transaction:
         _fail("Portable v5 evidence requires an active transaction")
     version = connection.execute("PRAGMA user_version").fetchone()
-    if version is None or type(version[0]) is not int or version[0] != _SCHEMA_VERSION:
-        _fail("Portable v5 evidence requires current schema 9")
+    if (
+        version is None
+        or type(version[0]) is not int
+        or version[0] not in _SUPPORTED_STATE_SCHEMA_VERSIONS
+    ):
+        _fail("Portable v5 evidence requires a supported current state schema")
 
 
 def normalized_capture_rows(connection: sqlite3.Connection) -> list[dict[str, object]]:
@@ -177,9 +181,7 @@ def normalized_capture_rows(connection: sqlite3.Connection) -> list[dict[str, ob
                     require_canonical=False,
                 ),
                 "space_id": _optional_text(row["space_id"], label="capture space"),
-                "accepted_at": _required_text(
-                    row["accepted_at"], label="capture acceptance time"
-                ),
+                "accepted_at": _required_text(row["accepted_at"], label="capture acceptance time"),
                 "action": _required_text(row["action"], label="capture action"),
                 "canonical_path": _optional_text(
                     row["canonical_path"], label="capture canonical path"
@@ -210,9 +212,7 @@ def _retained_and_bases(
         "FROM source_revisions AS r JOIN captures AS c USING (capture_id) "
         "ORDER BY r.capture_id COLLATE BINARY"
     ).fetchall()
-    if len(revisions) != connection.execute(
-        "SELECT count(*) FROM source_revisions"
-    ).fetchone()[0]:
+    if len(revisions) != connection.execute("SELECT count(*) FROM source_revisions").fetchone()[0]:
         _fail("retained privacy source coverage mismatch")
 
     retained_rows: list[dict[str, object]] = []
@@ -403,9 +403,7 @@ def _resolved_revisions(
                 record_type="source",
             )
         else:
-            evidence, active = resolve_canonical_revision_privacy(
-                connection, revision_id=target_id
-            )
+            evidence, active = resolve_canonical_revision_privacy(connection, revision_id=target_id)
             applied = None
             if active is not None:
                 evidence = apply_privacy_repair(
@@ -554,9 +552,7 @@ def normalized_authoritative_search_rows(
                     row["payload_family"], label="search payload family"
                 ),
                 "space_id": space_id,
-                "title": _required_text(
-                    row["title"], label="search title", allow_empty=True
-                ),
+                "title": _required_text(row["title"], label="search title", allow_empty=True),
                 "body": _required_text(row["body"], label="search body", allow_empty=True),
                 "trust": _required_text(row["trust"], label="search trust"),
                 "provenance_json": _canonical_json_value(

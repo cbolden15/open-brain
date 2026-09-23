@@ -56,6 +56,7 @@ class OutboxContractError(ValueError):
 class TerminalReceiptStatus(StrEnum):
     ACCEPTED = "accepted"
     DUPLICATE = "duplicate"
+    QUEUED = "queued"
 
 
 @dataclass(frozen=True, slots=True)

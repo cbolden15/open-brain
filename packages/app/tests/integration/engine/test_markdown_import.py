@@ -534,14 +534,14 @@ def test_pending_reservation_binds_complete_request_and_recovers(
     vault.mkdir()
     (vault / "note.md").write_text("reservation-recovery-token", encoding="utf-8")
     engine = _engine(brain)
-    original_submit = engine._submit_capture
+    original_enqueue = engine.ingestion.enqueue
     captured: list[CaptureSubmission] = []
 
     def stop_before_capture(submission: CaptureSubmission) -> None:
         captured.append(submission)
         raise RuntimeError("synthetic reservation stop")
 
-    monkeypatch.setattr(engine, "_submit_capture", stop_before_capture)
+    monkeypatch.setattr(engine.ingestion, "enqueue", stop_before_capture)
     with pytest.raises(RuntimeError, match="reservation stop"):
         engine.markdown_import.import_directory(str(vault), confirm=lambda _value: True)
     assert _count(brain, "markdown_import_revisions") == 1
@@ -585,7 +585,7 @@ def test_pending_reservation_binds_complete_request_and_recovers(
         with pytest.raises(ValueError, match="invalid reserved capture delivery"):
             capture_submission_is_reserved(engine, altered)
 
-    monkeypatch.setattr(engine, "_submit_capture", original_submit)
+    monkeypatch.setattr(engine.ingestion, "enqueue", original_enqueue)
     resumed = engine.markdown_import.import_directory(str(vault))
 
     assert resumed.imported == 1

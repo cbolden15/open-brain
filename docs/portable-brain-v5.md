@@ -42,6 +42,12 @@ transaction for source, relationship, privacy, issuer, and managed evidence.
 It regenerates exactly the three v5 sidecars from durable state and validates
 the complete staged archive before promotion.
 
+Portable export refuses while the schema-10 ingress journal has any pending or quarantined payload.
+Run `open-brain journal status --json`, resolve retryable or quarantined items, and confirm the
+summary reports zero retained ingress payloads before starting an export. The journal itself is
+operational custody state and is not a Portable sidecar; exporting it would expose incomplete
+captures and would not provide a canonical replay boundary.
+
 Import first validates an immutable source snapshot. The hidden sibling stage
 gets an empty schema-9 database seeded with the imported identity. Restore
 consumes snapshot bytes, restores durable evidence, derives current search

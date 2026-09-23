@@ -7,5 +7,6 @@
   "managed_recovery_authority": "4b15ce56af0cd7c40663c5fae188ac43e02953ed534f48c04b4103211d65a3e8",
   "immutable_source_history": "ed19cb8b96810e91a3eaa3020e38af95c2dae6893a48c4a560f2ceeaa29b1d44",
   "effective_privacy_projection": "e85ce7ea1168d934809da58b15bb21ff8a4645c4ab13c7e8e313c5f04103e04f",
-  "issuer_identity_and_owner_repair": "759b438f01247314e9e646d6bbe9318699fe1a8173531c724be355b08d436c8f"
+  "issuer_identity_and_owner_repair": "759b438f01247314e9e646d6bbe9318699fe1a8173531c724be355b08d436c8f",
+  "durable_capture_ingestion_journal": "4af102664eef6baa0b361600d9db8776761ae3445c78f496149b9f7fc5dad67d"
 }

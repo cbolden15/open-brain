@@ -232,6 +232,24 @@ def test_duplicate_receipt_marks_terminal_and_counts_duplicate(tmp_path: Path) -
     assert PAYLOAD_TEXT.encode("utf-8") not in _item_path(store, envelope.delivery_id).read_bytes()
 
 
+def test_queued_custody_receipt_marks_terminal_without_consuming_retry_attempt(
+    tmp_path: Path,
+) -> None:
+    store = _store(tmp_path)
+    envelope = _envelope(attempts=2)
+    assert store.enqueue(envelope) is EnqueueResult.QUEUED
+    custody = _receipt(envelope, status=TerminalReceiptStatus.QUEUED)
+
+    summary = _drain(store, _FakeTransport({envelope.delivery_id: custody}))
+
+    assert summary.accepted == 1
+    assert summary.duplicate == 0
+    record = _item_json(_item_path(store, envelope.delivery_id).read_bytes())
+    assert record["attempts"] == 2
+    assert record["receipt"] == custody.to_dict()
+    assert PAYLOAD_TEXT.encode("utf-8") not in _item_path(store, envelope.delivery_id).read_bytes()
+
+
 def test_second_concurrent_drain_returns_drain_busy_without_touching_items(
     tmp_path: Path,
 ) -> None:

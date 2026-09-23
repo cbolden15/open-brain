@@ -16,7 +16,12 @@ from __future__ import annotations
 from typing import cast
 
 from open_brain_engine.core.models import PrivacyTier
-from open_brain_engine.engine import CaptureAdmissionError, CaptureReceipt
+from open_brain_engine.engine import (
+    CaptureAdmissionError,
+    CaptureCustodyReceipt,
+    CaptureOutcome,
+    verify_capture_custody_receipt,
+)
 
 from .contracts import OutboxContractError, TerminalReceipt, TerminalReceiptStatus
 from .drain import DeliveryFailure
@@ -72,8 +77,18 @@ def delivery_conflict_failure() -> DeliveryFailure:
     return DeliveryFailure(code=DELIVERY_CONFLICT, retryable=False)
 
 
-def terminal_receipt_from_capture_receipt(receipt: CaptureReceipt) -> TerminalReceipt:
+def terminal_receipt_from_capture_receipt(receipt: CaptureOutcome) -> TerminalReceipt:
     """Map an engine destination-bound receipt onto the outbox terminal contract."""
+    if isinstance(receipt, CaptureCustodyReceipt):
+        return TerminalReceipt(
+            status=TerminalReceiptStatus.QUEUED,
+            brain_id=receipt.brain_id,
+            issuer_epoch=receipt.issuer_epoch,
+            delivery_id=receipt.delivery_id,
+            request_digest=receipt.request_sha256,
+            final_admitted_tier=receipt.final_admitted_tier,
+            protection_acknowledgement=receipt.protection_acknowledgement,
+        )
     if (
         receipt.destination_brain_id is None
         or receipt.issuer_epoch is None
@@ -96,6 +111,20 @@ def terminal_receipt_from_capture_receipt(receipt: CaptureReceipt) -> TerminalRe
 
 def terminal_receipt_from_result_document(document: object) -> TerminalReceipt:
     """Map one ``capture-submit --json`` success document onto the terminal contract."""
+    if isinstance(document, dict) and document.get("status") == "queued":
+        try:
+            custody = verify_capture_custody_receipt(document)
+        except ValueError as error:
+            raise OutboxContractError(RECEIPT_MALFORMED) from error
+        return TerminalReceipt(
+            status=TerminalReceiptStatus.QUEUED,
+            brain_id=custody.brain_id,
+            issuer_epoch=custody.issuer_epoch,
+            delivery_id=custody.delivery_id,
+            request_digest=custody.request_sha256,
+            final_admitted_tier=custody.final_admitted_tier,
+            protection_acknowledgement=custody.protection_acknowledgement,
+        )
     if not isinstance(document, dict) or set(document) != _RESULT_DOCUMENT_KEYS:
         raise OutboxContractError(RECEIPT_MALFORMED)
     duplicate = document["duplicate"]

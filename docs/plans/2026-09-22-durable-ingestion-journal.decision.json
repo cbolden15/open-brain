@@ -1,0 +1,235 @@
+{
+  "id": "2026-09-22-durable-ingestion-journal-notes",
+  "title": "Implementation notes — Durable ingestion journal",
+  "subtitle": "phase 5 of 5 software complete · live Mac Mini cutover pending · 2026-09-22 23:08 CDT",
+  "introTitle": "How to use",
+  "intro": "<p>Each item is a decision, deviation, or tradeoff made during implementation. <strong>Acknowledge</strong> if fine. <strong>Discuss</strong> to write what should change. <strong>Revert</strong> to flag for undo.</p>",
+  "actions": [
+    "acknowledge",
+    "discuss",
+    "revert"
+  ],
+  "groups": [
+    {
+      "id": "phase-1",
+      "label": "Phase 1 — Freeze the contract and add schema 10",
+      "badge": "P1"
+    },
+    {
+      "id": "phase-2",
+      "label": "Phase 2 — Implement journal storage and writer recovery",
+      "badge": "P2"
+    },
+    {
+      "id": "phase-3",
+      "label": "Phase 3 — Route every capture surface through the journal",
+      "badge": "P3"
+    },
+    {
+      "id": "phase-4",
+      "label": "Phase 4 — Add owner operations and adversarial tests",
+      "badge": "P4"
+    },
+    {
+      "id": "phase-5",
+      "label": "Phase 5 — Document, verify, and cut over the Mac Mini",
+      "badge": "P5"
+    }
+  ],
+  "items": [
+    {
+      "id": "N1",
+      "group": "phase-1",
+      "title": "Queued outcome exposure stays with Phase 3",
+      "where": "packages/engine/src/open_brain_engine/engine/contracts.py:2309",
+      "default": "acknowledge",
+      "body": {
+        "Spec said": "Define CaptureOutcome now, then route capture surfaces through queued outcomes in Phase 3.",
+        "What I did": "Added and exported the closed CaptureOutcome union, but kept the current CaptureTask protocol and public-job sink typed as returning CaptureReceipt until queued outcomes are implemented and routed.",
+        "Why": "No Phase 1 implementation can return a queued outcome yet. Exposing the union through the live task protocol early produced 86 MyPy failures across consumers that correctly assume today's terminal-only behavior.",
+        "Risk": "Phase 3 must widen the task protocol and update every consumer in the same verified change."
+      }
+    },
+    {
+      "id": "N2",
+      "group": "phase-1",
+      "title": "Made expired outbox fixtures deterministic",
+      "where": "packages/connectors/tests/unit/outbox/test_stdio_transport.py:322",
+      "default": "acknowledge",
+      "body": {
+        "What I did": "Injected a fixed drain clock into fixed-timestamp tests and used a fresh enqueue time for the real subprocess lease test.",
+        "Why": "The baseline fixtures crossed their 24-hour retry-age boundary during verification on September 22. They quarantined before transport and failed independently of the journal changes.",
+        "Risk": "None to production behavior; this only removes wall-clock dependence from tests."
+      }
+    },
+    {
+      "id": "N3",
+      "group": "phase-1",
+      "title": "Implementation complete — Phase 1",
+      "where": "phase-1 exit gate",
+      "default": "acknowledge",
+      "body": {
+        "What I did": "Completed the journal and custody contracts, schema-10 catalog and exclusive migration, Portable Brain v5 export gate, runtime compatibility bump, and regression coverage.",
+        "Why": "The Phase 1 exit gate is satisfied and the repository's full verification command passes.",
+        "Followup": "Phase 2 implements journal storage, bounded drain, recovery, terminalization, and compaction."
+      }
+    },
+    {
+      "id": "N4",
+      "group": "phase-2",
+      "title": "Public capture routing stays with Phase 3",
+      "where": "packages/engine/src/open_brain_engine/engine/capture.py:966",
+      "default": "acknowledge",
+      "body": {
+        "Spec said": "Phase 2 builds the journal and writer recovery; Phase 3 routes CaptureTasks and adapters through it.",
+        "What I did": "Kept CaptureTasks.accept, CaptureTasks.submit, source revision capture, and Markdown import on their existing terminal-only writer path. Phase 2 exercises enqueue directly and drains it through engine recovery.",
+        "Why": "Routing the public surfaces here would pull Phase 3 forward, widen the live return protocol early, and mix adapter cutover with the journal correctness boundary.",
+        "Risk": "The journal is durable and recoverable but ordinary capture calls do not use it until Phase 3."
+      }
+    },
+    {
+      "id": "N5",
+      "group": "phase-2",
+      "title": "Canonical overlap preserves active custody replay",
+      "where": "packages/engine/src/open_brain_engine/engine/ingestion.py:380",
+      "default": "acknowledge",
+      "body": {
+        "What I did": "When a crash leaves both an active journal item and its same-digest captures row, replay resolves through the active journal item. It returns the original custody receipt until the writer records the terminal receipt and compacts the payload.",
+        "Why": "That overlap is an expected crash state after capture reservation or canonical completion, not ambiguous storage. Different digests or a tombstone overlap still fail closed.",
+        "Risk": "A replay during this short window may receive queued even if canonical stages have finished; the next bounded writer drain terminalizes it without creating another capture."
+      }
+    },
+    {
+      "id": "N6",
+      "group": "phase-2",
+      "title": "Quarantine and byte bounds stop automatic overrun",
+      "where": "packages/engine/src/open_brain_engine/engine/ingestion.py:171",
+      "default": "acknowledge",
+      "body": {
+        "What I did": "Excluded quarantined entries from automatic drain, enforced the aggregate batch-byte ceiling from the first item, and rejected limit configurations where one permitted item cannot fit in one permitted batch.",
+        "Why": "Quarantine requires owner action, and a byte bound must remain exact without creating an undrainable first item.",
+        "Risk": "Deployments must configure max_journal_batch_bytes at least as large as max_journal_item_bytes."
+      }
+    },
+    {
+      "id": "N7",
+      "group": "phase-2",
+      "title": "Implementation complete — Phase 2",
+      "where": "phase-2 exit gate",
+      "default": "acknowledge",
+      "body": {
+        "What I did": "Implemented durable enqueue and exact receipt replay, bounded FIFO drain, capture materialization under the existing writer fence, terminalization, guarded compaction, retry, quarantine, discard, metadata-only status, and capture-first startup recovery.",
+        "Why": "Crash-boundary, overlap, quarantine, batch-bound, schema, and contention coverage pass. The repository's full verification command is green: 3,336 Python tests with 5 expected skips, 291 Obsidian tests, 259 desktop tests, and 26 Rust tests.",
+        "Followup": "Phase 3 routes every capture entrypoint and upstream custody adapter through the journal while preserving explicit EffectiveAuthority."
+      }
+    },
+    {
+      "id": "N8",
+      "group": "phase-3",
+      "title": "Queued custody replaces writer-busy refusal",
+      "where": "packages/engine/src/open_brain_engine/engine/local.py:127",
+      "default": "acknowledge",
+      "body": {
+        "What I did": "Routed CLI, MCP, collector, connector, source revision, and Markdown capture through durable enqueue before bounded writer drain. A schema-10 engine can open read-only while another process owns the writer fence, accept the journal item, and return queued custody.",
+        "Why": "The Mac Mini owns the payload after journal commit. Writer contention should delay canonical materialization, not send the payload back to the source for another retry.",
+        "Risk": "Callers must handle the closed CaptureOutcome union. Terminal-only compatibility properties now raise if queued custody reaches code that has not handled it. They add no fields to the signed receipt wire format."
+      }
+    },
+    {
+      "id": "N9",
+      "group": "phase-3",
+      "title": "Replay and upstream verification preserve receipt bindings",
+      "where": "packages/engine/src/open_brain_engine/engine/ingestion.py:400",
+      "default": "acknowledge",
+      "body": {
+        "What I did": "Kept exact replay bound to the original requested privacy tier, while preserving the final narrowed tier from canonical capture. Collector and connector consumers verify digest, Brain identity, journal epoch, delivery identity, privacy narrowing, and protection before acknowledging custody or completion.",
+        "Why": "Compaction and replay must not rewrite what the source requested, and an upstream adapter must not delete its copy on a receipt for another payload or weaker privacy boundary.",
+        "Risk": "A changed digest or widened tier is rejected even when other signed receipt fields are valid. This is intentional fail-closed behavior."
+      }
+    },
+    {
+      "id": "N10",
+      "group": "phase-3",
+      "title": "Quarantined source revisions remain fenced",
+      "where": "packages/app/tests/unit/engine/test_source_tasks.py",
+      "default": "acknowledge",
+      "body": {
+        "What I did": "Kept source compare-and-swap checks under the writer fence and blocked Portable Brain export while a source-backed journal item is quarantined.",
+        "Why": "The source revision remains pending until canonical capture completes. Exporting while that revision is unresolved could present an incomplete Brain as portable state.",
+        "Followup": "Phase 4 adds explicit owner inspection, retry, and discard operations for this state."
+      }
+    },
+    {
+      "id": "N11",
+      "group": "phase-3",
+      "title": "Implementation complete: Phase 3",
+      "where": "phase-3 exit gate",
+      "default": "acknowledge",
+      "body": {
+        "What I did": "Cut every capture surface over to journal custody, preserved explicit EffectiveAuthority through adapters, updated production consumers for queued outcomes, and covered contention, replay, outbox terminalization, receipt tampering, source fencing, and recovery.",
+        "Why": "The Phase 3 exit gate is satisfied. Full verification is green: 3,341 Python tests with 5 expected skips, 291 Obsidian tests, 259 desktop tests, 1 desktop Python test, and 26 Rust tests. Ruff, MyPy, TypeScript, builds, and Rust formatting also pass.",
+        "Followup": "Phase 4 adds explicit owner journal operations and the remaining adversarial and observability coverage."
+      }
+    },
+    {
+      "id": "N12",
+      "group": "phase-4",
+      "title": "Owner journal operations require explicit local authority",
+      "where": "packages/engine/src/open_brain_engine/engine/journal_ops.py:33",
+      "default": "acknowledge",
+      "body": {
+        "What I did": "Added owner-only status, bounded drain, quarantined retry, and confirmed discard operations. Each task requires an explicit EffectiveAuthority tied to the Brain owner and owner-local egress. The CLI exposes metadata only.",
+        "Why": "Journal recovery is operational access to Brain-wide custody state. It must not appear in MCP or scoped-agent surfaces, and it must never rely on a missing authority value.",
+        "Risk": "Status exposes the internal journal sequence to the local owner so results can be paginated. It remains unavailable to scoped sessions and never includes envelope content."
+      }
+    },
+    {
+      "id": "N13",
+      "group": "phase-4",
+      "title": "Receipt verification keeps upstream bodies until exact custody is proven",
+      "where": "packages/collector/src/open_brain_collector/lifecycle.py:1127",
+      "default": "acknowledge",
+      "body": {
+        "What I did": "Applied the shared exact receipt verifier to both collector paths and added adversarial collector and outbox cases for changed request digests and unsupported protection acknowledgements. Invalid receipts leave the upstream body intact.",
+        "Why": "A queued response transfers custody only when it binds the exact Brain, epoch, delivery, request digest, privacy narrowing, and configured local-durability policy.",
+        "Risk": "The current policy accepts the documented null protection acknowledgement. Any non-null acknowledgement remains unsupported and fails closed until a separate protection finalizer contract is defined."
+      }
+    },
+    {
+      "id": "N14",
+      "group": "phase-4",
+      "title": "Implementation complete: Phase 4",
+      "where": "phase-4 exit gate",
+      "default": "acknowledge",
+      "body": {
+        "What I did": "Completed owner journal operations, status and doctor telemetry, pagination across all non-terminal items, receipt custody hardening, and adversarial coverage for concurrency, FIFO drain, corruption, capacity, watermark refusal, replay, conflict, compaction, quarantine, and authority boundaries.",
+        "Why": "The Phase 4 exit gate is satisfied. Full verification is green: 3,350 Python tests with 5 expected skips, 291 Obsidian tests, 259 desktop tests, 1 desktop Python test, and 26 Rust tests. Ruff, MyPy, TypeScript, builds, and Rust formatting also pass.",
+        "Followup": "Phase 5 documents the operator workflow, runs the final cutover checks, and performs the Mac Mini migration."
+      }
+    },
+    {
+      "id": "N15",
+      "group": "phase-5",
+      "title": "Native release smoke now tracks schema-10 compatibility",
+      "where": "tools/open_brain_dev/base_native.py:735",
+      "default": "acknowledge",
+      "body": {
+        "What I did": "Updated the packaged-binary smoke contract from runtime session 4 and state schema 9 to runtime session 5 and state schema 10. The smoke now also requires the metadata-only journal summary in status and doctor output.",
+        "Why": "The first independent native run built a correct binary but failed because the release verifier still asserted the pre-journal catalog and status shapes. Focused release coverage, native audit, and Homebrew install smoke pass after correcting that drift.",
+        "Risk": "This changes only release verification expectations. It does not weaken the native journey or alter runtime behavior."
+      }
+    },
+    {
+      "id": "N16",
+      "group": "phase-5",
+      "title": "Implementation complete",
+      "where": "phase-5 exit gate",
+      "default": "acknowledge",
+      "body": {
+        "What I did": "Documented the schema-10 capture boundary, owner journal commands, MCP queued outcome, migration compatibility, Portable export gate, and guarded Mac Mini cutover and rollback sequence. Verified synthetic migration and crash recovery, the full repository suite, native artifacts, and Homebrew installation.",
+        "Why": "The public implementation and release-readiness checks are complete without placing private host identifiers or live captured content in the repository.",
+        "Followup": "The real Mac Mini migration remains an operator cutover: stop launchers, take and verify the supported backup, install this verified build, migrate once, run the documented acceptance checks, and retain the snapshot until all custody smokes pass."
+      }
+    }
+  ]
+}

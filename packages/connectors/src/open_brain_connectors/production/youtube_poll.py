@@ -13,7 +13,7 @@ from typing import cast
 from urllib.parse import parse_qs, urlsplit
 
 from open_brain_engine.engine import (
-    CaptureReceipt,
+    CaptureOutcome,
     ContentOrigin,
     PrivacyDecision,
     Provenance,
@@ -44,6 +44,8 @@ from open_brain_connectors.runtime.connectors import (
     ConnectorRunContext,
     ConnectorRunEvidence,
     ConnectorRunReceipt,
+    capture_outcome_id,
+    capture_outcome_is_duplicate,
 )
 
 _MAX_CONFIG_BYTES = 64 * 1024
@@ -92,8 +94,7 @@ class YouTubePollConfig:
     @property
     def requires_external_egress(self) -> bool:
         return any(
-            subscription.privacy.authority.external_egress
-            for subscription in self.subscriptions
+            subscription.privacy.authority.external_egress for subscription in self.subscriptions
         )
 
     @classmethod
@@ -110,8 +111,7 @@ class YouTubePollConfig:
             ):
                 raise YouTubePollConfigError("invalid private YouTube config")
             subscriptions = tuple(
-                YouTubeSubscription.from_dict(_mapping(item))
-                for item in raw_subscriptions
+                YouTubeSubscription.from_dict(_mapping(item)) for item in raw_subscriptions
             )
             result = cls(subscriptions=subscriptions)
         except (KeyError, TypeError, ValueError, UnicodeDecodeError, json.JSONDecodeError) as error:
@@ -157,10 +157,10 @@ class YouTubePollCheckpoint:
         budget: ConnectorBudget | None = None,
         evidence: ConnectorRunEvidence | None = None,
     ) -> None:
-        if not isinstance(state, FilesystemYouTubePollState) or (
-            budget is not None and type(budget) is not ConnectorBudget
-        ) or (
-            evidence is not None and type(evidence) is not ConnectorRunEvidence
+        if (
+            not isinstance(state, FilesystemYouTubePollState)
+            or (budget is not None and type(budget) is not ConnectorBudget)
+            or (evidence is not None and type(evidence) is not ConnectorRunEvidence)
         ):
             raise ValueError("invalid YouTube poll checkpoint")
         self.__state = state
@@ -224,7 +224,7 @@ class YouTubePollCheckpoint:
         previous: PollRecord,
         *,
         delivery_id: str,
-        receipt: CaptureReceipt,
+        receipt: CaptureOutcome,
     ) -> PollRecord:
         evidence = self.__evidence
         expected_delivery_id = f"connector.youtube.{previous.video_id}"
@@ -242,7 +242,9 @@ class YouTubePollCheckpoint:
         current = PollRecord.from_dict(
             {
                 **previous.to_dict(),
-                "capture_id": receipt.capture_id,
+                # The legacy field stores the accepted receipt identifier.
+                # Queued custody has no canonical capture ID yet.
+                "capture_id": capture_outcome_id(receipt),
                 "state": PollItemState.ACCEPTED.value,
             }
         )
@@ -299,6 +301,7 @@ class YouTubeReferenceTransport:
         if self.__budget is None or not self.__budget._consume_extraction():
             raise ValueError("YouTube extraction budget exhausted")
         return self.__media_adapter.media(video_id, command=command)
+
 
 class YouTubeReferenceConnector:
     """The synthetic reference proof, constrained to capture-only connector authority."""
@@ -412,7 +415,7 @@ class YouTubeReferenceConnector:
                 receipt=receipt,
             )
             checkpoint_committed = True
-            if receipt.duplicate:
+            if capture_outcome_is_duplicate(receipt):
                 duplicates += 1
             else:
                 created += 1
@@ -574,10 +577,7 @@ def _reference_payload(record: PollRecord) -> ReferencePayload:
         raise ValueError("invalid completed playlist record")
     extraction = record.extraction
     shared_text = extraction.transcript or extraction.text
-    if (
-        not shared_text.strip()
-        or extraction.assets
-    ):
+    if not shared_text.strip() or extraction.assets:
         raise ValueError("invalid completed playlist extraction")
     return ReferencePayload(record.source_url, shared_text)
 

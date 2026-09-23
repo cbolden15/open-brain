@@ -196,7 +196,17 @@ def test_empty_brain_cli_publication_and_mcp_search_journey(
             assert hits[0]["capture_id"] == captures[0]
             assert hits[0]["trust"] == "reviewed"
             assert unrelated == {"results": [], "status": "ok"}
-        assert cli("doctor", "--check", "search-index") == {"check": "search-index", "status": "ok"}
+        assert cli("doctor", "--check", "search-index") == {
+            "check": "search-index",
+            "ingestion_journal": {
+                "last_failure_code": None,
+                "oldest_age_seconds": None,
+                "pending_count": 0,
+                "quarantined_count": 0,
+                "retained_bytes": 0,
+            },
+            "status": "ok",
+        }
         destination = home / f"export-{stage}"
         exported = cli("export", str(destination), "--verify")
         assert exported["verification"] == "verified"
