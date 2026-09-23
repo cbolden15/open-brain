@@ -14,7 +14,7 @@ from hashlib import sha256
 from html import unescape
 from pathlib import Path, PurePosixPath
 from types import MappingProxyType
-from typing import TYPE_CHECKING, Any, Protocol, cast
+from typing import TYPE_CHECKING, Any, Never, Protocol, cast
 from urllib.parse import unquote
 
 from open_brain_engine.core.ids import canonicalize_source_url, portable_canonical_json_bytes
@@ -2308,6 +2308,35 @@ class CaptureCustodyReceipt:
             "queued_at": self.queued_at,
             "protection_acknowledgement": None,
         }
+
+    # These terminal-only accessors intentionally carry no value. They keep
+    # existing code that has already established immediate canonical success
+    # type-safe during the CaptureOutcome migration, while failing loudly if a
+    # queued result reaches that code without an explicit branch. They do not
+    # add fields to the closed custody receipt or its serialized contract.
+    @property
+    def capture_id(self) -> Never:
+        raise AttributeError("queued custody receipt has no capture ID")
+
+    @property
+    def duplicate(self) -> Never:
+        raise AttributeError("queued custody receipt has no duplicate state")
+
+    @property
+    def canonical_path(self) -> Never:
+        raise AttributeError("queued custody receipt has no canonical path")
+
+    @property
+    def destination_brain_id(self) -> Never:
+        raise AttributeError("queued custody receipt uses brain_id")
+
+    @property
+    def enrichment_state(self) -> Never:
+        raise AttributeError("queued custody receipt has no enrichment state")
+
+    @property
+    def state(self) -> Never:
+        raise AttributeError("queued custody receipt has no canonical state")
 
 
 def verify_capture_custody_receipt(value: Mapping[str, object] | bytes) -> CaptureCustodyReceipt:

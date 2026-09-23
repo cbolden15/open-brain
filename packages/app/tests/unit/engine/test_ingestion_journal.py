@@ -9,6 +9,7 @@ from uuid import uuid4
 
 import pytest
 from open_brain_engine.core.access_contracts import derive_brain_id
+from open_brain_engine.core.models import PrivacyTier
 from open_brain_engine.engine import (
     AdmissionLimits,
     BrainEngine,
@@ -232,17 +233,45 @@ def test_replay_during_canonical_terminalization_returns_original_custody(
     assert len(recovered.retrieval.search("canonical overlap replay")) == 1
 
 
+def test_compacted_replay_preserves_requested_tier_after_privacy_narrowing(
+    tmp_path: Path,
+) -> None:
+    profile = compile_single_user_local(tmp_path / "brain")
+    engine = BrainEngine.open(
+        profile,
+        boundary_classifier=lambda _: PrivacyTier.SECRET,
+    )
+    submission = CaptureSubmission.for_local_owner(
+        profile=profile,
+        payload=TextPayload("narrowed replay"),
+        delivery_id="journal.narrowed-replay",
+        privacy_tier=PrivacyTier.WORK,
+    )
+
+    first = engine.capture.submit(submission)
+    replay = engine.capture.submit(submission)
+
+    assert first.requested_tier is PrivacyTier.WORK
+    assert first.final_admitted_tier is PrivacyTier.SECRET
+    assert replay.duplicate is True
+    assert replay.requested_tier is PrivacyTier.WORK
+    assert replay.final_admitted_tier is PrivacyTier.SECRET
+
+
 def test_quarantined_item_is_not_retried_without_owner_action(tmp_path: Path) -> None:
     profile = compile_single_user_local(tmp_path / "brain")
     engine = BrainEngine.open(profile)
+    space = engine.inbox.create_space("Quarantine", delivery_id="journal.quarantine.space")
     submission = CaptureSubmission.for_local_owner(
         profile=profile,
         payload=TextPayload("invalid canonical destination"),
         delivery_id="journal.quarantine",
         action=CaptureAction.CANONICAL_NOTE,
-        space_id="space_00000000-0000-4000-8000-000000000099",
+        space_id=space.space_id,
     )
     engine.ingestion.enqueue(submission)
+    with sqlite3.connect(profile.root / PHASE1_STATE_DATABASE) as connection:
+        connection.execute("DELETE FROM spaces WHERE space_id = ?", (space.space_id,))
 
     assert engine.recover() == 0
     status = engine.ingestion.status()

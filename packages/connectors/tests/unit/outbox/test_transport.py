@@ -202,22 +202,22 @@ def test_one_drain_cycle_end_to_end_with_the_synthetic_transport(tmp_path: Path)
         delivery_id="delivery.transport-ok",
         payload_text="Accepted destination body",
     )
-    retryable = _envelope(
+    accepted_after_replay = _envelope(
         brain_id,
         epoch,
         tenant_id,
         delivery_id="delivery.transport-rate",
         payload_text="Rate limited destination body",
     )
-    for envelope in (accepted, duplicate_source, retryable):
+    for envelope in (accepted, duplicate_source, accepted_after_replay):
         assert store.enqueue(envelope) is EnqueueResult.QUEUED
 
     summary = run_drain_cycle(store, transport, max_batch_items=16, max_batch_bytes=1024 * 1024)
 
     assert summary.result is DrainResult.COMPLETED
-    assert summary.accepted == 1
+    assert summary.accepted == 2
     assert summary.duplicate == 1
-    assert summary.retried == 1
+    assert summary.retried == 0
     assert summary.quarantined_refused == 0
     accepted_record = json.loads(
         (store.directory / "delivery.transport-ok.json").read_bytes().decode("utf-8")
@@ -237,14 +237,15 @@ def test_one_drain_cycle_end_to_end_with_the_synthetic_transport(tmp_path: Path)
         b"Duplicate destination body"
         not in (store.directory / "delivery.transport-dup.json").read_bytes()
     )
-    retryable_raw = (store.directory / "delivery.transport-rate.json").read_bytes()
-    assert b"Rate limited destination body" in retryable_raw
-    retryable_value = json.loads(retryable_raw.decode("utf-8"))
-    assert retryable_value["attempts"] == 1
-    assert retryable_value["last_attempt_result"] == "rate_limited"
-    assert retryable_value["quarantine_reason"] is None
+    accepted_after_replay_raw = (
+        store.directory / "delivery.transport-rate.json"
+    ).read_bytes()
+    assert b"Rate limited destination body" not in accepted_after_replay_raw
+    accepted_after_replay_value = json.loads(accepted_after_replay_raw.decode("utf-8"))
+    assert accepted_after_replay_value["receipt"]["status"] == "accepted"
+    assert accepted_after_replay_value["attempts"] == 0
     assert [item.state for item in store.scan()] == [
         OutboxItemState.TERMINAL,
         OutboxItemState.TERMINAL,
-        OutboxItemState.QUEUED,
+        OutboxItemState.TERMINAL,
     ]

@@ -985,8 +985,7 @@ def _smoke_local_mcp(executable: Path, home: Path, environment: Mapping[str, str
         len(results) != 1
         or results[0].get("record_id") != capture.get("capture_id")
         or results[0].get("trust") != "unverified"
-        or cast(dict[str, object], results[0].get("provenance")).get("source_origin")
-        != "unknown"
+        or cast(dict[str, object], results[0].get("provenance")).get("source_origin") != "unknown"
     ):
         raise BaseNativeError("native MCP search failed")
     paged = search
@@ -1330,7 +1329,12 @@ def _smoke_obsidian_plugin(
 
 
 def _seed_managed_graph_fixture(brain_root: Path) -> None:
-    from open_brain_engine.engine import CaptureAction, TextPayload, open_local_engine
+    from open_brain_engine.engine import (
+        CaptureAction,
+        CaptureReceipt,
+        TextPayload,
+        open_local_engine,
+    )
 
     from open_brain.profile import open_existing_single_user_local
 
@@ -1345,6 +1349,8 @@ def _seed_managed_graph_fixture(brain_root: Path) -> None:
         action=CaptureAction.CANONICAL_NOTE,
         space_id=space_id,
     )
+    if not isinstance(target, CaptureReceipt):
+        raise BaseNativeError("native graph fixture remained queued")
     tasks.reconciliation.reconcile()
     target_pages = [
         result.result_id

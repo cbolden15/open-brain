@@ -11,6 +11,7 @@ from jsonschema import Draft202012Validator, FormatChecker  # type: ignore[impor
 from open_brain_engine.engine import (
     BrainEngine,
     CaptureAction,
+    CaptureCustodyReceipt,
     CaptureFault,
     DecisionOutcome,
     EnrichmentRequest,
@@ -25,7 +26,7 @@ from open_brain_engine.engine import (
 )
 from open_brain_engine.providers.base import ProviderMode
 from open_brain_engine.storage.filesystem import RootConfinementError
-from open_brain_engine.storage.locks import FileLease, LockBusyError
+from open_brain_engine.storage.locks import FileLease
 from open_brain_engine.storage.markdown import parse_markdown
 from referencing import Registry, Resource
 
@@ -134,20 +135,26 @@ def test_canonical_note_requires_a_portable_space_without_partial_acceptance(
 
 def test_mutation_fails_closed_while_another_canonical_writer_holds_the_root(
     tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    from open_brain_engine.engine import capture as capture_module
+
+    monkeypatch.setattr(capture_module, "_WRITER_WAIT_TIMEOUT_SECONDS", 0.05)
     root = tmp_path / "brain"
     engine = _engine(root)
 
-    with (
-        FileLease(root / ".open-brain", "competing-writer").acquire_shared_writer(),
-        pytest.raises(LockBusyError, match="lease already held"),
-    ):
-        engine.capture.accept(
+    with FileLease(root / ".open-brain", "competing-writer").acquire_shared_writer():
+        queued = engine.capture.accept(
             TextPayload("Synthetic blocked mutation"),
             delivery_id="delivery.writer.conflict",
         )
+        assert isinstance(queued, CaptureCustodyReceipt)
 
     assert engine.inbox.list() == ()
+    assert engine.capture.accept(
+        TextPayload("Synthetic blocked mutation"),
+        delivery_id="delivery.writer.conflict",
+    ).duplicate is False
 
 
 def test_open_engine_rejects_runtime_root_replacement_before_io(tmp_path: Path) -> None:
@@ -241,7 +248,7 @@ def test_file_blob_restart_is_idempotent(tmp_path: Path) -> None:
     assert len(tuple((root / "sources" / "captures").rglob("*.json"))) == 1
 
 
-def test_duplicate_delivery_conflict_is_quarantined_without_content(tmp_path: Path) -> None:
+def test_duplicate_delivery_conflict_leaves_first_content_unchanged(tmp_path: Path) -> None:
     root = tmp_path / "brain"
     engine = _engine(root)
     engine.capture.accept(TextPayload("Synthetic first"), delivery_id="delivery.conflict")
@@ -249,11 +256,9 @@ def test_duplicate_delivery_conflict_is_quarantined_without_content(tmp_path: Pa
     with pytest.raises(ValueError, match="conflicting delivery"):
         engine.capture.accept(TextPayload("Synthetic second"), delivery_id="delivery.conflict")
 
-    quarantine = tuple((root / ".open-brain" / "quarantine").glob("*.json"))
-    assert len(quarantine) == 1
-    rendered = quarantine[0].read_text(encoding="utf-8")
-    assert "Synthetic first" not in rendered
-    assert "Synthetic second" not in rendered
+    assert tuple((root / ".open-brain" / "quarantine").glob("*.json")) == ()
+    assert len(engine.retrieval.search("Synthetic first")) == 1
+    assert engine.retrieval.search("second") == ()
 
 
 def test_spaces_rename_and_route_without_changing_identities(tmp_path: Path) -> None:

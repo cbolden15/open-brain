@@ -327,9 +327,14 @@ def test_delivery_envelope_rejects_noncanonical_or_non_text_payloads(
 
 
 @pytest.mark.parametrize(
-    "status", [TerminalReceiptStatus.ACCEPTED, TerminalReceiptStatus.DUPLICATE]
+    "status",
+    [
+        TerminalReceiptStatus.QUEUED,
+        TerminalReceiptStatus.ACCEPTED,
+        TerminalReceiptStatus.DUPLICATE,
+    ],
 )
-def test_accepted_and_duplicate_receipts_verify(status: TerminalReceiptStatus) -> None:
+def test_custody_and_terminal_receipts_verify(status: TerminalReceiptStatus) -> None:
     envelope = _envelope()
     receipt = _receipt(envelope, status=status, final_admitted_tier=PrivacyTier.PERSONAL)
 

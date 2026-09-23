@@ -1,7 +1,7 @@
 {
   "id": "2026-09-22-durable-ingestion-journal-notes",
   "title": "Implementation notes — Durable ingestion journal",
-  "subtitle": "phase 2 of 5 complete · 2026-09-22 17:05 CDT",
+  "subtitle": "phase 3 of 5 complete · 2026-09-22 20:38 CDT",
   "introTitle": "How to use",
   "intro": "<p>Each item is a decision, deviation, or tradeoff made during implementation. <strong>Acknowledge</strong> if fine. <strong>Discuss</strong> to write what should change. <strong>Revert</strong> to flag for undo.</p>",
   "actions": [
@@ -121,6 +121,54 @@
         "What I did": "Implemented durable enqueue and exact receipt replay, bounded FIFO drain, capture materialization under the existing writer fence, terminalization, guarded compaction, retry, quarantine, discard, metadata-only status, and capture-first startup recovery.",
         "Why": "Crash-boundary, overlap, quarantine, batch-bound, schema, and contention coverage pass. The repository's full verification command is green: 3,336 Python tests with 5 expected skips, 291 Obsidian tests, 259 desktop tests, and 26 Rust tests.",
         "Followup": "Phase 3 routes every capture entrypoint and upstream custody adapter through the journal while preserving explicit EffectiveAuthority."
+      }
+    },
+    {
+      "id": "N8",
+      "group": "phase-3",
+      "title": "Queued custody replaces writer-busy refusal",
+      "where": "packages/engine/src/open_brain_engine/engine/local.py:127",
+      "default": "acknowledge",
+      "body": {
+        "What I did": "Routed CLI, MCP, collector, connector, source revision, and Markdown capture through durable enqueue before bounded writer drain. A schema-10 engine can open read-only while another process owns the writer fence, accept the journal item, and return queued custody.",
+        "Why": "The Mac Mini owns the payload after journal commit. Writer contention should delay canonical materialization, not send the payload back to the source for another retry.",
+        "Risk": "Callers must handle the closed CaptureOutcome union. Terminal-only compatibility properties now raise if queued custody reaches code that has not handled it. They add no fields to the signed receipt wire format."
+      }
+    },
+    {
+      "id": "N9",
+      "group": "phase-3",
+      "title": "Replay and upstream verification preserve receipt bindings",
+      "where": "packages/engine/src/open_brain_engine/engine/ingestion.py:400",
+      "default": "acknowledge",
+      "body": {
+        "What I did": "Kept exact replay bound to the original requested privacy tier, while preserving the final narrowed tier from canonical capture. Collector and connector consumers verify digest, Brain identity, journal epoch, delivery identity, privacy narrowing, and protection before acknowledging custody or completion.",
+        "Why": "Compaction and replay must not rewrite what the source requested, and an upstream adapter must not delete its copy on a receipt for another payload or weaker privacy boundary.",
+        "Risk": "A changed digest or widened tier is rejected even when other signed receipt fields are valid. This is intentional fail-closed behavior."
+      }
+    },
+    {
+      "id": "N10",
+      "group": "phase-3",
+      "title": "Quarantined source revisions remain fenced",
+      "where": "packages/app/tests/unit/engine/test_source_tasks.py",
+      "default": "acknowledge",
+      "body": {
+        "What I did": "Kept source compare-and-swap checks under the writer fence and blocked Portable Brain export while a source-backed journal item is quarantined.",
+        "Why": "The source revision remains pending until canonical capture completes. Exporting while that revision is unresolved could present an incomplete Brain as portable state.",
+        "Followup": "Phase 4 adds explicit owner inspection, retry, and discard operations for this state."
+      }
+    },
+    {
+      "id": "N11",
+      "group": "phase-3",
+      "title": "Implementation complete: Phase 3",
+      "where": "phase-3 exit gate",
+      "default": "acknowledge",
+      "body": {
+        "What I did": "Cut every capture surface over to journal custody, preserved explicit EffectiveAuthority through adapters, updated production consumers for queued outcomes, and covered contention, replay, outbox terminalization, receipt tampering, source fencing, and recovery.",
+        "Why": "The Phase 3 exit gate is satisfied. Full verification is green: 3,341 Python tests with 5 expected skips, 291 Obsidian tests, 259 desktop tests, 1 desktop Python test, and 26 Rust tests. Ruff, MyPy, TypeScript, builds, and Rust formatting also pass.",
+        "Followup": "Phase 4 adds explicit owner journal operations and the remaining adversarial and observability coverage."
       }
     }
   ]

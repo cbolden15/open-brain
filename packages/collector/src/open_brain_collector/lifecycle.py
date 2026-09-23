@@ -16,6 +16,7 @@ from pathlib import Path
 from tempfile import NamedTemporaryFile
 from typing import Protocol, cast, runtime_checkable
 
+from open_brain_engine.core.models import narrowest_tier
 from open_brain_engine.engine import (
     CaptureCustodyReceipt,
     CaptureReceipt,
@@ -1173,7 +1174,12 @@ class EngineCaptureSink:
                 or checked.brain_id != identity[0]
                 or checked.issuer_epoch != identity[1]
                 or checked.delivery_id != intake.key.delivery_id()
+                or checked.request_sha256 != submission.request_sha256()
                 or checked.requested_tier != intake.privacy.tier
+                or narrowest_tier(
+                    checked.requested_tier, checked.final_admitted_tier
+                )
+                != checked.final_admitted_tier
             ):
                 raise LiveSourceError("collector_invalid_custody_receipt")
         elif isinstance(receipt, CaptureReceipt):
@@ -1185,6 +1191,10 @@ class EngineCaptureSink:
                 or receipt.delivery_id != submission.delivery_id
                 or receipt.request_sha256 != submission.request_sha256()
                 or receipt.requested_tier != intake.privacy.tier
+                or narrowest_tier(
+                    receipt.requested_tier, receipt.final_admitted_tier
+                )
+                != receipt.final_admitted_tier
             ):
                 raise LiveSourceError("collector_invalid_custody_receipt")
         else:

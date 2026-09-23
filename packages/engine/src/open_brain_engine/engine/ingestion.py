@@ -119,7 +119,7 @@ class IngestionJournal:
         with self._engine._store.transaction() as connection:
             existing = self._identity_row(connection, submission.delivery_id)
             if existing is not None:
-                outcome = self._replay_existing(connection, existing, request_sha)
+                outcome = self._replay_existing(connection, existing, submission)
             else:
                 self._engine._refuse_on_storage_watermark()
                 self._enforce_capacity(connection, len(body))
@@ -398,9 +398,12 @@ class IngestionJournal:
         return None if not row else cast(sqlite3.Row, row[0])
 
     def _replay_existing(
-        self, connection: sqlite3.Connection, row: sqlite3.Row, request_sha: str
+        self,
+        connection: sqlite3.Connection,
+        row: sqlite3.Row,
+        submission: CaptureSubmission,
     ) -> CaptureOutcome:
-        if cast(str, row["request_sha256"]) != request_sha:
+        if cast(str, row["request_sha256"]) != submission.request_sha256():
             from .capture import DeliveryConflict
 
             raise DeliveryConflict()
@@ -410,7 +413,16 @@ class IngestionJournal:
             receipt = self._engine._receipt_for_delivery(delivery_id)
             if receipt is None:
                 raise RuntimeError("canonical replay unavailable")
-            return replace(receipt, duplicate=True)
+            # ``captures`` retains the admitted decision, while the request
+            # digest proves this is the exact original submission. Preserve
+            # that submission's requested tier on replay so a boundary
+            # narrowing does not make the receipt appear to describe a
+            # different request after journal compaction.
+            return replace(
+                receipt,
+                duplicate=True,
+                requested_tier=submission.requested_tier,
+            )
         if location == "tombstone":
             raise ValueError("delivery discarded")
         event = connection.execute(

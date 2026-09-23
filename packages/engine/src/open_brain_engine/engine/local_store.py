@@ -27,14 +27,22 @@ class _LocalStore:
         clock: Callable[[], datetime] = _utc_now,
         schema_version: int | None = None,
         issuer_seed: ValidatedV5IssuerSeed | None = None,
+        initialize: bool = True,
     ) -> None:
         self.profile = profile
         self.root = profile.root
         self._clock = clock
         self._schema_version = schema_version
-        open_local_database(
-            profile, clock=clock, schema_version=schema_version, issuer_seed=issuer_seed
-        ).close()
+        if initialize:
+            open_local_database(
+                profile, clock=clock, schema_version=schema_version, issuer_seed=issuer_seed
+            ).close()
+        else:
+            # A schema-10 engine may open while another canonical writer owns
+            # the fence so it can still accept a short journal transaction.
+            # The caller has already classified the existing schema; this
+            # read-only open revalidates it without running setup writes.
+            open_local_database_read_only(profile).close()
 
     def connect(self) -> sqlite3.Connection:
         connection = open_local_database_read_only(

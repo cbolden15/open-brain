@@ -10,7 +10,12 @@ from dataclasses import asdict
 from pathlib import Path
 from typing import Protocol, cast
 
-from open_brain_engine.engine import DeliveryConflict, PrivacyDecision, ReferencePayload
+from open_brain_engine.engine import (
+    CaptureCustodyReceipt,
+    DeliveryConflict,
+    PrivacyDecision,
+    ReferencePayload,
+)
 from open_brain_engine.engine.t03_contracts import T03Error
 
 from open_brain_collector.custody import CustodyStore, intake_digest
@@ -47,9 +52,7 @@ class LiveRuntime(Protocol):
     ) -> LiveBatch: ...
 
 
-PostApply = Callable[
-    [SourceResourceSelection, tuple[tuple[SourceRecordIntake, str], ...]], None
-]
+PostApply = Callable[[SourceResourceSelection, tuple[tuple[SourceRecordIntake, str], ...]], None]
 
 
 def _digest(value: object) -> str:
@@ -609,6 +612,8 @@ class LiveCaptureService:
         kwargs = intake.capture_kwargs()
         kwargs["payload"] = ReferencePayload(url=intake.url, supplied_text=text)
         receipt = sink.submit(**kwargs)  # type: ignore[arg-type]
+        if isinstance(receipt, CaptureCustodyReceipt):
+            return ("captured", receipt.ingestion_id)
         return ("duplicate" if receipt.duplicate else "captured", receipt.capture_id)
 
     @staticmethod

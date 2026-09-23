@@ -12,7 +12,7 @@ from pathlib import Path
 
 from open_brain_engine.providers.base import ProviderMode
 from open_brain_engine.storage.filesystem import assert_root_identity
-from open_brain_engine.storage.locks import FileLease
+from open_brain_engine.storage.locks import FileLease, LockBusyError
 from open_brain_engine.storage.sqlite import SchemaError
 from open_brain_engine.storage.watermarks import StorageUsage
 
@@ -241,16 +241,21 @@ class BrainEngine(CaptureOperations, SpaceOperations, ReviewOperations, Retrieva
             clock=clock,
             parent_root_identity=profile.root_identity,
         )
-        with self._writer_lease.acquire_shared_writer():
-            self._store = _LocalStore(profile, clock=self._clock)
-            from .source_store import publish_source_metadata
+        try:
+            with self._writer_lease.acquire_shared_writer():
+                self._store = _LocalStore(profile, clock=self._clock)
+                from .source_store import publish_source_metadata
 
-            connection = self._store.connect()
-            try:
-                if connection.execute("PRAGMA user_version").fetchone()[0] >= 7:
-                    publish_source_metadata(connection, profile)
-            finally:
-                connection.close()
+                connection = self._store.connect()
+                try:
+                    if connection.execute("PRAGMA user_version").fetchone()[0] >= 7:
+                        publish_source_metadata(connection, profile)
+                finally:
+                    connection.close()
+        except LockBusyError:
+            if schema.state != "current" or schema.version != 10:
+                raise
+            self._store = _LocalStore(profile, clock=self._clock, initialize=False)
         self.capture = CaptureTasks(self)
         self.ingestion = IngestionJournal(self)
         self.inbox = InboxSpaceTasks(self)
@@ -314,11 +319,24 @@ class BrainEngine(CaptureOperations, SpaceOperations, ReviewOperations, Retrieva
             storage_probe=storage_probe,
             boundary_classifier=boundary_classifier,
         )
-        with engine._writer_lease.acquire_shared_writer():
-            engine._recover(startup=recover_abandoned_sessions)
-            for name in profile.starter_spaces:
-                key = sha256(name.encode("utf-8")).hexdigest()
-                engine._space_operation("create", None, name, f"starter.{key}")
+        try:
+            with engine._writer_lease.acquire_shared_writer():
+                engine._recover(startup=recover_abandoned_sessions)
+                for name in profile.starter_spaces:
+                    key = sha256(name.encode("utf-8")).hexdigest()
+                    engine._space_operation("create", None, name, f"starter.{key}")
+        except LockBusyError:
+            connection = engine._store.connect()
+            try:
+                schema_version = connection.execute("PRAGMA user_version").fetchone()[0]
+            finally:
+                connection.close()
+            # Schema 10 can safely admit ingress before writer recovery. The
+            # operation itself will either acquire the writer or return its
+            # durable custody receipt; older schemas still require startup
+            # recovery before exposing mutation tasks.
+            if schema_version < 10:
+                raise
         return engine
 
     @property

@@ -224,8 +224,9 @@ def test_fenced_reservation_enters_custody_without_new_source_writes_or_startup_
         assert connection.execute("SELECT count(*) FROM source_quarantine").fetchone()[0] == 1
         assert connection.execute("SELECT count(*) FROM captures WHERE stage<3").fetchone()[0] == 0
     exported = tmp_path / "export"
-    reopened.portability.export(exported, export_id="export_" + str(uuid4()))
-    validated_portable_snapshot(exported)
+    with pytest.raises(ValueError, match="^ingestion_pending$"):
+        reopened.portability.export(exported, export_id="export_" + str(uuid4()))
+    assert not exported.exists()
 
 
 @pytest.mark.parametrize("schema", [5, 6])

@@ -314,6 +314,18 @@ class CaptureOperations(_LocalEngineOperations):
         # journal and block the real import later.
         capture_submission_is_reserved(cast("BrainEngine", self), submission)
         submission.validate_profile(self.profile)
+        if submission.action is CaptureAction.CANONICAL_NOTE:
+            if not isinstance(submission.payload, TextPayload):
+                raise ValueError("canonical note requires owner text")
+            if submission.space_id is None:
+                raise ValueError("canonical note requires a space")
+        if submission.space_id is not None:
+            connection = self._store.connect()
+            try:
+                if _space_row(connection, submission.space_id) is None:
+                    raise ValueError("unknown space")
+            finally:
+                connection.close()
         self._check_static_capture_admission(submission)
         admitted_privacy = self._admitted_privacy(submission)
         return JournalEnvelope(submission, admitted_privacy)
@@ -509,18 +521,26 @@ class CaptureOperations(_LocalEngineOperations):
         if bound_submission and submission.destination_brain_id is None:
             connection = self._store.connect()
             try:
-                identity = connection.execute(
-                    "SELECT brain_id, issuer_epoch FROM brain_identity WHERE singleton = 1"
-                ).fetchone()
+                schema_version = connection.execute("PRAGMA user_version").fetchone()[0]
+                identity = (
+                    connection.execute(
+                        "SELECT brain_id, issuer_epoch FROM brain_identity WHERE singleton = 1"
+                    ).fetchone()
+                    if schema_version >= 9
+                    else None
+                )
             finally:
                 connection.close()
-            if identity is None:
+            if identity is None and schema_version >= 9:
                 raise RuntimeError("brain identity unavailable")
-            destination_brain_id = cast(str, identity["brain_id"])
-            issuer_epoch = cast(int, identity["issuer_epoch"])
+            destination_brain_id = (
+                None if identity is None else cast(str, identity["brain_id"])
+            )
+            issuer_epoch = None if identity is None else cast(int, identity["issuer_epoch"])
         else:
             destination_brain_id = submission.destination_brain_id
             issuer_epoch = submission.issuer_epoch
+        receipt_bound = destination_brain_id is not None and issuer_epoch is not None
         return project_public_capture_receipt(
             CaptureReceipt(
                 capture_id=receipt.capture_id,
@@ -538,12 +558,12 @@ class CaptureOperations(_LocalEngineOperations):
                 # their legacy unbound shape.
                 delivery_id=(
                     delivery_id
-                    if bound_submission
+                    if receipt_bound
                     else None
                 ),
                 request_sha256=(
                     request_sha
-                    if bound_submission
+                    if receipt_bound
                     else None
                 ),
                 destination_brain_id=destination_brain_id,

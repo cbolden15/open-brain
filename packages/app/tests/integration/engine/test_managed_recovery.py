@@ -460,6 +460,7 @@ import contextlib, json, os, runpy, sys
 from pathlib import Path
 from open_brain_engine.engine import managed_recovery as recovery
 from open_brain_engine.storage import sqlite as storage
+sys.path.insert(0, str(Path(sys.argv[1]).resolve().parents[5]))
 helpers = runpy.run_path(sys.argv[1])
 engine, workspace, note, moved = helpers["_legacy_fixture"](Path(sys.argv[2]))
 digest = recovery.inspect_managed_recovery(

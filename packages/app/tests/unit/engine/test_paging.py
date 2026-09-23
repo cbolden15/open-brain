@@ -256,9 +256,12 @@ def test_scoped_cursor_survives_hidden_mutation_but_stales_on_visible_mutation(
 def test_retrieval_readers_overlap_and_fence_writer_through_materialization(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    from open_brain_engine.engine import CaptureCustodyReceipt
+    from open_brain_engine.engine import capture as capture_module
     from open_brain_engine.engine import records as records_module
     from open_brain_engine.storage.filesystem import read_confined as original_read
-    from open_brain_engine.storage.locks import LockBusyError
+
+    monkeypatch.setattr(capture_module, "_WRITER_WAIT_TIMEOUT_SECONDS", 0.05)
 
     engine = BrainEngine.open(compile_single_user_local(tmp_path / "brain"))
     capture = engine.capture.accept(
@@ -291,10 +294,10 @@ def test_retrieval_readers_overlap_and_fence_writer_through_materialization(
         thread.start()
     try:
         readers_entered.wait(timeout=3)
-        with pytest.raises(LockBusyError, match="already held by this process"):
-            engine.capture.accept(
-                TextPayload("must wait for readers"), delivery_id="reader.blocked.writer"
-            )
+        queued = engine.capture.accept(
+            TextPayload("must wait for readers"), delivery_id="reader.blocked.writer"
+        )
+        assert isinstance(queued, CaptureCustodyReceipt)
     finally:
         release_readers.set()
         for thread in threads:
@@ -305,9 +308,9 @@ def test_retrieval_readers_overlap_and_fence_writer_through_materialization(
         "reader snapshot nebula",
         "reader snapshot nebula",
     ]
-    engine.capture.accept(
-        TextPayload("writer after readers"), delivery_id="reader.released.writer"
-    )
+    assert engine.capture.accept(
+        TextPayload("must wait for readers"), delivery_id="reader.blocked.writer"
+    ).duplicate is False
 
 
 def test_concurrent_cursor_allocation_is_unique(tmp_path: Path) -> None:

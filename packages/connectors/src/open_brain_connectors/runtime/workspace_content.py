@@ -23,6 +23,7 @@ from open_brain_connectors.runtime.connectors import (
     ConnectorFailureCode,
     ConnectorOutcome,
     ConnectorRunReceipt,
+    capture_outcome_is_duplicate,
 )
 from open_brain_connectors.runtime.source_intake import SourceRecordIntake, SourceRecordKey
 from open_brain_connectors.runtime.source_registry import (
@@ -219,8 +220,8 @@ class WorkspaceContentRecord:
         content_type = _required_content_type(self.content_type, connector_name)
         title = _body_or_fallback(self.title, "Selected workspace content")
         body = _required_body(self.body)
-        parent_id = None if self.parent_id is None else _required_content_id(
-            self.parent_id, connector_name
+        parent_id = (
+            None if self.parent_id is None else _required_content_id(self.parent_id, connector_name)
         )
         source_link = _optional_https_url(self.source_link)
         _require_redaction_clean(title)
@@ -643,9 +644,8 @@ class WorkspaceContentSourceAdapter:
                 page.preview.next_cursor is None
                 or page.preview.next_cursor in checkpoint.observed_page_cursors
             )
-            if (
-                selected_delivery_ids != checkpoint.committed_delivery_ids
-                and (not duplicate_only_known_page or stale_duplicate_page)
+            if selected_delivery_ids != checkpoint.committed_delivery_ids and (
+                not duplicate_only_known_page or stale_duplicate_page
             ):
                 return checkpoint, ConnectorRunReceipt.empty(
                     connector_name,
@@ -715,8 +715,12 @@ class WorkspaceContentSourceAdapter:
                 extracted_count=len(selected),
                 submitted_count=len(receipts),
                 stubbed_count=0,
-                created_count=sum(1 for receipt in receipts if not receipt.duplicate),
-                duplicate_count=sum(1 for receipt in receipts if receipt.duplicate),
+                created_count=sum(
+                    1 for receipt in receipts if not capture_outcome_is_duplicate(receipt)
+                ),
+                duplicate_count=sum(
+                    1 for receipt in receipts if capture_outcome_is_duplicate(receipt)
+                ),
                 checkpoint_committed=True,
                 metadata_count=len(page.preview.records),
             ),
@@ -1106,9 +1110,7 @@ def _confluence_body(value: Mapping[str, object]) -> str:
     return _value_str(value.get("title")) or "Confluence content"
 
 
-def _confluence_link(
-    value: Mapping[str, object], response: Mapping[str, object]
-) -> str | None:
+def _confluence_link(value: Mapping[str, object], response: Mapping[str, object]) -> str | None:
     links = value.get("_links")
     response_links = response.get("_links")
     if not isinstance(links, Mapping):
@@ -1116,9 +1118,8 @@ def _confluence_link(
     webui = _value_str(links.get("webui"))
     if webui is None:
         return None
-    base = (
-        _value_str(links.get("base"))
-        or (_value_str(response_links.get("base")) if isinstance(response_links, Mapping) else None)
+    base = _value_str(links.get("base")) or (
+        _value_str(response_links.get("base")) if isinstance(response_links, Mapping) else None
     )
     if webui.startswith("https://"):
         return webui
@@ -1208,12 +1209,9 @@ def _matches_selected_record(
         return _record_within_selection(selection, record, selected_resource_children)
     if record.parent_id in selected_content_ids:
         return _record_within_selection(selection, record, selected_resource_children)
-    return (
-        record.parent_id == selection.resource_id
-        or (
-            selection.resource_type in {"page", "cloud_page"}
-            and record.parent_id in selected_content_ids
-        )
+    return record.parent_id == selection.resource_id or (
+        selection.resource_type in {"page", "cloud_page"}
+        and record.parent_id in selected_content_ids
     )
 
 
@@ -1224,8 +1222,7 @@ def _record_within_selection(
 ) -> bool:
     if selection.resource_type in {"page", "cloud_page"}:
         return (
-            record.content_id == selection.resource_id
-            or record.parent_id == selection.resource_id
+            record.content_id == selection.resource_id or record.parent_id == selection.resource_id
         )
     if record.content_id == selection.resource_id or record.parent_id == selection.resource_id:
         return True
