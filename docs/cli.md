@@ -126,8 +126,10 @@ mapping cannot restart.
 
 `capture-submit` is a further manual grant: `--allow-capture-submit` exposes the destination-bound
 `brain_capture_submit` tool. `--capture-policy` remains a compatibility alias for a capture-submit
-session policy and cannot be combined with `--session-policy`; new launchers should use
-`--session-policy`. Search alone does not grant full content or history. Review
+session policy and cannot be combined with `--session-policy`; it maps the legacy policy's capture
+tier authority to the one `capture-submit` capability. New whole-session policies must grant
+`capture-submit` explicitly. New launchers should use `--session-policy`. Search alone does not
+grant full content or history. Review
 decisions publish only after token-bound inspection. `tools/list` reflects session grants, while
 `brain_catalog` accepts `{"schema_version":2}` for metadata. Neither catalog discovery nor source
 text can widen permissions. CLI setup and the shared bridge support nine grants; capture-submit is a

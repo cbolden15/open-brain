@@ -1778,6 +1778,7 @@ def _destination_policy(
     tasks: Any,
     *,
     allowed_capture_tiers: list[str] | None = None,
+    capabilities: list[str] | None = None,
     issuer_epoch: int | None = None,
     brain_id: str | None = None,
 ) -> str:
@@ -1794,7 +1795,7 @@ def _destination_policy(
         "policy_version": "launcher-policy.v1",
         "principal_id": "synthetic-destination-principal",
         "session_id": "synthetic-destination-session",
-        "capabilities": [],
+        "capabilities": ["capture-submit"] if capabilities is None else capabilities,
         "space_ids": None,
         "allowed_read_tiers": ["public", "work"],
         "allowed_capture_tiers": (
@@ -1818,6 +1819,8 @@ def _session_policy_file(
     path: Path,
     *,
     read_tiers: list[str],
+    capabilities: list[str] | None = None,
+    capture_tiers: list[str] | None = None,
     external: bool = False,
     generation: int = 0,
 ) -> Path:
@@ -1826,9 +1829,9 @@ def _session_policy_file(
         {
             "principal_id": "synthetic-session-principal",
             "session_id": "synthetic-scoped-session",
-            "capabilities": ["content-read", "search"],
+            "capabilities": (["content-read", "search"] if capabilities is None else capabilities),
             "allowed_read_tiers": read_tiers,
-            "allowed_capture_tiers": [],
+            "allowed_capture_tiers": [] if capture_tiers is None else capture_tiers,
             "egress_mode": "external_provider" if external else "owner_local",
             "provider_id": "synthetic-provider" if external else None,
             "consent_id": (
@@ -1839,6 +1842,14 @@ def _session_policy_file(
     )
     path.write_text(json.dumps(document), encoding="utf-8")
     return path
+
+
+def _capture_row_count(root: Path) -> int:
+    connection = sqlite3.connect(root / ".open-brain/state/phase1.sqlite3")
+    try:
+        return cast(int, connection.execute("SELECT COUNT(*) FROM captures").fetchone()[0])
+    finally:
+        connection.close()
 
 
 def test_live_session_policy_scopes_tiers_and_intersects_selected_operations(
@@ -1889,6 +1900,7 @@ def test_live_session_policy_scopes_tiers_and_intersects_selected_operations(
         if process.poll() is None:
             process.wait(timeout=10)
 
+
     personal = _session_policy_file(
         tasks,
         authority_root / "personal.json",
@@ -1913,6 +1925,91 @@ def test_live_session_policy_scopes_tiers_and_intersects_selected_operations(
         assert {row["record_id"] for row in searched["results"]} == {
             capture.capture_id for capture in captures.values()
         }
+    finally:
+        if process.stdin is not None:
+            process.stdin.close()
+        if process.poll() is None:
+            process.wait(timeout=10)
+
+
+def test_session_policy_capture_submit_requires_policy_capability(
+    tasks: Any, tmp_path: Path
+) -> None:
+    authority_root = tmp_path / "authority"
+    authority_root.mkdir(mode=0o700)
+    policy = _session_policy_file(
+        tasks,
+        authority_root / "capture-denied.json",
+        read_tiers=["public", "work"],
+        capabilities=[],
+        capture_tiers=["public"],
+    )
+    before = _capture_row_count(Path(tasks.profile.root))
+    process = _start(
+        tasks.profile.root,
+        "--allow-capture-submit",
+        "--session-policy",
+        str(policy),
+    )
+    try:
+        assert "result" in _exchange(process, INITIALIZE)
+        listed = _exchange(process, {"jsonrpc": "2.0", "id": 2, "method": "tools/list"})
+        names = {tool["name"] for tool in listed["result"]["tools"]}
+        assert names == {"brain_catalog"}
+        denied = _exchange(
+            process,
+            _call(
+                "brain_capture_submit",
+                {
+                    "text": "synthetic denied session capture",
+                    "idempotency_key": "session.capture.denied",
+                    "privacy_tier": "public",
+                },
+                3,
+            ),
+        )
+        assert denied["result"]["content"] == [{"type": "text", "text": "unknown tool"}]
+        assert _capture_row_count(Path(tasks.profile.root)) == before
+    finally:
+        if process.stdin is not None:
+            process.stdin.close()
+        if process.poll() is None:
+            process.wait(timeout=10)
+
+    allowed_policy = _session_policy_file(
+        tasks,
+        authority_root / "capture-allowed.json",
+        read_tiers=["public", "work"],
+        capabilities=["capture-submit"],
+        capture_tiers=["public"],
+    )
+    process = _start(
+        tasks.profile.root,
+        "--allow-capture-submit",
+        "--session-policy",
+        str(allowed_policy),
+    )
+    try:
+        assert "result" in _exchange(process, INITIALIZE)
+        listed = _exchange(process, {"jsonrpc": "2.0", "id": 4, "method": "tools/list"})
+        assert {tool["name"] for tool in listed["result"]["tools"]} == {
+            "brain_catalog",
+            "brain_capture_submit",
+        }
+        captured = _exchange(
+            process,
+            _call(
+                "brain_capture_submit",
+                {
+                    "text": "synthetic allowed session capture",
+                    "idempotency_key": "session.capture.allowed",
+                    "privacy_tier": "public",
+                },
+                5,
+            ),
+        )
+        assert captured["result"]["structuredContent"]["status"] == "captured"
+        assert _capture_row_count(Path(tasks.profile.root)) == before + 1
     finally:
         if process.stdin is not None:
             process.stdin.close()
@@ -2004,7 +2101,7 @@ def test_capture_submit_entrypoint_reuses_one_policy_authority(
 ) -> None:
     observed: dict[str, object] = {}
     policy_path = tmp_path / "launcher-policy.json"
-    policy_path.write_text(_destination_policy(tasks), encoding="utf-8")
+    policy_path.write_text(_destination_policy(tasks, capabilities=[]), encoding="utf-8")
 
     def capture_submit(_tasks: object, authority: object) -> object:
         from open_brain.services.local_operations import (
@@ -2041,6 +2138,11 @@ def test_capture_submit_entrypoint_reuses_one_policy_authority(
     )
     adapter = cast(LocalMcpAdapter, observed["adapter"])
     assert adapter.authority is observed["capture_authority"]
+    assert "capture-submit" in adapter.authority.capabilities
+    assert {tool["name"] for tool in adapter.list_tools()} == {
+        "brain_catalog",
+        "brain_capture_submit",
+    }
 
 
 def test_capture_submit_rejects_distinct_or_broader_injected_authority(tasks: Any) -> None:

@@ -1916,18 +1916,24 @@ def _run_local_command(
                     None if parsed.consent_state is None else Path(parsed.consent_state)
                 ),
             )
-            policy_authority = authority_source.load()
-            session_authority = replace(
-                policy_authority,
-                capabilities=policy_authority.capabilities & selected_grants,
-            )
+
+            def intersect_policy_authority(current: EffectiveAuthority) -> EffectiveAuthority:
+                policy_capabilities = current.capabilities
+                if parsed.capture_policy is not None:
+                    # launcher-policy.v1 originally expressed the single
+                    # capture-submit grant through allowed_capture_tiers. Keep
+                    # that legacy alias working without allowing a whole-session
+                    # policy to acquire a capability it did not grant.
+                    policy_capabilities |= frozenset({"capture-submit"})
+                return replace(
+                    current,
+                    capabilities=policy_capabilities & selected_grants,
+                )
+
+            session_authority = intersect_policy_authority(authority_source.load())
 
             def revalidate_session_authority() -> EffectiveAuthority:
-                current = authority_source.load()
-                effective = replace(
-                    current,
-                    capabilities=current.capabilities & selected_grants,
-                )
+                effective = intersect_policy_authority(authority_source.load())
                 if effective != session_authority:
                     raise LauncherPolicyError("stale_policy")
                 return session_authority

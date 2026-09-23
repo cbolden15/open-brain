@@ -150,7 +150,10 @@ policy also requires `--consent-state`. The immutable effective authority used b
 the intersection of policy capabilities and launch-selected grants. Discovery and dispatch then
 intersect that authority with injected implementations and the scoped-safe operation matrix.
 `--capture-policy` is retained as a capture-submit compatibility alias and cannot coexist with
-`--session-policy`.
+`--session-policy`. The alias normalizes the legacy capture-tier grant into the single
+`capture-submit` capability before intersection. A whole-session policy receives no such implicit
+grant: it must name `capture-submit` in `capabilities` and at least one allowed capture tier before
+the operation is discoverable or callable.
 
 The public conformance suite uses synthetic identities and providers to prove immutable mapping,
 narrowing, requested-capture-tier bounds, destination and issuer binding, generation freshness,

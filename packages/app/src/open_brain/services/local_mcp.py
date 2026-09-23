@@ -630,7 +630,9 @@ class LocalMcpAdapter:
                 and PrivacyTier.PERSONAL in self.authority.allowed_capture_tiers
             )
         if name == "brain_capture_submit":
-            return bool(self.authority.allowed_capture_tiers)
+            return "capture-submit" in self.authority.capabilities and bool(
+                self.authority.allowed_capture_tiers
+            )
         if self.negotiated is None:
             return False
         operation = {
