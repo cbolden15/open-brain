@@ -27,7 +27,9 @@ from open_brain_engine.core.models import (
     Provenance,
 )
 from open_brain_engine.engine import (
+    BrainEngine,
     CaptureAction,
+    CaptureSubmission,
     DecisionOutcome,
     ProposalDraft,
     PublicJobCaptureContext,
@@ -93,6 +95,55 @@ def _subprocess_cli(root: Path, *arguments: str) -> dict[str, object]:
     assert result.returncode == 0, (result.stdout, result.stderr)
     assert result.stderr == ""
     return cast(dict[str, object], json.loads(result.stdout))
+
+
+def test_owner_journal_cli_reports_metadata_and_requires_discard_confirmation(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    root = tmp_path / "journal-cli-brain"
+    profile = compile_single_user_local(root)
+    engine = BrainEngine.open(profile)
+    space = engine.inbox.create_space("Quarantine", delivery_id="journal.cli.space")
+    submission = CaptureSubmission.for_local_owner(
+        profile=profile,
+        payload=TextPayload("JOURNAL_CLI_PRIVATE_CONTENT"),
+        delivery_id="journal.cli.item",
+        action=CaptureAction.CANONICAL_NOTE,
+        space_id=space.space_id,
+    )
+    engine.ingestion.enqueue(submission)
+    with sqlite3.connect(root / ".open-brain/state/phase1.sqlite3") as connection:
+        connection.execute("DELETE FROM spaces WHERE space_id = ?", (space.space_id,))
+    assert engine.recover() == 0
+
+    shown = run_cli(
+        ("journal", "status", "--data-dir", str(root), "--json"),
+        filesystem_type_probe=_filesystem,
+    )
+    assert shown == 0
+    payload = cast(dict[str, object], json.loads(capsys.readouterr().out))
+    assert payload["status"] == "shown"
+    assert cast(list[object], payload["items"])[0]
+    assert payload["quarantined_count"] == 1
+    assert "JOURNAL_CLI_PRIVATE_CONTENT" not in json.dumps(payload)
+
+    assert (
+        run_cli(
+            (
+                "journal",
+                "discard",
+                submission.delivery_id,
+                "--reason",
+                "operator",
+                "--data-dir",
+                str(root),
+                "--json",
+            ),
+            filesystem_type_probe=_filesystem,
+        )
+        == 2
+    )
+    assert json.loads(capsys.readouterr().out)["error"]["code"] == "discard_confirmation_required"
 
 
 def _privacy_repair_brain(tmp_path: Path) -> tuple[Path, LocalEngineContext, str, str]:
@@ -1043,6 +1094,13 @@ def test_exact_local_data_journey_bootstraps_without_init_or_background_runtime(
         "application_encryption": False,
         "brain_count": 1,
         "daemon_running": False,
+        "ingestion_journal": {
+            "last_failure_code": None,
+            "oldest_age_seconds": None,
+            "pending_count": 0,
+            "quarantined_count": 0,
+            "retained_bytes": 0,
+        },
         "live_search": {
             "authoritative": True,
             "contents_agree": True,
@@ -1115,7 +1173,9 @@ def test_exact_local_data_journey_bootstraps_without_init_or_background_runtime(
             )
             == 0
         )
-        assert capsys.readouterr().out == f"{check}: ok\n"
+        assert capsys.readouterr().out == (
+            f"{check}: ok. Journal pending: 0; quarantined: 0.\n"
+        )
 
     assert not (brain_root / ".open-brain/run/control.sock").exists()
 

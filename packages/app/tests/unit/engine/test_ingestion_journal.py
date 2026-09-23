@@ -19,20 +19,33 @@ from open_brain_engine.engine import (
     CaptureSubmission,
     InjectedFault,
     JournalEnvelope,
+    JournalOperationError,
     StateSchemaUnavailableError,
     TextPayload,
     coordinate_local_migration,
     local_schema,
     verify_capture_custody_receipt,
 )
+from open_brain_engine.engine.ingestion import JournalCapacityError
 from open_brain_engine.engine.local_schema import PHASE1_STATE_DATABASE, inspect_phase1_state
 from open_brain_engine.engine.local_schema_catalog import LOCAL_MIGRATIONS
+from open_brain_engine.engine.t03_contracts import EffectiveAuthority
 
 from open_brain.profile import compile_single_user_local
 
 
 def _clock() -> datetime:
     return datetime.now(UTC)
+
+
+def _owner(profile: object) -> EffectiveAuthority:
+    return EffectiveAuthority(
+        principal_id=profile.owner_actor_id,
+        session_id="journal-test-owner",
+        capabilities=frozenset(),
+        space_ids=None,
+        owner=True,
+    )
 
 
 def test_journal_v1_round_trips_exact_normalized_submission(tmp_path: Path) -> None:
@@ -291,6 +304,68 @@ def test_quarantined_item_is_not_retried_without_owner_action(tmp_path: Path) ->
         ).fetchone() == (event_count,)
 
 
+def test_owner_journal_operations_are_metadata_only_and_discard_is_tombstoned(
+    tmp_path: Path,
+) -> None:
+    profile = compile_single_user_local(tmp_path / "brain")
+    engine = BrainEngine.open(profile)
+    space = engine.inbox.create_space("Quarantine", delivery_id="journal.ops.space")
+    submission = CaptureSubmission.for_local_owner(
+        profile=profile,
+        payload=TextPayload("owner operation content must not be displayed"),
+        delivery_id="journal.owner-ops",
+        action=CaptureAction.CANONICAL_NOTE,
+        space_id=space.space_id,
+    )
+    engine.ingestion.enqueue(submission)
+    with sqlite3.connect(profile.root / PHASE1_STATE_DATABASE) as connection:
+        row = connection.execute(
+            "SELECT * FROM spaces WHERE space_id = ?", (space.space_id,)
+        ).fetchone()
+        columns = tuple(item[1] for item in connection.execute("PRAGMA table_info(spaces)"))
+        connection.execute("DELETE FROM spaces WHERE space_id = ?", (space.space_id,))
+    assert engine.recover() == 0
+
+    journal = engine.tasks.journal
+    assert journal is not None
+    with pytest.raises(JournalOperationError, match="owner_required"):
+        journal.status(
+            authority=EffectiveAuthority(
+                principal_id="agent",
+                session_id="untrusted",
+                capabilities=frozenset(),
+                space_ids=None,
+            )
+        )
+    item = journal.status(authority=_owner(profile))[0]
+    assert item.delivery_id == submission.delivery_id
+    assert "content" not in repr(item)
+    summary = journal.summary(authority=_owner(profile))
+    assert summary.pending_count == 0
+    assert summary.quarantined_count == 1
+    assert summary.retained_bytes > 0
+    assert summary.last_failure_code == "invalid"
+
+    journal.retry(submission.delivery_id, authority=_owner(profile))
+    assert journal.status(authority=_owner(profile))[0].state == "queued"
+    journal.drain(authority=_owner(profile))
+    assert journal.status(authority=_owner(profile))[0].state == "quarantined"
+    journal.discard(submission.delivery_id, reason="owner_requested", authority=_owner(profile))
+    assert journal.status(authority=_owner(profile)) == ()
+    with sqlite3.connect(profile.root / PHASE1_STATE_DATABASE) as connection:
+        assert connection.execute(
+            "SELECT count(*) FROM capture_ingestion_tombstones WHERE delivery_id = ?",
+            (submission.delivery_id,),
+        ).fetchone() == (1,)
+        assert row is not None
+        connection.execute(
+            f"INSERT INTO spaces ({', '.join(columns)}) VALUES ({', '.join('?' for _ in columns)})",
+            row,
+        )
+    with pytest.raises(ValueError, match="delivery discarded"):
+        engine.ingestion.enqueue(submission)
+
+
 def test_writer_drain_respects_aggregate_batch_bytes(tmp_path: Path) -> None:
     profile = compile_single_user_local(tmp_path / "brain")
     submissions = tuple(
@@ -322,3 +397,44 @@ def test_writer_drain_respects_aggregate_batch_bytes(tmp_path: Path) -> None:
             1,
         )
     assert engine.recover() == 1
+
+
+def test_journal_capacity_duplicate_conflict_and_fifo_drain(tmp_path: Path) -> None:
+    from open_brain_engine.engine.capture import DeliveryConflict
+
+    profile = compile_single_user_local(tmp_path / "brain")
+    engine = BrainEngine.open(profile, admission_limits=AdmissionLimits(max_journal_items=2))
+    first = CaptureSubmission.for_local_owner(
+        profile=profile, payload=TextPayload("first FIFO"), delivery_id="journal.fifo.first"
+    )
+    second = CaptureSubmission.for_local_owner(
+        profile=profile, payload=TextPayload("second FIFO"), delivery_id="journal.fifo.second"
+    )
+    third = CaptureSubmission.for_local_owner(
+        profile=profile, payload=TextPayload("third capacity"), delivery_id="journal.fifo.third"
+    )
+    first_custody = engine.ingestion.enqueue(first)
+    engine.ingestion.enqueue(second)
+    assert engine.ingestion.enqueue(first) == first_custody
+    with pytest.raises(DeliveryConflict):
+        engine.ingestion.enqueue(
+            CaptureSubmission.for_local_owner(
+                profile=profile,
+                payload=TextPayload("changed digest"),
+                delivery_id=first.delivery_id,
+            )
+        )
+    with pytest.raises(JournalCapacityError, match="journal capacity exceeded"):
+        engine.ingestion.enqueue(third)
+
+    with engine._writer_lease.acquire_shared_writer():
+        receipts = engine.ingestion.drain_locked()
+    with sqlite3.connect(profile.root / PHASE1_STATE_DATABASE) as connection:
+        deliveries = {
+            row[0]: row[1]
+            for row in connection.execute("SELECT capture_id, delivery_id FROM captures")
+        }
+    assert tuple(deliveries[receipt.capture_id] for receipt in receipts) == (
+        first.delivery_id,
+        second.delivery_id,
+    )

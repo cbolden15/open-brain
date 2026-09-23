@@ -55,6 +55,7 @@ from .contracts import (
     TextPayload,
 )
 from .ingestion import IngestionJournal
+from .journal_ops import JournalTasks
 from .local_schema import open_local_database_read_only
 from .local_store import _LocalStore, live_search_schema_is_available
 from .maintenance import inspect_phase1_state
@@ -275,6 +276,7 @@ class BrainEngine(CaptureOperations, SpaceOperations, ReviewOperations, Retrieva
         self.managed_policy = ManagedPolicyTasks(self, self.managed_workspace)
         self.managed_inference = ManagedInferenceTasks(self, self.managed_workspace)
         self.privacy_repair = PrivacyRepairTasks(self)
+        self.journal = JournalTasks(self)
         self._task_set = EngineTaskSet(
             profile=profile,
             capture=self.capture,
@@ -291,6 +293,7 @@ class BrainEngine(CaptureOperations, SpaceOperations, ReviewOperations, Retrieva
             history=self.history,
             relationships=self.relationships,
             privacy_repair=self.privacy_repair,
+            journal=self.journal,
         )
 
     @classmethod

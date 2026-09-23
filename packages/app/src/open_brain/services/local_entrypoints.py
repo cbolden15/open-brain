@@ -28,6 +28,7 @@ from open_brain_engine.engine import (
     CaptureCustodyReceipt,
     CaptureReceipt,
     EngineTaskSet,
+    JournalOperationError,
     ManagedAccessMode,
     ManagedProvider,
     ManagedWorkspaceReceipt,
@@ -418,6 +419,8 @@ def _run_parsed_command(
         return _write_review_failure(error.code, json_output=json_output)
     except PrivacyRepairError as error:
         return _write_privacy_repair_failure(error.code)
+    except JournalOperationError as error:
+        return _write_journal_failure(str(error), json_output=json_output)
     except LauncherPolicyError as error:
         if json_output:
             _write_json({"error": {"code": error.code, "message": error.code}})
@@ -446,6 +449,7 @@ def _run_parsed_command(
             "inbox",
             "review",
             "privacy",
+            "journal",
         }:
             _write_database_busy(json_output=json_output)
             return 75
@@ -479,6 +483,7 @@ def _run_parsed_command(
             "inbox",
             "review",
             "privacy",
+            "journal",
         } and database_is_busy(error):
             _write_database_busy(json_output=json_output)
             return 75
@@ -794,6 +799,30 @@ def _parser() -> argparse.ArgumentParser:
     )
     status_parser = subparsers.add_parser("status", help="Report bounded default-product status.")
     _add_local_options(status_parser)
+    journal_parser = subparsers.add_parser(
+        "journal", help="Inspect or recover owner-only durable capture ingress."
+    )
+    _add_local_options(journal_parser)
+    journal_children = journal_parser.add_subparsers(dest="journal_action", required=True)
+    journal_status = journal_children.add_parser("status", help="List metadata-only pending items.")
+    _add_local_options(journal_status)
+    journal_status.add_argument("--limit", type=int, default=100)
+    journal_drain = journal_children.add_parser("drain", help="Run one bounded owner drain cycle.")
+    _add_local_options(journal_drain)
+    journal_retry = journal_children.add_parser(
+        "retry", help="Requeue one quarantined journal item."
+    )
+    _add_local_options(journal_retry)
+    journal_retry.add_argument("delivery_id")
+    journal_discard = journal_children.add_parser(
+        "discard", help="Permanently remove one quarantined payload after confirmation."
+    )
+    _add_local_options(journal_discard)
+    journal_discard.add_argument("delivery_id")
+    journal_discard.add_argument("--reason", required=True)
+    journal_discard.add_argument(
+        "--confirm", action="store_true", help="Confirm permanent payload removal."
+    )
     doctor_parser = subparsers.add_parser("doctor", help="Run one bounded default-product check.")
     _add_local_options(doctor_parser)
     doctor_parser.add_argument("--check", required=True, choices=_DOCTOR_CHECKS)
@@ -1475,6 +1504,91 @@ def _run_privacy_repair(parsed: argparse.Namespace, tasks: EngineTaskSet) -> int
     return 0
 
 
+def _journal_summary(*, tasks: EngineTaskSet) -> dict[str, object]:
+    journal = tasks.journal
+    if journal is None:
+        raise JournalOperationError("operation_unavailable")
+    summary = journal.summary(authority=owner_authority(tasks, session_id="owner-cli"))
+    return {
+        "last_failure_code": summary.last_failure_code,
+        "oldest_age_seconds": summary.oldest_age_seconds,
+        "pending_count": summary.pending_count,
+        "quarantined_count": summary.quarantined_count,
+        "retained_bytes": summary.retained_bytes,
+    }
+
+
+def _run_journal(parsed: argparse.Namespace, tasks: EngineTaskSet, *, json_output: bool) -> int:
+    journal = tasks.journal
+    if journal is None:
+        raise JournalOperationError("operation_unavailable")
+    authority = owner_authority(tasks, session_id="owner-cli")
+    if parsed.journal_action == "status":
+        items = journal.status(authority=authority, limit=cast(int, parsed.limit))
+        payload = {
+            "items": [
+                {
+                    "attempt_number": item.attempt_number,
+                    "delivery_id": item.delivery_id,
+                    "ingestion_id": item.ingestion_id,
+                    "queued_at": item.queued_at,
+                    "state": item.state,
+                }
+                for item in items
+            ],
+            "status": "shown",
+            **_journal_summary(tasks=tasks),
+        }
+    elif parsed.journal_action == "drain":
+        result = journal.drain(authority=authority)
+        payload = {
+            "materialized_count": result.materialized_count,
+            "status": "drained",
+            **_journal_summary(tasks=tasks),
+        }
+    elif parsed.journal_action == "retry":
+        journal.retry(cast(str, parsed.delivery_id), authority=authority)
+        payload = {
+            "delivery_id": parsed.delivery_id,
+            "status": "requeued",
+            **_journal_summary(tasks=tasks),
+        }
+    elif parsed.journal_action == "discard":
+        if not parsed.confirm:
+            raise JournalOperationError("discard_confirmation_required")
+        journal.discard(
+            cast(str, parsed.delivery_id),
+            reason=cast(str, parsed.reason),
+            authority=authority,
+        )
+        payload = {
+            "delivery_id": parsed.delivery_id,
+            "status": "discarded",
+            **_journal_summary(tasks=tasks),
+        }
+    else:
+        raise JournalOperationError("invalid_request")
+    if json_output:
+        _write_json(payload)
+    else:
+        print(json.dumps(payload, ensure_ascii=False, sort_keys=True))
+    return 0
+
+
+def _write_journal_failure(code: str, *, json_output: bool) -> int:
+    messages = {
+        "discard_confirmation_required": "Journal discard requires --confirm.",
+        "not_quarantined": "Journal item is not quarantined.",
+        "owner_required": "Journal operations require owner-local authority.",
+        "writer_busy": "Journal writer is busy; retry the bounded drain.",
+    }
+    if json_output:
+        _write_json({"error": {"code": code}, "status": "failed"})
+    else:
+        print(messages.get(code, "Journal operation could not complete."), file=sys.stderr)
+    return 2 if code == "discard_confirmation_required" else 1
+
+
 def _run_local_command(
     parsed: argparse.Namespace,
     session: LocalBrainSession,
@@ -1492,6 +1606,8 @@ def _run_local_command(
             json_output=json_output,
         )
     tasks = session.tasks
+    if parsed.command == "journal":
+        return _run_journal(parsed, tasks, json_output=json_output)
     if parsed.command == "privacy":
         return _run_privacy_repair(parsed, tasks)
     if parsed.command in {
@@ -2216,6 +2332,7 @@ def _write_export(
 
 def _write_status(session: LocalBrainSession, *, json_output: bool) -> None:
     maintenance = read_maintenance_snapshot(session.profile)
+    journal_summary = _journal_summary(tasks=session.tasks)
     payload = {
         "application_encryption": False,
         "brain_count": 1,
@@ -2225,6 +2342,7 @@ def _write_status(session: LocalBrainSession, *, json_output: bool) -> None:
         "portable_snapshot": maintenance.index.to_dict(),
         "profile": "local",
         "storage": "sqlite",
+        "ingestion_journal": journal_summary,
     }
     if json_output:
         _write_json(payload)
@@ -2236,6 +2354,8 @@ def _write_status(session: LocalBrainSession, *, json_output: bool) -> None:
             f"Portable snapshot: {maintenance.index.state}, non-authoritative, "
             "potentially stale. "
             f"Portable export: {payload['portable_export']}. "
+            f"Journal pending: {journal_summary['pending_count']}; "
+            f"quarantined: {journal_summary['quarantined_count']}. "
             "Daemon running: false. "
             "Application encryption: false."
         )
@@ -2257,11 +2377,19 @@ def _write_doctor(
         passed = checks[check](session)
     except KeyError, OSError, StorageError, ValueError:
         passed = False
-    payload = {"check": check, "status": "ok" if passed else "failed"}
+    payload = {
+        "check": check,
+        "ingestion_journal": _journal_summary(tasks=session.tasks),
+        "status": "ok" if passed else "failed",
+    }
     if json_output:
         _write_json(payload)
     else:
-        print(f"{check}: {payload['status']}")
+        journal = cast(dict[str, object], payload["ingestion_journal"])
+        print(
+            f"{check}: {payload['status']}. Journal pending: {journal['pending_count']}; "
+            f"quarantined: {journal['quarantined_count']}."
+        )
     return 0 if passed else 1
 
 

@@ -8,7 +8,8 @@ from __future__ import annotations
 
 import json
 import sqlite3
-from dataclasses import dataclass, replace
+from dataclasses import replace
+from datetime import UTC, datetime
 from hashlib import sha256
 from typing import TYPE_CHECKING, cast
 from uuid import uuid4
@@ -22,6 +23,8 @@ from .contracts import (
     CaptureOutcome,
     CaptureReceipt,
     CaptureSubmission,
+    IngestionStatus,
+    IngestionSummary,
     InjectedFault,
     JournalEnvelope,
 )
@@ -33,17 +36,6 @@ if TYPE_CHECKING:
 
 class JournalCapacityError(ValueError):
     """The Brain retained every existing journal item and has no ingress capacity."""
-
-
-@dataclass(frozen=True, slots=True)
-class IngestionStatus:
-    """Owner-only, metadata-only active journal state."""
-
-    delivery_id: str
-    ingestion_id: str
-    state: str
-    attempt_number: int
-    queued_at: str
 
 
 def _receipt_json(receipt: CaptureCustodyReceipt | CaptureReceipt) -> str:
@@ -345,6 +337,66 @@ class IngestionJournal:
             for row in rows
         )
 
+    def summary(self) -> IngestionSummary:
+        """Return aggregate active-custody telemetry without reading payload bytes."""
+        connection = self._engine._store.connect()
+        try:
+            rows = tuple(
+                connection.execute(
+                    """
+                    SELECT item.byte_count, item.queued_at, event.event_kind
+                    FROM capture_ingestion_items AS item
+                    JOIN capture_ingestion_events AS event ON event.event_sequence = (
+                        SELECT max(event_sequence) FROM capture_ingestion_events
+                        WHERE delivery_id = item.delivery_id
+                    )
+                    ORDER BY item.journal_sequence
+                    """
+                )
+            )
+            failure = connection.execute(
+                """
+                SELECT receipt_json FROM capture_ingestion_events
+                WHERE event_kind IN ('attempt_failed', 'quarantined')
+                ORDER BY event_sequence DESC LIMIT 1
+                """
+            ).fetchone()
+        finally:
+            connection.close()
+        active = tuple(
+            row
+            for row in rows
+            if row["event_kind"] not in {"accepted", "discarded", "duplicate"}
+        )
+        pending = tuple(row for row in active if row["event_kind"] != "quarantined")
+        oldest_age_seconds: int | None = None
+        if active:
+            try:
+                oldest = min(
+                    datetime.fromisoformat(cast(str, row["queued_at"]).replace("Z", "+00:00"))
+                    for row in active
+                )
+            except ValueError as error:
+                raise RuntimeError("invalid journal timestamp") from error
+            now = self._engine._clock().astimezone(UTC)
+            oldest_age_seconds = max(0, int((now - oldest.astimezone(UTC)).total_seconds()))
+        last_failure_code: str | None = None
+        if failure is not None:
+            try:
+                receipt = json.loads(cast(str, failure["receipt_json"]))
+                reason = receipt.get("reason") if isinstance(receipt, dict) else None
+                if isinstance(reason, str) and 1 <= len(reason) <= 64:
+                    last_failure_code = reason
+            except json.JSONDecodeError:
+                raise RuntimeError("invalid journal failure metadata") from None
+        return IngestionSummary(
+            pending_count=len(pending),
+            quarantined_count=sum(row["event_kind"] == "quarantined" for row in active),
+            oldest_age_seconds=oldest_age_seconds,
+            retained_bytes=sum(cast(int, row["byte_count"]) for row in rows),
+            last_failure_code=last_failure_code,
+        )
+
     def retry(self, delivery_id: str) -> None:
         with self._engine._store.transaction() as connection:
             state = self._latest_event(connection, delivery_id)
@@ -488,4 +540,4 @@ class IngestionJournal:
         return None if row is None else cast(str, row["event_kind"])
 
 
-__all__ = ["IngestionJournal", "IngestionStatus", "JournalCapacityError"]
+__all__ = ["IngestionJournal", "JournalCapacityError"]

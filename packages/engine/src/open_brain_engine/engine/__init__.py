@@ -39,7 +39,11 @@ from .contracts import (
     CaptureReceipt,
     CaptureTask,
     InboxSpaceTask,
+    IngestionDrainResult,
+    IngestionStatus,
+    IngestionSummary,
     JournalEnvelope,
+    JournalTask,
     ManagedAccessMode,
     ManagedExclusion,
     ManagedGraphSnapshot,
@@ -88,6 +92,7 @@ from .contracts import (
     project_public_space,
     verify_capture_custody_receipt,
 )
+from .journal_ops import JournalOperationError
 from .local import (
     BrainEngine,
     CaptureAction,
@@ -159,6 +164,11 @@ __all__ = [
     "EventPayload",
     "FilePayload",
     "InjectedFault",
+    "IngestionDrainResult",
+    "IngestionStatus",
+    "IngestionSummary",
+    "JournalOperationError",
+    "JournalTask",
     "JournalEnvelope",
     "InboxSpaceTask",
     "LocalEngineContext",

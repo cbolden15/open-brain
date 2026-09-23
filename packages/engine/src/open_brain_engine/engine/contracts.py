@@ -2373,6 +2373,36 @@ def verify_capture_custody_receipt(value: Mapping[str, object] | bytes) -> Captu
 type CaptureOutcome = CaptureReceipt | CaptureCustodyReceipt
 
 
+@dataclass(frozen=True, slots=True)
+class IngestionStatus:
+    """One metadata-only active journal item, visible only to the owner."""
+
+    delivery_id: str
+    ingestion_id: str
+    state: str
+    attempt_number: int
+    queued_at: str
+
+
+@dataclass(frozen=True, slots=True)
+class IngestionSummary:
+    """Bounded aggregate journal telemetry with no envelope content."""
+
+    pending_count: int
+    quarantined_count: int
+    oldest_age_seconds: int | None
+    retained_bytes: int
+    last_failure_code: str | None
+
+
+@dataclass(frozen=True, slots=True)
+class IngestionDrainResult:
+    """Metadata-only result of one owner-requested bounded journal drain."""
+
+    materialized_count: int
+    receipts: tuple[CaptureReceipt, ...]
+
+
 def _destination_bound_submission(
     *,
     destination_brain_id: str,
@@ -2860,6 +2890,22 @@ class PrivacyRepairTask(Protocol):
     ) -> PrivacyRepairReceipt: ...
 
 
+class JournalTask(Protocol):
+    """Owner-only ingress inspection and recovery operations."""
+
+    def status(
+        self, *, authority: EffectiveAuthority, limit: int = 100
+    ) -> tuple[IngestionStatus, ...]: ...
+
+    def summary(self, *, authority: EffectiveAuthority) -> IngestionSummary: ...
+
+    def drain(self, *, authority: EffectiveAuthority) -> IngestionDrainResult: ...
+
+    def retry(self, delivery_id: str, *, authority: EffectiveAuthority) -> None: ...
+
+    def discard(self, delivery_id: str, *, reason: str, authority: EffectiveAuthority) -> None: ...
+
+
 @dataclass(frozen=True, slots=True)
 class EngineTaskSet:
     """The public task identities exposed by one opened local engine root."""
@@ -2879,6 +2925,7 @@ class EngineTaskSet:
     history: HistoryTask | None = None
     relationships: RelationshipTask | None = None
     privacy_repair: PrivacyRepairTask | None = None
+    journal: JournalTask | None = None
 
     @property
     def spaces(self) -> InboxSpaceTask:
