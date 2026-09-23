@@ -45,11 +45,13 @@ from open_brain_engine.engine import (
     live_search_is_healthy,
     read_maintenance_snapshot,
 )
+from open_brain_engine.engine.consent_contracts import ConsentContractError
 from open_brain_engine.engine.contracts import CaptureAdmissionError, ManagedWorkspaceFailure
 from open_brain_engine.engine.privacy_repairs import (
     PrivacyRepairError,
     PrivacyRepairRequest,
 )
+from open_brain_engine.engine.t03_contracts import EffectiveAuthority
 from open_brain_engine.storage.locks import LockBusyError
 from open_brain_engine.storage.operational import (
     StorageError,
@@ -75,6 +77,7 @@ from open_brain.services.local_bootstrap import (
 from open_brain.services.local_operations import (
     capture_result,
     capture_text,
+    current_brain_identity,
     database_is_busy,
     destination_bound_authority,
     destination_bound_capture_result,
@@ -101,6 +104,11 @@ from open_brain.services.review_publication import (
     ReviewPublicationError,
     ReviewPublicationService,
     validate_review_arguments,
+)
+from open_brain.services.session_authority import TrustedSessionAuthority
+from open_brain.services.session_consent import (
+    DurableProviderConsentStore,
+    SessionConsentError,
 )
 from open_brain.services.space_inbox import (
     SpaceInboxError,
@@ -201,7 +209,14 @@ def run_cli(
     ):
         _write_usage_failure(json_output=False)
         return 2
-    if parsed.command == "mcp" and parsed.allow_capture_submit and not parsed.capture_policy:
+    if parsed.command == "mcp" and (
+        parsed.allow_capture_submit
+        and not (parsed.session_policy or parsed.capture_policy)
+        or parsed.capture_policy is not None
+        and (not parsed.allow_capture_submit or parsed.session_policy is not None)
+        or parsed.consent_state is not None
+        and parsed.session_policy is None
+    ):
         _write_usage_failure(json_output=False)
         return 2
     if parsed.command == "catalog":
@@ -421,6 +436,10 @@ def _run_parsed_command(
         return _write_privacy_repair_failure(error.code)
     except JournalOperationError as error:
         return _write_journal_failure(str(error), json_output=json_output)
+    except SessionConsentError as error:
+        return _write_consent_failure(error.code, json_output=json_output)
+    except ConsentContractError as error:
+        return _write_consent_failure(error.code, json_output=json_output)
     except LauncherPolicyError as error:
         if json_output:
             _write_json({"error": {"code": error.code, "message": error.code}})
@@ -590,6 +609,43 @@ def _parser() -> argparse.ArgumentParser:
     privacy_repair.add_argument("--json", action="store_true", required=True)
     privacy_repair.add_argument("--data-dir", default=argparse.SUPPRESS)
     privacy_repair.set_defaults(_catalog_discoverable=False)
+    consent_parser = subparsers.add_parser(
+        "consent", help="Manage owner-local external-provider consent state."
+    )
+    consent_children = consent_parser.add_subparsers(dest="consent_action", required=True)
+    consent_inspect = consent_children.add_parser(
+        "inspect", help="Inspect the durable provider-consent projection."
+    )
+    _add_local_options(consent_inspect)
+    consent_inspect.add_argument("--state", required=True, metavar="PATH")
+    for action in ("grant", "replace"):
+        consent_mutation = consent_children.add_parser(
+            action,
+            help=(
+                "Grant one external provider consent."
+                if action == "grant"
+                else "Atomically replace one active provider consent."
+            ),
+        )
+        _add_local_options(consent_mutation)
+        consent_mutation.add_argument("--state", required=True, metavar="PATH")
+        consent_mutation.add_argument("--provider-id", required=True)
+        consent_mutation.add_argument(
+            "--allowed-tier",
+            action="append",
+            required=True,
+            choices=("public", "work", "personal"),
+        )
+        consent_mutation.add_argument("--operation-id", required=True)
+        if action == "replace":
+            consent_mutation.add_argument("--consent-id", required=True)
+    consent_revoke = consent_children.add_parser(
+        "revoke", help="Revoke one active provider consent."
+    )
+    _add_local_options(consent_revoke)
+    consent_revoke.add_argument("--state", required=True, metavar="PATH")
+    consent_revoke.add_argument("--consent-id", required=True)
+    consent_revoke.add_argument("--operation-id", required=True)
     mcp_parser = subparsers.add_parser(
         "mcp",
         help="Serve explicitly selected local tools over stdio until EOF.",
@@ -637,7 +693,27 @@ def _parser() -> argparse.ArgumentParser:
         "--capture-policy",
         metavar="PATH",
         default=None,
-        help="Absolute launcher-policy.v1 JSON path required by --allow-capture-submit.",
+        help=(
+            "Compatibility alias for a capture-submit launcher-policy.v1 path; "
+            "requires --allow-capture-submit and cannot be combined with --session-policy."
+        ),
+    )
+    mcp_parser.add_argument(
+        "--session-policy",
+        metavar="PATH",
+        default=None,
+        help=(
+            "Absolute trusted launcher-policy.v1 path governing the whole MCP session."
+        ),
+    )
+    mcp_parser.add_argument(
+        "--consent-state",
+        metavar="PATH",
+        default=None,
+        help=(
+            "Absolute owner-only provider-consent state path for an external-provider "
+            "session policy."
+        ),
     )
     mcp_parser.add_argument(
         "--allow-search",
@@ -1596,6 +1672,98 @@ def _write_journal_failure(code: str, *, json_output: bool) -> int:
     return 2 if code == "discard_confirmation_required" else 1
 
 
+def _run_consent(
+    parsed: argparse.Namespace,
+    tasks: EngineTaskSet,
+    *,
+    json_output: bool,
+) -> int:
+    brain_id, issuer_epoch = current_brain_identity(tasks)
+    store = DurableProviderConsentStore(
+        Path(parsed.state),
+        brain_id=brain_id,
+        issuer_epoch=issuer_epoch,
+    )
+    action = cast(str, parsed.consent_action)
+    if action == "inspect":
+        inspection = store.inspect()
+        payload: dict[str, object] = {
+            "status": "shown",
+            "authorization_generation": inspection.authorization_generation,
+            "records": [
+                {
+                    "consent_id": record.consent_id,
+                    "provider_id": record.provider_id,
+                    "egress_mode": record.egress_mode.value,
+                    "allowed_tiers": sorted(tier.value for tier in record.allowed_tiers),
+                    "active": record.active,
+                    "granted_generation": record.granted_generation,
+                    "granted_at": record.granted_at,
+                    "revoked_generation": record.revoked_generation,
+                    "revoked_at": record.revoked_at,
+                }
+                for record in inspection.records
+            ],
+        }
+    else:
+        decided_at = _timestamp(datetime.now(UTC))
+        if action in {"grant", "replace"}:
+            raw_tiers = cast(list[str], parsed.allowed_tier)
+            if len(raw_tiers) != len(set(raw_tiers)):
+                raise ConsentContractError("invalid_consent")
+            tiers = frozenset(PrivacyTier(value) for value in raw_tiers)
+            if action == "grant":
+                transition = store.grant(
+                    provider_id=cast(str, parsed.provider_id),
+                    allowed_tiers=tiers,
+                    operation_id=cast(str, parsed.operation_id),
+                    decided_at=decided_at,
+                )
+            else:
+                transition = store.replace(
+                    consent_id=cast(str, parsed.consent_id),
+                    provider_id=cast(str, parsed.provider_id),
+                    allowed_tiers=tiers,
+                    operation_id=cast(str, parsed.operation_id),
+                    decided_at=decided_at,
+                )
+        elif action == "revoke":
+            transition = store.revoke(
+                consent_id=cast(str, parsed.consent_id),
+                operation_id=cast(str, parsed.operation_id),
+                decided_at=decided_at,
+            )
+        else:
+            raise ConsentContractError("invalid_consent")
+        receipt = transition.receipt
+        payload = {
+            "status": {"grant": "granted", "replace": "replaced", "revoke": "revoked"}[
+                receipt.operation
+            ],
+            "consent_id": receipt.consent_id,
+            "authorization_generation": receipt.authorization_generation,
+            "duplicate": receipt.duplicate,
+            "previous_consent_id": receipt.previous_consent_id,
+        }
+    if json_output:
+        _write_json(payload)
+    else:
+        print(f"Provider consent {payload['status']}.")
+    return 0
+
+
+def _write_consent_failure(code: str, *, json_output: bool) -> int:
+    if json_output:
+        _write_json({"error": {"code": code}, "status": "failed"})
+    else:
+        print(code, file=sys.stderr)
+    if code in {"invalid_consent", "operation_conflict", "owner_required"}:
+        return 2
+    if code == "consent_state_conflict":
+        return 75
+    return 78
+
+
 def _run_local_command(
     parsed: argparse.Namespace,
     session: LocalBrainSession,
@@ -1617,6 +1785,8 @@ def _run_local_command(
         return _run_journal(parsed, tasks, json_output=json_output)
     if parsed.command == "privacy":
         return _run_privacy_repair(parsed, tasks)
+    if parsed.command == "consent":
+        return _run_consent(parsed, tasks, json_output=json_output)
     if parsed.command in {
         "search-page",
         "read",
@@ -1720,6 +1890,7 @@ def _run_local_command(
             session_id="mcp-" + str(uuid.uuid4()),
             grants=selected_grants,
         )
+        session_authority_revalidator: Callable[[], EffectiveAuthority] | None = None
         owner_grants = frozenset(
             {
                 "workspace-read",
@@ -1731,24 +1902,44 @@ def _run_local_command(
                 "review-decide",
             }
         )
-        if selected_grants & owner_grants and not parsed.allow_capture_submit:
+        policy_path = parsed.session_policy or parsed.capture_policy
+        if selected_grants & owner_grants and policy_path is None:
             session_authority = owner_authority(
                 tasks, session_id="mcp-" + str(uuid.uuid4())
             )
         capture_submit_capability = None
-        if parsed.allow_capture_submit:
-            # The launcher policy is trusted input read at session start; the
-            # engine refuses stale epochs and foreign Brain IDs before capture.
-            try:
-                policy = _read_startup_policy(parsed.capture_policy)
-            except OSError, UnicodeError, ValueError:
-                _write_usage_failure(json_output=False)
-                return 2
-            policy_authority = destination_bound_authority(tasks, policy)
-            session_authority = replace(
-                policy_authority,
-                capabilities=policy_authority.capabilities & selected_grants,
+        if policy_path is not None:
+            authority_source = TrustedSessionAuthority(
+                tasks,
+                policy_path=Path(policy_path),
+                consent_state_path=(
+                    None if parsed.consent_state is None else Path(parsed.consent_state)
+                ),
             )
+
+            def intersect_policy_authority(current: EffectiveAuthority) -> EffectiveAuthority:
+                policy_capabilities = current.capabilities
+                if parsed.capture_policy is not None:
+                    # launcher-policy.v1 originally expressed the single
+                    # capture-submit grant through allowed_capture_tiers. Keep
+                    # that legacy alias working without allowing a whole-session
+                    # policy to acquire a capability it did not grant.
+                    policy_capabilities |= frozenset({"capture-submit"})
+                return replace(
+                    current,
+                    capabilities=policy_capabilities & selected_grants,
+                )
+
+            session_authority = intersect_policy_authority(authority_source.load())
+
+            def revalidate_session_authority() -> EffectiveAuthority:
+                effective = intersect_policy_authority(authority_source.load())
+                if effective != session_authority:
+                    raise LauncherPolicyError("stale_policy")
+                return session_authority
+
+            session_authority_revalidator = revalidate_session_authority
+        if parsed.allow_capture_submit:
             capture_submit_capability = destination_bound_capture_submit(
                 tasks, session_authority
             )
@@ -1790,6 +1981,7 @@ def _run_local_command(
         )
         adapter = LocalMcpAdapter(
             authority=session_authority,
+            revalidate_authority=session_authority_revalidator,
             capture=mcp_capture_sink(tasks) if parsed.allow_capture else None,
             capture_submit=capture_submit_capability,
             search=search if parsed.allow_search else None,

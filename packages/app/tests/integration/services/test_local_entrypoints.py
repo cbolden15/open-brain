@@ -2138,3 +2138,89 @@ def test_cli_capture_submit_reports_a_retryable_admission_result(
 
 def test_mcp_capture_submit_requires_a_policy_path() -> None:
     assert run_cli(("mcp", "--allow-capture-submit"), environment={}) == 2
+
+
+def test_owner_consent_cli_persists_complete_lifecycle_across_restarts(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "brain"
+    assert _subprocess_cli(root, "status")["profile"] == "local"
+    authority_root = tmp_path / "authority"
+    authority_root.mkdir(mode=0o700)
+    state = authority_root / "provider-consent.json"
+
+    granted = _subprocess_cli(
+        root,
+        "consent",
+        "grant",
+        "--state",
+        str(state),
+        "--provider-id",
+        "synthetic-provider",
+        "--allowed-tier",
+        "public",
+        "--allowed-tier",
+        "work",
+        "--operation-id",
+        "grant-1",
+    )
+    assert granted["status"] == "granted"
+    assert granted["authorization_generation"] == 1
+    consent_id = cast(str, granted["consent_id"])
+
+    inspected = _subprocess_cli(root, "consent", "inspect", "--state", str(state))
+    assert inspected["status"] == "shown"
+    assert inspected["authorization_generation"] == 1
+    assert cast(list[dict[str, object]], inspected["records"])[0]["allowed_tiers"] == [
+        "public",
+        "work",
+    ]
+
+    duplicate = _subprocess_cli(
+        root,
+        "consent",
+        "grant",
+        "--state",
+        str(state),
+        "--provider-id",
+        "synthetic-provider",
+        "--allowed-tier",
+        "public",
+        "--allowed-tier",
+        "work",
+        "--operation-id",
+        "grant-1",
+    )
+    assert duplicate == granted
+
+    replaced = _subprocess_cli(
+        root,
+        "consent",
+        "replace",
+        "--state",
+        str(state),
+        "--consent-id",
+        consent_id,
+        "--provider-id",
+        "synthetic-provider",
+        "--allowed-tier",
+        "public",
+        "--operation-id",
+        "replace-1",
+    )
+    assert replaced["status"] == "replaced"
+    assert replaced["authorization_generation"] == 2
+
+    revoked = _subprocess_cli(
+        root,
+        "consent",
+        "revoke",
+        "--state",
+        str(state),
+        "--consent-id",
+        cast(str, replaced["consent_id"]),
+        "--operation-id",
+        "revoke-1",
+    )
+    assert revoked["status"] == "revoked"
+    assert revoked["authorization_generation"] == 3

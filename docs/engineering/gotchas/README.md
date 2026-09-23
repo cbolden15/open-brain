@@ -143,6 +143,23 @@ access. Exercise the complete stdio path, not only the downstream dispatcher.
 
 Discovered: 2026-09-21, independent session-authority review.
 
+### SECURITY-003: Synthetic authority tests do not prove the installed launcher mapping
+
+Symptom: Scoped adapter tests pass, but the installed MCP command still constructs its own default
+read tiers and has no durable provider-consent input. A deployment cannot distinguish a general
+route from a personal-capable or external-provider route.
+
+Cause: The immutable authority contract was tested below the real CLI composition boundary. The
+launcher policy was wired only to destination-bound capture, and provider consent existed only as
+an in-memory value.
+
+Fix: Load one trusted whole-session policy, persist Brain-bound owner consent outside Brain content,
+and reuse one narrowed `EffectiveAuthority` through every adapter. Revalidate policy and consent
+before discovery and dispatch so revocation terminates the foreground process. Test the installed
+stdio subprocess, not only synthetic adapter construction.
+
+Discovered: 2026-09-23, Mac Mini CUT-G3 launcher-readiness audit.
+
 ### MEDIA-001: Resource limits must be enforceable
 
 Symptom: A command object lists timeout, memory, or process limits that the runtime never applies.

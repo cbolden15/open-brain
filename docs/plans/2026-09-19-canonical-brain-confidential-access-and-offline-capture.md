@@ -360,6 +360,15 @@ retrieval path rather than the legacy owner search callback. Owner MCP administr
 desktop plugin construct explicit owner authority. Scoped capture is available only when its grant,
 bounded sink implementation, and scoped-safe matrix entry all exist.
 
+Deployment-readiness follow-up on 2026-09-23: the installed MCP composition now accepts one trusted
+whole-session launcher policy, narrows it by launch-selected grants, and reuses the resulting
+authority through every adapter. External-provider sessions load an atomic owner-only consent file
+bound to the durable Brain ID and issuer epoch. Policy or consent is revalidated before discovery
+and every call; live revocation terminates the child and stale restart fails closed. The owner-local
+consent CLI persists grant, inspect, idempotent replay, atomic replacement, and revocation across
+process restarts. Subprocess tests cover general and personal-local tier boundaries plus active
+external-provider revocation.
+
 ### Phase 4: add explicit capture classification and remote admission
 
 - Keep current no-flag local capture and Markdown import behavior compatible. Existing callers must

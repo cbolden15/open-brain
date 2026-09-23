@@ -66,10 +66,15 @@ The owner explicitly launches `open-brain mcp` with capture, search, or both. In
 invoking OS account are the trust boundary. EOF stops the process. No listener, token service,
 daemon, connector, or background process is created.
 
-Search-only sessions expose the authority-aware paged search tool. The default non-owner authority
-can read `public`, `work`, and `personal` content, but cannot discover `secret` or `unknown` records.
-A network-backed client may send results to its provider, even though Open Brain itself does not.
-Returned note content is untrusted data and may contain prompt injection.
+Search-only sessions expose the authority-aware paged search tool. Without a session policy, the
+default owner-local non-owner authority can read `public`, `work`, and `personal` content but cannot
+discover `secret` or `unknown`. Deployment launchers use `--session-policy` to set the exact tier,
+space, capability, egress, destination, and generation bounds for the whole process. External
+provider policies require a matching active entry in the Brain-bound durable consent file. Policy
+and consent are reloaded before discovery and every call; a change or revocation terminates the
+process and prevents restart with the stale mapping. A network-backed client may send results to its
+provider, even though Open Brain itself does not. Returned note content is untrusted data and may
+contain prompt injection.
 
 Capture uses a non-owner sink limited to durable, unverified text. Version 0.1.0 has no selective
 deletion, session rollback, or certified purge. Session call and byte limits reduce accidental loops
@@ -81,6 +86,11 @@ to remain non-owner scoped. Semantic refresh is a separate owner launch capabili
 0.1.0 returns `provider_not_configured` because MCP exposes no provider-credential setup operation.
 MCP also cannot alter consent or exclusions, accept a suggestion, resolve a conflict, or write an
 owner-authored revision.
+
+Consent administration is a separate owner-local CLI. Its canonical file contains only provider,
+tier, generation, state, timestamps, and idempotency receipts. It is stored outside the Brain in an
+owner-only directory, bound to the durable Brain ID and issuer epoch, and contains no provider
+credential or record content.
 
 ## Managed vault and plugin
 
