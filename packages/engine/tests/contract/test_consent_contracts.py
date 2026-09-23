@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from dataclasses import replace
 
 import pytest
@@ -10,6 +11,8 @@ from open_brain_engine.engine.consent_contracts import (
     EgressMode,
     ProviderConsentRecord,
     ProviderConsentState,
+    provider_consent_state_from_bytes,
+    provider_consent_state_to_bytes,
 )
 
 CONSENT_A = "consent_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
@@ -229,3 +232,50 @@ def test_malformed_grant_inputs_stay_inside_contract_error_boundary(
     arguments.update(changes)
     with pytest.raises(ConsentContractError, match="invalid_consent"):
         ProviderConsentState().grant(**arguments)  # type: ignore[arg-type]
+
+
+def test_consent_state_canonical_round_trip_preserves_replay_evidence() -> None:
+    granted = grant().state
+    replaced = granted.replace(
+        owner=True,
+        consent_id=CONSENT_A,
+        provider_id="replacement-provider",
+        allowed_tiers=frozenset({PrivacyTier.PERSONAL}),
+        operation_id="replace-1",
+        decided_at=LATER,
+        consent_id_factory=lambda: CONSENT_B,
+    ).state
+    state = replaced.revoke(
+        owner=True,
+        consent_id=CONSENT_B,
+        operation_id="revoke-1",
+        decided_at="2026-09-19T12:02:00Z",
+    ).state
+
+    payload = provider_consent_state_to_bytes(state)
+    restored = provider_consent_state_from_bytes(payload)
+
+    assert restored == state
+    assert provider_consent_state_to_bytes(restored) == payload
+    replay = restored.revoke(
+        owner=True,
+        consent_id=CONSENT_B,
+        operation_id="revoke-1",
+        decided_at="2026-09-19T12:03:00Z",
+    )
+    assert replay.state is restored
+    assert replay.receipt == state.operations[-1].receipt
+
+
+def test_consent_state_parser_rejects_extensions_and_noncanonical_bytes() -> None:
+    payload = provider_consent_state_to_bytes(grant().state)
+    value = json.loads(payload)
+    value["unexpected"] = True
+    with pytest.raises(ConsentContractError, match="invalid_consent"):
+        provider_consent_state_from_bytes(
+            json.dumps(value, sort_keys=True, separators=(",", ":")).encode()
+        )
+
+    noncanonical = json.dumps(json.loads(payload), indent=2).encode()
+    with pytest.raises(ConsentContractError, match="invalid_consent"):
+        provider_consent_state_from_bytes(noncanonical)
