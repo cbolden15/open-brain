@@ -148,6 +148,66 @@ def test_collector_rejects_changed_digest_custody_receipt(
         EngineCaptureSink(public_sink).submit(intake)
 
 
+@pytest.mark.parametrize("invalid_binding", ("request_digest", "protection"))
+def test_collector_custody_retains_body_after_invalid_custody_receipt(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    invalid_binding: str,
+) -> None:
+    brain_root = tmp_path / "brain"
+    public_sink = _capture_sink(brain_root)
+    identity = public_sink.brain_identity
+    assert identity is not None
+    selection = _selection()
+    source = _Source(selection)
+    intake = source._intake()
+    submission = CaptureSubmission.for_public_job(
+        context=public_sink.context,
+        payload=intake.payload(),
+        delivery_id=intake.key.delivery_id(),
+        source_origin="third_party",
+        source_reference=intake.source_reference,
+        provenance=intake.provenance(),
+        privacy=intake.privacy,
+        intent="reference",
+        title=intake.title,
+    )
+    receipt = CaptureCustodyReceipt(
+        ingestion_id="ingestion_" + str(uuid4()),
+        brain_id=identity[0],
+        issuer_epoch=identity[1],
+        delivery_id=intake.key.delivery_id(),
+        request_sha256=submission.request_sha256(),
+        requested_tier=intake.privacy.tier,
+        final_admitted_tier=intake.privacy.tier,
+        queued_at="2026-09-22T12:00:00Z",
+    )
+    if invalid_binding == "request_digest":
+        object.__setattr__(receipt, "request_sha256", "0" * 64)
+    else:
+        object.__setattr__(receipt, "protection_acknowledgement", "synthetic-unprotected")
+    monkeypatch.setattr(public_sink, "submit", lambda *_args, **_kwargs: receipt)
+
+    controller = CollectorController(
+        CollectorStateStore(tmp_path / "collector" / "state.json"),
+        clock=_Clock(100),
+        brain_root=brain_root,
+    )
+    source_id = "github.fixture.invalid-receipt"
+    controller.enable(source_id=source_id, selection=selection, interval_seconds=60)
+    with pytest.raises(LiveSourceError, match="collector_invalid_custody_receipt"):
+        controller.sync_due(
+            source_id=source_id,
+            runtime=source,
+            capture_sink=EngineCaptureSink(public_sink),
+        )
+
+    custody = controller.custody_status(source_id)
+    assert custody["retained_items"] == 1
+    receipt_id = cast(list[str], custody["receipt_ids"])[0]
+    assert controller._custody.intake(receipt_id) == intake
+
+
 def test_collector_rejects_terminal_receipt_that_widens_privacy(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

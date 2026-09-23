@@ -600,6 +600,45 @@ def test_scenario_06_stale_epoch_receipt_quarantines_with_no_capture(
     assert store.status().quarantined_items == 1
 
 
+@pytest.mark.parametrize("invalid_binding", ("request_digest", "protection"))
+def test_scenario_06b_invalid_queued_custody_never_removes_outbox_body(
+    tmp_path: Path,
+    invalid_binding: str,
+) -> None:
+    store = _store(tmp_path)
+    envelope = _envelope(enqueued_at=_stamp())
+    assert store.enqueue(envelope) is EnqueueResult.QUEUED
+    receipt = TerminalReceipt(
+        status=TerminalReceiptStatus.QUEUED,
+        brain_id=envelope.destination_brain_id,
+        issuer_epoch=envelope.expected_issuer_epoch,
+        delivery_id=envelope.delivery_id,
+        request_digest=envelope.request_digest,
+        final_admitted_tier=envelope.requested_tier,
+    )
+    if invalid_binding == "request_digest":
+        object.__setattr__(receipt, "request_digest", "0" * 64)
+    else:
+        object.__setattr__(
+            receipt,
+            "protection_acknowledgement",
+            "synthetic-unprotected",
+        )
+
+    summary = run_drain_cycle(
+        store,
+        lambda _item: receipt,
+        max_batch_items=4,
+        max_batch_bytes=MAX_BYTES,
+    )
+
+    assert summary.quarantined_receipt_mismatch == 1
+    raw = _item_path(store, envelope.delivery_id).read_bytes()
+    assert PAYLOAD_TEXT.encode("utf-8") in raw
+    assert _item_json(raw)["quarantine_reason"] == "receipt_mismatch"
+    assert store.status().quarantined_items == 1
+
+
 def test_scenario_07_partial_write_truncated_item_surfaces_corrupt_after_restart(
     tmp_path: Path,
 ) -> None:

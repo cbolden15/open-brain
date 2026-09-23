@@ -1,7 +1,7 @@
 {
   "id": "2026-09-22-durable-ingestion-journal-notes",
   "title": "Implementation notes — Durable ingestion journal",
-  "subtitle": "phase 3 of 5 complete · 2026-09-22 20:38 CDT",
+  "subtitle": "phase 4 of 5 complete · 2026-09-22 21:54 CDT",
   "introTitle": "How to use",
   "intro": "<p>Each item is a decision, deviation, or tradeoff made during implementation. <strong>Acknowledge</strong> if fine. <strong>Discuss</strong> to write what should change. <strong>Revert</strong> to flag for undo.</p>",
   "actions": [
@@ -169,6 +169,42 @@
         "What I did": "Cut every capture surface over to journal custody, preserved explicit EffectiveAuthority through adapters, updated production consumers for queued outcomes, and covered contention, replay, outbox terminalization, receipt tampering, source fencing, and recovery.",
         "Why": "The Phase 3 exit gate is satisfied. Full verification is green: 3,341 Python tests with 5 expected skips, 291 Obsidian tests, 259 desktop tests, 1 desktop Python test, and 26 Rust tests. Ruff, MyPy, TypeScript, builds, and Rust formatting also pass.",
         "Followup": "Phase 4 adds explicit owner journal operations and the remaining adversarial and observability coverage."
+      }
+    },
+    {
+      "id": "N12",
+      "group": "phase-4",
+      "title": "Owner journal operations require explicit local authority",
+      "where": "packages/engine/src/open_brain_engine/engine/journal_ops.py:33",
+      "default": "acknowledge",
+      "body": {
+        "What I did": "Added owner-only status, bounded drain, quarantined retry, and confirmed discard operations. Each task requires an explicit EffectiveAuthority tied to the Brain owner and owner-local egress. The CLI exposes metadata only.",
+        "Why": "Journal recovery is operational access to Brain-wide custody state. It must not appear in MCP or scoped-agent surfaces, and it must never rely on a missing authority value.",
+        "Risk": "Status exposes the internal journal sequence to the local owner so results can be paginated. It remains unavailable to scoped sessions and never includes envelope content."
+      }
+    },
+    {
+      "id": "N13",
+      "group": "phase-4",
+      "title": "Receipt verification keeps upstream bodies until exact custody is proven",
+      "where": "packages/collector/src/open_brain_collector/lifecycle.py:1127",
+      "default": "acknowledge",
+      "body": {
+        "What I did": "Applied the shared exact receipt verifier to both collector paths and added adversarial collector and outbox cases for changed request digests and unsupported protection acknowledgements. Invalid receipts leave the upstream body intact.",
+        "Why": "A queued response transfers custody only when it binds the exact Brain, epoch, delivery, request digest, privacy narrowing, and configured local-durability policy.",
+        "Risk": "The current policy accepts the documented null protection acknowledgement. Any non-null acknowledgement remains unsupported and fails closed until a separate protection finalizer contract is defined."
+      }
+    },
+    {
+      "id": "N14",
+      "group": "phase-4",
+      "title": "Implementation complete: Phase 4",
+      "where": "phase-4 exit gate",
+      "default": "acknowledge",
+      "body": {
+        "What I did": "Completed owner journal operations, status and doctor telemetry, pagination across all non-terminal items, receipt custody hardening, and adversarial coverage for concurrency, FIFO drain, corruption, capacity, watermark refusal, replay, conflict, compaction, quarantine, and authority boundaries.",
+        "Why": "The Phase 4 exit gate is satisfied. Full verification is green: 3,350 Python tests with 5 expected skips, 291 Obsidian tests, 259 desktop tests, 1 desktop Python test, and 26 Rust tests. Ruff, MyPy, TypeScript, builds, and Rust formatting also pass.",
+        "Followup": "Phase 5 documents the operator workflow, runs the final cutover checks, and performs the Mac Mini migration."
       }
     }
   ]

@@ -35,10 +35,20 @@ class JournalTasks:
         self._engine = engine
 
     def status(
-        self, *, authority: EffectiveAuthority, limit: int = 100
+        self,
+        *,
+        authority: EffectiveAuthority,
+        limit: int = 100,
+        after_sequence: int | None = None,
     ) -> tuple[IngestionStatus, ...]:
         self._require_owner(authority)
-        return self._engine.ingestion.status(limit=limit)
+        try:
+            return self._engine.ingestion.status(
+                limit=limit,
+                after_sequence=after_sequence,
+            )
+        except ValueError:
+            raise JournalOperationError("invalid_request") from None
 
     def summary(self, *, authority: EffectiveAuthority) -> IngestionSummary:
         self._require_owner(authority)
@@ -63,6 +73,8 @@ class JournalTasks:
 
     def discard(self, delivery_id: str, *, reason: str, authority: EffectiveAuthority) -> None:
         self._require_owner(authority)
+        if not isinstance(reason, str) or not 1 <= len(reason) <= 128:
+            raise JournalOperationError("invalid_request")
         try:
             self._engine.ingestion.discard(delivery_id, reason=reason)
         except ValueError as error:

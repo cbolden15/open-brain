@@ -304,30 +304,40 @@ class IngestionJournal:
                 "DELETE FROM capture_ingestion_items WHERE delivery_id = ?", (delivery_id,)
             )
 
-    def status(self, *, limit: int = 100) -> tuple[IngestionStatus, ...]:
-        if type(limit) is not int or not 1 <= limit <= 100:
+    def status(
+        self, *, limit: int = 100, after_sequence: int | None = None
+    ) -> tuple[IngestionStatus, ...]:
+        if (
+            type(limit) is not int
+            or not 1 <= limit <= 100
+            or after_sequence is not None
+            and (type(after_sequence) is not int or after_sequence < 0)
+        ):
             raise ValueError("invalid journal status limit")
+        sequence_floor = 0 if after_sequence is None else after_sequence
         connection = self._engine._store.connect()
         try:
             rows = tuple(
                 connection.execute(
                     """
-                SELECT pending.delivery_id, pending.ingestion_id, pending.queued_at,
-                       event.event_kind, event.attempt_number
+                SELECT pending.journal_sequence, pending.delivery_id, pending.ingestion_id,
+                       pending.queued_at, event.event_kind, event.attempt_number
                 FROM capture_ingestion_pending AS pending
                 JOIN capture_ingestion_events AS event ON event.event_sequence = (
                     SELECT max(event_sequence) FROM capture_ingestion_events
                     WHERE delivery_id = pending.delivery_id
                 )
+                WHERE pending.journal_sequence > ?
                 ORDER BY pending.journal_sequence LIMIT ?
                 """,
-                    (limit,),
+                    (sequence_floor, limit),
                 )
             )
         finally:
             connection.close()
         return tuple(
             IngestionStatus(
+                journal_sequence=cast(int, row["journal_sequence"]),
                 delivery_id=cast(str, row["delivery_id"]),
                 ingestion_id=cast(str, row["ingestion_id"]),
                 state=cast(str, row["event_kind"]),

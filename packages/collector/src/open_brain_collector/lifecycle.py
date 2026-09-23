@@ -1167,7 +1167,10 @@ class EngineCaptureSink:
             # A queued journal receipt releases collector custody only when it
             # binds the exact collector delivery to this Brain and narrows,
             # never widens, the admitted privacy tier.
-            checked = verify_capture_custody_receipt(receipt.to_dict())
+            try:
+                checked = verify_capture_custody_receipt(receipt.to_dict())
+            except ValueError:
+                raise LiveSourceError("collector_invalid_custody_receipt") from None
             identity = self._sink.brain_identity
             if (
                 identity is None

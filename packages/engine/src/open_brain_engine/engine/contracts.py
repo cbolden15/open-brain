@@ -2306,7 +2306,7 @@ class CaptureCustodyReceipt:
             "requested_tier": self.requested_tier.value,
             "final_admitted_tier": self.final_admitted_tier.value,
             "queued_at": self.queued_at,
-            "protection_acknowledgement": None,
+            "protection_acknowledgement": self.protection_acknowledgement,
         }
 
     # These terminal-only accessors intentionally carry no value. They keep
@@ -2377,6 +2377,7 @@ type CaptureOutcome = CaptureReceipt | CaptureCustodyReceipt
 class IngestionStatus:
     """One metadata-only active journal item, visible only to the owner."""
 
+    journal_sequence: int
     delivery_id: str
     ingestion_id: str
     state: str
@@ -2894,7 +2895,11 @@ class JournalTask(Protocol):
     """Owner-only ingress inspection and recovery operations."""
 
     def status(
-        self, *, authority: EffectiveAuthority, limit: int = 100
+        self,
+        *,
+        authority: EffectiveAuthority,
+        limit: int = 100,
+        after_sequence: int | None = None,
     ) -> tuple[IngestionStatus, ...]: ...
 
     def summary(self, *, authority: EffectiveAuthority) -> IngestionSummary: ...

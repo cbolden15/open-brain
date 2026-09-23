@@ -807,6 +807,7 @@ def _parser() -> argparse.ArgumentParser:
     journal_status = journal_children.add_parser("status", help="List metadata-only pending items.")
     _add_local_options(journal_status)
     journal_status.add_argument("--limit", type=int, default=100)
+    journal_status.add_argument("--after-sequence", type=int)
     journal_drain = journal_children.add_parser("drain", help="Run one bounded owner drain cycle.")
     _add_local_options(journal_drain)
     journal_retry = journal_children.add_parser(
@@ -1524,18 +1525,24 @@ def _run_journal(parsed: argparse.Namespace, tasks: EngineTaskSet, *, json_outpu
         raise JournalOperationError("operation_unavailable")
     authority = owner_authority(tasks, session_id="owner-cli")
     if parsed.journal_action == "status":
-        items = journal.status(authority=authority, limit=cast(int, parsed.limit))
+        items = journal.status(
+            authority=authority,
+            limit=cast(int, parsed.limit),
+            after_sequence=cast(int | None, parsed.after_sequence),
+        )
         payload = {
             "items": [
                 {
                     "attempt_number": item.attempt_number,
                     "delivery_id": item.delivery_id,
                     "ingestion_id": item.ingestion_id,
+                    "journal_sequence": item.journal_sequence,
                     "queued_at": item.queued_at,
                     "state": item.state,
                 }
                 for item in items
             ],
+            "next_after_sequence": items[-1].journal_sequence if items else None,
             "status": "shown",
             **_journal_summary(tasks=tasks),
         }

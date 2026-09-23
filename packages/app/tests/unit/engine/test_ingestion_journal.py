@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import sqlite3
+import threading
+from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime
 from pathlib import Path
 from uuid import uuid4
@@ -31,14 +33,14 @@ from open_brain_engine.engine.local_schema import PHASE1_STATE_DATABASE, inspect
 from open_brain_engine.engine.local_schema_catalog import LOCAL_MIGRATIONS
 from open_brain_engine.engine.t03_contracts import EffectiveAuthority
 
-from open_brain.profile import compile_single_user_local
+from open_brain.profile import SingleUserLocalProfile, compile_single_user_local
 
 
 def _clock() -> datetime:
     return datetime.now(UTC)
 
 
-def _owner(profile: object) -> EffectiveAuthority:
+def _owner(profile: SingleUserLocalProfile) -> EffectiveAuthority:
     return EffectiveAuthority(
         principal_id=profile.owner_actor_id,
         session_id="journal-test-owner",
@@ -438,3 +440,112 @@ def test_journal_capacity_duplicate_conflict_and_fifo_drain(tmp_path: Path) -> N
         first.delivery_id,
         second.delivery_id,
     )
+
+
+def test_simultaneous_enqueue_assigns_one_order_and_drains_in_that_order(
+    tmp_path: Path,
+) -> None:
+    profile = compile_single_user_local(tmp_path / "brain")
+    engine = BrainEngine.open(profile)
+    submissions = tuple(
+        CaptureSubmission.for_local_owner(
+            profile=profile,
+            payload=TextPayload(f"simultaneous journal item {index}"),
+            delivery_id=f"journal.simultaneous.{index}",
+        )
+        for index in range(8)
+    )
+    start = threading.Barrier(len(submissions))
+
+    def enqueue(submission: CaptureSubmission) -> CaptureCustodyReceipt:
+        start.wait()
+        result = engine.ingestion.enqueue(submission)
+        assert isinstance(result, CaptureCustodyReceipt)
+        return result
+
+    with ThreadPoolExecutor(max_workers=len(submissions)) as executor:
+        custody = tuple(executor.map(enqueue, submissions))
+
+    assert len({item.ingestion_id for item in custody}) == len(submissions)
+    with sqlite3.connect(profile.root / PHASE1_STATE_DATABASE) as connection:
+        ordered_deliveries = tuple(
+            row[0]
+            for row in connection.execute(
+                "SELECT delivery_id FROM capture_ingestion_items ORDER BY journal_sequence"
+            )
+        )
+        sequences = tuple(
+            row[0]
+            for row in connection.execute(
+                "SELECT journal_sequence FROM capture_ingestion_items ORDER BY journal_sequence"
+            )
+        )
+    assert len(ordered_deliveries) == len(submissions)
+    assert sequences == tuple(range(sequences[0], sequences[0] + len(submissions)))
+
+    with engine._writer_lease.acquire_shared_writer():
+        receipts = engine.ingestion.drain_locked()
+    with sqlite3.connect(profile.root / PHASE1_STATE_DATABASE) as connection:
+        capture_deliveries = {
+            row[0]: row[1]
+            for row in connection.execute("SELECT capture_id, delivery_id FROM captures")
+        }
+    assert tuple(capture_deliveries[item.capture_id] for item in receipts) == ordered_deliveries
+
+
+def test_corrupt_envelope_is_quarantined_and_owner_status_paginates(
+    tmp_path: Path,
+) -> None:
+    profile = compile_single_user_local(tmp_path / "brain")
+    engine = BrainEngine.open(profile)
+    submissions = tuple(
+        CaptureSubmission.for_local_owner(
+            profile=profile,
+            payload=TextPayload(
+                "corruptonlyneedle" if index == 0 else f"healthy pagination item {index}"
+            ),
+            delivery_id=f"journal.pagination.{index}",
+        )
+        for index in range(3)
+    )
+    for submission in submissions:
+        engine.ingestion.enqueue(submission)
+    journal = engine.tasks.journal
+    assert journal is not None
+    first_page = journal.status(authority=_owner(profile), limit=2)
+    second_page = journal.status(
+        authority=_owner(profile),
+        limit=2,
+        after_sequence=first_page[-1].journal_sequence,
+    )
+    assert tuple(item.delivery_id for item in (*first_page, *second_page)) == tuple(
+        item.delivery_id for item in submissions
+    )
+    with sqlite3.connect(profile.root / PHASE1_STATE_DATABASE) as connection:
+        trigger_sql = connection.execute(
+            "SELECT sql FROM sqlite_master WHERE type = 'trigger' "
+            "AND name = 'capture_ingestion_payloads_update_immutable'"
+        ).fetchone()[0]
+        connection.execute("DROP TRIGGER capture_ingestion_payloads_update_immutable")
+        connection.execute(
+            "UPDATE capture_ingestion_payloads SET envelope_bytes = ? WHERE delivery_id = ?",
+            (b"corrupt-envelope", submissions[0].delivery_id),
+        )
+        connection.execute(trigger_sql)
+
+    with engine._writer_lease.acquire_shared_writer():
+        receipts = engine.ingestion.drain_locked()
+    assert len(receipts) == 2
+    quarantined = journal.status(authority=_owner(profile), limit=1)
+    assert len(quarantined) == 1
+    assert quarantined[0].delivery_id == submissions[0].delivery_id
+    assert quarantined[0].state == "quarantined"
+    assert (
+        journal.status(
+            authority=_owner(profile),
+            limit=1,
+            after_sequence=quarantined[0].journal_sequence,
+        )
+        == ()
+    )
+    assert not engine.retrieval.search("corruptonlyneedle")

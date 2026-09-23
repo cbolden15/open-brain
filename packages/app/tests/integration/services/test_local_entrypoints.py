@@ -124,6 +124,7 @@ def test_owner_journal_cli_reports_metadata_and_requires_discard_confirmation(
     payload = cast(dict[str, object], json.loads(capsys.readouterr().out))
     assert payload["status"] == "shown"
     assert cast(list[object], payload["items"])[0]
+    assert payload["next_after_sequence"] is not None
     assert payload["quarantined_count"] == 1
     assert "JOURNAL_CLI_PRIVATE_CONTENT" not in json.dumps(payload)
 
@@ -144,6 +145,52 @@ def test_owner_journal_cli_reports_metadata_and_requires_discard_confirmation(
         == 2
     )
     assert json.loads(capsys.readouterr().out)["error"]["code"] == "discard_confirmation_required"
+
+    assert (
+        run_cli(
+            (
+                "journal",
+                "retry",
+                submission.delivery_id,
+                "--data-dir",
+                str(root),
+                "--json",
+            ),
+            filesystem_type_probe=_filesystem,
+        )
+        == 0
+    )
+    assert json.loads(capsys.readouterr().out)["status"] == "requeued"
+    assert (
+        run_cli(
+            ("journal", "drain", "--data-dir", str(root), "--json"),
+            filesystem_type_probe=_filesystem,
+        )
+        == 0
+    )
+    drained = json.loads(capsys.readouterr().out)
+    assert drained["status"] == "drained"
+    assert drained["quarantined_count"] == 1
+    assert (
+        run_cli(
+            (
+                "journal",
+                "discard",
+                submission.delivery_id,
+                "--reason",
+                "operator",
+                "--confirm",
+                "--data-dir",
+                str(root),
+                "--json",
+            ),
+            filesystem_type_probe=_filesystem,
+        )
+        == 0
+    )
+    discarded = json.loads(capsys.readouterr().out)
+    assert discarded["status"] == "discarded"
+    assert discarded["retained_bytes"] == 0
 
 
 def _privacy_repair_brain(tmp_path: Path) -> tuple[Path, LocalEngineContext, str, str]:
@@ -1780,6 +1827,13 @@ def test_local_dependency_doctor_rejects_an_unconditional_secure_node_dependency
     )
     assert json.loads(capsys.readouterr().out) == {
         "check": "base-dependency-closure",
+        "ingestion_journal": {
+            "last_failure_code": None,
+            "oldest_age_seconds": None,
+            "pending_count": 0,
+            "quarantined_count": 0,
+            "retained_bytes": 0,
+        },
         "status": "failed",
     }
 
