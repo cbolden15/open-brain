@@ -62,7 +62,9 @@ same user, or mutually untrusted operating-system users.
 The launcher authenticates any transport peer outside Open Brain, selects one preconfigured generic
 principal, and supplies one complete immutable policy before the foreground child begins serving
 requests. Open Brain adds no transport authentication, listener, daemon, service lifecycle, or real
-identity mapping. Revocation of a static launcher identity requires the launcher to terminate the
+identity mapping. The MCP child reloads its trusted policy and any external-provider consent before
+tool discovery and every tool call. A changed mapping or consent generation terminates that child.
+Revocation of transport identity outside those files still requires the launcher to terminate the
 active child and prevent a replacement child from starting with that mapping.
 
 Owner-local operations are constructed from the local owner profile and do not accept owner status
@@ -124,6 +126,12 @@ Missing, malformed, stale, or multiply active consent authorizes no provider acc
 provider-scoped session rechecks consent and generation before every protected operation. Older
 cursors fail after a generation change. Revocation cannot recall bytes already returned.
 
+The durable consent projection is deployment authority outside the Brain database. Its exact
+canonical file is bound to the durable Brain ID and issuer epoch, lives in an owner-only directory,
+and is replaced atomically. It persists records and operation-ID replay receipts across restarts.
+It contains no provider credential or Brain content. The owner-local `consent` CLI is its only
+administration surface; scoped MCP sessions cannot invoke it.
+
 ### `launcher-policy.v1`
 
 `launcher-policy.v1` is a closed, versioned startup contract containing exactly the scoped
@@ -136,6 +144,13 @@ The policy enters through a launcher-owned startup boundary, never through `t03.
 arguments, capture bodies, or another client request stream. Missing, malformed, stale,
 destination-mismatched, or issuer-mismatched policy fails before any result, body, history, or
 capture acceptance is returned. Client-supplied policy fields are rejected rather than merged.
+
+The installed MCP boundary accepts the policy only through `--session-policy`. An external-provider
+policy also requires `--consent-state`. The immutable effective authority used by every adapter is
+the intersection of policy capabilities and launch-selected grants. Discovery and dispatch then
+intersect that authority with injected implementations and the scoped-safe operation matrix.
+`--capture-policy` is retained as a capture-submit compatibility alias and cannot coexist with
+`--session-policy`.
 
 The public conformance suite uses synthetic identities and providers to prove immutable mapping,
 narrowing, requested-capture-tier bounds, destination and issuer binding, generation freshness,

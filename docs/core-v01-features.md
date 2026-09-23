@@ -31,7 +31,7 @@ evidence. A catalog version is not a protocol or database upgrade instruction.
 | Retrieval | Lexical search, paged filters, complete projected reads, retained history and explicit relationships | Independent content/history grants for MCP; cursors can become stale |
 | Managed vault | `workspace setup`, `status`, `refresh`; approved canonical pages | Sibling `Open Brain Vault`; routing alone does not publish; no `vault` CLI |
 | Agent memory | Claude Code and Codex preview/apply/remove through `agent setup` | Nine independent grants, off by default; synthetic setup proof is not live client/provider acceptance |
-| MCP | Foreground stdio; `tools/list`, `brain_catalog`, grant-filtered callable tools | No-grant startup refused; metadata does not grant operations |
+| MCP | Foreground stdio; `tools/list`, `brain_catalog`, grant-filtered callable tools; optional whole-session launcher policy and durable external-provider consent | No-grant startup refused; authority is the intersection of policy, selected flags, injected implementations, and the scoped-safe matrix; live revocation terminates the process |
 | Obsidian | Packaged desktop plugin, explicit staging/activation, existing capture/routing/review/read workflow | Assets and bridge registration do not prove UI use; exact-candidate GUI gate remains open |
 | Graphify | Separately packaged structural helper | Paired resource; rebuildable graph is not source evidence |
 | Direct-provider graph refresh | Existing consent-gated adapters | Authorization/readiness unassessed; distinct from deferred semantic recall; no provider readiness claim |

@@ -16,6 +16,7 @@ opening a Brain. See the [feature/version matrix](core-v01-features.md).
 | `init`, `capture`, `import`, `status`, `export` | Local storage lifecycle; [first-use](first-use.md), [install](install.md) |
 | `capture-submit` | Destination-bound capture under a trusted startup policy; [capture contract](capture-contract.md) |
 | `journal status/drain/retry/discard` | Owner-only durable ingress inspection and recovery; [operations](operations.md) |
+| `consent grant/inspect/replace/revoke` | Owner-only durable external-provider consent for scoped sessions |
 | `catalog` | Versioned metadata; no grants or public certification |
 | `search`, `search-page`, `read` | Lexical retrieval and complete projected text; [records](records-and-history.md) |
 | `history list/show`, `relationship list/decide`, `decision history` | Retained evidence; owner relationship mutations |
@@ -72,6 +73,30 @@ open-brain journal discard DELIVERY_ID --reason 'owner-confirmed discard' \
 durable tombstone before removing the retained payload. A writer-busy result is retryable; it does
 not mean that acknowledged custody was refused.
 
+## Provider consent
+
+Provider consent is deployment authority, not Brain content. Store it in an existing owner-only
+directory outside the Brain. The directory must have mode `0700`; Open Brain writes the canonical
+state file with mode `0600`. The file is bound to the durable Brain ID and issuer epoch and contains
+no credential or record content.
+
+```sh
+open-brain consent grant --state /absolute/private/provider-consent.json \
+  --provider-id synthetic-provider --allowed-tier public --allowed-tier work \
+  --operation-id grant-1 --data-dir /absolute/brain --json
+open-brain consent inspect --state /absolute/private/provider-consent.json \
+  --data-dir /absolute/brain --json
+open-brain consent replace --state /absolute/private/provider-consent.json \
+  --consent-id CONSENT_ID --provider-id synthetic-provider --allowed-tier public \
+  --operation-id replace-1 --data-dir /absolute/brain --json
+open-brain consent revoke --state /absolute/private/provider-consent.json \
+  --consent-id CONSENT_ID --operation-id revoke-1 --data-dir /absolute/brain --json
+```
+
+Grant, replace, and revoke are operation-ID idempotent. Replace and revoke advance the authorization
+generation once. A missing, malformed, foreign-Brain, wrong-epoch, or concurrently changed state
+file fails closed.
+
 ## Status and doctor
 
 Status reports profile `local`, storage `sqlite`, daemon false, and application encryption false.
@@ -90,9 +115,19 @@ a link, resolve a conflict, or mutate a note. Until a provider adapter is config
 
 Capture, search, content-read, history-read, inbox-read, organize, review-read, review-propose and
 review-decide are independent `--allow-...` flags; workspace-read and graph-refresh are additional
-manual MCP grants. `capture-submit` is a further manual grant: `--allow-capture-submit` exposes the
-destination-bound `brain_capture_submit` tool and requires `--capture-policy` with an absolute
-trusted `launcher-policy.v1` JSON path. Search alone does not grant full content or history. Review
+manual MCP grants. A scoped deployment passes `--session-policy` with one absolute trusted
+`launcher-policy.v1` path. The session receives only the intersection of policy capabilities,
+selected `--allow-...` flags, injected implementations, and the scoped-safe operation matrix.
+Owner operations remain unavailable even if a non-owner policy names their flags. An
+`external_provider` policy also requires `--consent-state` with the durable state described above.
+Open Brain rereads both trusted files before discovery and every tool call. A changed policy,
+generation advance, replacement, revocation, or malformed state terminates the process; a revoked
+mapping cannot restart.
+
+`capture-submit` is a further manual grant: `--allow-capture-submit` exposes the destination-bound
+`brain_capture_submit` tool. `--capture-policy` remains a compatibility alias for a capture-submit
+session policy and cannot be combined with `--session-policy`; new launchers should use
+`--session-policy`. Search alone does not grant full content or history. Review
 decisions publish only after token-bound inspection. `tools/list` reflects session grants, while
 `brain_catalog` accepts `{"schema_version":2}` for metadata. Neither catalog discovery nor source
 text can widen permissions. CLI setup and the shared bridge support nine grants; capture-submit is a
@@ -135,9 +170,10 @@ references.
 Invalid usage returns 2. Temporary SQLite writer contention returns 75 for capture, capture-submit,
 search, import, or MCP work. A private-directory or operation failure returns 78 without exposing
 sensitive paths; a refused startup policy returns 78 with `destination_mismatch`, `issuer_mismatch`,
-or `stale_policy`. A refused `capture-submit` admission reports the stable result value with a
-`retryable` flag: retryable refusals exit 75 and terminal refusals exit 65. Interrupted Markdown
-import returns 130.
+`stale_policy`, or `consent_unavailable`. Consent-state write contention returns 75; invalid owner
+consent input returns 2; unavailable or unsafe consent state returns 78. A refused `capture-submit`
+admission reports the stable result value with a `retryable` flag: retryable refusals exit 75 and
+terminal refusals exit 65. Interrupted Markdown import returns 130.
 
 Secure Node and predecessor command families are historical source under `archive/`. They are not
 installed commands and are not supported through the Open Brain executable.

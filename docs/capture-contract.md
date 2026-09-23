@@ -84,7 +84,7 @@ Owner-originated capture and Markdown import are exempt from the rate, concurren
 
 ## Destination-bound submission
 
-Destination-bound clients submit through one bounded operation governed by a trusted startup policy the owner selected at launch. The CLI command is `capture-submit` with `--policy`; the MCP session flag is `--allow-capture-submit`, which requires `--capture-policy`. Both read the same `launcher-policy.v1` JSON file, an exact schema with no extension fields, treated as trusted owner input, never as client input.
+Destination-bound clients submit through one bounded operation governed by a trusted startup policy the owner selected at launch. The CLI command is `capture-submit` with `--policy`. MCP uses `--allow-capture-submit` with `--session-policy`; `--capture-policy` remains a compatibility alias for capture-submit-only launchers. Every form reads the same `launcher-policy.v1` JSON file, an exact schema with no extension fields, treated as trusted owner input, never as client input.
 
 The policy is validated against this Brain's durable identity before any submission exists. A policy naming another Brain is refused with `destination_mismatch`, a superseded issuer epoch with `issuer_mismatch`, and an unexpected authorization generation with `stale_policy`. An `external_provider` egress mode fails closed with `consent_unavailable`, because the destination-bound path grants no egress authority.
 
