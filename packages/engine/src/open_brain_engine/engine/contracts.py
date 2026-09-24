@@ -319,6 +319,28 @@ class CaptureReceipt:
     request_sha256: str | None = None
     destination_brain_id: str | None = None
     issuer_epoch: int | None = None
+    protection_acknowledgement: ProtectionAcknowledgement | None = None
+
+    def __post_init__(self) -> None:
+        acknowledgement = self.protection_acknowledgement
+        if acknowledgement is None:
+            return
+        if (
+            self.destination_brain_id is None
+            or self.issuer_epoch is None
+            or self.delivery_id is None
+            or self.request_sha256 is None
+        ):
+            raise ValueError("invalid protected capture receipt")
+        verify_protection_acknowledgement_binding(
+            acknowledgement,
+            brain_id=self.destination_brain_id,
+            issuer_epoch=self.issuer_epoch,
+            delivery_id=self.delivery_id,
+            request_sha256=self.request_sha256,
+            requested_tier=self.requested_tier,
+            final_admitted_tier=self.final_admitted_tier,
+        )
 
 
 # One canonical-boundary rescan signal for a submission: a tier narrows the
@@ -690,6 +712,7 @@ def project_public_capture_receipt(receipt: CaptureReceipt) -> CaptureReceipt:
         request_sha256=receipt.request_sha256,
         destination_brain_id=receipt.destination_brain_id,
         issuer_epoch=receipt.issuer_epoch,
+        protection_acknowledgement=receipt.protection_acknowledgement,
     )
 
 
@@ -2237,6 +2260,490 @@ class JournalEnvelope:
             raise ValueError("invalid journal envelope") from None
 
 
+_PROTECTION_REQUEST_KEYS = frozenset(
+    {
+        "contract_version",
+        "brain_id",
+        "issuer_epoch",
+        "delivery_id",
+        "request_sha256",
+        "requested_tier",
+        "final_admitted_tier",
+        "replay_sha256",
+        "replay_base64",
+        "commitment_sha256",
+    }
+)
+_PROTECTION_ACKNOWLEDGEMENT_KEYS = frozenset(
+    {
+        "contract_version",
+        "status",
+        "brain_id",
+        "issuer_epoch",
+        "delivery_id",
+        "request_sha256",
+        "requested_tier",
+        "final_admitted_tier",
+        "replay_sha256",
+        "commitment_sha256",
+        "protection_reference",
+        "protected_at",
+    }
+)
+_PROTECTION_FAILURE_CODES = frozenset(
+    {"protection_timeout", "protection_unavailable", "protection_invalid_acknowledgement"}
+)
+
+
+def _protection_commitment_sha256(
+    *,
+    brain_id: str,
+    issuer_epoch: int,
+    delivery_id: str,
+    request_sha256: str,
+    requested_tier: PrivacyTier,
+    final_admitted_tier: PrivacyTier,
+    replay_sha256: str,
+) -> str:
+    return sha256(
+        portable_canonical_json_bytes(
+            {
+                "contract_version": "receipt-protection-commitment.v1",
+                "brain_id": brain_id,
+                "issuer_epoch": issuer_epoch,
+                "delivery_id": delivery_id,
+                "request_sha256": request_sha256,
+                "requested_tier": requested_tier.value,
+                "final_admitted_tier": final_admitted_tier.value,
+                "replay_sha256": replay_sha256,
+            }
+        )
+    ).hexdigest()
+
+
+def _protection_binding(
+    *,
+    brain_id: object,
+    issuer_epoch: object,
+    delivery_id: object,
+    request_sha256: object,
+    requested_tier: object,
+    final_admitted_tier: object,
+    replay_sha256: object,
+) -> tuple[str, int, str, str, PrivacyTier, PrivacyTier, str]:
+    if (
+        not isinstance(brain_id, str)
+        or re.fullmatch(r"brn_[a-z2-7]{26}", brain_id) is None
+        or type(issuer_epoch) is not int
+        or issuer_epoch <= 0
+    ):
+        raise ValueError("invalid receipt protection binding")
+    _delivery_id(cast(str, delivery_id))
+    if (
+        not isinstance(request_sha256, str)
+        or _HEX64.fullmatch(request_sha256) is None
+        or not isinstance(replay_sha256, str)
+        or _HEX64.fullmatch(replay_sha256) is None
+    ):
+        raise ValueError("invalid receipt protection binding")
+    try:
+        requested = PrivacyTier(cast(PrivacyTier | str, requested_tier))
+        admitted = PrivacyTier(cast(PrivacyTier | str, final_admitted_tier))
+    except (TypeError, ValueError) as error:
+        raise ValueError("invalid receipt protection binding") from error
+    if _PRIVACY_RESTRICTIVENESS[admitted] < _PRIVACY_RESTRICTIVENESS[requested]:
+        raise ValueError("receipt protection binding widens privacy")
+    return (
+        brain_id,
+        issuer_epoch,
+        cast(str, delivery_id),
+        request_sha256,
+        requested,
+        admitted,
+        replay_sha256,
+    )
+
+
+@dataclass(frozen=True, slots=True)
+class ReceiptProtectionRequest:
+    """Exact replay material that must become independently durable."""
+
+    brain_id: str
+    issuer_epoch: int
+    delivery_id: str
+    request_sha256: str
+    requested_tier: PrivacyTier
+    final_admitted_tier: PrivacyTier
+    replay_bytes: bytes
+    contract_version: str = "receipt-protection.v1"
+
+    def __post_init__(self) -> None:
+        if self.contract_version != "receipt-protection.v1" or not isinstance(
+            self.replay_bytes, bytes
+        ):
+            raise ValueError("invalid receipt protection request")
+        replay_sha256 = sha256(self.replay_bytes).hexdigest()
+        (
+            brain_id,
+            issuer_epoch,
+            delivery_id,
+            request_sha256,
+            requested,
+            admitted,
+            _replay_sha256,
+        ) = _protection_binding(
+            brain_id=self.brain_id,
+            issuer_epoch=self.issuer_epoch,
+            delivery_id=self.delivery_id,
+            request_sha256=self.request_sha256,
+            requested_tier=self.requested_tier,
+            final_admitted_tier=self.final_admitted_tier,
+            replay_sha256=replay_sha256,
+        )
+        envelope = JournalEnvelope.from_bytes(self.replay_bytes)
+        if (
+            envelope.submission.delivery_id != delivery_id
+            or envelope.submission.request_sha256() != request_sha256
+            or envelope.submission.requested_tier != requested
+            or envelope.admitted_privacy.tier != admitted
+        ):
+            raise ValueError("receipt protection replay binding mismatch")
+        object.__setattr__(self, "brain_id", brain_id)
+        object.__setattr__(self, "issuer_epoch", issuer_epoch)
+        object.__setattr__(self, "delivery_id", delivery_id)
+        object.__setattr__(self, "request_sha256", request_sha256)
+        object.__setattr__(self, "requested_tier", requested)
+        object.__setattr__(self, "final_admitted_tier", admitted)
+
+    @property
+    def replay_sha256(self) -> str:
+        return sha256(self.replay_bytes).hexdigest()
+
+    @property
+    def commitment_sha256(self) -> str:
+        return _protection_commitment_sha256(
+            brain_id=self.brain_id,
+            issuer_epoch=self.issuer_epoch,
+            delivery_id=self.delivery_id,
+            request_sha256=self.request_sha256,
+            requested_tier=self.requested_tier,
+            final_admitted_tier=self.final_admitted_tier,
+            replay_sha256=self.replay_sha256,
+        )
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "contract_version": self.contract_version,
+            "brain_id": self.brain_id,
+            "issuer_epoch": self.issuer_epoch,
+            "delivery_id": self.delivery_id,
+            "request_sha256": self.request_sha256,
+            "requested_tier": self.requested_tier.value,
+            "final_admitted_tier": self.final_admitted_tier.value,
+            "replay_sha256": self.replay_sha256,
+            "replay_base64": b64encode(self.replay_bytes).decode("ascii"),
+            "commitment_sha256": self.commitment_sha256,
+        }
+
+    @classmethod
+    def from_dict(cls, value: object) -> ReceiptProtectionRequest:
+        data = _exact_mapping(value, _PROTECTION_REQUEST_KEYS, label="receipt protection request")
+        try:
+            replay_base64 = data["replay_base64"]
+            if not isinstance(replay_base64, str):
+                raise ValueError("invalid receipt protection request")
+            result = cls(
+                brain_id=cast(str, data["brain_id"]),
+                issuer_epoch=cast(int, data["issuer_epoch"]),
+                delivery_id=cast(str, data["delivery_id"]),
+                request_sha256=cast(str, data["request_sha256"]),
+                requested_tier=PrivacyTier(cast(str, data["requested_tier"])),
+                final_admitted_tier=PrivacyTier(cast(str, data["final_admitted_tier"])),
+                replay_bytes=b64decode(replay_base64.encode("ascii"), validate=True),
+                contract_version=cast(str, data["contract_version"]),
+            )
+            if (
+                data["replay_sha256"] != result.replay_sha256
+                or data["commitment_sha256"] != result.commitment_sha256
+            ):
+                raise ValueError("invalid receipt protection request")
+            return result
+        except BinasciiError, UnicodeError, TypeError, ValueError:
+            raise ValueError("invalid receipt protection request") from None
+
+
+@dataclass(frozen=True, slots=True)
+class ProtectionAcknowledgement:
+    """Bounded proof that one exact replay envelope is independently durable."""
+
+    brain_id: str
+    issuer_epoch: int
+    delivery_id: str
+    request_sha256: str
+    requested_tier: PrivacyTier
+    final_admitted_tier: PrivacyTier
+    replay_sha256: str
+    commitment_sha256: str
+    protection_reference: str
+    protected_at: str
+    contract_version: str = "receipt-protection-ack.v1"
+    status: str = "protected"
+
+    def __post_init__(self) -> None:
+        if self.contract_version != "receipt-protection-ack.v1" or self.status != "protected":
+            raise ValueError("invalid protection acknowledgement")
+        (
+            brain_id,
+            issuer_epoch,
+            delivery_id,
+            request_sha256,
+            requested,
+            admitted,
+            replay_sha256,
+        ) = _protection_binding(
+            brain_id=self.brain_id,
+            issuer_epoch=self.issuer_epoch,
+            delivery_id=self.delivery_id,
+            request_sha256=self.request_sha256,
+            requested_tier=self.requested_tier,
+            final_admitted_tier=self.final_admitted_tier,
+            replay_sha256=self.replay_sha256,
+        )
+        expected = _protection_commitment_sha256(
+            brain_id=brain_id,
+            issuer_epoch=issuer_epoch,
+            delivery_id=delivery_id,
+            request_sha256=request_sha256,
+            requested_tier=requested,
+            final_admitted_tier=admitted,
+            replay_sha256=replay_sha256,
+        )
+        if self.commitment_sha256 != expected:
+            raise ValueError("invalid protection acknowledgement commitment")
+        if (
+            not isinstance(self.protection_reference, str)
+            or not 1 <= len(self.protection_reference) <= 512
+            or any(
+                ord(character) < 33 or ord(character) > 126
+                for character in self.protection_reference
+            )
+            or _optional_timestamp(self.protected_at) is None
+        ):
+            raise ValueError("invalid protection acknowledgement")
+        object.__setattr__(self, "brain_id", brain_id)
+        object.__setattr__(self, "issuer_epoch", issuer_epoch)
+        object.__setattr__(self, "delivery_id", delivery_id)
+        object.__setattr__(self, "request_sha256", request_sha256)
+        object.__setattr__(self, "requested_tier", requested)
+        object.__setattr__(self, "final_admitted_tier", admitted)
+        object.__setattr__(self, "replay_sha256", replay_sha256)
+        object.__setattr__(self, "protected_at", cast(str, _optional_timestamp(self.protected_at)))
+
+    @classmethod
+    def for_request(
+        cls,
+        request: ReceiptProtectionRequest,
+        *,
+        protection_reference: str,
+        protected_at: str,
+    ) -> ProtectionAcknowledgement:
+        if not isinstance(request, ReceiptProtectionRequest):
+            raise ValueError("invalid receipt protection request")
+        return cls(
+            brain_id=request.brain_id,
+            issuer_epoch=request.issuer_epoch,
+            delivery_id=request.delivery_id,
+            request_sha256=request.request_sha256,
+            requested_tier=request.requested_tier,
+            final_admitted_tier=request.final_admitted_tier,
+            replay_sha256=request.replay_sha256,
+            commitment_sha256=request.commitment_sha256,
+            protection_reference=protection_reference,
+            protected_at=protected_at,
+        )
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "contract_version": self.contract_version,
+            "status": self.status,
+            "brain_id": self.brain_id,
+            "issuer_epoch": self.issuer_epoch,
+            "delivery_id": self.delivery_id,
+            "request_sha256": self.request_sha256,
+            "requested_tier": self.requested_tier.value,
+            "final_admitted_tier": self.final_admitted_tier.value,
+            "replay_sha256": self.replay_sha256,
+            "commitment_sha256": self.commitment_sha256,
+            "protection_reference": self.protection_reference,
+            "protected_at": self.protected_at,
+        }
+
+    @classmethod
+    def from_dict(cls, value: object) -> ProtectionAcknowledgement:
+        data = _exact_mapping(
+            value,
+            _PROTECTION_ACKNOWLEDGEMENT_KEYS,
+            label="protection acknowledgement",
+        )
+        try:
+            return cls(
+                brain_id=cast(str, data["brain_id"]),
+                issuer_epoch=cast(int, data["issuer_epoch"]),
+                delivery_id=cast(str, data["delivery_id"]),
+                request_sha256=cast(str, data["request_sha256"]),
+                requested_tier=PrivacyTier(cast(str, data["requested_tier"])),
+                final_admitted_tier=PrivacyTier(cast(str, data["final_admitted_tier"])),
+                replay_sha256=cast(str, data["replay_sha256"]),
+                commitment_sha256=cast(str, data["commitment_sha256"]),
+                protection_reference=cast(str, data["protection_reference"]),
+                protected_at=cast(str, data["protected_at"]),
+                contract_version=cast(str, data["contract_version"]),
+                status=cast(str, data["status"]),
+            )
+        except TypeError, ValueError:
+            raise ValueError("invalid protection acknowledgement") from None
+
+
+def verify_protection_acknowledgement_binding(
+    acknowledgement: ProtectionAcknowledgement,
+    *,
+    brain_id: str,
+    issuer_epoch: int,
+    delivery_id: str,
+    request_sha256: str,
+    requested_tier: PrivacyTier,
+    final_admitted_tier: PrivacyTier,
+) -> ProtectionAcknowledgement:
+    try:
+        checked = ProtectionAcknowledgement.from_dict(acknowledgement.to_dict())
+    except (AttributeError, TypeError, ValueError):
+        raise ValueError("invalid protection acknowledgement") from None
+    if (
+        checked.brain_id != brain_id
+        or checked.issuer_epoch != issuer_epoch
+        or checked.delivery_id != delivery_id
+        or checked.request_sha256 != request_sha256
+        or checked.requested_tier != requested_tier
+        or checked.final_admitted_tier != final_admitted_tier
+    ):
+        raise ValueError("protection acknowledgement binding mismatch")
+    return checked
+
+
+def verify_protection_acknowledgement(
+    request: ReceiptProtectionRequest,
+    acknowledgement: ProtectionAcknowledgement,
+) -> ProtectionAcknowledgement:
+    if not isinstance(request, ReceiptProtectionRequest):
+        raise ValueError("invalid receipt protection request")
+    checked = verify_protection_acknowledgement_binding(
+        acknowledgement,
+        brain_id=request.brain_id,
+        issuer_epoch=request.issuer_epoch,
+        delivery_id=request.delivery_id,
+        request_sha256=request.request_sha256,
+        requested_tier=request.requested_tier,
+        final_admitted_tier=request.final_admitted_tier,
+    )
+    if (
+        checked.replay_sha256 != request.replay_sha256
+        or checked.commitment_sha256 != request.commitment_sha256
+    ):
+        raise ValueError("protection acknowledgement replay mismatch")
+    return checked
+
+
+class ReceiptProtectionPort(Protocol):
+    def protect(
+        self,
+        request: ReceiptProtectionRequest,
+        *,
+        timeout_seconds: float,
+    ) -> ProtectionAcknowledgement: ...
+
+
+class ReceiptProtectionError(RuntimeError):
+    """A safe retryable protection failure without payload or backend detail."""
+
+    def __init__(self, code: str) -> None:
+        if code not in _PROTECTION_FAILURE_CODES:
+            raise ValueError("invalid receipt protection error")
+        self.code = code
+        super().__init__(code)
+
+
+@dataclass(frozen=True, slots=True)
+class CaptureProtectionPending:
+    """Receipt-level retry outcome: canonical custody exists, protection does not."""
+
+    brain_id: str
+    issuer_epoch: int
+    delivery_id: str
+    request_sha256: str
+    requested_tier: PrivacyTier
+    final_admitted_tier: PrivacyTier
+    reason_code: str
+    contract_version: str = "capture-protection-pending.v1"
+    status: str = "recovery_pending"
+    retryable: bool = True
+
+    def __post_init__(self) -> None:
+        if (
+            self.contract_version != "capture-protection-pending.v1"
+            or self.status != "recovery_pending"
+            or self.retryable is not True
+            or self.reason_code not in _PROTECTION_FAILURE_CODES
+        ):
+            raise ValueError("invalid capture protection pending result")
+        (
+            brain_id,
+            issuer_epoch,
+            delivery_id,
+            request_sha256,
+            requested,
+            admitted,
+            _replay_sha256,
+        ) = _protection_binding(
+            brain_id=self.brain_id,
+            issuer_epoch=self.issuer_epoch,
+            delivery_id=self.delivery_id,
+            request_sha256=self.request_sha256,
+            requested_tier=self.requested_tier,
+            final_admitted_tier=self.final_admitted_tier,
+            replay_sha256="0" * 64,
+        )
+        object.__setattr__(self, "brain_id", brain_id)
+        object.__setattr__(self, "issuer_epoch", issuer_epoch)
+        object.__setattr__(self, "delivery_id", delivery_id)
+        object.__setattr__(self, "request_sha256", request_sha256)
+        object.__setattr__(self, "requested_tier", requested)
+        object.__setattr__(self, "final_admitted_tier", admitted)
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "contract_version": self.contract_version,
+            "status": self.status,
+            "retryable": self.retryable,
+            "reason_code": self.reason_code,
+            "brain_id": self.brain_id,
+            "issuer_epoch": self.issuer_epoch,
+            "delivery_id": self.delivery_id,
+            "request_sha256": self.request_sha256,
+            "requested_tier": self.requested_tier.value,
+            "final_admitted_tier": self.final_admitted_tier.value,
+        }
+
+
+class CaptureProtectionPendingError(RuntimeError):
+    """Control-flow signal carrying a receipt-level recovery outcome."""
+
+    def __init__(self, result: CaptureProtectionPending) -> None:
+        if not isinstance(result, CaptureProtectionPending):
+            raise ValueError("invalid capture protection pending result")
+        self.result = result
+        super().__init__(result.status)
+
+
 def _reject_duplicate_json_keys(pairs: list[tuple[str, object]]) -> dict[str, object]:
     result: dict[str, object] = {}
     for key, value in pairs:
@@ -2258,7 +2765,7 @@ class CaptureCustodyReceipt:
     requested_tier: PrivacyTier
     final_admitted_tier: PrivacyTier
     queued_at: str
-    protection_acknowledgement: None = None
+    protection_acknowledgement: ProtectionAcknowledgement | None = None
     contract_version: str = "capture-custody.v1"
     status: str = "queued"
 
@@ -2285,11 +2792,18 @@ class CaptureCustodyReceipt:
             raise ValueError("invalid capture custody receipt") from error
         if _PRIVACY_RESTRICTIVENESS[admitted] < _PRIVACY_RESTRICTIVENESS[requested]:
             raise ValueError("capture custody receipt widens privacy")
-        if (
-            _optional_timestamp(self.queued_at) is None
-            or self.protection_acknowledgement is not None
-        ):
+        if _optional_timestamp(self.queued_at) is None:
             raise ValueError("invalid capture custody receipt")
+        if self.protection_acknowledgement is not None:
+            verify_protection_acknowledgement_binding(
+                self.protection_acknowledgement,
+                brain_id=self.brain_id,
+                issuer_epoch=self.issuer_epoch,
+                delivery_id=self.delivery_id,
+                request_sha256=self.request_sha256,
+                requested_tier=requested,
+                final_admitted_tier=admitted,
+            )
         object.__setattr__(self, "requested_tier", requested)
         object.__setattr__(self, "final_admitted_tier", admitted)
         object.__setattr__(self, "queued_at", _optional_timestamp(self.queued_at))
@@ -2306,7 +2820,13 @@ class CaptureCustodyReceipt:
             "requested_tier": self.requested_tier.value,
             "final_admitted_tier": self.final_admitted_tier.value,
             "queued_at": self.queued_at,
-            "protection_acknowledgement": self.protection_acknowledgement,
+            "protection_acknowledgement": (
+                None
+                if self.protection_acknowledgement is None
+                else self.protection_acknowledgement.to_dict()
+                if isinstance(self.protection_acknowledgement, ProtectionAcknowledgement)
+                else self.protection_acknowledgement
+            ),
         }
 
     # These terminal-only accessors intentionally carry no value. They keep
@@ -2351,8 +2871,12 @@ def verify_capture_custody_receipt(value: Mapping[str, object] | bytes) -> Captu
         else:
             decoded = value
         data = _exact_mapping(decoded, _CUSTODY_RECEIPT_KEYS, label="capture custody receipt")
-        if data["protection_acknowledgement"] is not None:
-            raise ValueError("invalid capture custody receipt")
+        raw_acknowledgement = data["protection_acknowledgement"]
+        acknowledgement = (
+            None
+            if raw_acknowledgement is None
+            else ProtectionAcknowledgement.from_dict(raw_acknowledgement)
+        )
         return CaptureCustodyReceipt(
             ingestion_id=cast(str, data["ingestion_id"]),
             brain_id=cast(str, data["brain_id"]),
@@ -2362,7 +2886,7 @@ def verify_capture_custody_receipt(value: Mapping[str, object] | bytes) -> Captu
             requested_tier=PrivacyTier(cast(str, data["requested_tier"])),
             final_admitted_tier=PrivacyTier(cast(str, data["final_admitted_tier"])),
             queued_at=cast(str, data["queued_at"]),
-            protection_acknowledgement=None,
+            protection_acknowledgement=acknowledgement,
             contract_version=cast(str, data["contract_version"]),
             status=cast(str, data["status"]),
         )

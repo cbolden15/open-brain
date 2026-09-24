@@ -10,6 +10,7 @@ from open_brain_engine.engine import (
     PHASE1_STATE_SCHEMA_VERSION,
     EngineTaskSet,
     LocalEngineContext,
+    ReceiptProtectionPort,
     StateSchemaUnavailableError,
     coordinate_local_migration,
     inspect_phase1_state,
@@ -69,6 +70,8 @@ def open_local_brain(
     selection: LocalRootSelection,
     *,
     filesystem_type_probe: FilesystemTypeProbe | None = None,
+    receipt_protection_port: ReceiptProtectionPort | None = None,
+    receipt_protection_timeout_seconds: float = 5.0,
 ) -> Iterator[LocalBrainSession]:
     """Bootstrap and hold one default Brain through a direct local operation."""
     with prepare_local_root(selection, filesystem_type_probe=filesystem_type_probe) as prepared:
@@ -100,11 +103,20 @@ def open_local_brain(
             # The owner product bootstrap owns the explicit chained migration;
             # hold_local_runtime_session's registry admission spans both phases.
             coordinate_local_migration(profile)
-            tasks = open_local_engine(
-                profile,
-                validate_before_write=validate_direct_write,
-                recover_abandoned_sessions=False,
-            )
+            if receipt_protection_port is None:
+                tasks = open_local_engine(
+                    profile,
+                    validate_before_write=validate_direct_write,
+                    recover_abandoned_sessions=False,
+                )
+            else:
+                tasks = open_local_engine(
+                    profile,
+                    validate_before_write=validate_direct_write,
+                    recover_abandoned_sessions=False,
+                    receipt_protection_port=receipt_protection_port,
+                    receipt_protection_timeout_seconds=receipt_protection_timeout_seconds,
+                )
             prepared.revalidate()
             _require_current_local_state(prepared, profile)
 

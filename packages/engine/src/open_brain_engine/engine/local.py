@@ -48,6 +48,7 @@ from .contracts import (
     PublicJobCaptureContext,
     PublicJobCaptureSink,
     PublicProvenance,
+    ReceiptProtectionPort,
     ReferencePayload,
     RetrievalResult,
     RoutedCapture,
@@ -139,6 +140,8 @@ class BrainEngine(CaptureOperations, SpaceOperations, ReviewOperations, Retrieva
         admission_limits: AdmissionLimits | None = None,
         storage_probe: Callable[[Path], StorageUsage] | None = None,
         boundary_classifier: BoundaryClassifier | None = None,
+        receipt_protection_port: ReceiptProtectionPort | None = None,
+        receipt_protection_timeout_seconds: float = 5.0,
     ) -> None:
         if admission_limits is not None and not isinstance(admission_limits, AdmissionLimits):
             raise ValueError("invalid admission limits")
@@ -146,6 +149,15 @@ class BrainEngine(CaptureOperations, SpaceOperations, ReviewOperations, Retrieva
             raise ValueError("invalid storage probe")
         if boundary_classifier is not None and not callable(boundary_classifier):
             raise ValueError("invalid boundary classifier")
+        if receipt_protection_port is not None and not callable(
+            getattr(receipt_protection_port, "protect", None)
+        ):
+            raise ValueError("invalid receipt protection port")
+        if (
+            type(receipt_protection_timeout_seconds) not in (float, int)
+            or receipt_protection_timeout_seconds <= 0
+        ):
+            raise ValueError("invalid receipt protection timeout")
         if profile.provider_mode is ProviderMode.CLOUD:
             raise ValueError("Phase 1 local engine does not enable cloud enrichment")
         if profile.provider_mode is ProviderMode.NONE and enrichment_provider is not None:
@@ -205,6 +217,14 @@ class BrainEngine(CaptureOperations, SpaceOperations, ReviewOperations, Retrieva
                 "local state schema is supported_old: ingestion migration requires "
                 "exclusive admission"
             )
+        if (
+            receipt_protection_port is not None
+            and schema.state != "absent"
+            and schema.version != 10
+        ):
+            raise StateSchemaUnavailableError(
+                "receipt protection requires the schema-10 ingestion journal"
+            )
         self.profile = profile
         self._faults = set(faults)
         self._clock = clock
@@ -221,6 +241,8 @@ class BrainEngine(CaptureOperations, SpaceOperations, ReviewOperations, Retrieva
         # no classifier is wired and every submission path keeps its submitted
         # tier, so existing no-flag capture behaves exactly as before.
         self._boundary_classifier = boundary_classifier
+        self._receipt_protection_port = receipt_protection_port
+        self._receipt_protection_timeout_seconds = float(receipt_protection_timeout_seconds)
         # Engine-owned admission gate state. The core is one foreground
         # process, so the per-principal rate windows and the concurrent
         # admission counter are per-process and recover in-process without
@@ -309,6 +331,8 @@ class BrainEngine(CaptureOperations, SpaceOperations, ReviewOperations, Retrieva
         admission_limits: AdmissionLimits | None = None,
         storage_probe: Callable[[Path], StorageUsage] | None = None,
         boundary_classifier: BoundaryClassifier | None = None,
+        receipt_protection_port: ReceiptProtectionPort | None = None,
+        receipt_protection_timeout_seconds: float = 5.0,
     ) -> BrainEngine:
         if not isinstance(profile, LocalEngineContext):
             raise ValueError("invalid local profile")
@@ -321,6 +345,8 @@ class BrainEngine(CaptureOperations, SpaceOperations, ReviewOperations, Retrieva
             admission_limits=admission_limits,
             storage_probe=storage_probe,
             boundary_classifier=boundary_classifier,
+            receipt_protection_port=receipt_protection_port,
+            receipt_protection_timeout_seconds=receipt_protection_timeout_seconds,
         )
         try:
             with engine._writer_lease.acquire_shared_writer():
@@ -436,6 +462,8 @@ def open_local_engine(
     enrichment_provider: EnrichmentProvider | None = None,
     validate_before_write: Callable[[], None] | None = None,
     recover_abandoned_sessions: bool = True,
+    receipt_protection_port: ReceiptProtectionPort | None = None,
+    receipt_protection_timeout_seconds: float = 5.0,
 ) -> EngineTaskSet:
     """Open one local root and expose only its named task capabilities."""
     return BrainEngine.open(
@@ -445,6 +473,8 @@ def open_local_engine(
         enrichment_provider=enrichment_provider,
         validate_mutation_authority=validate_before_write,
         recover_abandoned_sessions=recover_abandoned_sessions,
+        receipt_protection_port=receipt_protection_port,
+        receipt_protection_timeout_seconds=receipt_protection_timeout_seconds,
     ).tasks
 
 

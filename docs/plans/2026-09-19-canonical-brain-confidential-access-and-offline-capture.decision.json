@@ -1,7 +1,7 @@
 {
   "id": "2026-09-19-canonical-brain-confidential-access-and-offline-capture-notes",
   "title": "Implementation notes — Canonical Brain, confidential access, and offline capture",
-  "subtitle": "CUT-G2 execution started · 2026-09-19 23:09 CDT",
+  "subtitle": "Receipt protection implemented · 2026-09-24",
   "introTitle": "How to use",
   "intro": "<p>Each item is a decision, deviation, or tradeoff made during implementation. <strong>Acknowledge</strong> if fine. <strong>Discuss</strong> to write what should change. <strong>Revert</strong> to flag for undo.</p>",
   "actions": [
@@ -128,7 +128,7 @@
       "default": "acknowledge",
       "body": {
         "Spec said": "The owner selected the architecture in which client body-removal receipts wait for independently durable protection.",
-        "What I did": "Added a transport-neutral receipt-protection finalizer, a stable recovery_pending result, acknowledgement binding, idempotent protection replay, and outbox crash tests that retain the body until a protected terminal receipt arrives.",
+        "What I did": "Added a transport-neutral receipt-protection finalizer over exact journal.v1 replay bytes, a stable recovery_pending result, acknowledgement binding, idempotent protection replay, and outbox body-retention tests that require a protected terminal receipt.",
         "Why": "A locally durable commit can otherwise be lost with its primary host after the client has already deleted the only replayable body.",
         "Risk": "This expands OSS-G4 through OSS-G6. The private deployment must still prove that its independent failure domain meets the required synchronous latency and availability before cutover."
       }

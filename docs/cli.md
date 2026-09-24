@@ -41,7 +41,22 @@ as an owner-only explicit privacy tier. `import` accepts the same `--privacy-tie
 invocation plus `--privacy-manifest` pointing at a validated per-root privacy manifest JSON file;
 see [import design](import.md). `capture-submit` submits one destination-bound capture under a
 trusted startup policy and requires `--policy` with an absolute `launcher-policy.v1` JSON path; see
-[capture contract](capture-contract.md) for the tier rules and admission limits.
+[capture contract](capture-contract.md) for the tier rules and admission limits. The optional
+`--receipt-protection PATH` adds an owner-selected independent durability gate. The path must name
+an owner-only `receipt-protection-command.v1` file.
+
+```json
+{
+  "contract_version": "receipt-protection-command.v1",
+  "argv": ["/absolute/path/to/protector", "synthetic-profile"],
+  "timeout_seconds": 5
+}
+```
+
+The configuration must be a regular file owned by the current user with no group or other access.
+The command path must be absolute. The adapter does not use a shell and gives the protector an empty
+environment, a fresh temporary working directory, one request on stdin, bounded stdout and stderr,
+and the configured deadline. The protector returns one `receipt-protection-ack.v1` JSON object.
 
 `workspace setup` creates or reopens the dedicated `Open Brain Vault` sibling beside the private
 Brain directory. Explicit `workspace refresh` adds newly accepted canonical pages and advances
@@ -137,6 +152,9 @@ launch-time grant with no setup fragment. The desktop setup UI exposes
 capture/search; Obsidian has no agent-setup control. See [agent setup](agent-setup.md) for privacy
 and client activation.
 
+An MCP destination-bound session may also pass `--receipt-protection PATH`. The flag requires
+`--allow-capture-submit`; it is not an MCP tool argument and cannot be selected by the client.
+
 Per process, workspace reads are limited to 500 calls and 16 MiB of serialized results. Graph refresh
 is limited to 20 requests, 40 actual model attempts, and 1 MiB of selected note input. These limits are
 in addition to the engine's durable per-workspace provider budget. Restarting an explicitly launched
@@ -147,6 +165,10 @@ terminal capture receipt or a `capture-custody.v1` receipt with `status: "queued
 queued variant as a successful tool result, not an error. A scoped client may verify only the
 receipt bindings and opaque `ingestion_id`; it cannot inspect journal sequence, queue depth,
 payload, or owner journal status.
+
+When receipt protection is configured, accepted, duplicate, and queued results contain a bound
+`protection_acknowledgement`. If protection cannot complete, `brain_capture_submit` returns a
+`capture-protection-pending.v1` result with `status: "recovery_pending"` and `retryable: true`.
 
 ```json
 {
@@ -175,7 +197,9 @@ sensitive paths; a refused startup policy returns 78 with `destination_mismatch`
 `stale_policy`, or `consent_unavailable`. Consent-state write contention returns 75; invalid owner
 consent input returns 2; unavailable or unsafe consent state returns 78. A refused `capture-submit`
 admission reports the stable result value with a `retryable` flag: retryable refusals exit 75 and
-terminal refusals exit 65. Interrupted Markdown import returns 130.
+terminal refusals exit 65. Receipt-protection timeout, unavailability, or invalid acknowledgement
+also exits 75 with a `recovery_pending` result. The locally committed delivery remains replayable.
+Interrupted Markdown import returns 130.
 
 Secure Node and predecessor command families are historical source under `archive/`. They are not
 installed commands and are not supported through the Open Brain executable.
@@ -205,7 +229,9 @@ is generated when absent), `policy_ref`, `retry_age_limit_seconds` (default 8640
 `retry_attempt_limit` (default 8), and `enqueued_at`. The result prints `delivery_id`,
 `request_digest`, and `result`. A drain takes exactly one of `--transport-argv`, a JSON array of
 strings, or `--transport-command-file`, a path holding that array, plus `--max-batch-items`
-(default 16), `--max-batch-bytes` (default 1 MiB), and `--timeout-seconds` (default 60). The drain
+(default 16), `--max-batch-bytes` (default 1 MiB), and `--timeout-seconds` (default 60).
+`--require-independent-protection` keeps each body queued until its receipt carries a valid bound
+acknowledgement. The drain
 JSON summary carries `result`, `stale_lease_reclaimed`, `admitted_items`, `skipped_items`,
 `delivery_attempts`, `accepted`, `duplicate`, `quarantined_age_exhausted`,
 `quarantined_attempts_exhausted`, `quarantined_receipt_mismatch`, `quarantined_refused`, `retried`,

@@ -8,7 +8,14 @@ from typing import cast
 
 import pytest
 from open_brain_engine.core.models import PrivacyTier
-from open_brain_engine.engine import AdmissionLimits, BrainEngine, EngineTaskSet
+from open_brain_engine.engine import (
+    AdmissionLimits,
+    BrainEngine,
+    EngineTaskSet,
+    ProtectionAcknowledgement,
+    ReceiptProtectionPort,
+    ReceiptProtectionRequest,
+)
 
 from open_brain.profile import compile_single_user_local
 from open_brain_connectors.outbox.contracts import (
@@ -29,11 +36,18 @@ ALLOWED_TIERS = frozenset({PrivacyTier.PUBLIC, PrivacyTier.WORK, PrivacyTier.PER
 
 
 def _brain(
-    tmp_path: Path, *, limits: AdmissionLimits | None = None
+    tmp_path: Path,
+    *,
+    limits: AdmissionLimits | None = None,
+    protector: ReceiptProtectionPort | None = None,
 ) -> tuple[EngineTaskSet, str, int, str]:
     """One disposable real Brain; returns its tasks, identity, epoch, and tenant."""
     profile = compile_single_user_local(tmp_path / "brain")
-    tasks = BrainEngine.open(profile, admission_limits=limits).tasks
+    tasks = BrainEngine.open(
+        profile,
+        admission_limits=limits,
+        receipt_protection_port=protector,
+    ).tasks
     connection = sqlite3.connect(profile.root / ".open-brain/state/phase1.sqlite3")
     try:
         row = connection.execute("SELECT brain_id, issuer_epoch FROM brain_identity").fetchone()
@@ -61,6 +75,21 @@ def _policy(
 
 def _stamp() -> str:
     return datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+class _Protector:
+    def protect(
+        self,
+        request: ReceiptProtectionRequest,
+        *,
+        timeout_seconds: float,
+    ) -> ProtectionAcknowledgement:
+        assert timeout_seconds == 5.0
+        return ProtectionAcknowledgement.for_request(
+            request,
+            protection_reference=f"protected:{request.commitment_sha256}",
+            protected_at="2026-09-24T12:00:00Z",
+        )
 
 
 def _envelope(
@@ -249,3 +278,76 @@ def test_one_drain_cycle_end_to_end_with_the_synthetic_transport(tmp_path: Path)
         OutboxItemState.TERMINAL,
         OutboxItemState.TERMINAL,
     ]
+
+
+def test_required_protection_retries_without_removing_an_unprotected_body(
+    tmp_path: Path,
+) -> None:
+    tasks, brain_id, epoch, tenant_id = _brain(tmp_path)
+    transport = SyntheticTransport(tasks, _policy(brain_id, epoch, tenant_id))
+    store = OutboxStore(tmp_path / "outbox", max_items=8, max_bytes=1024 * 1024)
+    envelope = _envelope(brain_id, epoch, tenant_id)
+    assert store.enqueue(envelope) is EnqueueResult.QUEUED
+
+    summary = run_drain_cycle(
+        store,
+        transport,
+        max_batch_items=4,
+        max_batch_bytes=1024 * 1024,
+        require_independent_protection=True,
+    )
+
+    assert summary.retried == 1
+    assert store.scan()[0].state is OutboxItemState.QUEUED
+    assert b"Synthetic transport body" in (
+        store.directory / f"{envelope.delivery_id}.json"
+    ).read_bytes()
+
+
+def test_required_protection_still_quarantines_a_wrong_brain_null_receipt(
+    tmp_path: Path,
+) -> None:
+    tasks, brain_id, epoch, tenant_id = _brain(tmp_path)
+    transport = SyntheticTransport(tasks, _policy(brain_id, epoch, tenant_id))
+    store = OutboxStore(tmp_path / "outbox", max_items=8, max_bytes=1024 * 1024)
+    envelope = _envelope(brain_id, epoch, tenant_id)
+    assert store.enqueue(envelope) is EnqueueResult.QUEUED
+    receipt = transport(envelope)
+    assert isinstance(receipt, TerminalReceipt)
+    object.__setattr__(receipt, "brain_id", "brn_" + "q" * 26)
+
+    summary = run_drain_cycle(
+        store,
+        lambda _envelope: receipt,
+        max_batch_items=4,
+        max_batch_bytes=1024 * 1024,
+        require_independent_protection=True,
+    )
+
+    assert summary.quarantined_receipt_mismatch == 1
+    assert store.scan()[0].state is OutboxItemState.QUARANTINED
+    assert b"Synthetic transport body" in (
+        store.directory / f"{envelope.delivery_id}.json"
+    ).read_bytes()
+
+
+def test_required_protection_releases_only_a_verified_protected_body(tmp_path: Path) -> None:
+    tasks, brain_id, epoch, tenant_id = _brain(tmp_path, protector=_Protector())
+    transport = SyntheticTransport(tasks, _policy(brain_id, epoch, tenant_id))
+    store = OutboxStore(tmp_path / "outbox", max_items=8, max_bytes=1024 * 1024)
+    envelope = _envelope(brain_id, epoch, tenant_id)
+    assert store.enqueue(envelope) is EnqueueResult.QUEUED
+
+    summary = run_drain_cycle(
+        store,
+        transport,
+        max_batch_items=4,
+        max_batch_bytes=1024 * 1024,
+        require_independent_protection=True,
+    )
+
+    assert summary.accepted == 1
+    assert store.scan()[0].state is OutboxItemState.TERMINAL
+    raw = (store.directory / f"{envelope.delivery_id}.json").read_bytes()
+    assert b"Synthetic transport body" not in raw
+    assert json.loads(raw)["receipt"]["protection_acknowledgement"]["status"] == "protected"

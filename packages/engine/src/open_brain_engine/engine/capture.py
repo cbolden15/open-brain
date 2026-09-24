@@ -9,10 +9,11 @@ import threading
 from collections import deque
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager, nullcontext
+from dataclasses import replace
 from datetime import datetime, timedelta
 from hashlib import sha256
 from pathlib import Path
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING, Never, cast
 
 from open_brain_engine.capture.redaction import has_redaction_finding
 from open_brain_engine.core.ids import portable_canonical_json_bytes
@@ -32,8 +33,11 @@ from .contracts import (
     CaptureAction,
     CaptureAdmissionError,
     CaptureAdmissionResult,
+    CaptureCustodyReceipt,
     CaptureFault,
     CaptureOutcome,
+    CaptureProtectionPending,
+    CaptureProtectionPendingError,
     CaptureReceipt,
     CaptureSubmission,
     CaptureSubmissionPath,
@@ -46,10 +50,13 @@ from .contracts import (
     ProposalRecord,
     PublicJobCaptureContext,
     PublicJobCaptureSink,
+    ReceiptProtectionError,
+    ReceiptProtectionRequest,
     ReferencePayload,
     TextPayload,
     _LocalEngineOperations,
     project_public_capture_receipt,
+    verify_protection_acknowledgement,
 )
 from .markdown_import import capture_projection_is_active, capture_submission_is_reserved
 from .normalization import (
@@ -1075,7 +1082,7 @@ class CaptureTasks:
         with admission:
             outcome = engine.ingestion.enqueue(submission)
         if isinstance(outcome, CaptureReceipt):
-            return outcome
+            return self._protect_destination_receipt(submission, outcome)
         try:
             with engine._writer_lease_bounded():
                 engine._recover_captures_locked()
@@ -1083,14 +1090,80 @@ class CaptureTasks:
         except CaptureAdmissionError as error:
             if error.result is not CaptureAdmissionResult.WRITER_QUEUE_FULL:
                 raise
-            return outcome
+            return self._protect_destination_receipt(submission, outcome)
         expected = engine._receipt_for_delivery(submission.delivery_id)
         if expected is not None:
             for receipt in receipts:
                 if receipt.capture_id == expected.capture_id:
-                    return receipt
+                    return self._protect_destination_receipt(submission, receipt)
         replay = engine.ingestion.enqueue(submission)
-        return replay
+        return self._protect_destination_receipt(submission, replay)
+
+    def _protect_destination_receipt(
+        self,
+        submission: CaptureSubmission,
+        outcome: CaptureReceipt | CaptureCustodyReceipt,
+    ) -> CaptureOutcome:
+        engine = self._engine
+        port = engine._receipt_protection_port
+        if (
+            port is None
+            or submission.submission_path is not CaptureSubmissionPath.DESTINATION_BOUND
+        ):
+            return outcome
+        brain_id: str | None
+        issuer_epoch: int | None
+        if isinstance(outcome, CaptureCustodyReceipt):
+            brain_id = outcome.brain_id
+            issuer_epoch = outcome.issuer_epoch
+        else:
+            brain_id = outcome.destination_brain_id
+            issuer_epoch = outcome.issuer_epoch
+        if brain_id is None or issuer_epoch is None:
+            raise RuntimeError("destination receipt identity unavailable")
+        envelope = engine.ingestion.protection_envelope(submission)
+        request = ReceiptProtectionRequest(
+            brain_id=brain_id,
+            issuer_epoch=issuer_epoch,
+            delivery_id=submission.delivery_id,
+            request_sha256=submission.request_sha256(),
+            requested_tier=submission.requested_tier,
+            final_admitted_tier=envelope.admitted_privacy.tier,
+            replay_bytes=envelope.to_bytes(),
+        )
+        try:
+            acknowledgement = port.protect(
+                request,
+                timeout_seconds=engine._receipt_protection_timeout_seconds,
+            )
+        except ReceiptProtectionError as error:
+            return self._protection_pending(request, error.code)
+        except TimeoutError:
+            return self._protection_pending(request, "protection_timeout")
+        except Exception:
+            return self._protection_pending(request, "protection_unavailable")
+        try:
+            checked = verify_protection_acknowledgement(request, acknowledgement)
+        except (TypeError, ValueError):
+            return self._protection_pending(request, "protection_invalid_acknowledgement")
+        return replace(outcome, protection_acknowledgement=checked)
+
+    @staticmethod
+    def _protection_pending(
+        request: ReceiptProtectionRequest,
+        reason_code: str,
+    ) -> Never:
+        raise CaptureProtectionPendingError(
+            CaptureProtectionPending(
+                brain_id=request.brain_id,
+                issuer_epoch=request.issuer_epoch,
+                delivery_id=request.delivery_id,
+                request_sha256=request.request_sha256,
+                requested_tier=request.requested_tier,
+                final_admitted_tier=request.final_admitted_tier,
+                reason_code=reason_code,
+            )
+        )
 
     def public_job_sink(self, context: PublicJobCaptureContext) -> PublicJobCaptureSink:
         context.validate_profile(self._engine.profile)

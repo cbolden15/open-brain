@@ -20,6 +20,7 @@ from open_brain_engine.core.models import (
 from open_brain_engine.engine import (
     CaptureCustodyReceipt,
     CaptureOutcome,
+    CaptureProtectionPendingError,
     CaptureSubmission,
     CaptureTask,
     EngineTaskSet,
@@ -188,6 +189,11 @@ def destination_bound_capture_result(receipt: CaptureOutcome) -> dict[str, objec
         "final_admitted_tier": receipt.final_admitted_tier.value,
         "issuer_epoch": receipt.issuer_epoch,
         "payload_family": receipt.payload_family,
+        "protection_acknowledgement": (
+            None
+            if receipt.protection_acknowledgement is None
+            else receipt.protection_acknowledgement.to_dict()
+        ),
         "request_sha256": receipt.request_sha256,
         "requested_tier": receipt.requested_tier.value,
         "state": receipt.state,
@@ -214,15 +220,18 @@ class DestinationBoundCaptureCapability:
     def __call__(
         self, text: str, requested_tier: PrivacyTier | None, delivery_id: str
     ) -> dict[str, object]:
-        return destination_bound_capture_result(
-            submit_destination_bound_capture(
-                self.tasks,
-                self.authority,
-                text,
-                requested_tier=requested_tier,
-                delivery_id=delivery_id,
+        try:
+            return destination_bound_capture_result(
+                submit_destination_bound_capture(
+                    self.tasks,
+                    self.authority,
+                    text,
+                    requested_tier=requested_tier,
+                    delivery_id=delivery_id,
+                )
             )
-        )
+        except CaptureProtectionPendingError as error:
+            return error.result.to_dict()
 
 
 def destination_bound_capture_submit(
