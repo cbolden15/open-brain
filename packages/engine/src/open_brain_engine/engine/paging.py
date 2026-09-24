@@ -14,6 +14,7 @@ from open_brain_engine.core.ids import portable_canonical_json_bytes
 from open_brain_engine.core.models import PrivacyTier
 from open_brain_engine.storage.filesystem import StorageError
 
+from .consent_contracts import EgressMode
 from .cursors import CursorStore, binding_digest
 from .local_schema import PHASE1_STATE_SCHEMA_VERSION
 from .records import RecordProjector
@@ -86,6 +87,8 @@ def _authorized_retrieval_digest(
         parameters.extend(readable_tiers)
     else:
         clauses.append("0")
+    if authority.egress_mode is EgressMode.EXTERNAL_PROVIDER:
+        clauses.append("d.effective_external_egress=1")
     if authority.space_ids is not None:
         spaces = sorted(authority.space_ids)
         if spaces:
@@ -244,6 +247,8 @@ def search_page(
             parameters.extend(readable_tiers)
         else:
             clauses.append("0")
+        if authority.egress_mode is EgressMode.EXTERNAL_PROVIDER:
+            clauses.append("d.effective_external_egress=1")
         if authority.space_ids is not None:
             values = sorted(authority.space_ids)
             clauses.append("d.space_id IN (" + ",".join("?" for _ in values) + ")")

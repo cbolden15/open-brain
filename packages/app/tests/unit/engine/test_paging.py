@@ -8,8 +8,22 @@ from typing import Any, cast
 
 import pytest
 from open_brain_engine.core.access_contracts import derive_brain_id
-from open_brain_engine.core.models import PrivacyTier
-from open_brain_engine.engine import BrainEngine, TextPayload
+from open_brain_engine.core.models import (
+    Authority,
+    CaptureWhyOrigin,
+    ContentOrigin,
+    PrivacyDecision,
+    PrivacyReason,
+    PrivacyTier,
+    Provenance,
+)
+from open_brain_engine.engine import (
+    BrainEngine,
+    CaptureReceipt,
+    CaptureSubmission,
+    PublicJobCaptureContext,
+    TextPayload,
+)
 from open_brain_engine.engine.consent_contracts import EgressMode
 from open_brain_engine.engine.cursors import binding_digest
 from open_brain_engine.engine.paging import authority_binding
@@ -41,6 +55,68 @@ def scoped_authority(
         None,
         allowed_read_tiers=frozenset(tiers),
     )
+
+
+def external_authority(engine: BrainEngine) -> EffectiveAuthority:
+    return EffectiveAuthority(
+        "synthetic-external-principal",
+        "synthetic-external-session",
+        frozenset({"search", "content-read"}),
+        None,
+        allowed_read_tiers=frozenset({PrivacyTier.WORK}),
+        egress_mode=EgressMode.EXTERNAL_PROVIDER,
+        provider_id="synthetic-provider",
+        consent_id="consent_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        brain_id=derive_brain_id(engine.profile.tenant_id),
+        issuer_epoch=1,
+    )
+
+
+def capture_work(
+    engine: BrainEngine,
+    *,
+    delivery_id: str,
+    text: str,
+    external_egress: bool,
+) -> str:
+    actor_id = "actor_00000000-0000-4000-8000-000000000701"
+    context = PublicJobCaptureContext.create(
+        profile=engine.profile,
+        actor_id=actor_id,
+        role_claim={
+            "actor_id": actor_id,
+            "capabilities": ["capture.accept"],
+            "role_claim_id": "role_claim_00000000-0000-4000-8000-000000000702",
+            "role_id": "role_00000000-0000-4000-8000-000000000703",
+            "tenant_id": engine.profile.tenant_id,
+        },
+    )
+    source_reference = f"https://example.test/{delivery_id}"
+    receipt = engine.capture.submit(
+        CaptureSubmission.for_public_job(
+            context=context,
+            payload=TextPayload(text),
+            delivery_id=delivery_id,
+            source_origin=ContentOrigin.THIRD_PARTY,
+            source_reference=source_reference,
+            provenance=Provenance.create(
+                source_ref=source_reference,
+                content_origin=ContentOrigin.THIRD_PARTY,
+                owner_context=CaptureWhyOrigin.AUTOMATION_ABSENT,
+            ),
+            privacy=PrivacyDecision.create(
+                tier=PrivacyTier.WORK,
+                reason=PrivacyReason.POLICY_WORK,
+                policy_version="privacy-v1",
+                authority=Authority(
+                    cloud=external_egress,
+                    external_egress=external_egress,
+                ),
+            ),
+        )
+    )
+    assert isinstance(receipt, CaptureReceipt)
+    return receipt.capture_id
 
 
 def test_cursor_authority_binding_names_and_binds_every_policy_dimension() -> None:
@@ -146,6 +222,84 @@ def test_paged_search_enforces_the_principal_tier_matrix_and_owner_access(
         row["record_id"]
         for row in wire(engine.retrieval.search_page(request, authority=owner))["results"]
     } == set(captured.values())
+
+
+def test_external_provider_intersects_stored_egress_for_search_read_and_cursors(
+    tmp_path: Path,
+) -> None:
+    engine = BrainEngine.open(compile_single_user_local(tmp_path / "brain"))
+    visible = {
+        capture_work(
+            engine,
+            delivery_id=f"egress.visible.{index}",
+            text="stored egress matrix nebula",
+            external_egress=True,
+        )
+        for index in range(2)
+    }
+    denied = capture_work(
+        engine,
+        delivery_id="egress.denied",
+        text="stored egress matrix nebula",
+        external_egress=False,
+    )
+    request = SearchPageRequest(query="stored egress matrix nebula", limit=10)
+    external = external_authority(engine)
+    local = scoped_authority(PrivacyTier.WORK)
+
+    assert {
+        row["record_id"]
+        for row in wire(engine.retrieval.search_page(request, authority=external))["results"]
+    } == visible
+    assert {
+        row["record_id"]
+        for row in wire(engine.retrieval.search_page(request, authority=local))["results"]
+    } == visible | {denied}
+    with pytest.raises(T03Error, match="not_found"):
+        engine.retrieval.read_record(
+            RecordReadRequest(record_id=denied, expected_revision_id=denied),
+            authority=external,
+        )
+    assert (
+        wire(
+            engine.retrieval.read_record(
+                RecordReadRequest(record_id=denied, expected_revision_id=denied),
+                authority=local,
+            )
+        )["record"]["record_id"]
+        == denied
+    )
+
+    paged = replace(request, limit=1)
+    first = wire(engine.retrieval.search_page(paged, authority=external))
+    expected_second = wire(
+        engine.retrieval.search_page(
+            replace(paged, cursor=first["next_cursor"]), authority=external
+        )
+    )
+    capture_work(
+        engine,
+        delivery_id="egress.hidden.cursor",
+        text="stored egress matrix nebula",
+        external_egress=False,
+    )
+    assert wire(
+        engine.retrieval.search_page(
+            replace(paged, cursor=first["next_cursor"]), authority=external
+        )
+    ) == expected_second
+
+    refreshed = wire(engine.retrieval.search_page(paged, authority=external))
+    capture_work(
+        engine,
+        delivery_id="egress.visible.cursor",
+        text="stored egress matrix nebula",
+        external_egress=True,
+    )
+    with pytest.raises(T03Error, match="cursor_stale"):
+        engine.retrieval.search_page(
+            replace(paged, cursor=refreshed["next_cursor"]), authority=external
+        )
 
 
 def test_hidden_tiers_do_not_change_visible_ranking_or_page_boundaries(tmp_path: Path) -> None:

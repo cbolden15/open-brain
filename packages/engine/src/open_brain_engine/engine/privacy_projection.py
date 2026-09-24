@@ -32,6 +32,7 @@ __all__ = [
     "apply_privacy_repair",
     "effective_privacy_json",
     "narrow_retained_privacy_decision",
+    "parse_effective_privacy_json",
     "project_retained_privacy_evidence",
 ]
 
@@ -120,6 +121,53 @@ class RetainedPrivacyEvidence:
             or _SHA256.fullmatch(self.invalid_evidence_sha256) is None
         ):
             raise ValidationError("invalid retained privacy evidence")
+
+
+def parse_effective_privacy_json(raw: object) -> RetainedPrivacyEvidence:
+    """Decode and validate one stored effective-privacy projection."""
+    try:
+        if not isinstance(raw, str):
+            raise ValueError
+        value = json.loads(raw)
+        if not isinstance(value, dict) or set(value) != {
+            "tier",
+            "authority",
+            "source_decision_sha256s",
+            "confirmation_refs",
+            "invalid_reason",
+            "invalid_evidence_sha256",
+        }:
+            raise ValueError
+        authority = value["authority"]
+        if (
+            not isinstance(authority, dict)
+            or set(authority) != {"cloud", "external_egress"}
+            or type(authority["cloud"]) is not bool
+            or type(authority["external_egress"]) is not bool
+        ):
+            raise ValueError
+        digests = value["source_decision_sha256s"]
+        references = value["confirmation_refs"]
+        if not isinstance(digests, list) or not isinstance(references, list):
+            raise ValueError
+        invalid_reason = value["invalid_reason"]
+        return RetainedPrivacyEvidence(
+            tier=PrivacyTier(value["tier"]),
+            authority=Authority(
+                cloud=authority["cloud"],
+                external_egress=authority["external_egress"],
+            ),
+            source_decision_sha256s=tuple(digests),
+            confirmation_refs=tuple(references),
+            invalid_reason=(
+                None
+                if invalid_reason is None
+                else InvalidPrivacyEvidenceReason(invalid_reason)
+            ),
+            invalid_evidence_sha256=value["invalid_evidence_sha256"],
+        )
+    except (json.JSONDecodeError, KeyError, TypeError, ValueError):
+        raise ValidationError("invalid retained privacy evidence") from None
 
 
 @dataclass(frozen=True, slots=True)

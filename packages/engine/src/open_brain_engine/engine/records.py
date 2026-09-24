@@ -15,9 +15,11 @@ from open_brain_engine.portable.v4 import canonical_revision_id
 from open_brain_engine.storage.filesystem import StorageError, read_confined
 from open_brain_engine.storage.markdown import parse_markdown, render_markdown
 
+from .consent_contracts import EgressMode
 from .contracts import FilePayload, LocalEngineContext
 from .materializer import _payload_search_text
 from .normalization import _privacy, _role_claim
+from .privacy_projection import parse_effective_privacy_json
 from .search_projection import public_search_text, public_source_origin, source_search_title
 from .t03_contracts import EffectiveAuthority, T03Error, validate_wire
 
@@ -52,13 +54,17 @@ class RecordProjector:
 
     def _require_effective_privacy(self, raw: object) -> None:
         try:
-            value = json.loads(raw) if isinstance(raw, str) else None
-            if not isinstance(value, dict):
-                raise ValueError
-            tier = value["tier"]
-        except (json.JSONDecodeError, KeyError, TypeError, ValueError):
-            tier = PrivacyTier.UNKNOWN
-        self._require_tier(tier)
+            evidence = parse_effective_privacy_json(raw)
+        except ValueError:
+            evidence = None
+        self._require_tier(
+            PrivacyTier.UNKNOWN if evidence is None else evidence.tier
+        )
+        if (
+            self.authority.egress_mode is EgressMode.EXTERNAL_PROVIDER
+            and (evidence is None or not evidence.authority.external_egress)
+        ):
+            raise T03Error("not_found")
 
     def _require_source_revision_privacy(self, capture_id: str) -> None:
         row = self.connection.execute(
