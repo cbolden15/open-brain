@@ -19,8 +19,10 @@ from open_brain_engine.core.ids import portable_canonical_json_bytes
 from open_brain_engine.core.models import PrivacyTier, ValidationError
 from open_brain_engine.engine.contracts import (
     Payload,
+    ProtectionAcknowledgement,
     TextPayload,
     destination_bound_request_sha256,
+    verify_protection_acknowledgement_binding,
 )
 
 OUTBOX_CONTRACT_VERSION = "outbox.v1"
@@ -265,7 +267,7 @@ class TerminalReceipt:
     delivery_id: str
     request_digest: str
     final_admitted_tier: PrivacyTier
-    protection_acknowledgement: object = None
+    protection_acknowledgement: ProtectionAcknowledgement | None = None
 
     def __post_init__(self) -> None:
         try:
@@ -277,9 +279,9 @@ class TerminalReceipt:
         _validate_reference(self.delivery_id, "delivery ID")
         _validate_request_digest(self.request_digest)
         final_tier = _privacy_tier(self.final_admitted_tier, "final admitted tier")
-        # Null only while the deferred receipt-protection finalizer is
-        # undefined (owner decision S11); verification ignores the field.
-        if self.protection_acknowledgement is not None:
+        if self.protection_acknowledgement is not None and not isinstance(
+            self.protection_acknowledgement, ProtectionAcknowledgement
+        ):
             raise OutboxContractError("invalid protection acknowledgement")
         object.__setattr__(self, "status", status)
         object.__setattr__(self, "final_admitted_tier", final_tier)
@@ -290,7 +292,13 @@ class TerminalReceipt:
             "delivery_id": self.delivery_id,
             "final_admitted_tier": self.final_admitted_tier.value,
             "issuer_epoch": self.issuer_epoch,
-            "protection_acknowledgement": self.protection_acknowledgement,
+            "protection_acknowledgement": (
+                None
+                if self.protection_acknowledgement is None
+                else self.protection_acknowledgement.to_dict()
+                if isinstance(self.protection_acknowledgement, ProtectionAcknowledgement)
+                else self.protection_acknowledgement
+            ),
             "request_digest": self.request_digest,
             "status": self.status.value,
         }
@@ -309,6 +317,15 @@ class TerminalReceipt:
         if not isinstance(value, dict) or set(value) != expected:
             raise OutboxContractError("invalid terminal receipt fields")
         try:
+            raw_acknowledgement = value["protection_acknowledgement"]
+            try:
+                acknowledgement = (
+                    None
+                    if raw_acknowledgement is None
+                    else ProtectionAcknowledgement.from_dict(raw_acknowledgement)
+                )
+            except ValueError as error:
+                raise OutboxContractError("invalid protection acknowledgement") from error
             return cls(
                 status=cast(TerminalReceiptStatus, value["status"]),
                 brain_id=cast(str, value["brain_id"]),
@@ -316,7 +333,7 @@ class TerminalReceipt:
                 delivery_id=cast(str, value["delivery_id"]),
                 request_digest=cast(str, value["request_digest"]),
                 final_admitted_tier=cast(PrivacyTier, value["final_admitted_tier"]),
-                protection_acknowledgement=value["protection_acknowledgement"],
+                protection_acknowledgement=acknowledgement,
             )
         except OutboxContractError:
             raise
@@ -358,11 +375,16 @@ def outbox_request_digest(
 
 
 def verify_terminal_receipt(
-    envelope: DeliveryEnvelope, receipt: TerminalReceipt
+    envelope: DeliveryEnvelope,
+    receipt: TerminalReceipt,
+    *,
+    require_independent_protection: bool = False,
 ) -> TerminalReceipt:
     """Verify a terminal receipt against every delivery binding and privacy narrowing."""
     if not isinstance(envelope, DeliveryEnvelope) or not isinstance(receipt, TerminalReceipt):
         raise OutboxContractError("invalid terminal receipt binding")
+    if type(require_independent_protection) is not bool:
+        raise OutboxContractError("invalid protection requirement")
     try:
         checked_envelope = DeliveryEnvelope.from_dict(envelope.to_dict())
         checked_receipt = TerminalReceipt.from_dict(receipt.to_dict())
@@ -377,6 +399,23 @@ def verify_terminal_receipt(
         < _TIER_PRECEDENCE[checked_envelope.requested_tier]
     ):
         raise OutboxContractError("terminal receipt binding mismatch")
+    acknowledgement = checked_receipt.protection_acknowledgement
+    if acknowledgement is None:
+        if require_independent_protection:
+            raise OutboxContractError("terminal receipt lacks independent protection")
+        return checked_receipt
+    try:
+        verify_protection_acknowledgement_binding(
+            acknowledgement,
+            brain_id=checked_receipt.brain_id,
+            issuer_epoch=checked_receipt.issuer_epoch,
+            delivery_id=checked_receipt.delivery_id,
+            request_sha256=checked_receipt.request_digest,
+            requested_tier=checked_envelope.requested_tier,
+            final_admitted_tier=checked_receipt.final_admitted_tier,
+        )
+    except ValueError as error:
+        raise OutboxContractError("terminal receipt protection mismatch") from error
     return checked_receipt
 
 

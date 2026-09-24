@@ -282,6 +282,8 @@ def _reported_failure_code(stdout: bytes) -> str | None:
         return None
     if not isinstance(document, dict):
         return None
+    if document.get("status") == "recovery_pending" and document.get("retryable") is True:
+        return "recovery_pending"
     error = document.get("error")
     if not isinstance(error, dict):
         return None

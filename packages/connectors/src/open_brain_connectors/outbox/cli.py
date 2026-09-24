@@ -137,6 +137,11 @@ def _build_parser() -> argparse.ArgumentParser:
     drain.add_argument("--max-batch-items", type=_positive_int, default=DEFAULT_MAX_BATCH_ITEMS)
     drain.add_argument("--max-batch-bytes", type=_positive_int, default=DEFAULT_MAX_BATCH_BYTES)
     drain.add_argument("--timeout-seconds", type=float, default=DEFAULT_TIMEOUT_SECONDS)
+    drain.add_argument(
+        "--require-independent-protection",
+        action="store_true",
+        help="retain each body until its destination receipt carries verified protection",
+    )
 
     status = subparsers.add_parser("status", help="print metadata-only outbox counts")
     _add_store_options(status)
@@ -259,6 +264,7 @@ def _command_drain(args: argparse.Namespace) -> int:
         transport,
         max_batch_items=args.max_batch_items,
         max_batch_bytes=args.max_batch_bytes,
+        require_independent_protection=args.require_independent_protection,
     )
     payload = _summary_payload(summary)
     human = " ".join(f"{key}={value}" for key, value in payload.items())

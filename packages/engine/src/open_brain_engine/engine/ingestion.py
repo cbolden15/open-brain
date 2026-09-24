@@ -15,7 +15,7 @@ from typing import TYPE_CHECKING, cast
 from uuid import uuid4
 
 from open_brain_engine.core.ids import portable_canonical_json_bytes
-from open_brain_engine.core.models import PrivacyTier
+from open_brain_engine.core.models import PrivacyDecision, PrivacyTier
 
 from .contracts import (
     CaptureCustodyReceipt,
@@ -99,6 +99,36 @@ class IngestionJournal:
             return self._identity_row(connection, submission.delivery_id) is not None
         finally:
             connection.close()
+
+    def protection_envelope(self, submission: CaptureSubmission) -> JournalEnvelope:
+        """Load the exact active replay bytes, or rebuild them from canonical admission."""
+        connection = self._engine._store.connect()
+        try:
+            payload = connection.execute(
+                "SELECT envelope_bytes FROM capture_ingestion_payloads WHERE delivery_id = ?",
+                (submission.delivery_id,),
+            ).fetchone()
+            if payload is not None:
+                envelope = JournalEnvelope.from_bytes(cast(bytes, payload["envelope_bytes"]))
+            else:
+                canonical = connection.execute(
+                    "SELECT request_sha256, privacy_json FROM captures WHERE delivery_id = ?",
+                    (submission.delivery_id,),
+                ).fetchone()
+                if canonical is None or canonical["request_sha256"] != submission.request_sha256():
+                    raise RuntimeError("capture protection replay unavailable")
+                admitted = PrivacyDecision.from_dict(
+                    cast(dict[str, object], json.loads(cast(str, canonical["privacy_json"])))
+                )
+                envelope = JournalEnvelope(submission, admitted)
+        finally:
+            connection.close()
+        if (
+            envelope.submission.delivery_id != submission.delivery_id
+            or envelope.submission.request_sha256() != submission.request_sha256()
+        ):
+            raise RuntimeError("capture protection replay mismatch")
+        return envelope
 
     def enqueue(self, submission: CaptureSubmission) -> CaptureOutcome:
         """Commit custody before any writer work, returning a stable replay result."""

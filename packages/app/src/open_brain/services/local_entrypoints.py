@@ -26,6 +26,7 @@ from open_brain_engine import __version__
 from open_brain_engine.core.models import PrivacyTier
 from open_brain_engine.engine import (
     CaptureCustodyReceipt,
+    CaptureProtectionPendingError,
     CaptureReceipt,
     EngineTaskSet,
     JournalOperationError,
@@ -98,6 +99,10 @@ from open_brain.services.local_runtime_session import LocalRuntimeCompatibilityE
 from open_brain.services.managed_recovery import (
     ManagedRecoveryCommandFailure,
     run_managed_recovery,
+)
+from open_brain.services.receipt_protection import (
+    ReceiptProtectionConfigurationError,
+    load_receipt_protection_configuration,
 )
 from open_brain.services.review_publication import (
     MAX_REVIEW_MARKDOWN_BYTES,
@@ -219,6 +224,11 @@ def run_cli(
     ):
         _write_usage_failure(json_output=False)
         return 2
+    if parsed.command == "mcp" and (
+        parsed.receipt_protection is not None and not parsed.allow_capture_submit
+    ):
+        _write_usage_failure(json_output=False)
+        return 2
     if parsed.command == "catalog":
         if not bool(getattr(parsed, "json", False)):
             _write_usage_failure(json_output=False)
@@ -271,6 +281,16 @@ def run_cli(
         try:
             parsed.startup_policy = _read_startup_policy(parsed.policy)
         except OSError, UnicodeError, ValueError:
+            _write_usage_failure(json_output=json_output)
+            return 2
+    protection_path = getattr(parsed, "receipt_protection", None)
+    parsed.receipt_protection_configuration = None
+    if protection_path is not None:
+        try:
+            parsed.receipt_protection_configuration = load_receipt_protection_configuration(
+                protection_path
+            )
+        except ReceiptProtectionConfigurationError:
             _write_usage_failure(json_output=json_output)
             return 2
     if parsed.command != "import":
@@ -382,10 +402,21 @@ def _run_parsed_command(
             )
             _write_managed(payload, json_output=json_output)
             return 0
-        with open_local_brain(
-            selection,
-            filesystem_type_probe=filesystem_type_probe,
-        ) as session:
+        protection = parsed.receipt_protection_configuration
+        brain_session = (
+            open_local_brain(
+                selection,
+                filesystem_type_probe=filesystem_type_probe,
+            )
+            if protection is None
+            else open_local_brain(
+                selection,
+                filesystem_type_probe=filesystem_type_probe,
+                receipt_protection_port=protection.port,
+                receipt_protection_timeout_seconds=protection.timeout_seconds,
+            )
+        )
+        with brain_session as session:
             return _run_local_command(
                 parsed,
                 session,
@@ -552,6 +583,12 @@ def _parser() -> argparse.ArgumentParser:
         default=None,
         help="Requested tier; it must be inside the policy's allowed capture tiers.",
     )
+    capture_submit_parser.add_argument(
+        "--receipt-protection",
+        metavar="PATH",
+        default=None,
+        help="Absolute owner-only receipt-protection-command.v1 configuration path.",
+    )
     import_parser = subparsers.add_parser(
         "import",
         help="Import a Markdown directory into immutable local history.",
@@ -696,6 +733,15 @@ def _parser() -> argparse.ArgumentParser:
         help=(
             "Compatibility alias for a capture-submit launcher-policy.v1 path; "
             "requires --allow-capture-submit and cannot be combined with --session-policy."
+        ),
+    )
+    mcp_parser.add_argument(
+        "--receipt-protection",
+        metavar="PATH",
+        default=None,
+        help=(
+            "Absolute owner-only receipt-protection-command.v1 configuration path; "
+            "requires --allow-capture-submit."
         ),
     )
     mcp_parser.add_argument(
@@ -1829,6 +1875,13 @@ def _run_local_command(
             )
         except CaptureAdmissionError as error:
             return _write_capture_admission_failure(error, json_output=json_output)
+        except CaptureProtectionPendingError as error:
+            payload = error.result.to_dict()
+            if json_output:
+                _write_json(payload)
+            else:
+                print("recovery_pending", file=sys.stderr)
+            return 75
         payload = destination_bound_capture_result(receipt)
         if json_output:
             _write_json(payload)

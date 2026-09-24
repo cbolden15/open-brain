@@ -2046,6 +2046,95 @@ def test_cli_capture_submit_uses_a_valid_startup_policy(tmp_path: Path) -> None:
     assert privacy["tier"] == "work"
 
 
+def _receipt_protection_file(
+    tmp_path: Path,
+    *,
+    protector_body: str,
+) -> tuple[Path, Path]:
+    replay = tmp_path / "protected-journal.v1"
+    script = tmp_path / "receipt-protector.py"
+    script.write_text(protector_body, encoding="utf-8")
+    configuration = tmp_path / "receipt-protection.json"
+    configuration.write_text(
+        json.dumps(
+            {
+                "contract_version": "receipt-protection-command.v1",
+                "argv": [sys.executable, str(script), str(replay)],
+                "timeout_seconds": 2,
+            }
+        ),
+        encoding="utf-8",
+    )
+    configuration.chmod(0o600)
+    return configuration, replay
+
+
+def test_cli_capture_submit_releases_a_protected_receipt(tmp_path: Path) -> None:
+    root = tmp_path / "brain"
+    assert _subprocess_cli(root, "status")["profile"] == "local"
+    policy = _destination_policy_file(root)
+    configuration, replay = _receipt_protection_file(
+        tmp_path,
+        protector_body=(
+            "import json,sys\n"
+            "from pathlib import Path\n"
+            "from open_brain_engine.engine import ("
+            "ReceiptProtectionRequest,ProtectionAcknowledgement)\n"
+            "request=ReceiptProtectionRequest.from_dict(json.load(sys.stdin))\n"
+            "Path(sys.argv[1]).write_bytes(request.replay_bytes)\n"
+            "ack=ProtectionAcknowledgement.for_request(request,protection_reference='test:durable',protected_at='2026-09-24T12:00:00Z')\n"
+            "json.dump(ack.to_dict(),sys.stdout,sort_keys=True)\n"
+        ),
+    )
+
+    submitted = _subprocess_cli(
+        root,
+        "capture-submit",
+        "synthetic protected destination text",
+        "--policy",
+        str(policy),
+        "--privacy-tier",
+        "work",
+        "--receipt-protection",
+        str(configuration),
+    )
+
+    acknowledgement = submitted["protection_acknowledgement"]
+    assert isinstance(acknowledgement, dict)
+    assert acknowledgement["status"] == "protected"
+    assert replay.read_bytes().startswith(b'{"admitted_privacy"')
+    assert _capture_count(root) == 1
+
+
+def test_cli_capture_submit_keeps_recovery_pending_retryable(tmp_path: Path) -> None:
+    root = tmp_path / "brain"
+    assert _subprocess_cli(root, "status")["profile"] == "local"
+    policy = _destination_policy_file(root)
+    configuration, _replay = _receipt_protection_file(
+        tmp_path,
+        protector_body="raise SystemExit(1)\n",
+    )
+
+    result = _failing_cli(
+        root,
+        "capture-submit",
+        "synthetic pending destination text",
+        "--policy",
+        str(policy),
+        "--privacy-tier",
+        "work",
+        "--receipt-protection",
+        str(configuration),
+    )
+
+    assert result.returncode == 75
+    payload = json.loads(result.stdout)
+    assert payload["status"] == "recovery_pending"
+    assert payload["retryable"] is True
+    assert payload["reason_code"] == "protection_unavailable"
+    assert _capture_count(root) == 1
+
+
 def _failing_cli(root: Path, *arguments: str) -> subprocess.CompletedProcess[str]:
     program = (
         "from open_brain.services.local_entrypoints import run_cli;raise SystemExit(run_cli())"

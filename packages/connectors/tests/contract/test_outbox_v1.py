@@ -10,7 +10,13 @@ from uuid import uuid4
 import pytest
 from open_brain_engine.core.access_contracts import derive_brain_id
 from open_brain_engine.core.models import PrivacyTier
-from open_brain_engine.engine import BrainEngine, CaptureSubmission, TextPayload
+from open_brain_engine.engine import (
+    BrainEngine,
+    CaptureSubmission,
+    ProtectionAcknowledgement,
+    ReceiptProtectionRequest,
+    TextPayload,
+)
 from open_brain_engine.engine.contracts import (
     LocalEngineContext,
     destination_bound_request_sha256,
@@ -371,9 +377,11 @@ def test_terminal_receipt_protection_acknowledgement_is_null_only() -> None:
             delivery_id=envelope.delivery_id,
             request_digest=envelope.request_digest,
             final_admitted_tier=PrivacyTier.WORK,
-            protection_acknowledgement="synthetic",
+            protection_acknowledgement=cast(ProtectionAcknowledgement, "synthetic"),
         )
     assert verify_terminal_receipt(envelope, receipt) == receipt
+    with pytest.raises(OutboxContractError, match="lacks independent protection"):
+        verify_terminal_receipt(envelope, receipt, require_independent_protection=True)
 
 
 @pytest.mark.parametrize("status", ["pending", "failed", "conflicted", "quarantined"])
@@ -473,7 +481,20 @@ def test_real_engine_receipt_verifies_against_the_envelope_that_produced_it(
     (root / ".open-brain").mkdir(mode=0o700)
     (root / ".open-brain" / "state").mkdir(mode=0o700)
     profile = _engine_profile(root)
-    engine = BrainEngine.open(profile)
+    class Protector:
+        def protect(
+            self,
+            request: ReceiptProtectionRequest,
+            *,
+            timeout_seconds: float,
+        ) -> ProtectionAcknowledgement:
+            return ProtectionAcknowledgement.for_request(
+                request,
+                protection_reference="contract:durable",
+                protected_at="2026-09-24T12:00:00Z",
+            )
+
+    engine = BrainEngine.open(profile, receipt_protection_port=Protector())
     brain_id = derive_brain_id(profile.tenant_id)
     authority = EffectiveAuthority(
         principal_id=PRINCIPAL_ID,
@@ -517,8 +538,12 @@ def test_real_engine_receipt_verifies_against_the_envelope_that_produced_it(
         delivery_id=cast(str, receipt.delivery_id),
         request_digest=receipt.request_sha256,
         final_admitted_tier=receipt.final_admitted_tier,
+        protection_acknowledgement=receipt.protection_acknowledgement,
     )
-    assert verify_terminal_receipt(envelope, accepted) == accepted
+    assert (
+        verify_terminal_receipt(envelope, accepted, require_independent_protection=True)
+        == accepted
+    )
 
     replay = engine.capture.submit(submission)
     assert replay.duplicate is True
@@ -530,8 +555,17 @@ def test_real_engine_receipt_verifies_against_the_envelope_that_produced_it(
         delivery_id=cast(str, replay.delivery_id),
         request_digest=replay.request_sha256,
         final_admitted_tier=replay.final_admitted_tier,
+        protection_acknowledgement=replay.protection_acknowledgement,
     )
-    assert verify_terminal_receipt(envelope, duplicate) == duplicate
+    assert (
+        verify_terminal_receipt(envelope, duplicate, require_independent_protection=True)
+        == duplicate
+    )
+
+    assert accepted.protection_acknowledgement is not None
+    object.__setattr__(accepted.protection_acknowledgement, "delivery_id", "delivery.tampered")
+    with pytest.raises(OutboxContractError, match="terminal receipt binding"):
+        verify_terminal_receipt(envelope, accepted, require_independent_protection=True)
 
 
 def test_contract_slice_exposes_no_queue_retry_quarantine_or_storage_api() -> None:

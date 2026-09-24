@@ -20,6 +20,7 @@ from open_brain_engine.engine import (
     CaptureAdmissionError,
     CaptureCustodyReceipt,
     CaptureOutcome,
+    ProtectionAcknowledgement,
     verify_capture_custody_receipt,
 )
 
@@ -30,6 +31,7 @@ __all__ = [
     "DELIVERY_CONFLICT",
     "POLICY_MISMATCH",
     "RECEIPT_MALFORMED",
+    "RECOVERY_PENDING",
     "TRANSPORT_ERROR",
     "TRANSPORT_MISUSE",
     "delivery_conflict_failure",
@@ -42,6 +44,7 @@ __all__ = [
 DELIVERY_CONFLICT = "delivery_conflict"
 POLICY_MISMATCH = "policy_mismatch"
 RECEIPT_MALFORMED = "receipt_malformed"
+RECOVERY_PENDING = "recovery_pending"
 TRANSPORT_ERROR = "transport_error"
 TRANSPORT_MISUSE = "transport_misuse"
 
@@ -54,12 +57,14 @@ _RESULT_DOCUMENT_KEYS = frozenset(
         "final_admitted_tier",
         "issuer_epoch",
         "payload_family",
+        "protection_acknowledgement",
         "request_sha256",
         "requested_tier",
         "state",
         "status",
     }
 )
+_LEGACY_RESULT_DOCUMENT_KEYS = _RESULT_DOCUMENT_KEYS - {"protection_acknowledgement"}
 
 
 def failure_from_admission_error(error: CaptureAdmissionError) -> DeliveryFailure:
@@ -106,6 +111,7 @@ def terminal_receipt_from_capture_receipt(receipt: CaptureOutcome) -> TerminalRe
         delivery_id=receipt.delivery_id,
         request_digest=receipt.request_sha256,
         final_admitted_tier=receipt.final_admitted_tier,
+        protection_acknowledgement=receipt.protection_acknowledgement,
     )
 
 
@@ -125,12 +131,24 @@ def terminal_receipt_from_result_document(document: object) -> TerminalReceipt:
             final_admitted_tier=custody.final_admitted_tier,
             protection_acknowledgement=custody.protection_acknowledgement,
         )
-    if not isinstance(document, dict) or set(document) != _RESULT_DOCUMENT_KEYS:
+    if not isinstance(document, dict) or set(document) not in {
+        _RESULT_DOCUMENT_KEYS,
+        _LEGACY_RESULT_DOCUMENT_KEYS,
+    }:
         raise OutboxContractError(RECEIPT_MALFORMED)
     duplicate = document["duplicate"]
     if type(duplicate) is not bool or document["status"] != "captured":
         raise OutboxContractError(RECEIPT_MALFORMED)
     status = TerminalReceiptStatus.DUPLICATE if duplicate else TerminalReceiptStatus.ACCEPTED
+    raw_acknowledgement = document.get("protection_acknowledgement")
+    try:
+        acknowledgement = (
+            None
+            if raw_acknowledgement is None
+            else ProtectionAcknowledgement.from_dict(raw_acknowledgement)
+        )
+    except ValueError as error:
+        raise OutboxContractError(RECEIPT_MALFORMED) from error
     return TerminalReceipt(
         status=status,
         brain_id=cast(str, document["destination_brain_id"]),
@@ -138,4 +156,5 @@ def terminal_receipt_from_result_document(document: object) -> TerminalReceipt:
         delivery_id=cast(str, document["delivery_id"]),
         request_digest=cast(str, document["request_sha256"]),
         final_admitted_tier=cast(PrivacyTier, document["final_admitted_tier"]),
+        protection_acknowledgement=acknowledgement,
     )

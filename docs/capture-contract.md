@@ -25,12 +25,16 @@ with its payload retained. `accepted`, `duplicate`, and owner-confirmed `discard
 terminal. Guarded compaction removes an accepted or duplicate payload only after the canonical
 capture row can answer future replay; discard writes a tombstone before removing active history.
 
-The public outcome is a closed union. Existing accepted and duplicate receipt bytes remain stable.
+The ordinary capture outcome remains the closed accepted-or-custody union. Existing accepted and
+duplicate receipt bytes remain stable. A configured destination protection failure is a separate
+receipt-level `recovery_pending` result, not a capture refusal.
 A queued custody receipt contains only the contract version, `queued` status, opaque ingestion ID,
 Brain ID, issuer epoch, delivery ID, request digest, requested and final privacy tiers, enqueue
 time, and nullable protection acknowledgement. It never contains payload, title, source reference,
-capture ID, queue depth, or the global journal sequence. A queued result transfers local custody to
-the Brain's documented disk boundary; it does not claim independent backup or replication.
+capture ID, queue depth, or the global journal sequence. Without a configured protector, a queued
+result transfers local custody to the Brain's documented disk boundary and does not claim
+independent backup or replication. With a configured protector, the acknowledgement must bind the
+same exact replay envelope before the result is released.
 
 Pending and quarantined journal payloads are owner-only operational state. They do not appear in
 search, record reads, exports, published Markdown, or scoped adapter responses. A client outbox or
@@ -107,6 +111,31 @@ open-brain capture-submit "synthetic destination text" \
 
 The policy file is owner-prepared trusted input; the example text and any principal or provider names in examples are synthetic.
 
+### Independent receipt protection
+
+The owner may add `--receipt-protection` to `capture-submit`, or to an MCP process that also has
+`--allow-capture-submit`. The argument names an owner-only `receipt-protection-command.v1` file. It
+is trusted startup configuration, never a client request field. The feature is off when that file is
+absent.
+
+After the Brain commits local custody, it sends the configured foreground protector one bounded
+`receipt-protection.v1` document. The document contains the exact canonical `journal.v1` replay
+bytes, their SHA-256 digest, and the Brain ID, issuer epoch, delivery ID, request digest, requested
+tier, and final admitted tier. The commitment covers those bindings and the replay digest. A valid
+`receipt-protection-ack.v1` response repeats the bindings, the commitment, an opaque protection
+reference, and the protection time.
+
+The protector is an injected port, not part of the engine's storage or network policy. The public
+adapter starts one bounded process with an empty environment, a fresh working directory, no shell,
+a fixed output cap, and a deadline. The engine supplies no destination, credential, encryption, or
+replication implementation. A private deployment owns those details.
+
+Protection happens after the local journal or canonical row is durable and before the receipt is
+released. A timeout, unavailable protector, or invalid acknowledgement returns
+`capture-protection-pending.v1` with `status: "recovery_pending"` and `retryable: true`. Replaying the
+same delivery retries protection against the same replay commitment. Canonical capture remains
+idempotent, so a protection retry cannot create a second record.
+
 ## Offline outbox
 
 The optional `open-brain-connectors` package adds a client-side outbox for destination-bound captures that must survive process restart. It is not in the core dependency graph and has no listener, daemon, thread, or scheduler; every operation is a foreground command the owner starts and that exits when done. The command surface is `open-brain-outbox`, documented in the [CLI reference](cli.md).
@@ -135,13 +164,21 @@ Per-cycle batch bounds cap how many items and how many envelope bytes one cycle 
 
 A terminal receipt is verified against the item before anything is removed. Verification binds the destination Brain ID, issuer epoch, delivery ID, request digest, and final admitted tier, where narrowing from the requested tier is allowed and widening is refused. A verified accepted or duplicate receipt replaces the body with a metadata-only terminal record. A verification failure quarantines the item with reason `receipt_mismatch` and never removes the body, so stale-epoch and wrong-Brain receipts never authorize removal.
 
+When the owner starts a drain with `--require-independent-protection`, a null acknowledgement is a
+retryable `recovery_pending` attempt. The item stays queued with its body intact. A non-null
+acknowledgement must validate its own commitment and match the envelope and terminal receipt before
+the body can be replaced. A malformed or mismatched acknowledgement never authorizes removal.
+
 Destination refusals keep the retryable split of the admission results above: a retryable refusal is recorded as one attempt and the item stays queued, while a terminal refusal quarantines the item under its stable result code. The drain never reinterprets the retryable flag. A transport failure is recorded as a retryable `transport_error` attempt and never quarantines. Delivery conflicts, malformed receipts, and policy mismatches are terminal and quarantine the item; on the stdio path, a success exit whose result document is unparseable, not an object, or shape-invalid is a malformed receipt and quarantines with reason `receipt_malformed`. Quarantined items stop automatic retries and keep counting against capacity until the owner resolves them.
 
 ### Terminal records and the acknowledgement slot
 
 Both a verified receipt and an owner-confirmed discard replace the item file with one metadata-only terminal record. The record is a store-level format, `outbox.terminal.v1`, not an `outbox.v1` contract surface. It keeps the delivery ID, destination Brain ID, issuer epoch, tenant, principal, request digest, enqueue timestamp, attempt count, last attempt time, and terminal timestamp; the request digest is the only payload-derived value. A receipt-kind record embeds the verified receipt cross-bound to the record identity, so a tampered record surfaces as corrupt; a discard-kind record carries no receipt. The body bytes are removed on both paths.
 
-The terminal receipt contract carries a required nullable `protection_acknowledgement` key. It is null today, verification ignores it, and the slot is reserved for a future finalizer.
+The terminal receipt contract carries a required nullable `protection_acknowledgement` key. It is
+null for compatibility when no protector is configured. Any non-null value must be a complete
+`receipt-protection-ack.v1` object. Default drains accept null for backward compatibility; protected
+deployments opt into the stricter body-removal gate described above.
 
 ### One request digest
 
