@@ -932,6 +932,12 @@ class CollectorController:
                     )
                     quarantined += 1
                     continue
+                # Durable engine custody is deliberately not a terminal capture
+                # receipt.  Keep the exact staged intake and active run so a
+                # restart can replay this same envelope until the capture
+                # boundary returns a canonical receipt.
+                if isinstance(result, CaptureCustodyReceipt):
+                    continue
                 result_outcome = getattr(result, "outcome", None)
                 duplicate = bool(getattr(result, "duplicate", False))
                 capture_id = getattr(result, "capture_id", None)
@@ -949,6 +955,39 @@ class CollectorController:
                 committed_digests[delivery_id] = digest
                 captured += int(not duplicate)
                 duplicates += int(duplicate)
+            if any(
+                self._custody.receipt(receipt_id)["outcome"] == "pending"
+                for receipt_id in receipt_ids
+            ):
+                last_run = _last_run_payload(
+                    run_id=run_id,
+                    finished_epoch=now,
+                    outcome=CollectorRunOutcome.DEFERRED,
+                    captured_count=captured,
+                    duplicate_count=duplicates,
+                    next_cursor=cast(str | None, entry.get("next_cursor")),
+                    failure_code=None,
+                )
+                with self._capture_guard, self._selection_barrier():
+                    latest_state = self._store.load()
+                    latest_entry = _source(_sources(latest_state), source_id)
+                    if (
+                        latest_entry["generation"] == entry["generation"]
+                        and latest_entry["control_epoch"] == entry["control_epoch"]
+                    ):
+                        latest_entry["last_run"] = last_run
+                        self._store.save(latest_state)
+                return CollectorCommandResult(
+                    source_id=source_id,
+                    status=cast(str, entry["status"]),
+                    outcome=CollectorRunOutcome.DEFERRED,
+                    captured_count=captured,
+                    duplicate_count=duplicates,
+                    quarantined_count=quarantined,
+                    next_run_epoch=cast(int | None, entry.get("next_run_epoch")),
+                    pause_ack_epoch=cast(int | None, entry.get("pause_ack_epoch")),
+                    next_cursor=cast(str | None, entry.get("next_cursor")),
+                )
         except Exception:
             last_run = _last_run_payload(
                 run_id=run_id,
