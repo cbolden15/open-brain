@@ -33,7 +33,7 @@ class SourceInspectRequest:
     dto_version: int = 1
 
     def __post_init__(self) -> None:
-        if self.dto_version != 1:
+        if type(self.dto_version) is not int or self.dto_version != 1:
             raise T03Error("invalid_arguments")
         object.__setattr__(self, "source_id", _text(self.source_id, prefix="source_"))
 
@@ -66,7 +66,8 @@ class SourceWithdrawRequest:
 
     def __post_init__(self) -> None:
         if (
-            self.dto_version != 1
+            type(self.dto_version) is not int
+            or self.dto_version != 1
             or type(self.expected_lifecycle_version) is not int
             or self.expected_lifecycle_version < 0
             or type(self.issuer_epoch) is not int

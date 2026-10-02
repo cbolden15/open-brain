@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Any, cast
 
 import pytest
-from open_brain_engine.core.models import PrivacyTier
+from open_brain_engine.core.models import Authority, PrivacyDecision, PrivacyReason, PrivacyTier
 from open_brain_engine.engine import (
     BrainEngine,
     DecisionOutcome,
@@ -21,11 +21,17 @@ from open_brain_engine.engine.t03_contracts import (
     EffectiveAuthority,
     HistoryListRequest,
     RecordReadRequest,
+    SearchPageRequest,
     T03Error,
 )
 
 from open_brain.profile import compile_single_user_local
 from packages.app.tests.unit.engine.test_foundation_contracts import _public_submission
+from packages.app.tests.unit.engine.test_paging import (
+    capture_work,
+    external_authority,
+    scoped_authority,
+)
 
 
 def wire(value: Any) -> dict[str, Any]:
@@ -221,6 +227,136 @@ def test_withdrawn_source_retains_three_owner_history_revisions(tmp_path: Path) 
             )
         ] == retained
     assert all((profile.root / path).read_bytes() == data for path, data in evidence.items())
+
+
+@pytest.mark.parametrize("caller_kind", ["owner", "external", "local_agent"])
+def test_withdrawal_invalidates_prevalidated_search_and_history_cursors(
+    tmp_path: Path, caller_kind: str
+) -> None:
+    engine = BrainEngine.open(compile_single_user_local(tmp_path / "brain"))
+    owner = replace(authority(), owner=True)
+    original = replace(
+        _public_submission(engine.tasks),
+        privacy=PrivacyDecision.create(
+            tier=PrivacyTier.WORK,
+            reason=PrivacyReason.POLICY_WORK,
+            policy_version="privacy-v1",
+            authority=Authority(cloud=True, external_egress=True),
+        ),
+    )
+    texts = [
+        "withdrawal cursor nebula 漢字🙂\n" * 500,
+        "Second revision",
+        "withdrawal cursor nebula head",
+    ]
+    ids: list[str] = []
+    head = None
+    namespace = dict(
+        connector_name="synthetic",
+        connection_id="cursor",
+        resource_id="cursor",
+        external_id="cursor",
+    )
+    for index, text in enumerate(texts):
+        capture = replace(original, payload=TextPayload(text))
+        receipt = engine.sources.submit_revision(
+            SourceRevisionSubmission(
+                capture=capture,
+                namespace=namespace,
+                revision_key=str(index),
+                canonical_sha256=capture.request_sha256(),
+                expected_head=head,
+                ordering={"kind": "unordered"}
+                if index == 0
+                else {"kind": "predecessor", "revision_key": str(index - 1)},
+                expected_control_epoch=0,
+            )
+        )
+        head = receipt.capture_id
+        assert head is not None
+        ids.append(head)
+    assert receipt.source_id is not None
+    control = capture_work(
+        engine,
+        delivery_id="withdrawal.cursor.control",
+        text="withdrawal cursor nebula control",
+        external_egress=True,
+    )
+    caller = (
+        owner
+        if caller_kind == "owner"
+        else replace(
+            external_authority(engine)
+            if caller_kind == "external"
+            else scoped_authority(PrivacyTier.WORK),
+            capabilities=frozenset({"search", "content-read", "history-read"}),
+        )
+    )
+    search = SearchPageRequest(query="withdrawal cursor nebula", limit=1)
+    listing = HistoryListRequest(record_id=ids[-1], limit=1)
+    reading = RecordReadRequest(record_id=ids[-1], expected_revision_id=ids[0], target_bytes=4096)
+    first_search = wire(engine.retrieval.search_page(search, authority=caller))
+    first_history = wire(engine.history.list_history(listing, authority=caller))
+    first_read = wire(engine.history.read_history(reading, authority=caller))
+    assert not first_search["complete"] and first_search["next_cursor"] is not None
+    assert not first_history["complete"] and first_history["next_cursor"] is not None
+    assert not first_read["complete"] and first_read["next_cursor"] is not None
+    search_tail = replace(search, cursor=first_search["next_cursor"])
+    history_tail = replace(listing, cursor=first_history["next_cursor"])
+    read_tail = replace(reading, cursor=first_read["next_cursor"])
+
+    # Prove every saved cursor is usable after all setup mutations are finished.
+    second_search = wire(engine.retrieval.search_page(search_tail, authority=caller))
+    assert {row["record_id"] for row in first_search["results"] + second_search["results"]} == {
+        ids[-1],
+        control,
+    }
+    assert (
+        wire(engine.history.list_history(history_tail, authority=caller))["entries"][0][
+            "revision_id"
+        ]
+        == ids[1]
+    )
+    second_read = wire(engine.history.read_history(read_tail, authority=caller))
+    assert second_read["start_byte"] == first_read["end_byte"]
+    assert second_read["content"]["text"]
+    inspection = engine.sources.inspect(
+        SourceInspectRequest(source_id=receipt.source_id), authority=owner
+    )
+    engine.sources.withdraw(
+        SourceWithdrawRequest(
+            operation_id="withdraw.cursor",
+            source_id=receipt.source_id,
+            expected_head=ids[-1],
+            expected_lifecycle_version=inspection.lifecycle_version,
+            brain_id=inspection.destination_brain_id,
+            issuer_epoch=inspection.issuer_epoch,
+            reason_code="owner_choice",
+        ),
+        authority=owner,
+    )
+
+    with pytest.raises(T03Error, match="cursor_stale"):
+        engine.retrieval.search_page(search_tail, authority=caller)
+    history_error = "cursor_stale" if caller_kind == "owner" else "not_found"
+    with pytest.raises(T03Error, match=history_error):
+        engine.history.list_history(history_tail, authority=caller)
+    with pytest.raises(T03Error, match=history_error):
+        engine.history.read_history(read_tail, authority=caller)
+    assert [
+        entry["revision_id"]
+        for entry in wire(engine.history.list_history(replace(listing, limit=10), authority=owner))[
+            "entries"
+        ]
+    ] == ids[::-1]
+    assert (
+        wire(engine.history.read_history(reading, authority=owner))["content"]["text"]
+        == first_read["content"]["text"]
+    )
+    assert {
+        row["record_id"]
+        for row in wire(engine.retrieval.search_page(search, authority=caller))["results"]
+    } == {control}
 
 
 def test_canonical_history_causal_predecessor_and_exact_bytes(tmp_path: Path) -> None:
