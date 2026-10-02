@@ -5,6 +5,7 @@ from dataclasses import replace
 from hashlib import sha256
 from pathlib import Path
 from typing import Any, cast
+from uuid import uuid4
 
 import pytest
 from open_brain_engine.core.ids import portable_canonical_json_bytes
@@ -185,13 +186,18 @@ def test_managed_receipt_verification_rejects_forged_nested_evidence(
     assert sink.submit(delivery) == accepted
 
 
+@pytest.mark.parametrize("path", ["managed", "direct"])
 def test_managed_pending_namespace_cannot_reserve_a_second_delivery(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, path: str
 ) -> None:
     delivery = _delivery(tmp_path)
     engine = BrainEngine.open(compile_single_user_local(tmp_path / "brain"))
     sink = engine.sources.public_revision_sink(delivery.binding)
-    changed = replace(delivery.submission.capture, payload=TextPayload("synthetic second"))
+    changed = replace(
+        delivery.submission.capture,
+        payload=TextPayload("synthetic second"),
+        delivery_id="synthetic.second.capture",
+    )
     second = replace(
         delivery,
         delivery_id="synthetic.second",
@@ -206,7 +212,10 @@ def test_managed_pending_namespace_cannot_reserve_a_second_delivery(
 
     def interleave(submission: SourceRevisionSubmission) -> Any:
         with pytest.raises(T03Error, match="operation_pending"):
-            sink.submit(second)
+            if path == "managed":
+                sink.submit(second)
+            else:
+                original(second.submission)
         return original(submission)
 
     with monkeypatch.context() as fault:
@@ -220,6 +229,70 @@ def test_managed_pending_namespace_cannot_reserve_a_second_delivery(
         assert connection.execute("SELECT count(*) FROM captures").fetchone()[0] == 1
 
 
+@pytest.mark.parametrize(
+    "invalid",
+    [
+        "foreign_head",
+        "first_predecessor",
+        "wrong_predecessor",
+        "unordered_update",
+        "incomparable_monotonic",
+    ],
+)
+def test_managed_fresh_invalid_order_or_head_leaves_no_reservation(
+    tmp_path: Path, invalid: str
+) -> None:
+    delivery = _delivery(tmp_path)
+    engine = BrainEngine.open(compile_single_user_local(tmp_path / "brain"))
+    sink = engine.sources.public_revision_sink(delivery.binding)
+    expected_count = 0
+    if invalid in {"foreign_head", "first_predecessor"}:
+        submission = replace(
+            delivery.submission,
+            expected_head="capture_" + str(uuid4()) if invalid == "foreign_head" else None,
+            ordering={"kind": "predecessor", "revision_key": "missing"}
+            if invalid == "first_predecessor"
+            else {"kind": "unordered"},
+        )
+    else:
+        accepted = sink.submit(delivery)
+        assert accepted.source_receipt is not None
+        expected_count = 1
+        capture = replace(
+            delivery.submission.capture,
+            payload=TextPayload("synthetic invalid order"),
+            delivery_id="synthetic.invalid.two",
+        )
+        orders: dict[str, Any] = {
+            "wrong_predecessor": {"kind": "predecessor", "revision_key": "missing"},
+            "unordered_update": {"kind": "unordered"},
+            "incomparable_monotonic": {
+                "kind": "monotonic",
+                "provider_namespace": "synthetic",
+                "epoch": "one",
+                "sequence": 2,
+            },
+        }
+        submission = replace(
+            delivery.submission,
+            capture=capture,
+            revision_key="two",
+            canonical_sha256=capture.request_sha256(),
+            expected_head=accepted.source_receipt.capture_id,
+            ordering=orders[invalid],
+        )
+    invalid_delivery = replace(delivery, submission=submission, delivery_id="synthetic.invalid")
+    with pytest.raises(T03Error, match="revision_changed|source_revision_conflict"):
+        sink.submit(invalid_delivery)
+    with open_local_database_read_only(engine.profile) as connection:
+        for table in ("captures", "source_intakes", "managed_source_deliveries"):
+            assert (
+                connection.execute(f"SELECT count(*) FROM {table}").fetchone()[0] == expected_count
+            )
+        assert connection.execute("SELECT count(*) FROM source_quarantine").fetchone()[0] == 0
+    BrainEngine.open(engine.profile)
+
+
 def test_managed_new_delivery_cannot_reinterpret_an_existing_intake(tmp_path: Path) -> None:
     delivery = _delivery(tmp_path)
     engine = BrainEngine.open(compile_single_user_local(tmp_path / "brain"))
@@ -231,6 +304,9 @@ def test_managed_new_delivery_cannot_reinterpret_an_existing_intake(tmp_path: Pa
         delivery_id="synthetic.reinterpreted",
         submission=replace(
             delivery.submission,
+            capture=replace(
+                delivery.submission.capture, delivery_id="synthetic.reinterpreted.capture"
+            ),
             expected_head=accepted.source_receipt.capture_id,
             ordering={"kind": "predecessor", "revision_key": "one"},
         ),
@@ -242,3 +318,74 @@ def test_managed_new_delivery_cannot_reinterpret_an_existing_intake(tmp_path: Pa
         assert (
             connection.execute("SELECT count(*) FROM managed_source_deliveries").fetchone()[0] == 1
         )
+
+
+def test_managed_admission_does_not_reserve_over_an_existing_pending_direct_intake(
+    tmp_path: Path,
+) -> None:
+    from open_brain_engine.engine import CaptureFault, InjectedFault
+
+    delivery = _delivery(tmp_path)
+    profile = compile_single_user_local(tmp_path / "brain")
+    engine = BrainEngine.open(profile, faults={CaptureFault.AFTER_CAPTURE_RESERVATION})
+    changed = replace(
+        delivery.submission.capture,
+        payload=TextPayload("synthetic direct pending"),
+        delivery_id="synthetic.direct.pending.capture",
+    )
+    direct = replace(
+        delivery.submission,
+        capture=changed,
+        revision_key="direct",
+        canonical_sha256=changed.request_sha256(),
+    )
+    with pytest.raises(InjectedFault):
+        engine.sources.submit_revision(direct)
+    with pytest.raises(T03Error, match="operation_pending"):
+        engine.sources.public_revision_sink(delivery.binding).submit(delivery)
+    with open_local_database_read_only(profile) as connection:
+        assert (
+            connection.execute("SELECT count(*) FROM managed_source_deliveries").fetchone()[0] == 0
+        )
+        assert connection.execute("SELECT count(*) FROM source_intakes").fetchone()[0] == 1
+    reopened = BrainEngine.open(profile)
+    with pytest.raises(T03Error, match="revision_changed"):
+        reopened.sources.public_revision_sink(delivery.binding).submit(delivery)
+    with open_local_database_read_only(profile) as connection:
+        assert (
+            connection.execute("SELECT count(*) FROM managed_source_deliveries").fetchone()[0] == 0
+        )
+        assert connection.execute("SELECT count(*) FROM captures").fetchone()[0] == 1
+        assert connection.execute("SELECT count(*) FROM source_revisions").fetchone()[0] == 1
+    reopened.tasks.portability.export(tmp_path / "export", export_id="export_" + str(uuid4()))
+
+
+def test_managed_admission_refuses_reused_source_delivery_id_before_sql_insert(
+    tmp_path: Path,
+) -> None:
+    delivery = _delivery(tmp_path)
+    engine = BrainEngine.open(compile_single_user_local(tmp_path / "brain"))
+    sink = engine.sources.public_revision_sink(delivery.binding)
+    accepted = sink.submit(delivery)
+    assert accepted.source_receipt is not None
+    changed = replace(delivery.submission.capture, payload=TextPayload("synthetic reused delivery"))
+    second = replace(
+        delivery,
+        delivery_id="synthetic.reused",
+        submission=replace(
+            delivery.submission,
+            capture=changed,
+            revision_key="two",
+            canonical_sha256=changed.request_sha256(),
+            expected_head=accepted.source_receipt.capture_id,
+            ordering={"kind": "predecessor", "revision_key": "one"},
+        ),
+    )
+    with pytest.raises(T03Error, match="invalid_arguments"):
+        sink.submit(second)
+    sink.verify_receipt(delivery, accepted)
+    with open_local_database_read_only(engine.profile) as connection:
+        assert (
+            connection.execute("SELECT count(*) FROM managed_source_deliveries").fetchone()[0] == 1
+        )
+        assert connection.execute("SELECT count(*) FROM captures").fetchone()[0] == 1

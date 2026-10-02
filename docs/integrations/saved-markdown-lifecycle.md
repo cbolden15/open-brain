@@ -18,6 +18,9 @@ create a sharing approval, public copy, or provider grant.
 
 New revision admission checks current lifecycle and head expectations before
 reserving intake or capture work. Retirement is also checked at final linkage.
+The shared source admission path honors managed namespace reservations, including
+direct submissions. A single order decision is used before managed reservation
+and during source admission; fresh invalid head/order cannot strand a receipt.
 A returning changed item cannot leave an unfinished capture that blocks startup.
 Exact replay of a completed revision remains historical recovery: a lost
 admission response must finish its managed receipt before withdrawal can proceed.

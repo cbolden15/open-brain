@@ -446,6 +446,10 @@ receipts block withdrawal until exact recovery completes. Completed historical r
 withdrawal must not admit another capture or reactivate the source. Test changed returns, pending and lost-response
 retries, stale lifecycle requests, retained evidence, and ordinary restart after refusal.
 
+The shared source task must honor the managed namespace barrier too. Protecting only the collector
+sink still lets a direct competing source submission overtake it. Validate fresh order/head and
+already-pending intake before reservation, using the same order decision as source admission.
+
 Discovered: 2026-10-02, saved-Markdown checkpoint B return and recovery acceptance.
 
 ### PORTABLE-003: Self-hashes do not prove linked admission evidence

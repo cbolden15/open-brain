@@ -18,6 +18,7 @@ from .source_intake import (
     SourceRevisionReceipt,
     SourceRevisionSubmission,
     quarantine_stale_intakes,
+    revision_order_decision,
 )
 from .source_lifecycle import SourceLifecycleTasks
 from .source_lifecycle_contracts import (
@@ -75,7 +76,8 @@ class SourceTasks:
                         "AND NOT EXISTS(SELECT 1 FROM source_intakes i "
                         "WHERE json_extract(CAST(i.submission_json AS TEXT),'$.delivery_id')="
                         "m.source_delivery_id) LIMIT 1"
-                    ).fetchone() is not None
+                    ).fetchone()
+                    is not None
                 ):
                     raise T03Error("operation_pending")
                 connection.execute("UPDATE engine_generations SET control_epoch=control_epoch+1")
@@ -100,6 +102,19 @@ class SourceTasks:
             epoch = connection.execute("SELECT control_epoch FROM engine_generations").fetchone()[0]
             if submission.expected_control_epoch != epoch:
                 raise T03Error("revision_changed")
+            if connection.execute("PRAGMA user_version").fetchone()[0] >= 11:
+                for managed in connection.execute(
+                    "SELECT envelope_bytes FROM managed_source_deliveries "
+                    "WHERE receipt_json IS NULL AND "
+                    "json_extract(CAST(envelope_bytes AS TEXT),'$.submission.namespace')=?",
+                    (namespace_json,),
+                ):
+                    envelope = json.loads(managed["envelope_bytes"])
+                    if (
+                        portable_canonical_json_bytes(envelope["submission"])
+                        != submission.custody_bytes()
+                    ):
+                        raise T03Error("operation_pending")
             existing = connection.execute(
                 "SELECT * FROM source_intakes WHERE namespace_sha256=? AND revision_key=?",
                 (namespace_sha, submission.revision_key),
@@ -178,10 +193,11 @@ class SourceTasks:
                 if source is None:
                     if submission.expected_head is not None:
                         raise T03Error("revision_changed")
-                    if submission.ordering["kind"] == "predecessor":
-                        conflict = True
                     source_id = "source_" + str(uuid4())
-                    promote, predecessor = True, None
+                    promote, predecessor, order_conflict = revision_order_decision(
+                        None, submission.ordering
+                    )
+                    conflict |= order_conflict
                 else:
                     source_id = source["source_id"]
                     if source["head_capture_id"] != submission.expected_head:
@@ -190,25 +206,10 @@ class SourceTasks:
                         "SELECT * FROM source_revisions WHERE capture_id=?",
                         (source["head_capture_id"],),
                     ).fetchone()
-                    previous_order = json.loads(head["ordering_json"] or "null")
-                    order = submission.ordering
-                    predecessor = None
-                    promote = False
-                    if order["kind"] == "predecessor":
-                        predecessor = head["capture_id"]
-                        promote = order["revision_key"] == head["revision_key"]
-                        conflict |= not promote
-                    elif order["kind"] == "monotonic" and previous_order is not None:
-                        comparable = all(
-                            order[key] == previous_order.get(key)
-                            for key in ("kind", "provider_namespace", "epoch")
-                        )
-                        conflict |= not comparable or order["sequence"] == previous_order.get(
-                            "sequence"
-                        )
-                        promote = comparable and order["sequence"] > previous_order["sequence"]
-                    else:
-                        conflict = True
+                    promote, predecessor, order_conflict = revision_order_decision(
+                        head, submission.ordering
+                    )
+                    conflict |= order_conflict
                 if conflict:
                     connection.execute(
                         "INSERT INTO source_quarantine VALUES(?,?,?,?,?,?)",

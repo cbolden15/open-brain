@@ -113,6 +113,25 @@ class SourceRevisionReceipt:
     custody_id: str | None = None
 
 
+def revision_order_decision(
+    head: sqlite3.Row | None, ordering: Mapping[str, Any]
+) -> tuple[bool, str | None, bool]:
+    """One shared promotion/predecessor/conflict decision for source admission."""
+    if head is None:
+        return True, None, ordering["kind"] == "predecessor"
+    previous = json.loads(head["ordering_json"] or "null")
+    if ordering["kind"] == "predecessor":
+        promote = ordering["revision_key"] == head["revision_key"]
+        return promote, head["capture_id"], not promote
+    if ordering["kind"] == "monotonic" and previous is not None:
+        comparable = all(ordering[key] == previous.get(key)
+                         for key in ("kind", "provider_namespace", "epoch"))
+        conflict = not comparable or ordering["sequence"] == previous.get("sequence")
+        promote = comparable and ordering["sequence"] > previous["sequence"]
+        return promote, None, conflict
+    return False, None, True
+
+
 @dataclass(frozen=True, slots=True, kw_only=True)
 class SourceRevisionBinding:
     """Path-free, collector-visible binding for one managed logical item."""
@@ -315,7 +334,17 @@ class PublicJobRevisionSink:
                 ).fetchone()[0]
                 if control_epoch != delivery.submission.expected_control_epoch:
                     raise T03Error("revision_changed")
+                if connection.execute(
+                    "SELECT 1 FROM managed_source_deliveries WHERE source_delivery_id=?",
+                    (delivery.submission.capture.delivery_id,),
+                ).fetchone() is not None:
+                    raise T03Error("invalid_arguments")
                 namespace_sha = sha256(delivery.submission.namespace_bytes()).hexdigest()
+                if connection.execute(
+                    "SELECT 1 FROM source_intakes WHERE namespace_sha256=? AND receipt_json IS NULL",
+                    (namespace_sha,),
+                ).fetchone() is not None:
+                    raise T03Error("operation_pending")
                 if connection.execute(
                     "SELECT 1 FROM managed_source_deliveries WHERE receipt_json IS NULL "
                     "AND json_extract(CAST(envelope_bytes AS TEXT),'$.submission.namespace')=?",
@@ -335,7 +364,8 @@ class PublicJobRevisionSink:
                     (namespace_sha,),
                 ).fetchone()
                 if current is None:
-                    if delivery.expected_lifecycle_version != 0:
+                    if (delivery.expected_lifecycle_version != 0
+                            or delivery.submission.expected_head is not None):
                         raise T03Error("revision_changed")
                 elif (
                     current["lifecycle"] != "active"
@@ -343,6 +373,12 @@ class PublicJobRevisionSink:
                     or current["head_capture_id"] != delivery.submission.expected_head
                 ):
                     raise T03Error("revision_changed")
+                head = None if current is None else connection.execute(
+                    "SELECT * FROM source_revisions WHERE capture_id=?",
+                    (current["head_capture_id"],),
+                ).fetchone()
+                if revision_order_decision(head, delivery.submission.ordering)[2]:
+                    raise T03Error("source_revision_conflict")
                 connection.execute(
                     "INSERT INTO managed_source_deliveries("
                     "delivery_id,envelope_sha256,envelope_bytes,source_id,destination_brain_id,"
