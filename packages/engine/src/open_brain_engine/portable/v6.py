@@ -16,6 +16,7 @@ from types import MappingProxyType
 from typing import Any, cast
 
 from open_brain_engine.core.ids import portable_canonical_json_bytes as canonical
+from open_brain_engine.core.models import PrivacyDecision
 from open_brain_engine.storage.filesystem import (
     RootConfinementError,
     RootIdentity,
@@ -165,6 +166,123 @@ def _terminal_source_receipt(value: Any) -> dict[str, Any]:
     return dict(value, custody_id=value.get("custody_id"))
 
 
+def _validate_intake_capture(
+    files: Mapping[str, bytes], revision: Mapping[str, Any], submission: Mapping[str, Any]
+) -> None:
+    from open_brain_engine.engine.normalization import _optional_text
+    from open_brain_engine.engine.privacy_projection import narrow_retained_privacy_decision
+
+    claimed = submission["capture"]
+    retained = json.loads(files[revision["source_path"]])
+    if (
+        type(claimed) is not dict
+        or set(claimed) != {
+            "schema_version", "payload", "source_origin", "source_reference", "provenance",
+            "privacy", "tenant_id", "actor_id", "role_claim", "space_id", "intent",
+            "capture_why", "capture_why_origin", "title",
+        }
+        or type(claimed["schema_version"]) is not int
+        or claimed["schema_version"] != 1
+        or claimed["source_origin"] not in {"third_party", "unknown"}
+        or claimed["space_id"] is not None
+        or claimed["capture_why"] is not None
+        or claimed["capture_why_origin"] != "automation_absent"
+        or any(
+            canonical(claimed[key]) != canonical(retained[key])
+            for key in (
+                "schema_version", "payload", "tenant_id", "actor_id", "role_claim", "intent",
+                "capture_why",
+            )
+        )
+        or canonical(claimed["provenance"]) != canonical({
+            "content_origin": claimed["source_origin"],
+            "owner_context": "automation_absent",
+            "source_ref": claimed["source_reference"],
+        })
+        or canonical(retained["source"]) != canonical({
+            "origin": "third_party", "reference": claimed["source_reference"],
+        })
+        or canonical(retained["provenance"]) != canonical({
+            **claimed["provenance"], "transformation_receipts": [],
+        })
+    ):
+        raise ValueError("intake contradicts retained capture")
+    if _optional_text(claimed["title"], field="title", maximum=200) != claimed["title"]:
+        raise ValueError("intake title is not normalized")
+    requested = PrivacyDecision.from_dict(claimed["privacy"])
+    admitted = PrivacyDecision.from_dict(retained["privacy"])
+    if (
+        canonical(narrow_retained_privacy_decision(requested, admitted.tier).to_dict())
+        != canonical(retained["privacy"])
+    ):
+        raise ValueError("intake privacy contradicts admitted narrowing")
+    if retained["payload"].get("kind") == "file":
+        digest = retained["payload"]["blob_sha256"]
+        if submission["file_bytes_base64"] != base64.b64encode(
+            files[f"sources/blobs/sha256/{digest[:2]}/{digest}"]
+        ).decode("ascii"):
+            raise ValueError("intake file bytes contradict retained blob")
+    elif submission["file_bytes_base64"] is not None:
+        raise ValueError("non-file intake carries file bytes")
+    # Supplied title and provider delivery ID are not fields in the frozen
+    # capture record. Space may be routed later; neither is an equality witness.
+
+
+def _validate_intake_order(
+    submission: Mapping[str, Any],
+    receipt: Mapping[str, Any],
+    revisions: Mapping[str, Any],
+    admissions: Mapping[str, Any],
+    outcomes: Mapping[str, str],
+    intake_delivery_id: str,
+) -> None:
+    revision = revisions[receipt["capture_id"]]
+    expected = submission["expected_head"]
+    order = submission["ordering"]
+    predecessor = revision["predecessor_capture_id"]
+    if expected == receipt["capture_id"] and intake_delivery_id.startswith("adoption."):
+        if (
+            order["kind"] == "predecessor" or predecessor is not None
+            or receipt["outcome"] != "captured"
+        ):
+            raise ValueError("adopted revision order invalid")
+        return
+    if expected is None:
+        if (
+            revision["sequence"] != 1 or predecessor is not None or order["kind"] == "predecessor"
+            or receipt["outcome"] != "captured"
+        ):
+            raise ValueError("initial revision order invalid")
+        return
+    head = revisions[expected]
+    if (
+        head["source_id"] != revision["source_id"] or head["sequence"] >= revision["sequence"]
+        or outcomes.get(expected) == "history_only"
+    ):
+        raise ValueError("expected head is not earlier source membership")
+    if order["kind"] == "predecessor":
+        if (
+            predecessor != expected or admissions[expected]["revision_key"] != order["revision_key"]
+            or receipt["outcome"] != "captured"
+        ):
+            raise ValueError("predecessor admission contradicts retained chain")
+    elif order["kind"] == "monotonic":
+        previous = json.loads(admissions[expected]["ordering_json"] or "null")
+        if (
+            type(previous) is not dict
+            or any(
+                order[key] != previous.get(key) for key in ("kind", "provider_namespace", "epoch")
+            )
+            or order["sequence"] == previous["sequence"]
+            or predecessor is not None
+            or receipt["outcome"]
+            != ("captured" if order["sequence"] > previous["sequence"] else "history_only")
+        ):
+            raise ValueError("monotonic admission contradicts retained order")
+    else:
+        raise ValueError("unordered revision cannot advance an existing source")
+
+
 def validate_source_authority(files: Mapping[str, bytes]) -> dict[str, Any]:
     """Validate closed rows, hashes, receipts and references using archive bytes."""
     try:
@@ -277,11 +395,19 @@ def validate_source_authority(files: Mapping[str, bytes]) -> dict[str, Any]:
         for table in ("source_aliases", "source_operations"):
             if any(row["source_id"] not in sources for row in rows[table]):
                 raise ValueError("source authority reference invalid")
+        receipts = {
+            row["delivery_id"]: _terminal_source_receipt(json.loads(row["receipt_json"]))
+            for row in rows["source_intakes"]
+        }
+        outcomes: dict[str, str] = {}
+        for receipt in receipts.values():
+            if outcomes.setdefault(receipt["capture_id"], receipt["outcome"]) != receipt["outcome"]:
+                raise ValueError("revision intake outcomes disagree")
         intakes: dict[tuple[str, str], tuple[bytes, dict[str, Any]]] = {}
         for row in rows["source_intakes"]:
             raw = base64.b64decode(row["submission_json"], validate=True)
             submission = json.loads(raw)
-            receipt = _terminal_source_receipt(json.loads(row["receipt_json"]))
+            receipt = receipts[row["delivery_id"]]
             if (
                 type(submission) is not dict
                 or set(submission)
@@ -352,6 +478,10 @@ def validate_source_authority(files: Mapping[str, bytes]) -> dict[str, Any]:
                 != canonical(submission["ordering"])
             ):
                 raise ValueError("intake revision evidence invalid")
+            _validate_intake_capture(files, revisions[receipt["capture_id"]], submission)
+            _validate_intake_order(
+                submission, receipt, revisions, admissions, outcomes, row["delivery_id"]
+            )
             key = (row["source_id"], row["revision_key"])
             if key in intakes:
                 raise ValueError("source intake identity duplicated")

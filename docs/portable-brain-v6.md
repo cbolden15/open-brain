@@ -20,6 +20,15 @@ hashes, sequential lifecycle versions, and terminal delivery/intake links. The
 manifest commits to every sidecar's exact bytes. A Portable 5 validator refuses
 these additional files.
 
+Admission validation also compares retained intake claims with canonical capture
+payloads, provenance, file bytes, and revision predecessor/order evidence. It
+preserves valid privacy narrowing at admission and rejects a history-only
+revision claimed as a promoted head. Observed delivery version 2 retains original
+and transformed hashes plus normalization and privacy-policy evidence; original
+and transformed hashes are adapter attestations, not verification of raw files
+that are absent from the archive. The frozen capture format does not retain the
+supplied title or provider delivery ID as independent equality witnesses.
+
 Export uses the engine's writer fence and one SQLite read snapshot. Unresolved
 source intake or managed delivery reservations refuse export with
 `ingestion_pending`, as do pending ingestion-journal payloads. Collector queues,

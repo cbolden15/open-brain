@@ -14,7 +14,13 @@ from uuid import uuid4
 
 import pytest
 from open_brain_engine.core.ids import portable_canonical_json_bytes as canonical
-from open_brain_engine.core.models import Authority, PrivacyDecision, PrivacyReason, PrivacyTier
+from open_brain_engine.core.models import (
+    Authority,
+    ContentOrigin,
+    PrivacyDecision,
+    PrivacyReason,
+    PrivacyTier,
+)
 from open_brain_engine.engine import BrainEngine, EngineTaskSet, TextPayload, open_local_engine
 from open_brain_engine.engine.consent_contracts import EgressMode
 from open_brain_engine.engine.local_schema import open_local_database_read_only
@@ -40,6 +46,7 @@ from open_brain_engine.engine.t03_contracts import (
     T03Error,
 )
 from open_brain_engine.portable.v1 import PortableValidationError
+from open_brain_engine.portable.v4 import SOURCE_METADATA_PATH
 from open_brain_engine.portable.v5 import validate_portable_file_set_v5
 from open_brain_engine.portable.v6 import (
     SOURCE_ADMISSION_PATH,
@@ -756,6 +763,335 @@ def test_portable6_observed_envelope_rejects_invalid_attestation_and_linkage(
     files[SOURCE_ADMISSION_PATH] = canonical(admission)
     with pytest.raises(PortableValidationError, match="source authority invalid"):
         validate_portable_file_set_v6(files, tenant_id=engine.profile.tenant_id)
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        "predecessor-key", "expected-head-missing", "expected-head-self", "expected-head-foreign",
+        "payload", "source-reference", "provenance-reference", "provenance-origin",
+        "actor", "role", "tenant", "intent", "capture-why", "privacy-widening", "file-bytes",
+        "title-whitespace", "title-nul",
+    ],
+)
+def test_portable6_coordinated_admission_forgery_contradicts_retained_capture_and_order(
+    tmp_path: Path, mutation: str
+) -> None:
+    engine, first_delivery, first_receipt, _export = _observed_archive(tmp_path)
+    assert first_receipt.source_receipt is not None
+    first = first_receipt.source_receipt.capture_id
+    assert first is not None
+    capture = replace(
+        first_delivery.submission.capture,
+        payload=TextPayload("synthetic second immutable body 漢字"),
+        delivery_id="delivery.synthetic.second",
+    )
+    second_submission = replace(
+        first_delivery.submission,
+        capture=capture,
+        revision_key="revision-two",
+        canonical_sha256=capture.request_sha256(),
+        expected_head=first,
+        ordering={"kind": "predecessor", "revision_key": first_delivery.submission.revision_key},
+    )
+    delivery = SourceRevisionObservedDelivery(
+        binding=first_delivery.binding,
+        submission=second_submission,
+        expected_lifecycle_version=0,
+        delivery_id="synthetic.portable.observed.second",
+        observation=replace(
+            first_delivery.observation,
+            admitted_payload_sha256=sha256(canonical(capture.request_value()["payload"])).hexdigest(),
+        ),
+    )
+    second = engine.sources.public_revision_sink(delivery.binding).submit(delivery)
+    assert second.source_receipt is not None and second.source_receipt.capture_id is not None
+    second_id = second.source_receipt.capture_id
+    foreign = engine.capture.accept(
+        TextPayload("synthetic independent control"), delivery_id="foreign"
+    )
+    export = tmp_path / "second-export"
+    engine.portability.export(export, export_id="export_" + str(uuid4()))
+    files = {
+        path: data
+        for path, data in validated_portable_snapshot(export).files.items()
+        if path != "portable-manifest.json"
+    }
+    unchanged = {path: data for path, data in files.items() if path != SOURCE_ADMISSION_PATH}
+    metadata = json.loads(files[SOURCE_METADATA_PATH])
+    retained = next(row for row in metadata["revisions"] if row["capture_id"] == second_id)
+    assert retained["predecessor_capture_id"] == first
+    canonical_capture = files[retained["source_path"]]
+    admission = json.loads(files[SOURCE_ADMISSION_PATH])
+    intake = next(
+        row for row in admission["source_intakes"]
+        if json.loads(row["receipt_json"])["capture_id"] == second_id
+    )
+    revision = next(
+        row for row in admission["revision_admission"] if row["capture_id"] == second_id
+    )
+    managed = next(
+        row for row in admission["managed_source_deliveries"]
+        if json.loads(row["receipt_json"])["source_receipt"]["capture_id"] == second_id
+    )
+    submission = json.loads(base64.b64decode(intake["submission_json"], validate=True))
+    envelope = json.loads(base64.b64decode(managed["envelope_bytes"], validate=True))
+    claimed = submission["capture"]
+    if mutation == "predecessor-key":
+        submission["ordering"]["revision_key"] = "forged-predecessor"
+    elif mutation.startswith("expected-head-"):
+        submission["expected_head"] = {
+            "expected-head-missing": None,
+            "expected-head-self": second_id,
+            "expected-head-foreign": foreign.capture_id,
+        }[mutation]
+    elif mutation == "payload":
+        claimed["payload"]["text"] = "coordinated forged synthetic body"
+    elif mutation == "source-reference":
+        claimed["source_reference"] = claimed["provenance"]["source_ref"] = "urn:synthetic:forged"
+    elif mutation == "provenance-reference":
+        claimed["provenance"]["source_ref"] = "urn:synthetic:forged"
+    elif mutation == "provenance-origin":
+        claimed["source_origin"] = claimed["provenance"]["content_origin"] = "unknown"
+    elif mutation == "actor":
+        claimed["actor_id"] = claimed["role_claim"]["actor_id"] = (
+            "actor_00000000-0000-4000-8000-000000000001"
+        )
+    elif mutation == "role":
+        claimed["role_claim"]["role_id"] = "role_00000000-0000-4000-8000-000000000001"
+    elif mutation == "tenant":
+        claimed["tenant_id"] = claimed["role_claim"]["tenant_id"] = (
+            "tenant_00000000-0000-4000-8000-000000000001"
+        )
+    elif mutation == "intent":
+        claimed["intent"] = "hold"
+    elif mutation == "capture-why":
+        claimed["capture_why"] = "forged reason"
+    elif mutation == "privacy-widening":
+        claimed["privacy"]["tier"] = "secret"
+        claimed["privacy"]["reason"] = "secret_detected"
+    elif mutation == "file-bytes":
+        submission["file_bytes_base64"] = base64.b64encode(b"forged bytes").decode()
+    elif mutation == "title-whitespace":
+        claimed["title"] = " \t\n "
+    elif mutation == "title-nul":
+        claimed["title"] = "synthetic\x00title"
+    else:
+        pytest.fail("unhandled coordinated forgery")
+    request_sha = sha256(canonical(claimed)).hexdigest()
+    submission["canonical_sha256"] = request_sha
+    intake["request_sha256"] = revision["request_sha256"] = request_sha
+    revision["ordering_json"] = json.dumps(submission["ordering"], sort_keys=True)
+    intake["submission_json"] = base64.b64encode(canonical(submission)).decode()
+    plan = json.loads(intake["plan_json"])
+    plan.update(expected_head=submission["expected_head"], ordering=submission["ordering"])
+    intake["plan_json"] = json.dumps(plan, sort_keys=True)
+    envelope["submission"] = submission
+    managed["expected_head"] = submission["expected_head"]
+    envelope["observation"]["privacy_policy_sha256"] = sha256(
+        canonical(claimed["privacy"])
+    ).hexdigest()
+    envelope["observation"]["admitted_payload_sha256"] = sha256(
+        canonical(claimed["payload"])
+    ).hexdigest()
+    raw = canonical(envelope)
+    managed["envelope_bytes"] = base64.b64encode(raw).decode()
+    managed["envelope_sha256"] = sha256(raw).hexdigest()
+    files[SOURCE_ADMISSION_PATH] = canonical(admission)
+    assert files[retained["source_path"]] == canonical_capture
+    assert (
+        {path: data for path, data in files.items() if path != SOURCE_ADMISSION_PATH} == unchanged
+    )
+    with pytest.raises(PortableValidationError, match="source authority invalid"):
+        validate_portable_file_set_v6(files, tenant_id=engine.profile.tenant_id)
+
+
+@pytest.mark.parametrize("ordering", ["monotonic", "predecessor"])
+@pytest.mark.parametrize("late_id", ["a.late", "z.late"])
+def test_portable6_coordinated_history_only_revision_cannot_be_expected_head(
+    tmp_path: Path, ordering: str, late_id: str
+) -> None:
+    tmp_path.chmod(0o700)
+    engine = BrainEngine.open(compile_single_user_local(tmp_path / "brain"))
+    with open_local_database_read_only(engine.profile) as connection:
+        identity = connection.execute("SELECT brain_id,issuer_epoch FROM brain_identity").fetchone()
+    submission = replace(
+        _revision(engine.tasks),
+        ordering={
+            "kind": "monotonic", "provider_namespace": "synthetic", "epoch": "one", "sequence": 1,
+        },
+    )
+    binding = SourceRevisionBinding(
+        destination_brain_id=identity["brain_id"], issuer_epoch=identity["issuer_epoch"],
+        root_fingerprint="synthetic-history-only-root", accepted_source_id="synthetic-selection",
+        namespace=submission.namespace,
+    )
+    sink = engine.sources.public_revision_sink(binding)
+    first_delivery = SourceRevisionDelivery(
+        binding=binding, submission=submission, expected_lifecycle_version=0,
+        delivery_id="m.first",
+    )
+    first = sink.submit(first_delivery)
+    assert first.source_receipt is not None and first.source_receipt.capture_id is not None
+    capture = replace(
+        submission.capture, payload=TextPayload("synthetic late history"),
+        delivery_id="delivery.synthetic.late",
+    )
+    late_submission = replace(
+        submission, capture=capture, revision_key="late", canonical_sha256=capture.request_sha256(),
+        expected_head=first.source_receipt.capture_id,
+        ordering=dict(submission.ordering, sequence=0),
+    )
+    late = sink.submit(replace(first_delivery, submission=late_submission, delivery_id=late_id))
+    assert late.outcome == "history_only"
+    assert late.source_receipt is not None and late.source_receipt.capture_id is not None
+    capture = replace(
+        submission.capture, payload=TextPayload("synthetic subsequent current head"),
+        delivery_id="delivery.synthetic.latest",
+    )
+    latest_submission = replace(
+        submission, capture=capture, revision_key="latest",
+        canonical_sha256=capture.request_sha256(), expected_head=first.source_receipt.capture_id,
+        ordering=dict(submission.ordering, sequence=3) if ordering == "monotonic"
+        else {"kind": "predecessor", "revision_key": submission.revision_key},
+    )
+    latest_delivery = replace(first_delivery, submission=latest_submission, delivery_id="n.latest")
+    latest = sink.submit(latest_delivery)
+    assert latest.outcome == "captured"
+    assert latest.source_receipt is not None and latest.source_receipt.capture_id is not None
+    export = tmp_path / "export"
+    engine.portability.export(export, export_id="export_" + str(uuid4()))
+    snapshot = validated_portable_snapshot(export)
+    restored = tmp_path / "restored"
+    engine.portability.import_clean(export, restored, import_id="import_" + str(uuid4()))
+    reopened = BrainEngine.open(_profile(restored, validated_portable_snapshot(restored)))
+    assert reopened.sources.public_revision_sink(binding).submit(latest_delivery) == latest
+    files = {
+        path: data for path, data in snapshot.files.items() if path != "portable-manifest.json"
+    }
+    unchanged = {
+        path: data for path, data in files.items()
+        if path not in {SOURCE_ADMISSION_PATH, SOURCE_METADATA_PATH}
+    }
+    admission = json.loads(files[SOURCE_ADMISSION_PATH])
+    latest_id = latest.source_receipt.capture_id
+    intake = next(
+        row for row in admission["source_intakes"]
+        if json.loads(row["receipt_json"])["capture_id"] == latest_id
+    )
+    revision = next(
+        row for row in admission["revision_admission"] if row["capture_id"] == latest_id
+    )
+    managed = next(
+        row for row in admission["managed_source_deliveries"]
+        if json.loads(row["receipt_json"])["source_receipt"]["capture_id"] == latest_id
+    )
+    claimed = json.loads(base64.b64decode(intake["submission_json"], validate=True))
+    claimed["expected_head"] = late.source_receipt.capture_id
+    if ordering == "predecessor":
+        claimed["ordering"]["revision_key"] = late_submission.revision_key
+        # Even coordinated metadata cannot make a history-only receipt into a
+        # prior head. The immutable canonical capture files remain untouched.
+        metadata = json.loads(files[SOURCE_METADATA_PATH])
+        retained = next(row for row in metadata["revisions"] if row["capture_id"] == latest_id)
+        retained["predecessor_capture_id"] = late.source_receipt.capture_id
+        files[SOURCE_METADATA_PATH] = canonical(metadata)
+    revision["ordering_json"] = json.dumps(claimed["ordering"], sort_keys=True)
+    intake["submission_json"] = base64.b64encode(canonical(claimed)).decode()
+    plan = json.loads(intake["plan_json"])
+    plan.update(expected_head=claimed["expected_head"], ordering=claimed["ordering"])
+    intake["plan_json"] = json.dumps(plan, sort_keys=True)
+    envelope = json.loads(base64.b64decode(managed["envelope_bytes"], validate=True))
+    envelope["submission"] = claimed
+    managed["expected_head"] = claimed["expected_head"]
+    raw = canonical(envelope)
+    managed["envelope_bytes"] = base64.b64encode(raw).decode()
+    managed["envelope_sha256"] = sha256(raw).hexdigest()
+    files[SOURCE_ADMISSION_PATH] = canonical(admission)
+    assert {
+        path: data for path, data in files.items()
+        if path not in {SOURCE_ADMISSION_PATH, SOURCE_METADATA_PATH}
+    } == unchanged
+    with pytest.raises(PortableValidationError, match="source authority invalid"):
+        validate_portable_file_set_v6(files, tenant_id=engine.profile.tenant_id)
+
+
+@pytest.mark.parametrize(
+    "ordering", ["unordered", "predecessor", "monotonic", "history-only", "adoption"]
+)
+@pytest.mark.parametrize("narrow", [False, True], ids=["unchanged-privacy", "narrowed-privacy"])
+@pytest.mark.parametrize("origin", [ContentOrigin.THIRD_PARTY, ContentOrigin.UNKNOWN])
+def test_portable6_capture_linkage_preserves_admission_normalization_and_order(
+    tmp_path: Path, ordering: str, narrow: bool, origin: ContentOrigin
+) -> None:
+    tmp_path.chmod(0o700)
+    profile = compile_single_user_local(tmp_path / "brain")
+    engine = BrainEngine.open(
+        profile, boundary_classifier=lambda _capture: PrivacyTier.SECRET if narrow else None
+    )
+    capture = replace(
+        _public_submission(engine.tasks, source_origin=origin),
+        title="synthetic title absent from frozen capture JSON",
+        privacy=PrivacyDecision.create(
+            tier=PrivacyTier.PUBLIC,
+            reason=PrivacyReason.POLICY_PUBLIC,
+            policy_version="privacy-v1",
+            authority=Authority(cloud=True, external_egress=True),
+        ),
+    )
+    monotonic = ordering in {"monotonic", "history-only"}
+    first_order: dict[str, Any] = (
+        {"kind": "monotonic", "provider_namespace": "synthetic", "epoch": "one", "sequence": 1}
+        if monotonic else {"kind": "unordered"}
+    )
+    adopted = engine.capture.submit(capture).capture_id if ordering == "adoption" else None
+    submission = SourceRevisionSubmission(
+        capture=capture,
+        namespace=dict(
+            connector_name="synthetic", connection_id="normalization",
+            resource_id="one", external_id="one",
+        ),
+        revision_key="first",
+        canonical_sha256=capture.request_sha256(),
+        expected_head=adopted,
+        ordering=first_order,
+        expected_control_epoch=0,
+    )
+    accepted = engine.sources.submit_revision(submission)
+    assert accepted.capture_id is not None
+    if ordering in {"predecessor", "monotonic", "history-only"}:
+        changed = replace(capture, payload=TextPayload("synthetic second normalized revision"))
+        submission = replace(
+            submission,
+            capture=changed,
+            revision_key="second",
+            canonical_sha256=changed.request_sha256(),
+            expected_head=accepted.capture_id,
+            ordering=dict(first_order, sequence=0 if ordering == "history-only" else 3)
+            if monotonic else {"kind": "predecessor", "revision_key": "first"},
+        )
+        accepted = engine.sources.submit_revision(submission)
+    assert accepted.outcome == ("history_only" if ordering == "history-only" else "captured")
+    export, restored = tmp_path / "export", tmp_path / "restored"
+    engine.portability.export(export, export_id="export_" + str(uuid4()))
+    snapshot = validated_portable_snapshot(export)
+    metadata = json.loads(snapshot.files[SOURCE_METADATA_PATH])
+    retained = next(
+        row for row in metadata["revisions"] if row["capture_id"] == accepted.capture_id
+    )
+    record = json.loads(snapshot.files[retained["source_path"]])
+    assert record["privacy"]["tier"] == ("secret" if narrow else "public")
+    assert record["provenance"]["content_origin"] == origin.value
+    assert "title" not in record
+    engine.portability.import_clean(export, restored, import_id="import_" + str(uuid4()))
+    reopened = BrainEngine.open(_profile(restored, validated_portable_snapshot(restored)))
+    assert reopened.sources.submit_revision(submission) == accepted
+    again = tmp_path / "again"
+    reopened.portability.export(again, export_id="export_" + str(uuid4()))
+    assert (
+        validated_portable_snapshot(again).files[SOURCE_ADMISSION_PATH]
+        == snapshot.files[SOURCE_ADMISSION_PATH]
+    )
 
 
 def test_portable6_pending_managed_envelope_refuses_export(tmp_path: Path) -> None:
