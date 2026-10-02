@@ -68,7 +68,10 @@ def coordinate_local_migration(
     ingestion_phase = (
         schema.state == "supported_old" and _needs_ingestion_phase(schema.version) and target >= 10
     )
-    if not source_phase and not privacy_phase and not issuer_phase and not ingestion_phase:
+    lifecycle_phase = (
+        schema.state == "supported_old" and schema.version == 10 and target >= 11
+    )
+    if not any((source_phase, privacy_phase, issuer_phase, ingestion_phase, lifecycle_phase)):
         return
 
     with exclusive_runtime_admission(profile) as admission:
@@ -110,6 +113,16 @@ def coordinate_local_migration(
             from .ingestion_migration import migrate_ingestion_journal
 
             migrate_ingestion_journal(
+                profile, admission=admission, clock=resolved_clock, checkpoint=checkpoint
+            )
+            schema = inspect_phase1_state(profile)
+        lifecycle_phase = (
+            schema.state == "supported_old" and schema.version == 10 and target >= 11
+        )
+        if lifecycle_phase:
+            from .lifecycle_migration import migrate_saved_lifecycle
+
+            migrate_saved_lifecycle(
                 profile, admission=admission, clock=resolved_clock, checkpoint=checkpoint
             )
             schema = inspect_phase1_state(profile)

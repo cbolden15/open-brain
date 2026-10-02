@@ -1,4 +1,5 @@
 """Durable lifecycle controls for the optional unattended collector."""
+# ruff: noqa: E501
 
 from __future__ import annotations
 
@@ -23,6 +24,11 @@ from open_brain_engine.engine import (
     CaptureSubmission,
     DeliveryConflict,
     PublicJobCaptureSink,
+    PublicJobRevisionSink,
+    SourceRevisionBinding,
+    SourceRevisionDelivery,
+    SourceRevisionDeliveryReceipt,
+    SourceRevisionSubmission,
     verify_capture_custody_receipt,
 )
 from open_brain_engine.engine.t03_contracts import T03Error
@@ -47,6 +53,7 @@ __all__ = [
     "CollectorStorageError",
     "CredentialStatusProvider",
     "EngineCaptureSink",
+    "EngineRevisionSink",
     "MemoryCaptureSink",
 ]
 
@@ -1236,6 +1243,71 @@ class EngineCaptureSink:
         else:
             raise LiveSourceError("collector_invalid_custody_receipt")
         return receipt
+
+
+class EngineRevisionSink:
+    """Saved-Markdown-only bridge to the engine's narrow revision capability."""
+
+    def __init__(self, sink: PublicJobRevisionSink, capture_sink: PublicJobCaptureSink) -> None:
+        if type(sink) is not PublicJobRevisionSink or type(capture_sink) is not PublicJobCaptureSink:
+            raise ConnectorContractError("invalid collector capture")
+        self._sink = sink
+        self._capture_sink = capture_sink
+
+    def submit(self, intake: SourceRecordIntake) -> SourceRevisionDeliveryReceipt:
+        if type(intake) is not SourceRecordIntake:
+            raise ConnectorContractError("invalid collector capture")
+        identity = self._capture_sink.brain_identity
+        fingerprint = self._capture_sink.brain_fingerprint
+        if identity is None or fingerprint is None:
+            raise LiveSourceError("source_brain_unavailable")
+        head = self._sink.inspect_head()
+        capture = CaptureSubmission.for_public_job(
+            context=self._capture_sink.context,
+            payload=intake.payload(),
+            delivery_id=intake.key.delivery_id(),
+            source_origin="third_party",
+            source_reference=intake.source_reference,
+            provenance=intake.provenance(),
+            privacy=intake.privacy,
+            intent="reference",
+            title=intake.title,
+        )
+        namespace = {
+            "connector_name": intake.key.connector_name,
+            "connection_id": intake.key.connection_id,
+            "resource_id": intake.key.resource_id,
+            "external_id": intake.key.external_id,
+        }
+        predecessor_key = head.revision_key
+        ordering: dict[str, object] = {"kind": "unordered"}
+        if head.capture_id is not None and predecessor_key is not None:
+            ordering = {"kind": "predecessor", "revision_key": predecessor_key}
+        revision_key = hashlib.sha256(
+            bounded_json(
+                {"version": intake.key.revision_identity(), "predecessor": predecessor_key}, 4096
+            )
+        ).hexdigest()
+        submission = SourceRevisionSubmission(
+            capture=capture, namespace=namespace, revision_key=revision_key,
+            canonical_sha256=capture.request_sha256(), expected_head=head.capture_id,
+            ordering=ordering, expected_control_epoch=head.control_epoch,
+        )
+        binding = SourceRevisionBinding(
+            destination_brain_id=identity[0], issuer_epoch=identity[1],
+            root_fingerprint=fingerprint, accepted_source_id=intake.key.connection_id,
+            namespace=namespace,
+        )
+        delivery_id = "saved-revision." + hashlib.sha256(
+            bounded_json(
+                {"revision": revision_key, "request": capture.request_sha256(), "head": head.capture_id,
+                 "destination": list(identity)}, 8192
+            )
+        ).hexdigest()
+        return self._sink.submit(SourceRevisionDelivery(
+            binding=binding, submission=submission,
+            expected_lifecycle_version=head.lifecycle_version, delivery_id=delivery_id,
+        ))
 
 
 def _result(

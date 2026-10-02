@@ -119,10 +119,9 @@ class RecordProjector:
         if (
             source is None
             or not self.authority.permits_space(source["space_id"])
-            or source["historical_only"]
-            and not history
-            or source["lifecycle"] != "active"
-            or source["availability"] != "available"
+            or source["historical_only"] and not history
+            or (source["lifecycle"] != "active" or source["availability"] != "available")
+            and not (history and self.authority.owner)
         ):
             raise T03Error("not_found")
         head = source["head_capture_id"]

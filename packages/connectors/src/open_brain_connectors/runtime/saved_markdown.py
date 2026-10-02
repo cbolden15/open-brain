@@ -9,12 +9,14 @@ from __future__ import annotations
 import os
 import re
 import stat
+import unicodedata
 from dataclasses import dataclass
 from hashlib import sha256
 from pathlib import Path
 from urllib.parse import quote, urlparse
 
 from open_brain_engine.capture.redaction import has_redaction_finding
+from open_brain_engine.core.ids import portable_canonical_json_bytes
 from open_brain_engine.engine import PrivacyDecision
 
 from open_brain_connectors.runtime.connectors import ConnectorContractError
@@ -76,7 +78,12 @@ class SavedMarkdownLimits:
 
 @dataclass(frozen=True, slots=True)
 class SavedMarkdownIdentity:
-    """Delivery identity for one accepted source version and destination."""
+    """Stable item identity plus immutable version and delivery identities.
+
+    The original Phase 2 identity incorrectly included body hashes in the
+    logical external ID.  B keeps that shared connector key stable and binds
+    body/policy changes only to the revision and delivery domains.
+    """
 
     destination_identity: str
     accepted_source_identity: str
@@ -105,20 +112,27 @@ class SavedMarkdownIdentity:
             raise ConnectorContractError("invalid saved markdown identity")
 
     def _digest(self, purpose: str) -> str:
-        return sha256(
-            "\x1f".join(
-                (
-                    purpose,
-                    self.destination_identity,
-                    self.accepted_source_identity,
-                    self.relative_item_identity,
-                    self.original_sha256,
-                    self.transformed_sha256,
-                    self.normalization_version,
-                    self.privacy_policy_version,
-                )
-            ).encode("utf-8")
-        ).hexdigest()
+        stable = {
+            "accepted_source_identity": self.accepted_source_identity,
+            "destination_identity": self.destination_identity,
+            "relative_item_identity": self.relative_item_identity,
+        }
+        version = {
+            **stable,
+            "normalization_version": self.normalization_version,
+            "original_sha256": self.original_sha256,
+            "privacy_policy_version": self.privacy_policy_version,
+            "transformed_sha256": self.transformed_sha256,
+        }
+        if purpose == "item":
+            value = {"domain": "saved-markdown-item.v1", **stable}
+        elif purpose == "revision":
+            value = {"domain": "saved-markdown-version.v1", **version}
+        elif purpose == "delivery":
+            value = {"domain": "saved-markdown-delivery.v1", **version}
+        else:
+            raise ConnectorContractError("invalid saved markdown identity")
+        return sha256(portable_canonical_json_bytes(value)).hexdigest()
 
     @property
     def delivery_id(self) -> str:
@@ -127,6 +141,10 @@ class SavedMarkdownIdentity:
     @property
     def revision_id(self) -> str:
         return self._digest("revision")
+
+    @property
+    def item_id(self) -> str:
+        return self._digest("item")
 
 
 @dataclass(frozen=True, slots=True)
@@ -161,6 +179,7 @@ class SavedMarkdownScan:
 
     candidates: tuple[SavedMarkdownCandidate, ...]
     complete: bool
+    next_cursor: str | None = None
 
 
 def normalize_saved_markdown(
@@ -227,7 +246,15 @@ class SavedMarkdownRootAdapter:
             resource_type=_RESOURCE_TYPE,
         )
 
-    def dry_run(self) -> SavedMarkdownScan:
+    def dry_run(self, cursor: str | None = None) -> SavedMarkdownScan:
+        """Return one bounded inventory page.
+
+        The cursor is an adapter-generated ordinal, not a caller-selected
+        filesystem path.  Restarting with it revisits only metadata necessary
+        to reach the recorded ordinal and never makes the first 25 stable
+        files starve later paths.
+        """
+        start = _scan_offset(cursor)
         try:
             root_stat = self._root.lstat()
             root = self._root.resolve(strict=True)
@@ -235,7 +262,7 @@ class SavedMarkdownRootAdapter:
             return SavedMarkdownScan((), False)
         if stat.S_ISLNK(root_stat.st_mode) or not root.is_dir():
             return SavedMarkdownScan((), False)
-        candidates: list[SavedMarkdownCandidate] = []
+        inventory: list[SavedMarkdownCandidate] = []
         complete = True
         for directory, dirnames, filenames in os.walk(root, topdown=True, followlinks=False):
             dirnames[:] = sorted(name for name in dirnames if not _excluded_directory(name))
@@ -249,17 +276,28 @@ class SavedMarkdownRootAdapter:
                 if _excluded_file(filename):
                     continue
                 if path.suffix.lower() != ".md":
-                    candidates.append(_refused(relative, "unsupported_format"))
+                    inventory.append(_refused(relative, "unsupported_format"))
                     continue
                 candidate = self._candidate(root, path, relative)
-                candidates.append(candidate)
+                inventory.append(candidate)
                 complete = complete and candidate.refusal_code not in {
                     "unstable_read",
                     "root_escape",
                 }
-                if sum(item.accepted for item in candidates) >= self._limits.max_deliveries:
-                    return SavedMarkdownScan(tuple(candidates), False)
-        return SavedMarkdownScan(tuple(candidates), complete)
+        if start > len(inventory):
+            raise ConnectorContractError("invalid saved markdown page")
+        page: list[SavedMarkdownCandidate] = []
+        accepted = 0
+        index = start
+        while index < len(inventory):
+            candidate = inventory[index]
+            if candidate.accepted and accepted >= self._limits.max_deliveries:
+                break
+            page.append(candidate)
+            accepted += int(candidate.accepted)
+            index += 1
+        next_cursor = None if index == len(inventory) else f"scan.{index}"
+        return SavedMarkdownScan(tuple(page), complete and next_cursor is None, next_cursor)
 
     def _candidate(self, root: Path, path: Path, relative: str) -> SavedMarkdownCandidate:
         try:
@@ -296,7 +334,7 @@ class SavedMarkdownRootAdapter:
         identity = SavedMarkdownIdentity(
             destination_identity=self._destination_identity,
             accepted_source_identity=self._accepted_source_identity,
-            relative_item_identity=sha256(relative.encode("utf-8")).hexdigest(),
+            relative_item_identity=_normalized_relative(relative),
             original_sha256=sha256(raw).hexdigest(),
             transformed_sha256=sha256(transformed.encode("utf-8")).hexdigest(),
             normalization_version=SAVED_MARKDOWN_NORMALIZATION_VERSION,
@@ -306,7 +344,7 @@ class SavedMarkdownRootAdapter:
             connector_name=_CONNECTOR_NAME,
             connection_id=self.selection.connection_id,
             resource_id=self.selection.resource_id,
-            external_id="item:" + identity._digest("item"),
+            external_id="item:" + identity.item_id,
             revision_id=identity.revision_id,
         )
         title = _title(transformed)
@@ -412,6 +450,27 @@ def _refused(relative_path: str, code: str) -> SavedMarkdownCandidate:
 
 def _valid_identity(value: str) -> bool:
     return bool(re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._:-]{0,255}", value))
+
+
+def _normalized_relative(value: str) -> str:
+    normalized = unicodedata.normalize("NFC", value.replace("\\", "/"))
+    if (
+        not normalized
+        or normalized.startswith("/")
+        or ".." in Path(normalized).parts
+        or any(ord(character) < 32 for character in normalized)
+    ):
+        raise ConnectorContractError("invalid saved markdown relative path")
+    return normalized
+
+
+def _scan_offset(cursor: str | None) -> int:
+    if cursor is None:
+        return 0
+    match = re.fullmatch(r"scan\.([0-9]{1,9})", cursor)
+    if match is None:
+        raise ConnectorContractError("invalid saved markdown page")
+    return int(match.group(1))
 
 
 def _supported_reference(value: str) -> bool:

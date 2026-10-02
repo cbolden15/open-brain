@@ -46,7 +46,7 @@ from .relationship_store import relationship_metadata
 from .source_store import source_metadata
 from .t03_contracts import T03Error
 
-_SUPPORTED_STATE_SCHEMA_VERSIONS = frozenset({9, 10})
+_SUPPORTED_STATE_SCHEMA_VERSIONS = frozenset({9, 10, 11})
 _EVIDENCE_SCHEMA_VERSION = 1
 _VALID_INVALID_REASONS = frozenset({"missing", "malformed", "inconsistent"})
 

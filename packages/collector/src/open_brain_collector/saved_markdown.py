@@ -28,13 +28,14 @@ class SavedMarkdownCollectorRuntime:
         selection: SourceResourceSelection,
         cursor: str | None,
     ) -> CollectorRunPage:
-        if selection != self._adapter.selection or cursor is not None:
+        if selection != self._adapter.selection:
             raise ConnectorContractError("invalid saved markdown page")
-        scan = self._adapter.dry_run()
+        scan = self._adapter.dry_run(cursor)
         self.last_scan = scan
         return CollectorRunPage(
             selection=selection,
             intakes=tuple(
                 candidate.intake for candidate in scan.candidates if candidate.intake is not None
             ),
+            next_cursor=scan.next_cursor,
         )

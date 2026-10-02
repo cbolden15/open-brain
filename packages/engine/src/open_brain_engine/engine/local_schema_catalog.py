@@ -1336,4 +1336,62 @@ LOCAL_MIGRATIONS = (
     _migration(8, "effective_privacy_projection", PRIVACY_SCHEMA),
     _migration(9, "issuer_identity_and_owner_repair", IDENTITY_AND_REPAIR_SCHEMA),
     _migration(10, "durable_capture_ingestion_journal", INGESTION_JOURNAL_SCHEMA),
+    _migration(
+        11,
+        "saved_markdown_lifecycle",
+        (
+            """
+CREATE TABLE source_lifecycle_state (
+ source_id TEXT PRIMARY KEY REFERENCES logical_sources(source_id),
+ lifecycle_version INTEGER NOT NULL CHECK(lifecycle_version>=0)
+)
+            """.strip(),
+            "INSERT INTO source_lifecycle_state(source_id,lifecycle_version) "
+            "SELECT source_id,0 FROM logical_sources",
+            """
+CREATE TRIGGER source_lifecycle_state_seed AFTER INSERT ON logical_sources
+BEGIN INSERT INTO source_lifecycle_state(source_id,lifecycle_version) VALUES(NEW.source_id,0); END
+            """.strip(),
+            """
+CREATE TABLE source_lifecycle_operations (
+ operation_id TEXT PRIMARY KEY,
+ request_sha256 TEXT NOT NULL CHECK(length(request_sha256)=64),
+ source_id TEXT NOT NULL REFERENCES logical_sources(source_id),
+ expected_head TEXT NOT NULL REFERENCES source_revisions(capture_id),
+ expected_lifecycle_version INTEGER NOT NULL CHECK(expected_lifecycle_version>=0),
+ resulting_lifecycle_version INTEGER NOT NULL CHECK(resulting_lifecycle_version>=1),
+ reason_code TEXT NOT NULL CHECK(length(reason_code)>0 AND length(reason_code)<=96),
+ absence_evidence_digest TEXT CHECK(
+     absence_evidence_digest IS NULL OR length(absence_evidence_digest)=64
+ ),
+ sequence INTEGER NOT NULL UNIQUE CHECK(sequence>=1),
+ recorded_at TEXT NOT NULL,
+ receipt_json TEXT NOT NULL,
+ UNIQUE(source_id, resulting_lifecycle_version)
+)
+            """.strip(),
+            """
+CREATE TABLE managed_source_deliveries (
+ delivery_id TEXT PRIMARY KEY,
+ envelope_sha256 TEXT NOT NULL CHECK(length(envelope_sha256)=64),
+ source_id TEXT REFERENCES logical_sources(source_id),
+ destination_brain_id TEXT NOT NULL,
+ issuer_epoch INTEGER NOT NULL CHECK(issuer_epoch>0),
+ expected_head TEXT,
+ expected_lifecycle_version INTEGER NOT NULL CHECK(expected_lifecycle_version>=0),
+ source_delivery_id TEXT NOT NULL UNIQUE,
+ receipt_json TEXT
+)
+            """.strip(),
+            "DROP TABLE runtime_compatibility",
+            """
+CREATE TABLE runtime_compatibility (
+ singleton INTEGER PRIMARY KEY CHECK(singleton=1),
+ minimum_runtime_session_version INTEGER NOT NULL CHECK(minimum_runtime_session_version=6),
+ state_schema_version INTEGER NOT NULL CHECK(state_schema_version=11)
+)
+            """.strip(),
+            "INSERT INTO runtime_compatibility VALUES(1,6,11)",
+        ),
+    ),
 )

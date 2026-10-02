@@ -13,9 +13,18 @@ from open_brain_engine.core.ids import portable_canonical_json_bytes
 from .contracts import CaptureReceipt
 from .normalization import _timestamp
 from .source_intake import (
+    PublicJobRevisionSink,
+    SourceRevisionBinding,
     SourceRevisionReceipt,
     SourceRevisionSubmission,
     quarantine_stale_intakes,
+)
+from .source_lifecycle import SourceLifecycleTasks
+from .source_lifecycle_contracts import (
+    SourceInspection,
+    SourceInspectRequest,
+    SourceWithdrawReceipt,
+    SourceWithdrawRequest,
 )
 from .t03_contracts import EffectiveAuthority, SourceRouteRequest, SourceRouteResponse, T03Error
 
@@ -26,6 +35,23 @@ if TYPE_CHECKING:
 class SourceTasks:
     def __init__(self, engine: BrainEngine) -> None:
         self._engine = engine
+        self._lifecycle = SourceLifecycleTasks(engine)
+
+    def inspect(
+        self, request: SourceInspectRequest, *, authority: EffectiveAuthority
+    ) -> SourceInspection:
+        return self._lifecycle.inspect(request, authority=authority)
+
+    def withdraw(
+        self, request: SourceWithdrawRequest, *, authority: EffectiveAuthority
+    ) -> SourceWithdrawReceipt:
+        return self._lifecycle.withdraw(request, authority=authority)
+
+    def public_revision_sink(self, binding: SourceRevisionBinding) -> PublicJobRevisionSink:
+        """Create the collector's capture-only managed revision sink."""
+        if not isinstance(binding, SourceRevisionBinding):
+            raise T03Error("invalid_arguments")
+        return PublicJobRevisionSink(self._engine, binding)
 
     def fence_intake(self, *, expected_epoch: int, authority: EffectiveAuthority) -> int:
         """Trusted owner coordination hook; collectors must bind their admission separately."""
