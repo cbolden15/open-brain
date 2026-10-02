@@ -21,6 +21,7 @@ from open_brain_engine.portable.relationships_v1 import RELATIONSHIP_METADATA_PA
 from open_brain_engine.portable.v1 import PortableSnapshot
 from open_brain_engine.portable.v4 import SOURCE_METADATA_PATH, catalog_digest
 from open_brain_engine.portable.v5 import V5_SIDECAR_PATHS, manifest_v5
+from open_brain_engine.portable.v6 import V6_SIDECAR_PATHS, manifest_v6
 from open_brain_engine.portable.versioned import validate_portable_root, validated_portable_snapshot
 from open_brain_engine.storage.filesystem import RootIdentity, capture_root_identity, read_confined
 from open_brain_engine.storage.locks import FileLease
@@ -70,6 +71,7 @@ def _receipt(
         3,
         4,
         5,
+        6,
     }:
         raise ValueError("unsupported Portable Brain schema")
     entries = cast(list[dict[str, object]], manifest["files"])
@@ -95,6 +97,10 @@ def _manifest(
     tenant_id: str,
     version: int = 1,
 ) -> dict[str, object]:
+    if version == 6:
+        return manifest_v6(
+            dict(files), tenant_id=tenant_id, export_id=export_id, created_at=created_at
+        )
     if version == 5:
         return manifest_v5(
             dict(files), tenant_id=tenant_id, export_id=export_id, created_at=created_at
@@ -168,7 +174,7 @@ def _ready_record(
             "tenant_id": manifest["tenant_id"],
         },
     }
-    if manifest["schema_version"] == 5:
+    if manifest["schema_version"] in {5, 6}:
         from .local_schema import open_local_database_read_only
 
         connection = open_local_database_read_only(materialization.profile)
@@ -274,7 +280,7 @@ def _materialization_counts(manifest: dict[str, object]) -> dict[str, int]:
 def _validate_ready_record(
     manifest: dict[str, object], *, import_id: str, ready: dict[str, object]
 ) -> tuple[dict[str, int], int]:
-    v5 = manifest["schema_version"] == 5
+    v5 = manifest["schema_version"] in {5, 6}
     extra_keys = {"authoritative_counts", "semantic_state_sha256"} if v5 else set()
     if (
         set(ready)
@@ -435,7 +441,7 @@ def _validate_reopened_import(
     profile = _profile(destination, snapshot)
     if profile.tenant_id != manifest["tenant_id"]:
         raise ValueError("portable import retry evidence is invalid")
-    if manifest["schema_version"] == 5:
+    if manifest["schema_version"] in {5, 6}:
         # Reject archive-bound drift before engine recovery can rewrite it.
         audit_restored_v5(profile, snapshot=snapshot)
     from .local import BrainEngine
@@ -444,7 +450,7 @@ def _validate_reopened_import(
     connection = reopened._store.connect()
     try:
         row = connection.execute("SELECT COUNT(*) FROM captures").fetchone()
-        if manifest["schema_version"] == 5:
+        if manifest["schema_version"] in {5, 6}:
             verify_portable_v5_semantic_state(
                 connection,
                 tenant_id=profile.tenant_id,
@@ -602,6 +608,15 @@ class PortabilityTasks:
                 and connection.execute("SELECT 1 FROM capture_ingestion_pending LIMIT 1").fetchone()
             ):
                 raise ValueError("ingestion_pending")
+            if schema_version >= 11 and (
+                connection.execute(
+                    "SELECT 1 FROM managed_source_deliveries WHERE receipt_json IS NULL LIMIT 1"
+                ).fetchone()
+                or connection.execute(
+                    "SELECT 1 FROM source_intakes WHERE receipt_json IS NULL LIMIT 1"
+                ).fetchone()
+            ):
+                raise ValueError("ingestion_pending")
             managed = export_managed_workspace_state(self._engine, connection=connection)
             if managed is not None:
                 files.append(managed)
@@ -633,6 +648,11 @@ class PortabilityTasks:
                     )
                     files = [(path, data) for path, data in files if path not in V5_SIDECAR_PATHS]
                     files.extend(evidence.sidecars.items())
+                if schema_version >= 11:
+                    from .portable_v6_authority import source_authority_sidecars
+
+                    files = [(path, data) for path, data in files if path not in V6_SIDECAR_PATHS]
+                    files.extend(source_authority_sidecars(connection).items())
         finally:
             connection.close()
         files.sort(key=lambda item: item[0])
@@ -644,7 +664,9 @@ class PortabilityTasks:
             export_id=export_id,
             created_at=_timestamp(self._engine._clock()),
             tenant_id=self._engine.profile.tenant_id,
-            version=5
+            version=6
+            if schema_version >= 11
+            else 5
             if schema_version >= 9
             else 4
             if any(path == SOURCE_METADATA_PATH for path, _ in files)
@@ -794,7 +816,7 @@ class PortabilityTasks:
                 self._engine._fault(PortabilityFault.AFTER_PROFILE)
                 restore = (
                     restore_portable_v5_root
-                    if manifest["schema_version"] == 5
+                    if manifest["schema_version"] in {5, 6}
                     else materialize_portable_root
                 )
                 materialization = restore(
@@ -802,12 +824,12 @@ class PortabilityTasks:
                     snapshot=stage_snapshot,
                     expected_root_identity=stage_identity,
                 )
-                if manifest["schema_version"] == 5:
+                if manifest["schema_version"] in {5, 6}:
                     materialization = replace(
                         materialization,
                         history_records=_materialization_counts(manifest)["history_records"],
                     )
-                if manifest["schema_version"] in {2, 3, 5}:
+                if manifest["schema_version"] in {2, 3, 5, 6}:
                     managed_paths = [
                         path
                         for path in stage_snapshot.files
@@ -825,7 +847,7 @@ class PortabilityTasks:
                             staged_engine,
                             stage_snapshot.files[managed_paths[0]],
                         )
-                        if manifest["schema_version"] != 5:
+                        if manifest["schema_version"] not in {5, 6}:
                             materialization = replace(
                                 materialization,
                                 history_records=materialization.history_records + 1,
@@ -913,7 +935,9 @@ class PortabilityTasks:
             created_at="1970-01-01T00:00:00Z",
             tenant_id=self._engine.profile.tenant_id,
             version=(
-                5
+                6
+                if all(any(path == sidecar for path, _ in files) for sidecar in V6_SIDECAR_PATHS)
+                else 5
                 if all(any(path == sidecar for path, _ in files) for sidecar in V5_SIDECAR_PATHS)
                 else 4
                 if any(path == SOURCE_METADATA_PATH for path, _ in files)

@@ -46,7 +46,7 @@ from .relationship_store import relationship_metadata
 from .source_store import source_metadata
 from .t03_contracts import T03Error
 
-_SUPPORTED_STATE_SCHEMA_VERSIONS = frozenset({9, 10})
+_SUPPORTED_STATE_SCHEMA_VERSIONS = frozenset({9, 10, 11})
 _EVIDENCE_SCHEMA_VERSION = 1
 _VALID_INVALID_REASONS = frozenset({"missing", "malformed", "inconsistent"})
 
@@ -693,6 +693,10 @@ def serialize_portable_v5_state(
         "issuer_migration": issuer,
         "effective_privacy": privacy,
     }
+    if connection.execute("PRAGMA user_version").fetchone()[0] >= 11:
+        from .portable_v6_authority import source_authority_metadata
+
+        semantic_state["source_authority"] = source_authority_metadata(connection)
     digest = sha256(portable_canonical_json_bytes(semantic_state)).hexdigest()
     return PortableV5StateEvidence(
         sidecars=MappingProxyType(sidecars),

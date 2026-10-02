@@ -182,29 +182,30 @@ def _read_only(profile: SingleUserLocalProfile) -> sqlite3.Connection:
 def test_privacy_migration_is_cataloged() -> None:
     from open_brain_engine.engine import local_schema_catalog
 
-    assert [migration.name for migration in local_schema_catalog.LOCAL_MIGRATIONS][-4:] == [
+    assert [migration.name for migration in local_schema_catalog.LOCAL_MIGRATIONS][-5:] == [
         "immutable_source_history",
         "effective_privacy_projection",
         "issuer_identity_and_owner_repair",
         "durable_capture_ingestion_journal",
+        "saved_markdown_lifecycle",
     ]
-    assert local_schema_catalog.LOCAL_MIGRATIONS[9].version == 10
-    assert len(local_schema_catalog.LOCAL_MIGRATIONS) == 10
+    assert local_schema_catalog.LOCAL_MIGRATIONS[10].version == 11
+    assert len(local_schema_catalog.LOCAL_MIGRATIONS) == 11
 
 
-def test_fresh_brain_is_schema_ten_current(tmp_path: Path) -> None:
+def test_fresh_brain_is_schema_eleven_current(tmp_path: Path) -> None:
     profile = compile_single_user_local(tmp_path / "brain")
     BrainEngine.open(profile)
-    assert inspect_phase1_state(profile) == local_schema.SchemaState("current", 10)
+    assert inspect_phase1_state(profile) == local_schema.SchemaState("current", 11)
     with _read_only(profile) as connection:
-        assert connection.execute("PRAGMA user_version").fetchone()[0] == 10
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 11
         assert [
             tuple(row)
             for row in connection.execute(
                 "SELECT singleton, minimum_runtime_session_version, state_schema_version "
                 "FROM runtime_compatibility"
             )
-        ] == [(1, 5, 10)]
+        ] == [(1, 6, 11)]
         # Fresh post-cutover state provisions identity atomically with the schema:
         # current epoch one, no legacy epoch, no bindings, and no migration marker.
         assert [
@@ -249,15 +250,15 @@ def test_schema_eight_brain_classifies_supported_old_and_awaits_issuer_migration
         pass
 
 
-def test_schema_newer_than_ten_fails_closed(tmp_path: Path) -> None:
+def test_schema_newer_than_eleven_fails_closed(tmp_path: Path) -> None:
     profile = compile_single_user_local(tmp_path / "brain")
     BrainEngine.open(profile)
     connection = open_local_database(profile, clock=lambda: datetime.now(UTC))
     try:
-        connection.execute("PRAGMA user_version=11")
+        connection.execute("PRAGMA user_version=12")
     finally:
         connection.close()
-    assert inspect_phase1_state(profile) == local_schema.SchemaState("newer", 11)
+    assert inspect_phase1_state(profile) == local_schema.SchemaState("newer", 12)
     with pytest.raises(SchemaError, match="newer"):
         open_local_database(profile, clock=lambda: datetime.now(UTC))
 

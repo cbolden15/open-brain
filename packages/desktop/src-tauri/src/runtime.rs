@@ -11,8 +11,8 @@ use std::time::Duration;
 use tauri::{AppHandle, Manager, State, path::BaseDirectory};
 use uuid::Uuid;
 
-const SUPPORTED_STATE_SCHEMA: u64 = 10;
-const SUPPORTED_RUNTIME_SESSION: u64 = 5;
+const SUPPORTED_STATE_SCHEMA: u64 = 11;
+const SUPPORTED_RUNTIME_SESSION: u64 = 6;
 const BASE_OPERATIONS: &[&str] = &[
     "system.status",
     "capture.create",
@@ -504,8 +504,8 @@ mod tests {
             "protocol": PROTOCOL,
             "protocol_version": PROTOCOL_VERSION,
             "product_version": "0.1.0",
-            "runtime_session_version": 5,
-            "state_schema_version": 10,
+            "runtime_session_version": 6,
+            "state_schema_version": 11,
             "brain_root": "/synthetic/brain",
             "operations": BASE_OPERATIONS,
         })
@@ -530,7 +530,7 @@ mod tests {
 
     #[test]
     fn unknown_schema_and_relative_brain_are_rejected() {
-        for unsupported in [4, 5, 6, 7, 8, 9, 11] {
+        for unsupported in [4, 5, 6, 7, 8, 9, 10, 12] {
             let mut wrong_version = handshake();
             wrong_version["state_schema_version"] = json!(unsupported);
             assert!(validate_handshake(&wrong_version).is_err());
@@ -544,12 +544,12 @@ mod tests {
         let next = handshake();
         assert!(validate_handshake(&next).is_ok());
         let raw = serde_json::to_string(&next).unwrap().replace(
-            "\"runtime_session_version\":5",
-            "\"runtime_session_version\":5.0",
+            "\"runtime_session_version\":6",
+            "\"runtime_session_version\":6.0",
         );
         let fractional = crate::strict_json::from_slice(raw.as_bytes()).unwrap();
         assert!(validate_handshake(&fractional).is_err());
-        for (state_schema, runtime_session) in [(5, 1), (6, 1), (7, 2), (8, 3), (9, 4)] {
+        for (state_schema, runtime_session) in [(5, 1), (6, 1), (7, 2), (8, 3), (9, 4), (10, 5)] {
             let mut old = next.clone();
             old["state_schema_version"] = json!(state_schema);
             old["runtime_session_version"] = json!(runtime_session);

@@ -13,6 +13,8 @@ from open_brain_engine.engine import (
     Provenance,
     ReferencePayload,
 )
+from open_brain_engine.engine.source_observation import SourceRevisionObservation
+from open_brain_engine.engine.t03_contracts import T03Error
 
 from open_brain_connectors.runtime.connectors import ConnectorContractError
 
@@ -85,6 +87,7 @@ class SourceRecordIntake:
     text: str
     privacy: PrivacyDecision
     title: str | None = None
+    observation: SourceRevisionObservation | None = None
 
     def __post_init__(self) -> None:
         if type(self.key) is not SourceRecordKey or not isinstance(self.privacy, PrivacyDecision):
@@ -104,6 +107,15 @@ class SourceRecordIntake:
             if not title or "\x00" in title or len(title) > _MAX_TITLE:
                 raise ConnectorContractError("invalid source record")
             object.__setattr__(self, "title", title)
+        if self.observation is not None:
+            if type(self.observation) is not SourceRevisionObservation:
+                raise ConnectorContractError("invalid source observation")
+            try:
+                self.observation.validate_capture(
+                    {"payload": payload.to_dict(), "privacy": self.privacy.to_dict()}
+                )
+            except T03Error:
+                raise ConnectorContractError("invalid source observation") from None
 
     @property
     def source_reference(self) -> str:

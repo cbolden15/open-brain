@@ -4,6 +4,21 @@ Non-obvious behaviors, sharp edges, and lessons learned belong here.
 
 ## Registry
 
+### COLLECTOR-001: Check cancellation before reading pending custody
+
+Symptom: A collector run crashes with `collector_custody_not_found` when another
+controller pauses or disables the source after capture acknowledgement.
+
+Cause: Cancellation discards the active run's receipts. A pending-custody check
+outside the selection barrier can read those receipts after they are removed.
+
+Fix: Check the current generation, control epoch, and enabled state under the
+selection barrier before inspecting pending receipts. Keep the pending check and
+deferred-state update inside that barrier. Test cancellation after terminal
+acknowledgement and queued replay separately.
+
+Discovered: 2026-10-01, full saved-Markdown integration verification.
+
 ### REVIEW-004: Restore causal identities, not incidental row order
 
 Symptom: An imported pending review rejects a valid route, accepts a stale route, or finishes a
@@ -401,6 +416,56 @@ Fix: Validate duplicate flags, remove `--json` before recognizing help/version, 
 supported ordering without runtime configuration.
 
 Discovered: 2026-08-31.
+
+### CLI-004: Direct lifecycle tasks need typed error translation
+
+Symptom: Owner source inspection or withdrawal refuses an unknown source, stale binding, or
+altered retry, but the CLI reports a generic operation failure with exit 78.
+
+Cause: Direct lifecycle calls raise engine `T03Error`; the CLI's typed error handler catches
+app `T03AppError`. Unlike the negotiated task adapter, the direct path did not translate errors.
+
+Fix: Translate typed engine errors at the lifecycle CLI boundary. Test real command dispatch,
+exact error codes, replay, and unchanged lifecycle state after refused operations. Do not weaken
+engine authorization or expected-version checks to make the CLI succeed.
+
+Discovered: 2026-10-01, owner source inspect/withdraw acceptance tests.
+
+### LIFECYCLE-005: Late retirement checks can poison capture recovery
+
+Symptom: A changed saved item returns after owner withdrawal. Its source remains retired,
+but an extra unfinished capture is reserved and ordinary startup fails while completing it.
+
+Cause: Retirement was checked only during stage-three source linkage, after intake and journal
+admission. Managed delivery lifecycle validation also ran after capture acceptance. A separate
+response-loss case could accept a revision but never finish its managed receipt after withdrawal.
+
+Fix: Check current lifecycle/head expectations before new managed reservation and refuse retired
+sources before new source intake. Keep the stage-three guard as defense in depth. Pending managed
+receipts block withdrawal until exact recovery completes. Completed historical replay after
+withdrawal must not admit another capture or reactivate the source. Test changed returns, pending and lost-response
+retries, stale lifecycle requests, retained evidence, and ordinary restart after refusal.
+
+The shared source task must honor the managed namespace barrier too. Protecting only the collector
+sink still lets a direct competing source submission overtake it. Validate fresh order/head and
+already-pending intake before reservation, using the same order decision as source admission.
+
+Discovered: 2026-10-02, saved-Markdown checkpoint B return and recovery acceptance.
+
+### PORTABLE-003: Self-hashes do not prove linked admission evidence
+
+Symptom: A forged managed submission passes Portable validation after its envelope and manifest
+hashes are recomputed, while pointing at a different retained capture receipt.
+
+Cause: Validation checked each row's internal hash without comparing the whole managed submission
+against the independently validated source intake. Open binding/receipt shapes also admitted
+unknown fields and boolean or floating-point versions.
+
+Fix: Require exact intake bytes, namespace/destination/delivery linkage, closed typed binding and
+receipt values, and explicit observed-envelope privacy/payload commitments. Test semantic forgery
+with recomputed self-hashes; checksum failures alone do not exercise these invariants.
+
+Discovered: 2026-10-02, independent checkpoint B review and synthetic Portable tamper tests.
 
 ### PRIVACY-004: Case-insensitive values have many reversible digests
 
@@ -1621,6 +1686,21 @@ row introduced after that era. Assert the final current version through the expo
 constant rather than repeating its number in tests.
 
 Discovered: 2026-09-12, NW1 managed-workspace migration verification.
+
+### SCHEMA-002: Cache expected shapes by DDL and build only the requested era
+
+Symptom: Full verification spends almost an hour below 20% completion while one pytest process
+uses a CPU core rebuilding SQLite schemas.
+
+Cause: Removing the expected-shape cache to handle historical catalogs leaves an eager dictionary
+that constructs every known schema on each classification. Caching only era/flags is also unsafe
+when a historical fixture substitutes a different migration catalog or schema definition.
+
+Fix: Select the requested era before building its shape. Cache the immutable shape by the exact
+ordered DDL tuple, including nullability and ledger statements. Keep actual database inspection
+uncached. Test definition changes, historical catalogs, and one-build classification deterministically.
+
+Discovered: 2026-10-01, saved-Markdown lifecycle verification after historical-cache repair.
 
 ### INTEGRATION-027: Homebrew can delete an untrusted local tap before smoke installation
 

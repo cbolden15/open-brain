@@ -218,9 +218,18 @@ class BrainEngine(CaptureOperations, SpaceOperations, ReviewOperations, Retrieva
                 "exclusive admission"
             )
         if (
+            schema.state == "supported_old"
+            and schema.version == 10
+            and local_schema.PHASE1_STATE_SCHEMA_VERSION >= 11
+        ):
+            raise StateSchemaUnavailableError(
+                "local state schema is supported_old: saved lifecycle migration requires "
+                "exclusive admission"
+            )
+        if (
             receipt_protection_port is not None
             and schema.state != "absent"
-            and schema.version != 10
+            and schema.version != 11
         ):
             raise StateSchemaUnavailableError(
                 "receipt protection requires the schema-10 ingestion journal"
@@ -276,7 +285,7 @@ class BrainEngine(CaptureOperations, SpaceOperations, ReviewOperations, Retrieva
                 finally:
                     connection.close()
         except LockBusyError:
-            if schema.state != "current" or schema.version != 10:
+            if schema.state != "current" or schema.version != 11:
                 raise
             self._store = _LocalStore(profile, clock=self._clock, initialize=False)
         self.capture = CaptureTasks(self)

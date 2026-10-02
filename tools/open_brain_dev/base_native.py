@@ -37,10 +37,12 @@ _RESOURCE_DESTINATIONS: Final = {
     "base": "bin/open-brain",
     "graphify": "libexec/open-brain-graphify",
 }
-_PORTABLE_V5_SIDECARS: Final = (
+_PORTABLE_V6_SIDECARS: Final = (
     "history/issuer/legacy-bindings-v1.json",
     "history/issuer/migration-v1.json",
     "history/privacy/effective-privacy-v1.json",
+    "history/sources/lifecycle-v1.json",
+    "history/sources/admission-v1.json",
 )
 _REQUIRED_MODULES: Final = frozenset(
     {
@@ -715,10 +717,10 @@ def _smoke_local_journey(
     if (
         exported.get("status") != "exported"
         or exported.get("verification") != "verified"
-        or exported.get("schema_version") != 5
+        or exported.get("schema_version") != 6
         or not (export / "portable-manifest.json").is_file()
         or not (export / "sources/logical-sources.json").is_file()
-        or not all((export / relative).is_file() for relative in _PORTABLE_V5_SIDECARS)
+        or not all((export / relative).is_file() for relative in _PORTABLE_V6_SIDECARS)
         or not any(
             token.encode("utf-8") in path.read_bytes()
             for path in export.rglob("*")
@@ -894,9 +896,9 @@ def _smoke_markdown_import(
     if (
         exported.get("status") != "exported"
         or exported.get("verification") != "verified"
-        or exported.get("schema_version") != 5
+        or exported.get("schema_version") != 6
         or not (export / "sources/logical-sources.json").is_file()
-        or not all((export / relative).is_file() for relative in _PORTABLE_V5_SIDECARS)
+        or not all((export / relative).is_file() for relative in _PORTABLE_V6_SIDECARS)
         or not blob.is_file()
         or blob.read_bytes() != source_bytes
         or len(captures) != 1
@@ -1220,9 +1222,9 @@ def _smoke_catalog(executable: Path, environment: Mapping[str, str]) -> None:
         != {
             "bridge_protocol": 1,
             "catalog_schema": 2,
-            "portable_metadata": 5,
-            "runtime_session": 5,
-            "state_schema": 10,
+            "portable_metadata": 6,
+            "runtime_session": 6,
+            "state_schema": 11,
             "task_contract": "t03.v1",
         }
         or not isinstance(product, dict)

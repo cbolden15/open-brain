@@ -42,6 +42,8 @@ from open_brain_engine.engine import (
     MarkdownImportSummary,
     PortabilityReceipt,
     RetrievalResult,
+    SourceInspectRequest,
+    SourceWithdrawRequest,
     canonical_json_bytes,
     live_search_is_healthy,
     read_maintenance_snapshot,
@@ -52,7 +54,7 @@ from open_brain_engine.engine.privacy_repairs import (
     PrivacyRepairError,
     PrivacyRepairRequest,
 )
-from open_brain_engine.engine.t03_contracts import EffectiveAuthority
+from open_brain_engine.engine.t03_contracts import EffectiveAuthority, T03Error
 from open_brain_engine.storage.locks import LockBusyError
 from open_brain_engine.storage.operational import (
     StorageError,
@@ -148,6 +150,7 @@ _EXPORT_ID = re.compile(
 _MAX_PRIVACY_REPAIR_REQUEST_BYTES = 65_536
 _MAX_STARTUP_POLICY_BYTES = 65_536
 _MAX_PRIVACY_REPAIR_RECEIPT_BYTES = 1_048_576
+_MAX_SOURCE_WITHDRAW_REQUEST_BYTES = 16_384
 _PRIVACY_REPAIR_REQUEST_KEYS = frozenset(
     {
         "target_kind",
@@ -277,6 +280,15 @@ def run_cli(
             parsed.privacy_repair_request = _read_privacy_repair_request(parsed.request_file)
         except OSError, UnicodeError, ValueError:
             return _write_privacy_repair_failure("invalid_request")
+    if parsed.command == "source" and parsed.source_action == "withdraw":
+        if not json_output:
+            _write_usage_failure(json_output=False)
+            return 2
+        try:
+            parsed.source_withdraw_request = _read_source_withdraw_request(parsed.request_file)
+        except (OSError, UnicodeError, ValueError, T03AppError):
+            _write_usage_failure(json_output=json_output)
+            return 2
     if parsed.command == "capture-submit":
         try:
             parsed.startup_policy = _read_startup_policy(parsed.policy)
@@ -1066,6 +1078,17 @@ def _add_t03_parsers(
     source_route.add_argument("--expected-head", required=True)
     source_route.add_argument("--expected-route-version", required=True, type=int)
     source_route.add_argument("--operation-id", required=True)
+    source_inspect = source_children.add_parser(
+        "inspect", help="Inspect one source lifecycle state."
+    )
+    _add_local_options(source_inspect)
+    source_inspect.add_argument("source_id")
+    source_withdraw = source_children.add_parser(
+        "withdraw", help="Retire one source with an exact owner request file."
+    )
+    _add_local_options(source_withdraw)
+    source_withdraw.add_argument("--request-file", required=True)
+    source_withdraw.set_defaults(_catalog_discoverable=False)
 
     relationship = subparsers.add_parser(
         "relationship", help="Owner-only revision-bound relationship decisions and listing."
@@ -1372,6 +1395,45 @@ def _read_privacy_repair_request(value: object) -> PrivacyRepairRequest:
     )
 
 
+def _read_source_withdraw_request(value: object) -> SourceWithdrawRequest:
+    if not isinstance(value, str) or not value:
+        raise ValueError("invalid request file")
+    if value == "-":
+        payload = sys.stdin.buffer.read(_MAX_SOURCE_WITHDRAW_REQUEST_BYTES + 1)
+    else:
+        with Path(value).open("rb") as source:
+            payload = source.read(_MAX_SOURCE_WITHDRAW_REQUEST_BYTES + 1)
+    if len(payload) > _MAX_SOURCE_WITHDRAW_REQUEST_BYTES:
+        raise ValueError("source withdraw request is too large")
+    decoded = cast(
+        object,
+        json.loads(
+            payload.decode("utf-8"),
+            object_pairs_hook=_strict_json_object,
+            parse_constant=_reject_json_constant,
+        ),
+    )
+    required = {
+        "dto_version", "operation_id", "source_id", "expected_head",
+        "expected_lifecycle_version", "brain_id", "issuer_epoch", "reason_code",
+        "absence_evidence_digest",
+    }
+    if not isinstance(decoded, dict) or set(decoded) != required:
+        raise ValueError("invalid source withdraw request shape")
+    request = cast(dict[str, object], decoded)
+    return SourceWithdrawRequest(
+        dto_version=cast(int, request["dto_version"]),
+        operation_id=cast(str, request["operation_id"]),
+        source_id=cast(str, request["source_id"]),
+        expected_head=cast(str, request["expected_head"]),
+        expected_lifecycle_version=cast(int, request["expected_lifecycle_version"]),
+        brain_id=cast(str, request["brain_id"]),
+        issuer_epoch=cast(int, request["issuer_epoch"]),
+        reason_code=cast(str, request["reason_code"]),
+        absence_evidence_digest=cast(str | None, request["absence_evidence_digest"]),
+    )
+
+
 def _read_review_markdown(value: object) -> str:
     if not isinstance(value, str) or not value or "\x00" in value:
         raise ReviewPublicationError("invalid_arguments")
@@ -1612,6 +1674,55 @@ def _run_t03_cli(
     return 0
 
 
+def _run_source_lifecycle(
+    parsed: argparse.Namespace, tasks: EngineTaskSet, *, json_output: bool
+) -> int:
+    sources = tasks.sources
+    if sources is None:
+        raise T03AppError("operation_pending")
+    authority = owner_authority(tasks, session_id="owner-cli")
+    if parsed.source_action == "inspect":
+        try:
+            inspection = sources.inspect(
+                SourceInspectRequest(source_id=cast(str, parsed.source_id)), authority=authority
+            )
+        except T03Error as error:
+            raise T03AppError(error.code) from None
+        payload: dict[str, object] = {
+            "source_id": inspection.source_id,
+            "head_capture_id": inspection.head_capture_id,
+            "head_version": inspection.head_version,
+            "route_version": inspection.route_version,
+            "lifecycle_version": inspection.lifecycle_version,
+            "lifecycle": inspection.lifecycle,
+            "availability": inspection.availability,
+            "destination_brain_id": inspection.destination_brain_id,
+            "issuer_epoch": inspection.issuer_epoch,
+            "withdrawal_receipt": inspection.withdrawal_receipt,
+        }
+    elif parsed.source_action == "withdraw":
+        try:
+            receipt = sources.withdraw(parsed.source_withdraw_request, authority=authority)
+        except T03Error as error:
+            raise T03AppError(error.code) from None
+        payload = {
+            "operation_id": receipt.operation_id,
+            "request_sha256": receipt.request_sha256,
+            "source_id": receipt.source_id,
+            "head_capture_id": receipt.head_capture_id,
+            "lifecycle_version": receipt.lifecycle_version,
+            "lifecycle": receipt.lifecycle,
+            "receipt_sha256": receipt.receipt_sha256,
+        }
+    else:
+        raise T03AppError("invalid_arguments")
+    if json_output:
+        _write_json(payload)
+    else:
+        print(_terminal_text(json.dumps(payload, sort_keys=True)))
+    return 0
+
+
 def _run_privacy_repair(parsed: argparse.Namespace, tasks: EngineTaskSet) -> int:
     repair_task = tasks.privacy_repair
     if repair_task is None:
@@ -1833,6 +1944,8 @@ def _run_local_command(
         return _run_privacy_repair(parsed, tasks)
     if parsed.command == "consent":
         return _run_consent(parsed, tasks, json_output=json_output)
+    if parsed.command == "source" and parsed.source_action in {"inspect", "withdraw"}:
+        return _run_source_lifecycle(parsed, tasks, json_output=json_output)
     if parsed.command in {
         "search-page",
         "read",
@@ -2745,7 +2858,7 @@ def _record_verified_export(
         manifest_version = cast(dict[str, object], manifest_value)["schema_version"]
     except UnicodeDecodeError, json.JSONDecodeError, KeyError, TypeError:
         raise ValueError("Portable export manifest is unavailable") from None
-    if type(manifest_version) is not int or manifest_version not in {1, 2, 3, 4, 5}:
+    if type(manifest_version) is not int or manifest_version not in {1, 2, 3, 4, 5, 6}:
         raise ValueError("Portable export manifest is unavailable")
     session.prepared.revalidate()
     atomic_replace(
@@ -2784,7 +2897,7 @@ def _verified_export_state(session: LocalBrainSession) -> str:
                 "manifest_digest_sha256",
                 "schema_version",
             }
-            or value["schema_version"] not in {1, 2, 3, 4, 5}
+            or value["schema_version"] not in {1, 2, 3, 4, 5, 6}
             or canonical_json_bytes(value) != payload
             or not isinstance(value["created_at"], str)
             or not isinstance(value["export_id"], str)

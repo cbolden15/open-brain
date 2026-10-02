@@ -140,6 +140,21 @@ from .maintenance import (
     live_search_is_healthy,
     read_maintenance_snapshot,
 )
+from .source_intake import (
+    PublicJobRevisionSink,
+    SourceRevisionBinding,
+    SourceRevisionDelivery,
+    SourceRevisionDeliveryReceipt,
+    SourceRevisionHead,
+    SourceRevisionReceipt,
+    SourceRevisionSubmission,
+)
+from .source_lifecycle_contracts import (
+    SourceInspection,
+    SourceInspectRequest,
+    SourceWithdrawReceipt,
+    SourceWithdrawRequest,
+)
 
 __all__ = [
     "AdmissionLimits",
@@ -231,9 +246,20 @@ __all__ = [
     "ProposalRecord",
     "PublicJobCaptureContext",
     "PublicJobCaptureSink",
+    "PublicJobRevisionSink",
     "PublicProvenance",
     "Provenance",
     "ProviderMode",
+    "SourceInspectRequest",
+    "SourceInspection",
+    "SourceRevisionBinding",
+    "SourceRevisionDelivery",
+    "SourceRevisionDeliveryReceipt",
+    "SourceRevisionHead",
+    "SourceRevisionReceipt",
+    "SourceRevisionSubmission",
+    "SourceWithdrawReceipt",
+    "SourceWithdrawRequest",
     "ReadViewUnavailableError",
     "ReconciliationReceipt",
     "ReconciliationTask",

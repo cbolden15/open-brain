@@ -13,9 +13,19 @@ from open_brain_engine.core.ids import portable_canonical_json_bytes
 from .contracts import CaptureReceipt
 from .normalization import _timestamp
 from .source_intake import (
+    PublicJobRevisionSink,
+    SourceRevisionBinding,
     SourceRevisionReceipt,
     SourceRevisionSubmission,
     quarantine_stale_intakes,
+    revision_order_decision,
+)
+from .source_lifecycle import SourceLifecycleTasks
+from .source_lifecycle_contracts import (
+    SourceInspection,
+    SourceInspectRequest,
+    SourceWithdrawReceipt,
+    SourceWithdrawRequest,
 )
 from .t03_contracts import EffectiveAuthority, SourceRouteRequest, SourceRouteResponse, T03Error
 
@@ -26,6 +36,23 @@ if TYPE_CHECKING:
 class SourceTasks:
     def __init__(self, engine: BrainEngine) -> None:
         self._engine = engine
+        self._lifecycle = SourceLifecycleTasks(engine)
+
+    def inspect(
+        self, request: SourceInspectRequest, *, authority: EffectiveAuthority
+    ) -> SourceInspection:
+        return self._lifecycle.inspect(request, authority=authority)
+
+    def withdraw(
+        self, request: SourceWithdrawRequest, *, authority: EffectiveAuthority
+    ) -> SourceWithdrawReceipt:
+        return self._lifecycle.withdraw(request, authority=authority)
+
+    def public_revision_sink(self, binding: SourceRevisionBinding) -> PublicJobRevisionSink:
+        """Create the collector's capture-only managed revision sink."""
+        if not isinstance(binding, SourceRevisionBinding):
+            raise T03Error("invalid_arguments")
+        return PublicJobRevisionSink(self._engine, binding)
 
     def fence_intake(self, *, expected_epoch: int, authority: EffectiveAuthority) -> int:
         """Trusted owner coordination hook; collectors must bind their admission separately."""
@@ -40,6 +67,19 @@ class SourceTasks:
                 ).fetchone()[0]
                 if epoch != expected_epoch:
                     raise T03Error("revision_changed")
+                # Before source intake is reserved there is no quarantine
+                # target. Do not strand its already durable managed envelope.
+                if (
+                    connection.execute("PRAGMA user_version").fetchone()[0] >= 11
+                    and connection.execute(
+                        "SELECT 1 FROM managed_source_deliveries m WHERE m.receipt_json IS NULL "
+                        "AND NOT EXISTS(SELECT 1 FROM source_intakes i "
+                        "WHERE json_extract(CAST(i.submission_json AS TEXT),'$.delivery_id')="
+                        "m.source_delivery_id) LIMIT 1"
+                    ).fetchone()
+                    is not None
+                ):
+                    raise T03Error("operation_pending")
                 connection.execute("UPDATE engine_generations SET control_epoch=control_epoch+1")
             quarantine_stale_intakes(self._engine)
             return cast(int, epoch + 1)
@@ -62,6 +102,19 @@ class SourceTasks:
             epoch = connection.execute("SELECT control_epoch FROM engine_generations").fetchone()[0]
             if submission.expected_control_epoch != epoch:
                 raise T03Error("revision_changed")
+            if connection.execute("PRAGMA user_version").fetchone()[0] >= 11:
+                for managed in connection.execute(
+                    "SELECT envelope_bytes FROM managed_source_deliveries "
+                    "WHERE receipt_json IS NULL AND "
+                    "json_extract(CAST(envelope_bytes AS TEXT),'$.submission.namespace')=?",
+                    (namespace_json,),
+                ):
+                    envelope = json.loads(managed["envelope_bytes"])
+                    if (
+                        portable_canonical_json_bytes(envelope["submission"])
+                        != submission.custody_bytes()
+                    ):
+                        raise T03Error("operation_pending")
             existing = connection.execute(
                 "SELECT * FROM source_intakes WHERE namespace_sha256=? AND revision_key=?",
                 (namespace_sha, submission.revision_key),
@@ -126,17 +179,25 @@ class SourceTasks:
             if existing is not None and existing["request_sha256"] == submission.canonical_sha256:
                 if existing["receipt_json"] is not None:
                     return SourceRevisionReceipt(**json.loads(existing["receipt_json"]))
+                if source is not None and source["lifecycle"] != "active":
+                    raise T03Error("revision_changed")
                 delivery_id = existing["delivery_id"]
             else:
+                # Refuse a returning revision before intake/journal reservation.
+                # The stage-three guard alone leaves an unrecoverable capture.
+                # Completed exact historical replay above remains valid.
+                if source is not None and source["lifecycle"] != "active":
+                    raise T03Error("revision_changed")
                 if existing is not None:
                     conflict = True
                 if source is None:
                     if submission.expected_head is not None:
                         raise T03Error("revision_changed")
-                    if submission.ordering["kind"] == "predecessor":
-                        conflict = True
                     source_id = "source_" + str(uuid4())
-                    promote, predecessor = True, None
+                    promote, predecessor, order_conflict = revision_order_decision(
+                        None, submission.ordering
+                    )
+                    conflict |= order_conflict
                 else:
                     source_id = source["source_id"]
                     if source["head_capture_id"] != submission.expected_head:
@@ -145,25 +206,10 @@ class SourceTasks:
                         "SELECT * FROM source_revisions WHERE capture_id=?",
                         (source["head_capture_id"],),
                     ).fetchone()
-                    previous_order = json.loads(head["ordering_json"] or "null")
-                    order = submission.ordering
-                    predecessor = None
-                    promote = False
-                    if order["kind"] == "predecessor":
-                        predecessor = head["capture_id"]
-                        promote = order["revision_key"] == head["revision_key"]
-                        conflict |= not promote
-                    elif order["kind"] == "monotonic" and previous_order is not None:
-                        comparable = all(
-                            order[key] == previous_order.get(key)
-                            for key in ("kind", "provider_namespace", "epoch")
-                        )
-                        conflict |= not comparable or order["sequence"] == previous_order.get(
-                            "sequence"
-                        )
-                        promote = comparable and order["sequence"] > previous_order["sequence"]
-                    else:
-                        conflict = True
+                    promote, predecessor, order_conflict = revision_order_decision(
+                        head, submission.ordering
+                    )
+                    conflict |= order_conflict
                 if conflict:
                     connection.execute(
                         "INSERT INTO source_quarantine VALUES(?,?,?,?,?,?)",

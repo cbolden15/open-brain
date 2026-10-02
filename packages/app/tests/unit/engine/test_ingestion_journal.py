@@ -101,7 +101,7 @@ def test_schema_nine_migrates_only_through_coordinator_and_preserves_capture(
         BrainEngine.open(profile)
 
     coordinate_local_migration(profile, clock=_clock)
-    assert inspect_phase1_state(profile) == local_schema.SchemaState("current", 10)
+    assert inspect_phase1_state(profile) == local_schema.SchemaState("current", 11)
     with sqlite3.connect(profile.root / PHASE1_STATE_DATABASE) as connection:
         assert connection.execute("SELECT capture_id FROM captures").fetchone() == (
             capture.capture_id,

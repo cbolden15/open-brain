@@ -8,6 +8,7 @@ from dataclasses import asdict
 from typing import cast
 
 from open_brain_engine.engine import PrivacyDecision
+from open_brain_engine.engine.source_observation import SourceRevisionObservation
 
 from open_brain_connectors.runtime.live_common import LiveSourceError, bounded_json
 from open_brain_connectors.runtime.live_storage import PrivateJsonStore
@@ -42,17 +43,21 @@ _RECEIPT_KEYS = {
 
 
 def intake_dict(intake: SourceRecordIntake) -> dict[str, object]:
-    return {
+    value: dict[str, object] = {
         "key": asdict(intake.key),
         "url": intake.url,
         "text": intake.text,
         "title": intake.title,
         "privacy": intake.privacy.to_dict(),
     }
+    if intake.observation is not None:
+        value["observation"] = intake.observation.value()
+    return value
 
 
 def intake_from_dict(value: object) -> SourceRecordIntake:
-    if not isinstance(value, dict) or set(value) != {"key", "url", "text", "title", "privacy"}:
+    keys = {"key", "url", "text", "title", "privacy"}
+    if not isinstance(value, dict) or set(value) not in (keys, keys | {"observation"}):
         raise LiveSourceError("collector_invalid_custody")
     try:
         key = value["key"]
@@ -64,6 +69,8 @@ def intake_from_dict(value: object) -> SourceRecordIntake:
             text=cast(str, value["text"]),
             title=cast(str | None, value["title"]),
             privacy=PrivacyDecision.from_dict(value["privacy"]),
+            observation=(SourceRevisionObservation.from_value(value["observation"])
+                         if "observation" in value else None),
         )
     except TypeError, ValueError, KeyError:
         raise LiveSourceError("collector_invalid_custody") from None
