@@ -54,7 +54,7 @@ from open_brain_engine.engine.privacy_repairs import (
     PrivacyRepairError,
     PrivacyRepairRequest,
 )
-from open_brain_engine.engine.t03_contracts import EffectiveAuthority
+from open_brain_engine.engine.t03_contracts import EffectiveAuthority, T03Error
 from open_brain_engine.storage.locks import LockBusyError
 from open_brain_engine.storage.operational import (
     StorageError,
@@ -1682,9 +1682,12 @@ def _run_source_lifecycle(
         raise T03AppError("operation_pending")
     authority = owner_authority(tasks, session_id="owner-cli")
     if parsed.source_action == "inspect":
-        inspection = sources.inspect(
-            SourceInspectRequest(source_id=cast(str, parsed.source_id)), authority=authority
-        )
+        try:
+            inspection = sources.inspect(
+                SourceInspectRequest(source_id=cast(str, parsed.source_id)), authority=authority
+            )
+        except T03Error as error:
+            raise T03AppError(error.code) from None
         payload: dict[str, object] = {
             "source_id": inspection.source_id,
             "head_capture_id": inspection.head_capture_id,
@@ -1698,7 +1701,10 @@ def _run_source_lifecycle(
             "withdrawal_receipt": inspection.withdrawal_receipt,
         }
     elif parsed.source_action == "withdraw":
-        receipt = sources.withdraw(parsed.source_withdraw_request, authority=authority)
+        try:
+            receipt = sources.withdraw(parsed.source_withdraw_request, authority=authority)
+        except T03Error as error:
+            raise T03AppError(error.code) from None
         payload = {
             "operation_id": receipt.operation_id,
             "request_sha256": receipt.request_sha256,

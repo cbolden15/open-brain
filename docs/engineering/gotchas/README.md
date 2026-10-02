@@ -417,6 +417,20 @@ supported ordering without runtime configuration.
 
 Discovered: 2026-08-31.
 
+### CLI-004: Direct lifecycle tasks need typed error translation
+
+Symptom: Owner source inspection or withdrawal refuses an unknown source, stale binding, or
+altered retry, but the CLI reports a generic operation failure with exit 78.
+
+Cause: Direct lifecycle calls raise engine `T03Error`; the CLI's typed error handler catches
+app `T03AppError`. Unlike the negotiated task adapter, the direct path did not translate errors.
+
+Fix: Translate typed engine errors at the lifecycle CLI boundary. Test real command dispatch,
+exact error codes, replay, and unchanged lifecycle state after refused operations. Do not weaken
+engine authorization or expected-version checks to make the CLI succeed.
+
+Discovered: 2026-10-01, owner source inspect/withdraw acceptance tests.
+
 ### PRIVACY-004: Case-insensitive values have many reversible digests
 
 Symptom: A protected URL is removed regardless of case, but the SHA-256 of a case-varied spelling
