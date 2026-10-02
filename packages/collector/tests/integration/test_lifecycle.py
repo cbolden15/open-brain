@@ -144,6 +144,46 @@ def test_pause_during_active_run_is_not_overwritten_by_collector_completion(
     assert source_state["pause_ack_epoch"] == 100
 
 
+@pytest.mark.parametrize("command", ["pause", "disable"])
+def test_cancel_after_terminal_receipt_does_not_read_discarded_custody(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, command: str
+) -> None:
+    state_store = CollectorStateStore(tmp_path / "collector.json")
+    controller = CollectorController(state_store, clock=lambda: 100)
+    control = CollectorController(state_store, clock=lambda: 100)
+    selection = _selection()
+    controller.enable(source_id="github.fixture", selection=selection, interval_seconds=30)
+    acknowledge = controller._custody.outcome
+
+    def acknowledge_then_cancel(
+        receipt_id: str,
+        outcome: str,
+        *,
+        capture_id: str | None = None,
+        reason_code: str | None = None,
+        evidence: str | None = None,
+    ) -> None:
+        acknowledge(
+            receipt_id, outcome, capture_id=capture_id, reason_code=reason_code, evidence=evidence
+        )
+        getattr(control, command)("github.fixture")
+
+    monkeypatch.setattr(controller._custody, "outcome", acknowledge_then_cancel)
+
+    result = controller.sync_due(
+        source_id="github.fixture", runtime=_Source(selection), capture_sink=MemoryCaptureSink()
+    )
+
+    assert result.outcome == "failed"
+    assert result.failure_code == (
+        "collector_paused" if command == "pause" else "collector_disabled"
+    )
+    assert controller.status("github.fixture").status == (
+        "paused" if command == "pause" else "disabled"
+    )
+    assert controller.custody_status("github.fixture")["retained_items"] == 0
+
+
 def test_pause_during_multi_record_page_stops_remaining_imports(
     tmp_path: Path,
 ) -> None:

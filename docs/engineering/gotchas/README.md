@@ -4,6 +4,21 @@ Non-obvious behaviors, sharp edges, and lessons learned belong here.
 
 ## Registry
 
+### COLLECTOR-001: Check cancellation before reading pending custody
+
+Symptom: A collector run crashes with `collector_custody_not_found` when another
+controller pauses or disables the source after capture acknowledgement.
+
+Cause: Cancellation discards the active run's receipts. A pending-custody check
+outside the selection barrier can read those receipts after they are removed.
+
+Fix: Check the current generation, control epoch, and enabled state under the
+selection barrier before inspecting pending receipts. Keep the pending check and
+deferred-state update inside that barrier. Test cancellation after terminal
+acknowledgement and queued replay separately.
+
+Discovered: 2026-10-01, full saved-Markdown integration verification.
+
 ### REVIEW-004: Restore causal identities, not incidental row order
 
 Symptom: An imported pending review rejects a valid route, accepts a stale route, or finishes a
