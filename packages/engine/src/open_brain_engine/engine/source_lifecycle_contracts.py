@@ -111,4 +111,3 @@ class SourceWithdrawReceipt:
     lifecycle_version: int
     lifecycle: str
     receipt_sha256: str
-
