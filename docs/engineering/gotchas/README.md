@@ -1637,6 +1637,21 @@ constant rather than repeating its number in tests.
 
 Discovered: 2026-09-12, NW1 managed-workspace migration verification.
 
+### SCHEMA-002: Cache expected shapes by DDL and build only the requested era
+
+Symptom: Full verification spends almost an hour below 20% completion while one pytest process
+uses a CPU core rebuilding SQLite schemas.
+
+Cause: Removing the expected-shape cache to handle historical catalogs leaves an eager dictionary
+that constructs every known schema on each classification. Caching only era/flags is also unsafe
+when a historical fixture substitutes a different migration catalog or schema definition.
+
+Fix: Select the requested era before building its shape. Cache the immutable shape by the exact
+ordered DDL tuple, including nullability and ledger statements. Keep actual database inspection
+uncached. Test definition changes, historical catalogs, and one-build classification deterministically.
+
+Discovered: 2026-10-01, saved-Markdown lifecycle verification after historical-cache repair.
+
 ### INTEGRATION-027: Homebrew can delete an untrusted local tap before smoke installation
 
 Symptom: A contributor smoke creates a temporary local tap, but `brew tap` rejects the tap as

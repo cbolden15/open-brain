@@ -89,47 +89,40 @@ def _shape(connection: sqlite3.Connection) -> tuple[tuple[str, str, str], ...]:
 
 
 def _expected_shape(era: int, nullable: bool, ledger: bool) -> tuple[tuple[str, str, str], ...]:
+    statements = [
+        SEARCH_SCHEMA[0]
+        if "CREATE TABLE IF NOT EXISTS search_documents (" in statement and not nullable
+        else statement
+        for statement in BASELINE
+    ]
+    for minimum_era, schema in (
+        (3, LIVE_SEARCH_SCHEMA),
+        (4, IMPORT_SCHEMA),
+        (5, MANAGED_WORKSPACE_SCHEMA),
+        (6, RUNTIME_COMPATIBILITY_SCHEMA),
+        (7, REVIEW_SCHEMA),
+        (8, MANAGED_RECOVERY_SCHEMA),
+        (9, SOURCE_HISTORY_SCHEMA),
+        (10, PRIVACY_SCHEMA),
+        (11, IDENTITY_AND_REPAIR_SCHEMA),
+        (12, INGESTION_JOURNAL_SCHEMA),
+    ):
+        if era >= minimum_era:
+            statements.extend(schema)
+    if era >= 13 and len(LOCAL_MIGRATIONS) >= 11:
+        statements.extend(LOCAL_MIGRATIONS[10].statements)
+    if ledger:
+        statements.append(_SCHEMA_MIGRATIONS_SQL)
+    return _cached_shape(tuple(statements))
+
+
+@lru_cache(maxsize=32)
+def _cached_shape(statements: tuple[str, ...]) -> tuple[tuple[str, str, str], ...]:
+    # Key by exact DDL so historical catalogs and altered fixtures cannot share stale shapes.
     connection = sqlite3.connect(":memory:")
     try:
-        for statement in BASELINE:
-            if "CREATE TABLE IF NOT EXISTS search_documents (" in statement and not nullable:
-                statement = SEARCH_SCHEMA[0]
+        for statement in statements:
             connection.execute(statement)
-        if era >= 3:
-            for statement in LIVE_SEARCH_SCHEMA:
-                connection.execute(statement)
-        if era >= 4:
-            for statement in IMPORT_SCHEMA:
-                connection.execute(statement)
-        if era >= 5:
-            for statement in MANAGED_WORKSPACE_SCHEMA:
-                connection.execute(statement)
-        if era >= 6:
-            for statement in RUNTIME_COMPATIBILITY_SCHEMA:
-                connection.execute(statement)
-        if era >= 7:
-            for statement in REVIEW_SCHEMA:
-                connection.execute(statement)
-        if era >= 8:
-            for statement in MANAGED_RECOVERY_SCHEMA:
-                connection.execute(statement)
-        if era >= 9:
-            for statement in SOURCE_HISTORY_SCHEMA:
-                connection.execute(statement)
-        if era >= 10:
-            for statement in PRIVACY_SCHEMA:
-                connection.execute(statement)
-        if era >= 11:
-            for statement in IDENTITY_AND_REPAIR_SCHEMA:
-                connection.execute(statement)
-        if era >= 12:
-            for statement in INGESTION_JOURNAL_SCHEMA:
-                connection.execute(statement)
-        if era >= 13 and len(LOCAL_MIGRATIONS) >= 11:
-            for statement in LOCAL_MIGRATIONS[10].statements:
-                connection.execute(statement)
-        if ledger:
-            connection.execute(_SCHEMA_MIGRATIONS_SQL)
         return _shape(connection)
     finally:
         connection.close()
@@ -158,19 +151,8 @@ def classify_local_schema(connection: sqlite3.Connection) -> SchemaState:
                 timestamp = datetime.strptime(row[3], "%Y-%m-%dT%H:%M:%S.%fZ")
                 if timestamp.strftime("%Y-%m-%dT%H:%M:%S.%fZ") != row[3]:
                     return SchemaState("invalid", version)
-            expected = {
-                1: _expected_shape(2, True, True),
-                2: _expected_shape(4, False, True),
-                3: _expected_shape(5, False, True),
-                4: _expected_shape(6, False, True),
-                5: _expected_shape(7, False, True),
-                6: _expected_shape(8, False, True),
-                7: _expected_shape(9, False, True),
-                8: _expected_shape(10, False, True),
-                9: _expected_shape(11, False, True),
-                10: _expected_shape(12, False, True),
-                11: _expected_shape(13, False, True),
-            }[version]
+            era = 2 if version == 1 else version + 2
+            expected = _expected_shape(era, version == 1, True)
             if shape == expected:
                 if version >= 4:
                     compatibility = connection.execute(
