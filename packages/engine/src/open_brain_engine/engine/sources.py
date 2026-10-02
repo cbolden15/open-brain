@@ -66,6 +66,18 @@ class SourceTasks:
                 ).fetchone()[0]
                 if epoch != expected_epoch:
                     raise T03Error("revision_changed")
+                # Before source intake is reserved there is no quarantine
+                # target. Do not strand its already durable managed envelope.
+                if (
+                    connection.execute("PRAGMA user_version").fetchone()[0] >= 11
+                    and connection.execute(
+                        "SELECT 1 FROM managed_source_deliveries m WHERE m.receipt_json IS NULL "
+                        "AND NOT EXISTS(SELECT 1 FROM source_intakes i "
+                        "WHERE json_extract(CAST(i.submission_json AS TEXT),'$.delivery_id')="
+                        "m.source_delivery_id) LIMIT 1"
+                    ).fetchone() is not None
+                ):
+                    raise T03Error("operation_pending")
                 connection.execute("UPDATE engine_generations SET control_epoch=control_epoch+1")
             quarantine_stale_intakes(self._engine)
             return cast(int, epoch + 1)
@@ -152,8 +164,15 @@ class SourceTasks:
             if existing is not None and existing["request_sha256"] == submission.canonical_sha256:
                 if existing["receipt_json"] is not None:
                     return SourceRevisionReceipt(**json.loads(existing["receipt_json"]))
+                if source is not None and source["lifecycle"] != "active":
+                    raise T03Error("revision_changed")
                 delivery_id = existing["delivery_id"]
             else:
+                # Refuse a returning revision before intake/journal reservation.
+                # The stage-three guard alone leaves an unrecoverable capture.
+                # Completed exact historical replay above remains valid.
+                if source is not None and source["lifecycle"] != "active":
+                    raise T03Error("revision_changed")
                 if existing is not None:
                     conflict = True
                 if source is None:

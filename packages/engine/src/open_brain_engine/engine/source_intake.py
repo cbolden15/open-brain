@@ -15,6 +15,7 @@ from uuid import uuid4
 from open_brain_engine.core.ids import portable_canonical_json_bytes
 
 from .contracts import CaptureSubmission, CaptureSubmissionPath, FilePayload
+from .source_observation import SourceRevisionObservation
 from .t03_contracts import T03Error, _freeze, _thaw
 
 if TYPE_CHECKING:
@@ -156,7 +157,8 @@ class SourceRevisionDelivery:
 
     def __post_init__(self) -> None:
         if (
-            self.dto_version != 1
+            type(self.dto_version) is not int
+            or self.dto_version != 1
             or not isinstance(self.binding, SourceRevisionBinding)
             or not isinstance(self.submission, SourceRevisionSubmission)
             or dict(self.binding.namespace) != dict(self.submission.namespace)
@@ -178,6 +180,32 @@ class SourceRevisionDelivery:
     @property
     def envelope_sha256(self) -> str:
         return sha256(self.custody_bytes()).hexdigest()
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class SourceRevisionObservedDelivery(SourceRevisionDelivery):
+    """Distinct v2 envelope; the original v1 delivery bytes remain frozen."""
+
+    observation: SourceRevisionObservation
+    dto_version: int = 2
+
+    def __post_init__(self) -> None:
+        if type(self.dto_version) is not int or self.dto_version != 2:
+            raise T03Error("invalid_arguments")
+        SourceRevisionDelivery(
+            binding=self.binding, submission=self.submission,
+            expected_lifecycle_version=self.expected_lifecycle_version,
+            delivery_id=self.delivery_id,
+        )
+        if not isinstance(self.observation, SourceRevisionObservation):
+            raise T03Error("invalid_arguments")
+        self.observation.validate_capture(self.submission.capture.request_value())
+
+    def custody_bytes(self) -> bytes:
+        value = json.loads(SourceRevisionDelivery.custody_bytes(self))
+        value["dto_version"] = 2
+        value["observation"] = self.observation.value()
+        return portable_canonical_json_bytes(value)
 
 
 @dataclass(frozen=True, slots=True)
@@ -248,6 +276,8 @@ class PublicJobRevisionSink:
     def submit(self, delivery: SourceRevisionDelivery) -> SourceRevisionDeliveryReceipt:
         if not isinstance(delivery, SourceRevisionDelivery) or delivery.binding != self._binding:
             raise T03Error("invalid_arguments")
+        delivery.submission.capture.validate_profile(self._engine.profile)
+        terminal_intake: SourceRevisionReceipt | None = None
         with self._engine._writer_lease.acquire_shared_writer(), self._engine._store.transaction() as connection:
             identity = connection.execute("SELECT brain_id,issuer_epoch FROM brain_identity WHERE singleton=1").fetchone()
             if identity is None or (identity["brain_id"], identity["issuer_epoch"]) != (
@@ -269,7 +299,50 @@ class PublicJobRevisionSink:
                         self._binding.destination_brain_id, self._binding.issuer_epoch,
                         source, source.outcome,
                     )
+                intake = connection.execute(
+                    "SELECT submission_json,receipt_json FROM source_intakes "
+                    "WHERE namespace_sha256=? AND revision_key=?",
+                    (sha256(delivery.submission.namespace_bytes()).hexdigest(),
+                     delivery.submission.revision_key),
+                ).fetchone()
+                if intake is not None and intake["receipt_json"] is not None:
+                    if bytes(intake["submission_json"]) != delivery.submission.custody_bytes():
+                        raise T03Error("invalid_arguments")
+                    terminal_intake = SourceRevisionReceipt(**json.loads(intake["receipt_json"]))
             else:
+                control_epoch = connection.execute(
+                    "SELECT control_epoch FROM engine_generations"
+                ).fetchone()[0]
+                if control_epoch != delivery.submission.expected_control_epoch:
+                    raise T03Error("revision_changed")
+                namespace_sha = sha256(delivery.submission.namespace_bytes()).hexdigest()
+                if connection.execute(
+                    "SELECT 1 FROM managed_source_deliveries WHERE receipt_json IS NULL "
+                    "AND json_extract(CAST(envelope_bytes AS TEXT),'$.submission.namespace')=?",
+                    (delivery.submission.namespace_bytes().decode("utf-8"),),
+                ).fetchone() is not None:
+                    raise T03Error("operation_pending")
+                intake = connection.execute(
+                    "SELECT submission_json FROM source_intakes WHERE namespace_sha256=? AND revision_key=?",
+                    (namespace_sha, delivery.submission.revision_key),
+                ).fetchone()
+                if intake is not None and bytes(intake["submission_json"]) != delivery.submission.custody_bytes():
+                    raise T03Error("invalid_arguments")
+                current = connection.execute(
+                    "SELECT s.source_id,s.lifecycle,s.head_capture_id,l.lifecycle_version "
+                    "FROM source_namespaces n JOIN logical_sources s USING(source_id) "
+                    "JOIN source_lifecycle_state l USING(source_id) WHERE n.namespace_sha256=?",
+                    (namespace_sha,),
+                ).fetchone()
+                if current is None:
+                    if delivery.expected_lifecycle_version != 0:
+                        raise T03Error("revision_changed")
+                elif (
+                    current["lifecycle"] != "active"
+                    or current["lifecycle_version"] != delivery.expected_lifecycle_version
+                    or current["head_capture_id"] != delivery.submission.expected_head
+                ):
+                    raise T03Error("revision_changed")
                 connection.execute(
                     "INSERT INTO managed_source_deliveries("
                     "delivery_id,envelope_sha256,envelope_bytes,source_id,destination_brain_id,"
@@ -279,7 +352,7 @@ class PublicJobRevisionSink:
                         delivery.delivery_id,
                         delivery.envelope_sha256,
                         delivery.custody_bytes(),
-                        None,
+                        None if current is None else current["source_id"],
                         self._binding.destination_brain_id,
                         self._binding.issuer_epoch,
                         delivery.submission.expected_head,
@@ -288,7 +361,8 @@ class PublicJobRevisionSink:
                     ),
                 )
         try:
-            receipt = self._engine.sources.submit_revision(delivery.submission)
+            receipt = (terminal_intake if terminal_intake is not None
+                       else self._engine.sources.submit_revision(delivery.submission))
         except T03Error as error:
             if error.code == "operation_pending":
                 return SourceRevisionDeliveryReceipt(
@@ -298,7 +372,11 @@ class PublicJobRevisionSink:
             raise
         with self._engine._store.transaction() as connection:
             source = connection.execute("SELECT lifecycle_version FROM source_lifecycle_state WHERE source_id=?", (receipt.source_id,)).fetchone()
-            if source is None or source["lifecycle_version"] != delivery.expected_lifecycle_version:
+            # Pending managed admission blocks withdrawal until receipt linkage
+            # completes. Completed exact replay returns above, even if retired.
+            if receipt.outcome != "quarantined" and (
+                source is None or source["lifecycle_version"] != delivery.expected_lifecycle_version
+            ):
                 raise T03Error("revision_changed")
             retained = {"source_receipt": {
                 "source_id": receipt.source_id, "capture_id": receipt.capture_id, "outcome": receipt.outcome,
@@ -310,6 +388,37 @@ class PublicJobRevisionSink:
             )
         return SourceRevisionDeliveryReceipt(delivery.delivery_id, delivery.envelope_sha256,
             self._binding.destination_brain_id, self._binding.issuer_epoch, receipt, receipt.outcome)
+
+    def verify_receipt(
+        self, delivery: SourceRevisionDelivery, receipt: SourceRevisionDeliveryReceipt
+    ) -> None:
+        """Validate terminal evidence against immutable custody, not today's head."""
+        if (
+            not isinstance(delivery, SourceRevisionDelivery)
+            or delivery.binding != self._binding
+            or not isinstance(receipt, SourceRevisionDeliveryReceipt)
+            or receipt.delivery_id != delivery.delivery_id
+            or receipt.envelope_sha256 != delivery.envelope_sha256
+            or receipt.destination_brain_id != self._binding.destination_brain_id
+            or type(receipt.issuer_epoch) is not int
+            or receipt.issuer_epoch != self._binding.issuer_epoch
+            or receipt.source_receipt is None
+            or type(receipt.source_receipt.control_epoch) is not int
+            or receipt.outcome != receipt.source_receipt.outcome
+        ):
+            raise T03Error("invalid_arguments")
+        with self._engine._store.connect() as connection:
+            row = connection.execute(
+                "SELECT envelope_bytes,receipt_json FROM managed_source_deliveries WHERE delivery_id=?",
+                (delivery.delivery_id,),
+            ).fetchone()
+        if (
+            row is None or bytes(row["envelope_bytes"]) != delivery.custody_bytes()
+            or row["receipt_json"] is None
+            or SourceRevisionReceipt(**json.loads(row["receipt_json"])["source_receipt"])
+            != receipt.source_receipt
+        ):
+            raise T03Error("invalid_arguments")
 
 
 def quarantine_stale_intakes(engine: BrainEngine) -> None:
@@ -462,6 +571,18 @@ def register_intake(
     sequence = connection.execute(
         "SELECT coalesce(max(sequence),0)+1 FROM source_revisions WHERE source_id=?", (source_id,)
     ).fetchone()[0]
+    # Link an initial managed reservation in the same commit as accepted source
+    # evidence, so withdrawal cannot pass while its receipt is still pending.
+    if connection.execute("PRAGMA user_version").fetchone()[0] >= 11:
+        connection.execute(
+            "UPDATE managed_source_deliveries SET source_id=? WHERE receipt_json IS NULL "
+            "AND source_delivery_id=? "
+            "AND json_extract(CAST(envelope_bytes AS TEXT),'$.submission.namespace')=? "
+            "AND json_extract(CAST(envelope_bytes AS TEXT),'$.submission.revision_key')=? "
+            "AND json_extract(CAST(envelope_bytes AS TEXT),'$.submission.canonical_sha256')=?",
+            (source_id, plan["legacy_delivery_id"], plan["namespace_json"],
+             intake["revision_key"], intake["request_sha256"]),
+        )
     connection.execute(
         "INSERT INTO source_revisions VALUES(?,?,?,?,?,?,?,?,?,?,?,NULL)",
         (

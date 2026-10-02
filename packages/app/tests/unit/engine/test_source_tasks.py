@@ -18,7 +18,11 @@ from open_brain_engine.engine import (
 from open_brain_engine.engine.local import BrainEngine
 from open_brain_engine.engine.local_schema import open_local_database_read_only
 from open_brain_engine.engine.local_schema_catalog import LOCAL_MIGRATIONS
-from open_brain_engine.engine.source_intake import SourceRevisionSubmission
+from open_brain_engine.engine.source_intake import (
+    SourceRevisionBinding,
+    SourceRevisionDelivery,
+    SourceRevisionSubmission,
+)
 from open_brain_engine.engine.t03_contracts import (
     EffectiveAuthority,
     SourceRouteRequest,
@@ -138,6 +142,426 @@ def test_source_withdrawal_replays_and_retains_owner_evidence(tmp_path: Path) ->
         ).fetchone()[0]
     assert revisions == 1
     assert captures == 1
+
+
+@pytest.mark.parametrize("boundary", ["before_receipt_insert", "after_commit_before_metadata"])
+def test_withdrawal_crash_is_atomic_and_exact_retry_recovers(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, boundary: str
+) -> None:
+    from open_brain_engine.engine import source_store
+
+    profile = compile_single_user_local(tmp_path / "brain")
+    engine = BrainEngine.open(profile)
+    capture = engine.capture.accept(TextPayload("withdrawal atomic evidence"), delivery_id="atomic")
+    owner = EffectiveAuthority("synthetic-owner", "session", frozenset(), None, owner=True)
+    with open_local_database_read_only(profile) as connection:
+        row = connection.execute(
+            "SELECT source_id,source_path FROM source_revisions WHERE capture_id=?",
+            (capture.capture_id,),
+        ).fetchone()
+        source_id, source_path = row["source_id"], row["source_path"]
+    original_bytes = (profile.root / source_path).read_bytes()
+    before = engine.sources.inspect(SourceInspectRequest(source_id=source_id), authority=owner)
+    request = SourceWithdrawRequest(
+        operation_id="withdraw.atomic",
+        source_id=source_id,
+        expected_head=capture.capture_id,
+        expected_lifecycle_version=before.lifecycle_version,
+        brain_id=before.destination_brain_id,
+        issuer_epoch=before.issuer_epoch,
+        reason_code="owner_choice",
+    )
+
+    def crash(*_args: object) -> None:
+        raise RuntimeError("synthetic withdrawal crash")
+
+    with monkeypatch.context() as fault:
+        if boundary == "before_receipt_insert":
+            fault.setattr(engine, "_clock", crash)
+        else:
+            fault.setattr(source_store, "publish_source_metadata", crash)
+        with pytest.raises(RuntimeError, match="synthetic withdrawal crash"):
+            engine.sources.withdraw(request, authority=owner)
+
+    # Observe durable authority before allowing startup recovery to touch views.
+    committed = boundary == "after_commit_before_metadata"
+    with open_local_database_read_only(profile) as connection:
+        state = connection.execute(
+            "SELECT lifecycle,availability,lifecycle_version FROM logical_sources "
+            "JOIN source_lifecycle_state USING(source_id) WHERE source_id=?",
+            (source_id,),
+        ).fetchone()
+        expected_state = ("retired", "missing", 1) if committed else ("active", "available", 0)
+        assert tuple(state) == expected_state
+        assert connection.execute(
+            "SELECT count(*) FROM source_lifecycle_operations WHERE operation_id=?",
+            (request.operation_id,),
+        ).fetchone()[0] == int(committed)
+        assert connection.execute("SELECT count(*) FROM captures").fetchone()[0] == 1
+        assert connection.execute("SELECT count(*) FROM source_revisions").fetchone()[0] == 1
+    assert (profile.root / source_path).read_bytes() == original_bytes
+    reopened = BrainEngine.open(profile)
+    receipt = reopened.sources.withdraw(request, authority=owner)
+    assert reopened.sources.withdraw(request, authority=owner) == receipt
+    assert receipt.lifecycle_version == 1 and receipt.lifecycle == "retired"
+    assert reopened.retrieval.search("withdrawal atomic") == ()
+    with open_local_database_read_only(profile) as connection:
+        stored = connection.execute(
+            "SELECT receipt_json FROM source_lifecycle_operations WHERE operation_id=?",
+            (request.operation_id,),
+        ).fetchall()
+        assert len(stored) == 1
+        assert json.loads(stored[0]["receipt_json"])["receipt_sha256"] == receipt.receipt_sha256
+        assert connection.execute("SELECT count(*) FROM captures").fetchone()[0] == 1
+        assert connection.execute("SELECT count(*) FROM source_revisions").fetchone()[0] == 1
+    assert (profile.root / source_path).read_bytes() == original_bytes
+    metadata = json.loads((profile.root / SOURCE_METADATA_PATH).read_bytes())
+    assert metadata["sources"][0]["lifecycle"] == "retired"
+
+
+@pytest.mark.parametrize("state", ["stale_lifecycle", "retired", "stale_control"])
+def test_revision_sink_refuses_stale_lifecycle_before_any_admission(
+    tmp_path: Path, state: str
+) -> None:
+    engine = BrainEngine.open(compile_single_user_local(tmp_path / "brain"))
+    capture = _public_submission(engine.tasks)
+    namespace = dict(
+        connector_name="synthetic", connection_id="lifecycle", resource_id="one", external_id="one"
+    )
+    first = SourceRevisionSubmission(
+        capture=capture,
+        namespace=namespace,
+        revision_key="first",
+        canonical_sha256=capture.request_sha256(),
+        expected_head=None,
+        ordering={"kind": "unordered"},
+        expected_control_epoch=0,
+    )
+    accepted = engine.sources.submit_revision(first)
+    assert accepted.source_id is not None and accepted.capture_id is not None
+    owner = EffectiveAuthority("synthetic-owner", "session", frozenset(), None, owner=True)
+    inspection = engine.sources.inspect(
+        SourceInspectRequest(source_id=accepted.source_id), authority=owner
+    )
+    if state == "retired":
+        engine.sources.withdraw(
+            SourceWithdrawRequest(
+                operation_id="withdraw.admission",
+                source_id=accepted.source_id,
+                expected_head=accepted.capture_id,
+                expected_lifecycle_version=0,
+                brain_id=inspection.destination_brain_id,
+                issuer_epoch=inspection.issuer_epoch,
+                reason_code="owner_choice",
+            ),
+            authority=owner,
+        )
+    elif state == "stale_control":
+        assert engine.sources.fence_intake(expected_epoch=0, authority=owner) == 1
+    before = engine.sources.inspect(
+        SourceInspectRequest(source_id=accepted.source_id), authority=owner
+    )
+    changed = replace(capture, payload=TextPayload("changed after lifecycle observation"))
+    submission = replace(
+        first,
+        capture=changed,
+        canonical_sha256=changed.request_sha256(),
+        revision_key="changed",
+        expected_head=accepted.capture_id,
+        ordering={"kind": "predecessor", "revision_key": "first"},
+    )
+    binding = SourceRevisionBinding(
+        destination_brain_id=inspection.destination_brain_id,
+        issuer_epoch=inspection.issuer_epoch,
+        root_fingerprint="synthetic-root",
+        accepted_source_id="synthetic-selection",
+        namespace=namespace,
+    )
+    delivery = SourceRevisionDelivery(
+        binding=binding,
+        submission=submission,
+        expected_lifecycle_version=99 if state == "stale_lifecycle" else 0,
+        delivery_id="synthetic.lifecycle.changed",
+    )
+    with pytest.raises(T03Error, match="revision_changed"):
+        engine.sources.public_revision_sink(binding).submit(delivery)
+    with open_local_database_read_only(engine.profile) as connection:
+        assert connection.execute("SELECT count(*) FROM captures").fetchone()[0] == 1
+        assert connection.execute("SELECT count(*) FROM source_revisions").fetchone()[0] == 1
+        assert connection.execute("SELECT count(*) FROM source_intakes").fetchone()[0] == 1
+        assert (
+            connection.execute("SELECT count(*) FROM managed_source_deliveries").fetchone()[0] == 0
+        )
+    assert (
+        engine.sources.inspect(SourceInspectRequest(source_id=accepted.source_id), authority=owner)
+        == before
+    )
+    reopened = BrainEngine.open(engine.profile)
+    if state == "stale_control":
+        with pytest.raises(T03Error, match="revision_changed"):
+            reopened.sources.submit_revision(first)
+    else:
+        assert reopened.sources.submit_revision(first) == accepted
+    assert (
+        reopened.sources.inspect(
+            SourceInspectRequest(source_id=accepted.source_id), authority=owner
+        )
+        == before
+    )
+
+
+def test_revision_sink_recovers_accepted_response_loss_before_withdrawal(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    engine = BrainEngine.open(compile_single_user_local(tmp_path / "brain"))
+    capture = _public_submission(engine.tasks)
+    namespace = dict(
+        connector_name="synthetic", connection_id="response", resource_id="one", external_id="one"
+    )
+    owner = EffectiveAuthority("synthetic-owner", "session", frozenset(), None, owner=True)
+    with open_local_database_read_only(engine.profile) as connection:
+        brain_id, epoch = connection.execute(
+            "SELECT brain_id,issuer_epoch FROM brain_identity"
+        ).fetchone()
+    binding = SourceRevisionBinding(
+        destination_brain_id=brain_id,
+        issuer_epoch=epoch,
+        root_fingerprint="synthetic-root",
+        accepted_source_id="synthetic-selection",
+        namespace=namespace,
+    )
+    submission = SourceRevisionSubmission(
+        capture=capture,
+        namespace=namespace,
+        revision_key="first",
+        canonical_sha256=capture.request_sha256(),
+        expected_head=None,
+        ordering={"kind": "unordered"},
+        expected_control_epoch=0,
+    )
+    delivery = SourceRevisionDelivery(
+        binding=binding,
+        submission=submission,
+        expected_lifecycle_version=0,
+        delivery_id="synthetic.accepted.response-loss",
+    )
+    sink = engine.sources.public_revision_sink(binding)
+    original_submit = engine.sources.submit_revision
+    accepted = []
+
+    def lose_response(value: SourceRevisionSubmission) -> object:
+        accepted.append(original_submit(value))
+        raise RuntimeError("synthetic accepted response loss")
+
+    with monkeypatch.context() as fault:
+        fault.setattr(engine.sources, "submit_revision", lose_response)
+        with pytest.raises(RuntimeError, match="synthetic accepted response loss"):
+            sink.submit(delivery)
+    assert len(accepted) == 1
+    source = accepted[0]
+    assert source.source_id is not None and source.capture_id is not None
+    inspection = engine.sources.inspect(
+        SourceInspectRequest(source_id=source.source_id), authority=owner
+    )
+    withdrawal = SourceWithdrawRequest(
+        operation_id="withdraw.response-loss",
+        source_id=source.source_id,
+        expected_head=source.capture_id,
+        expected_lifecycle_version=inspection.lifecycle_version,
+        brain_id=brain_id,
+        issuer_epoch=epoch,
+        reason_code="owner_choice",
+    )
+    with pytest.raises(T03Error, match="operation_pending"):
+        engine.sources.withdraw(withdrawal, authority=owner)
+    reopened = BrainEngine.open(engine.profile)
+    recovered = reopened.sources.public_revision_sink(binding).submit(delivery)
+    assert recovered.source_receipt == source
+    assert recovered.envelope_sha256 == delivery.envelope_sha256
+    withdrawn = reopened.sources.withdraw(withdrawal, authority=owner)
+    assert reopened.sources.public_revision_sink(binding).submit(delivery) == recovered
+    reopened.sources.public_revision_sink(binding).verify_receipt(delivery, recovered)
+    final = reopened.sources.inspect(
+        SourceInspectRequest(source_id=source.source_id), authority=owner
+    )
+    assert final.lifecycle == "retired" and final.lifecycle_version == withdrawn.lifecycle_version
+    assert final.head_capture_id == source.capture_id
+    with open_local_database_read_only(engine.profile) as connection:
+        assert connection.execute("SELECT count(*) FROM captures").fetchone()[0] == 1
+        assert connection.execute("SELECT count(*) FROM source_revisions").fetchone()[0] == 1
+        row = connection.execute(
+            "SELECT envelope_bytes,receipt_json FROM managed_source_deliveries WHERE delivery_id=?",
+            (delivery.delivery_id,),
+        ).fetchone()
+        assert bytes(row["envelope_bytes"]) == delivery.custody_bytes()
+        assert json.loads(row["receipt_json"])["source_receipt"]["capture_id"] == source.capture_id
+
+
+@pytest.mark.parametrize("interleaving", ["fence", "withdraw"])
+def test_managed_reservation_blocks_overtaking_owner_operation(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, interleaving: str
+) -> None:
+    engine = BrainEngine.open(compile_single_user_local(tmp_path / "brain"))
+    capture = _public_submission(engine.tasks)
+    namespace = dict(
+        connector_name="synthetic", connection_id="race", resource_id="one", external_id="one"
+    )
+    first = SourceRevisionSubmission(
+        capture=capture,
+        namespace=namespace,
+        revision_key="one",
+        canonical_sha256=capture.request_sha256(),
+        expected_head=None,
+        ordering={"kind": "unordered"},
+        expected_control_epoch=0,
+    )
+    accepted = engine.sources.submit_revision(first)
+    owner = EffectiveAuthority("synthetic", "session", frozenset(), None, owner=True)
+    source_id, capture_id = accepted.source_id, accepted.capture_id
+    assert source_id is not None and capture_id is not None
+    with open_local_database_read_only(engine.profile) as connection:
+        brain_id, epoch = connection.execute(
+            "SELECT brain_id,issuer_epoch FROM brain_identity"
+        ).fetchone()
+    binding = SourceRevisionBinding(
+        destination_brain_id=brain_id,
+        issuer_epoch=epoch,
+        root_fingerprint="synthetic-root",
+        accepted_source_id="synthetic-selection",
+        namespace=namespace,
+    )
+    changed = replace(
+        capture,
+        payload=ReferencePayload(
+            url="https://example.invalid/source", supplied_text="synthetic second revision"
+        ),
+        delivery_id="synthetic.race.second",
+    )
+    second = SourceRevisionSubmission(
+        capture=changed,
+        namespace=namespace,
+        revision_key="two",
+        canonical_sha256=changed.request_sha256(),
+        expected_head=accepted.capture_id,
+        ordering={"kind": "predecessor", "revision_key": "one"},
+        expected_control_epoch=0,
+    )
+    delivery = SourceRevisionDelivery(
+        binding=binding,
+        submission=second,
+        expected_lifecycle_version=0,
+        delivery_id="synthetic.race.delivery",
+    )
+    original = engine.sources.submit_revision
+    observed = []
+
+    def overtake(value: SourceRevisionSubmission) -> object:
+        with pytest.raises(T03Error, match="operation_pending"):
+            if interleaving == "fence":
+                engine.sources.fence_intake(expected_epoch=0, authority=owner)
+            else:
+                engine.sources.withdraw(
+                    SourceWithdrawRequest(
+                        operation_id="withdraw.overtake",
+                        source_id=source_id,
+                        expected_head=capture_id,
+                        expected_lifecycle_version=0,
+                        brain_id=brain_id,
+                        issuer_epoch=epoch,
+                        reason_code="owner_choice",
+                    ),
+                    authority=owner,
+                )
+        observed.append(True)
+        return original(value)
+
+    with monkeypatch.context() as fault:
+        fault.setattr(engine.sources, "submit_revision", overtake)
+        receipt = engine.sources.public_revision_sink(binding).submit(delivery)
+    assert observed == [True] and receipt.outcome == "captured"
+    reopened = BrainEngine.open(engine.profile)
+    assert reopened.sources.public_revision_sink(binding).submit(delivery) == receipt
+    with open_local_database_read_only(engine.profile) as connection:
+        assert connection.execute("SELECT count(*) FROM captures").fetchone()[0] == 2
+        assert (
+            connection.execute(
+                "SELECT count(*) FROM managed_source_deliveries WHERE receipt_json IS NULL"
+            ).fetchone()[0]
+            == 0
+        )
+    assert reopened.sources.fence_intake(expected_epoch=0, authority=owner) == 1
+
+
+@pytest.mark.parametrize("fault_name", ["AFTER_CAPTURE_RESERVATION", "AFTER_SOURCE_WRITE"])
+def test_managed_fenced_intake_retains_terminal_custody_on_exact_replay(
+    tmp_path: Path, fault_name: str
+) -> None:
+    from open_brain_engine.engine import CaptureFault, InjectedFault
+
+    profile = compile_single_user_local(tmp_path / "brain")
+    engine = BrainEngine.open(profile, faults={CaptureFault[fault_name]})
+    capture = _public_submission(engine.tasks)
+    namespace = dict(
+        connector_name="synthetic", connection_id="fenced", resource_id="one", external_id="one"
+    )
+    with open_local_database_read_only(profile) as connection:
+        brain_id, epoch = connection.execute(
+            "SELECT brain_id,issuer_epoch FROM brain_identity"
+        ).fetchone()
+    binding = SourceRevisionBinding(
+        destination_brain_id=brain_id,
+        issuer_epoch=epoch,
+        root_fingerprint="synthetic-root",
+        accepted_source_id="synthetic-selection",
+        namespace=namespace,
+    )
+    request = SourceRevisionSubmission(
+        capture=capture,
+        namespace=namespace,
+        revision_key="one",
+        canonical_sha256=capture.request_sha256(),
+        expected_head=None,
+        ordering={"kind": "unordered"},
+        expected_control_epoch=0,
+    )
+    delivery = SourceRevisionDelivery(
+        binding=binding,
+        submission=request,
+        expected_lifecycle_version=0,
+        delivery_id="synthetic.fenced.managed",
+    )
+    with pytest.raises(InjectedFault):
+        engine.sources.public_revision_sink(binding).submit(delivery)
+    before = {
+        path.relative_to(profile.root): path.read_bytes()
+        for path in (profile.root / "sources").rglob("*")
+        if path.is_file() and path.name != "logical-sources.json"
+    }
+    owner = EffectiveAuthority("synthetic", "session", frozenset(), None, owner=True)
+    assert engine.sources.fence_intake(expected_epoch=0, authority=owner) == 1
+    reopened = BrainEngine.open(profile)
+    receipt = reopened.sources.public_revision_sink(binding).submit(delivery)
+    assert receipt.outcome == "quarantined" and receipt.source_receipt is not None
+    assert receipt.source_receipt.custody_id is not None
+    assert receipt.source_receipt.control_epoch == 1
+    assert reopened.sources.public_revision_sink(binding).submit(delivery) == receipt
+    after = {
+        path.relative_to(profile.root): path.read_bytes()
+        for path in (profile.root / "sources").rglob("*")
+        if path.is_file() and path.name != "logical-sources.json"
+    }
+    assert after == before
+    with open_local_database_read_only(profile) as connection:
+        assert (
+            connection.execute(
+                "SELECT count(*) FROM managed_source_deliveries WHERE receipt_json IS NULL"
+            ).fetchone()[0]
+            == 0
+        )
+        assert connection.execute("SELECT count(*) FROM source_quarantine").fetchone()[0] == 1
+        assert connection.execute("SELECT count(*) FROM captures WHERE stage<3").fetchone()[0] == 0
+    with pytest.raises(ValueError, match="^ingestion_pending$"):
+        reopened.tasks.portability.export(tmp_path / "blocked", export_id="export_" + str(uuid4()))
 
 
 def test_standalone_v4_import_refusal_uses_valid_v4_fixture(tmp_path: Path) -> None:

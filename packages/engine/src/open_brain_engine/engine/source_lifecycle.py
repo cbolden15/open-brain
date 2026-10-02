@@ -116,6 +116,12 @@ class SourceLifecycleTasks:
                 (request.source_id,),
             ).fetchone() is not None:
                 raise T03Error("operation_pending")
+            if connection.execute(
+                "SELECT 1 FROM managed_source_deliveries "
+                "WHERE source_id=? AND receipt_json IS NULL",
+                (request.source_id,),
+            ).fetchone() is not None:
+                raise T03Error("operation_pending")
             result_version = request.expected_lifecycle_version + 1
             result = {
                 "operation_id": request.operation_id,

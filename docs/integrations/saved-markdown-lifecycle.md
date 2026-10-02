@@ -16,6 +16,23 @@ these fields. The owner-local `source inspect` and exact request-file `source
 withdraw` commands expose lifecycle inspection and CAS retirement. They do not
 create a sharing approval, public copy, or provider grant.
 
+New revision admission checks current lifecycle and head expectations before
+reserving intake or capture work. Retirement is also checked at final linkage.
+A returning changed item cannot leave an unfinished capture that blocks startup.
+Exact replay of a completed revision remains historical recovery: a lost
+admission response must finish its managed receipt before withdrawal can proceed.
+After withdrawal, replay of that completed receipt does not create another
+capture or change the retired lifecycle. Pending managed reservations block an
+overtaking withdrawal. A control fence refuses the reservation-to-intake gap,
+then may quarantine already admitted work. Exact managed replay returns that
+quarantine receipt without changing its envelope. Unresolved quarantine custody
+continues to block Portable export.
+
+Withdrawal-specific regression coverage includes owner CLI paged history,
+prevalidated search/history cursors, atomic withdrawal and post-commit response
+loss, and current/history reads after reopen, index rebuild, and clean Portable 6
+import. These are synthetic checks, not live saved-content deployment evidence.
+
 ## Boundary and terminology
 
 The engine owns logical sources, revision order, lifecycle decisions, approvals,
@@ -135,7 +152,7 @@ reconciliation step; B does not auto-adopt Phase 2 or imported captures.
 
 ### Closed delivery envelope
 
-`SourceRevisionDelivery` version 1 freezes these fields before the first call:
+The collector freezes these field groups before the first call:
 
 | Field group | Required values |
 | --- | --- |
@@ -151,6 +168,26 @@ digest, and existing replay compares the capture request digest without
 rechecking all order/head fields. Do not change existing DTO version 1 in
 place. The new receipt wraps the durable source result and exact managed
 reservation; the collector verifies both before advancing its accepted head.
+
+The original `SourceRevisionDelivery` v1 remains byte-for-byte unchanged.
+Saved-Markdown observations use the distinct `SourceRevisionObservedDelivery`
+v2, which adds one closed observation v1 object to the v1 envelope. It retains
+`original_sha256`, `transformed_sha256`, `normalization_version`,
+`privacy_policy_version`, `privacy_policy_sha256`, and
+`admitted_payload_sha256`. The privacy and admitted-payload digests are SHA-256
+over canonical JSON of the complete privacy decision and normalized payload,
+respectively. Raw and pre-capture transformed hashes are adapter attestations,
+not a claim that the engine has retained the original file. They survive
+collector restart and terminal engine evidence even when normalization changes
+the body. Complete policy changes affect revision identity, never item identity.
+Old intake custody without observations retains its original shape and v1 path.
+
+Portable 6 validates either closed envelope version, exact linked intake bytes,
+destination/namespace/receipt identity, and v2 privacy/payload commitments. Clean
+restore retains exact observation evidence without recreating a physical source
+binding. The narrow `verify_receipt` sink operation verifies immutable retained
+delivery evidence, including historical receipts, rather than inferring success
+from the current source head.
 
 `operation_pending`, a journal custody receipt, lost response, or transport
 failure retains the same envelope. `captured` advances the accepted head only

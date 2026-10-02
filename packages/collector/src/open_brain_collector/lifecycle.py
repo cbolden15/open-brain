@@ -31,6 +31,7 @@ from open_brain_engine.engine import (
     SourceRevisionSubmission,
     verify_capture_custody_receipt,
 )
+from open_brain_engine.engine.source_intake import SourceRevisionObservedDelivery
 from open_brain_engine.engine.t03_contracts import T03Error
 
 from open_brain_collector.custody import CustodyStore, intake_digest
@@ -1327,7 +1328,9 @@ class EngineRevisionSink:
         if saved is not None and not isinstance(saved, dict):
             raise LiveSourceError("collector_invalid_custody")
         retained = cast(dict[str, object] | None, saved)
-        if retained is not None and retained.get("terminal") is None:
+        terminal = None if retained is None else retained.get("terminal")
+        quarantined = isinstance(terminal, dict) and terminal.get("outcome") == "quarantined"
+        if retained is not None and (terminal is None or quarantined):
             if retained.get("intake_digest") != intake_digest(intake):
                 raise LiveSourceError("collector_custody_stale")
             envelope = cast(dict[str, object], retained["envelope"])
@@ -1382,12 +1385,20 @@ class EngineRevisionSink:
                  "destination": [binding.destination_brain_id, binding.issuer_epoch]}, 8192
             )
         ).hexdigest()
-        delivery = SourceRevisionDelivery(
-            binding=binding, submission=submission,
-            expected_lifecycle_version=lifecycle_version, delivery_id=delivery_id,
-        )
+        delivery: SourceRevisionDelivery
+        if intake.observation is None:
+            delivery = SourceRevisionDelivery(
+                binding=binding, submission=submission,
+                expected_lifecycle_version=lifecycle_version, delivery_id=delivery_id,
+            )
+        else:
+            delivery = SourceRevisionObservedDelivery(
+                binding=binding, submission=submission,
+                expected_lifecycle_version=lifecycle_version, delivery_id=delivery_id,
+                observation=intake.observation,
+            )
         envelope_value = json.loads(delivery.custody_bytes())
-        if retained is not None and retained.get("terminal") is None:
+        if retained is not None and (terminal is None or quarantined):
             if (retained["envelope"] != envelope_value
                     or retained["envelope_sha256"] != delivery.envelope_sha256):
                 raise LiveSourceError("collector_custody_stale")
@@ -1417,13 +1428,23 @@ class EngineRevisionSink:
             if receipt is not None:
                 raise LiveSourceError("collector_invalid_custody_receipt")
             return result
+        try:
+            sink.verify_receipt(delivery, result)
+        except T03Error:
+            raise LiveSourceError("collector_invalid_custody_receipt") from None
+        if receipt is not None and receipt.outcome == "quarantined":
+            if (type(receipt.control_epoch) is not int
+                    or not control_epoch <= receipt.control_epoch <= 9007199254740991
+                    or type(receipt.custody_id) is not str or not receipt.custody_id):
+                raise LiveSourceError("collector_invalid_custody_receipt")
+            retained["terminal"] = asdict(receipt)
+            self._store.write(name, retained)
+            raise T03Error("source_revision_conflict")
         if (receipt is None or receipt.outcome != result.outcome
-                or receipt.outcome not in {"captured", "duplicate", "history_only", "quarantined"}
+                or receipt.outcome not in {"captured", "duplicate"}
                 or receipt.control_epoch != control_epoch
                 or receipt.source_id is None or receipt.capture_id is None):
             raise LiveSourceError("collector_invalid_custody_receipt")
-        if receipt.outcome == "quarantined":
-            raise T03Error("source_revision_conflict")
         retained["terminal"] = asdict(receipt)
         retained["envelope"] = {"delivery_id": delivery.delivery_id}
         self._store.write(name, retained)

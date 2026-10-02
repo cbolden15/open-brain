@@ -431,6 +431,38 @@ engine authorization or expected-version checks to make the CLI succeed.
 
 Discovered: 2026-10-01, owner source inspect/withdraw acceptance tests.
 
+### LIFECYCLE-005: Late retirement checks can poison capture recovery
+
+Symptom: A changed saved item returns after owner withdrawal. Its source remains retired,
+but an extra unfinished capture is reserved and ordinary startup fails while completing it.
+
+Cause: Retirement was checked only during stage-three source linkage, after intake and journal
+admission. Managed delivery lifecycle validation also ran after capture acceptance. A separate
+response-loss case could accept a revision but never finish its managed receipt after withdrawal.
+
+Fix: Check current lifecycle/head expectations before new managed reservation and refuse retired
+sources before new source intake. Keep the stage-three guard as defense in depth. Pending managed
+receipts block withdrawal until exact recovery completes. Completed historical replay after
+withdrawal must not admit another capture or reactivate the source. Test changed returns, pending and lost-response
+retries, stale lifecycle requests, retained evidence, and ordinary restart after refusal.
+
+Discovered: 2026-10-02, saved-Markdown checkpoint B return and recovery acceptance.
+
+### PORTABLE-003: Self-hashes do not prove linked admission evidence
+
+Symptom: A forged managed submission passes Portable validation after its envelope and manifest
+hashes are recomputed, while pointing at a different retained capture receipt.
+
+Cause: Validation checked each row's internal hash without comparing the whole managed submission
+against the independently validated source intake. Open binding/receipt shapes also admitted
+unknown fields and boolean or floating-point versions.
+
+Fix: Require exact intake bytes, namespace/destination/delivery linkage, closed typed binding and
+receipt values, and explicit observed-envelope privacy/payload commitments. Test semantic forgery
+with recomputed self-hashes; checksum failures alone do not exercise these invariants.
+
+Discovered: 2026-10-02, independent checkpoint B review and synthetic Portable tamper tests.
+
 ### PRIVACY-004: Case-insensitive values have many reversible digests
 
 Symptom: A protected URL is removed regardless of case, but the SHA-256 of a case-varied spelling

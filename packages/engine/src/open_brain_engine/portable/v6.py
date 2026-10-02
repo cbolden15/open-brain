@@ -145,6 +145,26 @@ def _rows(value: Any, columns: tuple[str, ...]) -> list[dict[str, Any]]:
     return result
 
 
+def _terminal_source_receipt(value: Any) -> dict[str, Any]:
+    if (
+        type(value) is not dict
+        or set(value)
+        not in (
+            {"source_id", "capture_id", "outcome", "control_epoch"},
+            {"source_id", "capture_id", "outcome", "control_epoch", "custody_id"},
+        )
+        or value["outcome"] not in {"captured", "history_only"}
+        or type(value["control_epoch"]) is not int
+        or value["control_epoch"] < 0
+        or value.get("custody_id") is not None
+        and (type(value["custody_id"]) is not str or not value["custody_id"])
+    ):
+        raise ValueError("terminal source receipt invalid")
+    # V1 intake receipts omit the optional null custody field; managed receipts
+    # retain it. Preserve both byte contracts while comparing their exact values.
+    return dict(value, custody_id=value.get("custody_id"))
+
+
 def validate_source_authority(files: Mapping[str, bytes]) -> dict[str, Any]:
     """Validate closed rows, hashes, receipts and references using archive bytes."""
     try:
@@ -257,11 +277,11 @@ def validate_source_authority(files: Mapping[str, bytes]) -> dict[str, Any]:
         for table in ("source_aliases", "source_operations"):
             if any(row["source_id"] not in sources for row in rows[table]):
                 raise ValueError("source authority reference invalid")
-        intake_receipts: dict[str, dict[str, Any]] = {}
+        intakes: dict[tuple[str, str], tuple[bytes, dict[str, Any]]] = {}
         for row in rows["source_intakes"]:
             raw = base64.b64decode(row["submission_json"], validate=True)
             submission = json.loads(raw)
-            receipt = json.loads(row["receipt_json"])
+            receipt = _terminal_source_receipt(json.loads(row["receipt_json"]))
             if (
                 type(submission) is not dict
                 or set(submission)
@@ -282,15 +302,6 @@ def validate_source_authority(files: Mapping[str, bytes]) -> dict[str, Any]:
                 or type(submission["expected_control_epoch"]) is not int
                 or not 0 <= submission["expected_control_epoch"] <= value["control_epoch"]
                 or sha256(canonical(submission["capture"])).hexdigest() != row["request_sha256"]
-                or type(receipt) is not dict
-                or set(receipt)
-                not in (
-                    {"source_id", "capture_id", "outcome", "control_epoch"},
-                    {"source_id", "capture_id", "outcome", "control_epoch", "custody_id"},
-                )
-                or receipt["outcome"] not in {"captured", "history_only"}
-                or type(receipt["control_epoch"]) is not int
-                or receipt["control_epoch"] < 0
             ):
                 raise ValueError("source submission or receipt invalid")
             ordering = submission["ordering"]
@@ -341,12 +352,15 @@ def validate_source_authority(files: Mapping[str, bytes]) -> dict[str, Any]:
                 != canonical(submission["ordering"])
             ):
                 raise ValueError("intake revision evidence invalid")
-            intake_receipts[submission["delivery_id"]] = receipt
+            key = (row["source_id"], row["revision_key"])
+            if key in intakes:
+                raise ValueError("source intake identity duplicated")
+            intakes[key] = raw, receipt
         for row in rows["managed_source_deliveries"]:
             retained = json.loads(row["receipt_json"])
             if set(retained) != {"source_receipt"}:
                 raise ValueError("managed source receipt fields invalid")
-            receipt = retained["source_receipt"]
+            receipt = _terminal_source_receipt(retained["source_receipt"])
             raw = base64.b64decode(row["envelope_bytes"], validate=True)
             envelope = json.loads(raw)
             if (
@@ -358,14 +372,31 @@ def validate_source_authority(files: Mapping[str, bytes]) -> dict[str, Any]:
                     "submission",
                     "expected_lifecycle_version",
                     "delivery_id",
-                }
+                } | ({"observation"} if envelope.get("dto_version") == 2 else set())
                 or canonical(envelope) != raw
                 or sha256(raw).hexdigest() != row["envelope_sha256"]
                 or type(envelope["dto_version"]) is not int
-                or envelope["dto_version"] != 1
+                or envelope["dto_version"] not in {1, 2}
                 or envelope["delivery_id"] != row["delivery_id"]
+                or type(envelope["expected_lifecycle_version"]) is not int
+                or envelope["expected_lifecycle_version"] < 0
                 or envelope["expected_lifecycle_version"] != row["expected_lifecycle_version"]
+                or type(envelope["submission"]) is not dict
                 or envelope["submission"]["expected_head"] != row["expected_head"]
+                or type(envelope["binding"]) is not dict
+                or set(envelope["binding"])
+                != {
+                    "destination_brain_id", "issuer_epoch", "root_fingerprint",
+                    "accepted_source_id", "namespace",
+                }
+                or any(
+                    type(envelope["binding"][key]) is not str or not envelope["binding"][key]
+                    for key in ("destination_brain_id", "root_fingerprint", "accepted_source_id")
+                )
+                or type(envelope["binding"]["issuer_epoch"]) is not int
+                or envelope["binding"]["issuer_epoch"] < 1
+                or canonical(envelope["binding"]["namespace"])
+                != canonical(envelope["submission"]["namespace"])
                 or envelope["binding"]["destination_brain_id"] != row["destination_brain_id"]
                 or envelope["binding"]["issuer_epoch"] != row["issuer_epoch"]
             ):
@@ -380,9 +411,19 @@ def validate_source_authority(files: Mapping[str, bytes]) -> dict[str, Any]:
                 or row["expected_lifecycle_version"] > versions[row["source_id"]]
             ):
                 raise ValueError("managed source receipt invalid")
-            intake = intake_receipts.get(row["source_delivery_id"])
-            if intake is None or any(receipt[key] != intake[key] for key in intake):
+            intake = intakes.get((row["source_id"], envelope["submission"]["revision_key"]))
+            if (
+                intake is None
+                or canonical(envelope["submission"]) != intake[0]
+                or envelope["submission"]["delivery_id"] != row["source_delivery_id"]
+                or canonical(receipt) != canonical(intake[1])
+            ):
                 raise ValueError("managed receipt intake linkage invalid")
+            if envelope["dto_version"] == 2:
+                from open_brain_engine.engine.source_observation import SourceRevisionObservation
+
+                observation = SourceRevisionObservation.from_value(envelope["observation"])
+                observation.validate_capture(envelope["submission"]["capture"])
         return cast(dict[str, Any], value)
     except PortableValidationError:
         raise

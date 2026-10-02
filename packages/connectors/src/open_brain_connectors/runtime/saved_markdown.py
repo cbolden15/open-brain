@@ -21,7 +21,8 @@ from uuid import uuid4
 
 from open_brain_engine.capture.redaction import has_redaction_finding
 from open_brain_engine.core.ids import portable_canonical_json_bytes
-from open_brain_engine.engine import PrivacyDecision
+from open_brain_engine.engine import PrivacyDecision, ReferencePayload
+from open_brain_engine.engine.source_observation import SourceRevisionObservation
 
 from open_brain_connectors.runtime.connectors import ConnectorContractError
 from open_brain_connectors.runtime.source_intake import SourceRecordIntake, SourceRecordKey
@@ -99,6 +100,7 @@ class SavedMarkdownIdentity:
     transformed_sha256: str
     normalization_version: str
     privacy_policy_version: str
+    privacy_policy_sha256: str | None = None
 
     def __post_init__(self) -> None:
         values = (
@@ -117,6 +119,11 @@ class SavedMarkdownIdentity:
             for value in (self.original_sha256, self.transformed_sha256)
         ):
             raise ConnectorContractError("invalid saved markdown identity")
+        if self.privacy_policy_sha256 is not None and (
+            type(self.privacy_policy_sha256) is not str
+            or re.fullmatch(r"[0-9a-f]{64}", self.privacy_policy_sha256) is None
+        ):
+            raise ConnectorContractError("invalid saved markdown identity")
 
     def _digest(self, purpose: str) -> str:
         stable = {
@@ -131,12 +138,16 @@ class SavedMarkdownIdentity:
             "privacy_policy_version": self.privacy_policy_version,
             "transformed_sha256": self.transformed_sha256,
         }
+        version_number = 1
+        if self.privacy_policy_sha256 is not None:
+            version["privacy_policy_sha256"] = self.privacy_policy_sha256
+            version_number = 2
         if purpose == "item":
             value = {"domain": "saved-markdown-item.v1", **stable}
         elif purpose == "revision":
-            value = {"domain": "saved-markdown-version.v1", **version}
+            value = {"domain": f"saved-markdown-version.v{version_number}", **version}
         elif purpose == "delivery":
-            value = {"domain": "saved-markdown-delivery.v1", **version}
+            value = {"domain": f"saved-markdown-delivery.v{version_number}", **version}
         else:
             raise ConnectorContractError("invalid saved markdown identity")
         return sha256(portable_canonical_json_bytes(value)).hexdigest()
@@ -219,15 +230,20 @@ class SavedMarkdownScanEpoch:
                 or type(state["validation"]) is not int or state["validation"] < 0
                 or type(state["complete"]) is not bool):
             raise ConnectorContractError("invalid saved markdown epoch")
+        # Traversal evidence keeps exact filesystem spelling. NFC belongs to
+        # logical item identity, not the paths used to reopen files after restart.
         for name in (*state["directories"], *state["files"]):
-            if type(name) is not str or (name and _normalized_relative(name) != name):
+            if type(name) is not str:
                 raise ConnectorContractError("invalid saved markdown epoch")
+            if name:
+                _normalized_relative(name)
         for entry in state["work"]:
             if (not isinstance(entry, list) or len(entry) != 2
                     or entry[0] not in {"directory", "file", "collision"}
-                    or type(entry[1]) is not str
-                    or (entry[1] and _normalized_relative(entry[1]) != entry[1])):
+                    or type(entry[1]) is not str):
                 raise ConnectorContractError("invalid saved markdown epoch")
+            if entry[1]:
+                _normalized_relative(entry[1])
         return cls(value["epoch_id"], value["binding_sha256"], dict(state))
 
 
@@ -372,8 +388,10 @@ class SavedMarkdownRootAdapter:
         """
         if not 1 <= max_entries <= 256 or not 0 < max_seconds <= 5:
             raise ConnectorContractError("invalid saved markdown scan budget")
+        # Portable JSON normalizes Unicode, which would change physical paths
+        # and directory membership. Copy custody without normalizing its spelling.
         epoch = SavedMarkdownScanEpoch.from_value(json.loads(
-            portable_canonical_json_bytes(epoch.value())))
+            json.dumps(epoch.value(), allow_nan=False)))
         state = epoch.state
         errors = cast(list[str], state["errors"])
         try:
@@ -575,6 +593,8 @@ class SavedMarkdownRootAdapter:
             return _refused(relative, "transformed_too_large")
         if len(transformed.encode("utf-8")) > self._limits.max_core_payload_bytes:
             return _refused(relative, "core_payload_too_large")
+        privacy_policy_sha256 = sha256(
+            portable_canonical_json_bytes(self._privacy.to_dict())).hexdigest()
         identity = SavedMarkdownIdentity(
             destination_identity=self._destination_identity,
             accepted_source_identity=self._accepted_source_identity,
@@ -583,6 +603,7 @@ class SavedMarkdownRootAdapter:
             transformed_sha256=sha256(transformed.encode("utf-8")).hexdigest(),
             normalization_version=SAVED_MARKDOWN_NORMALIZATION_VERSION,
             privacy_policy_version=self._privacy.policy_version,
+            privacy_policy_sha256=privacy_policy_sha256,
         )
         key = SourceRecordKey(
             connector_name=_CONNECTOR_NAME,
@@ -592,12 +613,26 @@ class SavedMarkdownRootAdapter:
             revision_id=identity.revision_id,
         )
         title = _title(transformed)
+        payload = ReferencePayload(
+            url=self._source_reference + "/" + quote(relative, safe="/"),
+            supplied_text=transformed,
+        )
+        observation = SourceRevisionObservation(
+            original_sha256=identity.original_sha256,
+            transformed_sha256=identity.transformed_sha256,
+            normalization_version=identity.normalization_version,
+            privacy_policy_version=identity.privacy_policy_version,
+            privacy_policy_sha256=privacy_policy_sha256,
+            admitted_payload_sha256=sha256(
+                portable_canonical_json_bytes(payload.to_dict())).hexdigest(),
+        )
         intake = SourceRecordIntake(
             key=key,
             url=self._source_reference + "/" + quote(relative, safe="/"),
             text=transformed,
             privacy=self._privacy,
             title=title,
+            observation=observation,
         )
         return SavedMarkdownCandidate(relative, identity, intake, None)
 
