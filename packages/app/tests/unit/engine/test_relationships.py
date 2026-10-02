@@ -26,7 +26,8 @@ from open_brain_engine.portable.v4 import (
     SOURCE_METADATA_PATH,
     manifest_v4,
 )
-from open_brain_engine.portable.v5 import PORTABLE_V5_SCHEMA_CATALOG_DIGEST, V5_SIDECAR_PATHS
+from open_brain_engine.portable.v5 import V5_SIDECAR_PATHS
+from open_brain_engine.portable.v6 import PORTABLE_V6_SCHEMA_CATALOG_DIGEST, V6_SIDECAR_PATHS
 from open_brain_engine.portable.versioned import validated_portable_snapshot
 
 from open_brain.profile import compile_single_user_local
@@ -56,7 +57,9 @@ def _write_v4_fixture(source: Path, destination: Path) -> dict[str, Any]:
     files = {
         relative: payload
         for relative, payload in snapshot.files.items()
-        if relative != "portable-manifest.json" and relative not in V5_SIDECAR_PATHS
+        if relative != "portable-manifest.json"
+        and relative not in V5_SIDECAR_PATHS
+        and relative not in V6_SIDECAR_PATHS
     }
     for relative, payload in files.items():
         target = destination / relative
@@ -169,7 +172,7 @@ def test_supersedes_cycle_self_and_export_complete_decisions(tmp_path: Path) -> 
     engine.portability.export(old_export, export_id="export_" + str(uuid4()))
     assert (
         validated_portable_snapshot(old_export).manifest["schema_catalog_digest"]
-        == PORTABLE_V5_SCHEMA_CATALOG_DIGEST
+        == PORTABLE_V6_SCHEMA_CATALOG_DIGEST
     )
     assert (
         _write_v4_fixture(old_export, tmp_path / "legacy-v4-base")["schema_catalog_digest"]
@@ -184,7 +187,7 @@ def test_supersedes_cycle_self_and_export_complete_decisions(tmp_path: Path) -> 
     export = tmp_path / "export"
     engine.portability.export(export, export_id="export_" + str(uuid4()))
     snapshot = validated_portable_snapshot(export)
-    assert snapshot.manifest["schema_catalog_digest"] == PORTABLE_V5_SCHEMA_CATALOG_DIGEST
+    assert snapshot.manifest["schema_catalog_digest"] == PORTABLE_V6_SCHEMA_CATALOG_DIGEST
     assert (
         _write_v4_fixture(export, tmp_path / "legacy-v4-relationships")[
             "schema_catalog_digest"

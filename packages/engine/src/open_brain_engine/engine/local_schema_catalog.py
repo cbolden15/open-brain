@@ -1374,6 +1374,7 @@ CREATE TABLE source_lifecycle_operations (
 CREATE TABLE managed_source_deliveries (
  delivery_id TEXT PRIMARY KEY,
  envelope_sha256 TEXT NOT NULL CHECK(length(envelope_sha256)=64),
+ envelope_bytes BLOB NOT NULL,
  source_id TEXT REFERENCES logical_sources(source_id),
  destination_brain_id TEXT NOT NULL,
  issuer_epoch INTEGER NOT NULL CHECK(issuer_epoch>0),

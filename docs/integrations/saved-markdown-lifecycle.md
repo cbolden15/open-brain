@@ -1,10 +1,20 @@
 # Saved Markdown lifecycle contract
 
-Status: checkpoint A design, October 1, 2026. This document specifies work for
-checkpoints B and C. It does not implement or enable withdrawal or sharing.
+Status: checkpoint B implementation, October 1, 2026. This document specifies
+the completed source-continuity and withdrawal contract and reserves checkpoint C
+sharing work. B does not implement or enable sharing.
 The inspected baseline is `58281d1dafad5e73265bd74b6f1bae27ba130972`, with local
 schema 10, runtime session 5, and Portable 5. Product version `0.1.0` is not a
-compatibility test. A changes this document only.
+compatibility test. Checkpoint B advances only its documented continuity formats.
+
+## Checkpoint B implementation note
+
+Schema 11, runtime session 6, and Portable 6 carry B-only continuity evidence.
+Portable 6 requires `history/sources/lifecycle-v1.json` and
+`history/sources/admission-v1.json`; Portable 5 remains frozen and cannot carry
+these fields. The owner-local `source inspect` and exact request-file `source
+withdraw` commands expose lifecycle inspection and CAS retirement. They do not
+create a sharing approval, public copy, or provider grant.
 
 ## Boundary and terminology
 

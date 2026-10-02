@@ -393,7 +393,7 @@ class CollectorController:
                     raise LiveSourceError("source_brain_mismatch")
 
     def _bind_capture_sink(self, capture_sink: _CaptureSink) -> None:
-        if not isinstance(capture_sink, EngineCaptureSink):
+        if not isinstance(capture_sink, EngineCaptureSink | EngineRevisionSink):
             return
         binding = capture_sink.brain_binding
         if not self._brain_bound and self._requested_brain_root is not None:
@@ -607,7 +607,18 @@ class CollectorController:
                 self._store.save(state)
                 return self._custody.inspect(receipt_id)
             raise
-        duplicate = bool(getattr(result, "duplicate", False))
+        if isinstance(result, CaptureCustodyReceipt):
+            return self._custody.inspect(receipt_id)
+        if isinstance(result, SourceRevisionDeliveryReceipt):
+            if not isinstance(capture_sink, EngineRevisionSink):
+                raise LiveSourceError("collector_invalid_custody_receipt")
+            if result.outcome == "operation_pending":
+                return self._custody.inspect(receipt_id)
+            if result.source_receipt is None:
+                raise LiveSourceError("collector_invalid_custody_receipt")
+            result = result.source_receipt
+        duplicate = (getattr(result, "outcome", None) == "duplicate"
+                     or bool(getattr(result, "duplicate", False)))
         capture_id = getattr(result, "capture_id", None)
         result_outcome = getattr(result, "outcome", None)
         self._custody.outcome(
@@ -899,7 +910,8 @@ class CollectorController:
                     duplicates += int(prior["outcome"] in {"captured", "duplicate"})
                     continue
                 if (
-                    committed.get(delivery_id) == revision_identity
+                    not isinstance(capture_sink, EngineRevisionSink)
+                    and committed.get(delivery_id) == revision_identity
                     and committed_digests.get(delivery_id) == digest
                 ):
                     duplicates += 1
@@ -945,8 +957,21 @@ class CollectorController:
                 # boundary returns a canonical receipt.
                 if isinstance(result, CaptureCustodyReceipt):
                     continue
+                if isinstance(result, SourceRevisionDeliveryReceipt):
+                    if not isinstance(capture_sink, EngineRevisionSink):
+                        raise LiveSourceError("collector_invalid_custody_receipt")
+                    if result.outcome == "operation_pending":
+                        continue
+                    source_receipt = result.source_receipt
+                    if source_receipt is None:
+                        raise LiveSourceError("collector_invalid_custody_receipt")
+                    terminal_hook = getattr(runtime, "record_terminal", None)
+                    if callable(terminal_hook):
+                        terminal_hook(intake, result)
+                    result = source_receipt
                 result_outcome = getattr(result, "outcome", None)
-                duplicate = bool(getattr(result, "duplicate", False))
+                duplicate = (result_outcome == "duplicate"
+                             or bool(getattr(result, "duplicate", False)))
                 capture_id = getattr(result, "capture_id", None)
                 outcome = (
                     "history_only"
@@ -1093,6 +1118,9 @@ class CollectorController:
             latest_status = latest_entry["status"]
             latest_entry["next_run_epoch"] = now + cast(int, latest_entry["interval_seconds"])
             self._store.save(latest_state)
+        page_hook = getattr(runtime, "acknowledge_page", None)
+        if callable(page_hook):
+            page_hook()
         self._drain_cleanup(source_id)
         return CollectorCommandResult(
             source_id=source_id,
@@ -1248,24 +1276,91 @@ class EngineCaptureSink:
 class EngineRevisionSink:
     """Saved-Markdown-only bridge to the engine's narrow revision capability."""
 
-    def __init__(self, sink: PublicJobRevisionSink, capture_sink: PublicJobCaptureSink) -> None:
-        if type(sink) is not PublicJobRevisionSink or type(capture_sink) is not PublicJobCaptureSink:
+    def __init__(
+        self,
+        sink: PublicJobRevisionSink | Callable[[SourceRevisionBinding], PublicJobRevisionSink],
+        capture_sink: PublicJobCaptureSink,
+        *, store: PrivateJsonStore,
+    ) -> None:
+        if ((type(sink) is not PublicJobRevisionSink and not callable(sink))
+                or type(capture_sink) is not PublicJobCaptureSink):
             raise ConnectorContractError("invalid collector capture")
         self._sink = sink
         self._capture_sink = capture_sink
+        self._store = store
+
+    @property
+    def brain_binding(self) -> str:
+        binding = self._capture_sink.brain_fingerprint
+        if binding is None:
+            raise LiveSourceError("source_brain_unavailable")
+        return binding
 
     def submit(self, intake: SourceRecordIntake) -> SourceRevisionDeliveryReceipt:
-        if type(intake) is not SourceRecordIntake:
+        if type(intake) is not SourceRecordIntake or intake.key.connector_name != "saved_markdown":
             raise ConnectorContractError("invalid collector capture")
         identity = self._capture_sink.brain_identity
         fingerprint = self._capture_sink.brain_fingerprint
         if identity is None or fingerprint is None:
             raise LiveSourceError("source_brain_unavailable")
-        head = self._sink.inspect_head()
+        namespace = {
+            "connector_name": intake.key.connector_name,
+            "connection_id": intake.key.connection_id,
+            "resource_id": intake.key.resource_id,
+            "external_id": intake.key.external_id,
+        }
+        binding = SourceRevisionBinding(
+            destination_brain_id=identity[0], issuer_epoch=identity[1],
+            root_fingerprint=fingerprint, accepted_source_id=intake.key.connection_id,
+            namespace=namespace,
+        )
+        sink = self._sink(binding) if callable(self._sink) else self._sink
+        name = "saved-revision-" + hashlib.sha256(bounded_json(namespace, 4096)).hexdigest() + ".json"
+        with self._store.lock(name):
+            return self._submit_retained(intake, sink, binding, name)
+
+    def _submit_retained(
+        self, intake: SourceRecordIntake, sink: PublicJobRevisionSink,
+        binding: SourceRevisionBinding, name: str,
+    ) -> SourceRevisionDeliveryReceipt:
+        saved = self._store.read(name)
+        if saved is not None and not isinstance(saved, dict):
+            raise LiveSourceError("collector_invalid_custody")
+        retained = cast(dict[str, object] | None, saved)
+        if retained is not None and retained.get("terminal") is None:
+            if retained.get("intake_digest") != intake_digest(intake):
+                raise LiveSourceError("collector_custody_stale")
+            envelope = cast(dict[str, object], retained["envelope"])
+            raw_submission = cast(dict[str, object], envelope["submission"])
+            predecessor_key = cast(str | None, cast(dict[str, object], raw_submission["ordering"]).get("revision_key"))
+            expected_head = cast(str | None, raw_submission["expected_head"])
+            control_epoch = cast(int, raw_submission["expected_control_epoch"])
+            lifecycle_version = cast(int, envelope["expected_lifecycle_version"])
+        else:
+            head = sink.inspect_head()
+            if retained is not None and retained.get("intake_digest") == intake_digest(intake):
+                terminal = cast(dict[str, object], retained["terminal"])
+                if (terminal.get("capture_id") == head.capture_id and head.lifecycle == "active"
+                        and terminal.get("control_epoch") == head.control_epoch):
+                    envelope = cast(dict[str, object], retained["envelope"])
+                    from open_brain_engine.engine import SourceRevisionReceipt
+
+                    return SourceRevisionDeliveryReceipt(
+                        cast(str, envelope["delivery_id"]), cast(str, retained["envelope_sha256"]),
+                        binding.destination_brain_id, binding.issuer_epoch,
+                        SourceRevisionReceipt(head.source_id, head.capture_id, "duplicate", head.control_epoch),
+                        "duplicate",
+                    )
+            predecessor_key, expected_head = head.revision_key, head.capture_id
+            control_epoch, lifecycle_version = head.control_epoch, head.lifecycle_version
+        revision_key = hashlib.sha256(bounded_json({
+            "version": intake.key.revision_identity(), "predecessor": predecessor_key,
+            "namespace": dict(binding.namespace),
+        }, 8192)).hexdigest()
         capture = CaptureSubmission.for_public_job(
             context=self._capture_sink.context,
             payload=intake.payload(),
-            delivery_id=intake.key.delivery_id(),
+            delivery_id="saved-capture." + revision_key,
             source_origin="third_party",
             source_reference=intake.source_reference,
             provenance=intake.provenance(),
@@ -1273,41 +1368,66 @@ class EngineRevisionSink:
             intent="reference",
             title=intake.title,
         )
-        namespace = {
-            "connector_name": intake.key.connector_name,
-            "connection_id": intake.key.connection_id,
-            "resource_id": intake.key.resource_id,
-            "external_id": intake.key.external_id,
-        }
-        predecessor_key = head.revision_key
         ordering: dict[str, object] = {"kind": "unordered"}
-        if head.capture_id is not None and predecessor_key is not None:
+        if expected_head is not None and predecessor_key is not None:
             ordering = {"kind": "predecessor", "revision_key": predecessor_key}
-        revision_key = hashlib.sha256(
-            bounded_json(
-                {"version": intake.key.revision_identity(), "predecessor": predecessor_key}, 4096
-            )
-        ).hexdigest()
         submission = SourceRevisionSubmission(
-            capture=capture, namespace=namespace, revision_key=revision_key,
-            canonical_sha256=capture.request_sha256(), expected_head=head.capture_id,
-            ordering=ordering, expected_control_epoch=head.control_epoch,
-        )
-        binding = SourceRevisionBinding(
-            destination_brain_id=identity[0], issuer_epoch=identity[1],
-            root_fingerprint=fingerprint, accepted_source_id=intake.key.connection_id,
-            namespace=namespace,
+            capture=capture, namespace=binding.namespace, revision_key=revision_key,
+            canonical_sha256=capture.request_sha256(), expected_head=expected_head,
+            ordering=ordering, expected_control_epoch=control_epoch,
         )
         delivery_id = "saved-revision." + hashlib.sha256(
             bounded_json(
-                {"revision": revision_key, "request": capture.request_sha256(), "head": head.capture_id,
-                 "destination": list(identity)}, 8192
+                {"revision": revision_key, "request": capture.request_sha256(), "head": expected_head,
+                 "destination": [binding.destination_brain_id, binding.issuer_epoch]}, 8192
             )
         ).hexdigest()
-        return self._sink.submit(SourceRevisionDelivery(
+        delivery = SourceRevisionDelivery(
             binding=binding, submission=submission,
-            expected_lifecycle_version=head.lifecycle_version, delivery_id=delivery_id,
-        ))
+            expected_lifecycle_version=lifecycle_version, delivery_id=delivery_id,
+        )
+        envelope_value = json.loads(delivery.custody_bytes())
+        if retained is not None and retained.get("terminal") is None:
+            if (retained["envelope"] != envelope_value
+                    or retained["envelope_sha256"] != delivery.envelope_sha256):
+                raise LiveSourceError("collector_custody_stale")
+        else:
+            retained = {"intake_digest": intake_digest(intake), "envelope": envelope_value,
+                        "envelope_sha256": delivery.envelope_sha256, "terminal": None}
+            pending_bytes = len(delivery.custody_bytes())
+            pending_count = 1
+            for pending_name in self._store.names("saved-revision-"):
+                if pending_name == name:
+                    continue
+                pending = self._store.read(pending_name)
+                if isinstance(pending, dict) and pending.get("terminal") is None:
+                    pending_count += 1
+                    pending_bytes += len(bounded_json(pending, 4_194_304))
+            if pending_count > 256 or pending_bytes > 2_097_152:
+                raise LiveSourceError("collector_custody_full")
+            self._store.write(name, retained)
+        result = sink.submit(delivery)
+        if (result.delivery_id != delivery.delivery_id
+                or result.envelope_sha256 != delivery.envelope_sha256
+                or result.destination_brain_id != binding.destination_brain_id
+                or result.issuer_epoch != binding.issuer_epoch):
+            raise LiveSourceError("collector_invalid_custody_receipt")
+        receipt = result.source_receipt
+        if result.outcome == "operation_pending":
+            if receipt is not None:
+                raise LiveSourceError("collector_invalid_custody_receipt")
+            return result
+        if (receipt is None or receipt.outcome != result.outcome
+                or receipt.outcome not in {"captured", "duplicate", "history_only", "quarantined"}
+                or receipt.control_epoch != control_epoch
+                or receipt.source_id is None or receipt.capture_id is None):
+            raise LiveSourceError("collector_invalid_custody_receipt")
+        if receipt.outcome == "quarantined":
+            raise T03Error("source_revision_conflict")
+        retained["terminal"] = asdict(receipt)
+        retained["envelope"] = {"delivery_id": delivery.delivery_id}
+        self._store.write(name, retained)
+        return result
 
 
 def _result(

@@ -256,7 +256,10 @@ class PublicJobRevisionSink:
                 raise T03Error("revision_changed")
             existing = connection.execute("SELECT * FROM managed_source_deliveries WHERE delivery_id=?", (delivery.delivery_id,)).fetchone()
             if existing is not None:
-                if existing["envelope_sha256"] != delivery.envelope_sha256:
+                if (
+                    existing["envelope_sha256"] != delivery.envelope_sha256
+                    or existing["envelope_bytes"] != delivery.custody_bytes()
+                ):
                     raise T03Error("invalid_arguments")
                 if existing["receipt_json"] is not None:
                     retained = json.loads(existing["receipt_json"])
@@ -268,11 +271,21 @@ class PublicJobRevisionSink:
                     )
             else:
                 connection.execute(
-                    "INSERT INTO managed_source_deliveries VALUES(?,?,?,?,?,?,?,NULL)",
-                    (delivery.delivery_id, delivery.envelope_sha256, None,
-                     self._binding.destination_brain_id, self._binding.issuer_epoch,
-                     delivery.submission.expected_head, delivery.expected_lifecycle_version,
-                     "revision-pending:" + delivery.delivery_id),
+                    "INSERT INTO managed_source_deliveries("
+                    "delivery_id,envelope_sha256,envelope_bytes,source_id,destination_brain_id,"
+                    "issuer_epoch,expected_head,expected_lifecycle_version,source_delivery_id,"
+                    "receipt_json) VALUES(?,?,?,?,?,?,?,?,?,NULL)",
+                    (
+                        delivery.delivery_id,
+                        delivery.envelope_sha256,
+                        delivery.custody_bytes(),
+                        None,
+                        self._binding.destination_brain_id,
+                        self._binding.issuer_epoch,
+                        delivery.submission.expected_head,
+                        delivery.expected_lifecycle_version,
+                        delivery.submission.capture.delivery_id,
+                    ),
                 )
         try:
             receipt = self._engine.sources.submit_revision(delivery.submission)

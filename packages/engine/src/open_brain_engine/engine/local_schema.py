@@ -8,7 +8,7 @@ from collections.abc import Callable
 from contextlib import suppress
 from dataclasses import dataclass
 from datetime import datetime
-from functools import cache, lru_cache, partial
+from functools import lru_cache, partial
 from typing import TYPE_CHECKING
 
 from open_brain_engine.core.access_contracts import derive_brain_id
@@ -88,7 +88,6 @@ def _shape(connection: sqlite3.Connection) -> tuple[tuple[str, str, str], ...]:
     )
 
 
-@cache
 def _expected_shape(era: int, nullable: bool, ledger: bool) -> tuple[tuple[str, str, str], ...]:
     connection = sqlite3.connect(":memory:")
     try:
@@ -126,7 +125,7 @@ def _expected_shape(era: int, nullable: bool, ledger: bool) -> tuple[tuple[str, 
         if era >= 12:
             for statement in INGESTION_JOURNAL_SCHEMA:
                 connection.execute(statement)
-        if era >= 13:
+        if era >= 13 and len(LOCAL_MIGRATIONS) >= 11:
             for statement in LOCAL_MIGRATIONS[10].statements:
                 connection.execute(statement)
         if ledger:

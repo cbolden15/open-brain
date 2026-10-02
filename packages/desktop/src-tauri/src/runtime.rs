@@ -11,8 +11,8 @@ use std::time::Duration;
 use tauri::{AppHandle, Manager, State, path::BaseDirectory};
 use uuid::Uuid;
 
-const SUPPORTED_STATE_SCHEMA: u64 = 10;
-const SUPPORTED_RUNTIME_SESSION: u64 = 5;
+const SUPPORTED_STATE_SCHEMA: u64 = 11;
+const SUPPORTED_RUNTIME_SESSION: u64 = 6;
 const BASE_OPERATIONS: &[&str] = &[
     "system.status",
     "capture.create",

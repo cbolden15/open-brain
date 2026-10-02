@@ -693,6 +693,10 @@ def serialize_portable_v5_state(
         "issuer_migration": issuer,
         "effective_privacy": privacy,
     }
+    if connection.execute("PRAGMA user_version").fetchone()[0] >= 11:
+        from .portable_v6_authority import source_authority_metadata
+
+        semantic_state["source_authority"] = source_authority_metadata(connection)
     digest = sha256(portable_canonical_json_bytes(semantic_state)).hexdigest()
     return PortableV5StateEvidence(
         sidecars=MappingProxyType(sidecars),

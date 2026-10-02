@@ -7,7 +7,14 @@ from uuid import uuid4
 
 import pytest
 from open_brain_engine.core.ids import portable_canonical_json_bytes
-from open_brain_engine.engine import ReferencePayload, TextPayload, local_schema, open_local_engine
+from open_brain_engine.engine import (
+    ReferencePayload,
+    SourceInspectRequest,
+    SourceWithdrawRequest,
+    TextPayload,
+    local_schema,
+    open_local_engine,
+)
 from open_brain_engine.engine.local import BrainEngine
 from open_brain_engine.engine.local_schema import open_local_database_read_only
 from open_brain_engine.engine.local_schema_catalog import LOCAL_MIGRATIONS
@@ -20,13 +27,14 @@ from open_brain_engine.engine.t03_contracts import (
 )
 from open_brain_engine.portable.v4 import SOURCE_METADATA_PATH, manifest_v4
 from open_brain_engine.portable.v5 import V5_SIDECAR_PATHS
+from open_brain_engine.portable.v6 import V6_SIDECAR_PATHS
 from open_brain_engine.portable.versioned import validated_portable_snapshot
 
 from open_brain.profile import compile_single_user_local
 from packages.app.tests.unit.engine.test_foundation_contracts import _public_submission
 
 
-def test_source_route_cas_preserves_capture_and_exports_v5(tmp_path: Path) -> None:
+def test_source_route_cas_preserves_capture_and_exports_v6(tmp_path: Path) -> None:
     profile = compile_single_user_local(tmp_path / "brain")
     tasks = open_local_engine(profile)
     receipt = tasks.capture.accept(
@@ -65,17 +73,71 @@ def test_source_route_cas_preserves_capture_and_exports_v5(tmp_path: Path) -> No
     assert metadata["sources"][0]["head_capture_id"] == receipt.capture_id
     export = tmp_path / "export"
     exported = tasks.portability.export(export, export_id="export_" + str(uuid4()))
-    assert exported.schema_version == 5
+    assert exported.schema_version == 6
     snapshot = validated_portable_snapshot(export)
-    assert snapshot.manifest["schema_version"] == 5
-    assert snapshot.files.keys() >= V5_SIDECAR_PATHS
+    assert snapshot.manifest["schema_version"] == 6
+    assert snapshot.files.keys() >= V5_SIDECAR_PATHS | V6_SIDECAR_PATHS
     assert snapshot.files[path] == before
     imported = tmp_path / "imported"
     import_receipt = tasks.portability.import_clean(
         export, imported, import_id="import_" + str(uuid4())
     )
-    assert import_receipt.schema_version == 5
+    assert import_receipt.schema_version == 6
     assert imported.is_dir()
+
+
+def test_source_withdrawal_replays_and_retains_owner_evidence(tmp_path: Path) -> None:
+    profile = compile_single_user_local(tmp_path / "brain")
+    tasks = open_local_engine(profile)
+    capture = tasks.capture.accept(
+        TextPayload("retained withdrawal evidence"), delivery_id="withdraw.one"
+    )
+    with open_local_database_read_only(profile) as connection:
+        source_id = connection.execute(
+            "SELECT source_id FROM source_revisions WHERE capture_id=?", (capture.capture_id,)
+        ).fetchone()[0]
+        brain_id, issuer_epoch = connection.execute(
+            "SELECT brain_id,issuer_epoch FROM brain_identity WHERE singleton=1"
+        ).fetchone()
+    authority = EffectiveAuthority("synthetic-owner", "session", frozenset(), None, owner=True)
+    assert tasks.sources is not None
+    inspected = tasks.sources.inspect(
+        SourceInspectRequest(source_id=source_id), authority=authority
+    )
+    request = SourceWithdrawRequest(
+        operation_id="withdraw." + str(uuid4()),
+        source_id=source_id,
+        expected_head=capture.capture_id,
+        expected_lifecycle_version=inspected.lifecycle_version,
+        brain_id=brain_id,
+        issuer_epoch=issuer_epoch,
+        reason_code="complete_scan_absence",
+    )
+    retired = tasks.sources.withdraw(request, authority=authority)
+    assert tasks.sources.withdraw(request, authority=authority) == retired
+    with pytest.raises(T03Error, match="revision_changed"):
+        tasks.sources.withdraw(
+            SourceWithdrawRequest(
+                operation_id="withdraw." + str(uuid4()),
+                source_id=source_id,
+                expected_head=capture.capture_id,
+                expected_lifecycle_version=0,
+                brain_id=brain_id,
+                issuer_epoch=issuer_epoch,
+                reason_code="stale",
+            ),
+            authority=authority,
+        )
+    assert tasks.retrieval.search("withdrawal evidence") == ()
+    with open_local_database_read_only(profile) as connection:
+        revisions = connection.execute(
+            "SELECT count(*) FROM source_revisions WHERE source_id=?", (source_id,)
+        ).fetchone()[0]
+        captures = connection.execute(
+            "SELECT count(*) FROM captures WHERE capture_id=?", (capture.capture_id,)
+        ).fetchone()[0]
+    assert revisions == 1
+    assert captures == 1
 
 
 def test_standalone_v4_import_refusal_uses_valid_v4_fixture(tmp_path: Path) -> None:
@@ -87,7 +149,9 @@ def test_standalone_v4_import_refusal_uses_valid_v4_fixture(tmp_path: Path) -> N
     files = {
         relative: payload
         for relative, payload in snapshot.files.items()
-        if relative != "portable-manifest.json" and relative not in V5_SIDECAR_PATHS
+        if relative != "portable-manifest.json"
+        and relative not in V5_SIDECAR_PATHS
+        and relative not in V6_SIDECAR_PATHS
     }
     legacy = tmp_path / "legacy-v4"
     for relative, payload in files.items():
@@ -327,7 +391,7 @@ def test_schema_seven_imports_legacy_portable_without_changing_evidence(
     assert validated_portable_snapshot(destination).files == snapshot.files
     imported = open_local_engine(compile_single_user_local(destination))
     with open_local_database_read_only(imported.profile) as connection:
-        assert connection.execute("PRAGMA user_version").fetchone()[0] == 10
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 11
         assert connection.execute("SELECT count(*) FROM source_revisions").fetchone()[0] > 0
 
 
@@ -354,9 +418,9 @@ def test_schema_seven_owner_recovery_retains_current_writer_floor(tmp_path: Path
     assert moved.read_bytes() == before
     reopened = open_local_engine(engine.profile)
     with open_local_database_read_only(reopened.profile) as connection:
-        assert connection.execute("PRAGMA user_version").fetchone()[0] == 10
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 11
         assert tuple(connection.execute("SELECT * FROM runtime_compatibility").fetchone()) == (
             1,
-            5,
-            10,
+                6,
+                11,
         )

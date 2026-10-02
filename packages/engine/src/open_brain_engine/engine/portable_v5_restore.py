@@ -112,7 +112,7 @@ class V5RestoreBundle:
             decode_retained_privacy_value,
         )
 
-        if snapshot.manifest["schema_version"] != 5:
+        if snapshot.manifest["schema_version"] not in {5, 6}:
             raise ValueError("v5 restore requires a validated v5 snapshot")
         for row in json.loads(snapshot.files[EFFECTIVE_PRIVACY_PATH])["retained_privacy"]:
             value = decode_retained_privacy_value(row["privacy_json"])
@@ -205,6 +205,12 @@ class V5RestoreBundle:
                     )
                 ),
             )
+        if self.snapshot.manifest["schema_version"] == 6:
+            from open_brain_engine.portable.v6 import validate_source_authority
+
+            from .portable_v6_authority import restore_source_authority
+
+            restore_source_authority(connection, validate_source_authority(files))
         _restore_relationships(connection, files.get(RELATIONSHIP_METADATA_PATH))
         self.checkpoint("source_history_restored")
         for row in privacy["base_projections"]:
@@ -359,6 +365,14 @@ def _audit_connection(
         raise ValueError("v5 restored database reference mismatch")
     if canonical(source_metadata(connection)) != snapshot.files[SOURCE_METADATA_PATH]:
         raise ValueError("v5 restored source metadata mismatch")
+    if snapshot.manifest["schema_version"] == 6:
+        from .portable_v6_authority import source_authority_sidecars
+
+        if any(
+            snapshot.files[path] != data
+            for path, data in source_authority_sidecars(connection).items()
+        ):
+            raise ValueError("v6 restored source authority mismatch")
     relationships = relationship_metadata(connection)
     expected = snapshot.files.get(RELATIONSHIP_METADATA_PATH)
     if relationships is None and expected is not None:

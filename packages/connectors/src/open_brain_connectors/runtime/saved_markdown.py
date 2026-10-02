@@ -6,14 +6,18 @@ authority.  The host supplies all of those bindings for one run.
 
 from __future__ import annotations
 
+import json
 import os
 import re
 import stat
+import time
 import unicodedata
 from dataclasses import dataclass
 from hashlib import sha256
 from pathlib import Path
+from typing import cast
 from urllib.parse import quote, urlparse
+from uuid import uuid4
 
 from open_brain_engine.capture.redaction import has_redaction_finding
 from open_brain_engine.core.ids import portable_canonical_json_bytes
@@ -30,6 +34,9 @@ __all__ = [
     "SavedMarkdownLimits",
     "SavedMarkdownRootAdapter",
     "SavedMarkdownScan",
+    "SavedMarkdownScanEpoch",
+    "SavedMarkdownScanPage",
+    "SavedMarkdownAbsenceCandidate",
     "normalize_saved_markdown",
 ]
 
@@ -182,6 +189,77 @@ class SavedMarkdownScan:
     next_cursor: str | None = None
 
 
+@dataclass(frozen=True, slots=True)
+class SavedMarkdownScanEpoch:
+    """Private resumable traversal evidence, never engine mutation authority."""
+
+    epoch_id: str
+    binding_sha256: str
+    state: dict[str, object]
+
+    def value(self) -> dict[str, object]:
+        return {"epoch_id": self.epoch_id, "binding_sha256": self.binding_sha256,
+                "state": self.state}
+
+    @classmethod
+    def from_value(cls, value: object) -> SavedMarkdownScanEpoch:
+        if not isinstance(value, dict) or set(value) != {"epoch_id", "binding_sha256", "state"}:
+            raise ConnectorContractError("invalid saved markdown epoch")
+        if (not isinstance(value["epoch_id"], str)
+                or re.fullmatch(r"[0-9a-f]{32}", value["epoch_id"]) is None
+                or not isinstance(value["binding_sha256"], str)
+                or re.fullmatch(r"[0-9a-f]{64}", value["binding_sha256"]) is None
+                or not isinstance(value["state"], dict)):
+            raise ConnectorContractError("invalid saved markdown epoch")
+        state = value["state"]
+        if (set(state) != {"work", "directories", "files", "seen", "errors", "validation",
+                           "complete", "root", "generation"}
+                or any(not isinstance(state[key], dict) for key in ("directories", "files", "seen"))
+                or any(not isinstance(state[key], list) for key in ("work", "errors"))
+                or type(state["validation"]) is not int or state["validation"] < 0
+                or type(state["complete"]) is not bool):
+            raise ConnectorContractError("invalid saved markdown epoch")
+        for name in (*state["directories"], *state["files"]):
+            if type(name) is not str or (name and _normalized_relative(name) != name):
+                raise ConnectorContractError("invalid saved markdown epoch")
+        for entry in state["work"]:
+            if (not isinstance(entry, list) or len(entry) != 2
+                    or entry[0] not in {"directory", "file", "collision"}
+                    or type(entry[1]) is not str
+                    or (entry[1] and _normalized_relative(entry[1]) != entry[1])):
+                raise ConnectorContractError("invalid saved markdown epoch")
+        return cls(value["epoch_id"], value["binding_sha256"], dict(state))
+
+
+@dataclass(frozen=True, slots=True)
+class SavedMarkdownScanPage:
+    epoch: SavedMarkdownScanEpoch
+    candidates: tuple[SavedMarkdownCandidate, ...]
+
+    @property
+    def complete(self) -> bool:
+        return self.epoch.state["complete"] is True
+
+    @property
+    def evidence_sha256(self) -> str | None:
+        return (sha256(portable_canonical_json_bytes(self.epoch.value())).hexdigest()
+                if self.complete else None)
+
+
+@dataclass(frozen=True, slots=True)
+class SavedMarkdownAbsenceCandidate:
+    """Metadata for owner inspection. A candidate never invokes withdrawal."""
+
+    item_id: str
+    source_id: str
+    expected_head: str
+    lifecycle_version: int
+    epoch_id: str
+    evidence_sha256: str
+    destination_identity: str
+    selection_generation: str
+
+
 def normalize_saved_markdown(
     raw: bytes, *, version: str = SAVED_MARKDOWN_NORMALIZATION_VERSION
 ) -> str:
@@ -245,6 +323,172 @@ class SavedMarkdownRootAdapter:
             resource_id="destination:" + sha256(self._destination_identity.encode()).hexdigest(),
             resource_type=_RESOURCE_TYPE,
         )
+
+    @property
+    def destination_identity(self) -> str:
+        return self._destination_identity
+
+    def item_identity(self, relative: str) -> str:
+        return sha256(portable_canonical_json_bytes({
+            "domain": "saved-markdown-item.v1",
+            "accepted_source_identity": self._accepted_source_identity,
+            "destination_identity": self._destination_identity,
+            "relative_item_identity": _normalized_relative(relative),
+        })).hexdigest()
+
+    def _scan_binding(self, generation: str) -> tuple[str, list[int]]:
+        info = self._root.lstat()
+        if stat.S_ISLNK(info.st_mode) or not stat.S_ISDIR(info.st_mode):
+            raise ConnectorContractError("invalid saved markdown root")
+        root = [info.st_dev, info.st_ino]
+        digest = sha256(portable_canonical_json_bytes({
+            "root": root, "selection": {
+                    "connection_id": self.selection.connection_id,
+                    "resource_id": self.selection.resource_id,
+                },
+            "destination": self._destination_identity, "policy": self._privacy.to_dict(),
+            "normalization": SAVED_MARKDOWN_NORMALIZATION_VERSION, "generation": generation,
+            "source_reference": self._source_reference,
+        })).hexdigest()
+        return digest, root
+
+    def begin_epoch(self, *, generation: str = "initial") -> SavedMarkdownScanEpoch:
+        binding, root = self._scan_binding(generation)
+        return SavedMarkdownScanEpoch(uuid4().hex, binding, {
+            "work": [["directory", ""]], "directories": {}, "files": {}, "seen": {},
+            "errors": [], "validation": 0, "complete": False, "root": root,
+            "generation": generation,
+        })
+
+    def scan_page(
+        self, epoch: SavedMarkdownScanEpoch, *, generation: str = "initial",
+        max_entries: int = 256, max_seconds: float = 5.0,
+    ) -> SavedMarkdownScanPage:
+        """Advance a saved worklist, then verify its observed membership and file stats.
+
+        Directory snapshots have a hard aggregate quota; quota or enumeration
+        failures retain incomplete evidence. Bodies are read only as their
+        entries are visited, so continuation never re-reads early pages.
+        """
+        if not 1 <= max_entries <= 256 or not 0 < max_seconds <= 5:
+            raise ConnectorContractError("invalid saved markdown scan budget")
+        epoch = SavedMarkdownScanEpoch.from_value(json.loads(
+            portable_canonical_json_bytes(epoch.value())))
+        state = epoch.state
+        errors = cast(list[str], state["errors"])
+        try:
+            binding, _ = self._scan_binding(generation)
+        except OSError, ConnectorContractError:
+            binding = None
+        if binding != epoch.binding_sha256:
+            errors.append("binding_changed")
+            state["complete"] = False
+            return SavedMarkdownScanPage(epoch, ())
+        work = cast(list[list[str]], state["work"])
+        directories = cast(dict[str, list[object]], state["directories"])
+        files = cast(dict[str, list[int]], state["files"])
+        seen = cast(dict[str, str], state["seen"])
+        candidates: list[SavedMarkdownCandidate] = []
+        deadline = time.monotonic() + max_seconds
+        visited = 0
+        bodies = 0
+        root = self._root.resolve(strict=True)
+        while work and visited < max_entries and time.monotonic() < deadline:
+            kind, relative = work[0]
+            if kind == "file" and bodies >= self._limits.max_deliveries:
+                break
+            work.pop(0)
+            path = root / relative
+            if relative and (relative.startswith("/") or ".." in Path(relative).parts):
+                raise ConnectorContractError("invalid saved markdown epoch")
+            visited += 1
+            if kind == "directory":
+                try:
+                    if path.is_symlink() or not path.resolve(strict=True).is_relative_to(root):
+                        raise OSError
+                    names: list[list[str]] = []
+                    with os.scandir(path) as entries:
+                        for entry in entries:
+                            if _excluded_file(entry.name):
+                                continue
+                            if len(names) + len(files) + len(work) >= 4096:
+                                raise OverflowError
+                            child_kind = ("directory" if entry.is_dir(follow_symlinks=False)
+                                          else "file")
+                            names.append([child_kind, entry.name])
+                    names.sort(key=lambda entry: (entry[0], entry[1]))
+                    directories[relative] = [list(_fingerprint(path.lstat())), names]
+                    normalized_names = [_normalized_relative(name) for _, name in names]
+                    duplicates = {name for name in normalized_names
+                                  if normalized_names.count(name) > 1}
+                    if duplicates:
+                        errors.append("identity_collision")
+                    work[0:0] = [["collision" if _normalized_relative(name) in duplicates
+                                  else child_kind, str(Path(relative) / name)]
+                                 for child_kind, name in names]
+                except OSError, OverflowError:
+                    errors.append("enumeration_failed")
+                continue
+            if kind not in {"file", "collision"}:
+                raise ConnectorContractError("invalid saved markdown epoch")
+            bodies += 1
+            item_id = self.item_identity(relative)
+            try:
+                before = list(_fingerprint(path.lstat()))
+            except OSError:
+                before = None
+            if kind == "collision" or item_id in seen:
+                errors.append("identity_collision")
+                candidate = _refused(relative, "identity_collision")
+            elif path.suffix.lower() != ".md":
+                candidate = _refused(relative, "unsupported_format")
+            else:
+                candidate = self._candidate(root, path, relative)
+            seen[item_id] = candidate.refusal_code or "accepted"
+            candidates.append(candidate)
+            try:
+                after = list(_fingerprint(path.lstat()))
+                if before != after:
+                    errors.append("unstable_read")
+                files[relative] = after
+            except OSError:
+                errors.append("unstable_read")
+            if candidate.refusal_code in {"unstable_read", "root_escape"}:
+                errors.append(candidate.refusal_code)
+        # Validation is separately bounded and resumable. It compares all
+        # visited entries, including refused-but-present files.
+        if not work and not errors:
+            checks = [("directory", name) for name in sorted(directories)] + [
+                ("file", name) for name in sorted(files)]
+            index = cast(int, state["validation"])
+            while index < len(checks) and visited < max_entries and time.monotonic() < deadline:
+                kind, relative = checks[index]
+                path = root / relative
+                visited += 1
+                try:
+                    current = list(_fingerprint(path.lstat()))
+                    if kind == "directory":
+                        recorded = directories[relative]
+                        names = []
+                        with os.scandir(path) as entries:
+                            for entry in entries:
+                                if not _excluded_file(entry.name):
+                                    names.append(["directory" if entry.is_dir(follow_symlinks=False)
+                                                  else "file", entry.name])
+                                    if len(names) > 4096:
+                                        raise OverflowError
+                        names.sort(key=lambda entry: (entry[0], entry[1]))
+                        stable = current == recorded[0] and names == recorded[1]
+                    else:
+                        stable = current == files[relative]
+                    if not stable:
+                        errors.append("observation_changed")
+                except OSError, OverflowError:
+                    errors.append("validation_failed")
+                index += 1
+            state["validation"] = index
+            state["complete"] = index == len(checks) and not errors
+        return SavedMarkdownScanPage(epoch, tuple(candidates))
 
     def dry_run(self, cursor: str | None = None) -> SavedMarkdownScan:
         """Return one bounded inventory page.

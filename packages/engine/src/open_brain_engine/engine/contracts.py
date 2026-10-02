@@ -753,7 +753,7 @@ class PortabilityReceipt:
         ):
             if type(value) is not int or value < 0:
                 raise ValueError("invalid portability receipt count")
-        if self.schema_version not in {1, 2, 3, 4, 5}:
+        if self.schema_version not in {1, 2, 3, 4, 5, 6}:
             raise ValueError("invalid portability receipt schema version")
         if self.index_generation is not None and (
             type(self.index_generation) is not int or self.index_generation < 1
