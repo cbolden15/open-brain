@@ -20,7 +20,11 @@ from .source_observation import SourceRevisionObservation
 from .t03_contracts import T03Error, _freeze, _thaw
 
 if TYPE_CHECKING:
-    from .historical_checkpoint import HistoricalBaselineDuplicate, HistoricalBaselineTemplate
+    from .historical_checkpoint import (
+        CurrentRevisionCheckpoint,
+        HistoricalBaselineDuplicate,
+        HistoricalBaselineTemplate,
+    )
     from .local import BrainEngine
 
 
@@ -329,6 +333,49 @@ class PublicJobRevisionSink:
         and retains sender bodies. No nested per-item writer leases are needed.
         """
         from .historical_checkpoint import HistoricalBaselineDuplicate
+
+        if type(entries) is not tuple or any(
+            type(entry) is not tuple or len(entry) != 2
+            or type(entry[0]) is not SourceRevisionObservedDelivery
+            or type(entry[1]) is not HistoricalBaselineDuplicate
+            for entry in entries
+        ):
+            raise T03Error("invalid_arguments")
+        with self.revision_page_checkpoint(entries, selection_generation=selection_generation):
+            yield
+
+    def lookup_checkpoint(
+        self, delivery: SourceRevisionDelivery, receipt: SourceRevisionDeliveryReceipt,
+        *, selection_generation: str,
+    ) -> CurrentRevisionCheckpoint:
+        from open_brain_engine.storage.filesystem import StorageError
+
+        from .historical_checkpoint import lookup_revision_checkpoint
+        from .sharing_contracts import SharingError
+
+        if (type(delivery) not in {SourceRevisionDelivery, SourceRevisionObservedDelivery}
+                or delivery.binding != self._binding
+                or type(receipt) is not SourceRevisionDeliveryReceipt):
+            raise T03Error("invalid_arguments")
+        connection = self._engine._store.connect()
+        try:
+            return lookup_revision_checkpoint(
+                connection, self._engine.profile, delivery, receipt,
+                selection_generation=selection_generation,
+            )
+        except SharingError, StorageError:
+            raise T03Error("revision_changed") from None
+        finally:
+            connection.close()
+
+    @contextmanager
+    def revision_page_checkpoint(
+        self,
+        entries: tuple[tuple[SourceRevisionDelivery, HistoricalBaselineDuplicate | CurrentRevisionCheckpoint], ...],
+        *, selection_generation: str,
+    ) -> Iterator[None]:
+        """Fence every mixed-page witness through caller checkpoint persistence."""
+        from .historical_checkpoint import CurrentRevisionCheckpoint, HistoricalBaselineDuplicate
         from .sharing_contracts import SharingError
 
         if type(entries) is not tuple or not 1 <= len(entries) <= 25:
@@ -339,8 +386,10 @@ class PublicJobRevisionSink:
                 raise T03Error("invalid_arguments")
             delivery, result = entry
             if (
-                type(delivery) is not SourceRevisionObservedDelivery
-                or type(result) is not HistoricalBaselineDuplicate
+                type(delivery) not in {SourceRevisionDelivery, SourceRevisionObservedDelivery}
+                or type(result) not in {HistoricalBaselineDuplicate, CurrentRevisionCheckpoint}
+                or (type(result) is HistoricalBaselineDuplicate
+                    and type(delivery) is not SourceRevisionObservedDelivery)
                 or delivery.binding.destination_brain_id != self._binding.destination_brain_id
                 or delivery.binding.issuer_epoch != self._binding.issuer_epoch
                 or delivery.binding.root_fingerprint != self._binding.root_fingerprint
@@ -357,11 +406,19 @@ class PublicJobRevisionSink:
             seen.add(namespace)
         try:
             with self._engine._writer_lease.acquire_shared_writer():
+                current: HistoricalBaselineDuplicate | CurrentRevisionCheckpoint | None
                 for delivery, result in entries:
                     sink = PublicJobRevisionSink(self._engine, delivery.binding)
-                    current = sink.lookup_baseline(
-                        delivery, selection_generation=selection_generation
-                    )
+                    if isinstance(result, HistoricalBaselineDuplicate):
+                        if not isinstance(delivery, SourceRevisionObservedDelivery):
+                            raise T03Error("invalid_arguments")
+                        current = sink.lookup_baseline(
+                            delivery, selection_generation=selection_generation
+                        )
+                    else:
+                        current = sink.lookup_checkpoint(
+                            delivery, result.receipt, selection_generation=selection_generation
+                        )
                     if current is None or current != result:
                         raise T03Error("revision_changed")
                 yield
