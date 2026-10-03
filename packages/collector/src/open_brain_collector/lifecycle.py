@@ -31,6 +31,7 @@ from open_brain_engine.engine import (
     SourceRevisionSubmission,
     verify_capture_custody_receipt,
 )
+from open_brain_engine.engine.historical_checkpoint import HistoricalBaselineDuplicate
 from open_brain_engine.engine.source_intake import SourceRevisionObservedDelivery
 from open_brain_engine.engine.t03_contracts import T03Error
 
@@ -1274,6 +1275,14 @@ class EngineCaptureSink:
         return receipt
 
 
+@dataclass(frozen=True, slots=True)
+class SavedMarkdownBaseline:
+    """Exact observed intake and historical witness, not protected custody."""
+
+    delivery: SourceRevisionObservedDelivery
+    result: HistoricalBaselineDuplicate
+
+
 class EngineRevisionSink:
     """Saved-Markdown-only bridge to the engine's narrow revision capability."""
 
@@ -1297,7 +1306,9 @@ class EngineRevisionSink:
             raise LiveSourceError("source_brain_unavailable")
         return binding
 
-    def submit(self, intake: SourceRecordIntake) -> SourceRevisionDeliveryReceipt:
+    def _revision_capability(
+        self, intake: SourceRecordIntake,
+    ) -> tuple[SourceRevisionBinding, PublicJobRevisionSink]:
         if type(intake) is not SourceRecordIntake or intake.key.connector_name != "saved_markdown":
             raise ConnectorContractError("invalid collector capture")
         identity = self._capture_sink.brain_identity
@@ -1316,6 +1327,49 @@ class EngineRevisionSink:
             namespace=namespace,
         )
         sink = self._sink(binding) if callable(self._sink) else self._sink
+        return binding, sink
+
+    def lookup_baseline(
+        self, intake: SourceRecordIntake, *, selection_generation: str,
+    ) -> SavedMarkdownBaseline | None:
+        """Reconstruct from incoming content, never retrieve historical owner text."""
+        binding, sink = self._revision_capability(intake)
+        if intake.observation is None:
+            return None
+        template = sink.baseline_template()
+        if template is None:
+            return None
+        capture = CaptureSubmission.for_public_job(
+            context=self._capture_sink.context,
+            payload=intake.payload(),
+            delivery_id=template.capture_delivery_id,
+            source_origin="third_party",
+            source_reference=intake.source_reference,
+            provenance=intake.provenance(),
+            privacy=intake.privacy,
+            intent="reference",
+            title=intake.title,
+        )
+        delivery = SourceRevisionObservedDelivery(
+            binding=binding,
+            submission=SourceRevisionSubmission(
+                capture=capture, namespace=binding.namespace,
+                revision_key=template.revision_key, canonical_sha256=capture.request_sha256(),
+                expected_head=template.expected_head, ordering=template.ordering,
+                expected_control_epoch=template.expected_control_epoch,
+            ),
+            expected_lifecycle_version=template.expected_lifecycle_version,
+            delivery_id=template.delivery_id,
+            observation=intake.observation,
+        )
+        if delivery.envelope_sha256 != template.observed_envelope_sha256:
+            return None
+        result = sink.lookup_baseline(delivery, selection_generation=selection_generation)
+        return None if result is None else SavedMarkdownBaseline(delivery, result)
+
+    def submit(self, intake: SourceRecordIntake) -> SourceRevisionDeliveryReceipt:
+        binding, sink = self._revision_capability(intake)
+        namespace = dict(binding.namespace)
         name = "saved-revision-" + hashlib.sha256(bounded_json(namespace, 4096)).hexdigest() + ".json"
         with self._store.lock(name):
             return self._submit_retained(intake, sink, binding, name)

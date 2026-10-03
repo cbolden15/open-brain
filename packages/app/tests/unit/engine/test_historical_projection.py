@@ -33,10 +33,13 @@ from packages.app.tests.unit.engine.test_historical_receipts import _value
 
 
 def _claim_transition(
-    engine: BrainEngine, *, privacy_tier: PrivacyTier | None = None
+    engine: BrainEngine,
+    *,
+    privacy_tier: PrivacyTier | None = None,
+    retained_text: str = "synthetic retained",
 ) -> HistoricalTransition:
     receipt = engine.capture.accept(
-        TextPayload("synthetic retained"),
+        TextPayload(retained_text),
         delivery_id="owner.original",
         privacy_tier=privacy_tier,
     )

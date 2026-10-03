@@ -36,14 +36,17 @@ from packages.app.tests.unit.engine.test_paging import scoped_authority
 
 
 def _baseline(
-    engine: BrainEngine, *, privacy_tier: PrivacyTier | None = None
+    engine: BrainEngine,
+    *,
+    privacy_tier: PrivacyTier | None = None,
+    retained_text: str = "synthetic retained",
 ) -> HistoricalBaselineRequest:
-    claim = _claim_transition(engine, privacy_tier=privacy_tier).request
+    claim = _claim_transition(
+        engine, privacy_tier=privacy_tier, retained_text=retained_text
+    ).request
     assert isinstance(claim, HistoricalClaimRequest)
     capture = _public_submission(engine.tasks)
-    capture = replace(
-        capture, payload=ReferencePayload(capture.source_reference, "synthetic retained")
-    )
+    capture = replace(capture, payload=ReferencePayload(capture.source_reference, retained_text))
     namespace = {
         "connector_name": "synthetic",
         "connection_id": "one",
@@ -71,7 +74,7 @@ def _baseline(
         delivery_id="synthetic.baseline.observed",
         observation=SourceRevisionObservation(
             original_sha256=sha256(b"synthetic upstream raw file").hexdigest(),
-            transformed_sha256=sha256(b"synthetic retained").hexdigest(),
+            transformed_sha256=sha256(retained_text.encode()).hexdigest(),
             normalization_version="synthetic.text.v1",
             privacy_policy_version=capture.privacy.policy_version,
             privacy_policy_sha256=sha256(
