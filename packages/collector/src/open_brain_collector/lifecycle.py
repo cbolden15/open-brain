@@ -1126,6 +1126,9 @@ class CollectorController:
                     next_cursor=cast(str | None, latest_entry.get("next_cursor")),
                 )
             with ExitStack() as checkpoint:
+                page_validator = getattr(runtime, "validate_page_checkpoint", None)
+                if callable(page_validator):
+                    page_validator()
                 if isinstance(capture_sink, EngineRevisionSink):
                     items = tuple(
                         (self._custody.intake(receipt_id), cast(str, self._custody.receipt(receipt_id)["capture_id"]))

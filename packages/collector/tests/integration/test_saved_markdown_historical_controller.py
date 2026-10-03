@@ -10,12 +10,117 @@ from open_brain_engine.engine.source_lifecycle_contracts import SourceWithdrawRe
 from open_brain_engine.engine.t03_contracts import EffectiveAuthority, T03Error
 from open_brain_engine.storage.locks import FileLease, LockBusyError
 
-from open_brain_collector.lifecycle import CollectorController, CollectorStateStore
+from open_brain_collector.lifecycle import (
+    CollectorController,
+    CollectorStateStore,
+)
 from open_brain_collector.saved_markdown import SavedMarkdownCollectorRuntime
+from open_brain_connectors.runtime.live_common import LiveSourceError
 from open_brain_connectors.runtime.live_storage import PrivateJsonStore
 from open_brain_connectors.runtime.source_intake import SourceRecordIntake
-from packages.collector.tests.integration.test_saved_markdown import _adapter, _intake
-from packages.collector.tests.integration.test_saved_markdown_historical import _adopt_saved
+from packages.collector.tests.integration.test_saved_markdown import (
+    _adapter,
+    _intake,
+    _revision_sink,
+)
+from packages.collector.tests.integration.test_saved_markdown_historical import (
+    _adopt_saved,
+    _adopt_saved_intake,
+)
+
+
+def test_incomplete_saved_scan_cannot_record_success_or_acknowledge_page(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    engine, sink, _, _ = _adopt_saved(tmp_path)
+    adapter = _adapter(tmp_path / "selected")
+    runtime = SavedMarkdownCollectorRuntime(adapter, store=PrivateJsonStore(tmp_path / "scan"))
+    begin = adapter.begin_epoch
+
+    def change_root_after_begin(*, generation: str) -> object:
+        epoch = begin(generation=generation)
+        (tmp_path / "selected").rename(tmp_path / "selected.retained")
+        return epoch
+
+    monkeypatch.setattr(adapter, "begin_epoch", change_root_after_begin)
+    store = CollectorStateStore(tmp_path / "state.json")
+    controller = CollectorController(store, clock=lambda: 100, brain_root=engine.profile.root)
+    controller.enable(source_id="synthetic", selection=adapter.selection, interval_seconds=60)
+    with pytest.raises(LiveSourceError, match="collector_scan_incomplete"):
+        controller.sync_due(source_id="synthetic", runtime=runtime, capture_sink=sink)
+    entry = cast(dict[str, object], cast(dict[str, object], store.load()["sources"])["synthetic"])
+    assert entry["last_success_epoch"] is None
+    assert entry["active_run"] is not None
+    assert runtime._load()["page"] is not None
+    assert runtime.absence_candidates == ()
+    # Restoring the filesystem does not turn the persisted failed inventory
+    # into a valid checkpoint. A restarted controller must retain the refusal.
+    (tmp_path / "selected.retained").rename(tmp_path / "selected")
+    runtime = SavedMarkdownCollectorRuntime(adapter, store=PrivateJsonStore(tmp_path / "scan"))
+    restarted = CollectorController(
+        CollectorStateStore(tmp_path / "state.json"),
+        clock=lambda: 160,
+        brain_root=engine.profile.root,
+    )
+    with pytest.raises(LiveSourceError, match="collector_scan_incomplete"):
+        restarted.sync_due(source_id="synthetic", runtime=runtime, capture_sink=sink)
+    entry = cast(dict[str, object], cast(dict[str, object], store.load()["sources"])["synthetic"])
+    assert entry["last_success_epoch"] is None
+    assert entry["active_run"] is not None
+    assert runtime._load()["page"] is not None
+    assert runtime.absence_candidates == ()
+
+
+def test_two_mixed_pages_continue_across_restart_without_historical_recapture(
+    tmp_path: Path,
+) -> None:
+    engine, sink, _, _ = _adopt_saved(tmp_path)
+    selected = tmp_path / "selected"
+    for index in range(1, 32):
+        (selected / f"item-{index:03}.md").write_text(
+            f"# Synthetic saved item {index}\nbody {index}\n\n# Why Saved\nprivate {index}\n"
+        )
+    for index in range(1, 25):
+        _adopt_saved_intake(engine, sink, _intake(selected, name=f"item-{index:03}.md"), slot=index)
+    adapter = _adapter(selected)
+    now = [100]
+    store = CollectorStateStore(tmp_path / "state.json")
+    controller = CollectorController(store, clock=lambda: now[0], brain_root=engine.profile.root)
+    controller.enable(source_id="synthetic", selection=adapter.selection, interval_seconds=60)
+    runtime = SavedMarkdownCollectorRuntime(adapter, store=PrivateJsonStore(tmp_path / "scan"))
+    first = controller.sync_due(source_id="synthetic", runtime=runtime, capture_sink=sink)
+    assert (first.captured_count, first.duplicate_count) == (1, 24)
+    assert first.next_cursor is not None
+    assert controller.custody_status("synthetic")["retained_items"] == 24
+    tasks, sink = _revision_sink(tmp_path)
+    restarted = CollectorController(
+        CollectorStateStore(tmp_path / "state.json"),
+        clock=lambda: 160,
+        brain_root=tasks.profile.root,
+    )
+    runtime = SavedMarkdownCollectorRuntime(adapter, store=PrivateJsonStore(tmp_path / "scan"))
+    second = restarted.sync_due(source_id="synthetic", runtime=runtime, capture_sink=sink)
+    assert (second.captured_count, second.duplicate_count) == (6, 1)
+    assert second.next_cursor is None
+    assert restarted.custody_status("synthetic")["retained_items"] == 25
+    entry = cast(dict[str, object], cast(dict[str, object], store.load()["sources"])["synthetic"])
+    assert len(cast(dict[str, str], entry["committed_capture_ids"])) == 32
+    assert entry["active_run"] is None and entry["next_cursor"] is None
+    known = cast(dict[str, dict[str, object]], runtime._load()["known"])
+    assert len(known) == 32
+    assert runtime.absence_candidates == ()
+    with closing(engine._store.connect()) as connection:
+        assert connection.execute("SELECT count(*) FROM captures").fetchone()[0] == 32
+        assert (
+            connection.execute("SELECT count(*) FROM managed_source_deliveries").fetchone()[0] == 7
+        )
+        assert (
+            connection.execute(
+                "SELECT count(*) FROM source_revisions WHERE revision_key IS NULL"
+            ).fetchone()[0]
+            == 25
+        )
 
 
 def test_genuine_file_reversion_creates_new_revision_not_old_baseline(tmp_path: Path) -> None:

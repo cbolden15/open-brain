@@ -16,6 +16,7 @@ from open_brain_collector.lifecycle import (
     SavedMarkdownDelivery,
 )
 from open_brain_connectors.runtime.connectors import ConnectorContractError
+from open_brain_connectors.runtime.live_common import LiveSourceError
 from open_brain_connectors.runtime.live_storage import PrivateJsonStore
 from open_brain_connectors.runtime.saved_markdown import (
     SavedMarkdownAbsenceCandidate,
@@ -68,6 +69,16 @@ class SavedMarkdownCollectorRuntime:
         state = self._load()
         state["page"] = None
         self._save(state)
+
+    def validate_page_checkpoint(self) -> None:
+        """Refuse failed inventory, including a cached page after restart."""
+        state = self._load()
+        page = state["page"]
+        if state["epoch"] is None or not isinstance(page, dict):
+            raise LiveSourceError("collector_scan_incomplete")
+        epoch = SavedMarkdownScanEpoch.from_value(state["epoch"])
+        if epoch.state["errors"] or (not epoch.state["complete"] and page["next_cursor"] is None):
+            raise LiveSourceError("collector_scan_incomplete")
 
     def record_terminal(self, intake: object, receipt: object) -> None:
         lifecycle_version = 0

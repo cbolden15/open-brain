@@ -30,12 +30,29 @@ def _adopt_saved(
         engine.capture.public_job_sink(context),
         store=PrivateJsonStore(tmp_path / "revisions"),
     )
-    baseline = _baseline(engine, retained_text=intake.text)
+    observed = _adopt_saved_intake(engine, sink, intake)
+    return engine, sink, intake, observed
+
+
+def _adopt_saved_intake(
+    engine: BrainEngine,
+    sink: EngineRevisionSink,
+    intake: SourceRecordIntake,
+    *,
+    slot: int = 0,
+) -> SourceRevisionObservedDelivery:
+    context = _context(engine.profile)
+    baseline = _baseline(
+        engine,
+        retained_text=intake.text,
+        retained_delivery_id="owner.original" if slot == 0 else f"owner.saved.{slot}",
+    )
+    baseline = replace(baseline, expected_claim_generation=slot)
     binding, _ = sink._revision_capability(intake)
     capture = CaptureSubmission.for_public_job(
         context=context,
         payload=intake.payload(),
-        delivery_id="synthetic.saved.adopted.capture",
+        delivery_id=f"synthetic.saved.adopted.capture.{slot}",
         source_origin="third_party",
         source_reference=intake.source_reference,
         provenance=intake.provenance(),
@@ -46,12 +63,14 @@ def _adopt_saved(
     assert intake.observation is not None
     observed = replace(
         baseline.observed_delivery,
+        delivery_id=f"synthetic.saved.baseline.delivery.{slot}",
         binding=binding,
         submission=replace(
             baseline.observed_delivery.submission,
             capture=capture,
             canonical_sha256=capture.request_sha256(),
             namespace=binding.namespace,
+            revision_key=f"synthetic.saved.baseline.key.{slot}",
         ),
         observation=intake.observation,
     )
@@ -67,7 +86,7 @@ def _adopt_saved(
             admission=admission,
             validate_before_write=lambda: None,
         )
-    return engine, sink, intake, observed
+    return observed
 
 
 def test_actual_saved_adapter_reconstructs_baseline_without_new_custody(tmp_path: Path) -> None:
