@@ -40,9 +40,13 @@ def _baseline(
     *,
     privacy_tier: PrivacyTier | None = None,
     retained_text: str = "synthetic retained",
+    retained_delivery_id: str = "owner.original",
 ) -> HistoricalBaselineRequest:
     claim = _claim_transition(
-        engine, privacy_tier=privacy_tier, retained_text=retained_text
+        engine,
+        privacy_tier=privacy_tier,
+        retained_text=retained_text,
+        retained_delivery_id=retained_delivery_id,
     ).request
     assert isinstance(claim, HistoricalClaimRequest)
     capture = _public_submission(engine.tasks)
@@ -51,7 +55,7 @@ def _baseline(
         "connector_name": "synthetic",
         "connection_id": "one",
         "resource_id": "one",
-        "external_id": "one",
+        "external_id": "one" if retained_delivery_id == "owner.original" else retained_delivery_id,
     }
     observed = SourceRevisionObservedDelivery(
         binding=SourceRevisionBinding(
@@ -86,7 +90,11 @@ def _baseline(
         ),
     )
     return HistoricalBaselineRequest(
-        operation_id="baseline.synthetic",
+        operation_id=(
+            "baseline.synthetic"
+            if retained_delivery_id == "owner.original"
+            else "baseline." + retained_delivery_id
+        ),
         destination=claim.destination,
         source_cas=claim.source_cas,
         retained_original=claim.retained_capture,

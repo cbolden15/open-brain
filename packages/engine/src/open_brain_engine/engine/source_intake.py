@@ -316,6 +316,59 @@ class PublicJobRevisionSink:
             connection.close()
 
     @contextmanager
+    def baseline_page_checkpoint(
+        self,
+        entries: tuple[tuple[SourceRevisionObservedDelivery, HistoricalBaselineDuplicate], ...],
+        *,
+        selection_generation: str,
+    ) -> Iterator[None]:
+        """Revalidate a bounded historical page under one canonical writer fence.
+
+        Every entry must belong to this selected root/resource and destination.
+        The caller still holds its selection barrier, proves page completeness,
+        and retains sender bodies. No nested per-item writer leases are needed.
+        """
+        from .historical_checkpoint import HistoricalBaselineDuplicate
+        from .sharing_contracts import SharingError
+
+        if type(entries) is not tuple or not 1 <= len(entries) <= 25:
+            raise T03Error("invalid_arguments")
+        seen: set[bytes] = set()
+        for entry in entries:
+            if type(entry) is not tuple or len(entry) != 2:
+                raise T03Error("invalid_arguments")
+            delivery, result = entry
+            if (
+                type(delivery) is not SourceRevisionObservedDelivery
+                or type(result) is not HistoricalBaselineDuplicate
+                or delivery.binding.destination_brain_id != self._binding.destination_brain_id
+                or delivery.binding.issuer_epoch != self._binding.issuer_epoch
+                or delivery.binding.root_fingerprint != self._binding.root_fingerprint
+                or delivery.binding.accepted_source_id != self._binding.accepted_source_id
+                or any(
+                    delivery.binding.namespace[key] != self._binding.namespace[key]
+                    for key in ("connector_name", "connection_id", "resource_id")
+                )
+            ):
+                raise T03Error("invalid_arguments")
+            namespace = delivery.submission.namespace_bytes()
+            if namespace in seen:
+                raise T03Error("invalid_arguments")
+            seen.add(namespace)
+        try:
+            with self._engine._writer_lease.acquire_shared_writer():
+                for delivery, result in entries:
+                    sink = PublicJobRevisionSink(self._engine, delivery.binding)
+                    current = sink.lookup_baseline(
+                        delivery, selection_generation=selection_generation
+                    )
+                    if current is None or current != result:
+                        raise T03Error("revision_changed")
+                yield
+        except SharingError:
+            raise T03Error("revision_changed") from None
+
+    @contextmanager
     def baseline_checkpoint(
         self,
         delivery: SourceRevisionObservedDelivery,

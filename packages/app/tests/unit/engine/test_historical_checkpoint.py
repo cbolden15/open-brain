@@ -6,13 +6,67 @@ from pathlib import Path
 
 import pytest
 from open_brain_engine.engine import BrainEngine
+from open_brain_engine.engine.historical_checkpoint import HistoricalBaselineDuplicate
 from open_brain_engine.engine.historical_recovery import _historical_transaction
-from open_brain_engine.engine.source_intake import SourceRevisionDeliveryReceipt
+from open_brain_engine.engine.source_intake import (
+    SourceRevisionDeliveryReceipt,
+    SourceRevisionObservedDelivery,
+)
 from open_brain_engine.engine.t03_contracts import T03Error
 from open_brain_engine.storage.locks import FileLease, LockBusyError
 
 from open_brain.profile import compile_single_user_local
 from packages.app.tests.unit.engine.test_historical_continuity import _adopt, _successor
+
+
+@pytest.mark.parametrize("count", [2, 25])
+def test_multi_source_page_revalidates_all_entries_under_one_fence(
+    tmp_path: Path, count: int
+) -> None:
+    from open_brain_engine.engine.historical_tasks import adopt_historical_baseline
+    from open_brain_engine.engine.runtime_admission import exclusive_runtime_admission
+    from open_brain_engine.engine.t03_contracts import EffectiveAuthority
+
+    from packages.app.tests.unit.engine.test_historical_baseline import _baseline
+
+    engine = BrainEngine.open(compile_single_user_local(tmp_path / "brain"))
+    baselines = [_adopt(engine)]
+    owner = EffectiveAuthority(
+        engine.profile.owner_actor_id, "session", frozenset(), None, owner=True
+    )
+    for index in range(1, count):
+        baseline = replace(
+            _baseline(engine, retained_delivery_id=f"owner.item{index}"),
+            expected_claim_generation=index,
+        )
+        with exclusive_runtime_admission(engine.profile) as admission:
+            adopt_historical_baseline(
+                engine.profile,
+                baseline,
+                authority=owner,
+                admission=admission,
+                validate_before_write=lambda: None,
+            )
+        baselines.append(baseline)
+    sinks = tuple(
+        engine.sources.public_revision_sink(item.observed_delivery.binding) for item in baselines
+    )
+    entries = []
+    for sink, baseline in zip(sinks, baselines, strict=True):
+        result = sink.lookup_baseline(
+            baseline.observed_delivery, selection_generation="selected.v1"
+        )
+        assert result is not None
+        entries.append((baseline.observed_delivery, result))
+    with sinks[0].baseline_page_checkpoint(tuple(entries), selection_generation="selected.v1"):
+        pass
+    # The last item becoming stale must prevent the entire page body.
+    sinks[-1].submit(_successor(baselines[-1]))
+    with (
+        pytest.raises(T03Error, match="revision_changed"),
+        sinks[0].baseline_page_checkpoint(tuple(entries), selection_generation="selected.v1"),
+    ):
+        pytest.fail("page committed despite stale final source")
 
 
 def test_template_reconstructs_exact_baseline_without_returning_capture_body(
@@ -180,6 +234,16 @@ def test_checkpoint_holds_writer_exclusion_and_releases_on_failure(tmp_path: Pat
     assert reached
     with contender.acquire_shared_writer():
         pass
+
+    with (
+        pytest.raises(RuntimeError, match="synthetic page persistence failure"),
+        sink.baseline_page_checkpoint(
+            ((baseline.observed_delivery, result),), selection_generation="selected.v1"
+        ),
+    ):
+        raise RuntimeError("synthetic page persistence failure")
+    with contender.acquire_shared_writer():
+        pass
     assert (
         sink.lookup_baseline(baseline.observed_delivery, selection_generation="selected.v1")
         == result
@@ -236,3 +300,69 @@ def test_root_witness_cannot_be_replaced_at_checkpoint(tmp_path: Path) -> None:
         ),
     ):
         pytest.fail("replaced root witness reached checkpoint body")
+
+
+def test_page_checkpoint_holds_one_writer_fence_through_caller_persistence(tmp_path: Path) -> None:
+    engine = BrainEngine.open(compile_single_user_local(tmp_path / "brain"))
+    baseline = _adopt(engine)
+    delivery = baseline.observed_delivery
+    sink = engine.sources.public_revision_sink(delivery.binding)
+    result = sink.lookup_baseline(delivery, selection_generation="selected.v1")
+    assert result is not None
+    contender = FileLease(
+        engine.profile.root / ".open-brain",
+        "synthetic-page-contender",
+        parent_root_identity=engine.profile.root_identity,
+    )
+    with (
+        sink.baseline_page_checkpoint(((delivery, result),), selection_generation="selected.v1"),
+        pytest.raises(LockBusyError),
+        contender.acquire_shared_writer(),
+    ):
+        pytest.fail("competing writer reached checkpoint persistence")
+    with contender.acquire_shared_writer():
+        pass
+
+
+@pytest.mark.parametrize("case", ["empty", "oversized", "duplicate", "wrong_resource", "stale"])
+def test_page_checkpoint_refuses_invalid_or_stale_page_before_body(
+    tmp_path: Path, case: str
+) -> None:
+    engine = BrainEngine.open(compile_single_user_local(tmp_path / "brain"))
+    baseline = _adopt(engine)
+    delivery = baseline.observed_delivery
+    sink = engine.sources.public_revision_sink(delivery.binding)
+    result = sink.lookup_baseline(delivery, selection_generation="selected.v1")
+    assert result is not None
+    entries: tuple[tuple[SourceRevisionObservedDelivery, HistoricalBaselineDuplicate], ...] = (
+        (delivery, result),
+    )
+    code = "invalid_arguments"
+    if case == "empty":
+        entries = ()
+    elif case == "oversized":
+        entries *= 26
+    elif case == "duplicate":
+        entries *= 2
+    elif case == "wrong_resource":
+        binding = replace(
+            delivery.binding, namespace=dict(delivery.binding.namespace, resource_id="other")
+        )
+        entries = (
+            (
+                replace(
+                    delivery,
+                    binding=binding,
+                    submission=replace(delivery.submission, namespace=binding.namespace),
+                ),
+                result,
+            ),
+        )
+    else:
+        entries = ((delivery, replace(result, selection_generation="selected.old")),)
+        code = "revision_changed"
+    with (
+        pytest.raises(T03Error, match=code),
+        sink.baseline_page_checkpoint(entries, selection_generation="selected.v1"),
+    ):
+        pytest.fail("invalid page reached checkpoint body")

@@ -37,10 +37,11 @@ def _claim_transition(
     *,
     privacy_tier: PrivacyTier | None = None,
     retained_text: str = "synthetic retained",
+    retained_delivery_id: str = "owner.original",
 ) -> HistoricalTransition:
     receipt = engine.capture.accept(
         TextPayload(retained_text),
-        delivery_id="owner.original",
+        delivery_id=retained_delivery_id,
         privacy_tier=privacy_tier,
     )
     with _historical_transaction(engine.profile, lambda: None) as connection:
@@ -53,6 +54,9 @@ def _claim_transition(
         ).fetchone()
         identity = connection.execute("SELECT brain_id,issuer_epoch FROM brain_identity").fetchone()
     destination = HistoricalDestination(brain_id=identity[0], issuer_epoch=identity[1])
+    previous = HistoricalRegistryStore(engine.profile.root, engine.profile.root_identity).read(
+        destination
+    )
     cas = HistoricalSourceCAS(
         source_id=row["source_id"],
         expected_head=receipt.capture_id,
@@ -70,17 +74,14 @@ def _claim_transition(
         source_cas=cas,
         capture_source_cas=cas,
         claim_role="baseline_original",
-        expected_claim_generation=0,
+        expected_claim_generation=previous.generation,
         retained_capture=RetainedCaptureEvidence(
             capture_id=receipt.capture_id,
             source_sha256=row["source_sha256"],
-            retained_delivery_id="owner.original",
+            retained_delivery_id=retained_delivery_id,
             retained_request_sha256=row["request_sha256"],
             privacy_sha256=sha256(canonical(json.loads(row["privacy_json"]))).hexdigest(),
         ),
-    )
-    previous = HistoricalRegistryStore(engine.profile.root, engine.profile.root_identity).read(
-        destination
     )
     proposed = previous.register(
         HistoricalClaimMembership(
@@ -98,6 +99,7 @@ def _claim_transition(
             source_id=cas.source_id,
             original_capture_id=receipt.capture_id,
             outcome="denied_claim_recorded",
+            claim_generation=proposed.generation,
         )
     )
     return HistoricalTransition.create(
