@@ -487,7 +487,29 @@ class IngestionJournal:
                     cast(sqlite3.Row, item) for item in row if item["location"] == "item"
                 )
             raise RuntimeError("ambiguous journal replay state")
-        return None if not row else cast(sqlite3.Row, row[0])
+        if row:
+            return cast(sqlite3.Row, row[0])
+        # Portable reconstruction derives capture-table delivery keys. The
+        # retained alias is still the original replay identity; never admit it
+        # as a fresh delivery just because its derived projection uses a new key.
+        alias = connection.execute(
+            "SELECT source_id,evidence_sha256 FROM source_aliases WHERE delivery_id=?",
+            (delivery_id,),
+        ).fetchone()
+        if alias is None:
+            return None
+        retained = connection.execute(
+            "SELECT 'retained_owner' AS location,a.evidence_sha256 AS request_sha256,"
+            "a.delivery_id,c.capture_id FROM source_aliases a "
+            "JOIN source_revisions r ON r.source_id=a.source_id "
+            "AND r.request_sha256=a.evidence_sha256 "
+            "JOIN captures c ON c.capture_id=r.capture_id "
+            "WHERE a.delivery_id=? AND c.submission_path='import' AND c.stage=3",
+            (delivery_id,),
+        ).fetchall()
+        if len(retained) != 1:
+            raise RuntimeError("retained replay evidence unavailable or ambiguous")
+        return cast(sqlite3.Row, retained[0])
 
     def _replay_existing(
         self,
@@ -501,6 +523,18 @@ class IngestionJournal:
             raise DeliveryConflict()
         location = cast(str, row["location"])
         delivery_id = cast(str, row["delivery_id"])
+        if location == "retained_owner":
+            from .capture import DeliveryConflict
+            from .contracts import CaptureSubmissionPath
+
+            # This legacy digest excludes destination, provider and privacy
+            # fields. It cannot authenticate a remote/public-job submission.
+            if submission.submission_path is not CaptureSubmissionPath.OWNER:
+                raise DeliveryConflict()
+            receipt = self._engine._capture_receipt(cast(str, row["capture_id"]))
+            if receipt is None:
+                raise RuntimeError("retained canonical replay unavailable")
+            return replace(receipt, duplicate=True, requested_tier=submission.requested_tier)
         if location == "capture":
             receipt = self._engine._receipt_for_delivery(delivery_id)
             if receipt is None:
