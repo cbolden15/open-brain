@@ -136,7 +136,8 @@ def test_actual_clean_restore_reexport_retains_authority_and_history(
             if state != "linked":
                 with pytest.raises(T03Error, match="not_found"):
                     current.retrieval.read_record(read, authority=reader)
-            current.portability.rebuild_index()
+            assert current.portability.rebuild_index().schema_version == 8
+    assert restored.portability.rebuild_index().schema_version == 8
     reexport = tmp_path / "reexport"
     restored.portability.export(reexport, export_id="export_" + str(uuid4()))
     latest = validated_portable_snapshot(reexport)

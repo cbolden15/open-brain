@@ -807,7 +807,13 @@ class PortabilityTasks:
             created_at="1970-01-01T00:00:00Z",
             tenant_id=self._engine.profile.tenant_id,
             version=(
-                7
+                8
+                if all(
+                    any(path == sidecar for path, _ in files)
+                    for sidecar in V5_SIDECAR_PATHS | V6_SIDECAR_PATHS
+                    | V7_SIDECAR_PATHS | V8_SIDECAR_PATHS
+                )
+                else 7
                 if all(any(path == sidecar for path, _ in files) for sidecar in V7_SIDECAR_PATHS)
                 else 6
                 if all(any(path == sidecar for path, _ in files) for sidecar in V6_SIDECAR_PATHS)
