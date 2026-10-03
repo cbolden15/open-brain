@@ -594,8 +594,13 @@ def test_uncertain_saved_markdown_delivery_after_owner_withdrawal_stays_retired(
         result = restarted.sync_due(source_id="synthetic", runtime=restarted_runtime,
                                     capture_sink=restarted_sink)
     except T03Error as error:
-        assert uncertain == "pending"
         assert error.code in {"revision_changed", "source_revision_conflict"}
+        # Terminal acceptance remains valid, but withdrawal removes current
+        # checkpoint eligibility even after a lost response.
+        state = CollectorStateStore(state_path).load()
+        entry = cast(dict[str, object], cast(dict[str, object], state["sources"])["synthetic"])
+        assert entry["active_run"] is not None
+        assert entry["next_cursor"] is None
     else:
         if uncertain == "lost_response":
             assert result.outcome.value == "completed"

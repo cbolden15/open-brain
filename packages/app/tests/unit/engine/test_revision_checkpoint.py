@@ -1,5 +1,6 @@
 """Immutable managed receipts are not current page eligibility witnesses."""
 
+from contextlib import closing
 from dataclasses import replace
 from pathlib import Path
 
@@ -13,6 +14,22 @@ from open_brain_engine.engine.t03_contracts import EffectiveAuthority, T03Error
 from open_brain.profile import compile_single_user_local
 from packages.app.tests.unit.engine.test_historical_baseline import _baseline
 from packages.app.tests.unit.engine.test_historical_continuity import _adopt, _successor
+
+
+def test_terminal_receipt_lookup_is_read_only_and_never_reserves_missing_delivery(
+    tmp_path: Path,
+) -> None:
+    engine = BrainEngine.open(compile_single_user_local(tmp_path / "brain"))
+    delivery = _successor(_adopt(engine))
+    sink = engine.sources.public_revision_sink(delivery.binding)
+    receipt = sink.submit(delivery)
+    with closing(engine._store.connect()) as connection:
+        before = list(connection.iterdump())
+    assert sink.lookup_receipt(delivery) == receipt
+    with pytest.raises(T03Error, match="revision_changed"):
+        sink.lookup_receipt(replace(delivery, delivery_id="synthetic.missing.delivery"))
+    with closing(engine._store.connect()) as connection:
+        assert list(connection.iterdump()) == before
 
 
 @pytest.mark.parametrize(

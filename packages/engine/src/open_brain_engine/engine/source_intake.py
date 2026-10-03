@@ -723,6 +723,29 @@ class PublicJobRevisionSink:
             receipt.outcome,
         )
 
+    def lookup_receipt(self, delivery: SourceRevisionDelivery) -> SourceRevisionDeliveryReceipt:
+        """Read exact terminal custody without replay admission or new writes."""
+        if not isinstance(delivery, SourceRevisionDelivery) or delivery.binding != self._binding:
+            raise T03Error("invalid_arguments")
+        connection = self._engine._store.connect()
+        try:
+            row = connection.execute(
+                "SELECT envelope_bytes,receipt_json FROM managed_source_deliveries WHERE delivery_id=?",
+                (delivery.delivery_id,),
+            ).fetchone()
+            if row is None or bytes(row[0]) != delivery.custody_bytes() or row[1] is None:
+                raise T03Error("revision_changed")
+            source = SourceRevisionReceipt(**json.loads(row[1])["source_receipt"])
+            result = SourceRevisionDeliveryReceipt(
+                delivery.delivery_id, delivery.envelope_sha256,
+                self._binding.destination_brain_id, self._binding.issuer_epoch,
+                source, source.outcome,
+            )
+        finally:
+            connection.close()
+        self.verify_receipt(delivery, result)
+        return result
+
     def verify_receipt(
         self, delivery: SourceRevisionDelivery, receipt: SourceRevisionDeliveryReceipt
     ) -> None:
