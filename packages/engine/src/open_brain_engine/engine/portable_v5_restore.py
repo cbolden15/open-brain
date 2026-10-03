@@ -443,7 +443,7 @@ def _audit_capture_search_content(
     from .search_projection import project_search_document
 
     expected_captures = portable_capture_content(snapshot.files)
-    if snapshot.manifest["schema_version"] in {7, 8}:
+    if snapshot.manifest["schema_version"] == 7:
         from open_brain_engine.portable.v7 import validate_sharing_authority
 
         sharing = validate_sharing_authority(snapshot.files)

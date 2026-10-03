@@ -256,6 +256,23 @@ def portable_capture_content(files: Mapping[str, bytes]) -> list[dict[str, objec
                 "publication_path": None if owner is None else owner[3],
             }
         )
+    from open_brain_engine.portable.v8_capture_metadata import (
+        CAPTURE_METADATA_PATH,
+        validate_capture_metadata,
+    )
+
+    if CAPTURE_METADATA_PATH in files:
+        original = {row["capture_id"]: row for row in validate_capture_metadata(files)}
+        for projection in rows:
+            metadata = original[projection["capture_id"]]
+            for key in projection:
+                value = metadata[key]
+                projection[key] = (
+                    json.loads(value)
+                    if key in {"payload_json", "provenance_json", "role_claim_json"}
+                    and value is not None
+                    else value
+                )
     return sorted(rows, key=lambda row: cast(str, row["capture_id"]))
 
 
@@ -649,6 +666,21 @@ def materialize_portable_root(
             )
         if _v5_restore is not None:
             _v5_restore.install(connection, profile=profile)
+        if snapshot.manifest["schema_version"] == 8:
+            from open_brain_engine.portable.v8_capture_metadata import (
+                CAPTURE_COLUMNS,
+                validate_capture_metadata,
+            )
+
+            # Only a new hidden schema, after ordinary Portable authority restore.
+            # Original rows are not inferred from lossy historical record shapes.
+            rows = validate_capture_metadata(files)
+            connection.execute("DELETE FROM captures")
+            placeholders = ",".join("?" for _ in CAPTURE_COLUMNS)
+            connection.executemany(
+                f"INSERT INTO captures ({','.join(CAPTURE_COLUMNS)}) VALUES ({placeholders})",
+                [tuple(row[key] for key in CAPTURE_COLUMNS) for row in rows],
+            )
     batch_count = sum(
         path.startswith("sources/batches/") and path.endswith(".jsonl") for path in files
     )

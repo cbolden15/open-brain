@@ -46,6 +46,21 @@ before activation; a snapshot alone is not a freshness or zero-loss proof.
 
 ## Clean restore
 
+V8 also requires `history/capture-metadata/original-v1.json`. It preserves the
+original settled capture row, including delivery/request identity, supplied title,
+admission provenance, stored privacy, canonical allocation and file bytes. Its
+closed, canonical representation is bounded to 64 MiB and sorted by capture ID.
+Validation requires complete capture coverage and correspondence to archived
+payloads, accepted receipts, immutable privacy evidence and record paths. Hidden
+materialization and fresh semantic audits use this evidence, not inferred owner
+metadata or import aliases. The unreleased v8 catalog digest commits to this
+required sidecar; Portable1–7 interpretations remain unchanged.
+
+This metadata is not a replay grant or a fresh audit of a live upstream source.
+Pending ingestion still refuses ordinary Portable export. Complete pending-custody
+recovery and independently authenticated post-baseline records remain necessary
+for zero-loss deployment; settled capture metadata alone does not prove them.
+
 The foreground `open-brain restore` command uses the same clean importer without
 opening a primary Brain or generating a caller identity. It admits only trusted
 owner-local authority and an owner-only absolute archive directory. Portable

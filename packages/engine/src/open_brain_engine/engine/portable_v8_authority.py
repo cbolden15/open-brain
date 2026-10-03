@@ -8,6 +8,10 @@ from types import MappingProxyType
 from open_brain_engine.core.ids import portable_canonical_json_bytes as canonical
 from open_brain_engine.portable.v7 import SHARING_APPROVALS_PATH
 from open_brain_engine.portable.v8 import HISTORICAL_AUTHORITY_PATH, historical_authority_bytes
+from open_brain_engine.portable.v8_capture_metadata import (
+    CAPTURE_METADATA_PATH,
+    capture_metadata_bytes,
+)
 
 from .contracts import LocalEngineContext
 from .historical_contracts import HistoricalDestination
@@ -59,9 +63,14 @@ def serialize_portable_v8_state(
     sidecars.update(_source_authority_sidecars(source_authority))
     sidecars[SHARING_APPROVALS_PATH] = canonical(sharing)
     sidecars[path] = historical
+    capture_metadata = capture_metadata_bytes(
+        [dict(row) for row in connection.execute("SELECT * FROM captures ORDER BY capture_id")]
+    )
+    sidecars[CAPTURE_METADATA_PATH] = capture_metadata
     semantic = dict(base.semantic_state)
     semantic["sharing_authority"] = sharing
     semantic["historical_authority"] = json.loads(historical)
+    semantic["original_capture_metadata"] = json.loads(capture_metadata)
     return PortableV5StateEvidence(
         sidecars=MappingProxyType(sidecars),
         semantic_state=MappingProxyType(semantic),
