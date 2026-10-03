@@ -16,7 +16,7 @@ from open_brain_collector.lifecycle import (
     SavedMarkdownDelivery,
 )
 from open_brain_connectors.runtime.connectors import ConnectorContractError
-from open_brain_connectors.runtime.live_common import LiveSourceError
+from open_brain_connectors.runtime.live_common import LiveSourceError, bounded_json
 from open_brain_connectors.runtime.live_storage import PrivateJsonStore
 from open_brain_connectors.runtime.saved_markdown import (
     SavedMarkdownAbsenceCandidate,
@@ -54,10 +54,24 @@ class SavedMarkdownCollectorRuntime:
     def _load(self) -> dict[str, object]:
         value = self._store.read(self._name) if self._store is not None else self._memory
         if value is None:
-            return {"epoch": None, "page": None, "known": {}, "absence": []}
-        if not isinstance(value, dict) or set(value) != {"epoch", "page", "known", "absence"}:
+            return {"epoch": None, "page": None, "known": {}, "absence": [], "recovery": None}
+        if not isinstance(value, dict) or set(value) not in (
+            {"epoch", "page", "known", "absence"},
+            {"epoch", "page", "known", "absence", "recovery"},
+        ):
             raise ConnectorContractError("invalid saved markdown scan state")
-        return dict(value)
+        state = dict(value)
+        state.setdefault("recovery", None)
+        recovery = state["recovery"]
+        if recovery is not None and (
+            not isinstance(recovery, dict)
+            or set(recovery) != {"request_sha256", "epoch_sha256"}
+            or any(type(item) is not str or len(item) != 64
+                   or any(character not in "0123456789abcdef" for character in item)
+                   for item in recovery.values())
+        ):
+            raise ConnectorContractError("invalid saved markdown recovery state")
+        return state
 
     def _save(self, value: dict[str, object]) -> None:
         if self._store is not None:
@@ -79,6 +93,53 @@ class SavedMarkdownCollectorRuntime:
         epoch = SavedMarkdownScanEpoch.from_value(state["epoch"])
         if epoch.state["errors"] or (not epoch.state["complete"] and page["next_cursor"] is None):
             raise LiveSourceError("collector_scan_incomplete")
+
+    def restart_failed_inventory(
+        self, *, selection: SourceResourceSelection, cursor: str | None,
+        retained_intakes: tuple[object, ...], recovery_id: str,
+    ) -> None:
+        """Discard failed inventory only after the controller retains its exact page.
+
+        Known terminal sources remain unchanged. No absence, checkpoint success,
+        capture or independent-protection grant is inferred from this reset.
+        """
+        from open_brain_connectors.runtime.source_intake import SourceRecordIntake
+
+        if (selection != self._adapter.selection or type(recovery_id) is not str
+                or len(recovery_id) != 64
+                or any(character not in "0123456789abcdef" for character in recovery_id)
+                or not isinstance(retained_intakes, tuple) or len(retained_intakes) > 25
+                or any(type(item) is not SourceRecordIntake for item in retained_intakes)):
+            raise ConnectorContractError("invalid saved markdown recovery")
+        intakes = cast(tuple[SourceRecordIntake, ...], retained_intakes)
+        request_sha = sha256(bounded_json({
+            "selection": asdict(selection), "cursor": cursor, "recovery_id": recovery_id,
+            "intakes": [intake_dict(item) for item in intakes],
+        }, 4_194_304)).hexdigest()
+        state = self._load()
+        recovery = state["recovery"]
+        if isinstance(recovery, dict) and recovery["request_sha256"] == request_sha:
+            if state["epoch"] is not None or state["page"] is not None:
+                raise LiveSourceError("collector_recovery_stale")
+            return
+        page = state["page"]
+        if state["epoch"] is None or not isinstance(page, dict):
+            raise LiveSourceError("collector_recovery_stale")
+        epoch = SavedMarkdownScanEpoch.from_value(state["epoch"])
+        if not epoch.state["errors"] and (
+            epoch.state["complete"] or page["next_cursor"] is not None
+        ):
+            raise LiveSourceError("collector_scan_not_failed")
+        cached_intakes = tuple(intake_from_dict(value)
+                               for value in cast(list[object], page["intakes"]))
+        if page["cursor"] != cursor or cached_intakes != intakes:
+            raise LiveSourceError("collector_incomplete_custody")
+        state["recovery"] = {
+            "request_sha256": request_sha,
+            "epoch_sha256": sha256(bounded_json(epoch.value(), 4_194_304)).hexdigest(),
+        }
+        state["epoch"], state["page"], state["absence"] = None, None, []
+        self._save(state)
 
     def record_terminal(self, intake: object, receipt: object) -> None:
         lifecycle_version = 0

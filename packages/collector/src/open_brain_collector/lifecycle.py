@@ -74,6 +74,7 @@ _FAILURE_CODE = {
     "collector_paused",
     "collector_disabled",
     "storage_unavailable",
+    "collector_scan_incomplete",
 }
 _CREDENTIAL_STATUS = {"available", "locked", "missing"}
 _MAX_INTERVAL = 31_536_000
@@ -148,6 +149,17 @@ class CollectorSourceRuntime(Protocol):
         cursor: str | None,
     ) -> CollectorRunPage:
         """Return the next bounded page for a selected resource."""
+
+
+@runtime_checkable
+class RestartableInventoryRuntime(Protocol):
+    """Reset only a failed inventory after its exact page custody is retained."""
+
+    def restart_failed_inventory(
+        self, *, selection: SourceResourceSelection, cursor: str | None,
+        retained_intakes: tuple[SourceRecordIntake, ...], recovery_id: str,
+    ) -> None:
+        """Persist an idempotent reset bound to the failed controller run."""
 
 
 @runtime_checkable
@@ -557,6 +569,62 @@ class CollectorController:
             self._store.save(state)
         return self.status(source_id)
 
+    def restart_failed_scan(
+        self, *, source_id: str, runtime: RestartableInventoryRuntime,
+        expected_run_id: str,
+    ) -> CollectorCommandResult:
+        """Restart inventory, retaining terminal custody without success or release.
+
+        Pending deliveries must be resolved through their existing exact replay
+        path first. This operation neither acknowledges protection nor retries
+        capture, changes a source policy, or revives a stopped collector.
+        """
+        if not isinstance(runtime, RestartableInventoryRuntime) or type(expected_run_id) is not str:
+            raise ConnectorContractError("invalid collector recovery")
+        with self._capture_guard, self._selection_barrier():
+            state = self._store.load()
+            entry = _source(_sources(state), source_id)
+            active = entry["active_run"]
+            if not isinstance(active, dict) or active["run_id"] != expected_run_id:
+                raise LiveSourceError("collector_recovery_stale")
+            receipt_ids = tuple(cast(list[str], active.get("custody_ids", [])))
+            if len(receipt_ids) != len(cast(list[object], active["intakes"])):
+                raise LiveSourceError("collector_incomplete_custody")
+            self._custody.validate_terminal(receipt_ids)
+            for receipt_id in receipt_ids:
+                receipt = self._custody.receipt(receipt_id)
+                if (receipt["binding"] != self._binding or receipt["source_id"] != source_id
+                        or receipt["generation"] != entry["generation"]
+                        or receipt["control_epoch"] != entry["control_epoch"]):
+                    raise LiveSourceError("collector_custody_stale")
+            recovery_id = hashlib.sha256(bounded_json({
+                "binding": self._binding, "source_id": source_id,
+                "generation": entry["generation"], "control_epoch": entry["control_epoch"],
+                "run_id": expected_run_id,
+            })).hexdigest()
+            runtime.restart_failed_inventory(
+                selection=_selection_from_entry(entry),
+                cursor=cast(str | None, entry["next_cursor"]),
+                retained_intakes=tuple(self._custody.intake(item) for item in receipt_ids),
+                recovery_id=recovery_id,
+            )
+            # The runtime reset is durable first. If saving controller state
+            # fails, its same failed run retries the exact reset marker.
+            entry["control_epoch"] = cast(int, entry["control_epoch"]) + 1
+            entry["active_run"] = None
+            entry["next_cursor"] = None
+            now = self._clock()
+            if entry["status"] == "enabled":
+                entry["next_run_epoch"] = now
+            entry["last_run"] = _last_run_payload(
+                run_id=expected_run_id, finished_epoch=now, outcome=CollectorRunOutcome.FAILED,
+                captured_count=0, duplicate_count=0, next_cursor=None,
+                failure_code="collector_scan_incomplete",
+            )
+            self._store.save(state)
+            return _result(source_id, entry, CollectorRunOutcome.FAILED,
+                           failure_code="collector_scan_incomplete")
+
     def status(self, source_id: str) -> CollectorCommandResult:
         state = self._store.load()
         entry = _source(_sources(state), source_id)
@@ -811,7 +879,8 @@ class CollectorController:
             page = runtime.fetch_page(selection, cast(str | None, entry.get("next_cursor")))
             if page.selection != selection:
                 raise ConnectorContractError("invalid collector page")
-            run_id = _run_id(source_id, now, cast(str | None, entry.get("next_cursor")))
+            run_id = _run_id(source_id, now, cast(str | None, entry.get("next_cursor")),
+                             control_epoch=cast(int, entry["control_epoch"]))
             intended_ids = self._custody.receipt_ids(
                 source_id=source_id,
                 binding=self._binding,
@@ -1203,6 +1272,7 @@ class CollectorController:
                     source_id,
                     now,
                     cast(str | None, latest.get("next_cursor")),
+                    control_epoch=cast(int, latest["control_epoch"]),
                 ),
                 finished_epoch=now,
                 outcome=outcome,
@@ -1655,9 +1725,9 @@ def _selection_from_entry(entry: Mapping[str, object]) -> SourceResourceSelectio
     )
 
 
-def _run_id(source_id: str, now: int, cursor: str | None) -> str:
+def _run_id(source_id: str, now: int, cursor: str | None, *, control_epoch: int) -> str:
     suffix = cursor if cursor is not None else "initial"
-    return f"{source_id}:{now}:{suffix}"
+    return f"{source_id}:{now}:{control_epoch}:{suffix}"
 
 
 def _run_payload(
