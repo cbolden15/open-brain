@@ -10,7 +10,7 @@ from open_brain_engine.core.ids import portable_canonical_json_bytes
 from open_brain_engine.engine import SourceRevisionDeliveryReceipt
 
 from open_brain_collector.custody import intake_dict, intake_from_dict
-from open_brain_collector.lifecycle import CollectorRunPage
+from open_brain_collector.lifecycle import CollectorRunPage, SavedMarkdownDelivery
 from open_brain_connectors.runtime.connectors import ConnectorContractError
 from open_brain_connectors.runtime.live_storage import PrivateJsonStore
 from open_brain_connectors.runtime.saved_markdown import (
@@ -66,6 +66,10 @@ class SavedMarkdownCollectorRuntime:
         self._save(state)
 
     def record_terminal(self, intake: object, receipt: object) -> None:
+        lifecycle_version = 0
+        if isinstance(receipt, SavedMarkdownDelivery):
+            lifecycle_version = receipt.delivery.expected_lifecycle_version
+            receipt = receipt.receipt
         if not isinstance(receipt, SourceRevisionDeliveryReceipt):
             return
         source = receipt.source_receipt
@@ -81,7 +85,7 @@ class SavedMarkdownCollectorRuntime:
         # Lifecycle version belongs to the exact submitted envelope. The sink
         # provides it after validating the terminal receipt.
         known[item_id] = {"source_id": source.source_id, "head": source.capture_id,
-                          "lifecycle_version": 0}
+                          "lifecycle_version": lifecycle_version}
         state["absence"] = [candidate for candidate in cast(list[dict[str, object]],
                                                            state["absence"])
                             if candidate["item_id"] != item_id]

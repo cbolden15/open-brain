@@ -17,6 +17,7 @@ from pathlib import Path
 from tempfile import NamedTemporaryFile
 from typing import Protocol, cast, runtime_checkable
 
+from open_brain_engine.core.ids import portable_canonical_json_bytes
 from open_brain_engine.core.models import narrowest_tier
 from open_brain_engine.engine import (
     CaptureCustodyReceipt,
@@ -28,6 +29,7 @@ from open_brain_engine.engine import (
     SourceRevisionBinding,
     SourceRevisionDelivery,
     SourceRevisionDeliveryReceipt,
+    SourceRevisionReceipt,
     SourceRevisionSubmission,
     verify_capture_custody_receipt,
 )
@@ -611,6 +613,9 @@ class CollectorController:
             raise
         if isinstance(result, CaptureCustodyReceipt):
             return self._custody.inspect(receipt_id)
+        replayed = isinstance(result, SavedMarkdownDelivery) and result.replayed
+        if isinstance(result, SavedMarkdownDelivery):
+            result = result.receipt
         if isinstance(result, SourceRevisionDeliveryReceipt):
             if not isinstance(capture_sink, EngineRevisionSink):
                 raise LiveSourceError("collector_invalid_custody_receipt")
@@ -619,7 +624,7 @@ class CollectorController:
             if result.source_receipt is None:
                 raise LiveSourceError("collector_invalid_custody_receipt")
             result = result.source_receipt
-        duplicate = (getattr(result, "outcome", None) == "duplicate"
+        duplicate = (replayed or getattr(result, "outcome", None) == "duplicate"
                      or bool(getattr(result, "duplicate", False)))
         capture_id = getattr(result, "capture_id", None)
         result_outcome = getattr(result, "outcome", None)
@@ -959,6 +964,10 @@ class CollectorController:
                 # boundary returns a canonical receipt.
                 if isinstance(result, CaptureCustodyReceipt):
                     continue
+                replayed = isinstance(result, SavedMarkdownDelivery) and result.replayed
+                terminal_result = result
+                if isinstance(result, SavedMarkdownDelivery):
+                    result = result.receipt
                 if isinstance(result, SourceRevisionDeliveryReceipt):
                     if not isinstance(capture_sink, EngineRevisionSink):
                         raise LiveSourceError("collector_invalid_custody_receipt")
@@ -969,10 +978,10 @@ class CollectorController:
                         raise LiveSourceError("collector_invalid_custody_receipt")
                     terminal_hook = getattr(runtime, "record_terminal", None)
                     if callable(terminal_hook):
-                        terminal_hook(intake, result)
+                        terminal_hook(intake, terminal_result)
                     result = source_receipt
                 result_outcome = getattr(result, "outcome", None)
-                duplicate = (result_outcome == "duplicate"
+                duplicate = (replayed or result_outcome == "duplicate"
                              or bool(getattr(result, "duplicate", False)))
                 capture_id = getattr(result, "capture_id", None)
                 outcome = (
@@ -1283,6 +1292,25 @@ class SavedMarkdownBaseline:
     result: HistoricalBaselineDuplicate
 
 
+@dataclass(frozen=True, slots=True)
+class SavedMarkdownDelivery:
+    """Collector replay classification alongside the unchanged engine receipt."""
+
+    delivery: SourceRevisionDelivery
+    receipt: SourceRevisionDeliveryReceipt
+    replayed: bool
+
+    @property
+    def source_receipt(self) -> SourceRevisionReceipt | None:
+        return self.receipt.source_receipt
+
+    @property
+    def outcome(self) -> str:
+        if self.replayed and self.receipt.outcome in {"captured", "duplicate"}:
+            return "duplicate"
+        return self.receipt.outcome
+
+
 class EngineRevisionSink:
     """Saved-Markdown-only bridge to the engine's narrow revision capability."""
 
@@ -1367,24 +1395,42 @@ class EngineRevisionSink:
         result = sink.lookup_baseline(delivery, selection_generation=selection_generation)
         return None if result is None else SavedMarkdownBaseline(delivery, result)
 
-    def submit(self, intake: SourceRecordIntake) -> SourceRevisionDeliveryReceipt:
+    def submit(self, intake: SourceRecordIntake) -> SavedMarkdownDelivery:
         binding, sink = self._revision_capability(intake)
         namespace = dict(binding.namespace)
         name = "saved-revision-" + hashlib.sha256(bounded_json(namespace, 4096)).hexdigest() + ".json"
-        with self._store.lock(name):
+        with self._store.lock("saved-revision-capacity"), self._store.lock(name):
             return self._submit_retained(intake, sink, binding, name)
 
     def _submit_retained(
         self, intake: SourceRecordIntake, sink: PublicJobRevisionSink,
         binding: SourceRevisionBinding, name: str,
-    ) -> SourceRevisionDeliveryReceipt:
+    ) -> SavedMarkdownDelivery:
         saved = self._store.read(name)
         if saved is not None and not isinstance(saved, dict):
             raise LiveSourceError("collector_invalid_custody")
         retained = cast(dict[str, object] | None, saved)
+        if retained is not None and (
+            set(retained) != {"intake_digest", "envelope", "envelope_sha256", "terminal"}
+            or not isinstance(retained["envelope"], dict)
+            or "submission" not in retained["envelope"]
+        ):
+            raise LiveSourceError("collector_invalid_custody")
+        if retained is not None and hashlib.sha256(
+            portable_canonical_json_bytes(retained["envelope"])
+        ).hexdigest() != retained["envelope_sha256"]:
+            raise LiveSourceError("collector_custody_stale")
         terminal = None if retained is None else retained.get("terminal")
+        if terminal is not None and (
+            not isinstance(terminal, dict)
+            or terminal.get("outcome") not in {"captured", "duplicate", "quarantined"}
+        ):
+            raise LiveSourceError("collector_invalid_custody")
         quarantined = isinstance(terminal, dict) and terminal.get("outcome") == "quarantined"
-        if retained is not None and (terminal is None or quarantined):
+        replayed = retained is not None and terminal is not None and not quarantined and retained.get("intake_digest") == intake_digest(intake)
+        use_retained = retained is not None and (terminal is None or quarantined or replayed)
+        if use_retained:
+            assert retained is not None
             if retained.get("intake_digest") != intake_digest(intake):
                 raise LiveSourceError("collector_custody_stale")
             envelope = cast(dict[str, object], retained["envelope"])
@@ -1395,19 +1441,6 @@ class EngineRevisionSink:
             lifecycle_version = cast(int, envelope["expected_lifecycle_version"])
         else:
             head = sink.inspect_head()
-            if retained is not None and retained.get("intake_digest") == intake_digest(intake):
-                terminal = cast(dict[str, object], retained["terminal"])
-                if (terminal.get("capture_id") == head.capture_id and head.lifecycle == "active"
-                        and terminal.get("control_epoch") == head.control_epoch):
-                    envelope = cast(dict[str, object], retained["envelope"])
-                    from open_brain_engine.engine import SourceRevisionReceipt
-
-                    return SourceRevisionDeliveryReceipt(
-                        cast(str, envelope["delivery_id"]), cast(str, retained["envelope_sha256"]),
-                        binding.destination_brain_id, binding.issuer_epoch,
-                        SourceRevisionReceipt(head.source_id, head.capture_id, "duplicate", head.control_epoch),
-                        "duplicate",
-                    )
             predecessor_key, expected_head = head.revision_key, head.capture_id
             control_epoch, lifecycle_version = head.control_epoch, head.lifecycle_version
         revision_key = hashlib.sha256(bounded_json({
@@ -1452,24 +1485,39 @@ class EngineRevisionSink:
                 observation=intake.observation,
             )
         envelope_value = json.loads(delivery.custody_bytes())
-        if retained is not None and (terminal is None or quarantined):
+        if use_retained:
+            assert retained is not None
             if (retained["envelope"] != envelope_value
                     or retained["envelope_sha256"] != delivery.envelope_sha256):
                 raise LiveSourceError("collector_custody_stale")
         else:
+            previous = retained
             retained = {"intake_digest": intake_digest(intake), "envelope": envelope_value,
                         "envelope_sha256": delivery.envelope_sha256, "terminal": None}
-            pending_bytes = len(delivery.custody_bytes())
+            archive_name = None
+            if previous is not None:
+                archive_name = "saved-revision-archive-" + cast(str, previous["envelope_sha256"]) + ".json"
+                archived = self._store.read(archive_name)
+                if archived is not None and archived != previous:
+                    raise LiveSourceError("collector_invalid_custody")
+            pending_bytes = len(bounded_json(retained, 4_194_304))
             pending_count = 1
             for pending_name in self._store.names("saved-revision-"):
                 if pending_name == name:
                     continue
                 pending = self._store.read(pending_name)
-                if isinstance(pending, dict) and pending.get("terminal") is None:
+                if isinstance(pending, dict):
                     pending_count += 1
                     pending_bytes += len(bounded_json(pending, 4_194_304))
+                else:
+                    raise LiveSourceError("collector_invalid_custody")
+            if archive_name is not None and previous is not None and archived is None:
+                pending_count += 1
+                pending_bytes += len(bounded_json(previous, 4_194_304))
             if pending_count > 256 or pending_bytes > 2_097_152:
                 raise LiveSourceError("collector_custody_full")
+            if archive_name is not None and previous is not None and archived is None:
+                self._store.write(archive_name, previous)
             self._store.write(name, retained)
         result = sink.submit(delivery)
         if (result.delivery_id != delivery.delivery_id
@@ -1481,7 +1529,7 @@ class EngineRevisionSink:
         if result.outcome == "operation_pending":
             if receipt is not None:
                 raise LiveSourceError("collector_invalid_custody_receipt")
-            return result
+            return SavedMarkdownDelivery(delivery, result, replayed=False)
         try:
             sink.verify_receipt(delivery, result)
         except T03Error:
@@ -1500,9 +1548,8 @@ class EngineRevisionSink:
                 or receipt.source_id is None or receipt.capture_id is None):
             raise LiveSourceError("collector_invalid_custody_receipt")
         retained["terminal"] = asdict(receipt)
-        retained["envelope"] = {"delivery_id": delivery.delivery_id}
         self._store.write(name, retained)
-        return result
+        return SavedMarkdownDelivery(delivery, result, replayed=replayed)
 
 
 def _result(

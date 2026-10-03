@@ -209,10 +209,10 @@ def test_collector_uncertain_source_preserves_exact_envelope_and_portable_histor
     capture_id = source_receipt["capture_id"]
     owner = EffectiveAuthority("synthetic-owner", "session", frozenset(), None, owner=True)
     export, imported, again = (tmp_path / name for name in ("export", "imported", "again"))
-    assert tasks.portability.export(export, export_id="export_" + str(uuid4())).schema_version == 7
+    assert tasks.portability.export(export, export_id="export_" + str(uuid4())).schema_version == 8
     first = validated_portable_snapshot(export)
     import_id = "import_" + str(uuid4())
-    assert tasks.portability.import_clean(export, imported, import_id=import_id).schema_version == 7
+    assert tasks.portability.import_clean(export, imported, import_id=import_id).schema_version == 8
     assert tasks.portability.import_clean(export, imported, import_id=import_id).duplicate
     reopened = open_local_engine(compile_single_user_local(imported))
     reopened.portability.rebuild_index()
@@ -376,7 +376,7 @@ def test_collector_copy_custody_lifecycle_portable_roundtrip(
             assert receipt.copy_capture_id is not None
             assert receipt.state == ("captured" if state == "active" else "history_only")
     export, imported, again = (tmp_path / name for name in ("export", "imported", "again"))
-    assert tasks.portability.export(export, export_id="export_" + str(uuid4())).schema_version == 7
+    assert tasks.portability.export(export, export_id="export_" + str(uuid4())).schema_version == 8
     first = validated_portable_snapshot(export)
     import_id = "import_" + str(uuid4())
     tasks.portability.import_clean(export, imported, import_id=import_id)
