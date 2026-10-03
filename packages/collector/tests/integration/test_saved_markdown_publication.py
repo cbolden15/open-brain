@@ -106,7 +106,9 @@ def test_publication_collects_sixty_files_through_restart_continuation(
         assert result.duplicate_count == result.quarantined_count == 0
         assert (result.next_cursor is None) is (page_index == 2)
         assert result.next_run_epoch == now[0] + 60
-        assert controller.custody_status("synthetic-publication")["retained_items"] == 0
+        assert controller.custody_status("synthetic-publication")["retained_items"] == sum(
+            (25, 25, 10)[: page_index + 1]
+        )
         state = CollectorStateStore(tmp_path / "state.json").load()
         entry = cast(dict[str, object], cast(dict[str, object], state["sources"])[
             "synthetic-publication"
@@ -179,7 +181,7 @@ def test_publication_collects_sixty_files_through_restart_continuation(
         assert result.captured_count == result.quarantined_count == 0
         assert result.duplicate_count == expected_count
         assert (result.next_cursor is None) is (page_index == 2)
-        assert controller.custody_status("synthetic-publication")["retained_items"] == 0
+        assert controller.custody_status("synthetic-publication")["retained_items"] == 60
     assert _terminal_snapshot(tasks) == before
     assert runtime.last_scan is not None and runtime.last_scan.complete
     assert runtime.absence_candidates == ()

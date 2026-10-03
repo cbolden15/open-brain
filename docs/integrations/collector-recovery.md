@@ -98,3 +98,19 @@ infer withdrawal, grant sharing, or enable a paused or disabled schedule. Retain
 recovery custody remains subject to the normal aggregate limits. Do not delete it
 to create capacity; independent protection and an authorized cleanup mechanism
 are separate requirements.
+
+## Observed revision custody
+
+Observed source revisions retain their serialized intake after terminal completion,
+retry cleanup, pause, disable or selection reset. A capture ID, local terminal
+receipt or historical baseline is not independently protected revision replay.
+The capture-only `receipt-protection.v1` contract also cannot authorize removal
+of managed source ordering, lifecycle and whole-envelope evidence.
+
+This retention guard uses the existing aggregate custody limits and no eviction.
+When accepted retained revisions fill capacity, admission stops rather than
+discarding them. Full saved-revision sender envelopes and prior versions remain
+in their existing bounded cache/archive as well. These local copies are not an
+independent disaster-recovery proof. A separate managed-record protection and
+verified import protocol is required before observed revision compaction can be
+enabled; no such release acknowledgement is implemented here.

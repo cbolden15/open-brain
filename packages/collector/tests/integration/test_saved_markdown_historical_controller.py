@@ -275,7 +275,7 @@ def test_two_mixed_pages_continue_across_restart_without_historical_recapture(
     first = controller.sync_due(source_id="synthetic", runtime=runtime, capture_sink=sink)
     assert (first.captured_count, first.duplicate_count) == (1, 24)
     assert first.next_cursor is not None
-    assert controller.custody_status("synthetic")["retained_items"] == 24
+    assert controller.custody_status("synthetic")["retained_items"] == 25
     tasks, sink = _revision_sink(tmp_path)
     restarted = CollectorController(
         CollectorStateStore(tmp_path / "state.json"),
@@ -286,7 +286,7 @@ def test_two_mixed_pages_continue_across_restart_without_historical_recapture(
     second = restarted.sync_due(source_id="synthetic", runtime=runtime, capture_sink=sink)
     assert (second.captured_count, second.duplicate_count) == (6, 1)
     assert second.next_cursor is None
-    assert restarted.custody_status("synthetic")["retained_items"] == 25
+    assert restarted.custody_status("synthetic")["retained_items"] == 32
     entry = cast(dict[str, object], cast(dict[str, object], store.load()["sources"])["synthetic"])
     assert len(cast(dict[str, str], entry["committed_capture_ids"])) == 32
     assert entry["active_run"] is None and entry["next_cursor"] is None

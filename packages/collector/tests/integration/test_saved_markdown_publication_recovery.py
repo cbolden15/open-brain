@@ -202,7 +202,7 @@ def test_collector_uncertain_source_preserves_exact_envelope_and_portable_histor
         )
         assert recovered.outcome.value == "completed"
         assert len(submitted) == 2 and submitted[0] == submitted[1]
-        assert controller.custody_status("synthetic-publication")["retained_items"] == 0
+        assert controller.custody_status("synthetic-publication")["retained_items"] == 1
     terminal = _terminal_snapshot(tasks)
     assert len(terminal) == 1 and terminal[0][1] == before[0][1]
     source_receipt = json.loads(cast(str, terminal[0][2]))["source_receipt"]

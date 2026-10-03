@@ -138,6 +138,14 @@ class CustodyStore:
         self._store = store
 
     @staticmethod
+    def _retains_revision_replay(receipt: dict[str, object]) -> bool:
+        # An observed source revision carries ordering and lifecycle replay
+        # evidence beyond a capture body. Neither local acceptance nor the
+        # capture-only v1 protection contract authorizes releasing this intake.
+        intake = receipt["intake"]
+        return isinstance(intake, dict) and "observation" in intake
+
+    @staticmethod
     def _valid_evidence(receipt: dict[str, object]) -> bool:
         outcome, evidence = receipt["outcome"], receipt["evidence"]
         if outcome == "pending":
@@ -406,7 +414,8 @@ class CustodyStore:
                     or not self._valid_evidence(receipt)
                 ):
                     raise LiveSourceError("collector_incomplete_custody")
-                if receipt["intake"] is None or receipt["evidence"] == "historical_baseline":
+                if (receipt["intake"] is None or receipt["evidence"] == "historical_baseline"
+                        or self._retains_revision_replay(receipt)):
                     continue
                 if receipt["outcome"] != "quarantined":
                     receipt.update(intake=None, retained_bytes=0)
@@ -426,7 +435,7 @@ class CustodyStore:
             self._store.write(_FILE, state)
 
     def discard_unacknowledged(self, receipt_ids: tuple[str, ...]) -> None:
-        """Drop cancelled non-quarantine custody; provider checkpoint did not advance."""
+        """Retain observed revision replay even when its provider page was cancelled."""
         with self._store.lock("custody"):
             state = self._load()
             receipts = cast(dict[str, object], state["receipts"])
@@ -439,6 +448,7 @@ class CustodyStore:
                 if (
                     receipt["outcome"] != "quarantined"
                     and receipt["evidence"] != "historical_baseline"
+                    and not self._retains_revision_replay(receipt)
                 ):
                     del receipts[receipt_id]
             self._store.write(_FILE, state)
