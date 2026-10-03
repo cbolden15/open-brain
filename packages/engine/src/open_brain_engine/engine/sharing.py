@@ -61,7 +61,7 @@ if TYPE_CHECKING:
 
 
 MARKER_PREFIX = "urn:open-brain:sharing-copy:v1:"
-NORMALIZATION_VERSION = "saved-markdown-continuous.v1"
+NORMALIZATION_VERSIONS = ("saved-markdown-continuous.v1", "saved-markdown-continuous.v2")
 SEMANTIC_PROVIDER_IDS = {
     "openai_api": "openai",
     "anthropic_api": "anthropic",
@@ -254,7 +254,7 @@ def _read_original_evidence(
     observation = envelope.get("observation")
     if (
         type(observation) is not dict
-        or observation.get("normalization_version") != NORMALIZATION_VERSION
+        or observation.get("normalization_version") not in NORMALIZATION_VERSIONS
     ):
         raise SharingError("binding_mismatch")
     if matched["envelope_sha256"] != sha256(bytes(matched["envelope_bytes"])).hexdigest():

@@ -2492,3 +2492,38 @@ Portable1 import, nonempty continuations, reopen/rebuild, ambiguous or missing
 publication custody, denied secondary members and hidden-metadata stability.
 
 Discovered: 2026-10-03, synthetic checkpoint C legacy import/cursor regressions.
+
+### COLLECTOR-003: Owner-section removal needs real Markdown block boundaries
+
+Symptom: A heading quoted inside a fenced block in `Why Saved` ends the owner
+section early, leaving later owner notes in the transformed source body.
+
+Cause: Heading and fence regular expressions did not implement Markdown block
+grammar. Thematic breaks after blank lines or list items looked like setext
+headings. Invalid fence openers and non-ASCII closing whitespace also changed
+the skip state incorrectly.
+
+Fix: Use the connector's pinned CommonMark parser to locate true top-level
+headings and remove source-line ranges, without rendering retained content.
+Parse inline syntax only for heading labels, not discarded body text.
+Pass the document reference environment to heading parsing; project image-alt
+children, text/code and breaks deliberately. Transparent attribute-free HTML
+wrappers/comments are recognized without rendering. Attribute-bearing,
+executable or unknown HTML refuses intake instead of hiding an owner heading.
+Classify declaration tokens before HTMLParser: its unknown declarations become
+bogus comments, bypassing declaration callbacks. Only genuine comment syntax
+may use the transparent comment projection.
+Continuous normalization version 2 records the changed transform contract;
+retain version-1 evidence unchanged. The parser dependency stays in the optional
+connector package, outside the foreground engine.
+
+Tests: Saved Markdown contract cases cover ATX/setext and marked-up headings,
+entities, multiline labels, thematic breaks, nested blocks, backtick/tilde
+fences and invalid fence markers, full/collapsed/shortcut references, image alt
+text, HTML wrappers/comments/breaks and unsupported-markup refusal.
+Actual collector publication/Portable recovery
+tests assert owner canaries are absent. A pending version-1 envelope survives
+restart unchanged; the same item's version-2 observation requires new approval
+and invalidates the old public copy. Historical fixtures remain unchanged.
+
+Discovered: 2026-10-03, private source preflight and independent synthetic probe.

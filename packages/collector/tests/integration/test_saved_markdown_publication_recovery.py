@@ -32,12 +32,106 @@ from open_brain_engine.engine.t03_contracts import EffectiveAuthority, RecordRea
 from open_brain_engine.portable.versioned import validated_portable_snapshot
 
 from open_brain.profile import compile_single_user_local
+from open_brain_connectors.runtime.live_common import LiveSourceError
 from packages.app.tests.integration.engine.test_sharing_surfaces import _external
 from packages.collector.tests.integration.test_saved_markdown import _adapter
 from packages.collector.tests.integration.test_saved_markdown_publication import (
+    _approve_current,
     _collector,
     _terminal_snapshot,
 )
+
+
+def test_normalization_upgrade_preserves_pending_v1_and_requires_new_v2_approval(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    selected = tmp_path / "selected"
+    selected.mkdir()
+    (selected / "saved.md").write_text("# Upgrade source\nSame retained body\n", encoding="utf-8")
+    now = [100]
+    tasks, sink, runtime, controller = _collector(tmp_path, selected, now)
+    candidate, = _adapter(selected).dry_run().candidates
+    assert candidate.identity is not None and candidate.intake is not None
+    current = candidate.intake
+    assert current.observation is not None
+    legacy_identity = replace(
+        candidate.identity, normalization_version="saved-markdown-continuous.v1",
+    )
+    legacy = replace(
+        current, key=replace(current.key, revision_id=legacy_identity.revision_id),
+        observation=replace(
+            current.observation, normalization_version=legacy_identity.normalization_version,
+        ),
+    )
+    assert legacy_identity.item_id == candidate.identity.item_id
+    assert legacy_identity.revision_id != candidate.identity.revision_id
+    assert legacy_identity.delivery_id != candidate.identity.delivery_id
+    submit = PublicJobRevisionSink.submit
+
+    def lost_response(
+        self: PublicJobRevisionSink, delivery: SourceRevisionDelivery,
+    ) -> SourceRevisionDeliveryReceipt:
+        submit(self, delivery)
+        raise RuntimeError("synthetic v1 lost response")
+
+    with monkeypatch.context() as patch:
+        patch.setattr(PublicJobRevisionSink, "submit", lost_response)
+        with pytest.raises(RuntimeError, match="synthetic v1 lost response"):
+            sink.submit(legacy)
+    before = _terminal_snapshot(tasks)
+    assert len(before) == 1
+    old_envelope = json.loads(cast(bytes, before[0][1]))
+    assert (
+        old_envelope["observation"]["normalization_version"]
+        == legacy_identity.normalization_version
+    )
+    tasks, sink, runtime, controller = _collector(tmp_path, selected, now)
+    with pytest.raises(LiveSourceError, match="collector_custody_stale"):
+        sink.submit(current)
+    assert _terminal_snapshot(tasks) == before
+    old_receipt = sink.submit(legacy)
+    assert old_receipt.source_receipt is not None
+    assert _terminal_snapshot(tasks)[0][1] == before[0][1]
+    source_id = old_receipt.source_receipt.source_id
+    assert source_id is not None
+    owner = EffectiveAuthority("synthetic-owner", "session", frozenset(), None, owner=True)
+    old_copy = _approve_current(tasks, source_id, owner, "normalization-v1")
+    assert old_copy.copy_capture_id is not None and tasks.sources is not None
+    source = tasks.sources.inspect(SourceInspectRequest(source_id=source_id), authority=owner)
+    external = _external(source.destination_brain_id, source.issuer_epoch, "openai")
+    old_read = RecordReadRequest(
+        record_id=old_copy.copy_capture_id, expected_revision_id=old_copy.copy_capture_id,
+    )
+    assert tasks.retrieval.read_record(old_read, authority=external).to_wire()["content"]
+    controller.enable(
+        source_id="synthetic-publication", selection=_adapter(selected).selection,
+        interval_seconds=60,
+    )
+    assert controller.sync_due(
+        source_id="synthetic-publication", runtime=runtime, capture_sink=sink,
+    ).captured_count == 1
+    advanced = tasks.sources.inspect(SourceInspectRequest(source_id=source_id), authority=owner)
+    assert advanced.head_capture_id != source.head_capture_id
+    with pytest.raises(T03Error, match="not_found"):
+        tasks.retrieval.read_record(old_read, authority=external)
+    with pytest.raises(T03Error, match="not_found"):
+        tasks.retrieval.read_record(
+            RecordReadRequest(
+                record_id=advanced.head_capture_id, expected_revision_id=advanced.head_capture_id,
+            ),
+            authority=external,
+        )
+    assert tasks.history is not None
+    assert tasks.history.read_history(old_read, authority=owner).to_wire()["content"]
+    new_copy = _approve_current(tasks, source_id, owner, "normalization-v2")
+    assert new_copy.copy_capture_id is not None
+    assert new_copy.copy_capture_id != old_copy.copy_capture_id
+    assert tasks.retrieval.read_record(
+        RecordReadRequest(
+            record_id=new_copy.copy_capture_id, expected_revision_id=new_copy.copy_capture_id,
+        ),
+        authority=external,
+    ).to_wire()["content"]
 
 
 @pytest.mark.parametrize("failure", ["journal_commit", "index_update", "lost_response"])
@@ -153,7 +247,16 @@ def test_collector_copy_custody_lifecycle_portable_roundtrip(
     selected.mkdir()
     path = selected / "saved.md"
     text = "# Collector retained publication\nExact copy body 漢字\n"
-    path.write_text(text, encoding="utf-8")
+    path.write_text(
+        text + "## Why Saved\nowner-before-break\n\n---\nowner-after-break\n"
+        "```\n```\u00a0\n## Still fenced\nowner-in-fence\n```\nowner-after-fence\n"
+        "## [Why Saved][owner]\nowner-reference\n\n[owner]: https://example.test\n"
+        "## <em>Why Saved</em>\nowner-wrapper\n"
+        "## Why<!-- label --> Saved\nowner-comment\n"
+        "## Why<br>Saved\nowner-break\n"
+        "## ![**Why Saved**](https://example.test/image)\nowner-image-alt\n",
+        encoding="utf-8",
+    )
     now = [100]
     tasks, sink, runtime, controller = _collector(tmp_path, selected, now)
     controller.enable(
@@ -181,6 +284,8 @@ def test_collector_copy_custody_lifecycle_portable_roundtrip(
         provider_ids=("openai",),
     )
     preview = tasks.sharing.preview(request, authority=owner)
+    assert preview.text == text
+    assert "owner-" not in preview.text
     undecided = tasks.sharing.preview(
         replace(request, operation_id="sharing.preview.collector.undecided"), authority=owner
     )

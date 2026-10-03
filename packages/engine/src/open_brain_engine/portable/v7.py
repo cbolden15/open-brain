@@ -497,7 +497,7 @@ def validate_sharing_authority(files: Mapping[str, bytes]) -> dict[str, Any]:
                 or envelope.get("dto_version") != 2
                 or envelope.get("observation") != preview["observation"]
                 or preview["observation"].get("normalization_version")
-                != "saved-markdown-continuous.v1"
+                not in ("saved-markdown-continuous.v1", "saved-markdown-continuous.v2")
                 or sha256(canonical(original["privacy"])).hexdigest() != preview["privacy_sha256"]
                 or sha256(canonical(original["payload"])).hexdigest() != preview["payload_sha256"]
                 or preview["marker"]
