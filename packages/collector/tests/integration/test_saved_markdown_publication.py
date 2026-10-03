@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 from dataclasses import replace
 from pathlib import Path
 from typing import cast
@@ -373,3 +374,116 @@ def test_publication_version_approval_withdrawal_retains_history(
             )
         } == set(originals)
         assert connection.execute("SELECT count(*) FROM sharing_links").fetchone()[0] == 2
+
+
+@pytest.mark.parametrize(
+    "failure", ["interrupted", "enumeration", "membership", "concurrent_edit", "refused_present"]
+)
+def test_publication_incomplete_or_refused_scan_never_withdraws(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, failure: str
+) -> None:
+    selected = tmp_path / "selected"
+    selected.mkdir()
+    saved = selected / "saved.md"
+    saved.write_text(
+        "# Retained approved item\nFull synthetic retained body 漢字\n", encoding="utf-8"
+    )
+    now = [100]
+    tasks, sink, runtime, controller = _collector(tmp_path, selected, now)
+    controller.enable(
+        source_id="synthetic-publication", selection=_adapter(selected).selection,
+        interval_seconds=60,
+    )
+    assert controller.sync_due(
+        source_id="synthetic-publication", runtime=runtime, capture_sink=sink
+    ).captured_count == 1
+    source_id = json.loads(cast(str, _terminal_snapshot(tasks)[0][2]))[
+        "source_receipt"
+    ]["source_id"]
+    owner = EffectiveAuthority("synthetic-owner", "session", frozenset(), None, owner=True)
+    approved = _approve_current(tasks, source_id, owner, "scan-boundary")
+    assert tasks.sources is not None and approved.copy_capture_id is not None
+    inspected = tasks.sources.inspect(SourceInspectRequest(source_id=source_id), authority=owner)
+    external = _external(inspected.destination_brain_id, inspected.issuer_epoch, "openai")
+    reading = RecordReadRequest(
+        record_id=approved.copy_capture_id, expected_revision_id=approved.copy_capture_id
+    )
+    visible_before = tasks.retrieval.read_record(reading, authority=external).to_wire()
+    tables = ("sharing_previews", "sharing_decisions", "sharing_links", "sharing_revocations")
+
+    def retained_snapshot(current: EngineTaskSet) -> tuple[tuple[tuple[object, ...], ...], ...]:
+        with open_local_database_read_only(current.profile) as connection:
+            return tuple(
+                tuple(tuple(row) for row in connection.execute(f"SELECT * FROM {table} ORDER BY 1"))
+                for table in tables
+            ) + (
+                tuple(tuple(row) for row in connection.execute(
+                    "SELECT * FROM source_revisions WHERE source_id=? ORDER BY sequence",
+                    (source_id,),
+                )),
+            )
+
+    retained_before = retained_snapshot(tasks)
+    for index in range(30):
+        (selected / f"item-{index:03}.md").write_text(
+            f"# Other synthetic item {index}\nbody\n", encoding="utf-8"
+        )
+    if failure == "refused_present":
+        saved.write_text("---\nmalformed but present\n", encoding="utf-8")
+    else:
+        saved.unlink()
+    now[0] = 160
+    first = controller.sync_due(
+        source_id="synthetic-publication", runtime=runtime, capture_sink=sink
+    )
+    assert first.captured_count == 25 and first.next_cursor is not None
+    assert runtime.last_scan is not None and not runtime.last_scan.complete
+    assert runtime.absence_candidates == ()
+    if failure == "interrupted":
+        paused = controller.pause("synthetic-publication")
+        assert paused.status == "paused"
+    else:
+        if failure == "membership":
+            (selected / "new.md").write_text("# New membership\n", encoding="utf-8")
+        elif failure == "concurrent_edit":
+            (selected / "item-000.md").write_text("# Changed after first page\n", encoding="utf-8")
+        now[0] = 220
+        with monkeypatch.context() as patch:
+            if failure == "enumeration":
+                def inaccessible(_path: object) -> object:
+                    raise OSError("synthetic enumeration denied")
+
+                patch.setattr(os, "scandir", inaccessible)
+            last = controller.sync_due(
+                source_id="synthetic-publication", runtime=runtime, capture_sink=sink
+            )
+        assert last.next_cursor is None
+        assert runtime.last_scan is not None
+        assert runtime.last_scan.complete is (failure == "refused_present")
+        if failure == "refused_present":
+            refusals = [row for row in runtime.last_scan.candidates if not row.accepted]
+            assert len(refusals) == 1 and refusals[0].relative_path == "saved.md"
+    assert runtime.absence_candidates == ()
+    assert retained_snapshot(tasks) == retained_before
+    assert tasks.sources.inspect(
+        SourceInspectRequest(source_id=source_id), authority=owner
+    ) == inspected
+    assert tasks.retrieval.read_record(reading, authority=external).to_wire() == visible_before
+    # Reopening durable objects cannot turn incomplete/refused presence into withdrawal.
+    tasks, sink, runtime, controller = _collector(tmp_path, selected, now)
+    assert runtime.absence_candidates == ()
+    assert retained_snapshot(tasks) == retained_before
+    assert tasks.sources is not None and tasks.history is not None
+    assert tasks.sources.inspect(
+        SourceInspectRequest(source_id=source_id), authority=owner
+    ) == inspected
+    tasks.portability.rebuild_index()
+    assert tasks.retrieval.read_record(reading, authority=external).to_wire() == visible_before
+    original = tasks.history.read_history(
+        RecordReadRequest(
+            record_id=inspected.head_capture_id, expected_revision_id=inspected.head_capture_id
+        ), authority=owner,
+    ).to_wire()
+    assert "Full synthetic retained body 漢字" in cast(
+        str, cast(dict[str, object], original["content"])["text"]
+    )
