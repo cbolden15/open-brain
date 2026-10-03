@@ -46,6 +46,15 @@ before activation; a snapshot alone is not a freshness or zero-loss proof.
 
 ## Clean restore
 
+The foreground `open-brain restore` command uses the same clean importer without
+opening a primary Brain or generating a caller identity. It admits only trusted
+owner-local authority and an owner-only absolute archive directory. Portable
+5–8 retain explicit issuer evidence; this standalone entry point refuses earlier
+formats rather than creating replacement issuer state. Existing engine task
+imports keep their frozen format behavior. Both paths share hidden staging,
+identity-preserving materialization, audits, no-replace promotion and exact retry
+validation.
+
 Managed delivery v1/v2 envelopes retain supplied capture titles even though the
 frozen capture record has no title field. V8 materialization restores those titles
 from validated terminal envelope evidence and refuses conflicting titles for one

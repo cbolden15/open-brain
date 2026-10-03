@@ -3,7 +3,11 @@
 from __future__ import annotations
 
 import json
+import os
 import sqlite3
+import stat
+import tomllib
+from collections.abc import Callable
 from dataclasses import replace
 from datetime import UTC, datetime
 from hashlib import sha256
@@ -760,194 +764,9 @@ class PortabilityTasks:
         self, source: Path, destination: Path, *, import_id: str
     ) -> PortabilityReceipt:
         self._engine._assert_root()
-        _portable_id(import_id, "import")
-        _reject_containment(source, destination)
-        try:
-            source_root = source.resolve(strict=True)
-        except OSError as error:
-            raise ValueError("portable import source cannot be resolved") from error
-        source_identity = capture_root_identity(source_root)
-        source_snapshot = validated_portable_snapshot(
-            source_root,
-            expected_root_identity=source_identity,
-        )
-        manifest = source_snapshot.manifest
-        if manifest["schema_version"] == 4:
-            raise ValueError("Portable v4 import is not supported")
-        parent_identity = _destination_parent_identity(
-            destination,
-            source_identity,
-        )
-        with _promotion_lease(
-            destination,
-            self._engine.profile.owner_actor_id,
-            parent_identity,
-        ).acquire(LockScope.PORTABILITY_PROMOTION):
-            _destination_parent_identity(
-                destination,
-                source_identity,
-                expected_identity=parent_identity,
-            )
-            destination_identity = _destination_identity(destination, parent_identity)
-            if destination_identity is None:
-                return self._import_clean(
-                    destination,
-                    import_id,
-                    source_snapshot,
-                    source_identity,
-                    parent_identity,
-                )
-            if _target_manifest_matches(manifest, destination, destination_identity):
-                expected_ready = _read_ready_record(destination, destination_identity)
-                _validate_reopened_import(
-                    destination,
-                    source_snapshot,
-                    import_id=import_id,
-                    expected_ready=expected_ready,
-                    expected_root_identity=destination_identity,
-                )
-                return _receipt(
-                    manifest,
-                    status="imported",
-                    duplicate=True,
-                    index_generation=cast(
-                        int,
-                        cast(dict[str, object], expected_ready["index"])["generation"],
-                    ),
-                )
-            raise ValueError("portable import destination conflicts")
-
-    def _import_clean(
-        self,
-        destination: Path,
-        import_id: str,
-        source_snapshot: PortableSnapshot,
-        source_identity: RootIdentity,
-        parent_identity: RootIdentity,
-    ) -> PortabilityReceipt:
-        manifest = source_snapshot.manifest
-        entries = cast(list[dict[str, object]], manifest["files"])
-        try:
-            with sibling_stage(
-                destination,
-                expected_parent_identity=parent_identity,
-                forbidden_ancestor_identity=source_identity,
-            ) as stage:
-                self._engine._fault(PortabilityFault.AFTER_STAGE_CREATED)
-                for entry in entries:
-                    relative = cast(str, entry["path"])
-                    try:
-                        payload = source_snapshot.files[relative]
-                    except KeyError:
-                        raise ValueError("portable import source changed") from None
-                    stage.write_bytes(relative, payload)
-                    self._engine._fault(PortabilityFault.AFTER_PORTABLE_FILE)
-                stage.write_bytes(
-                    "portable-manifest.json",
-                    portable_canonical_json_bytes(manifest),
-                )
-                self._engine._fault(PortabilityFault.AFTER_MANIFEST)
-                stage_root = stage.root
-                stage_identity = stage.identity
-                stage_snapshot = validated_portable_snapshot(
-                    stage_root,
-                    expected_root_identity=stage_identity,
-                )
-                if stage_snapshot.files != source_snapshot.files:
-                    raise ValueError("portable import stage differs from its source snapshot")
-                stage.assert_identity()
-                self._engine._fault(PortabilityFault.AFTER_PROFILE)
-                if manifest["schema_version"] == 8:
-                    from .portable_v8_restore import restore_portable_v8_root
-
-                    materialization = restore_portable_v8_root(
-                        stage_root,
-                        snapshot=stage_snapshot,
-                        expected_root_identity=stage_identity,
-                    )
-                elif manifest["schema_version"] in {5, 6, 7}:
-                    materialization = restore_portable_v5_root(
-                        stage_root,
-                        snapshot=stage_snapshot,
-                        expected_root_identity=stage_identity,
-                    )
-                else:
-                    materialization = materialize_portable_root(
-                        stage_root,
-                        snapshot=stage_snapshot,
-                        expected_root_identity=stage_identity,
-                    )
-                if manifest["schema_version"] in {5, 6, 7, 8}:
-                    materialization = replace(
-                        materialization,
-                        history_records=_materialization_counts(manifest)["history_records"],
-                    )
-                if manifest["schema_version"] in {2, 3, 5, 6, 7, 8}:
-                    managed_paths = [
-                        path
-                        for path in stage_snapshot.files
-                        if path.startswith("history/managed-workspace/")
-                    ]
-                    if manifest["schema_version"] == 2 and len(managed_paths) != 1:
-                        raise ValueError("Portable v2 managed state is unavailable")
-                    if managed_paths:
-                        if len(managed_paths) != 1:
-                            raise ValueError("Portable managed state is invalid")
-                        from .local import BrainEngine
-
-                        staged_engine = BrainEngine.open(materialization.profile)
-                        import_managed_workspace_state(
-                            staged_engine,
-                            stage_snapshot.files[managed_paths[0]],
-                        )
-                        if manifest["schema_version"] not in {5, 6, 7, 8}:
-                            materialization = replace(
-                                materialization,
-                                history_records=materialization.history_records + 1,
-                            )
-                stage.assert_identity()
-                self._engine._fault(PortabilityFault.AFTER_MATERIALIZATION)
-                index = rebuild_portable_index(materialization.profile)
-                self._engine._fault(PortabilityFault.AFTER_INDEX)
-                ready = _ready_record(
-                    manifest,
-                    import_id=import_id,
-                    materialization=materialization,
-                    index=index,
-                )
-                stage.write_bytes(
-                    ".open-brain/state/portability-ready.json",
-                    portable_canonical_json_bytes(ready),
-                )
-                _validate_reopened_import(
-                    stage_root,
-                    stage_snapshot,
-                    import_id=import_id,
-                    expected_ready=ready,
-                    expected_root_identity=stage_identity,
-                )
-                stage.assert_identity()
-                self._engine._fault(PortabilityFault.AFTER_READY)
-                self._engine._fault(PortabilityFault.BEFORE_PROMOTION)
-
-                def verify_staged_import() -> None:
-                    _validate_reopened_import(
-                        stage_root,
-                        stage_snapshot,
-                        import_id=import_id,
-                        expected_ready=ready,
-                        expected_root_identity=stage_identity,
-                    )
-
-                stage.promote(pre_rename=verify_staged_import)
-                self._engine._fault(PortabilityFault.AFTER_PROMOTION)
-        except StagingError as error:
-            raise ValueError("portable import staging failed") from error
-        return _receipt(
-            manifest,
-            status="imported",
-            index_generation=index.generation,
-        )
+        return _PortableImporter(
+            self._engine.profile.owner_actor_id, self._engine._fault
+        ).import_clean(source, destination, import_id=import_id)
 
     def rebuild_index(self) -> PortabilityReceipt:
         self._engine._assert_root()
@@ -1002,3 +821,262 @@ class PortabilityTasks:
             ),
         )
         return _receipt(manifest, status="rebuilt", index_generation=index.generation)
+
+
+def restore_portable_clean(
+    source: Path,
+    destination: Path,
+    *,
+    import_id: str,
+    authority: EffectiveAuthority,
+    checkpoint: Callable[[PortabilityFault], None] = lambda _fault: None,
+) -> PortabilityReceipt:
+    """Owner-local clean recovery without opening or creating a caller Brain.
+
+    Archive owner fields supply lease coordination, never caller authorization.
+    Only formats retaining explicit issuer evidence can prove existing identity.
+    This capability is not part of delegated engine task sets or model tools.
+    """
+    from .consent_contracts import EgressMode
+
+    if (
+        not isinstance(authority, EffectiveAuthority)
+        or not authority.owner
+        or authority.egress_mode is not EgressMode.OWNER_LOCAL
+    ):
+        raise T03Error("unsupported_capability")
+    if not source.is_absolute() or not destination.is_absolute():
+        raise ValueError("standalone recovery requires absolute paths")
+    metadata = source.stat(follow_symlinks=False)
+    if (
+        not stat.S_ISDIR(metadata.st_mode)
+        or metadata.st_uid != os.getuid()
+        or stat.S_IMODE(metadata.st_mode) != 0o700
+    ):
+        raise ValueError("standalone recovery requires an owner-only source directory")
+    source_identity = capture_root_identity(source)
+    if source_identity != (metadata.st_dev, metadata.st_ino):
+        raise ValueError("standalone recovery source changed")
+    return _PortableImporter(
+        None, checkpoint, existing_identity_only=True, expected_source_identity=source_identity
+    ).import_clean(source, destination, import_id=import_id)
+
+
+class _PortableImporter:
+    """One shared clean-import implementation, independent of a live Brain."""
+
+    def __init__(
+        self,
+        actor_id: str | None,
+        checkpoint: Callable[[PortabilityFault], None],
+        *,
+        existing_identity_only: bool = False,
+        expected_source_identity: RootIdentity | None = None,
+    ) -> None:
+        self._actor_id = actor_id
+        self._fault = checkpoint
+        self._existing_identity_only = existing_identity_only
+        self._expected_source_identity = expected_source_identity
+
+    def import_clean(
+        self, source: Path, destination: Path, *, import_id: str
+    ) -> PortabilityReceipt:
+        _portable_id(import_id, "import")
+        _reject_containment(source, destination)
+        try:
+            source_root = source.resolve(strict=True)
+        except OSError as error:
+            raise ValueError("portable import source cannot be resolved") from error
+        source_identity = capture_root_identity(source_root)
+        if (
+            self._expected_source_identity is not None
+            and source_identity != self._expected_source_identity
+        ):
+            raise ValueError("standalone recovery source changed")
+        source_snapshot = validated_portable_snapshot(
+            source_root,
+            expected_root_identity=source_identity,
+        )
+        manifest = source_snapshot.manifest
+        if manifest["schema_version"] == 4:
+            raise ValueError("Portable v4 import is not supported")
+        if self._existing_identity_only and manifest["schema_version"] not in {5, 6, 7, 8}:
+            raise ValueError("standalone recovery requires retained issuer evidence")
+        actor_id = self._actor_id
+        if actor_id is None:
+            identity = tomllib.loads(source_snapshot.files["brain.toml"].decode("utf-8"))
+            actor_id = _portable_id(identity["owner_actor_id"], "actor")
+        parent_identity = _destination_parent_identity(
+            destination,
+            source_identity,
+        )
+        with _promotion_lease(
+            destination,
+            actor_id,
+            parent_identity,
+        ).acquire(LockScope.PORTABILITY_PROMOTION):
+            _destination_parent_identity(
+                destination,
+                source_identity,
+                expected_identity=parent_identity,
+            )
+            destination_identity = _destination_identity(destination, parent_identity)
+            if destination_identity is None:
+                return self._import_clean(
+                    destination,
+                    import_id,
+                    source_snapshot,
+                    source_identity,
+                    parent_identity,
+                )
+            if _target_manifest_matches(manifest, destination, destination_identity):
+                expected_ready = _read_ready_record(destination, destination_identity)
+                _validate_reopened_import(
+                    destination,
+                    source_snapshot,
+                    import_id=import_id,
+                    expected_ready=expected_ready,
+                    expected_root_identity=destination_identity,
+                )
+                return _receipt(
+                    manifest,
+                    status="imported",
+                    duplicate=True,
+                    index_generation=cast(
+                        int,
+                        cast(dict[str, object], expected_ready["index"])["generation"],
+                    ),
+                )
+            raise ValueError("portable import destination conflicts")
+
+    def _import_clean(
+        self,
+        destination: Path,
+        import_id: str,
+        source_snapshot: PortableSnapshot,
+        source_identity: RootIdentity,
+        parent_identity: RootIdentity,
+    ) -> PortabilityReceipt:
+        manifest = source_snapshot.manifest
+        entries = cast(list[dict[str, object]], manifest["files"])
+        try:
+            with sibling_stage(
+                destination,
+                expected_parent_identity=parent_identity,
+                forbidden_ancestor_identity=source_identity,
+            ) as stage:
+                self._fault(PortabilityFault.AFTER_STAGE_CREATED)
+                for entry in entries:
+                    relative = cast(str, entry["path"])
+                    try:
+                        payload = source_snapshot.files[relative]
+                    except KeyError:
+                        raise ValueError("portable import source changed") from None
+                    stage.write_bytes(relative, payload)
+                    self._fault(PortabilityFault.AFTER_PORTABLE_FILE)
+                stage.write_bytes(
+                    "portable-manifest.json",
+                    portable_canonical_json_bytes(manifest),
+                )
+                self._fault(PortabilityFault.AFTER_MANIFEST)
+                stage_root = stage.root
+                stage_identity = stage.identity
+                stage_snapshot = validated_portable_snapshot(
+                    stage_root,
+                    expected_root_identity=stage_identity,
+                )
+                if stage_snapshot.files != source_snapshot.files:
+                    raise ValueError("portable import stage differs from its source snapshot")
+                stage.assert_identity()
+                self._fault(PortabilityFault.AFTER_PROFILE)
+                if manifest["schema_version"] == 8:
+                    from .portable_v8_restore import restore_portable_v8_root
+
+                    materialization = restore_portable_v8_root(
+                        stage_root,
+                        snapshot=stage_snapshot,
+                        expected_root_identity=stage_identity,
+                    )
+                elif manifest["schema_version"] in {5, 6, 7}:
+                    materialization = restore_portable_v5_root(
+                        stage_root,
+                        snapshot=stage_snapshot,
+                        expected_root_identity=stage_identity,
+                    )
+                else:
+                    materialization = materialize_portable_root(
+                        stage_root,
+                        snapshot=stage_snapshot,
+                        expected_root_identity=stage_identity,
+                    )
+                if manifest["schema_version"] in {5, 6, 7, 8}:
+                    materialization = replace(
+                        materialization,
+                        history_records=_materialization_counts(manifest)["history_records"],
+                    )
+                if manifest["schema_version"] in {2, 3, 5, 6, 7, 8}:
+                    managed_paths = [
+                        path
+                        for path in stage_snapshot.files
+                        if path.startswith("history/managed-workspace/")
+                    ]
+                    if manifest["schema_version"] == 2 and len(managed_paths) != 1:
+                        raise ValueError("Portable v2 managed state is unavailable")
+                    if managed_paths:
+                        if len(managed_paths) != 1:
+                            raise ValueError("Portable managed state is invalid")
+                        from .local import BrainEngine
+
+                        staged_engine = BrainEngine.open(materialization.profile)
+                        import_managed_workspace_state(
+                            staged_engine,
+                            stage_snapshot.files[managed_paths[0]],
+                        )
+                        if manifest["schema_version"] not in {5, 6, 7, 8}:
+                            materialization = replace(
+                                materialization,
+                                history_records=materialization.history_records + 1,
+                            )
+                stage.assert_identity()
+                self._fault(PortabilityFault.AFTER_MATERIALIZATION)
+                index = rebuild_portable_index(materialization.profile)
+                self._fault(PortabilityFault.AFTER_INDEX)
+                ready = _ready_record(
+                    manifest,
+                    import_id=import_id,
+                    materialization=materialization,
+                    index=index,
+                )
+                stage.write_bytes(
+                    ".open-brain/state/portability-ready.json",
+                    portable_canonical_json_bytes(ready),
+                )
+                _validate_reopened_import(
+                    stage_root,
+                    stage_snapshot,
+                    import_id=import_id,
+                    expected_ready=ready,
+                    expected_root_identity=stage_identity,
+                )
+                stage.assert_identity()
+                self._fault(PortabilityFault.AFTER_READY)
+                self._fault(PortabilityFault.BEFORE_PROMOTION)
+
+                def verify_staged_import() -> None:
+                    _validate_reopened_import(
+                        stage_root,
+                        stage_snapshot,
+                        import_id=import_id,
+                        expected_ready=ready,
+                        expected_root_identity=stage_identity,
+                    )
+
+                stage.promote(pre_rename=verify_staged_import)
+                self._fault(PortabilityFault.AFTER_PROMOTION)
+        except StagingError as error:
+            raise ValueError("portable import staging failed") from error
+        return _receipt(
+            manifest,
+            status="imported",
+            index_generation=index.generation,
+        )

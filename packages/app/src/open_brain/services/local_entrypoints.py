@@ -15,7 +15,7 @@ import time
 import unicodedata
 import uuid
 from collections.abc import Callable, Mapping
-from dataclasses import replace
+from dataclasses import asdict, replace
 from datetime import UTC, datetime
 from hashlib import sha256
 from pathlib import Path
@@ -50,6 +50,7 @@ from open_brain_engine.engine import (
 )
 from open_brain_engine.engine.consent_contracts import ConsentContractError, EgressMode
 from open_brain_engine.engine.contracts import CaptureAdmissionError, ManagedWorkspaceFailure
+from open_brain_engine.engine.portability import restore_portable_clean
 from open_brain_engine.engine.privacy_repairs import (
     PrivacyRepairError,
     PrivacyRepairRequest,
@@ -195,6 +196,8 @@ def run_cli(
     if parsed.command is None:
         _write_usage_failure(json_output=json_output)
         return 2
+    if parsed.command == "restore":
+        return _run_portable_restore(parsed, json_output=json_output)
     if parsed.command == "workspace":
         try:
             _validate_workspace_recovery_arguments(parsed)
@@ -350,6 +353,31 @@ def run_cli(
         return 130
     finally:
         signal.signal(signal.SIGINT, previous_handler)
+
+
+def _run_portable_restore(parsed: argparse.Namespace, *, json_output: bool) -> int:
+    """Owner-local recovery precedes root selection and ordinary bootstrap."""
+    try:
+        receipt = restore_portable_clean(
+            parsed.archive,
+            parsed.destination,
+            import_id=parsed.import_id,
+            authority=owner_authority_for_principal(
+                principal_id="open-brain-local-recovery-owner",
+                session_id="restore-" + str(uuid.uuid4()),
+            ),
+        )
+    except Exception:
+        if json_output:
+            _write_json({"error": {"code": "portable_restore_failed"}})
+        else:
+            print("portable_restore_failed", file=sys.stderr)
+        return 78
+    if json_output:
+        _write_json(asdict(receipt))
+    else:
+        print("Portable Brain restored." if not receipt.duplicate else "Restore already complete.")
+    return 0
 
 
 def _run_parsed_command(
@@ -586,6 +614,13 @@ def _parser() -> argparse.ArgumentParser:
     subparsers = parser.add_subparsers(dest="command", metavar="COMMAND")
     init_parser = subparsers.add_parser("init", help="Create or reopen one private local Brain.")
     _add_local_options(init_parser)
+    restore_parser = subparsers.add_parser(
+        "restore", help="Restore an existing Brain into an absent root without bootstrap."
+    )
+    restore_parser.add_argument("archive", type=Path, help="Absolute owner-only Portable root.")
+    restore_parser.add_argument("destination", type=Path, help="Absolute absent recovery root.")
+    restore_parser.add_argument("--import-id", required=True, help="Stable import UUID identity.")
+    restore_parser.add_argument("--json", action="store_true", default=argparse.SUPPRESS)
     capture_parser = subparsers.add_parser(
         "capture", help="Capture owner-authored text directly into the local Brain."
     )

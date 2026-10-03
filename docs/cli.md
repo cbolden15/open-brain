@@ -14,6 +14,7 @@ opening a Brain. See the [feature/version matrix](core-v01-features.md).
 | Command family | Purpose / reference |
 |---|---|
 | `init`, `capture`, `import`, `status`, `export` | Local storage lifecycle; [first-use](first-use.md), [install](install.md) |
+| `restore` | Owner-local clean Portable recovery without opening a caller Brain; [Portable 8](portable-brain-v8.md) |
 | `capture-submit` | Destination-bound capture under a trusted startup policy; [capture contract](capture-contract.md) |
 | `journal status/drain/retry/discard` | Owner-only durable ingress inspection and recovery; [operations](operations.md) |
 | `consent grant/inspect/replace/revoke` | Owner-only durable external-provider consent for scoped sessions |
@@ -56,6 +57,22 @@ prove current sharing eligibility or independently protected custody. A settled
 retry returns `status: settled` with no new receipt. Ordinary startup refuses
 pending or inconsistent historical state. Portable v8 acceptance is still required
 before this extension can be released.
+
+`restore /absolute/archive /absolute/absent-root --import-id import_UUID --json`
+restores an existing Brain before platform-root selection or ordinary bootstrap.
+Replace `import_UUID` with `import_` followed by a version-4 UUID and retain that
+same ID for retries. The source directory must be owned by the current OS user,
+mode 0700, and contain a valid Portable 5, 6, 7 or 8 archive. Formats 1–3 lack the
+explicit issuer evidence required by this recovery entry point; format 4 remains
+unsupported. Ordinary engine import compatibility is unchanged.
+
+The destination must be absent. An exact already-promoted retry returns
+`duplicate: true` only after fresh semantic and index audits; a different import
+ID or conflicting destination refuses. The command neither creates a tooling
+Brain nor overwrites a live root. It restores the archive's existing identity
+and installs no provider consent. Recovery paths remain owner-local and are not
+MCP or plugin operations. Storage encryption, independent backup freshness and
+all post-snapshot replay remain deployment responsibilities.
 
 An uncommitted historical-copy link also needs `--consent-state /absolute/state.json`
 pointing to the existing owner-only, Brain-bound provider-consent store. Recovery
