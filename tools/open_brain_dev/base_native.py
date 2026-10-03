@@ -73,6 +73,7 @@ _REQUIRED_MODULES: Final = frozenset(
         "open_brain_engine.engine.portability",
         "open_brain_engine.engine.portable_v8_authority",
         "open_brain_engine.engine.portable_v8_restore",
+        "open_brain_engine.engine.historical_checkpoint",
         "open_brain_engine.portable.v8",
         "open_brain_engine.engine.retrieval",
         "open_brain_engine.storage.operational",

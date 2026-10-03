@@ -74,6 +74,7 @@ def test_native_audit_requires_catalog_implementation() -> None:
     assert {
         "open_brain_engine.engine.portable_v8_authority",
         "open_brain_engine.engine.portable_v8_restore",
+        "open_brain_engine.engine.historical_checkpoint",
         "open_brain_engine.portable.v8",
     } <= base_native._REQUIRED_MODULES
 

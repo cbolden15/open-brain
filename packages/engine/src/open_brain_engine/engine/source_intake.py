@@ -6,7 +6,8 @@ from __future__ import annotations
 import base64
 import json
 import sqlite3
-from collections.abc import Mapping
+from collections.abc import Iterator, Mapping
+from contextlib import contextmanager
 from dataclasses import dataclass
 from hashlib import sha256
 from typing import TYPE_CHECKING, Any
@@ -19,6 +20,7 @@ from .source_observation import SourceRevisionObservation
 from .t03_contracts import T03Error, _freeze, _thaw
 
 if TYPE_CHECKING:
+    from .historical_checkpoint import HistoricalBaselineDuplicate
     from .local import BrainEngine
 
 
@@ -270,6 +272,57 @@ class PublicJobRevisionSink:
     def __init__(self, engine: BrainEngine, binding: SourceRevisionBinding) -> None:
         self._engine = engine
         self._binding = binding
+
+    def lookup_baseline(
+        self, delivery: SourceRevisionObservedDelivery, *, selection_generation: str
+    ) -> HistoricalBaselineDuplicate | None:
+        """Resolve an exact active baseline without reserving normal custody."""
+        from open_brain_engine.storage.filesystem import StorageError
+
+        from .historical_checkpoint import lookup_historical_baseline
+        from .sharing_contracts import SharingError
+
+        if type(delivery) is not SourceRevisionObservedDelivery or delivery.binding != self._binding:
+            raise T03Error("invalid_arguments")
+        connection = self._engine._store.connect()
+        try:
+            return lookup_historical_baseline(
+                connection,
+                self._engine.profile,
+                delivery,
+                selection_generation=selection_generation,
+            )
+        except SharingError, StorageError:
+            raise T03Error("revision_changed") from None
+        finally:
+            connection.close()
+
+    @contextmanager
+    def baseline_checkpoint(
+        self,
+        delivery: SourceRevisionObservedDelivery,
+        result: HistoricalBaselineDuplicate,
+        *,
+        selection_generation: str,
+    ) -> Iterator[None]:
+        """Hold canonical writer exclusion through the caller's checkpoint write.
+
+        The caller additionally owns the selection barrier and page completeness
+        checks. This grants no body release, publication or owner mutation.
+        """
+        from .historical_checkpoint import HistoricalBaselineDuplicate
+        from .sharing_contracts import SharingError
+
+        if type(result) is not HistoricalBaselineDuplicate:
+            raise T03Error("invalid_arguments")
+        try:
+            with self._engine._writer_lease.acquire_shared_writer():
+                current = self.lookup_baseline(delivery, selection_generation=selection_generation)
+                if current is None or current != result:
+                    raise T03Error("revision_changed")
+                yield
+        except SharingError:
+            raise T03Error("revision_changed") from None
 
     def inspect_head(self) -> SourceRevisionHead:
         namespace_sha = sha256(
