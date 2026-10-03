@@ -46,6 +46,12 @@ before activation; a snapshot alone is not a freshness or zero-loss proof.
 
 ## Clean restore
 
+Managed delivery v1/v2 envelopes retain supplied capture titles even though the
+frozen capture record has no title field. V8 materialization restores those titles
+from validated terminal envelope evidence and refuses conflicting titles for one
+capture. Portable1–7 materialization stays unchanged. Archive re-export equality
+alone does not prove that restored runtime views preserve supplied metadata.
+
 Import uses a new hidden stage, never an existing live database. Base records and
 inherited authority restore first. Historical operations then use the forward
 intent, pending fence, registry and SQL projection protocol. A fence becomes

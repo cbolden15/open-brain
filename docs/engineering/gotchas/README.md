@@ -4,6 +4,25 @@ Non-obvious behaviors, sharp edges, and lessons learned belong here.
 
 ## Registry
 
+### PORTABLE-008: Managed titles require whole-envelope restore evidence
+
+Symptom: A managed source restores with its original body and receipt, but its
+owner-history title changes to a title inferred from redacted body text.
+
+Cause: The frozen capture record has no supplied-title field. Base materialization
+sets the capture title to null even when a managed delivery retains the exact
+admitted submission and its supplied title. Archive round-trip equality alone
+does not detect this loss because both exports retain the same envelope bytes.
+
+Fix: For the unreleased Portable8 format, recover managed titles from validated
+whole-envelope terminal evidence. Refuse conflicting titles for one capture.
+Preserve Portable1–7 materialization semantics. Test three managed revisions,
+withdrawal, exact history responses and terminal replay with original Brain,
+source files and sender caches unavailable. A local fixture is not independent
+encrypted protection or proof of post-snapshot write coverage.
+
+Discovered: 2026-10-03, synthetic managed-record recovery format rehearsal.
+
 ### PORTABLE-005: Owner replay identity outlives derived capture keys
 
 Symptom: Retrying an original owner delivery after clean Portable restore creates

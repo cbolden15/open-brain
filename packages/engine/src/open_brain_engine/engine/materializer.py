@@ -212,6 +212,23 @@ def portable_capture_content(files: Mapping[str, bytes]) -> list[dict[str, objec
     if SOURCE_METADATA_PATH in files:
         for source in json.loads(files[SOURCE_METADATA_PATH])["sources"]:
             spaces[source["head_capture_id"]] = source["space_id"]
+    managed_titles: dict[str, str | None] = {}
+    # Only the unreleased v8 format restores titles from complete managed
+    # envelope evidence. The frozen v1-v7 capture record has no supplied title;
+    # its historical materialization semantics remain unchanged.
+    from open_brain_engine.portable.v6 import SOURCE_ADMISSION_PATH
+    from open_brain_engine.portable.v8 import HISTORICAL_AUTHORITY_PATH
+
+    if HISTORICAL_AUTHORITY_PATH in files:
+        admission = json.loads(files[SOURCE_ADMISSION_PATH])
+        for delivery in admission["managed_source_deliveries"]:
+            receipt = json.loads(delivery["receipt_json"])["source_receipt"]
+            capture_id = receipt["capture_id"]
+            envelope = json.loads(base64.b64decode(delivery["envelope_bytes"], validate=True))
+            title = envelope["submission"]["capture"]["title"]
+            if capture_id in managed_titles and managed_titles[capture_id] != title:
+                raise ValueError("Portable8 managed capture titles conflict")
+            managed_titles[capture_id] = title
     rows: list[dict[str, object]] = []
     for _, record in _json_records(files, "sources/captures"):
         capture_id = cast(str, record["capture_id"])
@@ -224,7 +241,7 @@ def portable_capture_content(files: Mapping[str, bytes]) -> list[dict[str, objec
                 "payload_family": payload["family"],
                 "payload_json": payload,
                 "search_text": _payload_search_text(payload),
-                "title": None,
+                "title": managed_titles.get(capture_id),
                 "source_origin": source["origin"],
                 "source_reference": source["reference"],
                 "provenance_json": record["provenance"],
