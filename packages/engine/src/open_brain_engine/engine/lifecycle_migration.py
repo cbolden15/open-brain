@@ -32,7 +32,7 @@ def migrate_saved_lifecycle(
     )
     try:
         state = classify_local_schema(connection)
-        if state.state == "current" and state.version == 11:
+        if state.state == "current" and state.version in {11, 12}:
             return
         if state.state != "supported_old" or state.version != 10:
             raise T03Error("operation_pending")

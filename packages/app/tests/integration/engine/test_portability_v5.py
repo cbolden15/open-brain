@@ -25,6 +25,7 @@ from open_brain_engine.portable import v5
 from open_brain_engine.portable.relationships_v1 import RELATIONSHIP_METADATA_PATH
 from open_brain_engine.portable.v4 import SOURCE_METADATA_PATH
 from open_brain_engine.portable.v6 import V6_SIDECAR_PATHS
+from open_brain_engine.portable.v7 import V7_SIDECAR_PATHS
 from open_brain_engine.portable.versioned import validated_portable_snapshot
 
 from open_brain.profile import compile_single_user_local
@@ -77,8 +78,8 @@ def test_fresh_export_import_reexport(tmp_path: Path) -> None:
         space_id=engine.inbox.spaces()[0].space_id,
     )
     source, target, again = (tmp_path / name for name in ("export", "import", "again"))
-    assert engine.portability.export(source, export_id=EXPORT).schema_version == 6
-    assert engine.portability.import_clean(source, target, import_id=IMPORT).schema_version == 6
+    assert engine.portability.export(source, export_id=EXPORT).schema_version == 7
+    assert engine.portability.import_clean(source, target, import_id=IMPORT).schema_version == 7
     reopened = BrainEngine.open(_profile(target, validated_portable_snapshot(target)))
     reopened.portability.export(again, export_id=EXPORT)
     first = dict(validated_portable_snapshot(source).files)
@@ -166,11 +167,11 @@ def test_historical_semantic_roundtrip(
     assert restored.portability.rebuild_index().index_generation == 1
     restored.portability.export(again, export_id=EXPORT)
     current_snapshot = validated_portable_snapshot(again)
-    assert current_snapshot.manifest["schema_version"] == 6
+    assert current_snapshot.manifest["schema_version"] == 7
     observed = dict(current_snapshot.files)
     observed.pop("portable-manifest.json")
-    assert observed.keys() == files.keys() | V6_SIDECAR_PATHS
-    for path in V6_SIDECAR_PATHS:
+    assert observed.keys() == files.keys() | V6_SIDECAR_PATHS | V7_SIDECAR_PATHS
+    for path in V6_SIDECAR_PATHS | V7_SIDECAR_PATHS:
         observed.pop(path)
     assert observed == files
     with restored._store.connect() as connection:

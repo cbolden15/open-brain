@@ -50,6 +50,7 @@ from .managed_selection import managed_note_is_excluded
 from .managed_workspace import _digest, _request_sha256, _timestamp
 from .markdown_import_fs import MAX_FILE_BYTES
 from .normalization import _delivery_id, _new_id, _portable_id, _utc_now
+from .sharing import SEMANTIC_PROVIDER_IDS, EligibilityMode, sharing_eligible
 
 if TYPE_CHECKING:
     from .local import BrainEngine
@@ -137,9 +138,7 @@ def _inference_recovery_workspace_ids(
     )
 
 
-def _cancel_inference_locked(
-    connection: sqlite3.Connection, row: sqlite3.Row, *, now: str
-) -> None:
+def _cancel_inference_locked(connection: sqlite3.Connection, row: sqlite3.Row, *, now: str) -> None:
     if row["status"] != "reserved":
         raise ManagedWorkspaceFailure("stale_request")
     connection.execute(
@@ -235,9 +234,12 @@ class ManagedInferenceTasks:
         _portable_id(workspace_id, "workspace")
         connection = self._engine._store.connect()
         try:
-            if connection.execute(
-                "SELECT 1 FROM managed_workspaces WHERE workspace_id = ?", (workspace_id,)
-            ).fetchone() is None:
+            if (
+                connection.execute(
+                    "SELECT 1 FROM managed_workspaces WHERE workspace_id = ?", (workspace_id,)
+                ).fetchone()
+                is None
+            ):
                 raise ManagedWorkspaceFailure("unknown_workspace")
             rows = tuple(
                 connection.execute(
@@ -323,6 +325,7 @@ class ManagedInferenceTasks:
                     workspace,
                     note_ids,
                     consent_id=consent_id,
+                    provider=selected_provider,
                 )
                 prompt_bytes = prompt.encode("utf-8")
                 self._reserve_budget(
@@ -394,6 +397,7 @@ class ManagedInferenceTasks:
                         workspace,
                         tuple(source.note_id for source in sources),
                         consent_id=consent_id,
+                        provider=provider,
                     )
                     if (
                         current_sources != sources
@@ -479,6 +483,7 @@ class ManagedInferenceTasks:
                         workspace,
                         tuple(item.note_id for item in selected),
                         consent_id=consent_id,
+                        provider=provider,
                     )
                     if (
                         sources != selected
@@ -495,11 +500,9 @@ class ManagedInferenceTasks:
                     output = portable_canonical_json_bytes(
                         {
                             "model": model,
-                            "source": "source-"
-                            + str(selected_ids.index(source_note_id) + 1),
+                            "source": "source-" + str(selected_ids.index(source_note_id) + 1),
                             "source_quote": source_quote,
-                            "target": "source-"
-                            + str(selected_ids.index(target_note_id) + 1),
+                            "target": "source-" + str(selected_ids.index(target_note_id) + 1),
                             "target_quote": target_quote,
                         }
                     )
@@ -592,9 +595,8 @@ class ManagedInferenceTasks:
                 request = self._request_row_from(connection, cast(str, suggestion["request_id"]))
                 current = self._workspace_tasks._workspace_row(connection, workspace_id)
                 self._workspace_tasks._assert_workspace_row(current, workspace)
-                if (
-                    request["status"] != "succeeded"
-                    or int(request["policy_generation"]) != int(current["policy_generation"])
+                if request["status"] != "succeeded" or int(request["policy_generation"]) != int(
+                    current["policy_generation"]
                 ):
                     raise ManagedWorkspaceFailure("invalid_suggestion")
                 provider, access = _provider_access(request["provider"], request["access_mode"])
@@ -714,6 +716,7 @@ class ManagedInferenceTasks:
         note_ids: tuple[str, ...],
         *,
         consent_id: str,
+        provider: ManagedProvider,
     ) -> tuple[tuple[ManagedInferenceSource, ...], str, PrivacyDecision]:
         sources: list[ManagedInferenceSource] = []
         prompt_sources: list[dict[str, str]] = []
@@ -735,10 +738,9 @@ class ManagedInferenceTasks:
                 raise ManagedWorkspaceFailure("ineligible_source")
             revision = self._revision(connection, cast(str, note["accepted_revision_id"]))
             payload = cast(bytes, revision["body_bytes"])
-            if (
-                _digest(payload) != revision["body_sha256"]
-                or note["materialized_sha256"] != _digest(payload)
-            ):
+            if _digest(payload) != revision["body_sha256"] or note[
+                "materialized_sha256"
+            ] != _digest(payload):
                 raise ManagedWorkspaceFailure("ineligible_source")
             current = read_confined(
                 root=workspace.root,
@@ -749,7 +751,9 @@ class ManagedInferenceTasks:
             if current != payload:
                 raise ManagedWorkspaceFailure("ineligible_source")
             parsed = self._parsed_revision(revision)
-            self._require_retained_source_eligibility(connection, revision, consent_id=consent_id)
+            self._require_retained_source_eligibility(
+                connection, revision, consent_id=consent_id, provider=provider
+            )
             privacy = self._effective_privacy(
                 cast(str, revision["privacy_json"]), consent_id=consent_id
             )
@@ -772,25 +776,36 @@ class ManagedInferenceTasks:
         return tuple(sources), prompt, effective
 
     def _require_retained_source_eligibility(
-        self, connection: sqlite3.Connection, revision: sqlite3.Row, *, consent_id: str,
+        self,
+        connection: sqlite3.Connection,
+        revision: sqlite3.Row,
+        *,
+        consent_id: str,
+        provider: ManagedProvider,
     ) -> None:
         """Check retained membership without changing representative metadata.
 
         Owner edits and conflict resolution can change frontmatter. Their retained
         ancestry cannot silently lose a source restriction when that happens.
+        Accepted links retain the same requirement for their target revisions.
         Portable histories carry these same bodies; write journals are not needed.
         """
-        note_id = revision["note_id"]
+        sharing_schema = connection.execute("PRAGMA user_version").fetchone()[0] >= 12
+        pending = [(revision, revision["note_id"], frozenset[str]())]
         visited: set[str] = set()
         checked: set[str] = set()
-        while True:
+        while pending:
+            revision, note_id, ancestors = pending.pop()
             if (
-                revision["revision_id"] in visited
+                revision["revision_id"] in ancestors
                 or revision["note_id"] != note_id
                 or _digest(revision["body_bytes"]) != revision["body_sha256"]
             ):
                 raise ManagedWorkspaceFailure("ineligible_source")
+            if revision["revision_id"] in visited:
+                continue
             visited.add(revision["revision_id"])
+            ancestry = ancestors | {revision["revision_id"]}
             members = self._parsed_revision(revision).fields.get("provenance")
             if not isinstance(members, list) or not members:
                 raise ManagedWorkspaceFailure("ineligible_source")
@@ -807,12 +822,47 @@ class ManagedInferenceTasks:
                 ).fetchone()
                 if capture is None:
                     raise ManagedWorkspaceFailure("ineligible_source")
+                if sharing_schema:
+                    identity = connection.execute(
+                        "SELECT brain_id,issuer_epoch FROM brain_identity WHERE singleton=1"
+                    ).fetchone()
+                    provider_id = SEMANTIC_PROVIDER_IDS.get(provider.value)
+                    if (
+                        identity is None
+                        or provider_id is None
+                        or not sharing_eligible(
+                            connection,
+                            member,
+                            mode=EligibilityMode.SEMANTIC_RELEASE,
+                            provider_id=provider_id,
+                            brain_id=identity["brain_id"],
+                            issuer_epoch=identity["issuer_epoch"],
+                        )
+                    ):
+                        raise ManagedWorkspaceFailure("ineligible_source")
                 self._effective_privacy(capture["privacy_json"], consent_id=consent_id)
                 checked.add(member)
             parent = revision["parent_revision_id"]
-            if parent is None:
-                return
-            revision = self._revision(connection, parent)
+            if sharing_schema and revision["kind"] == "link":
+                links = tuple(
+                    connection.execute(
+                        "SELECT target_note_id,target_revision_id FROM managed_links "
+                        "WHERE source_note_id=? AND source_revision_id=?",
+                        (note_id, parent),
+                    )
+                )
+                if parent is None or not links:
+                    raise ManagedWorkspaceFailure("ineligible_source")
+                for link in links:
+                    pending.append(
+                        (
+                            self._revision(connection, link["target_revision_id"]),
+                            link["target_note_id"],
+                            ancestry,
+                        )
+                    )
+            if parent is not None:
+                pending.append((self._revision(connection, parent), note_id, ancestry))
 
     def _source_bodies(
         self, connection: sqlite3.Connection, sources: tuple[ManagedInferenceSource, ...]
@@ -830,7 +880,7 @@ class ManagedInferenceTasks:
             if not isinstance(value, dict):
                 raise ValueError
             stored = PrivacyDecision.from_dict(value)
-        except (json.JSONDecodeError, TypeError, ValueError, ValidationError):
+        except json.JSONDecodeError, TypeError, ValueError, ValidationError:
             raise ManagedWorkspaceFailure("ineligible_source") from None
         if (
             stored.tier is PrivacyTier.PERSONAL
@@ -858,9 +908,7 @@ class ManagedInferenceTasks:
         raise ManagedWorkspaceFailure("ineligible_source")
 
     @staticmethod
-    def _combined_privacy(
-        values: list[PrivacyDecision], consent_id: str
-    ) -> PrivacyDecision:
+    def _combined_privacy(values: list[PrivacyDecision], consent_id: str) -> PrivacyDecision:
         if not values:
             raise ManagedWorkspaceFailure("ineligible_source")
         if any(value.tier is PrivacyTier.PERSONAL for value in values):
@@ -1050,8 +1098,10 @@ class ManagedInferenceTasks:
     def _sources(raw: str) -> tuple[ManagedInferenceSource, ...]:
         try:
             value = json.loads(raw)
-            if not isinstance(value, list) or not value or not all(
-                isinstance(item, dict) for item in value
+            if (
+                not isinstance(value, list)
+                or not value
+                or not all(isinstance(item, dict) for item in value)
             ):
                 raise ValueError
             return tuple(
@@ -1062,7 +1112,7 @@ class ManagedInferenceTasks:
                 )
                 for item in cast(list[dict[str, object]], value)
             )
-        except (KeyError, TypeError, ValueError):
+        except KeyError, TypeError, ValueError:
             raise ManagedWorkspaceFailure("invalid_request") from None
 
     def _request_value(self, row: sqlite3.Row) -> ManagedInferenceRequest:
@@ -1072,7 +1122,7 @@ class ManagedInferenceTasks:
                 raise ValueError
             privacy = PrivacyDecision.from_dict(privacy_value)
             prompt = cast(bytes, row["prompt_bytes"]).decode("utf-8")
-        except (UnicodeDecodeError, json.JSONDecodeError, TypeError, ValueError, ValidationError):
+        except UnicodeDecodeError, json.JSONDecodeError, TypeError, ValueError, ValidationError:
             raise ManagedWorkspaceFailure("invalid_request") from None
         if _digest(prompt.encode("utf-8")) != row["prompt_sha256"]:
             raise ManagedWorkspaceFailure("invalid_request")

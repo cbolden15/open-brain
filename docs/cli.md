@@ -20,7 +20,8 @@ opening a Brain. See the [feature/version matrix](core-v01-features.md).
 | `catalog` | Versioned metadata; no grants or public certification |
 | `search`, `search-page`, `read` | Lexical retrieval and complete projected text; [records](records-and-history.md) |
 | `history list/show`, `relationship list/decide`, `decision history` | Retained evidence; owner relationship mutations |
-| `space create/list/rename`, `inbox list/route`, `source route` | Explicit organization; [spaces](spaces-inbox.md) |
+| `space create/list/rename`, `inbox list/route`, `source route/inspect/withdraw` | Explicit organization and owner source lifecycle; [spaces](spaces-inbox.md), [saved Markdown lifecycle](integrations/saved-markdown-lifecycle.md) |
+| `sharing preview/inspect/approve/reject/revoke` | Owner-approved exact saved-Markdown copy; [saved Markdown lifecycle](integrations/saved-markdown-lifecycle.md) |
 | `review propose/list/show/approve/reject/edit-and-approve` | Source-bound drafts and inspected decisions; [review](review-publication.md) |
 | `agent setup` | Preview/apply/remove client fragments with explicit grants; [agent setup](agent-setup.md) |
 | `workspace` | Setup/status/refresh, note lifecycle/conflicts and recovery; [workspace recovery](managed-workspace-recovery.md) |
@@ -32,6 +33,13 @@ opening a Brain. See the [feature/version matrix](core-v01-features.md).
 Table slashes denote alternative actions, not literal shell syntax. Detailed placeholder templates
 are in the linked references; the first-use and doctor guides contain the executable examples.
 There is no `vault` command; the managed vault is the `Open Brain Vault` sibling of the Brain root.
+
+Sharing is owner-local. `preview`, `approve`, `reject`, and `revoke` require a
+closed version-1 JSON `--request-file`; `inspect` takes a preview or approval ID.
+The CLI prints a pending approval as pending and never treats a canonical review
+approval as external sharing. The installed runtime must report local schema 12,
+runtime session 7, and Portable 7 for this contract. See
+[Portable 7](portable-brain-v7.md) for export and import behavior.
 
 Commands that support machine output accept `--json`. The shared `--data-dir` option must be an
 absolute path. Without it, the CLI uses the platform data directory. `OPEN_BRAIN_ROOT` is ignored.

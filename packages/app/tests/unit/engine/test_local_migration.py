@@ -79,9 +79,7 @@ def _legacy_brain(
     return profile
 
 
-def _schema_seven_brain(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> LocalEngineContext:
+def _schema_seven_brain(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> LocalEngineContext:
     from packages.app.tests.unit.engine.test_privacy_migration import use_schema_seven_runtime
 
     profile = compile_single_user_local(tmp_path / "brain", starter_spaces=("Notes",))
@@ -97,9 +95,7 @@ def _schema_seven_brain(
     return profile
 
 
-def _schema_eight_brain(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> LocalEngineContext:
+def _schema_eight_brain(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> LocalEngineContext:
     from packages.app.tests.unit.engine.test_privacy_migration import use_schema_eight_runtime
 
     profile = compile_single_user_local(tmp_path / "brain", starter_spaces=("Notes",))
@@ -145,9 +141,12 @@ def _schema_ten_brain(
             assert connection.execute("SELECT * FROM runtime_compatibility").fetchall() == [
                 (1, 5, 10)
             ]
-            assert connection.execute(
-                "SELECT name FROM sqlite_master WHERE name='source_lifecycle_state'"
-            ).fetchall() == []
+            assert (
+                connection.execute(
+                    "SELECT name FROM sqlite_master WHERE name='source_lifecycle_state'"
+                ).fetchall()
+                == []
+            )
             source_id = connection.execute(
                 "SELECT source_id FROM source_revisions WHERE capture_id=?", (retired.capture_id,)
             ).fetchone()[0]
@@ -259,7 +258,7 @@ def test_coordinator_is_a_no_op_for_absent_and_current_state(tmp_path: Path) -> 
     current = compile_single_user_local(tmp_path / "current")
     BrainEngine.open(current)
     coordinate(current)
-    assert inspect_phase1_state(current) == local_schema.SchemaState("current", 11)
+    assert inspect_phase1_state(current) == local_schema.SchemaState("current", 12)
     assert _journal_stage(current.root, SOURCE_JOURNAL) is None
     assert _journal_stage(current.root, PRIVACY_JOURNAL) is None
 
@@ -272,7 +271,7 @@ def test_coordinator_chains_schema_five_and_six_to_current_eleven(
     for version in (5, 6):
         profile = _legacy_brain(tmp_path / f"v{version}", monkeypatch, version)
         coordinate(profile, clock=_clock)
-        assert inspect_phase1_state(profile) == local_schema.SchemaState("current", 11)
+        assert inspect_phase1_state(profile) == local_schema.SchemaState("current", 12)
         assert _journal_stage(profile.root, SOURCE_JOURNAL) == "complete"
         assert _journal_stage(profile.root, PRIVACY_JOURNAL) == "complete"
         # The ordinary opener works unchanged once the chain has ended at current.
@@ -287,7 +286,7 @@ def test_coordinator_migrates_schema_seven_to_eleven(
 
     profile = _schema_seven_brain(tmp_path, monkeypatch)
     coordinate(profile, clock=_clock)
-    assert inspect_phase1_state(profile) == local_schema.SchemaState("current", 11)
+    assert inspect_phase1_state(profile) == local_schema.SchemaState("current", 12)
     assert _journal_stage(profile.root, SOURCE_JOURNAL) is None
     assert _journal_stage(profile.root, PRIVACY_JOURNAL) == "complete"
 
@@ -311,7 +310,7 @@ def test_coordinator_resumes_a_pending_source_journal(
     assert _journal_stage(profile.root, SOURCE_JOURNAL) == "journal_durable"
 
     coordinate(profile, clock=_clock)
-    assert inspect_phase1_state(profile) == local_schema.SchemaState("current", 11)
+    assert inspect_phase1_state(profile) == local_schema.SchemaState("current", 12)
     assert _journal_stage(profile.root, SOURCE_JOURNAL) == "complete"
     assert _journal_stage(profile.root, PRIVACY_JOURNAL) == "complete"
 
@@ -335,7 +334,7 @@ def test_coordinator_resumes_a_pending_privacy_journal(
     assert _journal_stage(profile.root, PRIVACY_JOURNAL) != "complete"
 
     coordinate(profile, clock=_clock)
-    assert inspect_phase1_state(profile) == local_schema.SchemaState("current", 11)
+    assert inspect_phase1_state(profile) == local_schema.SchemaState("current", 12)
     assert _journal_stage(profile.root, PRIVACY_JOURNAL) == "complete"
 
 
@@ -365,7 +364,7 @@ def test_coordinator_resumes_after_a_crash_between_phases(
     assert _journal_stage(profile.root, PRIVACY_JOURNAL) is None
 
     coordinate(profile, clock=_clock)
-    assert inspect_phase1_state(profile) == local_schema.SchemaState("current", 11)
+    assert inspect_phase1_state(profile) == local_schema.SchemaState("current", 12)
     assert _journal_stage(profile.root, SOURCE_JOURNAL) == "complete"
     assert _journal_stage(profile.root, PRIVACY_JOURNAL) == "complete"
 
@@ -376,7 +375,7 @@ def test_coordinator_refuses_invalid_and_newer_state(tmp_path: Path) -> None:
     newer = compile_single_user_local(tmp_path / "newer")
     BrainEngine.open(newer)
     with sqlite3.connect(newer.root / _STATE_DATABASE) as connection:
-        connection.execute("PRAGMA user_version=12")
+        connection.execute("PRAGMA user_version=13")
     assert inspect_phase1_state(newer).state == "newer"
     with pytest.raises(StateSchemaUnavailableError, match="newer"):
         coordinate(newer)
@@ -404,7 +403,7 @@ def test_one_exclusive_admission_spans_every_phase(
     # The chain reused the already-live root-bound proof and acquired once.
     assert len(acquisitions) == 1
     assert acquisitions[0] is profile
-    assert inspect_phase1_state(profile) == local_schema.SchemaState("current", 11)
+    assert inspect_phase1_state(profile) == local_schema.SchemaState("current", 12)
 
 
 def test_product_bootstrap_migrates_old_state_only_after_peers_exit(
@@ -456,7 +455,7 @@ def test_product_bootstrap_migrates_old_state_only_after_peers_exit(
             TextPayload("synthetic post-migration capture"),
             delivery_id="bootstrap.after",
         )
-    assert _user_version(profile.root) == 11
+    assert _user_version(profile.root) == 12
     assert _journal_stage(profile.root, SOURCE_JOURNAL) == "complete"
     assert _journal_stage(profile.root, PRIVACY_JOURNAL) == "complete"
     assert len(acquisitions) == 1
@@ -500,8 +499,7 @@ def _assert_exact_migrated_issuer_evidence(profile: LocalEngineContext) -> None:
         assert [
             tuple(row)
             for row in connection.execute(
-                "SELECT tenant_id, brain_id, issuer_epoch, legacy_issuer_epoch "
-                "FROM brain_identity"
+                "SELECT tenant_id, brain_id, issuer_epoch, legacy_issuer_epoch FROM brain_identity"
             )
         ] == [(profile.tenant_id, derive_brain_id(profile.tenant_id), 2, 1)]
         marker = connection.execute(
@@ -520,9 +518,7 @@ def _assert_exact_migrated_issuer_evidence(profile: LocalEngineContext) -> None:
             1,
             2,
         )
-        assert binding_sha == legacy_binding_manifest_sha256(
-            expected_bindings, issuer_epoch=1
-        )
+        assert binding_sha == legacy_binding_manifest_sha256(expected_bindings, issuer_epoch=1)
         assert [
             tuple(row)
             for row in connection.execute(
@@ -539,7 +535,7 @@ def test_coordinator_migrates_schema_eight_to_eleven_with_exact_issuer_evidence(
 
     profile = _schema_eight_brain(tmp_path, monkeypatch)
     coordinate(profile, clock=_clock)
-    assert inspect_phase1_state(profile) == local_schema.SchemaState("current", 11)
+    assert inspect_phase1_state(profile) == local_schema.SchemaState("current", 12)
     _assert_exact_migrated_issuer_evidence(profile)
     # The ordinary opener works unchanged once the issuer phase has ended at current.
     reopened = BrainEngine.open(profile)
@@ -569,15 +565,13 @@ def test_issuer_migration_is_atomic_across_a_crash_and_idempotent_on_reentry(
     with sqlite3.connect(Path(profile.root) / _STATE_DATABASE) as connection:
         absent = {
             row[0]
-            for row in connection.execute(
-                "SELECT name FROM sqlite_master WHERE type='table'"
-            )
+            for row in connection.execute("SELECT name FROM sqlite_master WHERE type='table'")
         }
         for table in ("brain_identity", "legacy_issuer_bindings", "issuer_migration_marker"):
             assert table not in absent
 
     coordinate(profile, clock=_clock)
-    assert inspect_phase1_state(profile) == local_schema.SchemaState("current", 11)
+    assert inspect_phase1_state(profile) == local_schema.SchemaState("current", 12)
     _assert_exact_migrated_issuer_evidence(profile)
 
     # Re-entry on committed schema nine verifies the stored evidence and is a no-op.
@@ -587,16 +581,13 @@ def test_issuer_migration_is_atomic_across_a_crash_and_idempotent_on_reentry(
         ).fetchone()
     with exclusive_runtime_admission(profile) as admission:
         migrate_issuer(profile, admission=admission, clock=_clock)
-    assert inspect_phase1_state(profile) == local_schema.SchemaState("current", 11)
+    assert inspect_phase1_state(profile) == local_schema.SchemaState("current", 12)
     with sqlite3.connect(Path(profile.root) / _STATE_DATABASE) as connection:
-        assert (
-            tuple(
-                connection.execute(
-                    "SELECT source_manifest_sha256, recorded_at FROM issuer_migration_marker"
-                ).fetchone()
-            )
-            == tuple(before)
-        )
+        assert tuple(
+            connection.execute(
+                "SELECT source_manifest_sha256, recorded_at FROM issuer_migration_marker"
+            ).fetchone()
+        ) == tuple(before)
     _assert_exact_migrated_issuer_evidence(profile)
 
 
@@ -648,24 +639,27 @@ def test_schema_ten_lifecycle_migration_faults_preserve_exact_legacy_evidence(
         ]
 
     coordinate(profile, clock=_clock)
-    assert inspect_phase1_state(profile) == local_schema.SchemaState("current", 11)
+    assert inspect_phase1_state(profile) == local_schema.SchemaState("current", 12)
     assert _schema_ten_evidence(profile) == evidence
     assert _vault_files(profile) == files
     with sqlite3.connect(profile.root / _STATE_DATABASE) as connection:
-        assert connection.execute("SELECT * FROM runtime_compatibility").fetchall() == [(1, 6, 11)]
-        assert connection.execute(
-            "SELECT source_id,lifecycle_version FROM source_lifecycle_state ORDER BY source_id"
-        ).fetchall() == connection.execute(
-            "SELECT source_id,0 FROM logical_sources ORDER BY source_id"
-        ).fetchall()
+        assert connection.execute("SELECT * FROM runtime_compatibility").fetchall() == [(1, 7, 12)]
+        assert (
+            connection.execute(
+                "SELECT source_id,lifecycle_version FROM source_lifecycle_state ORDER BY source_id"
+            ).fetchall()
+            == connection.execute(
+                "SELECT source_id,0 FROM logical_sources ORDER BY source_id"
+            ).fetchall()
+        )
         for table in ("source_lifecycle_operations", "managed_source_deliveries"):
             assert connection.execute(f"SELECT COUNT(*) FROM {table}").fetchone() == (0,)
         ledger = connection.execute("SELECT * FROM schema_migrations ORDER BY version").fetchall()
-        assert len(ledger) == 11
+        assert len(ledger) == 12
         assert tuple(ledger[-1][:3]) == (
-            LOCAL_MIGRATIONS[10].version,
-            LOCAL_MIGRATIONS[10].name,
-            LOCAL_MIGRATIONS[10].checksum,
+            LOCAL_MIGRATIONS[11].version,
+            LOCAL_MIGRATIONS[11].name,
+            LOCAL_MIGRATIONS[11].checksum,
         )
 
     with exclusive_runtime_admission(profile) as admission:
@@ -785,7 +779,7 @@ def test_schema_ten_lifecycle_migration_refuses_live_peer_before_database_writes
             os.close(handle)
         peer.unlink()
     coordinate(profile, clock=_clock)
-    assert _user_version(profile.root) == 11
+    assert _user_version(profile.root) == 12
     assert _schema_ten_evidence(profile) == evidence
 
 
@@ -816,7 +810,7 @@ def test_historical_runtime_five_refuses_schema_eleven_before_writes(
                     selection, filesystem_type_probe=lambda *_args, **_kwargs: "apfs"
                 ):
                     pytest.fail("historical runtime-five bootstrap entered schema eleven")
-    assert _user_version(profile.root) == 11
+    assert _user_version(profile.root) == 12
     assert (profile.root / _STATE_DATABASE).read_bytes() == database_bytes
     assert _schema_ten_evidence(profile) == evidence
     assert _vault_files(profile) == files

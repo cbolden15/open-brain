@@ -849,6 +849,23 @@ class LocalMcpAdapter:
         request_id: object = 0,
         maximum_response_bytes: int = MAX_MESSAGE_BYTES,
     ) -> dict[str, object]:
+        result = self._call_tool(
+            name, arguments, request_id=request_id,
+            maximum_response_bytes=maximum_response_bytes,
+        )
+        # A callback can outlive or revoke its trusted consent. No result may
+        # cross the common output boundary using only its entry-time authority.
+        self._revalidate()
+        return result
+
+    def _call_tool(
+        self,
+        name: str,
+        arguments: Mapping[str, object],
+        *,
+        request_id: object = 0,
+        maximum_response_bytes: int = MAX_MESSAGE_BYTES,
+    ) -> dict[str, object]:
         try:
             if name not in {tool["name"] for tool in self.list_tools()}:
                 raise McpCallError("unknown tool")

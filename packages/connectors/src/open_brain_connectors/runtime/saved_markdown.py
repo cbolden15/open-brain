@@ -14,11 +14,14 @@ import time
 import unicodedata
 from dataclasses import dataclass
 from hashlib import sha256
+from html.parser import HTMLParser
 from pathlib import Path
 from typing import cast
 from urllib.parse import quote, urlparse
 from uuid import uuid4
 
+from markdown_it import MarkdownIt
+from markdown_it.token import Token
 from open_brain_engine.capture.redaction import has_redaction_finding
 from open_brain_engine.core.ids import portable_canonical_json_bytes
 from open_brain_engine.engine import PrivacyDecision, ReferencePayload
@@ -41,7 +44,7 @@ __all__ = [
     "normalize_saved_markdown",
 ]
 
-SAVED_MARKDOWN_NORMALIZATION_VERSION = "saved-markdown-continuous.v1"
+SAVED_MARKDOWN_NORMALIZATION_VERSION = "saved-markdown-continuous.v2"
 _CONNECTOR_NAME = "saved_markdown"
 _RESOURCE_TYPE = "markdown_root"
 _MAX_DELIVERIES = 25
@@ -52,9 +55,7 @@ _MAX_TRANSFORMED_CHARACTERS = 65_536
 # body's initial bounded contract.
 _MAX_CORE_PAYLOAD_BYTES = 65_536
 _FRONTMATTER_KEY = re.compile(r"[A-Za-z][A-Za-z0-9_-]{0,63}")
-_ATX_HEADING = re.compile(r"^(#{1,6})[ \t]+(.*?)[ \t]*#*[ \t]*$")
-_SETEXT_UNDERLINE = re.compile(r"^[=-]{3,}[ \t]*$")
-_FENCE = re.compile(r"^[ \t]{0,3}(`{3,}|~{3,})")
+_ATX_HEADING = re.compile(r"^ {0,3}(#{1,6})[ \t]+(.*?)[ \t]*#*[ \t]*$")
 
 
 @dataclass(frozen=True, slots=True)
@@ -652,46 +653,92 @@ def _without_frontmatter(lines: list[str]) -> list[str]:
     raise ConnectorContractError("saved_markdown_malformed_frontmatter")
 
 
+class _HeadingHTML(HTMLParser):
+    """Project a small transparent subset, refusing styling or executable HTML."""
+
+    def __init__(self) -> None:
+        super().__init__(convert_charrefs=True)
+        self.text = ""
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        if attrs or tag not in {"em", "strong", "b", "i", "span", "code", "br"}:
+            raise ConnectorContractError("saved_markdown_unsupported_heading_markup")
+        if tag == "br":
+            self.text += " "
+
+    def handle_endtag(self, tag: str) -> None:
+        if tag not in {"em", "strong", "b", "i", "span", "code"}:
+            raise ConnectorContractError("saved_markdown_unsupported_heading_markup")
+
+    def handle_data(self, data: str) -> None:
+        if data:
+            raise ConnectorContractError("saved_markdown_unsupported_heading_markup")
+
+    def handle_decl(self, decl: str) -> None:
+        raise ConnectorContractError("saved_markdown_unsupported_heading_markup")
+
+    def handle_pi(self, data: str) -> None:
+        raise ConnectorContractError("saved_markdown_unsupported_heading_markup")
+
+    def unknown_decl(self, data: str) -> None:
+        raise ConnectorContractError("saved_markdown_unsupported_heading_markup")
+
+    def handle_startendtag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        self.handle_starttag(tag, attrs)
+
+
+def _heading_label(tokens: list[Token]) -> str:
+    parts: list[str] = []
+    for token in tokens:
+        if token.type in {"text", "code_inline"}:
+            parts.append(token.content)
+        elif token.type in {"softbreak", "hardbreak"}:
+            parts.append(" ")
+        elif token.type == "image":
+            parts.append(_heading_label(token.children or []))
+        elif token.type == "html_inline":
+            # HTMLParser treats unknown declarations as bogus comments.
+            # Only genuine CommonMark comment tokens may use that projection.
+            if token.content.startswith("<!") and not token.content.startswith("<!--"):
+                raise ConnectorContractError("saved_markdown_unsupported_heading_markup")
+            html = _HeadingHTML()
+            html.feed(token.content)
+            html.close()
+            parts.append(html.text)
+        elif token.type not in {
+            "em_open", "em_close", "strong_open", "strong_close", "link_open", "link_close",
+        }:
+            raise ConnectorContractError("saved_markdown_unsupported_heading_markup")
+    return "".join(parts)
+
+
 def _without_why_saved(lines: list[str]) -> list[str]:
+    # Only headings need inline labels. Avoid parsing inline content in bodies
+    # that may be large or will be discarded; never render retained Markdown.
+    environment: dict[str, object] = {}
+    tokens = MarkdownIt("commonmark").disable("inline").parse("\n".join(lines), environment)
+    heading_parser = MarkdownIt("commonmark")
     result: list[str] = []
-    index = 0
-    fence: str | None = None
-    while index < len(lines):
-        line = lines[index]
-        match = _FENCE.match(line)
-        if match:
-            marker = match.group(1)
-            if fence is None:
-                fence = marker[0]
-            elif marker[0] == fence:
-                fence = None
-            result.append(line)
-            index += 1
+    retained_start = 0
+    skip_level: int | None = None
+    for index, token in enumerate(tokens):
+        if token.type != "heading_open" or token.level != 0:
             continue
-        if fence is None:
-            heading = _heading_at(lines, index)
-            if heading is not None and heading[0] == "why saved":
-                level, consumed = heading[1], heading[2]
-                index += consumed
-                while index < len(lines):
-                    next_heading = _heading_at(lines, index)
-                    if next_heading is not None and next_heading[1] <= level:
-                        break
-                    index += 1
-                continue
-        result.append(line)
-        index += 1
+        if token.map is None or index + 1 >= len(tokens) or tokens[index + 1].type != "inline":
+            raise ConnectorContractError("saved_markdown_invalid_block_projection")
+        start = token.map[0]
+        level = int(token.tag[1:])
+        if skip_level is not None and level <= skip_level:
+            skip_level = None
+            retained_start = start
+        inline = heading_parser.parseInline(tokens[index + 1].content, environment)
+        label = _heading_label(inline[0].children or [])
+        if skip_level is None and " ".join(label.split()).casefold() == "why saved":
+            result.extend(lines[retained_start:start])
+            skip_level = level
+    if skip_level is None:
+        result.extend(lines[retained_start:])
     return result
-
-
-def _heading_at(lines: list[str], index: int) -> tuple[str, int, int] | None:
-    atx = _ATX_HEADING.match(lines[index])
-    if atx:
-        return (atx.group(2).strip().casefold(), len(atx.group(1)), 1)
-    if index + 1 < len(lines) and _SETEXT_UNDERLINE.match(lines[index + 1]):
-        level = 1 if lines[index + 1].lstrip().startswith("=") else 2
-        return (lines[index].strip().casefold(), level, 2)
-    return None
 
 
 def _title(text: str) -> str:

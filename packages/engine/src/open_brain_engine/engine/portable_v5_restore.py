@@ -112,7 +112,7 @@ class V5RestoreBundle:
             decode_retained_privacy_value,
         )
 
-        if snapshot.manifest["schema_version"] not in {5, 6}:
+        if snapshot.manifest["schema_version"] not in {5, 6, 7}:
             raise ValueError("v5 restore requires a validated v5 snapshot")
         for row in json.loads(snapshot.files[EFFECTIVE_PRIVACY_PATH])["retained_privacy"]:
             value = decode_retained_privacy_value(row["privacy_json"])
@@ -205,12 +205,18 @@ class V5RestoreBundle:
                     )
                 ),
             )
-        if self.snapshot.manifest["schema_version"] == 6:
+        if self.snapshot.manifest["schema_version"] in {6, 7}:
             from open_brain_engine.portable.v6 import validate_source_authority
 
             from .portable_v6_authority import restore_source_authority
 
             restore_source_authority(connection, validate_source_authority(files))
+        if self.snapshot.manifest["schema_version"] == 7:
+            from open_brain_engine.portable.v7 import validate_sharing_authority
+
+            from .portable_v7_authority import restore_sharing_authority
+
+            restore_sharing_authority(connection, validate_sharing_authority(files))
         _restore_relationships(connection, files.get(RELATIONSHIP_METADATA_PATH))
         self.checkpoint("source_history_restored")
         for row in privacy["base_projections"]:
@@ -365,7 +371,7 @@ def _audit_connection(
         raise ValueError("v5 restored database reference mismatch")
     if canonical(source_metadata(connection)) != snapshot.files[SOURCE_METADATA_PATH]:
         raise ValueError("v5 restored source metadata mismatch")
-    if snapshot.manifest["schema_version"] == 6:
+    if snapshot.manifest["schema_version"] in {6, 7}:
         from .portable_v6_authority import source_authority_sidecars
 
         if any(
@@ -373,6 +379,14 @@ def _audit_connection(
             for path, data in source_authority_sidecars(connection).items()
         ):
             raise ValueError("v6 restored source authority mismatch")
+    if snapshot.manifest["schema_version"] == 7:
+        from open_brain_engine.portable.v7 import SHARING_APPROVALS_PATH
+
+        from .portable_v7_authority import sharing_authority_sidecar
+
+        _, sharing_bytes = sharing_authority_sidecar(connection)
+        if snapshot.files[SHARING_APPROVALS_PATH] != sharing_bytes:
+            raise ValueError("v7 restored sharing authority mismatch")
     relationships = relationship_metadata(connection)
     expected = snapshot.files.get(RELATIONSHIP_METADATA_PATH)
     if relationships is None and expected is not None:
@@ -402,9 +416,26 @@ def _audit_capture_search_content(
     from .reconciliation import _projection_inputs
     from .search_projection import project_search_document
 
-    if canonical(normalized_capture_rows(connection)) != canonical(
-        portable_capture_content(snapshot.files)
-    ):
+    expected_captures = portable_capture_content(snapshot.files)
+    if snapshot.manifest["schema_version"] == 7:
+        from open_brain_engine.portable.v7 import validate_sharing_authority
+
+        sharing = validate_sharing_authority(snapshot.files)
+        sharing_copies = {
+            decision["copy_capture_id"]
+            for decision in sharing["sharing_decisions"]
+            if decision["copy_capture_id"] is not None
+        }
+        for capture in expected_captures:
+            if capture["capture_id"] in sharing_copies:
+                # Match the live public-job DTO representation from frozen
+                # capture evidence. The untrusted envelope is not an audit base.
+                provenance = cast(dict[str, object], capture["provenance_json"])
+                capture["provenance_json"] = {
+                    key: provenance[key]
+                    for key in ("source_ref", "content_origin", "owner_context")
+                }
+    if canonical(normalized_capture_rows(connection)) != canonical(expected_captures):
         raise ValueError("v5 restored capture content mismatch")
 
     # The shared reader may consult capture content only after the archive-bound

@@ -54,6 +54,7 @@ from open_brain_engine.portable.v6 import (
     V6_SIDECAR_PATHS,
     validate_portable_file_set_v6,
 )
+from open_brain_engine.portable.v7 import V7_SIDECAR_PATHS
 from open_brain_engine.portable.versioned import validated_portable_snapshot
 
 from open_brain.profile import compile_single_user_local
@@ -263,13 +264,13 @@ def test_withdrawn_source_history_and_visibility_survive_recovery(
         export, restored = tmp_path / "export", tmp_path / "restored"
         assert (
             engine.portability.export(export, export_id="export_" + str(uuid4())).schema_version
-            == 6
+            == 7
         )
         assert (
             engine.portability.import_clean(
                 export, restored, import_id="import_" + str(uuid4())
             ).schema_version
-            == 6
+            == 7
         )
         engine = BrainEngine.open(_profile(restored, validated_portable_snapshot(restored)))
 
@@ -343,15 +344,15 @@ def test_schema11_runtime6_portable6_lifecycle_admission_roundtrip(tmp_path: Pat
     )
     receipt = tasks.sources.withdraw(withdrawal, authority=owner)
     export, restored, again = (tmp_path / name for name in ("export", "restored", "again"))
-    assert tasks.portability.export(export, export_id="export_" + str(uuid4())).schema_version == 6
+    assert tasks.portability.export(export, export_id="export_" + str(uuid4())).schema_version == 7
     snapshot = validated_portable_snapshot(export)
-    assert snapshot.manifest["schema_version"] == 6
+    assert snapshot.manifest["schema_version"] == 7
     assert snapshot.files.keys() >= V6_SIDECAR_PATHS
     assert (
         tasks.portability.import_clean(
             export, restored, import_id="import_" + str(uuid4())
         ).schema_version
-        == 6
+        == 7
     )
     engine = BrainEngine.open(_profile(restored, validated_portable_snapshot(restored)))
     assert engine.sources.withdraw(withdrawal, authority=owner) == receipt
@@ -408,7 +409,10 @@ def test_portable6_closed_authority_refuses_semantic_tampering(
             value["source_namespaces"][0]["namespace_sha256"] = "0" * 64
         files[path] = canonical(value)
     with pytest.raises(PortableValidationError):
-        validate_portable_file_set_v6(files, tenant_id=tasks.profile.tenant_id)
+        validate_portable_file_set_v6(
+            {path: data for path, data in files.items() if path not in V7_SIDECAR_PATHS},
+            tenant_id=tasks.profile.tenant_id,
+        )
 
 
 def test_portable5_cannot_silently_accept_source_authority(tmp_path: Path) -> None:
@@ -535,7 +539,10 @@ def test_portable6_managed_envelope_requires_exact_validated_intake_linkage(
         for path, data in validated_portable_snapshot(export).files.items()
         if path != "portable-manifest.json"
     }
-    validate_portable_file_set_v6(files, tenant_id=engine.profile.tenant_id)
+    validate_portable_file_set_v6(
+        {path: data for path, data in files.items() if path not in V7_SIDECAR_PATHS},
+        tenant_id=engine.profile.tenant_id,
+    )
     admission = json.loads(files[SOURCE_ADMISSION_PATH])
     managed = admission["managed_source_deliveries"][0]
     envelope = json.loads(base64.b64decode(managed["envelope_bytes"], validate=True))
@@ -608,7 +615,10 @@ def test_portable6_managed_envelope_requires_exact_validated_intake_linkage(
     # The envelope and archive sidecar hashes are valid; semantic linkage must
     # reject the forgery independently of those attacker-recomputed digests.
     with pytest.raises(PortableValidationError, match="source authority invalid"):
-        validate_portable_file_set_v6(files, tenant_id=engine.profile.tenant_id)
+        validate_portable_file_set_v6(
+            {path: data for path, data in files.items() if path not in V7_SIDECAR_PATHS},
+            tenant_id=engine.profile.tenant_id,
+        )
 
 
 def _observed_archive(
@@ -762,16 +772,32 @@ def test_portable6_observed_envelope_rejects_invalid_attestation_and_linkage(
     managed["envelope_sha256"] = sha256(raw).hexdigest()
     files[SOURCE_ADMISSION_PATH] = canonical(admission)
     with pytest.raises(PortableValidationError, match="source authority invalid"):
-        validate_portable_file_set_v6(files, tenant_id=engine.profile.tenant_id)
+        validate_portable_file_set_v6(
+            {path: data for path, data in files.items() if path not in V7_SIDECAR_PATHS},
+            tenant_id=engine.profile.tenant_id,
+        )
 
 
 @pytest.mark.parametrize(
     "mutation",
     [
-        "predecessor-key", "expected-head-missing", "expected-head-self", "expected-head-foreign",
-        "payload", "source-reference", "provenance-reference", "provenance-origin",
-        "actor", "role", "tenant", "intent", "capture-why", "privacy-widening", "file-bytes",
-        "title-whitespace", "title-nul",
+        "predecessor-key",
+        "expected-head-missing",
+        "expected-head-self",
+        "expected-head-foreign",
+        "payload",
+        "source-reference",
+        "provenance-reference",
+        "provenance-origin",
+        "actor",
+        "role",
+        "tenant",
+        "intent",
+        "capture-why",
+        "privacy-widening",
+        "file-bytes",
+        "title-whitespace",
+        "title-nul",
     ],
 )
 def test_portable6_coordinated_admission_forgery_contradicts_retained_capture_and_order(
@@ -801,7 +827,9 @@ def test_portable6_coordinated_admission_forgery_contradicts_retained_capture_an
         delivery_id="synthetic.portable.observed.second",
         observation=replace(
             first_delivery.observation,
-            admitted_payload_sha256=sha256(canonical(capture.request_value()["payload"])).hexdigest(),
+            admitted_payload_sha256=sha256(
+                canonical(capture.request_value()["payload"])
+            ).hexdigest(),
         ),
     )
     second = engine.sources.public_revision_sink(delivery.binding).submit(delivery)
@@ -824,14 +852,16 @@ def test_portable6_coordinated_admission_forgery_contradicts_retained_capture_an
     canonical_capture = files[retained["source_path"]]
     admission = json.loads(files[SOURCE_ADMISSION_PATH])
     intake = next(
-        row for row in admission["source_intakes"]
+        row
+        for row in admission["source_intakes"]
         if json.loads(row["receipt_json"])["capture_id"] == second_id
     )
     revision = next(
         row for row in admission["revision_admission"] if row["capture_id"] == second_id
     )
     managed = next(
-        row for row in admission["managed_source_deliveries"]
+        row
+        for row in admission["managed_source_deliveries"]
         if json.loads(row["receipt_json"])["source_receipt"]["capture_id"] == second_id
     )
     submission = json.loads(base64.b64decode(intake["submission_json"], validate=True))
@@ -899,11 +929,14 @@ def test_portable6_coordinated_admission_forgery_contradicts_retained_capture_an
     managed["envelope_sha256"] = sha256(raw).hexdigest()
     files[SOURCE_ADMISSION_PATH] = canonical(admission)
     assert files[retained["source_path"]] == canonical_capture
-    assert (
-        {path: data for path, data in files.items() if path != SOURCE_ADMISSION_PATH} == unchanged
-    )
+    assert {
+        path: data for path, data in files.items() if path != SOURCE_ADMISSION_PATH
+    } == unchanged
     with pytest.raises(PortableValidationError, match="source authority invalid"):
-        validate_portable_file_set_v6(files, tenant_id=engine.profile.tenant_id)
+        validate_portable_file_set_v6(
+            {path: data for path, data in files.items() if path not in V7_SIDECAR_PATHS},
+            tenant_id=engine.profile.tenant_id,
+        )
 
 
 @pytest.mark.parametrize("ordering", ["monotonic", "predecessor"])
@@ -918,27 +951,38 @@ def test_portable6_coordinated_history_only_revision_cannot_be_expected_head(
     submission = replace(
         _revision(engine.tasks),
         ordering={
-            "kind": "monotonic", "provider_namespace": "synthetic", "epoch": "one", "sequence": 1,
+            "kind": "monotonic",
+            "provider_namespace": "synthetic",
+            "epoch": "one",
+            "sequence": 1,
         },
     )
     binding = SourceRevisionBinding(
-        destination_brain_id=identity["brain_id"], issuer_epoch=identity["issuer_epoch"],
-        root_fingerprint="synthetic-history-only-root", accepted_source_id="synthetic-selection",
+        destination_brain_id=identity["brain_id"],
+        issuer_epoch=identity["issuer_epoch"],
+        root_fingerprint="synthetic-history-only-root",
+        accepted_source_id="synthetic-selection",
         namespace=submission.namespace,
     )
     sink = engine.sources.public_revision_sink(binding)
     first_delivery = SourceRevisionDelivery(
-        binding=binding, submission=submission, expected_lifecycle_version=0,
+        binding=binding,
+        submission=submission,
+        expected_lifecycle_version=0,
         delivery_id="m.first",
     )
     first = sink.submit(first_delivery)
     assert first.source_receipt is not None and first.source_receipt.capture_id is not None
     capture = replace(
-        submission.capture, payload=TextPayload("synthetic late history"),
+        submission.capture,
+        payload=TextPayload("synthetic late history"),
         delivery_id="delivery.synthetic.late",
     )
     late_submission = replace(
-        submission, capture=capture, revision_key="late", canonical_sha256=capture.request_sha256(),
+        submission,
+        capture=capture,
+        revision_key="late",
+        canonical_sha256=capture.request_sha256(),
         expected_head=first.source_receipt.capture_id,
         ordering=dict(submission.ordering, sequence=0),
     )
@@ -946,13 +990,18 @@ def test_portable6_coordinated_history_only_revision_cannot_be_expected_head(
     assert late.outcome == "history_only"
     assert late.source_receipt is not None and late.source_receipt.capture_id is not None
     capture = replace(
-        submission.capture, payload=TextPayload("synthetic subsequent current head"),
+        submission.capture,
+        payload=TextPayload("synthetic subsequent current head"),
         delivery_id="delivery.synthetic.latest",
     )
     latest_submission = replace(
-        submission, capture=capture, revision_key="latest",
-        canonical_sha256=capture.request_sha256(), expected_head=first.source_receipt.capture_id,
-        ordering=dict(submission.ordering, sequence=3) if ordering == "monotonic"
+        submission,
+        capture=capture,
+        revision_key="latest",
+        canonical_sha256=capture.request_sha256(),
+        expected_head=first.source_receipt.capture_id,
+        ordering=dict(submission.ordering, sequence=3)
+        if ordering == "monotonic"
         else {"kind": "predecessor", "revision_key": submission.revision_key},
     )
     latest_delivery = replace(first_delivery, submission=latest_submission, delivery_id="n.latest")
@@ -970,20 +1019,23 @@ def test_portable6_coordinated_history_only_revision_cannot_be_expected_head(
         path: data for path, data in snapshot.files.items() if path != "portable-manifest.json"
     }
     unchanged = {
-        path: data for path, data in files.items()
+        path: data
+        for path, data in files.items()
         if path not in {SOURCE_ADMISSION_PATH, SOURCE_METADATA_PATH}
     }
     admission = json.loads(files[SOURCE_ADMISSION_PATH])
     latest_id = latest.source_receipt.capture_id
     intake = next(
-        row for row in admission["source_intakes"]
+        row
+        for row in admission["source_intakes"]
         if json.loads(row["receipt_json"])["capture_id"] == latest_id
     )
     revision = next(
         row for row in admission["revision_admission"] if row["capture_id"] == latest_id
     )
     managed = next(
-        row for row in admission["managed_source_deliveries"]
+        row
+        for row in admission["managed_source_deliveries"]
         if json.loads(row["receipt_json"])["source_receipt"]["capture_id"] == latest_id
     )
     claimed = json.loads(base64.b64decode(intake["submission_json"], validate=True))
@@ -1009,11 +1061,15 @@ def test_portable6_coordinated_history_only_revision_cannot_be_expected_head(
     managed["envelope_sha256"] = sha256(raw).hexdigest()
     files[SOURCE_ADMISSION_PATH] = canonical(admission)
     assert {
-        path: data for path, data in files.items()
+        path: data
+        for path, data in files.items()
         if path not in {SOURCE_ADMISSION_PATH, SOURCE_METADATA_PATH}
     } == unchanged
     with pytest.raises(PortableValidationError, match="source authority invalid"):
-        validate_portable_file_set_v6(files, tenant_id=engine.profile.tenant_id)
+        validate_portable_file_set_v6(
+            {path: data for path, data in files.items() if path not in V7_SIDECAR_PATHS},
+            tenant_id=engine.profile.tenant_id,
+        )
 
 
 @pytest.mark.parametrize(
@@ -1042,14 +1098,17 @@ def test_portable6_capture_linkage_preserves_admission_normalization_and_order(
     monotonic = ordering in {"monotonic", "history-only"}
     first_order: dict[str, Any] = (
         {"kind": "monotonic", "provider_namespace": "synthetic", "epoch": "one", "sequence": 1}
-        if monotonic else {"kind": "unordered"}
+        if monotonic
+        else {"kind": "unordered"}
     )
     adopted = engine.capture.submit(capture).capture_id if ordering == "adoption" else None
     submission = SourceRevisionSubmission(
         capture=capture,
         namespace=dict(
-            connector_name="synthetic", connection_id="normalization",
-            resource_id="one", external_id="one",
+            connector_name="synthetic",
+            connection_id="normalization",
+            resource_id="one",
+            external_id="one",
         ),
         revision_key="first",
         canonical_sha256=capture.request_sha256(),
@@ -1068,7 +1127,8 @@ def test_portable6_capture_linkage_preserves_admission_normalization_and_order(
             canonical_sha256=changed.request_sha256(),
             expected_head=accepted.capture_id,
             ordering=dict(first_order, sequence=0 if ordering == "history-only" else 3)
-            if monotonic else {"kind": "predecessor", "revision_key": "first"},
+            if monotonic
+            else {"kind": "predecessor", "revision_key": "first"},
         )
         accepted = engine.sources.submit_revision(submission)
     assert accepted.outcome == ("history_only" if ordering == "history-only" else "captured")

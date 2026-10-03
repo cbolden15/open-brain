@@ -47,6 +47,144 @@ def test_normalizer_refuses_malformed_or_secret_content(payload: bytes, code: st
         normalize_saved_markdown(payload)
 
 
+@pytest.mark.parametrize("opening,closing", [("```markdown", "```"), ("~~~~markdown", "~~~~")])
+@pytest.mark.parametrize("heading", ["## Example", "Example\n-------"])
+def test_owner_context_fenced_headings_cannot_end_the_stripped_section(
+    opening: str, closing: str, heading: str,
+) -> None:
+    raw = (
+        "# Source\nVisible before\n## Why Saved\nowner-start\n"
+        f"{opening}\n{heading}\nowner-in-fence\n{closing}\n"
+        "owner-after-fence\n## Public section\nVisible after\n"
+    ).encode()
+    assert normalize_saved_markdown(raw) == (
+        "# Source\nVisible before\n## Public section\nVisible after\n"
+    )
+
+
+@pytest.mark.parametrize("false_close", ["```", "~~~~", "````not-a-close"])
+def test_owner_context_requires_a_matching_complete_fence_close(false_close: str) -> None:
+    raw = (
+        "# Source\nVisible before\n## Why Saved\n````markdown\n"
+        f"{false_close}\n## Still fenced\nowner-context\n````\n"
+        "owner-after-fence\n## Public section\nVisible after\n"
+    ).encode()
+    assert normalize_saved_markdown(raw) == (
+        "# Source\nVisible before\n## Public section\nVisible after\n"
+    )
+
+
+@pytest.mark.parametrize("heading", [
+    " ## Why Saved", "  ## Why Saved", "   ## Why Saved",
+    "Why Saved\n-", "Why Saved\n=", "   Why Saved\n   ---",
+])
+def test_valid_indented_or_short_setext_owner_heading_is_stripped(heading: str) -> None:
+    # Setext text must start a new paragraph, not extend the preceding body.
+    prefix = "# Source\nVisible before\n" + ("\n" if "\n" in heading else "")
+    raw = f"{prefix}{heading}\nowner-context\n# Public\nVisible after\n".encode()
+    assert normalize_saved_markdown(raw) == f"{prefix}# Public\nVisible after\n"
+
+
+@pytest.mark.parametrize("heading", ["## **Why Saved**", "## Why&#32;Saved", "Why\nSaved\n---"])
+def test_semantic_owner_heading_is_stripped_without_rendering_retained_body(heading: str) -> None:
+    raw = f"# Source\nVisible **body**\n\n{heading}\nowner-context\n# Public\nAfter\n".encode()
+    assert normalize_saved_markdown(raw) == "# Source\nVisible **body**\n\n# Public\nAfter\n"
+
+
+@pytest.mark.parametrize("block", [
+    "\n---", "- owner-list-item\n---", "> owner-quote\n---",
+    "\n    owner-code\n---", "\n\towner-code\n---",
+])
+def test_non_heading_blocks_do_not_end_owner_context(block: str) -> None:
+    raw = (
+        f"# Source\nVisible before\n## Why Saved\nowner-before\n{block}\n"
+        "owner-after\n## Public\nVisible after\n"
+    ).encode()
+    assert normalize_saved_markdown(raw) == "# Source\nVisible before\n## Public\nVisible after\n"
+
+
+@pytest.mark.parametrize("opener", ["\t```", "    ```", "```lang`invalid"])
+def test_non_fence_openers_do_not_hide_real_owner_heading(opener: str) -> None:
+    raw = f"# Source\n{opener}\n## Why Saved\nowner-context\n## Public\nVisible after\n".encode()
+    assert normalize_saved_markdown(raw) == f"# Source\n{opener}\n## Public\nVisible after\n"
+
+
+@pytest.mark.parametrize("heading,definition", [
+    ("## [Why Saved][owner]", "[owner]: https://example.test"),
+    ("## [Why Saved][]", "[Why Saved]: https://example.test"),
+    ("## [Why Saved]", "[Why Saved]: https://example.test"),
+    ("## ![**Why Saved**](https://example.test/image)", ""),
+    ("## <em>Why Saved</em>", ""),
+    ("## Why<!-- owner label --> Saved", ""),
+    ("## Why<br>Saved", ""),
+    ("## Why<br />Saved", ""),
+])
+@pytest.mark.parametrize("definition_first", [False, True])
+def test_owner_heading_semantics_preserve_reference_context_and_visible_labels(
+    heading: str, definition: str, definition_first: bool,
+) -> None:
+    reference = definition + "\n\n" if definition else ""
+    # A reference definition cannot interrupt the preceding paragraph.
+    prefix = "# Source\nVisible **body**\n" + ("\n" + reference if definition_first else "")
+    suffix = "## Public\nVisible after\n" + ("\n" + reference if not definition_first else "")
+    raw = f"{prefix}{heading}\nowner-canary\n{suffix}".encode()
+    assert normalize_saved_markdown(raw) == (prefix + suffix).strip() + "\n"
+
+
+@pytest.mark.parametrize("heading", [
+    "## <span class=owner>Why Saved</span>",
+    "## <em style=display:none>Why Saved</em>",
+    "## <script>Why Saved</script>",
+    "## <custom>Why Saved</custom>",
+    "## <?label Why Saved?>",
+    "## Public <!FOO bar>",
+    "## Why<!FOO bar> Saved",
+    "## Why<!DOCTYPE html> Saved",
+    "## Why<![CDATA[hidden]]> Saved",
+])
+def test_ambiguous_html_heading_is_refused_without_intake(heading: str) -> None:
+    with pytest.raises(ConnectorContractError, match="saved_markdown_unsupported_heading_markup"):
+        normalize_saved_markdown(f"# Source\n{heading}\nowner-canary\n".encode())
+
+
+def test_public_marked_up_heading_and_fenced_owner_example_are_preserved() -> None:
+    raw = (
+        "# Source\n## <em>Public details</em>\nRetained **body**\n"
+        "```markdown\n## [Why Saved][owner]\npublic-example\n```\n"
+        "\n[owner]: https://example.test\n"
+    )
+    assert normalize_saved_markdown(raw.encode()) == raw
+
+
+@pytest.mark.parametrize("heading", [
+    "## <span class=owner>Why Saved</span>", "## Why<!FOO bar> Saved",
+])
+def test_ambiguous_heading_adapter_has_no_identity_or_intake(
+    tmp_path: Path, heading: str,
+) -> None:
+    root = tmp_path / "selected"
+    root.mkdir()
+    (root / "owner.md").write_text(
+        f"# Source\n{heading}\nowner-canary\n", encoding="utf-8",
+    )
+    candidate, = _adapter(root).dry_run().candidates
+    assert candidate.refusal_code == "saved_markdown_unsupported_heading_markup"
+    assert candidate.identity is None and candidate.intake is None
+
+
+def test_unresolved_reference_heading_is_not_invented_as_a_link() -> None:
+    raw = "# Source\n## [Why Saved][missing]\nLiteral reference example\n"
+    assert normalize_saved_markdown(raw.encode()) == raw
+
+
+def test_non_ascii_whitespace_does_not_close_owner_section_fence() -> None:
+    raw = (
+        "# Source\nVisible before\n## Why Saved\n```\n```\u00a0\n"
+        "## Still fenced\nowner-context\n```\n## Public\nVisible after\n"
+    ).encode()
+    assert normalize_saved_markdown(raw) == "# Source\nVisible before\n## Public\nVisible after\n"
+
+
 def test_selected_root_binds_destination_policy_and_bytes(tmp_path: Path) -> None:
     root = tmp_path / "selected"
     root.mkdir()

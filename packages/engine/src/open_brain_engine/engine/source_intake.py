@@ -263,7 +263,8 @@ class PublicJobRevisionSink:
 
     def inspect_head(self) -> SourceRevisionHead:
         namespace_sha = sha256(portable_canonical_json_bytes(_thaw(self._binding.namespace))).hexdigest()
-        with self._engine._store.connect() as connection:
+        connection = self._engine._store.connect()
+        try:
             identity = connection.execute("SELECT brain_id,issuer_epoch FROM brain_identity WHERE singleton=1").fetchone()
             if identity is None or (identity["brain_id"], identity["issuer_epoch"]) != (
                 self._binding.destination_brain_id, self._binding.issuer_epoch
@@ -282,6 +283,8 @@ class PublicJobRevisionSink:
                     (source["head_capture_id"],),
                 ).fetchone()
                 revision_key = None if row is None else row["revision_key"]
+        finally:
+            connection.close()
         return SourceRevisionHead(
             source_id=None if source is None else source["source_id"],
             capture_id=None if source is None else source["head_capture_id"],
@@ -352,7 +355,7 @@ class PublicJobRevisionSink:
                 ).fetchone() is not None:
                     raise T03Error("operation_pending")
                 intake = connection.execute(
-                    "SELECT submission_json FROM source_intakes WHERE namespace_sha256=? AND revision_key=?",
+                    "SELECT submission_json,receipt_json FROM source_intakes WHERE namespace_sha256=? AND revision_key=?",
                     (namespace_sha, delivery.submission.revision_key),
                 ).fetchone()
                 if intake is not None and bytes(intake["submission_json"]) != delivery.submission.custody_bytes():
@@ -377,7 +380,11 @@ class PublicJobRevisionSink:
                     "SELECT * FROM source_revisions WHERE capture_id=?",
                     (current["head_capture_id"],),
                 ).fetchone()
-                if revision_order_decision(head, delivery.submission.ordering)[2]:
+                # Exact completed intake is reconciliation of retained custody,
+                # not a new revision competing with the now-current head.
+                # Full envelope equality and head/lifecycle CAS were checked above;
+                # SourceTasks still returns its independently retained receipt.
+                if (intake is None or intake["receipt_json"] is None) and revision_order_decision(head, delivery.submission.ordering)[2]:
                     raise T03Error("source_revision_conflict")
                 connection.execute(
                     "INSERT INTO managed_source_deliveries("
@@ -443,11 +450,14 @@ class PublicJobRevisionSink:
             or receipt.outcome != receipt.source_receipt.outcome
         ):
             raise T03Error("invalid_arguments")
-        with self._engine._store.connect() as connection:
+        connection = self._engine._store.connect()
+        try:
             row = connection.execute(
                 "SELECT envelope_bytes,receipt_json FROM managed_source_deliveries WHERE delivery_id=?",
                 (delivery.delivery_id,),
             ).fetchone()
+        finally:
+            connection.close()
         if (
             row is None or bytes(row["envelope_bytes"]) != delivery.custody_bytes()
             or row["receipt_json"] is None
