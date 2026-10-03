@@ -28,7 +28,7 @@ from open_brain_engine.storage import watermarks
 from open_brain_engine.storage.locks import WriterQueueFullError
 from open_brain_engine.storage.markdown import render_markdown
 
-from .capture_recovery import CaptureReservationIdentity
+from .capture_recovery import CaptureRecoveryPlan, CaptureReservationIdentity
 from .contracts import (
     BoundaryClassifier,
     CaptureAction,
@@ -353,8 +353,15 @@ class CaptureOperations(_LocalEngineOperations):
         submission: CaptureSubmission,
         *,
         admitted_privacy: PrivacyDecision,
+        recovery_plan: CaptureRecoveryPlan | None = None,
     ) -> CaptureReceipt:
         """Run the established capture stage machine under an already-held writer lease."""
+        if recovery_plan is not None and (
+            recovery_plan.envelope.submission != submission
+            or recovery_plan.envelope.admitted_privacy != admitted_privacy
+            or submission.submission_path is not CaptureSubmissionPath.OWNER
+        ):
+            raise ValueError("capture recovery plan does not match materialization")
         capture_submission_is_reserved(cast("BrainEngine", self), submission)
         validate_reserved_copy_submission(cast("BrainEngine", self), submission)
         payload = submission.payload
@@ -377,6 +384,10 @@ class CaptureOperations(_LocalEngineOperations):
                 "SELECT * FROM captures WHERE delivery_id = ?", (delivery_id,)
             ).fetchone()
             if existing is not None:
+                if recovery_plan is not None:
+                    from .capture_replay import require_matching_capture
+
+                    require_matching_capture(existing, recovery_plan)
                 if cast(str, existing["request_sha256"]) != request_sha:
                     if connection.execute("PRAGMA user_version").fetchone()[
                         0
@@ -454,8 +465,13 @@ class CaptureOperations(_LocalEngineOperations):
                 if action is CaptureAction.CANONICAL_NOTE and space_id is None:
                     raise ValueError("canonical note requires a space")
                 canonical = action is CaptureAction.CANONICAL_NOTE
-                identities = CaptureReservationIdentity.allocate(
-                    canonical=canonical, accepted_at=_timestamp(self._clock()),
+                identities = (
+                    recovery_plan.identities
+                    if recovery_plan is not None
+                    else CaptureReservationIdentity.allocate(
+                        canonical=canonical,
+                        accepted_at=_timestamp(self._clock()),
+                    )
                 )
                 capture_id = identities.capture_id
                 accepted_at = identities.accepted_at
