@@ -1,0 +1,66 @@
+# Portable Brain v8
+
+The historical-authority candidate uses local schema 13, runtime session 8 and
+Portable 8. This is an unreleased contract. Product version `0.1.0` does not prove
+compatibility. Schema 12/runtime 7 used Portable 7; those format interpretations
+remain unchanged.
+
+## Required history
+
+Portable 8 requires `history/historical-authority/reconciliation-v1.json` in
+addition to every required v7 sidecar. Even an empty registry is explicit. A
+missing sidecar, omitted operation or disagreement with retained evidence refuses
+validation. A v7 reader rejects the v8 manifest.
+
+The closed sidecar contains the final historical registry and an ordered operation
+chain. Each operation retains its typed request, exact receipt and previous,
+proposed and transition digests. Registry snapshots reconstruct from those typed
+operations and must match the original digests. This avoids repeatedly storing
+every earlier membership while preserving the exact immutable transitions.
+The sidecar has a 64 MiB input/output limit. Exceeding it refuses; it never drops
+records or truncates a body.
+
+Validation joins the chain to retained capture bytes, immutable privacy, request
+aliases, source membership, baseline observation and namespace, both relation
+sources and provider evidence. It proves historical correspondence. It does not
+prove that an upstream file still exists, a selected binding is currently
+installed, an old approval document is authentic, or independent custody exists.
+The private reconciliation caller owns those proofs before original admission.
+
+## Successors and current eligibility
+
+A retained baseline can have a null ordinary revision key. Its separately proven
+observed key can be the predecessor of the first actual successor. V8 checks that
+reference without rewriting the old revision or source-admission sidecar. The v6
+validator retains its strict ordinary-intake interpretation and refuses that
+historical chain.
+
+Export and restore preserve withdrawn, advanced and revoked history. They do not
+require stale historical CAS witnesses to equal present source state. Current
+read and publication eligibility still checks the independently settled registry,
+exact SQL projection and present source witnesses. Within restored history that
+includes withdrawal, advancement or revocation, replaying an old link receipt
+cannot restore eligibility. An older archive cannot prove that it includes later
+events. Disaster recovery must reconcile every accepted post-snapshot record
+before activation; a snapshot alone is not a freshness or zero-loss proof.
+
+## Clean restore
+
+Import uses a new hidden stage, never an existing live database. Base records and
+inherited authority restore first. Historical operations then use the forward
+intent, pending fence, registry and SQL projection protocol. A fence becomes
+complete only after its SQL projection commits. Interrupted stages are not
+promoted; the original archive remains available for a clean retry.
+
+Promotion requires fresh content, privacy, source, sharing and historical audits,
+an index check and a schema-3 local ready record committing to restored semantic
+state. A lost response after promotion returns a verified duplicate rather than
+installing the history again. Retry audits precede ordinary engine recovery, so
+missing or inconsistent authority cannot be silently repaired as part of retry.
+
+Import installs no model-provider consent. An archived receipt is historical
+truth, not a new approval, current eligibility grant or independently protected
+custody acknowledgement. Existing consent and authorization must be supplied by
+the current application boundary before external use. The core does not add
+encryption or a background service; deployment must provide the required storage
+protection separately.

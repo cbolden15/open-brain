@@ -72,6 +72,7 @@ from open_brain.services.agent_setup import (
     preview_agent_setup,
     resolve_agent_runtime,
 )
+from open_brain.services.historical_recovery import run_historical_recovery
 from open_brain.services.launcher_policy import LauncherPolicyError
 from open_brain.services.local_bootstrap import (
     LocalBrainSession,
@@ -410,6 +411,14 @@ def _run_parsed_command(
                 environment=environment,
                 json_output=json_output,
             )
+        if parsed.command == "historical":
+            payload = run_historical_recovery(
+                selection,
+                filesystem_type_probe=filesystem_type_probe,
+                consent_state_path=parsed.consent_state,
+            )
+            _write_managed(payload, json_output=json_output)
+            return 0
         if _is_workspace_recovery(parsed):
             payload = run_managed_recovery(
                 selection,
@@ -879,6 +888,16 @@ def _parser() -> argparse.ArgumentParser:
     obsidian_plugin_parser.add_argument(
         "action",
         choices=("install", "status", "remove"),
+    )
+    historical_parser = subparsers.add_parser(
+        "historical", help="Owner-only maintenance of retained historical authority."
+    )
+    _add_local_options(historical_parser)
+    historical_parser.add_argument("action", choices=("recover",))
+    historical_parser.add_argument(
+        "--consent-state",
+        type=Path,
+        help="Existing absolute owner-only Brain-bound provider consent file for pending links.",
     )
     workspace_parser = subparsers.add_parser(
         "workspace", help="Manage the dedicated Open Brain Markdown workspace."
@@ -2920,7 +2939,7 @@ def _record_verified_export(
         manifest_version = cast(dict[str, object], manifest_value)["schema_version"]
     except UnicodeDecodeError, json.JSONDecodeError, KeyError, TypeError:
         raise ValueError("Portable export manifest is unavailable") from None
-    if type(manifest_version) is not int or manifest_version not in {1, 2, 3, 4, 5, 6, 7}:
+    if type(manifest_version) is not int or manifest_version not in {1, 2, 3, 4, 5, 6, 7, 8}:
         raise ValueError("Portable export manifest is unavailable")
     session.prepared.revalidate()
     atomic_replace(
@@ -2959,7 +2978,8 @@ def _verified_export_state(session: LocalBrainSession) -> str:
                 "manifest_digest_sha256",
                 "schema_version",
             }
-            or value["schema_version"] not in {1, 2, 3, 4, 5, 6, 7}
+            or type(value["schema_version"]) is not int
+            or value["schema_version"] not in {1, 2, 3, 4, 5, 6, 7, 8}
             or canonical_json_bytes(value) != payload
             or not isinstance(value["created_at"], str)
             or not isinstance(value["export_id"], str)

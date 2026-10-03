@@ -985,7 +985,7 @@ def test_cli_and_mcp_share_semantic_dataset_results_and_export(
     assert "source_ref" not in json.dumps(mcp_result)
     export = tmp_path / "export"
     assert run_cli(("export", str(export), "--verify", "--data-dir", str(root), "--json")) == 0
-    assert json.loads(capsys.readouterr().out)["schema_version"] == 7
+    assert json.loads(capsys.readouterr().out)["schema_version"] == 8
     assert all((export / relative).is_file() for relative in V5_SIDECAR_PATHS)
     assert not any(".open-brain" in path.parts for path in export.rglob("*"))
     assert not any(path.suffix in {".sqlite", ".sqlite3"} for path in export.rglob("*"))

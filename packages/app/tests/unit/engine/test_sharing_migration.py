@@ -80,7 +80,9 @@ def test_sharing_migration_rolls_back_and_retries_exact_schema_eleven(
     with exclusive_runtime_admission(profile) as admission:
         migrate_sharing(profile, admission=admission, clock=lambda: datetime.now(UTC))
         migrate_sharing(profile, admission=admission, clock=lambda: datetime.now(UTC))
-    assert local_schema.inspect_phase1_state(profile) == local_schema.SchemaState("current", 12)
+    assert local_schema.inspect_phase1_state(profile) == local_schema.SchemaState(
+        "supported_old", 12
+    )
     with sqlite3.connect(path) as connection:
         assert connection.execute("SELECT * FROM runtime_compatibility").fetchall() == [(1, 7, 12)]
         assert [

@@ -42,7 +42,7 @@ from packages.app.tests.unit.engine.test_sharing_tasks import _managed_source
 
 
 @pytest.mark.parametrize("state", ["approved", "rejected", "revoked"])
-def test_schema12_runtime7_portable7_sharing_roundtrip(tmp_path: Path, state: str) -> None:
+def test_current_portable_sharing_roundtrip(tmp_path: Path, state: str) -> None:
     tasks, request, owner, _text = _managed_source(tmp_path)
     assert tasks.sharing is not None
     preview = tasks.sharing.preview(request, authority=owner)
@@ -75,17 +75,18 @@ def test_schema12_runtime7_portable7_sharing_roundtrip(tmp_path: Path, state: st
         )
     export = tmp_path / "export"
     receipt = tasks.portability.export(export, export_id="export_" + str(uuid4()))
-    assert receipt.schema_version == 7
+    assert receipt.schema_version == 8
     snapshot = validated_portable_snapshot(export)
     assert SHARING_APPROVALS_PATH in snapshot.files
     imported = tmp_path / "imported"
     import_id = "import_" + str(uuid4())
     restored = tasks.portability.import_clean(export, imported, import_id=import_id)
-    assert restored.schema_version == 7
+    assert restored.schema_version == 8
     duplicate = tasks.portability.import_clean(export, imported, import_id=import_id)
     assert duplicate.duplicate and duplicate.schema_version == restored.schema_version
     with sqlite3.connect(imported / PHASE1_STATE_DATABASE) as connection:
         connection.row_factory = sqlite3.Row
+        connection.execute("BEGIN")
         assert connection.execute("SELECT count(*) FROM sharing_previews").fetchone()[0] == 1
         assert connection.execute("SELECT count(*) FROM sharing_decisions").fetchone()[0] == 1
         assert connection.execute("SELECT count(*) FROM sharing_links").fetchone()[0] == int(
@@ -103,6 +104,7 @@ def test_schema12_runtime7_portable7_sharing_roundtrip(tmp_path: Path, state: st
                 provider_id="openai",
                 brain_id=request.brain_id,
                 issuer_epoch=request.issuer_epoch,
+                profile=compile_single_user_local(imported),
             ) == (state == "approved")
     imported_tasks = open_local_engine(compile_single_user_local(imported))
     assert imported_tasks.sharing is not None
@@ -169,9 +171,9 @@ def test_portable_v7_refuses_pending_copy_export(
     exported = tmp_path / "reconciled-export"
     assert (
         reconciled.portability.export(exported, export_id="export_" + str(uuid4())).schema_version
-        == 7
+        == 8
     )
-    assert validated_portable_snapshot(exported).manifest["schema_version"] == 7
+    assert validated_portable_snapshot(exported).manifest["schema_version"] == 8
 
 
 def test_frozen_portable_v6_import_creates_no_sharing_approvals(tmp_path: Path) -> None:
@@ -389,6 +391,7 @@ def test_portable_v7_multiple_preview_lifecycle_roundtrip_and_receipt_replay(
         reopened.sharing.decide(refused, authority=owner)
     with sqlite3.connect(imported / PHASE1_STATE_DATABASE) as connection:
         connection.row_factory = sqlite3.Row
+        connection.execute("BEGIN")
         assert connection.execute("SELECT count(*) FROM sharing_previews").fetchone()[0] == 3
         assert connection.execute("SELECT count(*) FROM sharing_decisions").fetchone()[0] == len(
             decisions
@@ -402,6 +405,7 @@ def test_portable_v7_multiple_preview_lifecycle_roundtrip_and_receipt_replay(
                 provider_id="openai",
                 brain_id=request.brain_id,
                 issuer_epoch=request.issuer_epoch,
+                profile=reopened.profile,
             ) == (state == "active")
         assert connection.execute("SELECT count(*) FROM managed_consents").fetchone()[0] == 0
     reopened.portability.export(again, export_id="export_" + str(uuid4()))
@@ -586,7 +590,7 @@ def test_portable_v7_journal_copy_pending_refusal_then_exact_reconciliation(
         )
     export = tmp_path / "reconciled-export"
     reconciled.portability.export(export, export_id="export_" + str(uuid4()))
-    assert validated_portable_snapshot(export).manifest["schema_version"] == 7
+    assert validated_portable_snapshot(export).manifest["schema_version"] == 8
 
 
 def test_portable_v7_managed_source_pending_refusal_then_exact_reconciliation(
@@ -634,4 +638,4 @@ def test_portable_v7_managed_source_pending_refusal_then_exact_reconciliation(
         )
     export = tmp_path / "reconciled-export"
     reconciled.portability.export(export, export_id="export_" + str(uuid4()))
-    assert validated_portable_snapshot(export).manifest["schema_version"] == 7
+    assert validated_portable_snapshot(export).manifest["schema_version"] == 8

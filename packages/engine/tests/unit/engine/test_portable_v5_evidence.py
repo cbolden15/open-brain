@@ -636,7 +636,15 @@ def test_semantic_projection_commits_capture_and_authoritative_search_content() 
     assert search_drift.semantic_state_sha256 != initial.semantic_state_sha256
 
 
-def test_serializes_the_real_schema_nine_fresh_brain(tmp_path: Path) -> None:
+def test_serializes_the_real_schema_nine_fresh_brain(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from open_brain_engine.engine import local_schema
+    from open_brain_engine.engine.local_schema_catalog import LOCAL_MIGRATIONS
+
+    # Build the named historical schema, not whatever the current writer creates.
+    monkeypatch.setattr(local_schema, "PHASE1_STATE_SCHEMA_VERSION", 9)
+    monkeypatch.setattr(local_schema, "LOCAL_MIGRATIONS", LOCAL_MIGRATIONS[:9])
     root = tmp_path / "brain"
     root.mkdir(mode=0o700)
     (root / ".open-brain").mkdir(mode=0o700)
@@ -662,6 +670,7 @@ def test_serializes_the_real_schema_nine_fresh_brain(tmp_path: Path) -> None:
         space_id=engine.inbox.spaces()[0].space_id,
     )
     with open_local_database_read_only(profile) as connection:
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 9
         if not connection.in_transaction:
             connection.execute("BEGIN")
         state = serialize_portable_v5_state(

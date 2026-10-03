@@ -32,7 +32,7 @@ def migrate_sharing(
     )
     try:
         state = classify_local_schema(connection)
-        if state.state == "current" and state.version == 12:
+        if state.state in {"current", "supported_old"} and state.version in {12, 13}:
             return
         if state.state != "supported_old" or state.version != 11:
             raise SharingError("operation_pending")

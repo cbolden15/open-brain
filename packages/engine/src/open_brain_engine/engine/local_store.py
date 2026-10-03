@@ -68,7 +68,11 @@ class _LocalStore:
                 self._schema_version == 6 and state.state == "supported_old" and state.version == 6
             ):
                 raise SchemaError("local state schema changed before write")
+            from .historical_recovery import require_historical_snapshot_settled
+
+            require_historical_snapshot_settled(connection, self.profile)
             yield connection
+            require_historical_snapshot_settled(connection, self.profile)
             from .source_store import (
                 publish_source_metadata,
                 register_completed_captures,

@@ -37,13 +37,14 @@ _RESOURCE_DESTINATIONS: Final = {
     "base": "bin/open-brain",
     "graphify": "libexec/open-brain-graphify",
 }
-_PORTABLE_V7_SIDECARS: Final = (
+_PORTABLE_V8_SIDECARS: Final = (
     "history/issuer/legacy-bindings-v1.json",
     "history/issuer/migration-v1.json",
     "history/privacy/effective-privacy-v1.json",
     "history/sources/lifecycle-v1.json",
     "history/sources/admission-v1.json",
     "history/sharing/approvals-v1.json",
+    "history/historical-authority/reconciliation-v1.json",
 )
 _REQUIRED_MODULES: Final = frozenset(
     {
@@ -70,6 +71,9 @@ _REQUIRED_MODULES: Final = frozenset(
         "open_brain_engine.engine.markdown_import",
         "open_brain_engine.engine.markdown_import_fs",
         "open_brain_engine.engine.portability",
+        "open_brain_engine.engine.portable_v8_authority",
+        "open_brain_engine.engine.portable_v8_restore",
+        "open_brain_engine.portable.v8",
         "open_brain_engine.engine.retrieval",
         "open_brain_engine.storage.operational",
         "open_brain_engine.storage.sqlite",
@@ -718,10 +722,10 @@ def _smoke_local_journey(
     if (
         exported.get("status") != "exported"
         or exported.get("verification") != "verified"
-        or exported.get("schema_version") != 7
+        or exported.get("schema_version") != 8
         or not (export / "portable-manifest.json").is_file()
         or not (export / "sources/logical-sources.json").is_file()
-        or not all((export / relative).is_file() for relative in _PORTABLE_V7_SIDECARS)
+        or not all((export / relative).is_file() for relative in _PORTABLE_V8_SIDECARS)
         or not any(
             token.encode("utf-8") in path.read_bytes()
             for path in export.rglob("*")
@@ -897,9 +901,9 @@ def _smoke_markdown_import(
     if (
         exported.get("status") != "exported"
         or exported.get("verification") != "verified"
-        or exported.get("schema_version") != 7
+        or exported.get("schema_version") != 8
         or not (export / "sources/logical-sources.json").is_file()
-        or not all((export / relative).is_file() for relative in _PORTABLE_V7_SIDECARS)
+        or not all((export / relative).is_file() for relative in _PORTABLE_V8_SIDECARS)
         or not blob.is_file()
         or blob.read_bytes() != source_bytes
         or len(captures) != 1
@@ -1223,9 +1227,9 @@ def _smoke_catalog(executable: Path, environment: Mapping[str, str]) -> None:
         != {
             "bridge_protocol": 1,
             "catalog_schema": 2,
-            "portable_metadata": 7,
-            "runtime_session": 7,
-            "state_schema": 12,
+            "portable_metadata": 8,
+            "runtime_session": 8,
+            "state_schema": 13,
             "task_contract": "t03.v1",
         }
         or not isinstance(product, dict)

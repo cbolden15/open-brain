@@ -114,7 +114,7 @@ class SourceRevisionReceipt:
 
 
 def revision_order_decision(
-    head: sqlite3.Row | None, ordering: Mapping[str, Any]
+    head: sqlite3.Row | Mapping[str, Any] | None, ordering: Mapping[str, Any]
 ) -> tuple[bool, str | None, bool]:
     """One shared promotion/predecessor/conflict decision for source admission."""
     if head is None:
@@ -124,8 +124,9 @@ def revision_order_decision(
         promote = ordering["revision_key"] == head["revision_key"]
         return promote, head["capture_id"], not promote
     if ordering["kind"] == "monotonic" and previous is not None:
-        comparable = all(ordering[key] == previous.get(key)
-                         for key in ("kind", "provider_namespace", "epoch"))
+        comparable = all(
+            ordering[key] == previous.get(key) for key in ("kind", "provider_namespace", "epoch")
+        )
         conflict = not comparable or ordering["sequence"] == previous.get("sequence")
         promote = comparable and ordering["sequence"] > previous["sequence"]
         return promote, None, conflict
@@ -148,13 +149,19 @@ class SourceRevisionBinding:
             or not self.destination_brain_id.startswith("brn_")
             or type(self.issuer_epoch) is not int
             or self.issuer_epoch < 1
-            or any(not isinstance(value, str) or not value for value in (
-                self.root_fingerprint, self.accepted_source_id
-            ))
-            or set(self.namespace) != {"connector_name", "connection_id", "resource_id", "external_id"}
+            or any(
+                not isinstance(value, str) or not value
+                for value in (self.root_fingerprint, self.accepted_source_id)
+            )
+            or set(self.namespace)
+            != {"connector_name", "connection_id", "resource_id", "external_id"}
         ):
             raise T03Error("invalid_arguments")
-        object.__setattr__(self, "namespace", _freeze({key: _identity(value) for key, value in self.namespace.items()}))
+        object.__setattr__(
+            self,
+            "namespace",
+            _freeze({key: _identity(value) for key, value in self.namespace.items()}),
+        )
 
     def value(self) -> dict[str, object]:
         return {
@@ -188,13 +195,15 @@ class SourceRevisionDelivery:
         _identity(self.delivery_id)
 
     def custody_bytes(self) -> bytes:
-        return portable_canonical_json_bytes({
-            "dto_version": 1,
-            "binding": self.binding.value(),
-            "submission": json.loads(self.submission.custody_bytes()),
-            "expected_lifecycle_version": self.expected_lifecycle_version,
-            "delivery_id": self.delivery_id,
-        })
+        return portable_canonical_json_bytes(
+            {
+                "dto_version": 1,
+                "binding": self.binding.value(),
+                "submission": json.loads(self.submission.custody_bytes()),
+                "expected_lifecycle_version": self.expected_lifecycle_version,
+                "delivery_id": self.delivery_id,
+            }
+        )
 
     @property
     def envelope_sha256(self) -> str:
@@ -212,7 +221,8 @@ class SourceRevisionObservedDelivery(SourceRevisionDelivery):
         if type(self.dto_version) is not int or self.dto_version != 2:
             raise T03Error("invalid_arguments")
         SourceRevisionDelivery(
-            binding=self.binding, submission=self.submission,
+            binding=self.binding,
+            submission=self.submission,
             expected_lifecycle_version=self.expected_lifecycle_version,
             delivery_id=self.delivery_id,
         )
@@ -262,19 +272,34 @@ class PublicJobRevisionSink:
         self._binding = binding
 
     def inspect_head(self) -> SourceRevisionHead:
-        namespace_sha = sha256(portable_canonical_json_bytes(_thaw(self._binding.namespace))).hexdigest()
+        namespace_sha = sha256(
+            portable_canonical_json_bytes(_thaw(self._binding.namespace))
+        ).hexdigest()
         connection = self._engine._store.connect()
         try:
-            identity = connection.execute("SELECT brain_id,issuer_epoch FROM brain_identity WHERE singleton=1").fetchone()
+            if not connection.in_transaction:
+                connection.execute("BEGIN")
+            from .historical_source import historical_baseline_for_namespace, historical_source_row
+
+            baseline = historical_baseline_for_namespace(
+                connection, self._engine.profile, namespace_sha, binding=self._binding
+            )
+            identity = connection.execute(
+                "SELECT brain_id,issuer_epoch FROM brain_identity WHERE singleton=1"
+            ).fetchone()
             if identity is None or (identity["brain_id"], identity["issuer_epoch"]) != (
-                self._binding.destination_brain_id, self._binding.issuer_epoch
+                self._binding.destination_brain_id,
+                self._binding.issuer_epoch,
             ):
                 raise T03Error("revision_changed")
             source = connection.execute(
                 "SELECT s.*,coalesce(l.lifecycle_version,0) lifecycle_version FROM source_namespaces n "
                 "JOIN logical_sources s USING(source_id) LEFT JOIN source_lifecycle_state l USING(source_id) "
-                "WHERE n.namespace_sha256=?", (namespace_sha,)
+                "WHERE n.namespace_sha256=?",
+                (namespace_sha,),
             ).fetchone()
+            if source is None and baseline is not None:
+                source = historical_source_row(connection, baseline)
             epoch = connection.execute("SELECT control_epoch FROM engine_generations").fetchone()[0]
             revision_key = None
             if source is not None:
@@ -283,6 +308,13 @@ class PublicJobRevisionSink:
                     (source["head_capture_id"],),
                 ).fetchone()
                 revision_key = None if row is None else row["revision_key"]
+                if (
+                    baseline is not None
+                    and source["head_capture_id"] == baseline.retained_original.capture_id
+                ):
+                    if revision_key is not None:
+                        raise T03Error("revision_changed")
+                    revision_key = baseline.observed_delivery.submission.revision_key
         finally:
             connection.close()
         return SourceRevisionHead(
@@ -291,7 +323,8 @@ class PublicJobRevisionSink:
             revision_key=revision_key,
             lifecycle=None if source is None else source["lifecycle"],
             lifecycle_version=0 if source is None else source["lifecycle_version"],
-            control_epoch=epoch, destination_brain_id=self._binding.destination_brain_id,
+            control_epoch=epoch,
+            destination_brain_id=self._binding.destination_brain_id,
             issuer_epoch=self._binding.issuer_epoch,
         )
 
@@ -300,13 +333,22 @@ class PublicJobRevisionSink:
             raise T03Error("invalid_arguments")
         delivery.submission.capture.validate_profile(self._engine.profile)
         terminal_intake: SourceRevisionReceipt | None = None
-        with self._engine._writer_lease.acquire_shared_writer(), self._engine._store.transaction() as connection:
-            identity = connection.execute("SELECT brain_id,issuer_epoch FROM brain_identity WHERE singleton=1").fetchone()
+        with (
+            self._engine._writer_lease.acquire_shared_writer(),
+            self._engine._store.transaction() as connection,
+        ):
+            identity = connection.execute(
+                "SELECT brain_id,issuer_epoch FROM brain_identity WHERE singleton=1"
+            ).fetchone()
             if identity is None or (identity["brain_id"], identity["issuer_epoch"]) != (
-                self._binding.destination_brain_id, self._binding.issuer_epoch
+                self._binding.destination_brain_id,
+                self._binding.issuer_epoch,
             ):
                 raise T03Error("revision_changed")
-            existing = connection.execute("SELECT * FROM managed_source_deliveries WHERE delivery_id=?", (delivery.delivery_id,)).fetchone()
+            existing = connection.execute(
+                "SELECT * FROM managed_source_deliveries WHERE delivery_id=?",
+                (delivery.delivery_id,),
+            ).fetchone()
             if existing is not None:
                 if (
                     existing["envelope_sha256"] != delivery.envelope_sha256
@@ -317,15 +359,20 @@ class PublicJobRevisionSink:
                     retained = json.loads(existing["receipt_json"])
                     source = SourceRevisionReceipt(**retained["source_receipt"])
                     return SourceRevisionDeliveryReceipt(
-                        delivery.delivery_id, delivery.envelope_sha256,
-                        self._binding.destination_brain_id, self._binding.issuer_epoch,
-                        source, source.outcome,
+                        delivery.delivery_id,
+                        delivery.envelope_sha256,
+                        self._binding.destination_brain_id,
+                        self._binding.issuer_epoch,
+                        source,
+                        source.outcome,
                     )
                 intake = connection.execute(
                     "SELECT submission_json,receipt_json FROM source_intakes "
                     "WHERE namespace_sha256=? AND revision_key=?",
-                    (sha256(delivery.submission.namespace_bytes()).hexdigest(),
-                     delivery.submission.revision_key),
+                    (
+                        sha256(delivery.submission.namespace_bytes()).hexdigest(),
+                        delivery.submission.revision_key,
+                    ),
                 ).fetchone()
                 if intake is not None and intake["receipt_json"] is not None:
                     if bytes(intake["submission_json"]) != delivery.submission.custody_bytes():
@@ -337,38 +384,73 @@ class PublicJobRevisionSink:
                 ).fetchone()[0]
                 if control_epoch != delivery.submission.expected_control_epoch:
                     raise T03Error("revision_changed")
-                if connection.execute(
-                    "SELECT 1 FROM managed_source_deliveries WHERE source_delivery_id=?",
-                    (delivery.submission.capture.delivery_id,),
-                ).fetchone() is not None:
+                if (
+                    connection.execute(
+                        "SELECT 1 FROM managed_source_deliveries WHERE source_delivery_id=?",
+                        (delivery.submission.capture.delivery_id,),
+                    ).fetchone()
+                    is not None
+                ):
                     raise T03Error("invalid_arguments")
                 namespace_sha = sha256(delivery.submission.namespace_bytes()).hexdigest()
-                if connection.execute(
-                    "SELECT 1 FROM source_intakes WHERE namespace_sha256=? AND receipt_json IS NULL",
-                    (namespace_sha,),
-                ).fetchone() is not None:
+                if (
+                    connection.execute(
+                        "SELECT 1 FROM source_intakes WHERE namespace_sha256=? AND receipt_json IS NULL",
+                        (namespace_sha,),
+                    ).fetchone()
+                    is not None
+                ):
                     raise T03Error("operation_pending")
-                if connection.execute(
-                    "SELECT 1 FROM managed_source_deliveries WHERE receipt_json IS NULL "
-                    "AND json_extract(CAST(envelope_bytes AS TEXT),'$.submission.namespace')=?",
-                    (delivery.submission.namespace_bytes().decode("utf-8"),),
-                ).fetchone() is not None:
+                if (
+                    connection.execute(
+                        "SELECT 1 FROM managed_source_deliveries WHERE receipt_json IS NULL "
+                        "AND json_extract(CAST(envelope_bytes AS TEXT),'$.submission.namespace')=?",
+                        (delivery.submission.namespace_bytes().decode("utf-8"),),
+                    ).fetchone()
+                    is not None
+                ):
                     raise T03Error("operation_pending")
                 intake = connection.execute(
                     "SELECT submission_json,receipt_json FROM source_intakes WHERE namespace_sha256=? AND revision_key=?",
                     (namespace_sha, delivery.submission.revision_key),
                 ).fetchone()
-                if intake is not None and bytes(intake["submission_json"]) != delivery.submission.custody_bytes():
+                if (
+                    intake is not None
+                    and bytes(intake["submission_json"]) != delivery.submission.custody_bytes()
+                ):
                     raise T03Error("invalid_arguments")
                 current = connection.execute(
-                    "SELECT s.source_id,s.lifecycle,s.head_capture_id,l.lifecycle_version "
+                    "SELECT s.source_id,s.lifecycle,s.availability,s.historical_only,s.head_capture_id,l.lifecycle_version "
                     "FROM source_namespaces n JOIN logical_sources s USING(source_id) "
                     "JOIN source_lifecycle_state l USING(source_id) WHERE n.namespace_sha256=?",
                     (namespace_sha,),
                 ).fetchone()
+                from .historical_source import (
+                    historical_baseline_for_namespace,
+                    historical_revision_head,
+                    historical_source_row,
+                )
+
+                baseline = historical_baseline_for_namespace(
+                    connection, self._engine.profile, namespace_sha, binding=self._binding
+                )
+                if current is None and baseline is not None:
+                    current = historical_source_row(connection, baseline)
+                if baseline is not None:
+                    if (
+                        delivery.submission.revision_key
+                        == baseline.observed_delivery.submission.revision_key
+                    ):
+                        raise T03Error("invalid_arguments")
+                    if current is not None and (
+                        current["availability"] != "available" or current["historical_only"]
+                    ):
+                        raise T03Error("revision_changed")
                 if current is None:
-                    if (delivery.expected_lifecycle_version != 0
-                            or delivery.submission.expected_head is not None):
+                    if (
+                        delivery.expected_lifecycle_version != 0
+                        or delivery.submission.expected_head is not None
+                    ):
                         raise T03Error("revision_changed")
                 elif (
                     current["lifecycle"] != "active"
@@ -376,15 +458,22 @@ class PublicJobRevisionSink:
                     or current["head_capture_id"] != delivery.submission.expected_head
                 ):
                     raise T03Error("revision_changed")
-                head = None if current is None else connection.execute(
-                    "SELECT * FROM source_revisions WHERE capture_id=?",
-                    (current["head_capture_id"],),
-                ).fetchone()
+                head = (
+                    None
+                    if current is None
+                    else connection.execute(
+                        "SELECT * FROM source_revisions WHERE capture_id=?",
+                        (current["head_capture_id"],),
+                    ).fetchone()
+                )
+                head = historical_revision_head(head, baseline)
                 # Exact completed intake is reconciliation of retained custody,
                 # not a new revision competing with the now-current head.
                 # Full envelope equality and head/lifecycle CAS were checked above;
                 # SourceTasks still returns its independently retained receipt.
-                if (intake is None or intake["receipt_json"] is None) and revision_order_decision(head, delivery.submission.ordering)[2]:
+                if (intake is None or intake["receipt_json"] is None) and revision_order_decision(
+                    head, delivery.submission.ordering
+                )[2]:
                     raise T03Error("source_revision_conflict")
                 connection.execute(
                     "INSERT INTO managed_source_deliveries("
@@ -404,33 +493,54 @@ class PublicJobRevisionSink:
                     ),
                 )
         try:
-            receipt = (terminal_intake if terminal_intake is not None
-                       else self._engine.sources.submit_revision(delivery.submission))
+            receipt = (
+                terminal_intake
+                if terminal_intake is not None
+                else self._engine.sources.submit_revision(delivery.submission)
+            )
         except T03Error as error:
             if error.code == "operation_pending":
                 return SourceRevisionDeliveryReceipt(
-                    delivery.delivery_id, delivery.envelope_sha256, self._binding.destination_brain_id,
-                    self._binding.issuer_epoch, None, "operation_pending"
+                    delivery.delivery_id,
+                    delivery.envelope_sha256,
+                    self._binding.destination_brain_id,
+                    self._binding.issuer_epoch,
+                    None,
+                    "operation_pending",
                 )
             raise
         with self._engine._store.transaction() as connection:
-            source = connection.execute("SELECT lifecycle_version FROM source_lifecycle_state WHERE source_id=?", (receipt.source_id,)).fetchone()
+            source = connection.execute(
+                "SELECT lifecycle_version FROM source_lifecycle_state WHERE source_id=?",
+                (receipt.source_id,),
+            ).fetchone()
             # Pending managed admission blocks withdrawal until receipt linkage
             # completes. Completed exact replay returns above, even if retired.
             if receipt.outcome != "quarantined" and (
                 source is None or source["lifecycle_version"] != delivery.expected_lifecycle_version
             ):
                 raise T03Error("revision_changed")
-            retained = {"source_receipt": {
-                "source_id": receipt.source_id, "capture_id": receipt.capture_id, "outcome": receipt.outcome,
-                "control_epoch": receipt.control_epoch, "custody_id": receipt.custody_id,
-            }}
+            retained = {
+                "source_receipt": {
+                    "source_id": receipt.source_id,
+                    "capture_id": receipt.capture_id,
+                    "outcome": receipt.outcome,
+                    "control_epoch": receipt.control_epoch,
+                    "custody_id": receipt.custody_id,
+                }
+            }
             connection.execute(
                 "UPDATE managed_source_deliveries SET source_id=?,receipt_json=? WHERE delivery_id=?",
                 (receipt.source_id, json.dumps(retained, sort_keys=True), delivery.delivery_id),
             )
-        return SourceRevisionDeliveryReceipt(delivery.delivery_id, delivery.envelope_sha256,
-            self._binding.destination_brain_id, self._binding.issuer_epoch, receipt, receipt.outcome)
+        return SourceRevisionDeliveryReceipt(
+            delivery.delivery_id,
+            delivery.envelope_sha256,
+            self._binding.destination_brain_id,
+            self._binding.issuer_epoch,
+            receipt,
+            receipt.outcome,
+        )
 
     def verify_receipt(
         self, delivery: SourceRevisionDelivery, receipt: SourceRevisionDeliveryReceipt
@@ -459,7 +569,8 @@ class PublicJobRevisionSink:
         finally:
             connection.close()
         if (
-            row is None or bytes(row["envelope_bytes"]) != delivery.custody_bytes()
+            row is None
+            or bytes(row["envelope_bytes"]) != delivery.custody_bytes()
             or row["receipt_json"] is None
             or SourceRevisionReceipt(**json.loads(row["receipt_json"])["source_receipt"])
             != receipt.source_receipt
@@ -614,6 +725,32 @@ def register_intake(
         # an explicit withdrawal.  Retain the caller's exact custody envelope
         # for owner resolution instead of silently resurrecting the source.
         raise T03Error("revision_changed")
+    if source is not None and connection.execute("PRAGMA user_version").fetchone()[0] >= 13:
+        # Reservation is not current eligibility. Recovery must repeat this
+        # check before binding the namespace or advancing a retained source.
+        if connection.execute(
+            "SELECT 1 FROM historical_baselines WHERE source_id=?", (source_id,)
+        ).fetchone() is not None and (
+            source["availability"] != "available" or source["historical_only"]
+        ):
+            raise T03Error("revision_changed")
+        namespace = connection.execute(
+            "SELECT source_id FROM source_namespaces WHERE namespace_sha256=?",
+            (intake["namespace_sha256"],),
+        ).fetchone()
+        if namespace is None:
+            baseline = connection.execute(
+                "SELECT 1 FROM historical_baselines WHERE source_id=? AND namespace_sha256=?",
+                (source_id, intake["namespace_sha256"]),
+            ).fetchone()
+            if baseline is None:
+                raise T03Error("revision_changed")
+            connection.execute(
+                "INSERT INTO source_namespaces VALUES(?,?,?)",
+                (intake["namespace_sha256"], plan["namespace_json"], source_id),
+            )
+        elif namespace["source_id"] != source_id:
+            raise T03Error("revision_changed")
     sequence = connection.execute(
         "SELECT coalesce(max(sequence),0)+1 FROM source_revisions WHERE source_id=?", (source_id,)
     ).fetchone()[0]
@@ -626,8 +763,13 @@ def register_intake(
             "AND json_extract(CAST(envelope_bytes AS TEXT),'$.submission.namespace')=? "
             "AND json_extract(CAST(envelope_bytes AS TEXT),'$.submission.revision_key')=? "
             "AND json_extract(CAST(envelope_bytes AS TEXT),'$.submission.canonical_sha256')=?",
-            (source_id, plan["legacy_delivery_id"], plan["namespace_json"],
-             intake["revision_key"], intake["request_sha256"]),
+            (
+                source_id,
+                plan["legacy_delivery_id"],
+                plan["namespace_json"],
+                intake["revision_key"],
+                intake["request_sha256"],
+            ),
         )
     connection.execute(
         "INSERT INTO source_revisions VALUES(?,?,?,?,?,?,?,?,?,?,?,NULL)",

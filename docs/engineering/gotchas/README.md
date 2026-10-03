@@ -2545,3 +2545,42 @@ restart unchanged; the same item's version-2 observation requires new approval
 and invalidates the old public copy. Historical fixtures remain unchanged.
 
 Discovered: 2026-10-03, private source preflight and independent synthetic probe.
+
+### PORTABLE-006: Test Portable-first imports in an empty interpreter
+
+Symptom: Portable validation works in pytest but importing its version dispatcher
+in a clean process fails with a partially initialized module.
+
+Cause: A format module imports engine reconciliation types at module scope. The
+engine package initializer imports the local runtime, which imports that format
+module again. Existing pytest imports can hide the cycle.
+
+Fix: Keep runtime engine imports inside the format's validation/codec functions.
+Use TYPE_CHECKING for annotations. Do not weaken validation or alter package
+initialization to make the cycle disappear.
+
+Test: `test_portable_first_import_in_clean_interpreter_has_no_engine_cycle` runs
+the version dispatcher and v8 imports in an actual fresh subprocess.
+
+Discovered: 2026-10-03, historical-authority Portable8 export integration.
+
+### PORTABLE-007: Check CLI verification bookkeeping after a format bump
+
+Symptom: Engine export succeeds, but the same foreground CLI export with
+`--verify` exits78 and does not record verified-export status.
+
+Cause: Manifest validation supports the new format, but the CLI's separate
+verified-export evidence writer and status reader still reject its version.
+Package version0.1.0 does not detect this drift.
+
+Fix: Keep both bookkeeping version checks aligned with supported Portable
+formats and require integer versions rather than accepting booleans. Preserve
+the evidence record shape and old-format interpretation. Exercise the real CLI,
+not just engine export, before claiming the format works end to end.
+
+Tests: The source-executable review/publication acceptance journey and local
+CLI data journey prove verified export and subsequent status. Older restore
+tests must use actual older-format fixtures instead of passing a new archive
+to a frozen decoder or widening that decoder.
+
+Discovered: 2026-10-03, full historical-authority compatibility diagnostics.

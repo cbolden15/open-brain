@@ -33,13 +33,14 @@ from open_brain_engine.portable.v4 import SOURCE_METADATA_PATH, manifest_v4
 from open_brain_engine.portable.v5 import V5_SIDECAR_PATHS
 from open_brain_engine.portable.v6 import V6_SIDECAR_PATHS
 from open_brain_engine.portable.v7 import V7_SIDECAR_PATHS
+from open_brain_engine.portable.v8 import V8_SIDECAR_PATHS
 from open_brain_engine.portable.versioned import validated_portable_snapshot
 
 from open_brain.profile import compile_single_user_local
 from packages.app.tests.unit.engine.test_foundation_contracts import _public_submission
 
 
-def test_source_route_cas_preserves_capture_and_exports_v6(tmp_path: Path) -> None:
+def test_source_route_cas_preserves_capture_and_exports_v8(tmp_path: Path) -> None:
     profile = compile_single_user_local(tmp_path / "brain")
     tasks = open_local_engine(profile)
     receipt = tasks.capture.accept(
@@ -78,16 +79,18 @@ def test_source_route_cas_preserves_capture_and_exports_v6(tmp_path: Path) -> No
     assert metadata["sources"][0]["head_capture_id"] == receipt.capture_id
     export = tmp_path / "export"
     exported = tasks.portability.export(export, export_id="export_" + str(uuid4()))
-    assert exported.schema_version == 7
+    assert exported.schema_version == 8
     snapshot = validated_portable_snapshot(export)
-    assert snapshot.manifest["schema_version"] == 7
-    assert snapshot.files.keys() >= V5_SIDECAR_PATHS | V6_SIDECAR_PATHS | V7_SIDECAR_PATHS
+    assert snapshot.manifest["schema_version"] == 8
+    assert snapshot.files.keys() >= (
+        V5_SIDECAR_PATHS | V6_SIDECAR_PATHS | V7_SIDECAR_PATHS | V8_SIDECAR_PATHS
+    )
     assert snapshot.files[path] == before
     imported = tmp_path / "imported"
     import_receipt = tasks.portability.import_clean(
         export, imported, import_id="import_" + str(uuid4())
     )
-    assert import_receipt.schema_version == 7
+    assert import_receipt.schema_version == 8
     assert imported.is_dir()
 
 
@@ -578,6 +581,7 @@ def test_standalone_v4_import_refusal_uses_valid_v4_fixture(tmp_path: Path) -> N
         and relative not in V5_SIDECAR_PATHS
         and relative not in V6_SIDECAR_PATHS
         and relative not in V7_SIDECAR_PATHS
+        and relative not in V8_SIDECAR_PATHS
     }
     legacy = tmp_path / "legacy-v4"
     for relative, payload in files.items():
@@ -767,7 +771,7 @@ def test_migrated_alias_adoption_and_automatic_publication_preserve_identity(
 
 
 @pytest.mark.parametrize("version", [1, 2, 3])
-def test_schema_seven_imports_legacy_portable_without_changing_evidence(
+def test_current_schema_imports_legacy_portable_without_changing_evidence(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, version: int
 ) -> None:
     from open_brain_engine.engine import DecisionOutcome, ProposalDraft
@@ -817,11 +821,11 @@ def test_schema_seven_imports_legacy_portable_without_changing_evidence(
     assert validated_portable_snapshot(destination).files == snapshot.files
     imported = open_local_engine(compile_single_user_local(destination))
     with open_local_database_read_only(imported.profile) as connection:
-        assert connection.execute("PRAGMA user_version").fetchone()[0] == 12
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 13
         assert connection.execute("SELECT count(*) FROM source_revisions").fetchone()[0] > 0
 
 
-def test_schema_seven_owner_recovery_retains_current_writer_floor(tmp_path: Path) -> None:
+def test_current_schema_owner_recovery_retains_current_writer_floor(tmp_path: Path) -> None:
     from open_brain_engine.engine.managed_recovery import (
         abandon_managed_write,
         inspect_managed_recovery,
@@ -841,12 +845,73 @@ def test_schema_seven_owner_recovery_retains_current_writer_floor(tmp_path: Path
         validate_before_write=engine._assert_root,
     )
     assert not receipt.schema_upgraded
+    assert not receipt.duplicate
+    assert abandon_managed_write(
+        engine.profile,
+        operation_id="legacy.pending",
+        expected_digest=entry.preview_digest,
+        request_id="source.history.owner.recovery",
+        validate_before_write=engine._assert_root,
+    ).duplicate
     assert moved.read_bytes() == before
     reopened = open_local_engine(engine.profile)
     with open_local_database_read_only(reopened.profile) as connection:
-        assert connection.execute("PRAGMA user_version").fetchone()[0] == 12
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 13
         assert tuple(connection.execute("SELECT * FROM runtime_compatibility").fetchone()) == (
             1,
-            7,
-            12,
+            8,
+            13,
         )
+
+
+@pytest.mark.parametrize("damage", ["missing_registry", "pending_transition"])
+@pytest.mark.parametrize("operation", ["inspect", "abandon", "replay"])
+def test_current_managed_recovery_refuses_unsettled_historical_authority(
+    tmp_path: Path, damage: str, operation: str
+) -> None:
+    from open_brain_engine.engine.historical_fence import HistoricalPendingFence
+    from open_brain_engine.engine.managed_recovery import (
+        ManagedRecoveryFailure,
+        abandon_managed_write,
+        inspect_managed_recovery,
+    )
+
+    from packages.app.tests.integration.engine.test_managed_recovery import _legacy_fixture
+    from packages.app.tests.unit.engine.test_historical_projection import _claim_transition
+
+    engine, _, _, moved = _legacy_fixture(tmp_path)
+    entry = inspect_managed_recovery(engine.profile, operation_id="legacy.pending").entries[0]
+    assert entry.preview_digest is not None
+
+    expected_digest = entry.preview_digest
+
+    def abandon() -> object:
+        return abandon_managed_write(
+            engine.profile,
+            operation_id="legacy.pending",
+            expected_digest=expected_digest,
+            request_id="source.history.fenced.recovery",
+            validate_before_write=engine._assert_root,
+        )
+
+    if operation == "replay":
+        abandon()
+    if damage == "pending_transition":
+        record = _claim_transition(engine)
+        HistoricalPendingFence(engine.profile.root, engine.profile.root_identity).prepare(record)
+    else:
+        registry = (
+            engine.profile.root / ".open-brain/historical-authority/historical-claims.v1.json"
+        )
+        registry.rename(registry.with_suffix(".retained"))
+    with open_local_database_read_only(engine.profile) as connection:
+        before = list(connection.iterdump())
+    retained_body = moved.read_bytes()
+    with pytest.raises(ManagedRecoveryFailure, match="^recovery_unavailable$"):
+        if operation == "inspect":
+            inspect_managed_recovery(engine.profile, operation_id="legacy.pending")
+        else:
+            abandon()
+    with open_local_database_read_only(engine.profile) as connection:
+        assert list(connection.iterdump()) == before
+    assert moved.read_bytes() == retained_body

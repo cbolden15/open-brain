@@ -124,6 +124,28 @@ class SourceTasks:
                 "WHERE n.namespace_sha256=?",
                 (namespace_sha,),
             ).fetchone()
+            from .historical_source import (
+                historical_baseline_for_namespace,
+                historical_revision_head,
+                historical_source_row,
+            )
+
+            baseline = historical_baseline_for_namespace(
+                connection, self._engine.profile, namespace_sha
+            )
+            if source is None and baseline is not None:
+                source = historical_source_row(connection, baseline)
+            if (
+                baseline is not None
+                and source is not None
+                and (source["availability"] != "available" or source["historical_only"])
+            ):
+                raise T03Error("revision_changed")
+            if (
+                baseline is not None
+                and submission.revision_key == baseline.observed_delivery.submission.revision_key
+            ):
+                raise T03Error("invalid_arguments")
             if source is None and submission.expected_head is not None and existing is None:
                 # Adoption requires the retained alias AND exact canonical submission bytes.
                 # This explicitly records the provider key for the proven current baseline.
@@ -207,7 +229,7 @@ class SourceTasks:
                         (source["head_capture_id"],),
                     ).fetchone()
                     promote, predecessor, order_conflict = revision_order_decision(
-                        head, submission.ordering
+                        historical_revision_head(head, baseline), submission.ordering
                     )
                     conflict |= order_conflict
                 if conflict:

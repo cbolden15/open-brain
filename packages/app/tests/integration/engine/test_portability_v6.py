@@ -55,6 +55,7 @@ from open_brain_engine.portable.v6 import (
     validate_portable_file_set_v6,
 )
 from open_brain_engine.portable.v7 import V7_SIDECAR_PATHS
+from open_brain_engine.portable.v8 import V8_SIDECAR_PATHS
 from open_brain_engine.portable.versioned import validated_portable_snapshot
 
 from open_brain.profile import compile_single_user_local
@@ -264,13 +265,13 @@ def test_withdrawn_source_history_and_visibility_survive_recovery(
         export, restored = tmp_path / "export", tmp_path / "restored"
         assert (
             engine.portability.export(export, export_id="export_" + str(uuid4())).schema_version
-            == 7
+            == 8
         )
         assert (
             engine.portability.import_clean(
                 export, restored, import_id="import_" + str(uuid4())
             ).schema_version
-            == 7
+            == 8
         )
         engine = BrainEngine.open(_profile(restored, validated_portable_snapshot(restored)))
 
@@ -344,15 +345,15 @@ def test_schema11_runtime6_portable6_lifecycle_admission_roundtrip(tmp_path: Pat
     )
     receipt = tasks.sources.withdraw(withdrawal, authority=owner)
     export, restored, again = (tmp_path / name for name in ("export", "restored", "again"))
-    assert tasks.portability.export(export, export_id="export_" + str(uuid4())).schema_version == 7
+    assert tasks.portability.export(export, export_id="export_" + str(uuid4())).schema_version == 8
     snapshot = validated_portable_snapshot(export)
-    assert snapshot.manifest["schema_version"] == 7
+    assert snapshot.manifest["schema_version"] == 8
     assert snapshot.files.keys() >= V6_SIDECAR_PATHS
     assert (
         tasks.portability.import_clean(
             export, restored, import_id="import_" + str(uuid4())
         ).schema_version
-        == 7
+        == 8
     )
     engine = BrainEngine.open(_profile(restored, validated_portable_snapshot(restored)))
     assert engine.sources.withdraw(withdrawal, authority=owner) == receipt
@@ -410,7 +411,11 @@ def test_portable6_closed_authority_refuses_semantic_tampering(
         files[path] = canonical(value)
     with pytest.raises(PortableValidationError):
         validate_portable_file_set_v6(
-            {path: data for path, data in files.items() if path not in V7_SIDECAR_PATHS},
+            {
+                path: data
+                for path, data in files.items()
+                if path not in V7_SIDECAR_PATHS | V8_SIDECAR_PATHS
+            },
             tenant_id=tasks.profile.tenant_id,
         )
 
@@ -540,7 +545,11 @@ def test_portable6_managed_envelope_requires_exact_validated_intake_linkage(
         if path != "portable-manifest.json"
     }
     validate_portable_file_set_v6(
-        {path: data for path, data in files.items() if path not in V7_SIDECAR_PATHS},
+        {
+            path: data
+            for path, data in files.items()
+            if path not in V7_SIDECAR_PATHS | V8_SIDECAR_PATHS
+        },
         tenant_id=engine.profile.tenant_id,
     )
     admission = json.loads(files[SOURCE_ADMISSION_PATH])
@@ -616,7 +625,11 @@ def test_portable6_managed_envelope_requires_exact_validated_intake_linkage(
     # reject the forgery independently of those attacker-recomputed digests.
     with pytest.raises(PortableValidationError, match="source authority invalid"):
         validate_portable_file_set_v6(
-            {path: data for path, data in files.items() if path not in V7_SIDECAR_PATHS},
+            {
+                path: data
+                for path, data in files.items()
+                if path not in V7_SIDECAR_PATHS | V8_SIDECAR_PATHS
+            },
             tenant_id=engine.profile.tenant_id,
         )
 
@@ -773,7 +786,11 @@ def test_portable6_observed_envelope_rejects_invalid_attestation_and_linkage(
     files[SOURCE_ADMISSION_PATH] = canonical(admission)
     with pytest.raises(PortableValidationError, match="source authority invalid"):
         validate_portable_file_set_v6(
-            {path: data for path, data in files.items() if path not in V7_SIDECAR_PATHS},
+            {
+                path: data
+                for path, data in files.items()
+                if path not in V7_SIDECAR_PATHS | V8_SIDECAR_PATHS
+            },
             tenant_id=engine.profile.tenant_id,
         )
 
@@ -934,7 +951,11 @@ def test_portable6_coordinated_admission_forgery_contradicts_retained_capture_an
     } == unchanged
     with pytest.raises(PortableValidationError, match="source authority invalid"):
         validate_portable_file_set_v6(
-            {path: data for path, data in files.items() if path not in V7_SIDECAR_PATHS},
+            {
+                path: data
+                for path, data in files.items()
+                if path not in V7_SIDECAR_PATHS | V8_SIDECAR_PATHS
+            },
             tenant_id=engine.profile.tenant_id,
         )
 
@@ -1067,7 +1088,11 @@ def test_portable6_coordinated_history_only_revision_cannot_be_expected_head(
     } == unchanged
     with pytest.raises(PortableValidationError, match="source authority invalid"):
         validate_portable_file_set_v6(
-            {path: data for path, data in files.items() if path not in V7_SIDECAR_PATHS},
+            {
+                path: data
+                for path, data in files.items()
+                if path not in V7_SIDECAR_PATHS | V8_SIDECAR_PATHS
+            },
             tenant_id=engine.profile.tenant_id,
         )
 
@@ -1187,14 +1212,27 @@ def test_portable6_pending_managed_envelope_refuses_export(tmp_path: Path) -> No
         "search_rederived",
     ],
 )
-def test_portable6_restore_crash_rolls_back_authority(tmp_path: Path, stage: str) -> None:
+def test_portable6_restore_crash_rolls_back_authority(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, stage: str
+) -> None:
+    from open_brain_engine.engine import local_schema
+    from open_brain_engine.engine.local_schema_catalog import LOCAL_MIGRATIONS
+
     tmp_path.chmod(0o700)
-    tasks = open_local_engine(compile_single_user_local(tmp_path / "brain"))
-    assert tasks.sources is not None
-    submission = _revision(tasks)
-    accepted = tasks.sources.submit_revision(submission)
     export, restore = tmp_path / "export", tmp_path / "restore"
-    tasks.portability.export(export, export_id="export_" + str(uuid4()))
+    # Exercise the frozen restore boundary with actual Portable6 evidence,
+    # rather than passing a current Portable8 archive to its older decoder.
+    with monkeypatch.context() as historical:
+        historical.setattr(local_schema, "PHASE1_STATE_SCHEMA_VERSION", 11)
+        historical.setattr(local_schema, "LOCAL_MIGRATIONS", LOCAL_MIGRATIONS[:11])
+        tasks = open_local_engine(compile_single_user_local(tmp_path / "brain"))
+        assert tasks.sources is not None
+        submission = _revision(tasks)
+        accepted = tasks.sources.submit_revision(submission)
+        assert (
+            tasks.portability.export(export, export_id="export_" + str(uuid4())).schema_version
+            == 6
+        )
     shutil.copytree(export, restore)
     snapshot = validated_portable_snapshot(restore)
 

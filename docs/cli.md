@@ -25,6 +25,7 @@ opening a Brain. See the [feature/version matrix](core-v01-features.md).
 | `review propose/list/show/approve/reject/edit-and-approve` | Source-bound drafts and inspected decisions; [review](review-publication.md) |
 | `agent setup` | Preview/apply/remove client fragments with explicit grants; [agent setup](agent-setup.md) |
 | `workspace` | Setup/status/refresh, note lifecycle/conflicts and recovery; [workspace recovery](managed-workspace-recovery.md) |
+| `historical recover` | Owner-only forward completion of a retained historical-authority transition before ordinary startup |
 | `obsidian-plugin install/status/remove`, `plugin` | Packaged assets and foreground stdio bridge; [install](install.md) |
 | `graph` | Existing structural graph/consent/exclusion/suggestion operations; provider readiness remains unassessed |
 | `doctor --check NAME --json` | One bounded check; [doctor](doctor.md) |
@@ -37,12 +38,31 @@ There is no `vault` command; the managed vault is the `Open Brain Vault` sibling
 Sharing is owner-local. `preview`, `approve`, `reject`, and `revoke` require a
 closed version-1 JSON `--request-file`; `inspect` takes a preview or approval ID.
 The CLI prints a pending approval as pending and never treats a canonical review
-approval as external sharing. The installed runtime must report local schema 12,
-runtime session 7, and Portable 7 for this contract. See
-[Portable 7](portable-brain-v7.md) for export and import behavior.
+approval as external sharing. Sharing was introduced at schema/runtime/Portable
+12/7/7. The current historical-authority candidate reports 13/8/8. See
+[Portable 8](portable-brain-v8.md) for current export and import behavior;
+[Portable 7](portable-brain-v7.md) documents the frozen previous format.
 
 Commands that support machine output accept `--json`. The shared `--data-dir` option must be an
 absolute path. Without it, the CLI uses the platform data directory. `OPEN_BRAIN_ROOT` is ignored.
+
+The historical-authority implementation is an unreleased schema-13/runtime-8
+extension. `historical recover --data-dir /absolute/brain --json` opens an existing
+private Brain without starting ordinary engine tasks. It requires exclusive local
+owner admission and finishes only the exact retained pending intent. It accepts
+no replacement request, actor or provider arguments and does not migrate older
+state, capture content or approve publication. Its historical receipt does not
+prove current sharing eligibility or independently protected custody. A settled
+retry returns `status: settled` with no new receipt. Ordinary startup refuses
+pending or inconsistent historical state. Portable v8 acceptance is still required
+before this extension can be released.
+
+An uncommitted historical-copy link also needs `--consent-state /absolute/state.json`
+pointing to the existing owner-only, Brain-bound provider-consent store. Recovery
+reloads current PUBLIC-tier consent before link commit. Missing, revoked, or
+wrong-destination consent leaves the exact intent pending. This option does not
+create consent or grant publication. Already committed receipt recovery and
+denial-only claim/revocation recovery do not require a new consent grant.
 
 `capture` accepts `--privacy-tier` with one of `public`, `work`, `personal`, `secret`, or `unknown`
 as an owner-only explicit privacy tier. `import` accepts the same `--privacy-tier` for the whole

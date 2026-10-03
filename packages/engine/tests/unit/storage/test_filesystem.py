@@ -17,11 +17,58 @@ from open_brain_engine.storage.filesystem import (
     atomic_replace,
     atomic_write_new,
     capture_root_identity,
+    confined_unlink,
     raw_relative_path,
     read_confined,
 )
 
 from tests.unit.storage._factories import raw_capture
+
+
+def test_operational_atomic_operations_keep_their_shared_lock_outside_portable_data(
+    tmp_path: Path,
+) -> None:
+    identity = capture_root_identity(tmp_path)
+    relative = ".open-brain/synthetic/state.json"
+    assert (
+        atomic_write_new(
+            root=tmp_path, relative=relative, data=b"first", expected_root_identity=identity
+        )
+        is WriteState.CREATED
+    )
+    assert not (tmp_path / ".write.lock").exists()
+    lock = tmp_path / ".open-brain" / ".write.lock"
+    lock_identity = (lock.stat().st_dev, lock.stat().st_ino)
+    assert stat.S_IMODE(lock.stat().st_mode) == 0o600
+    atomic_replace(
+        root=tmp_path,
+        relative=relative,
+        data=b"second",
+        require_existing=True,
+        expected_existing_sha256=sha256(b"first").hexdigest(),
+        expected_root_identity=identity,
+    )
+    assert confined_unlink(
+        root=tmp_path, relative=relative, expected_root_identity=identity, require_existing=True
+    )
+    assert not (tmp_path / ".write.lock").exists()
+    assert (lock.stat().st_dev, lock.stat().st_ino) == lock_identity
+
+
+def test_operational_storage_lock_cannot_follow_a_directory_symlink(tmp_path: Path) -> None:
+    root = tmp_path / "root"
+    root.mkdir(mode=0o700)
+    outside = tmp_path / "outside"
+    outside.mkdir(mode=0o700)
+    (root / ".open-brain").symlink_to(outside, target_is_directory=True)
+    with pytest.raises(RootConfinementError):
+        atomic_write_new(
+            root=root,
+            relative=".open-brain/synthetic.json",
+            data=b"synthetic",
+            expected_root_identity=capture_root_identity(root),
+        )
+    assert list(outside.iterdir()) == []
 
 
 def test_filesystem_write_publishes_complete_bytes_atomically(tmp_path: Path) -> None:

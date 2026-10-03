@@ -237,9 +237,18 @@ class BrainEngine(CaptureOperations, SpaceOperations, ReviewOperations, Retrieva
                 "exclusive admission"
             )
         if (
+            schema.state == "supported_old"
+            and schema.version == 12
+            and local_schema.PHASE1_STATE_SCHEMA_VERSION >= 13
+        ):
+            raise StateSchemaUnavailableError(
+                "local state schema is supported_old: historical authority migration requires "
+                "exclusive admission"
+            )
+        if (
             receipt_protection_port is not None
             and schema.state != "absent"
-            and schema.version != 12
+            and schema.version not in {12, 13}
         ):
             raise StateSchemaUnavailableError(
                 "receipt protection requires the schema-10 ingestion journal"
@@ -247,6 +256,7 @@ class BrainEngine(CaptureOperations, SpaceOperations, ReviewOperations, Retrieva
         self.profile = profile
         self._faults = set(faults)
         self._clock = clock
+        self._validate_mutation_authority = validate_mutation_authority
         self._enrichment_provider = enrichment_provider
         self._admission_limits = (
             admission_limits if admission_limits is not None else AdmissionLimits()
@@ -270,11 +280,20 @@ class BrainEngine(CaptureOperations, SpaceOperations, ReviewOperations, Retrieva
         self._admission_rate_windows: dict[str, deque[datetime]] = {}
         self._active_admissions = 0
         lease_identity = "engine-" + sha256(profile.owner_actor_id.encode("utf-8")).hexdigest()[:32]
+
+        def validate_ordinary_write() -> None:
+            if validate_mutation_authority is not None:
+                validate_mutation_authority()
+            if inspect_phase1_state(profile).state != "absent":
+                from .historical_recovery import require_historical_settled
+
+                require_historical_settled(profile)
+
         self._writer_lease = FileLease(
             profile.root / ".open-brain",
             lease_identity,
             clock=clock,
-            validate_acquire=validate_mutation_authority,
+            validate_acquire=validate_ordinary_write,
             parent_root_identity=profile.root_identity,
         )
         self._reader_lease = FileLease(
@@ -295,7 +314,7 @@ class BrainEngine(CaptureOperations, SpaceOperations, ReviewOperations, Retrieva
                 finally:
                     connection.close()
         except LockBusyError:
-            if schema.state != "current" or schema.version != 12:
+            if schema.state != "current" or schema.version not in {12, 13}:
                 raise
             self._store = _LocalStore(profile, clock=self._clock, initialize=False)
         self.capture = CaptureTasks(self)

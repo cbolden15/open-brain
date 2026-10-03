@@ -134,7 +134,9 @@ class RecordProjector:
             head = expected
         elif expected is not None and expected != head:
             raise T03Error("revision_changed")
-        require_capture_eligibility(self.connection, head, self.authority, history=history)
+        require_capture_eligibility(
+            self.connection, head, self.authority, history=history, profile=self.profile
+        )
         self._require_source_revision_privacy(head)
         _revision, record = self._capture(head)
         reference = record["source"]["reference"]
@@ -259,7 +261,11 @@ class RecordProjector:
             raise T03Error("not_found")
         for member in retained_members:
             require_capture_eligibility(
-                self.connection, member["capture_id"], self.authority, history=history
+                self.connection,
+                member["capture_id"],
+                self.authority,
+                history=history,
+                profile=self.profile,
             )
         publication, raw = self._publication(publication_id)
         current = read_confined(
