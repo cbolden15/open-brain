@@ -2,6 +2,7 @@
 
 import json
 import sqlite3
+from collections.abc import Mapping
 from dataclasses import dataclass
 from hashlib import sha256
 
@@ -11,8 +12,55 @@ from .contracts import LocalEngineContext
 from .historical_admission import verify_historical_source_cas
 from .historical_contracts import HistoricalReceipt, HistoricalSourceCAS
 from .historical_source import historical_baseline_for_namespace
-from .source_intake import SourceRevisionObservedDelivery
+from .source_intake import SourceRevisionBinding, SourceRevisionObservedDelivery
 from .t03_contracts import T03Error
+
+
+@dataclass(frozen=True, slots=True)
+class HistoricalBaselineTemplate:
+    """Body-free reconstruction coordinates, never checkpoint authority.
+
+    Rebuild with the incoming capture and observation, then perform exact
+    lookup. These historical coordinates do not assert current eligibility.
+    """
+
+    revision_key: str
+    capture_delivery_id: str
+    delivery_id: str
+    expected_head: str | None
+    ordering: Mapping[str, object]
+    expected_control_epoch: int
+    expected_lifecycle_version: int
+    observed_envelope_sha256: str
+
+
+def historical_baseline_template(
+    connection: sqlite3.Connection,
+    profile: LocalEngineContext,
+    binding: SourceRevisionBinding,
+) -> HistoricalBaselineTemplate | None:
+    from open_brain_engine.core.ids import portable_canonical_json_bytes
+
+    baseline = historical_baseline_for_namespace(
+        connection,
+        profile,
+        sha256(portable_canonical_json_bytes(dict(binding.namespace))).hexdigest(),
+        binding=binding,
+    )
+    if baseline is None:
+        return None
+    delivery = baseline.observed_delivery
+    submission = delivery.submission
+    return HistoricalBaselineTemplate(
+        revision_key=submission.revision_key,
+        capture_delivery_id=submission.capture.delivery_id,
+        delivery_id=delivery.delivery_id,
+        expected_head=submission.expected_head,
+        ordering=submission.ordering,
+        expected_control_epoch=submission.expected_control_epoch,
+        expected_lifecycle_version=delivery.expected_lifecycle_version,
+        observed_envelope_sha256=delivery.envelope_sha256,
+    )
 
 
 @dataclass(frozen=True, slots=True)

@@ -15,6 +15,48 @@ from open_brain.profile import compile_single_user_local
 from packages.app.tests.unit.engine.test_historical_continuity import _adopt, _successor
 
 
+def test_template_reconstructs_exact_baseline_without_returning_capture_body(
+    tmp_path: Path,
+) -> None:
+    engine = BrainEngine.open(compile_single_user_local(tmp_path / "brain"))
+    baseline = _adopt(engine)
+    delivery = baseline.observed_delivery
+    sink = engine.sources.public_revision_sink(delivery.binding)
+    template = sink.baseline_template()
+    assert template is not None
+    assert not hasattr(template, "capture")
+    assert not hasattr(template, "observation")
+    rebuilt = replace(
+        delivery,
+        delivery_id=template.delivery_id,
+        expected_lifecycle_version=template.expected_lifecycle_version,
+        submission=replace(
+            delivery.submission,
+            capture=replace(delivery.submission.capture, delivery_id=template.capture_delivery_id),
+            revision_key=template.revision_key,
+            expected_head=template.expected_head,
+            ordering=template.ordering,
+            expected_control_epoch=template.expected_control_epoch,
+        ),
+    )
+    assert rebuilt.custody_bytes() == delivery.custody_bytes()
+    assert rebuilt.envelope_sha256 == template.observed_envelope_sha256
+    assert sink.lookup_baseline(rebuilt, selection_generation="selected.v1") is not None
+    with pytest.raises(TypeError):
+        template.ordering["kind"] = "unordered"  # type: ignore[index]
+
+
+def test_template_is_historical_not_current_eligibility(tmp_path: Path) -> None:
+    engine = BrainEngine.open(compile_single_user_local(tmp_path / "brain"))
+    baseline = _adopt(engine)
+    sink = engine.sources.public_revision_sink(baseline.observed_delivery.binding)
+    template = sink.baseline_template()
+    sink.submit(_successor(baseline))
+    assert sink.baseline_template() == template
+    with pytest.raises(T03Error, match="revision_changed"):
+        sink.lookup_baseline(baseline.observed_delivery, selection_generation="selected.v1")
+
+
 def test_exact_baseline_lookup_is_read_only_and_not_a_normal_delivery(tmp_path: Path) -> None:
     engine = BrainEngine.open(compile_single_user_local(tmp_path / "brain"))
     baseline = _adopt(engine)
@@ -162,6 +204,8 @@ def test_missing_authority_is_not_an_unbound_namespace(tmp_path: Path, file_name
     path = authority_root / file_name
     assert path.is_file()
     path.rename(path.with_suffix(".retained"))
+    with pytest.raises(T03Error, match="revision_changed"):
+        sink.baseline_template()
     with pytest.raises(T03Error, match="revision_changed"):
         sink.lookup_baseline(baseline.observed_delivery, selection_generation="selected.v1")
 

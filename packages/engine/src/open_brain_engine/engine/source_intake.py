@@ -20,7 +20,7 @@ from .source_observation import SourceRevisionObservation
 from .t03_contracts import T03Error, _freeze, _thaw
 
 if TYPE_CHECKING:
-    from .historical_checkpoint import HistoricalBaselineDuplicate
+    from .historical_checkpoint import HistoricalBaselineDuplicate, HistoricalBaselineTemplate
     from .local import BrainEngine
 
 
@@ -273,6 +273,21 @@ class PublicJobRevisionSink:
         self._engine = engine
         self._binding = binding
 
+    def baseline_template(self) -> HistoricalBaselineTemplate | None:
+        """Return body-free historical coordinates, not an eligibility grant."""
+        from open_brain_engine.storage.filesystem import StorageError
+
+        from .historical_checkpoint import historical_baseline_template
+        from .sharing_contracts import SharingError
+
+        connection = self._engine._store.connect()
+        try:
+            return historical_baseline_template(connection, self._engine.profile, self._binding)
+        except SharingError, StorageError:
+            raise T03Error("revision_changed") from None
+        finally:
+            connection.close()
+
     def lookup_baseline(
         self, delivery: SourceRevisionObservedDelivery, *, selection_generation: str
     ) -> HistoricalBaselineDuplicate | None:
@@ -282,7 +297,10 @@ class PublicJobRevisionSink:
         from .historical_checkpoint import lookup_historical_baseline
         from .sharing_contracts import SharingError
 
-        if type(delivery) is not SourceRevisionObservedDelivery or delivery.binding != self._binding:
+        if (
+            type(delivery) is not SourceRevisionObservedDelivery
+            or delivery.binding != self._binding
+        ):
             raise T03Error("invalid_arguments")
         connection = self._engine._store.connect()
         try:
