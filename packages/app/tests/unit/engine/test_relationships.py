@@ -28,7 +28,12 @@ from open_brain_engine.portable.v4 import (
 )
 from open_brain_engine.portable.v5 import V5_SIDECAR_PATHS
 from open_brain_engine.portable.v6 import V6_SIDECAR_PATHS
-from open_brain_engine.portable.v7 import PORTABLE_V7_SCHEMA_CATALOG_DIGEST, V7_SIDECAR_PATHS
+from open_brain_engine.portable.v7 import V7_SIDECAR_PATHS
+from open_brain_engine.portable.v8 import (
+    PORTABLE_V8_SCHEMA_CATALOG_DIGEST,
+    V8_SIDECAR_PATHS,
+    validate_historical_authority,
+)
 from open_brain_engine.portable.versioned import validated_portable_snapshot
 
 from open_brain.profile import compile_single_user_local
@@ -55,6 +60,10 @@ def request(left: str, right: str, kind: str = "duplicate_of") -> RelationshipDe
 
 def _write_v4_fixture(source: Path, destination: Path) -> dict[str, Any]:
     snapshot = validated_portable_snapshot(source)
+    historical = validate_historical_authority(snapshot.files)
+    assert historical.records == ()
+    assert historical.registry.generation == 0
+    assert historical.registry.memberships == ()
     files = {
         relative: payload
         for relative, payload in snapshot.files.items()
@@ -62,6 +71,7 @@ def _write_v4_fixture(source: Path, destination: Path) -> dict[str, Any]:
         and relative not in V5_SIDECAR_PATHS
         and relative not in V6_SIDECAR_PATHS
         and relative not in V7_SIDECAR_PATHS
+        and relative not in V8_SIDECAR_PATHS
     }
     for relative, payload in files.items():
         target = destination / relative
@@ -174,7 +184,7 @@ def test_supersedes_cycle_self_and_export_complete_decisions(tmp_path: Path) -> 
     engine.portability.export(old_export, export_id="export_" + str(uuid4()))
     assert (
         validated_portable_snapshot(old_export).manifest["schema_catalog_digest"]
-        == PORTABLE_V7_SCHEMA_CATALOG_DIGEST
+        == PORTABLE_V8_SCHEMA_CATALOG_DIGEST
     )
     assert (
         _write_v4_fixture(old_export, tmp_path / "legacy-v4-base")["schema_catalog_digest"]
@@ -189,7 +199,7 @@ def test_supersedes_cycle_self_and_export_complete_decisions(tmp_path: Path) -> 
     export = tmp_path / "export"
     engine.portability.export(export, export_id="export_" + str(uuid4()))
     snapshot = validated_portable_snapshot(export)
-    assert snapshot.manifest["schema_catalog_digest"] == PORTABLE_V7_SCHEMA_CATALOG_DIGEST
+    assert snapshot.manifest["schema_catalog_digest"] == PORTABLE_V8_SCHEMA_CATALOG_DIGEST
     assert (
         _write_v4_fixture(export, tmp_path / "legacy-v4-relationships")[
             "schema_catalog_digest"
