@@ -949,7 +949,8 @@ class CollectorController:
                         self._in_capture.active = True
                         try:
                             baseline = (capture_sink.lookup_baseline(
-                                intake, selection_generation=cast(str, entry["generation"])
+                                intake, selection_generation=cast(str, entry["generation"]),
+                                allow_successor=True,
                             ) if isinstance(capture_sink, EngineRevisionSink) else None)
                             result = baseline if baseline is not None else capture_sink.submit(intake)
                         finally:
@@ -1381,13 +1382,20 @@ class EngineRevisionSink:
 
     def lookup_baseline(
         self, intake: SourceRecordIntake, *, selection_generation: str,
+        allow_successor: bool = False, expected_capture_id: str | None = None,
     ) -> SavedMarkdownBaseline | None:
         """Reconstruct from incoming content, never retrieve historical owner text."""
+        if type(allow_successor) is not bool or (allow_successor and expected_capture_id is not None):
+            raise T03Error("invalid_arguments")
         binding, sink = self._revision_capability(intake)
         if intake.observation is None:
             return None
         template = sink.baseline_template()
         if template is None:
+            return None
+        if expected_capture_id is not None and expected_capture_id != template.expected_head:
+            # A normal terminal must be verified against its own envelope, not
+            # the old baseline merely because the upstream bytes reverted.
             return None
         capture = CaptureSubmission.for_public_job(
             context=self._capture_sink.context,
@@ -1414,6 +1422,13 @@ class EngineRevisionSink:
         )
         if delivery.envelope_sha256 != template.observed_envelope_sha256:
             return None
+        if allow_successor:
+            head = sink.inspect_head()
+            if (head.lifecycle == "active" and head.capture_id is not None
+                    and head.capture_id != template.expected_head):
+                # This is only a new-observation decision. Normal admission
+                # rechecks the complete source CAS under the writer lease.
+                return None
         result = sink.lookup_baseline(delivery, selection_generation=selection_generation)
         return None if result is None else SavedMarkdownBaseline(delivery, result)
 
@@ -1434,7 +1449,8 @@ class EngineRevisionSink:
         for intake, capture_id in items:
             binding, sink = self._revision_capability(intake)
             page_sink = sink if page_sink is None else page_sink
-            baseline = self.lookup_baseline(intake, selection_generation=selection_generation)
+            baseline = self.lookup_baseline(intake, selection_generation=selection_generation,
+                                            expected_capture_id=capture_id)
             if baseline is not None:
                 if baseline.result.capture_id != capture_id:
                     raise T03Error("revision_changed")
