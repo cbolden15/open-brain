@@ -28,6 +28,7 @@ from open_brain_engine.storage import watermarks
 from open_brain_engine.storage.locks import WriterQueueFullError
 from open_brain_engine.storage.markdown import render_markdown
 
+from .capture_recovery import CaptureReservationIdentity
 from .contracts import (
     BoundaryClassifier,
     CaptureAction,
@@ -452,9 +453,12 @@ class CaptureOperations(_LocalEngineOperations):
                     raise ValueError("unknown space")
                 if action is CaptureAction.CANONICAL_NOTE and space_id is None:
                     raise ValueError("canonical note requires a space")
-                capture_id = _new_id("capture")
-                accepted_at = _timestamp(self._clock())
                 canonical = action is CaptureAction.CANONICAL_NOTE
+                identities = CaptureReservationIdentity.allocate(
+                    canonical=canonical, accepted_at=_timestamp(self._clock()),
+                )
+                capture_id = identities.capture_id
+                accepted_at = identities.accepted_at
                 connection.execute(
                     """
                     INSERT INTO captures (
@@ -474,7 +478,7 @@ class CaptureOperations(_LocalEngineOperations):
                         delivery_id,
                         request_sha,
                         capture_id,
-                        _new_id("receipt"),
+                        identities.accepted_receipt_id,
                         payload.family,
                         payload_bytes,
                         payload.search_text(),
@@ -487,12 +491,12 @@ class CaptureOperations(_LocalEngineOperations):
                         action.value,
                         title,
                         accepted_at,
-                        _new_id("proposal") if canonical else None,
-                        _new_id("receipt") if canonical else None,
-                        _new_id("decision") if canonical else None,
-                        _new_id("receipt") if canonical else None,
-                        _new_id("page") if canonical else None,
-                        _new_id("publication") if canonical else None,
+                        identities.auto_proposal_id,
+                        identities.auto_proposal_receipt_id,
+                        identities.auto_decision_id,
+                        identities.auto_decision_receipt_id,
+                        identities.page_id,
+                        identities.publication_id,
                         submission.actor_id,
                         portable_canonical_json_bytes(
                             {
