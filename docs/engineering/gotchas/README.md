@@ -4,6 +4,23 @@ Non-obvious behaviors, sharp edges, and lessons learned belong here.
 
 ## Registry
 
+### COLLECTOR-002: Close revision admission read connections explicitly
+
+Symptom: A parent collector rejects a valid schema as invalid after a real
+foreground CLI sharing approval. A fresh process still reads the same database
+as current schema 12.
+
+Cause: Revision-head and terminal-receipt reads use a SQLite connection context
+manager, which ends the transaction but does not close the connection. Retained
+connections interfere with the subsequent cross-process WAL reads.
+
+Fix: Close revision-head, receipt verification and owner lifecycle inspection
+connections in `finally`. Close the synthetic receipt snapshot helper too.
+Exercise actual collector admission, CLI approval and external stdio together;
+do not add garbage collection or schema-repair retries to hide the failure.
+
+Discovered: 2026-10-03, Phase D synthetic trusted transport regression.
+
 ### SEMANTIC-001: Retained link targets remain inference ancestry
 
 Symptom: Graph refresh dispatches an ordinary note whose accepted link targeted

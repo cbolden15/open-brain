@@ -38,7 +38,8 @@ class SourceLifecycleTasks:
         _owner_local(authority)
         if not isinstance(request, SourceInspectRequest):
             raise T03Error("invalid_arguments")
-        with self._engine._store.connect() as connection:
+        connection = self._engine._store.connect()
+        try:
             row = connection.execute(
                 "SELECT s.*, l.lifecycle_version, b.brain_id, b.issuer_epoch FROM logical_sources s "
                 "JOIN source_lifecycle_state l USING(source_id) "
@@ -50,6 +51,8 @@ class SourceLifecycleTasks:
                 "SELECT receipt_json FROM source_lifecycle_operations WHERE source_id=? "
                 "ORDER BY sequence DESC LIMIT 1", (request.source_id,)
             ).fetchone()
+        finally:
+            connection.close()
         return SourceInspection(
             source_id=row["source_id"], head_capture_id=row["head_capture_id"],
             head_version=row["head_version"], route_version=row["route_version"],

@@ -54,7 +54,8 @@ def _collector(
 
 
 def _terminal_snapshot(tasks: EngineTaskSet) -> tuple[tuple[object, ...], ...]:
-    with open_local_database_read_only(tasks.profile) as connection:
+    connection = open_local_database_read_only(tasks.profile)
+    try:
         return tuple(
             tuple(row)
             for row in connection.execute(
@@ -62,6 +63,8 @@ def _terminal_snapshot(tasks: EngineTaskSet) -> tuple[tuple[object, ...], ...]:
                 "FROM managed_source_deliveries ORDER BY delivery_id"
             )
         )
+    finally:
+        connection.close()
 
 
 def test_publication_collects_sixty_files_through_restart_continuation(
