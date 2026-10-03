@@ -48,12 +48,13 @@ from open_brain_engine.engine import (
     live_search_is_healthy,
     read_maintenance_snapshot,
 )
-from open_brain_engine.engine.consent_contracts import ConsentContractError
+from open_brain_engine.engine.consent_contracts import ConsentContractError, EgressMode
 from open_brain_engine.engine.contracts import CaptureAdmissionError, ManagedWorkspaceFailure
 from open_brain_engine.engine.privacy_repairs import (
     PrivacyRepairError,
     PrivacyRepairRequest,
 )
+from open_brain_engine.engine.sharing_contracts import SharingError, SharingInspectRequest
 from open_brain_engine.engine.t03_contracts import EffectiveAuthority, T03Error
 from open_brain_engine.storage.locks import LockBusyError
 from open_brain_engine.storage.operational import (
@@ -112,6 +113,7 @@ from open_brain.services.review_publication import (
     ReviewPublicationService,
     validate_review_arguments,
 )
+from open_brain.services.saved_markdown_sharing import invoke_sharing, read_sharing_request
 from open_brain.services.session_authority import TrustedSessionAuthority
 from open_brain.services.session_consent import (
     DurableProviderConsentStore,
@@ -286,9 +288,16 @@ def run_cli(
             return 2
         try:
             parsed.source_withdraw_request = _read_source_withdraw_request(parsed.request_file)
-        except (OSError, UnicodeError, ValueError, T03AppError):
+        except OSError, UnicodeError, ValueError, T03AppError:
             _write_usage_failure(json_output=json_output)
             return 2
+    if parsed.command == "sharing" and parsed.sharing_action != "inspect":
+        try:
+            parsed.sharing_request = read_sharing_request(
+                parsed.request_file, parsed.sharing_action
+            )
+        except SharingError as error:
+            return _write_sharing_failure(error.code, json_output=json_output)
     if parsed.command == "capture-submit":
         try:
             parsed.startup_policy = _read_startup_policy(parsed.policy)
@@ -475,6 +484,8 @@ def _run_parsed_command(
         return _write_space_inbox_failure(error.code, json_output=json_output)
     except ReviewPublicationError as error:
         return _write_review_failure(error.code, json_output=json_output)
+    except SharingError as error:
+        return _write_sharing_failure(error.code, json_output=json_output)
     except PrivacyRepairError as error:
         return _write_privacy_repair_failure(error.code)
     except JournalOperationError as error:
@@ -760,9 +771,7 @@ def _parser() -> argparse.ArgumentParser:
         "--session-policy",
         metavar="PATH",
         default=None,
-        help=(
-            "Absolute trusted launcher-policy.v1 path governing the whole MCP session."
-        ),
+        help=("Absolute trusted launcher-policy.v1 path governing the whole MCP session."),
     )
     mcp_parser.add_argument(
         "--consent-state",
@@ -1090,6 +1099,19 @@ def _add_t03_parsers(
     source_withdraw.add_argument("--request-file", required=True)
     source_withdraw.set_defaults(_catalog_discoverable=False)
 
+    sharing = subparsers.add_parser("sharing", help="Owner-approved saved-Markdown copies.")
+    _add_local_options(sharing)
+    sharing_children = sharing.add_subparsers(dest="sharing_action", required=True)
+    for action in ("preview", "approve", "reject", "revoke"):
+        child = sharing_children.add_parser(action)
+        _add_local_options(child)
+        child.add_argument("--request-file", required=True)
+        child.set_defaults(_catalog_discoverable=False)
+    sharing_inspect = sharing_children.add_parser("inspect")
+    _add_local_options(sharing_inspect)
+    sharing_inspect.add_argument("subject_id")
+    sharing_inspect.set_defaults(_catalog_discoverable=False)
+
     relationship = subparsers.add_parser(
         "relationship", help="Owner-only revision-bound relationship decisions and listing."
     )
@@ -1414,8 +1436,14 @@ def _read_source_withdraw_request(value: object) -> SourceWithdrawRequest:
         ),
     )
     required = {
-        "dto_version", "operation_id", "source_id", "expected_head",
-        "expected_lifecycle_version", "brain_id", "issuer_epoch", "reason_code",
+        "dto_version",
+        "operation_id",
+        "source_id",
+        "expected_head",
+        "expected_lifecycle_version",
+        "brain_id",
+        "issuer_epoch",
+        "reason_code",
         "absence_evidence_digest",
     }
     if not isinstance(decoded, dict) or set(decoded) != required:
@@ -1723,6 +1751,26 @@ def _run_source_lifecycle(
     return 0
 
 
+def _run_sharing(parsed: argparse.Namespace, tasks: EngineTaskSet, *, json_output: bool) -> int:
+    action = cast(str, parsed.sharing_action)
+    request = (
+        SharingInspectRequest(subject_id=cast(str, parsed.subject_id))
+        if action == "inspect"
+        else parsed.sharing_request
+    )
+    payload = invoke_sharing(
+        tasks,
+        action=action,
+        request=request,
+        authority=owner_authority(tasks, session_id="owner-cli"),
+    )
+    if json_output:
+        _write_json(payload)
+    else:
+        print(_terminal_text(json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True)))
+    return 0
+
+
 def _run_privacy_repair(parsed: argparse.Namespace, tasks: EngineTaskSet) -> int:
     repair_task = tasks.privacy_repair
     if repair_task is None:
@@ -1946,6 +1994,8 @@ def _run_local_command(
         return _run_consent(parsed, tasks, json_output=json_output)
     if parsed.command == "source" and parsed.source_action in {"inspect", "withdraw"}:
         return _run_source_lifecycle(parsed, tasks, json_output=json_output)
+    if parsed.command == "sharing":
+        return _run_sharing(parsed, tasks, json_output=json_output)
     if parsed.command in {
         "search-page",
         "read",
@@ -2070,9 +2120,7 @@ def _run_local_command(
         )
         policy_path = parsed.session_policy or parsed.capture_policy
         if selected_grants & owner_grants and policy_path is None:
-            session_authority = owner_authority(
-                tasks, session_id="mcp-" + str(uuid.uuid4())
-            )
+            session_authority = owner_authority(tasks, session_id="mcp-" + str(uuid.uuid4()))
         capture_submit_capability = None
         if policy_path is not None:
             authority_source = TrustedSessionAuthority(
@@ -2106,19 +2154,13 @@ def _run_local_command(
 
             session_authority_revalidator = revalidate_session_authority
         if parsed.allow_capture_submit:
-            capture_submit_capability = destination_bound_capture_submit(
-                tasks, session_authority
-            )
+            capture_submit_capability = destination_bound_capture_submit(tasks, session_authority)
         history = tasks.history
         sources = tasks.sources
         negotiated_tasks = SimpleNamespace(
             retrieval=SimpleNamespace(
-                search_page=(
-                    tasks.retrieval.search_page if parsed.allow_search else None
-                ),
-                read_record=(
-                    tasks.retrieval.read_record if parsed.allow_content_read else None
-                ),
+                search_page=(tasks.retrieval.search_page if parsed.allow_search else None),
+                read_record=(tasks.retrieval.read_record if parsed.allow_content_read else None),
             ),
             history=SimpleNamespace(
                 list_history=(
@@ -2141,38 +2183,58 @@ def _run_local_command(
             if session_authority.capabilities
             & {"search", "content-read", "history-read", "organize"}
             or session_authority.owner
-            and selected_grants
-            & {"search", "content-read", "history-read", "organize"}
+            and selected_grants & {"search", "content-read", "history-read", "organize"}
             else None
         )
+        local_callbacks = session_authority.egress_mode is EgressMode.OWNER_LOCAL
         adapter = LocalMcpAdapter(
             authority=session_authority,
             revalidate_authority=session_authority_revalidator,
-            capture=mcp_capture_sink(tasks) if parsed.allow_capture else None,
+            capture=mcp_capture_sink(tasks) if local_callbacks and parsed.allow_capture else None,
             capture_submit=capture_submit_capability,
-            search=search if parsed.allow_search else None,
-            inbox_list=organization.inbox_list if parsed.allow_inbox_read else None,
-            space_list=organization.space_list if parsed.allow_inbox_read else None,
-            space_create=organization.space_create if parsed.allow_organize else None,
-            space_rename=organization.space_rename if parsed.allow_organize else None,
-            inbox_route=organization.inbox_route if parsed.allow_organize else None,
-            review_list=review.list if parsed.allow_review_read else None,
-            review_show=review.show if parsed.allow_review_read else None,
-            review_propose=review.propose if parsed.allow_review_propose else None,
-            review_approve=review.approve if parsed.allow_review_decide else None,
-            review_reject=review.reject if parsed.allow_review_decide else None,
+            search=search if local_callbacks and parsed.allow_search else None,
+            inbox_list=organization.inbox_list
+            if local_callbacks and parsed.allow_inbox_read
+            else None,
+            space_list=organization.space_list
+            if local_callbacks and parsed.allow_inbox_read
+            else None,
+            space_create=organization.space_create
+            if local_callbacks and parsed.allow_organize
+            else None,
+            space_rename=organization.space_rename
+            if local_callbacks and parsed.allow_organize
+            else None,
+            inbox_route=organization.inbox_route
+            if local_callbacks and parsed.allow_organize
+            else None,
+            review_list=review.list if local_callbacks and parsed.allow_review_read else None,
+            review_show=review.show if local_callbacks and parsed.allow_review_read else None,
+            review_propose=review.propose
+            if local_callbacks and parsed.allow_review_propose
+            else None,
+            review_approve=review.approve
+            if local_callbacks and parsed.allow_review_decide
+            else None,
+            review_reject=review.reject if local_callbacks and parsed.allow_review_decide else None,
             review_edit_and_approve=(
-                review.edit_and_approve if parsed.allow_review_decide else None
+                review.edit_and_approve if local_callbacks and parsed.allow_review_decide else None
             ),
             negotiated=negotiated,
             workspace_status=(
-                (lambda: workspace_status_result(tasks)) if parsed.allow_workspace_read else None
+                (lambda: workspace_status_result(tasks))
+                if local_callbacks and parsed.allow_workspace_read
+                else None
             ),
             graph_suggestions=(
-                (lambda: graph_suggestions(tasks)) if parsed.allow_workspace_read else None
+                (lambda: graph_suggestions(tasks))
+                if local_callbacks and parsed.allow_workspace_read
+                else None
             ),
             graph_projection=(
-                (lambda: graph_projection(tasks)) if parsed.allow_workspace_read else None
+                (lambda: graph_projection(tasks))
+                if local_callbacks and parsed.allow_workspace_read
+                else None
             ),
             graph_refresh=(
                 (
@@ -2182,7 +2244,7 @@ def _run_local_command(
                         0,
                     )
                 )
-                if parsed.allow_graph_refresh
+                if local_callbacks and parsed.allow_graph_refresh
                 else None
             ),
         )
@@ -2858,7 +2920,7 @@ def _record_verified_export(
         manifest_version = cast(dict[str, object], manifest_value)["schema_version"]
     except UnicodeDecodeError, json.JSONDecodeError, KeyError, TypeError:
         raise ValueError("Portable export manifest is unavailable") from None
-    if type(manifest_version) is not int or manifest_version not in {1, 2, 3, 4, 5, 6}:
+    if type(manifest_version) is not int or manifest_version not in {1, 2, 3, 4, 5, 6, 7}:
         raise ValueError("Portable export manifest is unavailable")
     session.prepared.revalidate()
     atomic_replace(
@@ -2897,7 +2959,7 @@ def _verified_export_state(session: LocalBrainSession) -> str:
                 "manifest_digest_sha256",
                 "schema_version",
             }
-            or value["schema_version"] not in {1, 2, 3, 4, 5, 6}
+            or value["schema_version"] not in {1, 2, 3, 4, 5, 6, 7}
             or canonical_json_bytes(value) != payload
             or not isinstance(value["created_at"], str)
             or not isinstance(value["export_id"], str)
@@ -2983,6 +3045,14 @@ def _write_usage_failure(*, json_output: bool) -> None:
         )
     else:
         print("Open Brain could not parse the command.", file=sys.stderr)
+
+
+def _write_sharing_failure(code: str, *, json_output: bool) -> int:
+    if json_output:
+        _write_json({"error": {"code": code}, "status": "failed"})
+    else:
+        print(code, file=sys.stderr)
+    return 2 if code in {"invalid_arguments", "unsupported_capability"} else 1
 
 
 def _write_privacy_repair_failure(code: str) -> int:

@@ -54,6 +54,16 @@ from .t03_contracts import EffectiveAuthority, SourceRouteRequest, SourceRouteRe
 
 if TYPE_CHECKING:
     from .privacy_repairs import PrivacyRepairReceipt, PrivacyRepairRequest
+    from .sharing_contracts import (
+        SharingDecisionReceipt,
+        SharingDecisionRequest,
+        SharingInspection,
+        SharingInspectRequest,
+        SharingPreview,
+        SharingPreviewRequest,
+        SharingRevokeReceipt,
+        SharingRevokeRequest,
+    )
     from .source_intake import (
         PublicJobRevisionSink,
         SourceRevisionBinding,
@@ -753,7 +763,7 @@ class PortabilityReceipt:
         ):
             if type(value) is not int or value < 0:
                 raise ValueError("invalid portability receipt count")
-        if self.schema_version not in {1, 2, 3, 4, 5, 6}:
+        if self.schema_version not in {1, 2, 3, 4, 5, 6, 7}:
             raise ValueError("invalid portability receipt schema version")
         if self.index_generation is not None and (
             type(self.index_generation) is not int or self.index_generation < 1
@@ -2627,7 +2637,7 @@ def verify_protection_acknowledgement_binding(
 ) -> ProtectionAcknowledgement:
     try:
         checked = ProtectionAcknowledgement.from_dict(acknowledgement.to_dict())
-    except (AttributeError, TypeError, ValueError):
+    except AttributeError, TypeError, ValueError:
         raise ValueError("invalid protection acknowledgement") from None
     if (
         checked.brain_id != brain_id
@@ -3456,6 +3466,24 @@ class JournalTask(Protocol):
     def discard(self, delivery_id: str, *, reason: str, authority: EffectiveAuthority) -> None: ...
 
 
+class SharingTask(Protocol):
+    def preview(
+        self, request: SharingPreviewRequest, *, authority: EffectiveAuthority
+    ) -> SharingPreview: ...
+
+    def inspect(
+        self, request: SharingInspectRequest, *, authority: EffectiveAuthority
+    ) -> SharingInspection: ...
+
+    def decide(
+        self, request: SharingDecisionRequest, *, authority: EffectiveAuthority
+    ) -> SharingDecisionReceipt: ...
+
+    def revoke(
+        self, request: SharingRevokeRequest, *, authority: EffectiveAuthority
+    ) -> SharingRevokeReceipt: ...
+
+
 @dataclass(frozen=True, slots=True)
 class EngineTaskSet:
     """The public task identities exposed by one opened local engine root."""
@@ -3476,6 +3504,7 @@ class EngineTaskSet:
     relationships: RelationshipTask | None = None
     privacy_repair: PrivacyRepairTask | None = None
     journal: JournalTask | None = None
+    sharing: SharingTask | None = None
 
     @property
     def spaces(self) -> InboxSpaceTask:

@@ -26,6 +26,7 @@ from .v3 import validated_portable_snapshot_v3
 from .v4 import validated_portable_snapshot_v4
 from .v5 import validated_portable_snapshot_v5
 from .v6 import validated_portable_snapshot_v6
+from .v7 import validated_portable_snapshot_v7
 
 
 def validated_portable_snapshot(
@@ -67,6 +68,8 @@ def validated_portable_snapshot(
         return validated_portable_snapshot_v5(root, expected_root_identity=identity)
     if version == 6:
         return validated_portable_snapshot_v6(root, expected_root_identity=identity)
+    if version == 7:
+        return validated_portable_snapshot_v7(root, expected_root_identity=identity)
     if version == 3:
         return validated_portable_snapshot_v3(root, expected_root_identity=identity)
     raise PortableValidationError("unsupported Portable Brain schema")

@@ -52,6 +52,7 @@ from open_brain.services.mcp_protocol import (
     encoded_tool_response_size,
     serve_stdio_mcp,
 )
+from open_brain.services.session_authority import TrustedSessionAuthority
 from open_brain.services.session_consent import DurableProviderConsentStore
 from open_brain.services.space_inbox import SpaceInboxError, SpaceInboxService
 from open_brain.services.t03_adapters import T03AppAdapter
@@ -275,10 +276,10 @@ def test_session_authority_is_revalidated_before_discovery_and_dispatch(tasks: A
         "brain_catalog",
     }
     assert calls == 1
-    assert adapter.call_tool("brain_capture", {"text": "revalidated capture"})[
-        "status"
-    ] == "captured"
-    assert calls == 2
+    assert (
+        adapter.call_tool("brain_capture", {"text": "revalidated capture"})["status"] == "captured"
+    )
+    assert calls == 3
 
     revoked = True
     with pytest.raises(LauncherPolicyError, match="stale_policy"):
@@ -984,7 +985,7 @@ def test_cli_and_mcp_share_semantic_dataset_results_and_export(
     assert "source_ref" not in json.dumps(mcp_result)
     export = tmp_path / "export"
     assert run_cli(("export", str(export), "--verify", "--data-dir", str(root), "--json")) == 0
-    assert json.loads(capsys.readouterr().out)["schema_version"] == 6
+    assert json.loads(capsys.readouterr().out)["schema_version"] == 7
     assert all((export / relative).is_file() for relative in V5_SIDECAR_PATHS)
     assert not any(".open-brain" in path.parts for path in export.rglob("*"))
     assert not any(path.suffix in {".sqlite", ".sqlite3"} for path in export.rglob("*"))
@@ -1595,8 +1596,7 @@ def test_live_cli_and_mcp_share_brain_and_bound_contention(
         assert json.loads(capsys.readouterr().out)["results"][0]["source_origin"] == "unknown"
         assert run_cli(("search", "blocked-cli", "--data-dir", str(root), "--json")) == 0
         assert (
-            json.loads(capsys.readouterr().out)["results"][0]["source_origin"]
-            == "owner_authored"
+            json.loads(capsys.readouterr().out)["results"][0]["source_origin"] == "owner_authored"
         )
         # An external SQLite writer exercises the real five-second busy timeout.
         connection = sqlite3.connect(
@@ -1834,9 +1834,7 @@ def _session_policy_file(
             "allowed_capture_tiers": [] if capture_tiers is None else capture_tiers,
             "egress_mode": "external_provider" if external else "owner_local",
             "provider_id": "synthetic-provider" if external else None,
-            "consent_id": (
-                "consent_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" if external else None
-            ),
+            "consent_id": ("consent_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" if external else None),
             "authorization_generation": generation,
         }
     )
@@ -1899,7 +1897,6 @@ def test_live_session_policy_scopes_tiers_and_intersects_selected_operations(
             process.stdin.close()
         if process.poll() is None:
             process.wait(timeout=10)
-
 
     personal = _session_policy_file(
         tasks,
@@ -2054,18 +2051,14 @@ def test_external_session_terminates_and_cannot_restart_after_consent_revocation
     process = _start(tasks.profile.root, *flags)
     try:
         assert "result" in _exchange(process, INITIALIZE)
-        assert "result" in _exchange(
-            process, {"jsonrpc": "2.0", "id": 2, "method": "tools/list"}
-        )
+        assert "result" in _exchange(process, {"jsonrpc": "2.0", "id": 2, "method": "tools/list"})
         consent.revoke(
             consent_id="consent_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
             operation_id="revoke-1",
             decided_at="2026-09-23T12:01:00Z",
         )
         assert process.stdin is not None
-        process.stdin.write(
-            json.dumps({"jsonrpc": "2.0", "id": 3, "method": "tools/list"}) + "\n"
-        )
+        process.stdin.write(json.dumps({"jsonrpc": "2.0", "id": 3, "method": "tools/list"}) + "\n")
         process.stdin.flush()
         assert process.wait(timeout=15) == 78
         assert process.stderr is not None
@@ -2079,6 +2072,295 @@ def test_external_session_terminates_and_cannot_restart_after_consent_revocation
     assert restarted.wait(timeout=15) == 78
     assert restarted.stderr is not None
     assert restarted.stderr.read() == "stale_policy\n"
+
+
+@pytest.mark.parametrize("external", [False, True])
+def test_entrypoint_external_composition_omits_unsafe_local_callbacks(
+    tasks: Any, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, external: bool
+) -> None:
+    authority_root = tmp_path / "composition-authority"
+    authority_root.mkdir(mode=0o700)
+    brain_id, issuer_epoch = current_brain_identity(tasks)
+    consent_path = authority_root / "consent.json"
+    consent = DurableProviderConsentStore(
+        consent_path, brain_id=brain_id, issuer_epoch=issuer_epoch
+    )
+    consent.grant(
+        provider_id="synthetic-provider",
+        allowed_tiers=frozenset({PrivacyTier.PUBLIC}),
+        operation_id="composition.grant",
+        decided_at="2026-10-03T00:00:00Z",
+        consent_id_factory=lambda: "consent_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    )
+    policy = _session_policy_file(
+        tasks,
+        authority_root / "policy.json",
+        read_tiers=["public"],
+        capabilities=["search", "content-read", "history-read"],
+        external=external,
+        generation=1 if external else 0,
+    )
+    observed: list[LocalMcpAdapter] = []
+
+    def serve(adapter: LocalMcpAdapter, **_kwargs: object) -> None:
+        observed.append(adapter)
+
+    monkeypatch.setattr("open_brain.services.mcp_protocol.serve_stdio_mcp", serve)
+    assert (
+        run_cli(
+            (
+                "mcp",
+                "--data-dir",
+                str(tasks.profile.root),
+                "--session-policy",
+                str(policy),
+                *(("--consent-state", str(consent_path)) if external else ()),
+                "--allow-search",
+                "--allow-content-read",
+                "--allow-history-read",
+                "--allow-capture",
+                "--allow-inbox-read",
+                "--allow-organize",
+                "--allow-review-read",
+                "--allow-review-propose",
+                "--allow-review-decide",
+                "--allow-workspace-read",
+                "--allow-graph-refresh",
+            )
+        )
+        == 0
+    )
+    assert len(observed) == 1 and observed[0].negotiated is not None
+    for name in (
+        "capture",
+        "search",
+        "inbox_list",
+        "space_list",
+        "space_create",
+        "space_rename",
+        "inbox_route",
+        "review_list",
+        "review_show",
+        "review_propose",
+        "review_approve",
+        "review_reject",
+        "review_edit_and_approve",
+        "workspace_status",
+        "graph_suggestions",
+        "graph_projection",
+        "graph_refresh",
+    ):
+        assert (getattr(observed[0], name) is None) is external, name
+
+
+def test_real_external_stdio_keeps_local_admin_callbacks_closed_with_all_flags(
+    tasks: Any, tmp_path: Path
+) -> None:
+    from open_brain_engine.core.models import Authority, PrivacyDecision, PrivacyReason
+
+    from packages.app.tests.unit.engine.test_foundation_contracts import _public_submission
+
+    public = tasks.capture.submit(
+        replace(
+            _public_submission(tasks),
+            payload=TextPayload("Synthetic scoped public canary"),
+            delivery_id="synthetic.scoped.public",
+            privacy=PrivacyDecision.create(
+                tier=PrivacyTier.PUBLIC,
+                reason=PrivacyReason.POLICY_PUBLIC,
+                policy_version="synthetic-policy-v1",
+                authority=Authority(cloud=False, external_egress=True),
+            ),
+        )
+    )
+    private = tasks.capture.accept(
+        TextPayload("Synthetic scoped protected canary"),
+        delivery_id="synthetic.scoped.secret",
+        privacy_tier=PrivacyTier.SECRET,
+    )
+    authority_root = tmp_path / "stdio-authority"
+    authority_root.mkdir(mode=0o700)
+    brain_id, issuer_epoch = current_brain_identity(tasks)
+    consent_path = authority_root / "consent.json"
+    DurableProviderConsentStore(consent_path, brain_id=brain_id, issuer_epoch=issuer_epoch).grant(
+        provider_id="synthetic-provider",
+        allowed_tiers=frozenset({PrivacyTier.PUBLIC}),
+        operation_id="stdio.grant",
+        decided_at="2026-10-03T00:00:00Z",
+        consent_id_factory=lambda: "consent_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    )
+    policy = _session_policy_file(
+        tasks,
+        authority_root / "policy.json",
+        read_tiers=["public"],
+        capabilities=["search", "content-read", "history-read"],
+        external=True,
+        generation=1,
+    )
+    count = _capture_row_count(tasks.profile.root)
+    process = _start(
+        tasks.profile.root,
+        "--session-policy",
+        str(policy),
+        "--consent-state",
+        str(consent_path),
+        "--allow-search",
+        "--allow-content-read",
+        "--allow-history-read",
+        "--allow-capture",
+        "--allow-capture-submit",
+        "--allow-inbox-read",
+        "--allow-organize",
+        "--allow-review-read",
+        "--allow-review-propose",
+        "--allow-review-decide",
+        "--allow-workspace-read",
+        "--allow-graph-refresh",
+    )
+    try:
+        assert "result" in _exchange(process, INITIALIZE)
+        listing = _exchange(process, {"jsonrpc": "2.0", "id": 2, "method": "tools/list"})
+        assert {tool["name"] for tool in listing["result"]["tools"]} == {
+            "brain_catalog",
+            "brain_contract_describe",
+            "brain_search_page",
+            "brain_read",
+            "brain_history_list",
+            "brain_history_show",
+        }
+        result = _exchange(
+            process,
+            _call(
+                "brain_search_page",
+                {
+                    "dto_version": 1,
+                    "query": "Synthetic scoped",
+                    "limit": 10,
+                },
+                3,
+            ),
+        )["result"]["structuredContent"]
+        assert [row["record_id"] for row in result["results"]] == [public.capture_id]
+        for identifier, name in enumerate(
+            (
+                "brain_capture",
+                "brain_capture_submit",
+                "brain_search",
+                "brain_source_route",
+                "brain_inbox_list",
+                "brain_space_list",
+                "brain_space_create",
+                "brain_space_rename",
+                "brain_inbox_route",
+                "brain_review_list",
+                "brain_review_show",
+                "brain_review_propose",
+                "brain_review_approve",
+                "brain_review_reject",
+                "brain_review_edit_and_approve",
+                "brain_workspace_status",
+                "brain_graph_suggestions",
+                "brain_graph_projection",
+                "brain_graph_refresh",
+                "brain_export",
+                "brain_source_withdraw",
+                "brain_sharing_approve",
+            ),
+            4,
+        ):
+            refused = _exchange(process, _call(name, {}, identifier))
+            assert refused["result"]["isError"] is True, name
+            assert "structuredContent" not in refused["result"]
+            assert refused["result"]["content"] == [{"type": "text", "text": "unknown tool"}]
+            assert "Synthetic scoped protected canary" not in json.dumps(refused)
+            assert private.capture_id not in json.dumps(refused)
+        assert _capture_row_count(tasks.profile.root) == count
+    finally:
+        if process.stdin is not None:
+            process.stdin.close()
+        if process.poll() is None:
+            process.wait(timeout=10)
+    assert process.returncode == 0
+    assert process.stderr is not None and process.stderr.read() == ""
+
+
+def test_inflight_consent_revocation_blocks_content_before_stdio_output(
+    tasks: Any, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from open_brain_engine.core.models import Authority, PrivacyDecision, PrivacyReason
+
+    from packages.app.tests.unit.engine.test_foundation_contracts import _public_submission
+
+    tasks.capture.submit(
+        replace(
+            _public_submission(tasks),
+            payload=TextPayload("Synthetic inflight consent canary"),
+            delivery_id="synthetic.inflight.consent",
+            privacy=PrivacyDecision.create(
+                tier=PrivacyTier.PUBLIC,
+                reason=PrivacyReason.POLICY_PUBLIC,
+                policy_version="synthetic-public-v1",
+                authority=Authority(cloud=False, external_egress=True),
+            ),
+        )
+    )
+    authority_root = tmp_path / "inflight-authority"
+    authority_root.mkdir(mode=0o700)
+    consent_path = authority_root / "provider-consent.json"
+    brain_id, issuer_epoch = current_brain_identity(tasks)
+    consent = DurableProviderConsentStore(
+        consent_path, brain_id=brain_id, issuer_epoch=issuer_epoch
+    )
+    consent.grant(
+        provider_id="synthetic-provider",
+        allowed_tiers=frozenset({PrivacyTier.PUBLIC}),
+        operation_id="grant-inflight",
+        decided_at="2026-09-23T12:00:00Z",
+        consent_id_factory=lambda: "consent_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    )
+    policy = _session_policy_file(
+        tasks,
+        authority_root / "external.json",
+        read_tiers=["public"],
+        external=True,
+        generation=1,
+    )
+    trusted = TrustedSessionAuthority(tasks, policy_path=policy, consent_state_path=consent_path)
+    authority = trusted.load()
+    adapter = LocalMcpAdapter(
+        authority=authority,
+        negotiated=T03AppAdapter(tasks=tasks, authority=authority),
+        revalidate_authority=lambda: trusted.revalidate(authority),
+    )
+    invoke = T03AppAdapter.invoke
+
+    def revoke_after_read(self: T03AppAdapter, *args: Any, **kwargs: Any) -> dict[str, object]:
+        result = invoke(self, *args, **kwargs)
+        assert "Synthetic inflight consent canary" in json.dumps(result)
+        consent.revoke(
+            consent_id="consent_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            operation_id="revoke-inflight",
+            decided_at="2026-09-23T12:01:00Z",
+        )
+        return result
+
+    monkeypatch.setattr(T03AppAdapter, "invoke", revoke_after_read)
+    incoming = b"".join(
+        json.dumps(message).encode() + b"\n"
+        for message in (
+            INITIALIZE,
+            _call("brain_search_page", {"dto_version": 1, "query": "canary"}),
+        )
+    )
+    outgoing = io.BytesIO()
+    refused = False
+    try:
+        serve_stdio_mcp(adapter, input_stream=io.BytesIO(incoming), output_stream=outgoing)
+    except LauncherPolicyError as error:
+        assert str(error) == "stale_policy"
+        refused = True
+    assert b"Synthetic inflight consent canary" not in outgoing.getvalue()
+    assert refused
 
 
 def _destination_adapter(tasks: Any, policy: str) -> LocalMcpAdapter:

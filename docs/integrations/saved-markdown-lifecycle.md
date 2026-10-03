@@ -1,11 +1,13 @@
 # Saved Markdown lifecycle contract
 
-Status: checkpoint B implementation, October 1, 2026. This document specifies
-the completed source-continuity and withdrawal contract and reserves checkpoint C
-sharing work. B does not implement or enable sharing.
-The inspected baseline is `58281d1dafad5e73265bd74b6f1bae27ba130972`, with local
-schema 10, runtime session 5, and Portable 5. Product version `0.1.0` is not a
-compatibility test. Checkpoint B advances only its documented continuity formats.
+Status: checkpoint C candidate, October 2, 2026. This document specifies
+the completed source-continuity and withdrawal contract and the owner-approved
+sharing implementation under acceptance review.
+The historical checkpoint A baseline was
+`58281d1dafad5e73265bd74b6f1bae27ba130972`, with schema/runtime/Portable 10/5/5.
+Checkpoint B is merged at `c66382883b8ff4b907c5fdbfcb8428003e43fe12` with 11/6/6.
+The current C candidate uses 12/7/7; its complete acceptance gate and independent
+final review remain required. Product version `0.1.0` is not a compatibility test.
 
 ## Checkpoint B implementation note
 
@@ -35,6 +37,30 @@ Withdrawal-specific regression coverage includes owner CLI paged history,
 prevalidated search/history cursors, atomic withdrawal and post-commit response
 loss, and current/history reads after reopen, index rebuild, and clean Portable 6
 import. These are synthetic checks, not live saved-content deployment evidence.
+
+## Checkpoint C implementation note
+
+Schema 12, runtime session 7, and Portable 7 carry owner sharing evidence. The
+owner CLI accepts `sharing preview`, `inspect`, `approve`, `reject`, and `revoke`.
+Preview and mutation requests use exact JSON request files except `inspect`,
+which takes a preview or approval ID. Preview returns the complete retained
+text or refuses; a decision reserves one separate public third-party capture.
+The reserved source/provenance marker and durable link are required for current
+external access. Withdrawal, head or route changes, and revocation close that
+access without changing either capture's immutable evidence.
+
+Session provider IDs are explicit consent names. For direct semantic inference,
+the supported mapping is `openai_api` to `openai`, `anthropic_api` to
+`anthropic`, and `gemini_api` to `gemini`. The app's direct adapter and engine
+semantic eligibility use this same mapping. Unmapped providers do not release
+managed copy content; Claude subscription remains closed.
+
+Portable 7 requires `history/sharing/approvals-v1.json` in addition to the
+unchanged Portable 6 inventory. It validates sharing rows against the retained
+source, capture, managed delivery, and intake evidence. Pending copies block
+export. Clean import retains historical decisions and links but marks imported
+undecided previews ineligible for execution. It does not import provider consent
+or physical source bindings. All C tests use synthetic roots and content.
 
 ## Boundary and terminology
 
@@ -69,7 +95,9 @@ schedules, and deployment remain outside this contract.
 
 ## Operations and authority
 
-Names marked **B** or **C** are selected new interfaces, not available commands.
+Names marked **B** are implemented continuity interfaces. Names marked **C** are
+implemented in the sharing candidate under acceptance review, not an accepted
+release or live deployment.
 Paths in the tables are package-relative: engine files live under
 `packages/engine/src/open_brain_engine/engine/`, app service files under
 `packages/app/src/open_brain/services/`. New DTOs are closed frozen values with
@@ -84,7 +112,7 @@ Engine tasks own validation even when the CLI already validated a request.
 | `SourceTasks.submit_revision(SourceRevisionSubmission) -> SourceRevisionReceipt` | `sources.py`, `source_intake.py`; currently a Python task, not a saved-Markdown CLI command | Validated `PUBLIC_JOB` capture/profile; namespace, revision key, capture request digest, expected head, order, control epoch. Existing terminal replay is keyed by namespace/revision and capture request digest. It does **not** prove equality of the whole retry envelope. B wraps it with the stricter binding below. |
 | `SourceTasks.fence_intake(expected_epoch, authority) -> int` | `sources.py`; trusted owner coordination hook | `authority.owner`; epoch CAS. Advances the fence and quarantines stale unfinished intake. It is not withdrawal and does not provide operation-ID replay. |
 | `SourceTasks.route(SourceRouteRequest) -> SourceRouteResponse` | `sources.py`, `t03_contracts.py`; existing `source route` owner surface | `organize`, current source/destination space scope; operation ID, expected head and route version. Same request returns retained receipt; changed request under that ID refuses. |
-| `HistoryTasks.list_history(HistoryListRequest)` / `read_history(RecordReadRequest)` | `history.py`, `records.py`, `paging.py`; `history list/show`, existing negotiated history reads | `history-read` and current scope/privacy. Exact revision membership is checked. Today inactive/unavailable sources fail even for owners; B supplies the narrowly scoped retained-owner-history exception. |
+| `HistoryTasks.list_history(HistoryListRequest)` / `read_history(RecordReadRequest)` | `history.py`, `records.py`, `paging.py`; `history list/show`, existing negotiated history reads | `history-read` and current scope/privacy. Exact revision membership is checked. The actual owner can read retained inactive/unavailable source history within those constraints. Nonowners do not receive this exception; managed copies still require current valid custody and eligibility. |
 | `RetrievalTasks.search_page(SearchPageRequest)` / `read_record(RecordReadRequest)` | `retrieval.py`, `paging.py`, `records.py`; `search-page`, `read`, negotiated CLI/plugin/MCP readers | `search` or `content-read`; trusted session authority, expected revision, bounded cursor. Current source reads resolve the head; an old expected head refuses. |
 | `ReviewTasks.propose/show/decide`, `ProposalDraft`, `ReviewProposal`, `DecisionOutcome`, `DecisionRecord` | `review.py`, `review_bound.py`; `ReviewPublicationService`, `review propose/show/approve/reject/edit-and-approve` | Existing owner or explicitly injected review grants, exact review digest and delivery identity. Canonical-page approval, rejection, and replay retain their current meaning; none creates a sharing approval. |
 
@@ -97,7 +125,7 @@ mutation, plugin wire operation, or agent grant is introduced for the pilot.
 
 | Stage, task, and DTO | Owning module and app/CLI surface | Exact request and result contract |
 | --- | --- | --- |
-| **B** `SourceTasks.public_revision_sink(binding, context) -> PublicJobRevisionSink` | `sources.py`, `source_intake.py`; injected into collector `EngineRevisionSink` in `lifecycle.py` | Engine validates `SourceRevisionBinding` and `PublicJobCaptureContext`. The sink exposes only `inspect_head(item_id)` and `submit(SourceRevisionDelivery)`. No owner routing, fencing, withdrawal, or sharing tasks escape to the collector. |
+| **B** `SourceTasks.public_revision_sink(binding) -> PublicJobRevisionSink` | `sources.py`, `source_intake.py`; injected into collector `EngineRevisionSink` in `lifecycle.py` | Engine validates `SourceRevisionBinding` and each submission's profile-bound public-job context. The sink exposes only `inspect_head(item_id)` and `submit(SourceRevisionDelivery)`. An independently configurable collector job context is not an argument to this factory. No owner routing, fencing, withdrawal, or sharing tasks escape to the collector. |
 | **B** sink `inspect_head -> SourceRevisionHead` / `submit -> SourceRevisionDeliveryReceipt` | Engine `source_intake.py`; collector `saved_markdown.py`, `custody.py` | Head response contains bound item/source IDs, capture/revision key, lifecycle/version, control epoch, and destination. Delivery and terminal receipt bind the complete envelope digest and destination. Pending is explicit and cannot complete custody. |
 | **B** `SourceTasks.inspect(SourceInspectRequest) -> SourceInspection` | New `source_lifecycle.py` and `source_lifecycle_contracts.py`, delegated by `SourceTasks`; new app `source_lifecycle.py`; `source inspect SOURCE_ID --json` | Owner-only bounded metadata: head, head/route/lifecycle versions, lifecycle/availability, destination, and retained withdrawal receipt. Optional absence evidence is opaque metadata, not a path or body. No mutation or approval token is implied. |
 | **B** `SourceTasks.withdraw(SourceWithdrawRequest) -> SourceWithdrawReceipt` | Same owners; `source withdraw --request-file FILE --json` | DTO binds operation ID, source ID, expected head, expected lifecycle version, Brain/issuer, reason code, and optional complete-scan evidence digest. Atomically retires the source and increments lifecycle version. Identical replay returns the original receipt even after later state changes; altered ID reuse refuses, stale new requests return `revision_changed`. |
@@ -422,16 +450,16 @@ including accepted captures with the DB link deliberately removed.
 
 ## Evidence and implementation acceptance
 
-The baseline's recorded full Python run passed **3,391 tests**, with five
+The historical A baseline's recorded full Python run passed **3,391 tests**, with five
 filesystem-specific skips: one non-UTF-8 filename case and four NFC/NFD name
 distinction cases. Ruff and mypy passed (409 source files), plugin tests passed
 291 cases, desktop tests passed 259 cases plus one Python test, and Rust passed
 26 tests. These are baseline evidence, not proof of the proposed operations.
 
-The following exact existing tests ground the current claims. Node IDs below
+The following exact existing tests ground the historical baseline. Node IDs below
 use repository-relative paths so they can be passed directly to pytest.
 
-| Current claim | Exact existing test evidence |
+| Historical baseline claim | Exact existing test evidence |
 | --- | --- |
 | Revision CAS/order, same-request replay, stale control fence and retained late revision | `packages/app/tests/unit/engine/test_source_tasks.py::test_explicit_revision_order_replay_history_route_and_control` |
 | Fenced incomplete capture remains in custody without new source writes; export refuses pending ingestion | `packages/app/tests/unit/engine/test_source_tasks.py::test_fenced_reservation_enters_custody_without_new_source_writes_or_startup_poison` (three faults) |
@@ -449,17 +477,31 @@ use repository-relative paths so they can be passed directly to pytest.
 | Frozen Portable sidecars, round-trip bytes, exact refusal and promotion recovery | `packages/engine/tests/contract/test_portable_brain_v5.py::test_sidecars_are_required_canonical_and_closed`; `packages/app/tests/integration/engine/test_portability_v5.py::test_fresh_export_import_reexport`; `::test_standalone_v4_refusal_is_exact`; `::test_import_promotion_fault_matrix`; `::test_export_promotion_fault_matrix` |
 | Restore rollback, exact retained privacy and immutable snapshot audit | `packages/engine/tests/unit/engine/test_portable_v5_restore.py::test_restore_transaction_rolls_back_all_base_rows`; `::test_exact_retained_values_and_markers_survive_reopen`; `::test_snapshot_audit_rejects_content_drift_without_repair` |
 
-Source inspection, rather than an existing positive test, establishes these
-gaps: saved-Markdown `external_id` currently includes version digests; its scan
-stops after 25 accepted candidates and rejects continuation; source replay lacks
-whole-envelope equality; no withdrawal/sharing task exists; history currently
-denies retired sources; v5 restore omits admission order; managed semantic
-consent does not supply per-copy/provider approval. No existing passing test is
-claimed to prove their future behavior.
+At checkpoint A, source inspection identified version-bound item identity,
+25-item scan termination, incomplete retry-envelope binding, missing withdrawal
+and sharing operations, retired-source history denial, and missing lifecycle
+restore evidence. These are historical findings, not descriptions of merged B
+or the C candidate. B provides stable item identity, continued scans, managed
+delivery custody, withdrawal and retained owner history. C adds per-version
+sharing and provider-aware eligibility. Managed semantic consent still does not
+itself grant per-copy publication approval.
 
-### Future tests required in B and C
+Concrete candidate coverage includes the closed request/output matrix in
+`packages/engine/tests/unit/engine/test_sharing_contracts.py`, true transaction
+faults in `packages/app/tests/unit/engine/test_sharing_recovery.py`, semantic
+prepare/release and retained-target tests in
+`packages/app/tests/integration/engine/test_sharing_semantic.py`, external
+composition and real stdio refusals in
+`packages/app/tests/integration/services/test_local_mcp.py`, and multi-preview
+lifecycle, promotion and journal tests in
+`packages/app/tests/integration/engine/test_portability_v7.py`. Targeted passes
+do not replace the unchanged complete gate, independent final review, collector
+end-to-end acceptance, installed compatibility or live deployment.
 
-These are acceptance names for future tests, not skipped or failing A fixtures.
+### Required B and C acceptance families
+
+These names define acceptance families; some map to several implemented nodes
+above rather than one identically named test. They are not skipped A fixtures.
 Each new operation must cover exact replay, altered replay, stale state,
 unauthorized callers, injected crash boundaries, and clean restore.
 
@@ -493,6 +535,6 @@ uv run --frozen pytest -q packages/app/tests/integration/engine/test_portability
 Result: **207 passed in 40.37s**, zero failures or skips, against the inspected
 baseline production code. The enforced gate result and final checked-tree
 identity belong in the checkpoint execution evidence. Passing A establishes a
-reviewable contract and current baseline only; B/C implementation, installed
+reviewable contract and its historical baseline only; passing A did not prove B/C implementation, installed
 compatibility, provider acceptance, deployment, and historical adoption remain
 unproved.

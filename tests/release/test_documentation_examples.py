@@ -166,7 +166,7 @@ def test_compatibility_values_are_bound_to_named_rows() -> None:
     matrix = (root / "docs/core-v01-features.md").read_text(encoding="utf-8")
     validate_compatibility_matrix(matrix)
 
-    runtime_mutant = matrix.replace("| Runtime session | `6` |", "| Runtime session | `999` |")
+    runtime_mutant = matrix.replace("| Runtime session | `7` |", "| Runtime session | `999` |")
     with pytest.raises(DocumentationExampleError, match="compatibility matrix drift"):
         validate_compatibility_matrix(runtime_mutant)
 

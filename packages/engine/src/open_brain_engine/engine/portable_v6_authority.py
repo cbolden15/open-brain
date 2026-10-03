@@ -17,7 +17,7 @@ from open_brain_engine.portable.v6 import (
 def source_authority_metadata(connection: sqlite3.Connection) -> dict[str, Any]:
     if (
         not connection.in_transaction
-        or connection.execute("PRAGMA user_version").fetchone()[0] != 11
+        or connection.execute("PRAGMA user_version").fetchone()[0] not in {11, 12}
     ):
         raise ValueError("Portable v6 requires an active schema-eleven snapshot")
     value: dict[str, Any] = {

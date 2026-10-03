@@ -70,6 +70,7 @@ from .privacy_repairs import PrivacyRepairTasks
 from .reconciliation import ReconciliationTasks, rederive_live_search_projection
 from .retrieval import RetrievalOperations, RetrievalTasks, ScopedRetrieval
 from .review import ReviewOperations, ReviewTasks
+from .sharing import SharingTasks
 from .sources import SourceTasks
 from .spaces import InboxSpaceTasks, SpaceOperations
 
@@ -227,9 +228,18 @@ class BrainEngine(CaptureOperations, SpaceOperations, ReviewOperations, Retrieva
                 "exclusive admission"
             )
         if (
+            schema.state == "supported_old"
+            and schema.version == 11
+            and local_schema.PHASE1_STATE_SCHEMA_VERSION >= 12
+        ):
+            raise StateSchemaUnavailableError(
+                "local state schema is supported_old: sharing migration requires "
+                "exclusive admission"
+            )
+        if (
             receipt_protection_port is not None
             and schema.state != "absent"
-            and schema.version != 11
+            and schema.version != 12
         ):
             raise StateSchemaUnavailableError(
                 "receipt protection requires the schema-10 ingestion journal"
@@ -285,7 +295,7 @@ class BrainEngine(CaptureOperations, SpaceOperations, ReviewOperations, Retrieva
                 finally:
                     connection.close()
         except LockBusyError:
-            if schema.state != "current" or schema.version != 11:
+            if schema.state != "current" or schema.version != 12:
                 raise
             self._store = _LocalStore(profile, clock=self._clock, initialize=False)
         self.capture = CaptureTasks(self)
@@ -308,6 +318,7 @@ class BrainEngine(CaptureOperations, SpaceOperations, ReviewOperations, Retrieva
         self.managed_inference = ManagedInferenceTasks(self, self.managed_workspace)
         self.privacy_repair = PrivacyRepairTasks(self)
         self.journal = JournalTasks(self)
+        self.sharing = SharingTasks(self)
         self._task_set = EngineTaskSet(
             profile=profile,
             capture=self.capture,
@@ -325,6 +336,7 @@ class BrainEngine(CaptureOperations, SpaceOperations, ReviewOperations, Retrieva
             relationships=self.relationships,
             privacy_repair=self.privacy_repair,
             journal=self.journal,
+            sharing=self.sharing,
         )
 
     @classmethod
@@ -375,6 +387,13 @@ class BrainEngine(CaptureOperations, SpaceOperations, ReviewOperations, Retrieva
             # recovery before exposing mutation tasks.
             if schema_version < 10:
                 raise
+        connection = engine._store.connect()
+        try:
+            sharing_schema = connection.execute("PRAGMA user_version").fetchone()[0] >= 12
+        finally:
+            connection.close()
+        if sharing_schema:
+            engine.sharing.recover_pending()
         return engine
 
     @property
@@ -383,7 +402,8 @@ class BrainEngine(CaptureOperations, SpaceOperations, ReviewOperations, Retrieva
 
     def recover(self) -> int:
         with self._writer_lease.acquire_shared_writer():
-            return self._recover()
+            recovered = self._recover()
+        return recovered + self.sharing.recover_pending()
 
     def _recover_captures_locked(self) -> int:
         """Resume canonical capture stages before draining newer ingress."""

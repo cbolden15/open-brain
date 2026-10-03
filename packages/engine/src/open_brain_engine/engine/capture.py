@@ -75,6 +75,7 @@ from .normalization import (
 )
 from .portability_ports import portable_write_port
 from .privacy_projection import narrow_retained_privacy_decision
+from .sharing import validate_reserved_copy_submission
 
 if TYPE_CHECKING:
     from .local import BrainEngine
@@ -320,6 +321,7 @@ class CaptureOperations(_LocalEngineOperations):
         # an arbitrary caller cannot reserve an importer delivery in the
         # journal and block the real import later.
         capture_submission_is_reserved(cast("BrainEngine", self), submission)
+        validate_reserved_copy_submission(cast("BrainEngine", self), submission)
         submission.validate_profile(self.profile)
         if submission.action is CaptureAction.CANONICAL_NOTE:
             if not isinstance(submission.payload, TextPayload):
@@ -353,6 +355,7 @@ class CaptureOperations(_LocalEngineOperations):
     ) -> CaptureReceipt:
         """Run the established capture stage machine under an already-held writer lease."""
         capture_submission_is_reserved(cast("BrainEngine", self), submission)
+        validate_reserved_copy_submission(cast("BrainEngine", self), submission)
         payload = submission.payload
         delivery_id = submission.delivery_id
         action = submission.action
@@ -540,9 +543,7 @@ class CaptureOperations(_LocalEngineOperations):
                 connection.close()
             if identity is None and schema_version >= 9:
                 raise RuntimeError("brain identity unavailable")
-            destination_brain_id = (
-                None if identity is None else cast(str, identity["brain_id"])
-            )
+            destination_brain_id = None if identity is None else cast(str, identity["brain_id"])
             issuer_epoch = None if identity is None else cast(int, identity["issuer_epoch"])
         else:
             destination_brain_id = submission.destination_brain_id
@@ -563,16 +564,8 @@ class CaptureOperations(_LocalEngineOperations):
                 # the same exact Brain and request binding as the
                 # destination-bound receipt.  Owner display receipts retain
                 # their legacy unbound shape.
-                delivery_id=(
-                    delivery_id
-                    if receipt_bound
-                    else None
-                ),
-                request_sha256=(
-                    request_sha
-                    if receipt_bound
-                    else None
-                ),
+                delivery_id=(delivery_id if receipt_bound else None),
+                request_sha256=(request_sha if receipt_bound else None),
                 destination_brain_id=destination_brain_id,
                 issuer_epoch=issuer_epoch,
             )
@@ -1144,7 +1137,7 @@ class CaptureTasks:
             return self._protection_pending(request, "protection_unavailable")
         try:
             checked = verify_protection_acknowledgement(request, acknowledgement)
-        except (TypeError, ValueError):
+        except TypeError, ValueError:
             return self._protection_pending(request, "protection_invalid_acknowledgement")
         return replace(outcome, protection_acknowledgement=checked)
 

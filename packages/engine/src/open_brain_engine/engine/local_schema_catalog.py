@@ -1395,4 +1395,145 @@ CREATE TABLE runtime_compatibility (
             "INSERT INTO runtime_compatibility VALUES(1,6,11)",
         ),
     ),
+    _migration(
+        12,
+        "owner_approved_sharing",
+        (
+            """
+CREATE TABLE sharing_job_identity (
+ singleton INTEGER PRIMARY KEY CHECK(singleton=1),
+ tenant_id TEXT NOT NULL,
+ actor_id TEXT NOT NULL,
+ role_id TEXT NOT NULL,
+ role_claim_id TEXT NOT NULL,
+ brain_id TEXT NOT NULL,
+ issuer_epoch INTEGER NOT NULL CHECK(issuer_epoch>0)
+)
+            """.strip(),
+            """
+CREATE TABLE sharing_previews (
+ preview_id TEXT PRIMARY KEY,
+ operation_id TEXT NOT NULL UNIQUE,
+ request_bytes BLOB NOT NULL,
+ request_sha256 TEXT NOT NULL CHECK(length(request_sha256)=64),
+ preview_bytes BLOB NOT NULL,
+ preview_sha256 TEXT NOT NULL CHECK(length(preview_sha256)=64),
+ source_id TEXT NOT NULL REFERENCES logical_sources(source_id),
+ original_capture_id TEXT NOT NULL REFERENCES source_revisions(capture_id),
+ expires_at TEXT NOT NULL,
+ imported INTEGER NOT NULL DEFAULT 0 CHECK(imported IN (0,1))
+)
+            """.strip(),
+            """
+CREATE TABLE sharing_decisions (
+ approval_id TEXT PRIMARY KEY,
+ operation_id TEXT NOT NULL UNIQUE,
+ preview_id TEXT NOT NULL UNIQUE REFERENCES sharing_previews(preview_id),
+ request_bytes BLOB NOT NULL,
+ request_sha256 TEXT NOT NULL CHECK(length(request_sha256)=64),
+ decision TEXT NOT NULL CHECK(decision IN ('approve','reject')),
+ approval_version INTEGER NOT NULL CHECK(approval_version>=1),
+ destination_brain_id TEXT NOT NULL,
+ copy_delivery_id TEXT UNIQUE,
+ copy_submission_bytes BLOB,
+ copy_submission_sha256 TEXT,
+ copy_capture_id TEXT UNIQUE REFERENCES source_revisions(capture_id),
+ receipt_bytes BLOB NOT NULL,
+ CHECK ((decision='reject' AND copy_delivery_id IS NULL AND copy_submission_bytes IS NULL
+         AND copy_submission_sha256 IS NULL AND copy_capture_id IS NULL)
+    OR (decision='approve' AND copy_delivery_id IS NOT NULL
+        AND copy_submission_bytes IS NOT NULL AND copy_submission_sha256 IS NOT NULL))
+)
+            """.strip(),
+            """
+CREATE TABLE sharing_links (
+ approval_id TEXT PRIMARY KEY REFERENCES sharing_decisions(approval_id),
+ original_capture_id TEXT NOT NULL REFERENCES source_revisions(capture_id),
+ copy_capture_id TEXT NOT NULL UNIQUE REFERENCES source_revisions(capture_id),
+ marker TEXT NOT NULL UNIQUE,
+ submission_sha256 TEXT NOT NULL CHECK(length(submission_sha256)=64),
+ linked_at TEXT NOT NULL
+)
+            """.strip(),
+            """
+CREATE TABLE sharing_revocations (
+ operation_id TEXT PRIMARY KEY,
+ approval_id TEXT NOT NULL UNIQUE REFERENCES sharing_decisions(approval_id),
+ request_bytes BLOB NOT NULL,
+ request_sha256 TEXT NOT NULL CHECK(length(request_sha256)=64),
+ resulting_version INTEGER NOT NULL CHECK(resulting_version>=2),
+ reason TEXT NOT NULL,
+ recorded_at TEXT NOT NULL,
+ receipt_bytes BLOB NOT NULL
+)
+            """.strip(),
+            """
+CREATE TRIGGER sharing_job_identity_update_immutable BEFORE UPDATE ON sharing_job_identity
+BEGIN SELECT RAISE(ABORT, 'sharing job identity is immutable'); END
+            """.strip(),
+            """
+CREATE TRIGGER sharing_job_identity_delete_immutable BEFORE DELETE ON sharing_job_identity
+BEGIN SELECT RAISE(ABORT, 'sharing job identity is immutable'); END
+            """.strip(),
+            """
+CREATE TRIGGER sharing_previews_update_immutable BEFORE UPDATE ON sharing_previews
+BEGIN SELECT RAISE(ABORT, 'sharing preview is immutable'); END
+            """.strip(),
+            """
+CREATE TRIGGER sharing_previews_delete_immutable BEFORE DELETE ON sharing_previews
+BEGIN SELECT RAISE(ABORT, 'sharing preview is immutable'); END
+            """.strip(),
+            """
+CREATE TRIGGER sharing_decisions_update_guard BEFORE UPDATE ON sharing_decisions
+WHEN OLD.approval_id IS NOT NEW.approval_id
+ OR OLD.operation_id IS NOT NEW.operation_id
+ OR OLD.preview_id IS NOT NEW.preview_id
+ OR OLD.request_bytes IS NOT NEW.request_bytes
+ OR OLD.request_sha256 IS NOT NEW.request_sha256
+ OR OLD.decision IS NOT NEW.decision
+ OR OLD.destination_brain_id IS NOT NEW.destination_brain_id
+ OR OLD.copy_delivery_id IS NOT NEW.copy_delivery_id
+ OR OLD.copy_submission_bytes IS NOT NEW.copy_submission_bytes
+ OR OLD.copy_submission_sha256 IS NOT NEW.copy_submission_sha256
+ OR (OLD.copy_capture_id IS NOT NULL AND OLD.copy_capture_id IS NOT NEW.copy_capture_id)
+ OR (OLD.receipt_bytes IS NOT NEW.receipt_bytes
+     AND (OLD.copy_capture_id IS NOT NULL OR NEW.copy_capture_id IS NULL))
+ OR (OLD.approval_version IS NOT NEW.approval_version
+     AND (OLD.approval_version != 1 OR NEW.approval_version != 2
+          OR NOT EXISTS (SELECT 1 FROM sharing_revocations
+                         WHERE approval_id=OLD.approval_id AND resulting_version=2)))
+BEGIN SELECT RAISE(ABORT, 'sharing decision evidence is immutable'); END
+            """.strip(),
+            """
+CREATE TRIGGER sharing_decisions_delete_immutable BEFORE DELETE ON sharing_decisions
+BEGIN SELECT RAISE(ABORT, 'sharing decision is immutable'); END
+            """.strip(),
+            """
+CREATE TRIGGER sharing_links_update_immutable BEFORE UPDATE ON sharing_links
+BEGIN SELECT RAISE(ABORT, 'sharing link is immutable'); END
+            """.strip(),
+            """
+CREATE TRIGGER sharing_links_delete_immutable BEFORE DELETE ON sharing_links
+BEGIN SELECT RAISE(ABORT, 'sharing link is immutable'); END
+            """.strip(),
+            """
+CREATE TRIGGER sharing_revocations_update_immutable BEFORE UPDATE ON sharing_revocations
+BEGIN SELECT RAISE(ABORT, 'sharing revocation is immutable'); END
+            """.strip(),
+            """
+CREATE TRIGGER sharing_revocations_delete_immutable BEFORE DELETE ON sharing_revocations
+BEGIN SELECT RAISE(ABORT, 'sharing revocation is immutable'); END
+            """.strip(),
+            "UPDATE engine_generations SET projection_policy_version=projection_policy_version+1",
+            "DROP TABLE runtime_compatibility",
+            """
+CREATE TABLE runtime_compatibility (
+ singleton INTEGER PRIMARY KEY CHECK(singleton=1),
+ minimum_runtime_session_version INTEGER NOT NULL CHECK(minimum_runtime_session_version=7),
+ state_schema_version INTEGER NOT NULL CHECK(state_schema_version=12)
+)
+            """.strip(),
+            "INSERT INTO runtime_compatibility VALUES(1,7,12)",
+        ),
+    ),
 )

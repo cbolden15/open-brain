@@ -4,6 +4,124 @@ Non-obvious behaviors, sharp edges, and lessons learned belong here.
 
 ## Registry
 
+### SEMANTIC-001: Retained link targets remain inference ancestry
+
+Symptom: Graph refresh dispatches an ordinary note whose accepted link targeted
+a now-revoked sharing copy, after an owner edit removes the visible link and the
+target file is absent from current selection.
+
+Cause: Release checks walk same-note parent provenance but omit separately
+retained managed-link target revisions. Current file selection is not the full
+ancestry of accepted transformations.
+
+Fix: Walk immutable parent and target revisions, requiring exact note/revision
+identity and failing closed on missing or cyclic ancestry. Apply the common
+current sharing and privacy predicate at prepare and release. Preserve the
+historical pre-sharing schema path. Test all three mapped backend boundaries
+with zero denied provider calls.
+
+Discovered: 2026-10-03, synthetic checkpoint C retained-suggestion regression.
+
+### SHARING-004: Inspection budgets include terminal receipts
+
+Symptom: An approved-and-revoked inspection exceeds its response budget even
+though the preview alone fits.
+
+Cause: The read path measures only the preview before attaching decision and
+revocation receipts.
+
+Fix: Measure the complete inspection before returning it. Test exact-budget
+success and one-byte-over-budget refusal with both receipts retained. Keep the
+separate transformed-text UTF-8 ceiling and never truncate an inspection.
+
+Discovered: 2026-10-03, synthetic checkpoint C inspection-budget regression.
+
+### SHARING-002: A damaged marker does not erase managed custody
+
+Symptom: A revoked copy becomes externally readable when its capture-row source
+reference loses the managed prefix.
+
+Cause: Eligibility identifies managed copies from one mutable projection and
+falls back to ordinary-public policy when that projection is damaged.
+
+Fix: Recognize independent delivery, link/decision membership, retained record
+and provenance markers. Require exact linked evidence before external release.
+Test individual projection damage after active approval and revocation.
+
+Discovered: 2026-10-03, synthetic checkpoint C corruption regressions.
+
+### SHARING-003: Local history authority is not retained-owner authority
+
+Symptom: A local non-owner history grant reads a canonical page after its managed
+source is withdrawn, although direct source reads refuse.
+
+Cause: The shared member projector selects owner-history mode from local egress
+alone. Canonical reads lack the direct source path's separate owner guard.
+
+Fix: Require the actual owner for the retained-owner exception. Local-agent
+history must check current managed state while preserving older ordinary source
+revisions. Test canonical history and ordinary historical policy together.
+
+Discovered: 2026-10-03, synthetic checkpoint C canonical withdrawal regression.
+
+### PORTABLE-004: Per-row restore columns must not mutate the base catalog
+
+Symptom: A valid sharing archive with two previews fails clean import at a
+strict zip length check; single-preview roundtrips pass.
+
+Cause: The first restored preview appends its local imported flag to a column
+list reused by subsequent rows.
+
+Fix: Keep base columns unchanged and derive each insertion's columns separately.
+Test multiple approved, rejected and undecided previews in one archive, duplicate
+import and exact non-manifest reexport.
+
+Discovered: 2026-10-03, synthetic checkpoint C Portable 7 restore regression.
+
+### SEARCH-003: Canonical page IDs are not retained revision IDs
+
+Symptom: Mutating a provider-ineligible canonical page makes an unrelated valid
+external search cursor stale.
+
+Cause: Candidate and generation filters join membership revision IDs against
+search page IDs, so secondary members never participate in the filter.
+
+Fix: Resolve the exact current publication using the projector's head precedence.
+Require full membership eligibility before ranking and digest generation, using
+the same predicate. Test a separately eligible nonempty cursor around a hidden
+canonical mutation.
+
+Discovered: 2026-10-03, synthetic checkpoint C hidden-member cursor regression.
+
+### MCP-003: Entry-time consent does not authorize callback output
+
+Symptom: A content callback revokes durable provider consent, but its result
+still reaches the stdio serializer.
+
+Cause: Trusted authority is revalidated before dispatch, not after callback work.
+
+Fix: Revalidate at the common tool-result boundary before serialization. Test
+durable consent revocation inside a real negotiated read callback and require
+zero protected output bytes, while keeping between-request revocation tests.
+
+Discovered: 2026-10-03, synthetic checkpoint C in-flight stdio consent regression.
+
+### SHARING-001: Close sharing read snapshots explicitly
+
+Symptom: A second foreground session can intermittently classify a valid local
+schema as invalid or turn a bounded contention response into a generic tool
+failure while owner sharing recovery reads are active.
+
+Cause: `with sqlite3.Connection` commits or rolls back a transaction but does
+not close the connection. A sharing read left its SQLite snapshot alive after
+returning.
+
+Fix: Close every sharing read connection in `finally`, including startup
+pending-copy scans. Test concurrent MCP review and capture through the real
+stdio session after the change.
+
+Discovered: 2026-10-02, checkpoint C synthetic MCP regression.
+
 ### COLLECTOR-001: Check cancellation before reading pending custody
 
 Symptom: A collector run crashes with `collector_custody_not_found` when another
@@ -2306,6 +2424,20 @@ let the test runner's overall timeout catch a bridge that never reaches it.
 
 Discovered: 2026-09-23, CUT-G2 full release verification on the development Mac.
 
+### MCP-004: External adapter composition must omit local callbacks
+
+Symptom: External tool discovery and dispatch deny local administration, but the adapter still
+contains legacy capture, review, workspace and graph callbacks when every CLI flag is enabled.
+
+Cause: Callback attachment depended on feature flags rather than the trusted session egress mode.
+Unknown-tool responses alone did not prove that external composition was closed.
+
+Fix: Attach those callbacks only in owner-local mode. Preserve authority-bearing typed reads and
+destination-bound capture submit. Test the actual entrypoint object and a real external stdio
+process with all flags, including positive public search and negative administration calls.
+
+Discovered: 2026-10-02, Phase C external composition regression.
+
 ### TESTING-002: Fixed enqueue times can expire during later test runs
 
 Symptom: Outbox drain tests report `age_exhausted`, or a lease-holder test never reaches its
@@ -2320,3 +2452,26 @@ under test.
 
 Discovered: 2026-09-22, full durable-ingestion Phase 1 verification after the fixture's retry window
 expired.
+
+### SHARING-005: Pre-query canonical eligibility must match the full projector
+
+Symptom: A valid externally eligible legacy unbound publication is directly
+readable but absent from search. A malformed retained member set can also be
+withheld from final output while its metadata still changes an eligible cursor.
+
+Cause: SQL resolved only bound review/capture heads, omitting the supported
+unique retained-byte legacy fallback. Matching a current publication alone also
+does not prove that its indexed members match the retained publication bytes.
+
+Fix: Use the projector's current-publication resolver in the snapshot-bound SQL
+callback, then validate that exact current canonical projection before candidate
+ranking and authorized-generation hashing. Keep exact current member eligibility;
+do not remove the nonempty-membership guard or authorize all historical members.
+
+Tests: `test_imported_public_legacy_unbound_page_is_searchable_when_directly_readable`
+and `test_legacy_current_publication_damage_refuses_without_hidden_cursor_influence`
+in `packages/app/tests/integration/engine/test_sharing_surfaces.py` cover supported
+Portable1 import, nonempty continuations, reopen/rebuild, ambiguous or missing
+publication custody, denied secondary members and hidden-metadata stability.
+
+Discovered: 2026-10-03, synthetic checkpoint C legacy import/cursor regressions.
