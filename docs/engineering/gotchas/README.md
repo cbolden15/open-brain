@@ -4,6 +4,24 @@ Non-obvious behaviors, sharp edges, and lessons learned belong here.
 
 ## Registry
 
+### PORTABLE-005: Owner replay identity outlives derived capture keys
+
+Symptom: Retrying an original owner delivery after clean Portable restore creates
+new custody and an extra capture reservation instead of returning its old receipt.
+
+Cause: Restore regenerates capture-table delivery keys, but retains the original
+delivery and request digest in source aliases. Journal identity lookup ignores
+that retained evidence when the derived capture key differs.
+
+Fix: Resolve a missing ordinary replay identity through the retained alias and
+exactly one completed imported revision. Refuse missing or ambiguous evidence.
+Return an owner receipt without new custody, preserving admitted privacy because
+the legacy owner request digest does not include that decision. This path cannot
+authenticate public-job or destination-bound requests. Test clean restore and
+rebuild, changed payload, privacy widening, and damaged completion evidence.
+
+Discovered: 2026-10-03, synthetic historical-adoption recovery rehearsal.
+
 ### COLLECTOR-002: Close revision admission read connections explicitly
 
 Symptom: A parent collector rejects a valid schema as invalid after a real
