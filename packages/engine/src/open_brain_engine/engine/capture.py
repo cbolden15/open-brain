@@ -356,6 +356,8 @@ class CaptureOperations(_LocalEngineOperations):
         recovery_plan: CaptureRecoveryPlan | None = None,
     ) -> CaptureReceipt:
         """Run the established capture stage machine under an already-held writer lease."""
+        if self._recovery_protection_guard is not None:
+            self._recovery_protection_guard.require_owner(cast("BrainEngine", self), submission)
         if recovery_plan is not None and (
             recovery_plan.envelope.submission != submission
             or recovery_plan.envelope.admitted_privacy != admitted_privacy
@@ -535,6 +537,10 @@ class CaptureOperations(_LocalEngineOperations):
         if conflict is not None:
             self._quarantine(delivery_id, expected=conflict[0], actual=conflict[1])
             raise DeliveryConflict()
+        if self._recovery_protection_guard is not None:
+            self._recovery_protection_guard.protect_capture(
+                cast("BrainEngine", self), delivery_id
+            )
         if not duplicate:
             self._fault(CaptureFault.AFTER_CAPTURE_RESERVATION)
         row = self._capture_row(capture_id)
@@ -606,6 +612,10 @@ class CaptureOperations(_LocalEngineOperations):
 
     def _process_capture(self, supplied_row: sqlite3.Row) -> None:
         row = self._capture_row(cast(str, supplied_row["capture_id"]))
+        if self._recovery_protection_guard is not None:
+            self._recovery_protection_guard.protect_capture(
+                cast("BrainEngine", self), cast(str, row["delivery_id"])
+            )
         connection = self._store.connect()
         try:
             if connection.execute("PRAGMA user_version").fetchone()[0] >= 7:

@@ -5,6 +5,7 @@ from __future__ import annotations
 import base64
 import binascii
 import json
+import sqlite3
 from dataclasses import asdict, dataclass
 from datetime import datetime
 from typing import TYPE_CHECKING, cast
@@ -227,31 +228,36 @@ def emit_owner_capture_plan(
                 baseline.brain_id, baseline.issuer_epoch
             ):
                 raise ValueError("capture plan emission destination mismatch")
-            row = connection.execute(
-                "SELECT * FROM captures WHERE delivery_id=?", (submission.delivery_id,)
-            ).fetchone()
-            if row is None:
-                raise ValueError("capture plan emission requires original reservation")
-            retained = connection.execute(
-                "SELECT envelope_bytes FROM capture_ingestion_payloads WHERE delivery_id=?",
-                (submission.delivery_id,),
-            ).fetchone()
-            if retained is None:
-                raise ValueError("capture plan emission requires original envelope")
-            envelope = JournalEnvelope.from_bytes(cast(bytes, retained["envelope_bytes"]))
-            if envelope.submission != submission:
-                raise ValueError("capture plan emission envelope mismatch")
-            identities = CaptureReservationIdentity(
-                capture_id=cast(str, row["capture_id"]),
-                accepted_receipt_id=cast(str, row["accepted_receipt_id"]),
-                accepted_at=cast(str, row["accepted_at"]),
-                canonical=row["action"] == CaptureAction.CANONICAL_NOTE.value,
-                **{name: cast(str | None, row[name]) for name, _ in _OPTIONAL_IDS},
-            )
-            plan = CaptureRecoveryPlan(baseline, envelope, identities)
-            # The request digest deliberately omits some authority metadata.
-            # Reuse the replay preflight's complete immutable row comparison.
-            from .capture_replay import require_matching_capture
+            return _capture_plan_from_connection(connection, submission, baseline)
 
-            require_matching_capture(row, plan)
-            return plan
+
+def _capture_plan_from_connection(
+    connection: sqlite3.Connection, submission: CaptureSubmission, baseline: RecoveryBaseline,
+) -> CaptureRecoveryPlan:
+    """Read exact reservation under the caller's owner authority/writer fence."""
+    row = connection.execute(
+        "SELECT * FROM captures WHERE delivery_id=?", (submission.delivery_id,)
+    ).fetchone()
+    if row is None:
+        raise ValueError("capture plan emission requires original reservation")
+    retained = connection.execute(
+        "SELECT envelope_bytes FROM capture_ingestion_payloads WHERE delivery_id=?",
+        (submission.delivery_id,),
+    ).fetchone()
+    if retained is None:
+        raise ValueError("capture plan emission requires original envelope")
+    envelope = JournalEnvelope.from_bytes(cast(bytes, retained["envelope_bytes"]))
+    if envelope.submission != submission:
+        raise ValueError("capture plan emission envelope mismatch")
+    identities = CaptureReservationIdentity(
+        capture_id=cast(str, row["capture_id"]),
+        accepted_receipt_id=cast(str, row["accepted_receipt_id"]),
+        accepted_at=cast(str, row["accepted_at"]),
+        canonical=row["action"] == CaptureAction.CANONICAL_NOTE.value,
+        **{name: cast(str | None, row[name]) for name, _ in _OPTIONAL_IDS},
+    )
+    plan = CaptureRecoveryPlan(baseline, envelope, identities)
+    from .capture_replay import require_matching_capture
+
+    require_matching_capture(row, plan)
+    return plan

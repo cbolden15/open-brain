@@ -68,6 +68,7 @@ from .normalization import _done, _utc_now
 from .portability import PortabilityTasks
 from .privacy_repairs import PrivacyRepairTasks
 from .reconciliation import ReconciliationTasks, rederive_live_search_projection
+from .recovery_protection import RecoveryProtectionGuard
 from .retrieval import RetrievalOperations, RetrievalTasks, ScopedRetrieval
 from .review import ReviewOperations, ReviewTasks
 from .sharing import SharingTasks
@@ -143,9 +144,14 @@ class BrainEngine(CaptureOperations, SpaceOperations, ReviewOperations, Retrieva
         boundary_classifier: BoundaryClassifier | None = None,
         receipt_protection_port: ReceiptProtectionPort | None = None,
         receipt_protection_timeout_seconds: float = 5.0,
+        recovery_protection_guard: RecoveryProtectionGuard | None = None,
     ) -> None:
         if admission_limits is not None and not isinstance(admission_limits, AdmissionLimits):
             raise ValueError("invalid admission limits")
+        if recovery_protection_guard is not None and type(
+            recovery_protection_guard
+        ) is not RecoveryProtectionGuard:
+            raise ValueError("invalid recovery protection guard")
         if storage_probe is not None and not callable(storage_probe):
             raise ValueError("invalid storage probe")
         if boundary_classifier is not None and not callable(boundary_classifier):
@@ -171,6 +177,13 @@ class BrainEngine(CaptureOperations, SpaceOperations, ReviewOperations, Retrieva
             raise ValueError("invalid mutation authority validator")
         assert_root_identity(profile.root, profile.root_identity)
         schema = inspect_phase1_state(profile)
+        if recovery_protection_guard is not None and (
+            schema.state != "current" or schema.version != 13
+        ):
+            raise StateSchemaUnavailableError("recovery protection requires existing schema13")
+        if recovery_protection_guard is not None:
+            with open_local_database_read_only(profile) as connection:
+                recovery_protection_guard.validate_identity(connection)
         from . import local_schema
         from .privacy_migration import privacy_migration_pending
         from .source_migration import migration_pending
@@ -272,6 +285,7 @@ class BrainEngine(CaptureOperations, SpaceOperations, ReviewOperations, Retrieva
         self._boundary_classifier = boundary_classifier
         self._receipt_protection_port = receipt_protection_port
         self._receipt_protection_timeout_seconds = float(receipt_protection_timeout_seconds)
+        self._recovery_protection_guard = recovery_protection_guard
         # Engine-owned admission gate state. The core is one foreground
         # process, so the per-principal rate windows and the concurrent
         # admission counter are per-process and recover in-process without
@@ -373,6 +387,7 @@ class BrainEngine(CaptureOperations, SpaceOperations, ReviewOperations, Retrieva
         boundary_classifier: BoundaryClassifier | None = None,
         receipt_protection_port: ReceiptProtectionPort | None = None,
         receipt_protection_timeout_seconds: float = 5.0,
+        recovery_protection_guard: RecoveryProtectionGuard | None = None,
     ) -> BrainEngine:
         if not isinstance(profile, LocalEngineContext):
             raise ValueError("invalid local profile")
@@ -387,6 +402,7 @@ class BrainEngine(CaptureOperations, SpaceOperations, ReviewOperations, Retrieva
             boundary_classifier=boundary_classifier,
             receipt_protection_port=receipt_protection_port,
             receipt_protection_timeout_seconds=receipt_protection_timeout_seconds,
+            recovery_protection_guard=recovery_protection_guard,
         )
         try:
             with engine._writer_lease.acquire_shared_writer():
@@ -512,6 +528,7 @@ def open_local_engine(
     recover_abandoned_sessions: bool = True,
     receipt_protection_port: ReceiptProtectionPort | None = None,
     receipt_protection_timeout_seconds: float = 5.0,
+    recovery_protection_guard: RecoveryProtectionGuard | None = None,
 ) -> EngineTaskSet:
     """Open one local root and expose only its named task capabilities."""
     return BrainEngine.open(
@@ -523,6 +540,7 @@ def open_local_engine(
         recover_abandoned_sessions=recover_abandoned_sessions,
         receipt_protection_port=receipt_protection_port,
         receipt_protection_timeout_seconds=receipt_protection_timeout_seconds,
+        recovery_protection_guard=recovery_protection_guard,
     ).tasks
 
 

@@ -4,6 +4,26 @@ Non-obvious behaviors, sharp edges, and lessons learned belong here.
 
 ## Registry
 
+### CUSTODY-001: Restart draining must protect the original queue too
+
+Symptom: A failed initial protection call retains the queued body, but a later
+startup drain protects only a newly allocated capture and omits the original
+custody identity from recovery evidence.
+
+Cause: Protection runs on foreground enqueue but startup enters the drain
+directly. Protecting a capture allocation does not preserve its earlier cue ID,
+queue order or recorded time.
+
+Fix: Read the exact initial plan from a consistent SQLite snapshot and require
+the configured protection guard before every drain, including startup. Protect
+the original allocation before materialization and require evidence again before
+terminal compaction. A protection failure is not an ingestion attempt failure.
+Test timeout, missing and mismatched evidence, restart, original cue/allocation
+identity and retained bodies. The optional owner guard is not a real independent
+backend, persisted all-writer policy or complete mutation recovery acceptance.
+
+Discovered: 2026-10-03, synthetic protection-guard restart regression.
+
 ### PORTABLE-008: Managed titles require whole-envelope restore evidence
 
 Symptom: A managed source restores with its original body and receipt, but its
