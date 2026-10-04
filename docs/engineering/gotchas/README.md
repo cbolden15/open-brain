@@ -4,6 +4,30 @@ Non-obvious behaviors, sharp edges, and lessons learned belong here.
 
 ## Registry
 
+### RECOVERY-001: Every replay entrypoint needs the same completed-record checks
+
+Symptom: Mixed owner replay refuses a damaged completed source file, but the
+capture-only replay API accepts the same damaged closure and returns a duplicate
+receipt. Separately, a Portable8 capture metadata sidecar with a changed intent
+or capture reason validates and later replaces the restored capture row.
+
+Cause: The completed source and blob check lived in one replay module, and the
+capture-only path stopped after comparing database fields. The Portable8
+cross-record comparison listed fields one by one and omitted two that the
+retained capture record also carries.
+
+Fix: Keep completed-file validation in the shared capture replay module and
+call it from every entrypoint before any materialization. Bind every immutable
+field the retained capture record carries; routed fields such as `space_id`
+change legitimately and need their own receipts, not a record comparison. Add
+a negative case per entrypoint and per field.
+
+Tests: `test_repeated_capture_replay_refuses_damaged_completed_files_before_any_write`
+and `test_v8_rejects_owner_intent_or_reason_disagreeing_with_archived_capture`.
+
+Discovered: 2026-10-04, independent final-candidate review of the 13/8/8
+recovery extension.
+
 ### PORTABLE-010: Historical authority tests need genuine historical exports
 
 Symptom: A sharing forgery test fails on Portable inventory validation before

@@ -12,6 +12,7 @@ from open_brain_engine.engine import (
     CaptureAction,
     CaptureFault,
     CaptureSubmission,
+    FilePayload,
     InjectedFault,
     TextPayload,
 )
@@ -30,7 +31,7 @@ from open_brain.profile import compile_single_user_local
 
 
 def _fixture(
-    tmp_path: Path, *, canonical: bool = False
+    tmp_path: Path, *, canonical: bool = False, file_payload: bool = False
 ) -> tuple[
     BrainEngine,
     EffectiveAuthority,
@@ -55,7 +56,11 @@ def _fixture(
     )
     submission = CaptureSubmission.for_local_owner(
         profile=primary.profile,
-        payload=TextPayload("Synthetic retained plan body"),
+        payload=(
+            FilePayload("synthetic.txt", "text/plain", b"Synthetic retained file body")
+            if file_payload
+            else TextPayload("Synthetic retained plan body")
+        ),
         delivery_id="recovery.owner",
         title="Original title",
         privacy_tier="personal",
@@ -247,3 +252,63 @@ def test_same_request_does_not_authorize_changed_retained_privacy(tmp_path: Path
     with pytest.raises(ValueError):
         replay_owner_capture_chain(engine, (record,), expected_head=head, authority=owner)
     assert database.read_bytes() == before
+
+
+@pytest.mark.parametrize("chained", (False, True))
+@pytest.mark.parametrize(
+    "target,damage",
+    (("source", "changed"), ("source", "missing"), ("blob", "changed"), ("blob", "missing")),
+)
+def test_repeated_capture_replay_refuses_damaged_completed_files_before_any_write(
+    tmp_path: Path,
+    target: str,
+    damage: str,
+    chained: bool,
+) -> None:
+    engine, owner, plan, record, head = _fixture(tmp_path, file_payload=True)
+    replay_owner_capture_chain(engine, (record,), expected_head=head, authority=owner)
+    with engine._store.connect() as connection:
+        row = connection.execute(
+            "SELECT source_path,payload_json FROM captures WHERE delivery_id='recovery.owner'"
+        ).fetchone()
+    if target == "source":
+        path = engine.profile.root / row["source_path"]
+    else:
+        digest = json.loads(row["payload_json"])["blob_sha256"]
+        path = engine.profile.root / f"sources/blobs/sha256/{digest[:2]}/{digest}"
+    raw = path.read_bytes()
+    if damage == "changed":
+        path.write_bytes(raw[:-1] + bytes([raw[-1] ^ 1]))
+    else:
+        path.unlink()
+    records: tuple[RecoveryRecord, ...] = (record,)
+    if chained:
+        second_plan = replace(
+            plan,
+            identities=CaptureReservationIdentity.allocate(
+                canonical=False, accepted_at=plan.identities.accepted_at
+            ),
+            envelope=JournalEnvelope(
+                replace(plan.envelope.submission, delivery_id="recovery.second"),
+                plan.envelope.admitted_privacy,
+            ),
+        )
+        records += (
+            RecoveryRecord(
+                baseline=plan.baseline,
+                sequence=2,
+                previous_sha256=record.record_sha256,
+                kind="capture",
+                payload=second_plan.to_bytes(),
+            ),
+        )
+        head = RecoveryHead(plan.baseline, 2, records[-1].record_sha256)
+    database = engine.profile.root / ".open-brain/state/phase1.sqlite3"
+    before = database.read_bytes()
+    with pytest.raises(ValueError, match=f"completed {target} mismatch"):
+        replay_owner_capture_chain(engine, records, expected_head=head, authority=owner)
+    assert database.read_bytes() == before
+    if damage == "changed":
+        assert path.read_bytes() == raw[:-1] + bytes([raw[-1] ^ 1])
+    else:
+        assert not path.exists()

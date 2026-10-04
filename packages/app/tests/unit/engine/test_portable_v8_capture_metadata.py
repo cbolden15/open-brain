@@ -6,7 +6,7 @@ from uuid import uuid4
 
 import pytest
 from open_brain_engine.core.ids import portable_canonical_json_bytes
-from open_brain_engine.core.models import PrivacyTier
+from open_brain_engine.core.models import Intent, PrivacyTier
 from open_brain_engine.engine import (
     BrainEngine,
     CaptureAction,
@@ -236,6 +236,39 @@ def test_v8_rejects_original_allocation_disagreeing_with_archived_proposal(
             "publication_id": "publication",
         }[field]
         replacement = prefix + "_" + str(uuid4())
+    value["captures"][0][field] = replacement
+    files[CAPTURE_METADATA_PATH] = portable_canonical_json_bytes(value)
+    with pytest.raises(PortableValidationError):
+        validate_portable_file_set_v8(files, tenant_id=primary.profile.tenant_id)
+
+
+@pytest.mark.parametrize("field", ("intent", "capture_why"))
+@pytest.mark.parametrize("replacement", ("hold", "Different synthetic reason", None))
+def test_v8_rejects_owner_intent_or_reason_disagreeing_with_archived_capture(
+    tmp_path: Path,
+    field: str,
+    replacement: str | None,
+) -> None:
+    primary = BrainEngine.open(compile_single_user_local(tmp_path / "primary"))
+    primary.capture.submit(
+        CaptureSubmission.for_local_owner(
+            profile=primary.profile,
+            payload=TextPayload("Synthetic intent and reason body"),
+            delivery_id="baseline.intent",
+            intent=Intent.IDEA,
+            capture_why="Original synthetic reason",
+        )
+    )
+    archive = tmp_path / "archive"
+    primary.portability.export(archive, export_id="export_" + str(uuid4()))
+    files = dict(validated_portable_snapshot(archive).files)
+    files.pop("portable-manifest.json")
+    validate_portable_file_set_v8(files, tenant_id=primary.profile.tenant_id)
+    value = json.loads(files[CAPTURE_METADATA_PATH])
+    assert (value["captures"][0]["intent"], value["captures"][0]["capture_why"]) == (
+        "idea",
+        "Original synthetic reason",
+    )
     value["captures"][0][field] = replacement
     files[CAPTURE_METADATA_PATH] = portable_canonical_json_bytes(value)
     with pytest.raises(PortableValidationError):

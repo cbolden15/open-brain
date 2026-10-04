@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 import sqlite3
 from dataclasses import asdict
+from hashlib import sha256
 from pathlib import PurePosixPath
 from typing import TYPE_CHECKING, cast
 
@@ -150,6 +151,37 @@ def _preflight_captures(
                     raise ValueError("capture recovery identity collision")
 
 
+def _require_completed_sources(
+    engine: BrainEngine, connection: sqlite3.Connection,
+    captures: tuple[CaptureRecoveryPlan, ...],
+) -> None:
+    """A matching completed row cannot stand in for missing physical records."""
+    for plan in captures:
+        row = connection.execute(
+            "SELECT * FROM captures WHERE delivery_id=?", (plan.envelope.submission.delivery_id,),
+        ).fetchone()
+        if row is None or row["stage"] < 3:
+            continue
+        expected = portable_canonical_json_bytes(engine._capture_record(row))
+        source = read_confined(
+            root=engine.profile.root, relative=row["source_path"],
+            expected_root_identity=engine.profile.root_identity, maximum_bytes=len(expected),
+        )
+        if source != expected:
+            raise ValueError("owner recovery completed source mismatch")
+        if row["file_bytes"] is not None:
+            original = row["file_bytes"]
+            digest = sha256(original).hexdigest()
+            blob = read_confined(
+                root=engine.profile.root,
+                relative=f"sources/blobs/sha256/{digest[:2]}/{digest}",
+                expected_root_identity=engine.profile.root_identity,
+                maximum_bytes=max(1, len(original)),
+            )
+            if blob != original:
+                raise ValueError("owner recovery completed blob mismatch")
+
+
 def replay_owner_capture_chain(
     engine: BrainEngine,
     records: tuple[RecoveryRecord, ...],
@@ -203,6 +235,7 @@ def replay_owner_capture_chain(
                 raise ValueError("capture recovery destination mismatch")
             require_historical_snapshot_settled(connection, engine.profile)
             _preflight_captures(connection, plans, paths)
+            _require_completed_sources(engine, connection, plans)
         for plan in plans:
             current = engine._prepare_journal_submission(plan.envelope.submission)
             retained = plan.envelope.admitted_privacy

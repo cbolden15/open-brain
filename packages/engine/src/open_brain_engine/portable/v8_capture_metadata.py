@@ -240,6 +240,8 @@ def validate_capture_metadata(files: Mapping[str, bytes]) -> tuple[dict[str, Any
                 "payload_family",
                 "source_origin",
                 "source_reference",
+                "intent",
+                "capture_why",
             ):
                 expected = {
                     "payload_family": record["payload"]["family"],

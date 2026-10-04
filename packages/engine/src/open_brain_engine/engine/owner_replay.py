@@ -3,15 +3,16 @@
 from __future__ import annotations
 
 import sqlite3
-from hashlib import sha256
 from typing import TYPE_CHECKING
 
-from open_brain_engine.core.ids import portable_canonical_json_bytes
 from open_brain_engine.core.models import narrowest_tier
-from open_brain_engine.storage.filesystem import read_confined
 
 from .capture_recovery import CaptureRecoveryPlan
-from .capture_replay import _baseline_manifest, _preflight_captures
+from .capture_replay import (
+    _baseline_manifest,
+    _preflight_captures,
+    _require_completed_sources,
+)
 from .consent_contracts import EgressMode
 from .contracts import CaptureCustodyReceipt, CaptureReceipt, CaptureSubmissionPath
 from .custody_recovery import CaptureCustodyRecoveryPlan
@@ -79,37 +80,6 @@ def _operations(records: tuple[RecoveryRecord, ...]) -> tuple[
         tuple(sorted(cues.values(), key=lambda cue: cue.journal_sequence)),
         tuple(captures.values()), tuple(journals.values()),
     )
-
-
-def _require_completed_sources(
-    engine: BrainEngine, connection: sqlite3.Connection,
-    captures: tuple[CaptureRecoveryPlan, ...],
-) -> None:
-    """A matching completed row cannot stand in for missing physical records."""
-    for plan in captures:
-        row = connection.execute(
-            "SELECT * FROM captures WHERE delivery_id=?", (plan.envelope.submission.delivery_id,),
-        ).fetchone()
-        if row is None or row["stage"] < 3:
-            continue
-        expected = portable_canonical_json_bytes(engine._capture_record(row))
-        source = read_confined(
-            root=engine.profile.root, relative=row["source_path"],
-            expected_root_identity=engine.profile.root_identity, maximum_bytes=len(expected),
-        )
-        if source != expected:
-            raise ValueError("owner recovery completed source mismatch")
-        if row["file_bytes"] is not None:
-            original = row["file_bytes"]
-            digest = sha256(original).hexdigest()
-            blob = read_confined(
-                root=engine.profile.root,
-                relative=f"sources/blobs/sha256/{digest[:2]}/{digest}",
-                expected_root_identity=engine.profile.root_identity,
-                maximum_bytes=max(1, len(original)),
-            )
-            if blob != original:
-                raise ValueError("owner recovery completed blob mismatch")
 
 
 def _journal_preflight(
