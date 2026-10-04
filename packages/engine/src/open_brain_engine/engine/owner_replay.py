@@ -3,9 +3,12 @@
 from __future__ import annotations
 
 import sqlite3
+from hashlib import sha256
 from typing import TYPE_CHECKING
 
+from open_brain_engine.core.ids import portable_canonical_json_bytes
 from open_brain_engine.core.models import narrowest_tier
+from open_brain_engine.storage.filesystem import read_confined
 
 from .capture_recovery import CaptureRecoveryPlan
 from .capture_replay import _baseline_manifest, _preflight_captures
@@ -70,7 +73,43 @@ def _operations(records: tuple[RecoveryRecord, ...]) -> tuple[
             raise ValueError("owner recovery requires protected terminal journal")
     if any(delivery not in captures for delivery in journals):
         raise ValueError("unsupported nonterminal owner journal recovery")
-    return tuple(cues.values()), tuple(captures.values()), tuple(journals.values())
+    # Authenticate the append chain unchanged; materialize a separate view in
+    # original queue order, not callback completion order.
+    return (
+        tuple(sorted(cues.values(), key=lambda cue: cue.journal_sequence)),
+        tuple(captures.values()), tuple(journals.values()),
+    )
+
+
+def _require_completed_sources(
+    engine: BrainEngine, connection: sqlite3.Connection,
+    captures: tuple[CaptureRecoveryPlan, ...],
+) -> None:
+    """A matching completed row cannot stand in for missing physical records."""
+    for plan in captures:
+        row = connection.execute(
+            "SELECT * FROM captures WHERE delivery_id=?", (plan.envelope.submission.delivery_id,),
+        ).fetchone()
+        if row is None or row["stage"] < 3:
+            continue
+        expected = portable_canonical_json_bytes(engine._capture_record(row))
+        source = read_confined(
+            root=engine.profile.root, relative=row["source_path"],
+            expected_root_identity=engine.profile.root_identity, maximum_bytes=len(expected),
+        )
+        if source != expected:
+            raise ValueError("owner recovery completed source mismatch")
+        if row["file_bytes"] is not None:
+            original = row["file_bytes"]
+            digest = sha256(original).hexdigest()
+            blob = read_confined(
+                root=engine.profile.root,
+                relative=f"sources/blobs/sha256/{digest[:2]}/{digest}",
+                expected_root_identity=engine.profile.root_identity,
+                maximum_bytes=max(1, len(original)),
+            )
+            if blob != original:
+                raise ValueError("owner recovery completed blob mismatch")
 
 
 def _journal_preflight(
@@ -81,9 +120,13 @@ def _journal_preflight(
     event_ids: dict[int, str] = {}
     item_ids: set[int] = set()
     ingestion_ids: set[str] = set()
+    previous_item = previous_event = 0
     pending: list[CaptureCustodyRecoveryPlan] = []
     for cue in cues:
         delivery = cue.receipt.delivery_id
+        if cue.journal_sequence <= previous_item or cue.event_sequence <= previous_event:
+            raise ValueError("owner recovery original custody order conflict")
+        previous_item, previous_event = cue.journal_sequence, cue.event_sequence
         if cue.journal_sequence in item_ids or cue.receipt.ingestion_id in ingestion_ids:
             raise ValueError("owner recovery custody identity collision")
         item_ids.add(cue.journal_sequence)
@@ -205,6 +248,7 @@ def replay_owner_recovery_chain(
                 raise ValueError("owner recovery destination mismatch")
             require_historical_snapshot_settled(connection, engine.profile)
             _preflight_captures(connection, captures, paths)
+            _require_completed_sources(engine, connection, captures)
             missing = _journal_preflight(connection, cues, journals)
             count, size = connection.execute(
                 "SELECT count(*),COALESCE(sum(byte_count),0) FROM capture_ingestion_items"

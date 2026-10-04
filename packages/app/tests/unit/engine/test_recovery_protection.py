@@ -259,6 +259,37 @@ def test_terminal_journal_proof_failure_retains_exact_events_before_compaction(
         ).fetchone()[0] == 0
 
 
+@pytest.mark.parametrize("failure", ["timeout", "wrong", "missing"])
+def test_same_process_terminal_retry_requires_journal_proof(
+    guarded: tuple[BrainEngine, SyntheticPort, RecoveryProtectionGuard], failure: str,
+) -> None:
+    engine, port, _ = guarded
+    port.fail_kind, port.failure = "capture_journal", failure
+    for _ in range(2):
+        with pytest.raises(RecoveryProtectionPendingError):
+            engine.capture.accept(
+                TextPayload("Synthetic repeated retry"), delivery_id="owner.repeat",
+            )
+    with engine._store.connect() as connection:
+        assert connection.execute("SELECT count(*) FROM capture_ingestion_payloads").fetchone()[0]
+        assert connection.execute(
+            "SELECT count(*) FROM capture_ingestion_events",
+        ).fetchone()[0] == 2
+
+
+def test_compacted_duplicate_requires_original_terminal_proof(
+    guarded: tuple[BrainEngine, SyntheticPort, RecoveryProtectionGuard],
+) -> None:
+    engine, port, _ = guarded
+    engine.capture.accept(TextPayload("Synthetic compacted"), delivery_id="owner.compacted")
+    # A valid authenticated allocation-only prefix is not proof of terminal history.
+    port.records.pop()
+    port.plans = {digest: plan for digest, plan in port.plans.items()
+                  if not isinstance(plan, CaptureJournalRecoveryPlan)}
+    with pytest.raises(RecoveryProtectionPendingError):
+        engine.capture.accept(TextPayload("Synthetic compacted"), delivery_id="owner.compacted")
+
+
 def test_non_owner_ingress_refuses_before_enqueue(
     guarded: tuple[BrainEngine, SyntheticPort, RecoveryProtectionGuard],
 ) -> None:

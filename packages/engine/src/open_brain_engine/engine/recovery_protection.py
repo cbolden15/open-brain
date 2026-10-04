@@ -258,3 +258,33 @@ class RecoveryProtectionGuard:
         ):
             raise RecoveryProtectionPendingError("recovery protection replay mismatch")
         self.protect(engine, plan)
+        with engine._store.connect() as connection:
+            active = connection.execute(
+                "SELECT 1 FROM capture_ingestion_items WHERE delivery_id=?",
+                (submission.delivery_id,),
+            ).fetchone()
+        if active is not None:
+            self.protect_terminal_journal(engine, submission.delivery_id)
+        else:
+            # Once local custody is compacted, allocation evidence alone cannot
+            # prove the original terminal events. Require the independently
+            # retained journal rather than inventing a replacement history.
+            try:
+                evidence = self.port.lookup(
+                    submission.delivery_id, timeout_seconds=float(self.timeout_seconds),
+                )
+                self._checked(engine, plan, evidence)
+                journals = [CaptureJournalRecoveryPlan.from_record(record)
+                            for record in evidence.closure.records
+                            if record.kind == "capture_journal"]
+                matching = [journal for journal in journals
+                            if journal.envelope.submission.delivery_id == submission.delivery_id]
+                if len(matching) != 1 or matching[0].capture != plan or (
+                    not matching[0].compacted
+                    or matching[0].events[-1].event_kind not in {"accepted", "duplicate"}
+                ):
+                    raise ValueError("missing original terminal journal proof")
+            except Exception:
+                raise RecoveryProtectionPendingError(
+                    "recovery protection journal pending",
+                ) from None

@@ -18,6 +18,12 @@ Fix: Protect the exact terminal journal transition before compaction, separately
 from its original custody and capture allocation. Validate the whole mixed chain
 before replay writes. Preserve capture rows, original receipts and journal
 high-water marks; retain unallocated queues and test interrupted/repeated replay.
+Same-process terminal retries must also require journal protection. After local
+compaction, a capture-only protected prefix cannot acknowledge a duplicate.
+Authenticate the append chain unchanged, but derive queue materialization order
+from original journal sequences: protection callbacks can finish out of order.
+Before repeated replay, check completed physical source and file-blob bytes;
+a matching stage3 database row does not prove that those files remain intact.
 The owner replay seam currently supports initial queues and protected completed
 captures. Later nonterminal/discard, source/control/non-owner recovery, mandatory
 all-writer configuration and real independent disaster recovery remain required
