@@ -681,6 +681,11 @@ def materialize_portable_root(
                 f"INSERT INTO captures ({','.join(CAPTURE_COLUMNS)}) VALUES ({placeholders})",
                 [tuple(row[key] for key in CAPTURE_COLUMNS) for row in rows],
             )
+            from open_brain_engine.portable.v8_custody import validate_capture_custody
+
+            from .portable_v8_journal import install_journal_snapshot
+
+            install_journal_snapshot(connection, validate_capture_custody(files), profile)
     batch_count = sum(
         path.startswith("sources/batches/") and path.endswith(".jsonl") for path in files
     )

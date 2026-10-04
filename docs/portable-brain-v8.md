@@ -57,9 +57,20 @@ metadata or import aliases. The unreleased v8 catalog digest commits to this
 required sidecar; Portable1–7 interpretations remain unchanged.
 
 This metadata is not a replay grant or a fresh audit of a live upstream source.
-Pending ingestion still refuses ordinary Portable export. Complete pending-custody
-recovery and independently authenticated post-baseline records remain necessary
-for zero-loss deployment; settled capture metadata alone does not prove them.
+V8 also requires `history/capture-custody/journal-v1.json`. It preserves capture
+journal items, original envelope bytes, ordered events, discard tombstones and
+allocation sequence watermarks. The closed canonical sidecar is bounded to
+64 MiB. Validation binds custody to the archived Brain and issuer epoch, envelope
+digests, original receipts and settled capture identity. Clean import verifies
+the restored state without draining pending ingestion; ordinary engine opening
+then resumes recovery. Quarantined entries remain quarantined until owner retry.
+
+This permits ordinary queued capture custody in v8 exports. Unsupported old-epoch
+custody, partially materialized captures and unsettled managed/sharing operations
+still refuse rather than being retargeted or discarded. Portable1–7 retain their
+existing pending-export behavior. Complete mutation replay and independently
+authenticated post-baseline records remain necessary for zero-loss deployment;
+these sidecars alone do not prove independent protection or archive freshness.
 
 The foreground `open-brain restore` command uses the same clean importer without
 opening a primary Brain or generating a caller identity. It admits only trusted

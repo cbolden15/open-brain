@@ -460,7 +460,15 @@ def _validate_reopened_import(
         audit_restored_v5(profile, snapshot=snapshot)
     from .local import BrainEngine
 
-    reopened = BrainEngine.open(profile)
+    # Portable8 includes pending custody. Verification must not drain it or
+    # change the archive-bound state before the caller chooses normal recovery.
+    reopened = (
+        BrainEngine(
+            profile, faults=set(), clock=lambda: datetime.now(UTC), enrichment_provider=None
+        )
+        if manifest["schema_version"] == 8
+        else BrainEngine.open(profile)
+    )
     connection = reopened._store.connect()
     try:
         row = connection.execute("SELECT COUNT(*) FROM captures").fetchone()
@@ -619,7 +627,7 @@ class PortabilityTasks:
         try:
             schema_version = connection.execute("PRAGMA user_version").fetchone()[0]
             if (
-                schema_version >= 10
+                10 <= schema_version < 13
                 and connection.execute("SELECT 1 FROM capture_ingestion_pending LIMIT 1").fetchone()
             ):
                 raise ValueError("ingestion_pending")
@@ -810,8 +818,10 @@ class PortabilityTasks:
                 8
                 if all(
                     any(path == sidecar for path, _ in files)
-                    for sidecar in V5_SIDECAR_PATHS | V6_SIDECAR_PATHS
-                    | V7_SIDECAR_PATHS | V8_SIDECAR_PATHS
+                    for sidecar in V5_SIDECAR_PATHS
+                    | V6_SIDECAR_PATHS
+                    | V7_SIDECAR_PATHS
+                    | V8_SIDECAR_PATHS
                 )
                 else 7
                 if all(any(path == sidecar for path, _ in files) for sidecar in V7_SIDECAR_PATHS)

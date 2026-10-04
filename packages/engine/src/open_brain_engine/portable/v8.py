@@ -31,6 +31,7 @@ from .v6 import (
 )
 from .v7 import V7_SIDECAR_PATHS, validate_sharing_authority
 from .v8_capture_metadata import CAPTURE_METADATA_PATH, validate_capture_metadata
+from .v8_custody import CUSTODY_PATH, validate_capture_custody
 
 if TYPE_CHECKING:
     from open_brain_engine.engine.historical_contracts import (
@@ -45,13 +46,14 @@ if TYPE_CHECKING:
     from open_brain_engine.engine.historical_transition import HistoricalTransition
 
 HISTORICAL_AUTHORITY_PATH = "history/historical-authority/reconciliation-v1.json"
-V8_SIDECAR_PATHS = frozenset({HISTORICAL_AUTHORITY_PATH, CAPTURE_METADATA_PATH})
+V8_SIDECAR_PATHS = frozenset({HISTORICAL_AUTHORITY_PATH, CAPTURE_METADATA_PATH, CUSTODY_PATH})
 PORTABLE_V8_SCHEMA_CATALOG_DIGEST = sha256(
     canonical(
         {
             "base": "portable-brain-v7-sharing-authority",
             "historical_authority": 1,
             "original_capture_metadata": 1,
+            "capture_custody": 1,
             "schema_version": 8,
         }
     )
@@ -390,6 +392,7 @@ def validate_portable_file_set_v8(files: Mapping[str, bytes], *, tenant_id: str)
     validate_source_authority_v8(files)
     validate_sharing_authority(files)
     validate_capture_metadata(files)
+    validate_capture_custody(files)
 
 
 def validated_portable_snapshot_v8(

@@ -12,6 +12,7 @@ from open_brain_engine.portable.v8_capture_metadata import (
     CAPTURE_METADATA_PATH,
     capture_metadata_bytes,
 )
+from open_brain_engine.portable.v8_custody import CUSTODY_PATH, custody_bytes
 
 from .contracts import LocalEngineContext
 from .historical_contracts import HistoricalDestination
@@ -21,6 +22,7 @@ from .historical_registry import HistoricalRegistryStore
 from .portable_v5_evidence import PortableV5StateEvidence, _serialize_portable_state
 from .portable_v6_authority import _source_authority_metadata, _source_authority_sidecars
 from .portable_v7_authority import _sharing_authority_metadata
+from .portable_v8_journal import journal_snapshot
 
 
 def historical_authority_sidecar(
@@ -67,10 +69,13 @@ def serialize_portable_v8_state(
         [dict(row) for row in connection.execute("SELECT * FROM captures ORDER BY capture_id")]
     )
     sidecars[CAPTURE_METADATA_PATH] = capture_metadata
+    custody = custody_bytes(journal_snapshot(connection))
+    sidecars[CUSTODY_PATH] = custody
     semantic = dict(base.semantic_state)
     semantic["sharing_authority"] = sharing
     semantic["historical_authority"] = json.loads(historical)
     semantic["original_capture_metadata"] = json.loads(capture_metadata)
+    semantic["capture_custody"] = json.loads(custody)
     return PortableV5StateEvidence(
         sidecars=MappingProxyType(sidecars),
         semantic_state=MappingProxyType(semantic),
