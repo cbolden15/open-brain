@@ -549,9 +549,16 @@ mod tests {
         );
         let fractional = crate::strict_json::from_slice(raw.as_bytes()).unwrap();
         assert!(validate_handshake(&fractional).is_err());
-        for (state_schema, runtime_session) in
-            [(5, 1), (6, 1), (7, 2), (8, 3), (9, 4), (10, 5), (11, 6), (12, 7)]
-        {
+        for (state_schema, runtime_session) in [
+            (5, 1),
+            (6, 1),
+            (7, 2),
+            (8, 3),
+            (9, 4),
+            (10, 5),
+            (11, 6),
+            (12, 7),
+        ] {
             let mut old = next.clone();
             old["state_schema_version"] = json!(state_schema);
             old["runtime_session_version"] = json!(runtime_session);
