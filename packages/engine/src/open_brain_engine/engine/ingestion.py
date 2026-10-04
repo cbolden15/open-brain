@@ -497,27 +497,44 @@ class IngestionJournal:
     def discard(self, delivery_id: str, *, reason: str) -> None:
         if not isinstance(reason, str) or not 1 <= len(reason) <= 128:
             raise ValueError("invalid discard reason")
+        guard = self._engine._recovery_protection_guard
         with self._engine._store.transaction() as connection:
             item = connection.execute(
                 "SELECT request_sha256 FROM capture_ingestion_items WHERE delivery_id = ?",
                 (delivery_id,),
             ).fetchone()
-            if item is None or self._latest_event(connection, delivery_id) != "quarantined":
+            latest = None if item is None else self._latest_event(connection, delivery_id)
+            # A guarded discard commits its terminal history first; an item still
+            # present after a committed discard resumes at the protection step.
+            resuming = guard is not None and latest == "discarded"
+            if item is None or latest != "quarantined" and not resuming:
                 raise ValueError("journal item is not quarantined")
-            result = portable_canonical_json_bytes(
-                {"status": "discarded", "reason": reason}
-            ).decode("utf-8")
-            self._append_event(connection, delivery_id, "discarded", 0, json.loads(result))
-            connection.execute(
-                "INSERT INTO capture_ingestion_tombstones VALUES (?, ?, ?, ?)",
-                (delivery_id, item["request_sha256"], result, _timestamp(self._engine._clock())),
-            )
-            connection.execute(
-                "DELETE FROM capture_ingestion_payloads WHERE delivery_id = ?", (delivery_id,)
-            )
-            connection.execute(
-                "DELETE FROM capture_ingestion_items WHERE delivery_id = ?", (delivery_id,)
-            )
+            if not resuming:
+                result = portable_canonical_json_bytes(
+                    {"status": "discarded", "reason": reason}
+                ).decode("utf-8")
+                self._append_event(connection, delivery_id, "discarded", 0, json.loads(result))
+                connection.execute(
+                    "INSERT INTO capture_ingestion_tombstones VALUES (?, ?, ?, ?)",
+                    (delivery_id, item["request_sha256"], result,
+                     _timestamp(self._engine._clock())),
+                )
+            if guard is None:
+                self._delete_custody(connection, delivery_id)
+        if guard is not None:
+            guard.protect_journal(self._engine, delivery_id, compact=True)
+            with self._engine._store.transaction() as connection:
+                guard.validate_identity(connection)
+                self._delete_custody(connection, delivery_id)
+
+    @staticmethod
+    def _delete_custody(connection: sqlite3.Connection, delivery_id: str) -> None:
+        connection.execute(
+            "DELETE FROM capture_ingestion_payloads WHERE delivery_id = ?", (delivery_id,)
+        )
+        connection.execute(
+            "DELETE FROM capture_ingestion_items WHERE delivery_id = ?", (delivery_id,)
+        )
 
     def _identity_row(self, connection: sqlite3.Connection, delivery_id: str) -> sqlite3.Row | None:
         row = connection.execute(

@@ -1,16 +1,31 @@
 """Progressed, allocated and baseline queue items stay protected and replayable."""
 
+from hashlib import sha256
+from pathlib import Path
+from uuid import uuid4
+
+import pytest
 from open_brain_engine.engine import (
     BrainEngine,
+    CaptureAction,
     CaptureCustodyReceipt,
+    CaptureFault,
     CaptureReceipt,
     CaptureSubmission,
+    InjectedFault,
     TextPayload,
 )
+from open_brain_engine.engine.custody_recovery import CaptureCustodyRecoveryPlan
 from open_brain_engine.engine.journal_recovery import CaptureJournalRecoveryPlan
-from open_brain_engine.engine.recovery_protection import RecoveryProtectionGuard
+from open_brain_engine.engine.recovery_journal import RecoveryBaseline
+from open_brain_engine.engine.recovery_protection import (
+    RecoveryProtectionGuard,
+    RecoveryProtectionPendingError,
+)
 from open_brain_engine.engine.t03_contracts import EffectiveAuthority
+from open_brain_engine.portable.versioned import validated_portable_snapshot
 
+from open_brain.profile import compile_single_user_local
 from packages.app.tests.unit.engine.test_recovery_protection import (
     SyntheticPort,
 )
@@ -83,3 +98,138 @@ def test_progressed_unallocated_item_drains_under_guard_with_exact_failure_histo
         assert connection.execute(
             "SELECT count(*) FROM capture_ingestion_items"
         ).fetchone()[0] == 0
+
+
+def _quarantine(engine: BrainEngine, delivery_id: str) -> CaptureSubmission:
+    """Queue a canonical note whose destination disappears before the drain."""
+    journal = engine.tasks.journal
+    assert journal is not None
+    space = engine.inbox.create_space("Quarantine", delivery_id=delivery_id + ".space")
+    submission = CaptureSubmission.for_local_owner(
+        profile=engine.profile, payload=TextPayload("Synthetic invalid destination"),
+        delivery_id=delivery_id, action=CaptureAction.CANONICAL_NOTE, space_id=space.space_id,
+    )
+    engine.ingestion.enqueue(submission)
+    with engine._store.transaction() as connection:
+        connection.execute("DELETE FROM spaces WHERE space_id=?", (space.space_id,))
+    assert journal.drain(authority=_owner(engine)).receipts == ()
+    assert journal.status(authority=_owner(engine))[0].state == "quarantined"
+    return submission
+
+
+def _journal_rows(engine: BrainEngine, delivery_id: str) -> tuple[int, int, list[str], int]:
+    with engine._store.connect() as connection:
+        items = connection.execute(
+            "SELECT count(*) FROM capture_ingestion_items WHERE delivery_id=?", (delivery_id,),
+        ).fetchone()[0]
+        payloads = connection.execute(
+            "SELECT count(*) FROM capture_ingestion_payloads WHERE delivery_id=?", (delivery_id,),
+        ).fetchone()[0]
+        events = [row[0] for row in connection.execute(
+            "SELECT event_kind FROM capture_ingestion_events WHERE delivery_id=? "
+            "ORDER BY event_sequence", (delivery_id,),
+        )]
+        tombstones = connection.execute(
+            "SELECT count(*) FROM capture_ingestion_tombstones WHERE delivery_id=?",
+            (delivery_id,),
+        ).fetchone()[0]
+    return items, payloads, events, tombstones
+
+
+def test_discard_protects_terminal_history_and_tombstone_before_deleting_custody(
+    guarded: tuple[BrainEngine, SyntheticPort, RecoveryProtectionGuard],
+) -> None:
+    engine, port, _ = guarded
+    journal = engine.tasks.journal
+    assert journal is not None
+    _quarantine(engine, "owner.discard")
+    assert [[event.event_kind for event in plan.events] for plan in _journals(port)] == [
+        ["queued", "quarantined"],
+    ]
+    port.fail_kind = "capture_journal"
+    with pytest.raises(RecoveryProtectionPendingError):
+        journal.discard("owner.discard", reason="owner_requested", authority=_owner(engine))
+    # Phase one committed; local custody is retained until the history is protected.
+    assert _journal_rows(engine, "owner.discard") == (
+        1, 1, ["queued", "quarantined", "discarded"], 1,
+    )
+    port.fail_kind = None
+    journal.discard("owner.discard", reason="owner_requested", authority=_owner(engine))
+    # Deleting the item cascades its local events; the protected journal keeps them.
+    assert _journal_rows(engine, "owner.discard") == (0, 0, [], 1)
+    terminal = CaptureJournalRecoveryPlan.from_record(port.records[-1])
+    assert [event.event_kind for event in terminal.events] == [
+        "queued", "quarantined", "discarded",
+    ]
+    assert terminal.compacted and terminal.capture is None and terminal.tombstone is not None
+    assert terminal.tombstone.request_sha256 == terminal.custody.receipt.request_sha256
+
+
+def test_baseline_existing_queue_items_are_protected_late_instead_of_stalling(
+    tmp_path: Path,
+) -> None:
+    """Items queued before the guard existed must still drain and compact."""
+    profile = compile_single_user_local(tmp_path / "brain")
+    engine = BrainEngine.open(profile)
+    archive = tmp_path / "baseline"
+    engine.portability.export(archive, export_id="export_" + str(uuid4()))
+    files = tuple(sorted(validated_portable_snapshot(archive).files.items()))
+    with engine._store.connect() as connection:
+        identity = connection.execute("SELECT brain_id,issuer_epoch FROM brain_identity").fetchone()
+    baseline = RecoveryBaseline(
+        identity[0], identity[1], sha256(dict(files)["portable-manifest.json"]).hexdigest()
+    )
+    _quarantine(engine, "baseline.progressed")
+    faulty = BrainEngine.open(profile, faults={CaptureFault.AFTER_CAPTURE_RESERVATION})
+    allocated = CaptureSubmission.for_local_owner(
+        profile=profile, payload=TextPayload("Synthetic allocated before guard"),
+        delivery_id="baseline.allocated",
+    )
+    with pytest.raises(InjectedFault):
+        faulty.capture.submit(allocated)
+    with faulty._store.connect() as connection:
+        reservation = connection.execute(
+            "SELECT capture_id,stage FROM captures WHERE delivery_id='baseline.allocated'"
+        ).fetchone()
+    assert reservation is not None and reservation[1] == 0
+    assert _journal_rows(faulty, "baseline.allocated")[:3] == (1, 1, ["queued"])
+    port = SyntheticPort(baseline, files)
+    guard = RecoveryProtectionGuard(baseline, port)
+    # Opening resumes the stage-0 reservation and drains it under the guard.
+    guarded_engine = BrainEngine.open(profile, recovery_protection_guard=guard)
+    port.engine = guarded_engine
+    guarded_journal = guarded_engine.tasks.journal
+    assert guarded_journal is not None
+    guarded_journal.drain(authority=_owner(guarded_engine))
+    with guarded_engine._store.connect() as connection:
+        completed = connection.execute(
+            "SELECT capture_id,stage FROM captures WHERE delivery_id='baseline.allocated'"
+        ).fetchone()
+    assert tuple(completed) == (reservation[0], 3)
+    assert _journal_rows(guarded_engine, "baseline.allocated") == (0, 0, [], 0)
+    # The quarantined item predates the guard too: owner actions protect it late.
+    guarded_journal.retry("baseline.progressed", authority=_owner(guarded_engine))
+    guarded_journal.drain(authority=_owner(guarded_engine))
+    guarded_journal.discard(
+        "baseline.progressed", reason="owner_requested", authority=_owner(guarded_engine),
+    )
+    assert _journal_rows(guarded_engine, "baseline.progressed") == (0, 0, [], 1)
+    cues = {
+        plan.receipt.delivery_id for plan in port.plans.values()
+        if isinstance(plan, CaptureCustodyRecoveryPlan)
+    }
+    assert cues == {"baseline.allocated", "baseline.progressed"}
+    terminals = {
+        plan.custody.receipt.delivery_id: plan for plan in _journals(port) if plan.compacted
+    }
+    assert set(terminals) == cues
+    assert terminals["baseline.allocated"].capture is not None
+    assert terminals["baseline.allocated"].capture.identities.capture_id == reservation[0]
+    assert terminals["baseline.progressed"].tombstone is not None
+    assert [event.event_kind for event in terminals["baseline.progressed"].events] == [
+        "queued", "quarantined", "queued", "quarantined", "discarded",
+    ]
+    # Resumed on open, the reservation terminalizes as a duplicate of its own row.
+    assert [event.event_kind for event in terminals["baseline.allocated"].events] == [
+        "queued", "duplicate",
+    ]
