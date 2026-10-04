@@ -87,8 +87,13 @@ is deliberately completed on replay: the primary applies the same
 resume-before-ingress policy at its next drain, and the owner's later retry
 terminalizes the item as a duplicate. When only the allocation binding changed
 since the last protected journal, no new journal is emitted; an equal-length
-twin would fork the history, and a snapshot that is a strict prefix of the
-latest protected journal is stale and never appended. Owner retry and discard
+twin would fork the history. Every journal protection is checked as a
+progression of the latest protected journal before the port sees it: an
+identical history re-proves, a strict prefix is stale and skipped, a longer
+history must extend the protected one, equal length admits only a binding or
+compaction transition, and a compacted journal is final; anything else refuses
+with the protected head unchanged. A terminal snapshot is always protected as
+compacted so a resubmission racing a drain cannot leave an uncompacted twin. Owner retry and discard
 take the writer fence like drain, so a racing edit is refused as `writer_busy`
 instead of reordering protected journals. Source rows are validated for every
 replayed cue before any branch: an intake row never belongs to an owner

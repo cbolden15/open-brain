@@ -1113,3 +1113,79 @@ def test_allocated_replay_refuses_an_alias_bound_to_another_logical_source(
     with pytest.raises(ValueError, match="source"):
         replay_owner_recovery_chain(interrupted, records, expected_head=head, authority=owner)
     assert _snapshot(interrupted) == before
+
+
+def test_pending_protection_of_a_terminal_snapshot_is_compacted(
+    guarded: tuple[BrainEngine, SyntheticPort, RecoveryProtectionGuard], tmp_path: Path,
+) -> None:
+    """A resubmission that observes `accepted` before compaction must not fork the journal."""
+    engine, port, guard = guarded
+    submission = CaptureSubmission.for_local_owner(
+        profile=engine.profile, payload=TextPayload("Synthetic terminal snapshot"),
+        delivery_id="owner.terminal.snapshot",
+    )
+    # The drain commits `accepted` and crashes before compaction.
+    crashing = BrainEngine.open(
+        engine.profile, recovery_protection_guard=guard,
+        faults={CaptureFault.AFTER_JOURNAL_TERMINAL_EVENT},
+    )
+    port.engine = crashing
+    with pytest.raises(InjectedFault):
+        crashing.capture.submit(submission)
+    assert _journal_rows(crashing, "owner.terminal.snapshot")[2] == ["queued", "accepted"]
+    assert [record.kind for record in port.records] == ["capture_custody", "capture"]
+    # The paused resubmission now protects its progressed snapshot.
+    guard.protect_pending(crashing, submission)
+    journals = _journals(port)
+    assert len(journals) == 1 and journals[0].compacted
+    # Normal compaction then protects the identical terminal journal, not a twin.
+    reopened = BrainEngine.open(engine.profile, recovery_protection_guard=guard)
+    port.engine = reopened
+    assert _journal_rows(reopened, "owner.terminal.snapshot")[:2] == (0, 0)
+    assert [record.kind for record in port.records] == [
+        "capture_custody", "capture", "capture_journal",
+    ]
+    records, head = _closure(port)
+    restored, owner = _restore(reopened, tmp_path)
+    result = replay_owner_recovery_chain(restored, records, expected_head=head, authority=owner)
+    assert len(result) == 1 and isinstance(result[0], CaptureReceipt)
+
+
+def test_tampered_journal_event_is_refused_without_poisoning_the_protected_chain(
+    guarded: tuple[BrainEngine, SyntheticPort, RecoveryProtectionGuard],
+) -> None:
+    engine, port, _ = guarded
+    journal = engine.tasks.journal
+    assert journal is not None
+    engine.ingestion.enqueue(CaptureSubmission.for_local_owner(
+        profile=engine.profile, payload=TextPayload("Synthetic tampered event"),
+        delivery_id="owner.tampered.event",
+    ))
+    _fail_next_materialization(engine)
+    assert journal.drain(authority=_owner(engine)).receipts == ()
+    protected = list(port.records)
+    assert [record.kind for record in protected] == ["capture_custody", "capture_journal"]
+    # Events are append-only; an out-of-band edit changes the failure's timestamp.
+    with engine._store.transaction() as connection:
+        guards = [tuple(row) for row in connection.execute(
+            "SELECT name,sql FROM sqlite_master WHERE type='trigger' "
+            "AND name='capture_ingestion_events_update_immutable'"
+        )]
+        for name, _ in guards:
+            connection.execute(f"DROP TRIGGER {name}")
+        # Borrow the queued event's own timestamp: validly shaped, demonstrably different.
+        queued_at = connection.execute(
+            "SELECT recorded_at FROM capture_ingestion_events "
+            "WHERE delivery_id='owner.tampered.event' AND event_kind='queued'"
+        ).fetchone()[0]
+        connection.execute(
+            "UPDATE capture_ingestion_events SET recorded_at=? "
+            "WHERE delivery_id='owner.tampered.event' AND event_kind='attempt_failed'",
+            (queued_at,),
+        )
+        for _, sql in guards:
+            connection.execute(sql)
+    with pytest.raises(RecoveryProtectionPendingError):
+        journal.drain(authority=_owner(engine))
+    assert port.records == protected
+    assert _journal_rows(engine, "owner.tampered.event")[:2] == (1, 1)

@@ -292,8 +292,13 @@ class RecoveryProtectionGuard:
                     request_sha256=grave["request_sha256"], result_json=grave["result_json"],
                     decided_at=grave["decided_at"],
                 )
-            if compact and events[-1].event_kind not in {"accepted", "duplicate", "discarded"}:
+            terminal = events[-1].event_kind in {"accepted", "duplicate", "discarded"}
+            if compact and not terminal:
                 raise ValueError("journal compaction requires terminal history")
+            # A terminal snapshot is always protected as compacted: compaction is
+            # its only remaining transition, and a racing resubmission must not
+            # leave an uncompacted twin beside the drain's compacted journal.
+            compact = compact or terminal
             self._ensure_protected(engine, custody)
             if capture is not None:
                 self._ensure_protected(engine, capture)
@@ -301,27 +306,38 @@ class RecoveryProtectionGuard:
                 custody=custody, events=events, capture=capture, tombstone=tombstone,
                 compacted=compact,
             )
-            # The allocation is its own protected record. A journal whose only
-            # change is that binding would fork the history with an equal-length
-            # twin that replay and duplicate validation rightly refuse. An
-            # otherwise identical journal is still re-protected: that is how a
-            # failed proof is retried.
-            latest = [CaptureJournalRecoveryPlan.from_record(record)
-                      for record in self._lookup_closure(delivery_id).records
-                      if record.kind == "capture_journal"]
-            latest = [journal for journal in latest
-                      if journal.envelope.submission.delivery_id == delivery_id]
-            if latest and capture is not None and latest[-1].capture is None and (
-                latest[-1].events == events and latest[-1].compacted == compact
-                and latest[-1].tombstone == tombstone
-            ):
-                return
-            # A snapshot older than the protected history is stale: the longer
-            # history already stands, and appending the prefix would fork it.
-            if latest and len(latest[-1].events) > len(events) and (
-                latest[-1].events[:len(events)] == events
-            ):
-                return
+            journals = [CaptureJournalRecoveryPlan.from_record(record)
+                        for record in self._lookup_closure(delivery_id).records
+                        if record.kind == "capture_journal"]
+            journals = [journal for journal in journals
+                        if journal.envelope.submission.delivery_id == delivery_id]
+            if journals:
+                prior = journals[-1]
+                if prior.to_bytes() == plan.to_bytes():
+                    # Re-proving an identical history is how a failed proof retries.
+                    self.protect(engine, plan)
+                    return
+                shared = min(len(prior.events), len(events))
+                if prior.events[:shared] != events[:shared]:
+                    # A changed local event diverges from the authenticated
+                    # history: refuse before the port sees it.
+                    raise ValueError("protected journal history mismatch")
+                if len(events) < len(prior.events):
+                    # Snapshot older than the protected history: the longer
+                    # history already stands; appending the prefix would fork it.
+                    return
+                if prior.compacted:
+                    raise ValueError("protected journal already compacted")
+                if len(events) == len(prior.events):
+                    # Equal length admits only a binding or compaction transition.
+                    if prior.tombstone != tombstone or (
+                        prior.capture not in (None, capture)
+                    ):
+                        raise ValueError("protected journal history mismatch")
+                    if not compact:
+                        # Only the allocation binding changed; the allocation is
+                        # its own protected record, so no twin is emitted.
+                        return
             self.protect(engine, plan)
         except Exception:
             raise RecoveryProtectionPendingError("recovery protection journal pending") from None
