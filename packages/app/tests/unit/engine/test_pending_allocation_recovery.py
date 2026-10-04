@@ -17,7 +17,8 @@ from open_brain_engine.engine import (
 )
 from open_brain_engine.engine.custody_recovery import CaptureCustodyRecoveryPlan
 from open_brain_engine.engine.journal_recovery import CaptureJournalRecoveryPlan
-from open_brain_engine.engine.recovery_journal import RecoveryBaseline
+from open_brain_engine.engine.owner_replay import replay_owner_recovery_chain
+from open_brain_engine.engine.recovery_journal import RecoveryBaseline, RecoveryHead, RecoveryRecord
 from open_brain_engine.engine.recovery_protection import (
     RecoveryProtectionGuard,
     RecoveryProtectionPendingError,
@@ -26,6 +27,8 @@ from open_brain_engine.engine.t03_contracts import EffectiveAuthority
 from open_brain_engine.portable.versioned import validated_portable_snapshot
 
 from open_brain.profile import compile_single_user_local
+from packages.app.tests.unit.engine.test_custody_replay import _snapshot
+from packages.app.tests.unit.engine.test_owner_replay import _restore
 from packages.app.tests.unit.engine.test_recovery_protection import (
     SyntheticPort,
 )
@@ -233,3 +236,116 @@ def test_baseline_existing_queue_items_are_protected_late_instead_of_stalling(
     assert [event.event_kind for event in terminals["baseline.allocated"].events] == [
         "queued", "duplicate",
     ]
+
+
+def _closure(port: SyntheticPort) -> tuple[tuple[RecoveryRecord, ...], RecoveryHead]:
+    """Whole protected chain; lookup needs an allocation, pending items may have none."""
+    evidence = port._evidence(next(iter(port.plans.values())))
+    return evidence.closure.records, evidence.closure.expected_head
+
+
+def _prefix(records: tuple[RecoveryRecord, ...], count: int) -> tuple[
+    tuple[RecoveryRecord, ...], RecoveryHead,
+]:
+    kept = records[:count]
+    return kept, RecoveryHead(kept[0].baseline, count, kept[-1].record_sha256)
+
+
+def test_pending_allocation_closure_restores_exact_reservation_then_normal_drain_completes(
+    guarded: tuple[BrainEngine, SyntheticPort, RecoveryProtectionGuard], tmp_path: Path,
+) -> None:
+    primary, port, _ = guarded
+    receipt = primary.capture.accept(TextPayload("Synthetic pending"), delivery_id="pending.alloc")
+    assert isinstance(receipt, CaptureReceipt)
+    records, _ = _closure(port)
+    assert [record.kind for record in records] == ["capture_custody", "capture", "capture_journal"]
+    # Protection stopped after the allocation: the terminal journal never reached the port.
+    records, head = _prefix(records, 2)
+    restored, owner = _restore(primary, tmp_path)
+    result = replay_owner_recovery_chain(restored, records, expected_head=head, authority=owner)
+    assert len(result) == 1 and isinstance(result[0], CaptureCustodyReceipt)
+    with restored._store.connect() as connection:
+        row = connection.execute(
+            "SELECT capture_id,accepted_receipt_id,stage FROM captures "
+            "WHERE delivery_id='pending.alloc'"
+        ).fetchone()
+    assert row is not None and row[0] == receipt.capture_id and row[2] == 3
+    assert _journal_rows(restored, "pending.alloc") == (1, 1, ["queued"], 0)
+    before = _snapshot(restored)
+    assert replay_owner_recovery_chain(
+        restored, records, expected_head=head, authority=owner,
+    ) == result
+    assert _snapshot(restored) == before
+    journal = restored.tasks.journal
+    assert journal is not None
+    drained = journal.drain(authority=_owner(restored)).receipts
+    assert [item.capture_id for item in drained] == [receipt.capture_id]
+    assert _journal_rows(restored, "pending.alloc")[:2] == (0, 0)
+
+
+def test_quarantined_history_closure_restores_exact_events(
+    guarded: tuple[BrainEngine, SyntheticPort, RecoveryProtectionGuard], tmp_path: Path,
+) -> None:
+    primary, port, _ = guarded
+    _quarantine(primary, "pending.quarantined")
+    with primary._store.connect() as connection:
+        original = [tuple(row) for row in connection.execute(
+            "SELECT event_sequence,event_kind,attempt_number,receipt_json,recorded_at "
+            "FROM capture_ingestion_events WHERE delivery_id='pending.quarantined' "
+            "ORDER BY event_sequence"
+        )]
+        item = tuple(connection.execute(
+            "SELECT * FROM capture_ingestion_items WHERE delivery_id='pending.quarantined'"
+        ).fetchone())
+    assert [row[1] for row in original] == ["queued", "quarantined"]
+    records, head = _closure(port)
+    assert [record.kind for record in records] == ["capture_custody", "capture_journal"]
+    restored, owner = _restore(primary, tmp_path)
+    replay_owner_recovery_chain(restored, records, expected_head=head, authority=owner)
+    with restored._store.connect() as connection:
+        assert [tuple(row) for row in connection.execute(
+            "SELECT event_sequence,event_kind,attempt_number,receipt_json,recorded_at "
+            "FROM capture_ingestion_events WHERE delivery_id='pending.quarantined' "
+            "ORDER BY event_sequence"
+        )] == original
+        assert tuple(connection.execute(
+            "SELECT * FROM capture_ingestion_items WHERE delivery_id='pending.quarantined'"
+        ).fetchone()) == item
+        assert connection.execute("SELECT count(*) FROM captures").fetchone()[0] == 0
+    journal = restored.tasks.journal
+    assert journal is not None
+    assert journal.status(authority=_owner(restored))[0].state == "quarantined"
+    before = _snapshot(restored)
+    replay_owner_recovery_chain(restored, records, expected_head=head, authority=owner)
+    assert _snapshot(restored) == before
+    journal.discard("pending.quarantined", reason="owner_requested", authority=_owner(restored))
+    assert _journal_rows(restored, "pending.quarantined") == (0, 0, [], 1)
+
+
+def test_discarded_closure_restores_tombstone_without_custody(
+    guarded: tuple[BrainEngine, SyntheticPort, RecoveryProtectionGuard], tmp_path: Path,
+) -> None:
+    primary, port, _ = guarded
+    journal = primary.tasks.journal
+    assert journal is not None
+    _quarantine(primary, "pending.discarded")
+    journal.discard("pending.discarded", reason="owner_requested", authority=_owner(primary))
+    with primary._store.connect() as connection:
+        grave = tuple(connection.execute(
+            "SELECT * FROM capture_ingestion_tombstones WHERE delivery_id='pending.discarded'"
+        ).fetchone())
+    records, head = _closure(port)
+    assert [record.kind for record in records] == [
+        "capture_custody", "capture_journal", "capture_journal",
+    ]
+    restored, owner = _restore(primary, tmp_path)
+    result = replay_owner_recovery_chain(restored, records, expected_head=head, authority=owner)
+    assert len(result) == 1 and isinstance(result[0], CaptureCustodyReceipt)
+    with restored._store.connect() as connection:
+        assert tuple(connection.execute(
+            "SELECT * FROM capture_ingestion_tombstones WHERE delivery_id='pending.discarded'"
+        ).fetchone()) == grave
+    assert _journal_rows(restored, "pending.discarded") == (0, 0, [], 1)
+    before = _snapshot(restored)
+    replay_owner_recovery_chain(restored, records, expected_head=head, authority=owner)
+    assert _snapshot(restored) == before

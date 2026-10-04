@@ -50,6 +50,40 @@ and `test_v8_rejects_owner_intent_or_reason_disagreeing_with_archived_capture`.
 Discovered: 2026-10-04, independent final-candidate review of the 13/8/8
 recovery extension.
 
+### RECOVERY-002: Protect every journal transition, not only the terminal one
+
+Symptom: Under a recovery guard, a queue item with any later event (a failed
+attempt, a quarantine, an owner retry) raised a pending-protection error on
+every drain and blocked every item behind it. A guard-protected closure holding
+an allocation without its terminal journal, or a journal without an allocation,
+could not be replayed by any entrypoint. Items queued before the guard existed
+could never compact because the port held no original cue for them.
+
+Cause: `protect_pending` only knew two shapes, initial custody or a reservation,
+and the only journal protector required a terminal history and the cue already
+present in the port. Failure, retry and discard commits never protected at all,
+and the replay classifier refused everything except initial queues and completed
+captures.
+
+Fix: One `protect_journal(compact)` rebuilds the original cue from the item's
+first queued event, protects the reservation when present, then protects the
+exact retained history; a changed local row yields a second cue or allocation
+for the delivery and is refused. Failure and retry commits protect their
+non-terminal history immediately. A guarded discard commits the event and
+tombstone, protects the compacted journal, and only then deletes custody; an
+interrupted discard resumes at the protection step. Replay restores pending
+allocations (resume the bound stage machine, keep the queue item; the next drain
+writes the terminal event), exact non-terminal histories and tombstones.
+Quarantined or discarded originals skip destination re-admission on replay,
+since their destination may no longer exist, but keep the privacy check.
+Deleting a queue item cascades its local events: the protected journal is the
+retained history, so tests must not expect local events after compaction.
+
+Tests: `test_pending_allocation_recovery.py`.
+
+Discovered: 2026-10-04, pending-allocation recovery milestone grounded on the
+reservation45 static map.
+
 ### PORTABLE-010: Historical authority tests need genuine historical exports
 
 Symptom: A sharing forgery test fails on Portable inventory validation before
@@ -87,10 +121,11 @@ Authenticate the append chain unchanged, but derive queue materialization order
 from original journal sequences: protection callbacks can finish out of order.
 Before repeated replay, check completed physical source and file-blob bytes;
 a matching stage3 database row does not prove that those files remain intact.
-The owner replay seam currently supports initial queues and protected completed
-captures. Later nonterminal/discard, source/control/non-owner recovery, mandatory
-all-writer configuration and real independent disaster recovery remain required
-before activation. Never filter or renumber an authenticated recovery chain.
+The owner replay seam supports initial queues, protected completed captures,
+pending allocations, failed/quarantined/retried histories and discards (see
+RECOVERY-002). Source/control/non-owner recovery, mandatory all-writer
+configuration and real independent disaster recovery remain required before
+activation. Never filter or renumber an authenticated recovery chain.
 
 Discovered: 2026-10-03, actual synthetic guard closure clean-restore diagnostic.
 
