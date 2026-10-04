@@ -4,6 +4,23 @@ Non-obvious behaviors, sharp edges, and lessons learned belong here.
 
 ## Registry
 
+### PORTABLE-010: Historical authority tests need genuine historical exports
+
+Symptom: A sharing forgery test fails on Portable inventory validation before
+reaching the intended authority refusal.
+
+Cause: The fixture exports the current format, removes one newer sidecar, then
+labels the result as Portable7. Other required current sidecars remain. This
+does not produce evidence from the historical catalog.
+
+Fix: Generate Portable7 from its actual schema12 catalog in a scoped test
+context. Assert the original schema and manifest version, then restore current
+runtime definitions before testing import. Preserve all forged receipt, job,
+provider, independent witness and no-promotion assertions. Keep Portable8
+coverage separate; do not weaken frozen inventory validators.
+
+Discovered: 2026-10-03, full verification and exact synthetic reproduction.
+
 ### CUSTODY-002: Capture allocation evidence omits terminal journal history
 
 Symptom: Protection retains an original queue and capture allocation, but its

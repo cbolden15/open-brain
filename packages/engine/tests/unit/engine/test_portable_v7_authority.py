@@ -11,6 +11,9 @@ from uuid import uuid4
 
 import pytest
 from open_brain_engine.core.ids import portable_canonical_json_bytes as canonical
+from open_brain_engine.engine import local_schema
+from open_brain_engine.engine.local_schema import open_local_database_read_only
+from open_brain_engine.engine.local_schema_catalog import LOCAL_MIGRATIONS
 from open_brain_engine.engine.sharing_contracts import (
     SharingDecisionRequest,
     SharingRevokeRequest,
@@ -22,9 +25,7 @@ from open_brain_engine.portable.v7 import (
     validate_portable_file_set_v7,
 )
 from open_brain_engine.portable.v8 import (
-    HISTORICAL_AUTHORITY_PATH,
     manifest_v8,
-    validate_historical_authority,
     validate_portable_file_set_v8,
 )
 from open_brain_engine.portable.versioned import validated_portable_snapshot
@@ -38,17 +39,10 @@ def portable_version(request: pytest.FixtureRequest) -> int:
 
 
 def _files_for_version(snapshot: PortableSnapshot, version: int) -> dict[str, bytes]:
+    assert snapshot.manifest["schema_version"] == version
     files = {
         path: data for path, data in snapshot.files.items() if path != "portable-manifest.json"
     }
-    if version == 7:
-        # Make a valid synthetic v7 file set only when no historical authority
-        # exists. Never label actual v8 history as an old-format archive.
-        historical = validate_historical_authority(files)
-        assert historical.records == ()
-        assert historical.registry.generation == 0
-        assert historical.registry.memberships == ()
-        del files[HISTORICAL_AUTHORITY_PATH]
     validator = {7: validate_portable_file_set_v7, 8: validate_portable_file_set_v8}[version]
     validator(files, tenant_id=str(snapshot.manifest["tenant_id"]))
     return files
@@ -77,37 +71,49 @@ def _rehash_receipt(value: dict[str, Any]) -> str:
     return _pack(value)
 
 
-def _approved_export(tmp_path: Path):  # type: ignore[no-untyped-def]
-    tasks, request, owner, _ = _managed_source(tmp_path)
-    assert tasks.sharing is not None
-    preview = tasks.sharing.preview(request, authority=owner)
-    approval = tasks.sharing.decide(
-        SharingDecisionRequest(
-            operation_id="sharing.forgery.approve",
-            preview_id=preview.preview_id,
-            preview_sha256=preview.preview_sha256,
-            brain_id=request.brain_id,
-            issuer_epoch=request.issuer_epoch,
-            destination_brain_id=request.brain_id,
-            expected_decision_version=0,
-            decision="approve",
-        ),
-        authority=owner,
-    )
-    tasks.sharing.revoke(
-        SharingRevokeRequest(
-            operation_id="sharing.forgery.revoke",
-            approval_id=approval.approval_id,
-            expected_approval_version=1,
-            brain_id=request.brain_id,
-            issuer_epoch=request.issuer_epoch,
-            destination_brain_id=request.brain_id,
-            reason="owner_choice",
-        ),
-        authority=owner,
-    )
-    export = tmp_path / "export"
-    tasks.portability.export(export, export_id="export_" + str(uuid4()))
+def _approved_export(  # type: ignore[no-untyped-def]
+    tmp_path: Path, portable_version: int, monkeypatch: pytest.MonkeyPatch,
+):
+    # Generate historical exports from their real catalog; restore current
+    # runtime constants before validating or importing any forged artifact.
+    with monkeypatch.context() as historical:
+        if portable_version == 7:
+            historical.setattr(local_schema, "PHASE1_STATE_SCHEMA_VERSION", 12)
+            historical.setattr(local_schema, "LOCAL_MIGRATIONS", LOCAL_MIGRATIONS[:12])
+        tasks, request, owner, _ = _managed_source(tmp_path)
+        with open_local_database_read_only(tasks.profile) as connection:
+            assert connection.execute("PRAGMA user_version").fetchone()[0] == (
+                12 if portable_version == 7 else 13
+            )
+        assert tasks.sharing is not None
+        preview = tasks.sharing.preview(request, authority=owner)
+        approval = tasks.sharing.decide(
+            SharingDecisionRequest(
+                operation_id="sharing.forgery.approve",
+                preview_id=preview.preview_id,
+                preview_sha256=preview.preview_sha256,
+                brain_id=request.brain_id,
+                issuer_epoch=request.issuer_epoch,
+                destination_brain_id=request.brain_id,
+                expected_decision_version=0,
+                decision="approve",
+            ),
+            authority=owner,
+        )
+        tasks.sharing.revoke(
+            SharingRevokeRequest(
+                operation_id="sharing.forgery.revoke",
+                approval_id=approval.approval_id,
+                expected_approval_version=1,
+                brain_id=request.brain_id,
+                issuer_epoch=request.issuer_epoch,
+                destination_brain_id=request.brain_id,
+                reason="owner_choice",
+            ),
+            authority=owner,
+        )
+        export = tmp_path / "export"
+        tasks.portability.export(export, export_id="export_" + str(uuid4()))
     return tasks, validated_portable_snapshot(export)
 
 
@@ -200,8 +206,9 @@ def _approved_export(tmp_path: Path):  # type: ignore[no-untyped-def]
 )
 def test_rehashed_sharing_semantic_forgery_refuses_before_promotion(
     tmp_path: Path, subject: str, field: str, replacement: object, portable_version: int,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    tasks, snapshot = _approved_export(tmp_path)
+    tasks, snapshot = _approved_export(tmp_path, portable_version, monkeypatch)
     files = _files_for_version(snapshot, portable_version)
     value = json.loads(files[SHARING_APPROVALS_PATH])
     preview_row, decision, revoke = (
@@ -344,14 +351,23 @@ def test_rehashed_sharing_semantic_forgery_refuses_before_promotion(
 )
 def test_undecided_preview_job_cannot_use_retained_owner_identity(
     tmp_path: Path, field: str, owner_field: str, portable_version: int,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     import tomllib
 
-    tasks, request, owner, _ = _managed_source(tmp_path)
-    assert tasks.sharing is not None
-    tasks.sharing.preview(request, authority=owner)
-    export = tmp_path / "export"
-    tasks.portability.export(export, export_id="export_" + str(uuid4()))
+    with monkeypatch.context() as historical:
+        if portable_version == 7:
+            historical.setattr(local_schema, "PHASE1_STATE_SCHEMA_VERSION", 12)
+            historical.setattr(local_schema, "LOCAL_MIGRATIONS", LOCAL_MIGRATIONS[:12])
+        tasks, request, owner, _ = _managed_source(tmp_path)
+        with open_local_database_read_only(tasks.profile) as connection:
+            assert connection.execute("PRAGMA user_version").fetchone()[0] == (
+                12 if portable_version == 7 else 13
+            )
+        assert tasks.sharing is not None
+        tasks.sharing.preview(request, authority=owner)
+        export = tmp_path / "export"
+        tasks.portability.export(export, export_id="export_" + str(uuid4()))
     snapshot = validated_portable_snapshot(export)
     files = _files_for_version(snapshot, portable_version)
     sidecar = json.loads(files[SHARING_APPROVALS_PATH])
@@ -366,26 +382,34 @@ def test_undecided_preview_job_cannot_use_retained_owner_identity(
 
 
 def test_sharing_provider_forgery_fails_with_recomputed_manifest(
-    tmp_path: Path, portable_version: int,
+    tmp_path: Path, portable_version: int, monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    tasks, request, owner, _ = _managed_source(tmp_path)
-    assert tasks.sharing is not None
-    preview = tasks.sharing.preview(request, authority=owner)
-    tasks.sharing.decide(
-        SharingDecisionRequest(
-            operation_id="sharing.v7.approve",
-            preview_id=preview.preview_id,
-            preview_sha256=preview.preview_sha256,
-            brain_id=request.brain_id,
-            issuer_epoch=request.issuer_epoch,
-            destination_brain_id=request.brain_id,
-            expected_decision_version=0,
-            decision="approve",
-        ),
-        authority=owner,
-    )
-    export = tmp_path / "export"
-    tasks.portability.export(export, export_id="export_" + str(uuid4()))
+    with monkeypatch.context() as historical:
+        if portable_version == 7:
+            historical.setattr(local_schema, "PHASE1_STATE_SCHEMA_VERSION", 12)
+            historical.setattr(local_schema, "LOCAL_MIGRATIONS", LOCAL_MIGRATIONS[:12])
+        tasks, request, owner, _ = _managed_source(tmp_path)
+        with open_local_database_read_only(tasks.profile) as connection:
+            assert connection.execute("PRAGMA user_version").fetchone()[0] == (
+                12 if portable_version == 7 else 13
+            )
+        assert tasks.sharing is not None
+        preview = tasks.sharing.preview(request, authority=owner)
+        tasks.sharing.decide(
+            SharingDecisionRequest(
+                operation_id="sharing.v7.approve",
+                preview_id=preview.preview_id,
+                preview_sha256=preview.preview_sha256,
+                brain_id=request.brain_id,
+                issuer_epoch=request.issuer_epoch,
+                destination_brain_id=request.brain_id,
+                expected_decision_version=0,
+                decision="approve",
+            ),
+            authority=owner,
+        )
+        export = tmp_path / "export"
+        tasks.portability.export(export, export_id="export_" + str(uuid4()))
     snapshot = validated_portable_snapshot(export)
     files = _files_for_version(snapshot, portable_version)
     sidecar = json.loads(files[SHARING_APPROVALS_PATH])
