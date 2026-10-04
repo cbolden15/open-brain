@@ -15,6 +15,7 @@ from open_brain_engine.engine import (
     local_schema,
     open_local_engine,
 )
+from open_brain_engine.engine.contracts import LocalEngineContext
 from open_brain_engine.engine.local import BrainEngine
 from open_brain_engine.engine.local_schema import open_local_database_read_only
 from open_brain_engine.engine.local_schema_catalog import LOCAL_MIGRATIONS
@@ -38,6 +39,32 @@ from open_brain_engine.portable.versioned import validated_portable_snapshot
 
 from open_brain.profile import compile_single_user_local
 from packages.app.tests.unit.engine.test_foundation_contracts import _public_submission
+from packages.app.tests.unit.engine.test_portable_v8_custody import _journal_state
+
+
+def _source_custody_state(profile: LocalEngineContext) -> dict[str, object]:
+    with open_local_database_read_only(profile) as connection:
+        return {
+            "journal": _journal_state(profile),
+            **{
+                table: [
+                    tuple(row)
+                    for row in connection.execute(f"SELECT * FROM {table} ORDER BY 1")
+                ]
+                for table in (
+                    "captures",
+                    "source_intakes",
+                    "source_quarantine",
+                    "managed_source_deliveries",
+                    "engine_generations",
+                )
+            },
+            "sources": {
+                path.relative_to(profile.root).as_posix(): path.read_bytes()
+                for path in (profile.root / "sources").rglob("*")
+                if path.is_file()
+            },
+        }
 
 
 def test_source_route_cas_preserves_capture_and_exports_v8(tmp_path: Path) -> None:
@@ -564,8 +591,12 @@ def test_managed_fenced_intake_retains_terminal_custody_on_exact_replay(
         )
         assert connection.execute("SELECT count(*) FROM source_quarantine").fetchone()[0] == 1
         assert connection.execute("SELECT count(*) FROM captures WHERE stage<3").fetchone()[0] == 0
+    custody_before_export = _source_custody_state(profile)
+    destination = tmp_path / "blocked"
     with pytest.raises(ValueError, match="^ingestion_pending$"):
-        reopened.tasks.portability.export(tmp_path / "blocked", export_id="export_" + str(uuid4()))
+        reopened.tasks.portability.export(destination, export_id="export_" + str(uuid4()))
+    assert not destination.exists()
+    assert _source_custody_state(profile) == custody_before_export
 
 
 def test_standalone_v4_import_refusal_uses_valid_v4_fixture(tmp_path: Path) -> None:
@@ -718,9 +749,11 @@ def test_fenced_reservation_enters_custody_without_new_source_writes_or_startup_
         assert connection.execute("SELECT count(*) FROM source_quarantine").fetchone()[0] == 1
         assert connection.execute("SELECT count(*) FROM captures WHERE stage<3").fetchone()[0] == 0
     exported = tmp_path / "export"
+    custody_before_export = _source_custody_state(profile)
     with pytest.raises(ValueError, match="^ingestion_pending$"):
         reopened.portability.export(exported, export_id="export_" + str(uuid4()))
     assert not exported.exists()
+    assert _source_custody_state(profile) == custody_before_export
 
 
 @pytest.mark.parametrize("schema", [5, 6])

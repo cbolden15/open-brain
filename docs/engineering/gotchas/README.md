@@ -4,6 +4,25 @@ Non-obvious behaviors, sharp edges, and lessons learned belong here.
 
 ## Registry
 
+### PORTABLE-009: Fenced source receipts do not settle retained custody
+
+Symptom: Export of fenced source custody reaches the source-authority validator
+and fails there instead of refusing with `ingestion_pending` before staging.
+
+Cause: Portable8 permits ordinary queued journal custody. The schema13 bypass
+also admitted source-intake bodies retained after fencing, although their terminal
+quarantine receipts do not make that custody representable by the frozen source
+authority format.
+
+Fix: Refuse export when a pending journal delivery belongs to a source intake.
+Keep ordinary queued exports, including managed-workspace owner custody, enabled.
+Test reservation, source-write and blob-write faults, exact replay, absence of an
+export destination and unchanged journal bodies, receipts and quarantine records.
+This refusal preserves custody but does not provide fenced-history recovery;
+complete typed source/control recovery remains required before live cutover.
+
+Discovered: 2026-10-03, five synthetic source-task full-gate failures.
+
 ### CUSTODY-001: Restart draining must protect the original queue too
 
 Symptom: A failed initial protection call retains the queued body, but a later

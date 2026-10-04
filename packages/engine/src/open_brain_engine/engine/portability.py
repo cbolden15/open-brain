@@ -632,7 +632,14 @@ class PortabilityTasks:
             ):
                 raise ValueError("ingestion_pending")
             if schema_version >= 11 and (
+                # Portable8 preserves ordinary journal custody, but its frozen
+                # source authority cannot represent fenced source custody. A
+                # terminal quarantine receipt does not mean that body settled.
                 connection.execute(
+                    "SELECT 1 FROM capture_ingestion_pending AS pending "
+                    "JOIN source_intakes AS intake USING(delivery_id) LIMIT 1"
+                ).fetchone()
+                or connection.execute(
                     "SELECT 1 FROM managed_source_deliveries WHERE receipt_json IS NULL LIMIT 1"
                 ).fetchone()
                 or connection.execute(
