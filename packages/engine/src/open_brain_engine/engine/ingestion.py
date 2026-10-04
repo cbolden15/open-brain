@@ -479,6 +479,24 @@ class IngestionJournal:
             "FROM capture_ingestion_tombstones WHERE delivery_id = ?",
             (delivery_id, delivery_id, delivery_id),
         ).fetchall()
+        # Current Portable restores retain original delivery keys as well as
+        # aliases. A direct hit must not bypass the alias's terminal evidence.
+        alias = connection.execute(
+            "SELECT source_id,evidence_sha256 FROM source_aliases WHERE delivery_id=?",
+            (delivery_id,),
+        ).fetchone()
+        if row and alias is not None:
+            retained = connection.execute(
+                "SELECT c.capture_id FROM source_aliases a "
+                "JOIN source_revisions r ON r.source_id=a.source_id "
+                "AND r.request_sha256=a.evidence_sha256 "
+                "JOIN captures c ON c.capture_id=r.capture_id "
+                "WHERE a.delivery_id=? AND c.delivery_id=a.delivery_id "
+                "AND c.request_sha256=a.evidence_sha256 AND c.stage=3",
+                (delivery_id,),
+            ).fetchall()
+            if len(retained) != 1:
+                raise RuntimeError("retained replay evidence unavailable or ambiguous")
         if len(row) > 1:
             locations = {cast(str, item["location"]) for item in row}
             digests = {cast(str, item["request_sha256"]) for item in row}
@@ -492,10 +510,6 @@ class IngestionJournal:
         # Portable reconstruction derives capture-table delivery keys. The
         # retained alias is still the original replay identity; never admit it
         # as a fresh delivery just because its derived projection uses a new key.
-        alias = connection.execute(
-            "SELECT source_id,evidence_sha256 FROM source_aliases WHERE delivery_id=?",
-            (delivery_id,),
-        ).fetchone()
         if alias is None:
             return None
         retained = connection.execute(

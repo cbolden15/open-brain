@@ -97,7 +97,7 @@ def test_retained_owner_digest_cannot_widen_admitted_privacy(
     assert replay.final_admitted_tier == PrivacyTier.UNKNOWN
 
 
-@pytest.mark.parametrize("damage", ["admission", "completion"])
+@pytest.mark.parametrize("damage", ["admission", "completion", "alias"])
 def test_retained_alias_with_missing_terminal_evidence_refuses_new_admission(
     restored_owner: tuple[BrainEngine, CaptureReceipt],
     damage: str,
@@ -109,8 +109,13 @@ def test_retained_alias_with_missing_terminal_evidence_refuses_new_admission(
                 "UPDATE source_revisions SET request_sha256=NULL WHERE capture_id=?",
                 (original.capture_id,),
             )
-        else:
+        elif damage == "completion":
             db.execute("UPDATE captures SET stage=2 WHERE capture_id=?", (original.capture_id,))
+        else:
+            db.execute(
+                "UPDATE source_aliases SET evidence_sha256=? WHERE delivery_id=?",
+                ("0" * 64, "synthetic.retained.owner-delivery"),
+            )
     with pytest.raises(RuntimeError, match="retained replay evidence unavailable or ambiguous"):
         engine.capture.accept(
             TextPayload("Retained synthetic owner baseline"),

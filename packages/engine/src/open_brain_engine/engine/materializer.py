@@ -675,6 +675,10 @@ def materialize_portable_root(
             # Only a new hidden schema, after ordinary Portable authority restore.
             # Original rows are not inferred from lossy historical record shapes.
             rows = validate_capture_metadata(files)
+            # The replacement retains every capture ID, including review
+            # provenance targets. Enforce their foreign keys at transaction
+            # commit, after all original rows have been reinserted.
+            connection.execute("PRAGMA defer_foreign_keys=ON")
             connection.execute("DELETE FROM captures")
             placeholders = ",".join("?" for _ in CAPTURE_COLUMNS)
             connection.executemany(
