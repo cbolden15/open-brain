@@ -7,13 +7,25 @@ import binascii
 import json
 from dataclasses import asdict, dataclass
 from datetime import datetime
+from typing import TYPE_CHECKING, cast
 from uuid import UUID
 
 from open_brain_engine.core.ids import portable_canonical_json_bytes
 
-from .contracts import CaptureAction, JournalEnvelope, TextPayload
+from .consent_contracts import EgressMode
+from .contracts import (
+    CaptureAction,
+    CaptureSubmission,
+    CaptureSubmissionPath,
+    JournalEnvelope,
+    TextPayload,
+)
 from .normalization import _new_id, _timestamp
 from .recovery_journal import RecoveryBaseline, RecoveryRecord
+from .t03_contracts import EffectiveAuthority
+
+if TYPE_CHECKING:
+    from .local import BrainEngine
 
 MAX_CAPTURE_RECOVERY_BYTES = 16 * 1024 * 1024
 _OPTIONAL_IDS = (
@@ -167,3 +179,79 @@ class CaptureRecoveryPlan:
             return result
         except UnicodeError, ValueError, TypeError, RecursionError, binascii.Error:
             raise ValueError("invalid capture recovery plan") from None
+
+
+def emit_owner_capture_plan(
+    engine: BrainEngine,
+    submission: CaptureSubmission,
+    *,
+    baseline: RecoveryBaseline,
+    authority: EffectiveAuthority,
+) -> CaptureRecoveryPlan:
+    """Read the original reservation without draining or allocating new IDs.
+
+    This owner-local seam emits replay input, not a protection acknowledgement.
+    The caller must independently authenticate and protect the baseline and
+    complete journal. Emit before terminal compaction: the owner request digest
+    does not bind every envelope field, so compacted captures cannot reconstruct
+    the original envelope from a caller's submission. Unreserved custody and
+    non-owner operations need their own plans.
+    """
+    if (
+        type(authority) is not EffectiveAuthority
+        or not authority.owner
+        or authority.egress_mode is not EgressMode.OWNER_LOCAL
+        or authority.provider_id is not None
+        or authority.principal_id != engine.profile.owner_actor_id
+        or type(baseline) is not RecoveryBaseline
+    ):
+        raise ValueError("capture plan emission requires local owner")
+    if type(submission) is not CaptureSubmission or (
+        submission.submission_path is not CaptureSubmissionPath.OWNER
+        or submission.actor_id != engine.profile.owner_actor_id
+        or submission.tenant_id != engine.profile.tenant_id
+    ):
+        raise ValueError("unsupported capture plan emission operation")
+    if authority.brain_id is not None and (
+        authority.brain_id != baseline.brain_id or authority.issuer_epoch != baseline.issuer_epoch
+    ):
+        raise ValueError("capture plan emission authority destination mismatch")
+    engine._assert_root()
+    with engine._writer_lease_bounded():
+        engine._assert_root()
+        with engine._store.connect() as connection:
+            destination = connection.execute(
+                "SELECT brain_id,issuer_epoch FROM brain_identity WHERE singleton=1"
+            ).fetchone()
+            if destination is None or tuple(destination) != (
+                baseline.brain_id, baseline.issuer_epoch
+            ):
+                raise ValueError("capture plan emission destination mismatch")
+            row = connection.execute(
+                "SELECT * FROM captures WHERE delivery_id=?", (submission.delivery_id,)
+            ).fetchone()
+            if row is None:
+                raise ValueError("capture plan emission requires original reservation")
+            retained = connection.execute(
+                "SELECT envelope_bytes FROM capture_ingestion_payloads WHERE delivery_id=?",
+                (submission.delivery_id,),
+            ).fetchone()
+            if retained is None:
+                raise ValueError("capture plan emission requires original envelope")
+            envelope = JournalEnvelope.from_bytes(cast(bytes, retained["envelope_bytes"]))
+            if envelope.submission != submission:
+                raise ValueError("capture plan emission envelope mismatch")
+            identities = CaptureReservationIdentity(
+                capture_id=cast(str, row["capture_id"]),
+                accepted_receipt_id=cast(str, row["accepted_receipt_id"]),
+                accepted_at=cast(str, row["accepted_at"]),
+                canonical=row["action"] == CaptureAction.CANONICAL_NOTE.value,
+                **{name: cast(str | None, row[name]) for name, _ in _OPTIONAL_IDS},
+            )
+            plan = CaptureRecoveryPlan(baseline, envelope, identities)
+            # The request digest deliberately omits some authority metadata.
+            # Reuse the replay preflight's complete immutable row comparison.
+            from .capture_replay import require_matching_capture
+
+            require_matching_capture(row, plan)
+            return plan

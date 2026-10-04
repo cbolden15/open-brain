@@ -1,11 +1,11 @@
 """Interrupted owner captures recover from baseline and exact reserved plans."""
 
 import json
+from dataclasses import replace
 from pathlib import Path
 from uuid import uuid4
 
 import pytest
-from open_brain_engine.core.models import PrivacyDecision
 from open_brain_engine.engine import (
     BrainEngine,
     CaptureAction,
@@ -15,12 +15,8 @@ from open_brain_engine.engine import (
     InjectedFault,
     TextPayload,
 )
-from open_brain_engine.engine.capture_recovery import (
-    CaptureRecoveryPlan,
-    CaptureReservationIdentity,
-)
+from open_brain_engine.engine.capture_recovery import emit_owner_capture_plan
 from open_brain_engine.engine.capture_replay import replay_owner_capture_chain
-from open_brain_engine.engine.contracts import JournalEnvelope
 from open_brain_engine.engine.portability import _manifest_digest, restore_portable_clean
 from open_brain_engine.engine.recovery_journal import RecoveryBaseline, RecoveryHead, RecoveryRecord
 from open_brain_engine.engine.t03_contracts import EffectiveAuthority
@@ -88,23 +84,19 @@ def test_partial_owner_capture_recovers_original_allocation_without_primary(
             ).fetchone()
         )
     assert row["stage"] < 3
-    identities = CaptureReservationIdentity(
-        capture_id=row["capture_id"],
-        accepted_receipt_id=row["accepted_receipt_id"],
-        accepted_at=row["accepted_at"],
-        canonical=canonical,
-        auto_proposal_id=row["auto_proposal_id"],
-        auto_proposal_receipt_id=row["auto_proposal_receipt_id"],
-        auto_decision_id=row["auto_decision_id"],
-        auto_decision_receipt_id=row["auto_decision_receipt_id"],
-        page_id=row["page_id"],
-        publication_id=row["publication_id"],
+    owner = EffectiveAuthority(
+        primary.profile.owner_actor_id, "recovery", frozenset(), None, owner=True
     )
-    plan = CaptureRecoveryPlan(
-        baseline,
-        JournalEnvelope(submission, PrivacyDecision.from_dict(json.loads(row["privacy_json"]))),
-        identities,
+    plan = emit_owner_capture_plan(
+        primary, submission, baseline=baseline, authority=owner
     )
+    assert emit_owner_capture_plan(
+        primary, submission, baseline=baseline, authority=owner
+    ).to_bytes() == plan.to_bytes()
+    with primary._store.connect() as connection:
+        assert dict(connection.execute(
+            "SELECT * FROM captures WHERE delivery_id=?", (submission.delivery_id,)
+        ).fetchone()) == row
     record = RecoveryRecord(
         baseline=baseline,
         sequence=1,
@@ -116,9 +108,6 @@ def test_partial_owner_capture_recovers_original_allocation_without_primary(
     # to recovery. This is a semantic drill, not independent-backend protection.
     encoded = record.to_bytes()
     expected_head = RecoveryHead(baseline, 1, record.record_sha256)
-    owner = EffectiveAuthority(
-        primary.profile.owner_actor_id, "recovery", frozenset(), None, owner=True
-    )
     primary_path.rename(tmp_path / "unavailable-primary")
     del primary
     restored_path = tmp_path / "restored"
@@ -157,3 +146,68 @@ def test_partial_owner_capture_recovers_original_allocation_without_primary(
     replay = restored.capture.submit(submission)
     assert replay.duplicate and replay.capture_id == row["capture_id"]
     assert not primary_path.exists()
+
+
+@pytest.mark.parametrize(
+    "invalid",
+    (
+        "non-owner", "wrong-principal", "stale-baseline", "stale-authority",
+        "changed-body", "same-hash-source-reference", "unreserved", "compacted",
+    ),
+)
+def test_capture_plan_emission_refuses_without_changing_custody(
+    tmp_path: Path, invalid: str
+) -> None:
+    engine = BrainEngine.open(compile_single_user_local(tmp_path / "primary"))
+    with engine._store.connect() as connection:
+        brain_id, epoch = connection.execute(
+            "SELECT brain_id,issuer_epoch FROM brain_identity"
+        ).fetchone()
+    baseline = RecoveryBaseline(brain_id, epoch, "0" * 64)
+    owner = EffectiveAuthority(
+        engine.profile.owner_actor_id, "recovery", frozenset(), None, owner=True
+    )
+    original = CaptureSubmission.for_local_owner(
+        profile=engine.profile, payload=TextPayload("Synthetic original body"),
+        delivery_id="recovery.emit.refusal", privacy_tier="personal",
+    )
+    if invalid == "unreserved":
+        engine.ingestion.enqueue(original)
+    elif invalid == "compacted":
+        engine.capture.submit(original)
+    else:
+        engine._faults.add(CaptureFault.AFTER_CAPTURE_RESERVATION)
+        with pytest.raises(InjectedFault):
+            engine.capture.submit(original)
+    submission = original
+    if invalid == "non-owner":
+        owner = replace(owner, owner=False)
+    elif invalid == "wrong-principal":
+        owner = replace(owner, principal_id="actor_other")
+    elif invalid == "stale-baseline":
+        baseline = replace(baseline, issuer_epoch=epoch + 1)
+    elif invalid == "stale-authority":
+        owner = replace(owner, brain_id=brain_id, issuer_epoch=epoch + 1)
+    elif invalid == "changed-body":
+        submission = replace(original, payload=TextPayload("Synthetic conflicting body"))
+    elif invalid == "same-hash-source-reference":
+        submission = replace(
+            original, source_reference="synthetic:changed",
+            provenance=replace(original.provenance, source_ref="synthetic:changed"),
+        )
+        assert submission.request_sha256() == original.request_sha256()
+
+    def snapshot() -> tuple[tuple[tuple[object, ...], ...], ...]:
+        with engine._store.connect() as connection:
+            return tuple(
+                tuple(tuple(row) for row in connection.execute(f"SELECT * FROM {table}"))
+                for table in (
+                    "captures", "capture_ingestion_items", "capture_ingestion_payloads",
+                    "capture_ingestion_events", "capture_ingestion_tombstones",
+                )
+            )
+
+    before = snapshot()
+    with pytest.raises(ValueError):
+        emit_owner_capture_plan(engine, submission, baseline=baseline, authority=owner)
+    assert snapshot() == before
