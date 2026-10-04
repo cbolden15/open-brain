@@ -67,8 +67,14 @@ class JournalTasks:
 
     def retry(self, delivery_id: str, *, authority: EffectiveAuthority) -> None:
         self._require_owner(authority)
+        # Journal protection runs under the writer fence; owner edits of the
+        # same history must serialize with drains so protected journals keep
+        # their append order.
         try:
-            self._engine.ingestion.retry(delivery_id)
+            with self._engine._writer_lease.acquire_shared_writer():
+                self._engine.ingestion.retry(delivery_id)
+        except LockBusyError:
+            raise JournalOperationError("writer_busy") from None
         except ValueError as error:
             raise JournalOperationError("not_quarantined") from error
 
@@ -79,7 +85,10 @@ class JournalTasks:
         from .ingestion import JournalAllocatedError
 
         try:
-            self._engine.ingestion.discard(delivery_id, reason=reason)
+            with self._engine._writer_lease.acquire_shared_writer():
+                self._engine.ingestion.discard(delivery_id, reason=reason)
+        except LockBusyError:
+            raise JournalOperationError("writer_busy") from None
         except JournalAllocatedError as error:
             raise JournalOperationError("allocated") from error
         except ValueError as error:

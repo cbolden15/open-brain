@@ -34,6 +34,8 @@ from open_brain_engine.engine.owner_replay import replay_owner_recovery_chain
 from open_brain_engine.engine.portability import restore_portable_clean
 from open_brain_engine.engine.recovery_journal import RecoveryBaseline, RecoveryHead, RecoveryRecord
 from open_brain_engine.engine.recovery_protection import (
+    RecoveryPlan,
+    RecoveryProtectionEvidence,
     RecoveryProtectionGuard,
     RecoveryProtectionPendingError,
     operation_sha256,
@@ -962,3 +964,152 @@ def test_primary_resumes_a_quarantined_allocation_before_the_next_drain(
     journal.retry("owner.resumed.quarantine", authority=_owner(strict))
     receipts = journal.drain(authority=_owner(strict)).receipts
     assert len(receipts) == 1 and receipts[0].duplicate
+
+
+def test_owner_retry_during_quarantine_protection_is_refused_as_writer_busy(
+    guarded: tuple[BrainEngine, SyntheticPort, RecoveryProtectionGuard],
+) -> None:
+    """Journal protection runs under the writer fence; a racing retry cannot interleave."""
+    engine, port, _ = guarded
+    journal = engine.tasks.journal
+    assert journal is not None
+    _quarantine_enqueue = CaptureSubmission.for_local_owner(
+        profile=engine.profile, payload=TextPayload("Synthetic raced quarantine"),
+        delivery_id="owner.raced", action=CaptureAction.CANONICAL_NOTE,
+        space_id=engine.inbox.create_space("Raced", delivery_id="owner.raced.space").space_id,
+    )
+    engine.ingestion.enqueue(_quarantine_enqueue)
+    with engine._store.transaction() as connection:
+        connection.execute("DELETE FROM spaces WHERE space_id=?", (_quarantine_enqueue.space_id,))
+    original_protect = port.protect
+    raced: list[str] = []
+
+    def racing_protect(plan: RecoveryPlan, *, timeout_seconds: float) -> RecoveryProtectionEvidence:
+        if isinstance(plan, CaptureJournalRecoveryPlan) and not raced and (
+            plan.events[-1].event_kind == "quarantined"
+        ):
+            raced.append("attempted")
+            with pytest.raises(JournalOperationError, match="writer_busy"):
+                journal.retry("owner.raced", authority=_owner(engine))
+        return original_protect(plan, timeout_seconds=timeout_seconds)
+
+    port.protect = racing_protect  # type: ignore[method-assign]
+    assert journal.drain(authority=_owner(engine)).receipts == ()
+    assert raced == ["attempted"]
+    assert [[event.event_kind for event in plan.events] for plan in _journals(port)] == [
+        ["queued", "quarantined"],
+    ]
+    port.protect = original_protect  # type: ignore[method-assign]
+    journal.retry("owner.raced", authority=_owner(engine))
+    assert [[event.event_kind for event in plan.events] for plan in _journals(port)] == [
+        ["queued", "quarantined"], ["queued", "quarantined", "queued"],
+    ]
+
+
+def test_stale_shorter_journal_is_never_appended_after_a_longer_one(
+    guarded: tuple[BrainEngine, SyntheticPort, RecoveryProtectionGuard],
+) -> None:
+    """A protection computed from an older snapshot must not fork the history."""
+    engine, port, guard = guarded
+    journal = engine.tasks.journal
+    assert journal is not None
+    space = engine.inbox.create_space("Stale", delivery_id="owner.stale.space")
+    engine.ingestion.enqueue(CaptureSubmission.for_local_owner(
+        profile=engine.profile, payload=TextPayload("Synthetic stale"),
+        delivery_id="owner.stale", action=CaptureAction.CANONICAL_NOTE, space_id=space.space_id,
+    ))
+    with engine._store.transaction() as connection:
+        connection.execute("DELETE FROM spaces WHERE space_id=?", (space.space_id,))
+    # The quarantine commits but its protection is delayed (fails now).
+    port.fail_kind = "capture_journal"
+    with pytest.raises(RecoveryProtectionPendingError):
+        journal.drain(authority=_owner(engine))
+    port.fail_kind = None
+    assert _journal_rows(engine, "owner.stale")[2] == ["queued", "quarantined"]
+    journal.retry("owner.stale", authority=_owner(engine))
+    assert [[event.event_kind for event in plan.events] for plan in _journals(port)] == [
+        ["queued", "quarantined", "queued"],
+    ]
+    protected = list(port.records)
+    # Simulate a delayed protection whose snapshot predates the retry.
+    with engine._store.transaction() as connection:
+        connection.execute(
+            "DELETE FROM capture_ingestion_events WHERE delivery_id='owner.stale' "
+            "AND event_sequence=(SELECT max(event_sequence) FROM capture_ingestion_events "
+            "WHERE delivery_id='owner.stale')"
+        )
+    guard.protect_journal(engine, "owner.stale", compact=False)
+    assert port.records == protected
+
+
+def test_retained_initial_custody_refuses_a_foreign_source_alias(
+    guarded: tuple[BrainEngine, SyntheticPort, RecoveryProtectionGuard], tmp_path: Path,
+) -> None:
+    """Source bindings are validated for every cue, not only for missing custody."""
+    primary, port, _ = guarded
+    primary.capture.accept(TextPayload("Synthetic warm"), delivery_id="retained.warm")
+    cue = primary.ingestion.enqueue(CaptureSubmission.for_local_owner(
+        profile=primary.profile, payload=TextPayload("Synthetic retained"),
+        delivery_id="retained.cue",
+    ))
+    assert isinstance(cue, CaptureCustodyReceipt)
+    records, head = _closure(port)
+    restored, owner = _restore(primary, tmp_path)
+    replay_owner_recovery_chain(restored, records, expected_head=head, authority=owner)
+    assert _journal_rows(restored, "retained.cue")[:2] == (1, 1)
+    with restored._store.transaction() as connection:
+        warm_alias = connection.execute(
+            "SELECT * FROM source_aliases WHERE delivery_id='retained.warm'"
+        ).fetchone()
+        connection.execute(
+            "INSERT INTO source_aliases VALUES(?,?,?)",
+            ("retained.cue", warm_alias[1], cue.request_sha256),
+        )
+    before = _snapshot(restored)
+    with pytest.raises(ValueError, match="source"):
+        replay_owner_recovery_chain(restored, records, expected_head=head, authority=owner)
+    assert _snapshot(restored) == before
+
+
+def test_allocated_replay_refuses_an_alias_bound_to_another_logical_source(
+    guarded: tuple[BrainEngine, SyntheticPort, RecoveryProtectionGuard], tmp_path: Path,
+) -> None:
+    """The right digest on the wrong logical source is still a foreign binding."""
+    primary, port, _ = guarded
+    primary.capture.accept(TextPayload("Synthetic warm"), delivery_id="bound.warm")
+    receipt = primary.capture.accept(TextPayload("Synthetic bound"), delivery_id="bound.one")
+    assert isinstance(receipt, CaptureReceipt)
+    records, head = _prefix(_closure(port)[0], 5)
+    owner = EffectiveAuthority(
+        primary.profile.owner_actor_id, "recovery", frozenset(), None, owner=True,
+    )
+    primary.profile.root.rename(tmp_path / "unavailable-primary")
+    target = tmp_path / "restored"
+    restore_portable_clean(
+        tmp_path / "baseline", target, import_id="import_" + str(uuid4()), authority=owner,
+    )
+    warm_records, warm_head = _prefix(records, 3)
+    replay_owner_recovery_chain(
+        BrainEngine.open(compile_single_user_local(target)), warm_records,
+        expected_head=warm_head, authority=owner,
+    )
+    interrupted = BrainEngine.open(
+        compile_single_user_local(target), faults={CaptureFault.AFTER_CAPTURE_RESERVATION},
+    )
+    with pytest.raises(InjectedFault):
+        replay_owner_recovery_chain(interrupted, records, expected_head=head, authority=owner)
+    with interrupted._store.transaction() as connection:
+        warm_alias = connection.execute(
+            "SELECT * FROM source_aliases WHERE delivery_id='bound.warm'"
+        ).fetchone()
+        request_sha256 = connection.execute(
+            "SELECT request_sha256 FROM captures WHERE delivery_id='bound.one'"
+        ).fetchone()[0]
+        connection.execute(
+            "INSERT INTO source_aliases VALUES(?,?,?)",
+            ("bound.one", warm_alias[1], request_sha256),
+        )
+    before = _snapshot(interrupted)
+    with pytest.raises(ValueError, match="source"):
+        replay_owner_recovery_chain(interrupted, records, expected_head=head, authority=owner)
+    assert _snapshot(interrupted) == before

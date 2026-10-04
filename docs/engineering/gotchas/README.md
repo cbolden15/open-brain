@@ -87,9 +87,13 @@ is deliberately completed on replay: the primary applies the same
 resume-before-ingress policy at its next drain, and the owner's later retry
 terminalizes the item as a duplicate. When only the allocation binding changed
 since the last protected journal, no new journal is emitted; an equal-length
-twin would fork the history. Allocated deliveries skip only the capture-row
-collision check: an alias row must carry the same request digest and an intake
-row never belongs to an owner delivery. An interrupted replay (capture committed, queue
+twin would fork the history, and a snapshot that is a strict prefix of the
+latest protected journal is stale and never appended. Owner retry and discard
+take the writer fence like drain, so a racing edit is refused as `writer_busy`
+instead of reordering protected journals. Source rows are validated for every
+replayed cue before any branch: an intake row never belongs to an owner
+delivery, and an alias must carry the request digest and name the logical
+source that holds a revision of exactly the matched capture. An interrupted replay (capture committed, queue
 item not yet restored) resumes on the next attempt. Terminal events and the
 tombstone are written before custody is deleted, because `BEFORE DELETE`
 guards refuse to drop items or payloads without them. Duplicate validation

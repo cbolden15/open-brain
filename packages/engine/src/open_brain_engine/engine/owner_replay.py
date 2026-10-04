@@ -94,13 +94,44 @@ def _operations(records: tuple[RecoveryRecord, ...]) -> tuple[
     )
 
 
+def _require_source_ownership(
+    connection: sqlite3.Connection, cue: CaptureCustodyRecoveryPlan,
+    capture: CaptureRecoveryPlan | None,
+) -> None:
+    """Source rows for a replayed delivery must belong to its matched allocation.
+
+    Owner deliveries never own intake rows. An alias is written from the capture
+    row, so it must carry this request's digest and name a logical source that
+    holds a revision of exactly this capture. Checked for every cue, before any
+    custody or compaction branch, so nothing fails mid-materialization.
+    """
+    delivery = cue.receipt.delivery_id
+    if connection.execute(
+        "SELECT 1 FROM source_intakes WHERE delivery_id=?", (delivery,),
+    ).fetchone() is not None:
+        raise ValueError("owner recovery source intake collision")
+    alias = connection.execute(
+        "SELECT source_id,evidence_sha256 FROM source_aliases WHERE delivery_id=?", (delivery,),
+    ).fetchone()
+    if alias is None:
+        return
+    if capture is None:
+        raise ValueError("owner recovery source alias collision")
+    bound = connection.execute(
+        "SELECT 1 FROM source_revisions WHERE capture_id=? AND source_id=?",
+        (capture.identities.capture_id, alias[0]),
+    ).fetchone()
+    if bound is None or alias[1] != cue.receipt.request_sha256:
+        raise ValueError("owner recovery source alias binding mismatch")
+
+
 def _journal_preflight(
     connection: sqlite3.Connection, cues: tuple[CaptureCustodyRecoveryPlan, ...],
     journals: tuple[CaptureJournalRecoveryPlan, ...],
     captures: tuple[CaptureRecoveryPlan, ...] = (),
 ) -> tuple[CaptureCustodyRecoveryPlan, ...]:
     """``captures`` are the explicit plans the capture preflight matched exactly."""
-    planned = {capture.envelope.submission.delivery_id for capture in captures}
+    planned = {capture.envelope.submission.delivery_id: capture for capture in captures}
     terminal = {plan.custody.receipt.delivery_id: plan for plan in journals}
     event_ids: dict[int, str] = {}
     item_ids: set[int] = set()
@@ -149,6 +180,7 @@ def _journal_preflight(
             # Only a capture plan the capture preflight matched exactly proves
             # that an existing row belongs to this cue; a row alone does not.
             raise ValueError("owner recovery unplanned capture collision")
+        _require_source_ownership(connection, cue, planned.get(delivery))
         if plan is None:
             if retained is None or capture is None:
                 if retained is None and capture is not None and delivery in planned:

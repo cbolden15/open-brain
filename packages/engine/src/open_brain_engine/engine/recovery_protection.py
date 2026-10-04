@@ -316,6 +316,12 @@ class RecoveryProtectionGuard:
                 and latest[-1].tombstone == tombstone
             ):
                 return
+            # A snapshot older than the protected history is stale: the longer
+            # history already stands, and appending the prefix would fork it.
+            if latest and len(latest[-1].events) > len(events) and (
+                latest[-1].events[:len(events)] == events
+            ):
+                return
             self.protect(engine, plan)
         except Exception:
             raise RecoveryProtectionPendingError("recovery protection journal pending") from None
