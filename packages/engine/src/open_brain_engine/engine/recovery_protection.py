@@ -297,10 +297,26 @@ class RecoveryProtectionGuard:
             self._ensure_protected(engine, custody)
             if capture is not None:
                 self._ensure_protected(engine, capture)
-            self.protect(engine, CaptureJournalRecoveryPlan(
+            plan = CaptureJournalRecoveryPlan(
                 custody=custody, events=events, capture=capture, tombstone=tombstone,
                 compacted=compact,
-            ))
+            )
+            # The allocation is its own protected record. A journal whose only
+            # change is that binding would fork the history with an equal-length
+            # twin that replay and duplicate validation rightly refuse. An
+            # otherwise identical journal is still re-protected: that is how a
+            # failed proof is retried.
+            latest = [CaptureJournalRecoveryPlan.from_record(record)
+                      for record in self._lookup_closure(delivery_id).records
+                      if record.kind == "capture_journal"]
+            latest = [journal for journal in latest
+                      if journal.envelope.submission.delivery_id == delivery_id]
+            if latest and capture is not None and latest[-1].capture is None and (
+                latest[-1].events == events and latest[-1].compacted == compact
+                and latest[-1].tombstone == tombstone
+            ):
+                return
+            self.protect(engine, plan)
         except Exception:
             raise RecoveryProtectionPendingError("recovery protection journal pending") from None
 

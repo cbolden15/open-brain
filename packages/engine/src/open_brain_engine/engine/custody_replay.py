@@ -76,11 +76,18 @@ def _preflight(
         identities.add(plan.receipt.ingestion_id)
         previous_item, previous_event = plan.journal_sequence, plan.event_sequence
         item, event = _rows(plan)
+        if delivery in allocated:
+            # The capture row was matched exactly upstream; its source rows must
+            # still bind to this request, and owner captures never own intakes.
+            alias = connection.execute(
+                "SELECT evidence_sha256 FROM source_aliases WHERE delivery_id=?", (delivery,),
+            ).fetchone()
+            if alias is not None and alias[0] != plan.receipt.request_sha256:
+                raise ValueError("custody recovery source binding collision")
         for table in (
             "captures", "capture_ingestion_tombstones", "source_aliases", "source_intakes"
         ):
-            if table != "capture_ingestion_tombstones" and delivery in allocated:
-                # The matched capture owns its source rows as well.
+            if table in {"captures", "source_aliases"} and delivery in allocated:
                 continue
             if connection.execute(
                 f"SELECT 1 FROM {table} WHERE delivery_id=?", (delivery,)

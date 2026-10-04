@@ -82,7 +82,14 @@ since their destination may no longer exist, but keep the privacy check. A
 discarded journal that carries or is followed by an allocation is refused, and
 `discard` itself refuses an allocated item (`allocated`): recovery resumes every
 reservation, so a discarded allocation would still publish. With one permitted
-attempt that state is reachable inside a single drain. An interrupted replay (capture committed, queue
+attempt that state is reachable inside a single drain. A quarantined allocation
+is deliberately completed on replay: the primary applies the same
+resume-before-ingress policy at its next drain, and the owner's later retry
+terminalizes the item as a duplicate. When only the allocation binding changed
+since the last protected journal, no new journal is emitted; an equal-length
+twin would fork the history. Allocated deliveries skip only the capture-row
+collision check: an alias row must carry the same request digest and an intake
+row never belongs to an owner delivery. An interrupted replay (capture committed, queue
 item not yet restored) resumes on the next attempt. Terminal events and the
 tombstone are written before custody is deleted, because `BEFORE DELETE`
 guards refuse to drop items or payloads without them. Duplicate validation
