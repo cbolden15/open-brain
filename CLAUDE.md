@@ -1,19 +1,11 @@
 # Open Brain
 
 **GitHub:** `cbolden15/open-brain`
-**Stack:** Python 3.14, uv workspace packages, SQLite, Markdown, PyInstaller, Homebrew; Tauri/Rust and React/TypeScript for the separate desktop
 
 ## Quick reference
 
 | Action | Command or authority |
 |---|---|
-| Install target | `brew install cbolden15/tap/open-brain`; Homebrew is a prerequisite |
-| Local CLI | `uv run open-brain status --json` |
-| Full verification | `make verify` |
-| Native distribution audit | `make native-audit` |
-| Native integration smoke | `make native-integration-smoke` |
-| Complete contributor check | `make contributor-check` |
-| Desktop native proof (macOS) | `make desktop-native-proof`, then a separate native UI check |
 | Product authority | `docs/product-family.md` |
 | Acceptance | `docs/acceptance/five-minute-install.md` |
 
@@ -51,22 +43,7 @@ engine. Never migrate between products by copying or reinterpreting live SQLite 
 
 ## Architecture
 
-| Module | Responsibility |
-|---|---|
-| `packages/engine/src/open_brain_engine` | Shared records, local tasks, SQLite storage, retrieval, and Portable Brain schemas |
-| `packages/app/src/open_brain` | Direct local bootstrap, CLI, MCP over stdio, and local operations |
-| `packages/app/src/open_brain/services/local_entrypoints.py` | Installed default `open-brain` callable |
-| `packages/app/src/open_brain/services/plugin_bridge.py` | Bounded `open-brain-client` protocol version 1 server and plugin-session lifecycle |
-| `packages/app/src/open_brain/services/managed_providers.py` | Consent-gated, bounded OpenAI, Anthropic, and Gemini direct adapters |
-| `packages/obsidian-plugin` | Desktop-only Obsidian source, bounded stdio client, and compiled plugin checks |
-| `packages/desktop` | Optional Tauri/React UI, native stdio bridge, local capture/search, and agent setup |
-| `packages/connectors` | Optional connector distribution; not a default dependency |
-| `packages/collector` | Optional collector distribution; not a default or native base dependency |
-| `archive/open-brain-secure-node` | Historical Secure Node implementation; excluded from builds and tests |
-| `archive/legacy` | Historical predecessor; excluded from the workspace, builds, imports, and tests |
-| `tools/open_brain_dev/base_native.py` | Paired native build, module audit, component manifest, and formula renderer |
-| `release/open-brain/open-brain.spec` | One-file PyInstaller specification |
-| `release/open-brain-graphify` | Pinned, patched, separately frozen Graphify structural helper |
+Release build chain: `tools/open_brain_dev/base_native.py` (paired native build, module audit, component manifest, formula renderer), `release/open-brain/open-brain.spec`, and `release/open-brain-graphify` (pinned, patched, separately frozen).
 
 The engine cannot import the app, connectors, archives, or workspace modules. The app depends
 exactly on `open-brain-engine==0.1.0`. The default dependency graph contains no server, service
@@ -74,12 +51,6 @@ manager, cryptography, key-custody, or container dependency. The native audit re
 families if they enter the executable.
 
 ## Release surface
-
-The supported end-user lifecycle is Homebrew. Each platform produces a base archive containing the
-app and plugin assets plus a separate Graphify helper archive. The component manifest binds one
-version to both platforms, both resource roles, archive and executable SHA-256 values, filenames,
-and install destinations. The executable starts only when the user invokes it and exits when that
-foreground command, stdio MCP session, or desktop plugin session ends.
 
 Semantic refresh is the core's only active product network-egress path. It requires current owner consent,
 eligible note revisions, exclusions, redaction, and one explicit direct API-key provider. Never use
@@ -93,19 +64,7 @@ source revisions and enters the normal conflict-preserving revision flow.
 
 ## Common commands
 
-```sh
-uv sync --frozen --group dev --group native-build
-make lint
-make typecheck
-make test
-make build
-make plugin-test
-make verify
-make native-audit
-make homebrew-smoke
-make native-integration-smoke
-make contributor-check
-```
+Setup: `uv sync --frozen --group dev --group native-build`. Every other target is in the Makefile.
 
 `make contributor-check` runs `make verify`, `make native-integration-smoke`, and `make desktop-native`.
 It covers the plugin and desktop test suites, native desktop compilation, and Homebrew integration. GUI timing
@@ -120,18 +79,7 @@ The local runtime needs no configuration. macOS data lives under
 expert and test use. `OPEN_BRAIN_ROOT` is a historical compatibility setting and is not consumed by
 the active package.
 
-Agent setup uses `agent setup` in the CLI and named plugin operations. The CLI supports separate
-capture, search, content-read, history-read, inbox-read, organize, review-read, review-propose, and review-decide grants,
-all off by default; desktop/plugin setup currently
-exposes capture/search. `space` and `inbox` commands share `services/space_inbox.py` with explicitly
-injected MCP callbacks. Routing changes assignment/search metadata, not publication or source trust.
-Preview IDs bind configuration preimages and grants; only owned fragments may
-be changed. Review CLI/MCP operations share `services/review_publication.py`; the engine owns
-source-bound proposals and stable page revisions. See `docs/review-publication.md` and
-`docs/records-and-history.md` and `docs/portable-brain-v4.md`. Use synthetic client profiles for tests. Existing Brain state requires schema 7 and
-runtime session version 2; never weaken the compatibility checks to admit an older client. Owner-only legacy write
-recovery is documented in `docs/managed-workspace-recovery.md`. Its read-only preview precedes
-ordinary bootstrap; abandonment requires exclusive admission and never exposes general engine tasks.
+Agent setup, space/inbox, review-publication, and legacy write-recovery conventions live in `packages/app/CLAUDE.md`. Never weaken the schema 7 / runtime session version 2 compatibility checks to admit an older client.
 
 ## Safety and verification
 
