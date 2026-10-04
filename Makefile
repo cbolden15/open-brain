@@ -20,7 +20,7 @@ build: plugin-build
 	uv build --no-sources --project packages/collector --out-dir dist
 
 test:
-	uv run --frozen pytest -q
+	uv run --frozen pytest -q -n auto
 
 lint:
 	uv run --frozen ruff check .

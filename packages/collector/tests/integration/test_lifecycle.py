@@ -316,7 +316,7 @@ def test_selection_reset_waits_for_capture_in_another_process(tmp_path: Path) ->
     state_path = tmp_path / "collector.json"
     controller = CollectorController(CollectorStateStore(state_path), clock=lambda: 100)
     controller.enable(source_id="github.fixture", selection=_selection(), interval_seconds=30)
-    context = multiprocessing.get_context("fork")
+    context = multiprocessing.get_context("spawn")
     entered = context.Event()
     release = context.Event()
     process = context.Process(target=_capture_in_process, args=(state_path, entered, release))
