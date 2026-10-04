@@ -318,6 +318,14 @@ selection barrier before inspecting pending receipts. Keep the pending check and
 deferred-state update inside that barrier. Test cancellation after terminal
 acknowledgement and queued replay separately.
 
+A second window sits between a completed submit and its recorded outcome: the
+barrier covers only the submit, so a waiting pause can discard the still-pending
+receipt first. Widening the barrier changes deliberate control ordering; instead,
+tolerate `collector_custody_not_found` from outcome recording only when the
+source state confirms the cancel, which yields the same end state as a cancel
+after the outcome. A missing receipt without that confirmation still fails.
+Parallel test load exposed this one (2026-10-04).
+
 Discovered: 2026-10-01, full saved-Markdown integration verification.
 
 ### REVIEW-004: Restore causal identities, not incidental row order

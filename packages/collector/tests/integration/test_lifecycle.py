@@ -9,6 +9,7 @@ from pathlib import Path
 import pytest
 from open_brain_engine.engine import PrivacyDecision
 
+from open_brain_collector.custody import CustodyStore
 from open_brain_collector.lifecycle import (
     CollectorController,
     CollectorRunPage,
@@ -16,6 +17,7 @@ from open_brain_collector.lifecycle import (
     CollectorStateStore,
     MemoryCaptureSink,
 )
+from open_brain_connectors.runtime.live_common import LiveSourceError
 from open_brain_connectors.runtime.source_intake import SourceRecordIntake, SourceRecordKey
 from open_brain_connectors.runtime.source_registry import SourceResourceSelection
 
@@ -182,6 +184,75 @@ def test_cancel_after_terminal_receipt_does_not_read_discarded_custody(
         "paused" if command == "pause" else "disabled"
     )
     assert controller.custody_status("github.fixture")["retained_items"] == 0
+
+
+def test_pause_cannot_discard_completed_capture_before_its_outcome_is_recorded(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    clock = _Clock(100)
+    state_store = CollectorStateStore(tmp_path / "collector.json")
+    controller = CollectorController(state_store, clock=clock)
+    control = CollectorController(state_store, clock=clock)
+    selection = _selection()
+    entered = threading.Event()
+    release = threading.Event()
+    pause_done = threading.Event()
+    sink = _BlockingSink(entered, release)
+    record_outcome = CustodyStore.outcome
+
+    def outcome_after_pause_window(self: CustodyStore, *args: object, **kwargs: object) -> None:
+        # Give a waiting pause every chance to run between submit and outcome.
+        pause_done.wait(2)
+        record_outcome(self, *args, **kwargs)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(CustodyStore, "outcome", outcome_after_pause_window)
+    controller.enable(source_id="github.fixture", selection=selection, interval_seconds=30)
+    results: list[object] = []
+    sync_thread = threading.Thread(
+        target=lambda: results.append(
+            controller.sync_due(
+                source_id="github.fixture", runtime=_Source(selection), capture_sink=sink
+            )
+        )
+    )
+    sync_thread.start()
+    assert entered.wait(30)
+    pause_results: list[object] = []
+
+    def pause() -> None:
+        pause_results.append(control.pause("github.fixture"))
+        pause_done.set()
+
+    pause_thread = threading.Thread(target=pause)
+    pause_thread.start()
+    release.set()
+    sync_thread.join(30)
+    pause_thread.join(30)
+    assert len(results) == len(pause_results) == 1
+    assert results[0].outcome == "failed"  # type: ignore[attr-defined]
+    persisted = json.loads((tmp_path / "collector.json").read_text(encoding="utf-8"))
+    assert persisted["sources"]["github.fixture"]["status"] == "paused"
+
+
+
+def test_missing_custody_without_cancellation_still_fails_the_run(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    state_store = CollectorStateStore(tmp_path / "collector.json")
+    controller = CollectorController(state_store, clock=lambda: 100)
+    selection = _selection()
+    controller.enable(source_id="github.fixture", selection=selection, interval_seconds=30)
+
+    def lost(self: CustodyStore, *args: object, **kwargs: object) -> None:
+        raise LiveSourceError("collector_custody_not_found")
+
+    monkeypatch.setattr(CustodyStore, "outcome", lost)
+    with pytest.raises(LiveSourceError, match="collector_custody_not_found"):
+        controller.sync_due(
+            source_id="github.fixture", runtime=_Source(selection), capture_sink=MemoryCaptureSink()
+        )
+    assert controller.status("github.fixture").status == "enabled"
+
 
 
 def test_pause_during_multi_record_page_stops_remaining_imports(
