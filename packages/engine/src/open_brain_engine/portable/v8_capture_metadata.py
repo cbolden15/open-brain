@@ -10,6 +10,7 @@ from hashlib import sha256
 from typing import Any
 
 from open_brain_engine.core.ids import portable_canonical_json_bytes as canonical
+from open_brain_engine.storage.markdown import parse_markdown
 
 from .v1 import PortableValidationError
 from .v5 import EFFECTIVE_PRIVACY_PATH, decode_retained_privacy_value
@@ -88,6 +89,72 @@ def capture_metadata_bytes(rows: list[dict[str, Any]]) -> bytes:
     return raw
 
 
+def _validate_canonical_allocation(
+    row: dict[str, Any],
+    files: Mapping[str, bytes],
+    proposals: dict[str, dict[str, Any]],
+    decisions: dict[str, dict[str, Any]],
+    publications: dict[str, tuple[str, dict[str, Any]]],
+) -> None:
+    from open_brain_engine.engine.normalization import _portable_id
+
+    auto_fields = (
+        ("auto_proposal_id", "proposal"),
+        ("auto_proposal_receipt_id", "receipt"),
+        ("auto_decision_id", "decision"),
+        ("auto_decision_receipt_id", "receipt"),
+    )
+    automatic = any(row[name] is not None for name, _ in auto_fields)
+    if automatic:
+        if row["action"] != "canonical_note" or any(row[name] is None for name, _ in auto_fields):
+            raise ValueError
+        for name, prefix in auto_fields:
+            _portable_id(row[name], prefix)
+        proposal = proposals[row["auto_proposal_id"]]
+        decision = decisions[row["auto_decision_id"]]
+        if (
+            proposal["capture_ids"] != [row["capture_id"]]
+            or proposal["supplied_reason"] != "explicit canonical-note action"
+            or proposal["expected_receipt"]["receipt_id"] != row["auto_proposal_receipt_id"]
+            or decision["proposal_id"] != row["auto_proposal_id"]
+            or decision["outcome"] != "approved"
+        ):
+            raise ValueError
+        # Frozen decisions omit this receipt. Preserve identity, not invented history.
+        if (
+            len(
+                {
+                    row["accepted_receipt_id"],
+                    row["auto_proposal_receipt_id"],
+                    row["auto_decision_receipt_id"],
+                }
+            )
+            != 3
+        ):
+            raise ValueError
+    elif row["action"] == "canonical_note" and row["submission_path"] == "owner":
+        raise ValueError
+    canonical_fields = ("canonical_path", "page_id", "publication_id", "publication_path")
+    if any(row[name] is not None for name in canonical_fields):
+        if any(row[name] is None for name in canonical_fields):
+            raise ValueError
+        path, publication = publications[row["publication_id"]]
+        decision = decisions[publication["decision_id"]]
+        proposal = proposals[decision["proposal_id"]]
+        if (
+            path != row["publication_path"]
+            or publication["page_id"] != row["page_id"]
+            or row["capture_id"] not in proposal["capture_ids"]
+            or decision["outcome"] != "approved"
+            or automatic
+            and publication["decision_id"] != row["auto_decision_id"]
+            or parse_markdown(files[row["canonical_path"]]).fields["page_id"] != row["page_id"]
+        ):
+            raise ValueError
+    elif automatic:
+        raise ValueError
+
+
 def validate_capture_metadata(files: Mapping[str, bytes]) -> tuple[dict[str, Any], ...]:
     """Original metadata is archive evidence, never a new submission or grant."""
     from open_brain_engine.engine.contracts import FilePayload
@@ -119,6 +186,19 @@ def validate_capture_metadata(files: Mapping[str, bytes]) -> tuple[dict[str, Any
             row["capture_id"]: decode_retained_privacy_value(row["privacy_json"])
             for row in json.loads(files[EFFECTIVE_PRIVACY_PATH])["retained_privacy"]
         }
+        proposals = {}
+        decisions = {}
+        publications = {}
+        for path, data in files.items():
+            if path.startswith("history/proposals/"):
+                record = json.loads(data)
+                proposals[record["proposal_id"]] = record
+            elif path.startswith("history/decisions/"):
+                record = json.loads(data)
+                decisions[record["decision_id"]] = record
+            elif path.startswith("history/publications/"):
+                record = json.loads(data)
+                publications[record["publication_id"]] = (path, record)
         decoded = []
         previous = ""
         deliveries: set[str] = set()
@@ -205,6 +285,7 @@ def validate_capture_metadata(files: Mapping[str, bytes]) -> tuple[dict[str, Any
                 and json.loads(row["role_claim_json"]) != record["role_claim"]
             ):
                 raise ValueError
+            _validate_canonical_allocation(row, files, proposals, decisions, publications)
             decoded.append(row)
         if {row["capture_id"] for row in decoded} != set(captures):
             raise ValueError

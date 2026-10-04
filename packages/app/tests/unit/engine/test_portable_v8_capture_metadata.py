@@ -100,3 +100,59 @@ def test_v8_rejects_incomplete_or_misbound_capture_metadata(tmp_path: Path, case
         files[CAPTURE_METADATA_PATH] = portable_canonical_json_bytes(value)
     with pytest.raises(PortableValidationError):
         validate_portable_file_set_v8(files, tenant_id=primary.profile.tenant_id)
+
+
+@pytest.mark.parametrize(
+    "field",
+    (
+        "auto_proposal_id",
+        "auto_proposal_receipt_id",
+        "auto_decision_id",
+        "page_id",
+        "publication_id",
+        "canonical_path",
+        "publication_path",
+        "action",
+    ),
+)
+def test_v8_rejects_original_allocation_disagreeing_with_archived_proposal(
+    tmp_path: Path,
+    field: str,
+) -> None:
+    primary = BrainEngine.open(
+        compile_single_user_local(
+            tmp_path / "primary",
+            starter_spaces=("Recovery",),
+        )
+    )
+    primary.capture.submit(
+        CaptureSubmission.for_local_owner(
+            profile=primary.profile,
+            payload=TextPayload("Synthetic canonical allocation body"),
+            delivery_id="baseline.canonical",
+            action=CaptureAction.CANONICAL_NOTE,
+            space_id=primary.inbox.spaces()[0].space_id,
+        )
+    )
+    archive = tmp_path / "archive"
+    primary.portability.export(archive, export_id="export_" + str(uuid4()))
+    files = dict(validated_portable_snapshot(archive).files)
+    files.pop("portable-manifest.json")
+    value = json.loads(files[CAPTURE_METADATA_PATH])
+    if field in {"canonical_path", "publication_path"}:
+        replacement = "brain.toml"
+    elif field == "action":
+        replacement = "quick"
+    else:
+        prefix = {
+            "auto_proposal_id": "proposal",
+            "auto_proposal_receipt_id": "receipt",
+            "auto_decision_id": "decision",
+            "page_id": "page",
+            "publication_id": "publication",
+        }[field]
+        replacement = prefix + "_" + str(uuid4())
+    value["captures"][0][field] = replacement
+    files[CAPTURE_METADATA_PATH] = portable_canonical_json_bytes(value)
+    with pytest.raises(PortableValidationError):
+        validate_portable_file_set_v8(files, tenant_id=primary.profile.tenant_id)
