@@ -2657,7 +2657,12 @@ Fix: Parametrize over `sorted(...)` or another deterministic sequence. Check by
 hashing `pytest --collect-only -q` output under several `PYTHONHASHSEED`
 values. A test that forks inside a worker should use the `spawn` start method:
 xdist workers are multi-threaded, and fork from a threaded process can
-deadlock the child.
+deadlock the child. Positive liveness waits (`join`, `wait` on an event that
+must fire) need generous bounds because parallel load slows threads; keep
+negative "must not happen yet" windows short. Parallel runs also multiply
+temporary disk use: with little free space the engine's storage watermark
+refuses captures and many unrelated tests fail with `storage_critical`.
+Check free disk before reading those failures as regressions.
 
 Discovered: 2026-10-04, enabling pytest-xdist for the full suite.
 
