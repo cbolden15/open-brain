@@ -5,6 +5,7 @@ from pathlib import Path
 from uuid import uuid4
 
 import pytest
+from open_brain_engine.core.models import PrivacyDecision
 from open_brain_engine.engine import (
     BrainEngine,
     CaptureAction,
@@ -15,6 +16,7 @@ from open_brain_engine.engine import (
     InjectedFault,
     TextPayload,
 )
+from open_brain_engine.engine.capture_recovery import CaptureRecoveryPlan
 from open_brain_engine.engine.custody_recovery import CaptureCustodyRecoveryPlan
 from open_brain_engine.engine.journal_recovery import CaptureJournalRecoveryPlan
 from open_brain_engine.engine.owner_replay import replay_owner_recovery_chain
@@ -47,11 +49,16 @@ def _fail_next_materialization(engine: BrainEngine) -> None:
     original = engine._materialize_capture_locked
     calls = {"count": 0}
 
-    def flaky(*args: object, **kwargs: object) -> object:
+    def flaky(
+        submission: CaptureSubmission, *, admitted_privacy: PrivacyDecision,
+        recovery_plan: CaptureRecoveryPlan | None = None,
+    ) -> CaptureReceipt:
         calls["count"] += 1
         if calls["count"] == 1:
             raise RuntimeError("synthetic transient failure")
-        return original(*args, **kwargs)
+        return original(
+            submission, admitted_privacy=admitted_privacy, recovery_plan=recovery_plan,
+        )
 
     engine._materialize_capture_locked = flaky  # type: ignore[method-assign]
 
