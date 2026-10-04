@@ -48,8 +48,13 @@ def _operations(records: tuple[RecoveryRecord, ...]) -> tuple[
                 capture.envelope != cues[delivery].envelope
             ):
                 raise ValueError("owner recovery allocation predecessor mismatch")
-            if delivery in journals:
-                # Journals without an allocation never precede one.
+            earlier = journals.get(delivery)
+            if earlier is not None and (
+                earlier.capture is not None or earlier.compacted or earlier.tombstone is not None
+                or earlier.events[-1].event_kind in {"accepted", "duplicate", "discarded"}
+            ):
+                # A failed attempt before reservation legitimately precedes the
+                # allocation; terminal or discarded history never does.
                 raise ValueError("owner recovery allocation after journal history")
             captures[delivery] = capture
         elif record.kind == "capture_journal":
@@ -140,6 +145,10 @@ def _journal_preflight(
         capture = connection.execute(
             "SELECT 1 FROM captures WHERE delivery_id=?", (delivery,),
         ).fetchone()
+        if capture is not None and delivery not in planned:
+            # Only a capture plan the capture preflight matched exactly proves
+            # that an existing row belongs to this cue; a row alone does not.
+            raise ValueError("owner recovery unplanned capture collision")
         if plan is None:
             if retained is None or capture is None:
                 if retained is None and capture is not None and delivery in planned:

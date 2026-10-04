@@ -81,7 +81,7 @@ def _journals(port: SyntheticPort) -> list[CaptureJournalRecoveryPlan]:
 
 
 def test_progressed_unallocated_item_drains_under_guard_with_exact_failure_history(
-    guarded: tuple[BrainEngine, SyntheticPort, RecoveryProtectionGuard],
+    guarded: tuple[BrainEngine, SyntheticPort, RecoveryProtectionGuard], tmp_path: Path,
 ) -> None:
     engine, port, _ = guarded
     journal = engine.tasks.journal
@@ -121,6 +121,13 @@ def test_progressed_unallocated_item_drains_under_guard_with_exact_failure_histo
         assert connection.execute(
             "SELECT count(*) FROM capture_ingestion_items"
         ).fetchone()[0] == 0
+    # The ordinary cue -> failure journal -> allocation -> terminal chain must restore.
+    records, head = _closure(port)
+    restored, owner = _restore(engine, tmp_path)
+    assert replay_owner_recovery_chain(
+        restored, records, expected_head=head, authority=owner,
+    ) == (receipts[0],)
+    assert _journal_rows(restored, "owner.transient")[:2] == (0, 0)
 
 
 def _quarantine(engine: BrainEngine, delivery_id: str) -> CaptureSubmission:
@@ -757,7 +764,7 @@ def test_custody_only_chain_refuses_a_foreign_capture_row(
     foreign = restored.capture.accept(TextPayload("Synthetic foreign"), delivery_id="foreign.cue")
     assert isinstance(foreign, CaptureReceipt)
     before = _snapshot(restored)
-    with pytest.raises(ValueError, match="delivery collision"):
+    with pytest.raises(ValueError, match="capture collision"):
         replay_owner_recovery_chain(restored, records, expected_head=head, authority=owner)
     assert _snapshot(restored) == before
 
@@ -773,21 +780,59 @@ def test_duplicate_validation_rejects_a_forged_journal_with_a_different_cue(
         delivery_id="owner.forged",
     )
     engine.ingestion.enqueue(submission)
-    _fail_next_materialization(engine)
-    assert journal.drain(authority=_owner(engine)).receipts == ()
+    for _ in range(2):
+        _fail_next_materialization(engine)
+        assert journal.drain(authority=_owner(engine)).receipts == ()
     assert len(journal.drain(authority=_owner(engine)).receipts) == 1
-    pending = next(plan for plan in _journals(port) if not plan.compacted)
-    # Same events, a re-sequenced cue: progression checks on events alone accept it.
+    kinds = [record.kind for record in port.records]
+    assert kinds == ["capture_custody", "capture_journal", "capture_journal", "capture",
+                     "capture_journal"]
+    # Replace the second failure journal with one that extends the first and is
+    # extended by the terminal, but names a re-sequenced cue. Only custody
+    # binding can refuse it; event progression alone is satisfied.
+    index = 2
+    genuine = CaptureJournalRecoveryPlan.from_record(port.records[index])
     forged = replace(
-        pending, custody=replace(
-            pending.custody, journal_sequence=pending.custody.journal_sequence + 100,
+        genuine, custody=replace(
+            genuine.custody, journal_sequence=genuine.custody.journal_sequence + 100,
         ),
     )
-    port.records.append(RecoveryRecord(
-        baseline=forged.baseline, sequence=len(port.records) + 1,
-        previous_sha256=port.records[-1].record_sha256, kind="capture_journal",
-        payload=forged.to_bytes(),
-    ))
+    port.records[index] = replace(port.records[index], payload=forged.to_bytes())
+    # Re-link the authenticated chain so only the cue binding can refuse the forgery.
+    for later in range(index + 1, len(port.records)):
+        port.records[later] = replace(
+            port.records[later], previous_sha256=port.records[later - 1].record_sha256,
+        )
+    del port.plans[operation_sha256(genuine)]
     port.plans[operation_sha256(forged)] = forged
     with pytest.raises(RecoveryProtectionPendingError):
         engine.capture.submit(submission)
+
+
+def test_compacted_discard_closure_refuses_a_foreign_capture_row(
+    guarded: tuple[BrainEngine, SyntheticPort, RecoveryProtectionGuard], tmp_path: Path,
+) -> None:
+    """A tombstone must not land beside an unrelated capture of the same delivery."""
+    primary, port, _ = guarded
+    journal = primary.tasks.journal
+    assert journal is not None
+    primary.capture.accept(TextPayload("Synthetic first"), delivery_id="warm.one")
+    _quarantine(primary, "foreign.discard")
+    journal.discard("foreign.discard", reason="owner_requested", authority=_owner(primary))
+    records, head = _closure(port)
+    restored, owner = _restore(primary, tmp_path)
+    prefix_records, prefix_head = _prefix(records, 3)
+    assert [record.kind for record in prefix_records] == [
+        "capture_custody", "capture", "capture_journal",
+    ]
+    replay_owner_recovery_chain(
+        restored, prefix_records, expected_head=prefix_head, authority=owner,
+    )
+    foreign = restored.capture.accept(
+        TextPayload("Synthetic foreign"), delivery_id="foreign.discard",
+    )
+    assert isinstance(foreign, CaptureReceipt)
+    before = _snapshot(restored)
+    with pytest.raises(ValueError, match="collision"):
+        replay_owner_recovery_chain(restored, records, expected_head=head, authority=owner)
+    assert _snapshot(restored) == before
