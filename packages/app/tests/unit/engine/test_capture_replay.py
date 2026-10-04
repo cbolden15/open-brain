@@ -254,7 +254,7 @@ def test_same_request_does_not_authorize_changed_retained_privacy(tmp_path: Path
     assert database.read_bytes() == before
 
 
-@pytest.mark.parametrize("chained", (False, True))
+@pytest.mark.parametrize("chain", ("alone", "completed_first", "new_first"))
 @pytest.mark.parametrize(
     "target,damage",
     (("source", "changed"), ("source", "missing"), ("blob", "changed"), ("blob", "missing")),
@@ -263,8 +263,13 @@ def test_repeated_capture_replay_refuses_damaged_completed_files_before_any_writ
     tmp_path: Path,
     target: str,
     damage: str,
-    chained: bool,
+    chain: str,
 ) -> None:
+    """The damaged completed record may sit anywhere in the chain.
+
+    ``new_first`` places an unprocessed capture ahead of the damaged completed
+    one: the whole-chain preflight must refuse before the new record writes.
+    """
     engine, owner, plan, record, head = _fixture(tmp_path, file_payload=True)
     replay_owner_capture_chain(engine, (record,), expected_head=head, authority=owner)
     with engine._store.connect() as connection:
@@ -282,8 +287,8 @@ def test_repeated_capture_replay_refuses_damaged_completed_files_before_any_writ
     else:
         path.unlink()
     records: tuple[RecoveryRecord, ...] = (record,)
-    if chained:
-        second_plan = replace(
+    if chain != "alone":
+        new_plan = replace(
             plan,
             identities=CaptureReservationIdentity.allocate(
                 canonical=False, accepted_at=plan.identities.accepted_at
@@ -293,21 +298,33 @@ def test_repeated_capture_replay_refuses_damaged_completed_files_before_any_writ
                 plan.envelope.admitted_privacy,
             ),
         )
-        records += (
-            RecoveryRecord(
-                baseline=plan.baseline,
-                sequence=2,
-                previous_sha256=record.record_sha256,
-                kind="capture",
-                payload=second_plan.to_bytes(),
-            ),
-        )
+        ordered = (plan, new_plan) if chain == "completed_first" else (new_plan, plan)
+        records = ()
+        previous = plan.baseline.artifact_sha256
+        for sequence, chained_plan in enumerate(ordered, start=1):
+            records += (
+                RecoveryRecord(
+                    baseline=plan.baseline,
+                    sequence=sequence,
+                    previous_sha256=previous,
+                    kind="capture",
+                    payload=chained_plan.to_bytes(),
+                ),
+            )
+            previous = records[-1].record_sha256
         head = RecoveryHead(plan.baseline, 2, records[-1].record_sha256)
     database = engine.profile.root / ".open-brain/state/phase1.sqlite3"
     before = database.read_bytes()
     with pytest.raises(ValueError, match=f"completed {target} mismatch"):
         replay_owner_capture_chain(engine, records, expected_head=head, authority=owner)
     assert database.read_bytes() == before
+    with engine._store.connect() as connection:
+        assert (
+            connection.execute(
+                "SELECT 1 FROM captures WHERE delivery_id='recovery.second'"
+            ).fetchone()
+            is None
+        )
     if damage == "changed":
         assert path.read_bytes() == raw[:-1] + bytes([raw[-1] ^ 1])
     else:
