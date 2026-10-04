@@ -2644,6 +2644,28 @@ under test.
 Discovered: 2026-09-22, full durable-ingestion Phase 1 verification after the fixture's retry window
 expired.
 
+### TESTING-004: Parallel test workers must collect identical test IDs
+
+Symptom: `make test` under pytest-xdist stops at collection with "Different
+tests were collected between gw1 and gw5" before any test runs.
+
+Cause: A test parametrized over a `frozenset`. Set iteration order depends on
+the per-process string hash seed, so each worker collected the same IDs in a
+different order. Serial runs never notice.
+
+Fix: Parametrize over `sorted(...)` or another deterministic sequence. Check by
+hashing `pytest --collect-only -q` output under several `PYTHONHASHSEED`
+values. A test that forks inside a worker should use the `spawn` start method:
+xdist workers are multi-threaded, and fork from a threaded process can
+deadlock the child. Positive liveness waits (`join`, `wait` on an event that
+must fire) need generous bounds because parallel load slows threads; keep
+negative "must not happen yet" windows short. Parallel runs also multiply
+temporary disk use: with little free space the engine's storage watermark
+refuses captures and many unrelated tests fail with `storage_critical`.
+Check free disk before reading those failures as regressions.
+
+Discovered: 2026-10-04, enabling pytest-xdist for the full suite.
+
 ### SHARING-005: Pre-query canonical eligibility must match the full projector
 
 Symptom: A valid externally eligible legacy unbound publication is directly

@@ -126,7 +126,7 @@ def test_pause_during_active_run_is_not_overwritten_by_collector_completion(
         )
     )
     sync_thread.start()
-    assert entered.wait(2)
+    assert entered.wait(30)
     pause_results: list[object] = []
     pause_thread = threading.Thread(
         target=lambda: pause_results.append(control.pause("github.fixture"))
@@ -134,8 +134,8 @@ def test_pause_during_active_run_is_not_overwritten_by_collector_completion(
     pause_thread.start()
     assert not pause_results
     release.set()
-    sync_thread.join(2)
-    pause_thread.join(2)
+    sync_thread.join(30)
+    pause_thread.join(30)
     assert len(results) == len(pause_results) == 1
     result = results[0]
     persisted = json.loads((tmp_path / "collector.json").read_text(encoding="utf-8"))
@@ -290,7 +290,7 @@ def test_pause_during_multi_record_page_stops_remaining_imports(
         )
     )
     sync_thread.start()
-    assert entered.wait(2)
+    assert entered.wait(30)
     pause_results: list[object] = []
     pause_thread = threading.Thread(
         target=lambda: pause_results.append(control.pause("github.fixture"))
@@ -298,8 +298,8 @@ def test_pause_during_multi_record_page_stops_remaining_imports(
     pause_thread.start()
     assert not pause_results
     release.set()
-    sync_thread.join(2)
-    pause_thread.join(2)
+    sync_thread.join(30)
+    pause_thread.join(30)
     assert len(results) == len(pause_results) == 1
     result = results[0]
     persisted = json.loads((tmp_path / "collector.json").read_text(encoding="utf-8"))
@@ -316,37 +316,44 @@ def test_selection_reset_waits_for_capture_in_another_process(tmp_path: Path) ->
     state_path = tmp_path / "collector.json"
     controller = CollectorController(CollectorStateStore(state_path), clock=lambda: 100)
     controller.enable(source_id="github.fixture", selection=_selection(), interval_seconds=30)
-    context = multiprocessing.get_context("fork")
+    context = multiprocessing.get_context("spawn")
     entered = context.Event()
     release = context.Event()
     process = context.Process(target=_capture_in_process, args=(state_path, entered, release))
     process.start()
-    assert entered.wait(2)
+    try:
+        # A spawned interpreter can start slowly on a loaded parallel runner.
+        assert entered.wait(30)
 
-    reset_done = threading.Event()
-    replacement = SourceResourceSelection(
-        connector_name="github",
-        connection_id="account:fixture",
-        resource_id="repo:replacement",
-        resource_type="repository",
-    )
-
-    def reset() -> None:
-        CollectorController(CollectorStateStore(state_path), clock=lambda: 101).enable(
-            source_id="github.fixture", selection=replacement, interval_seconds=30
+        reset_done = threading.Event()
+        replacement = SourceResourceSelection(
+            connector_name="github",
+            connection_id="account:fixture",
+            resource_id="repo:replacement",
+            resource_type="repository",
         )
-        reset_done.set()
 
-    reset_thread = threading.Thread(target=reset)
-    reset_thread.start()
-    assert not reset_done.wait(0.1)
-    release.set()
-    process.join(3)
-    reset_thread.join(3)
-    assert process.exitcode == 0
-    assert reset_done.is_set()
-    persisted = json.loads(state_path.read_text(encoding="utf-8"))
-    assert persisted["sources"]["github.fixture"]["resource_id"] == "repo:replacement"
+        def reset() -> None:
+            CollectorController(CollectorStateStore(state_path), clock=lambda: 101).enable(
+                source_id="github.fixture", selection=replacement, interval_seconds=30
+            )
+            reset_done.set()
+
+        reset_thread = threading.Thread(target=reset)
+        reset_thread.start()
+        assert not reset_done.wait(0.1)
+        release.set()
+        process.join(30)
+        reset_thread.join(30)
+        assert process.exitcode == 0
+        assert reset_done.is_set()
+        persisted = json.loads(state_path.read_text(encoding="utf-8"))
+        assert persisted["sources"]["github.fixture"]["resource_id"] == "repo:replacement"
+    finally:
+        release.set()
+        if process.is_alive():
+            process.kill()
+            process.join(30)
 
 
 @pytest.mark.parametrize("schedule", ["reset_disable", "pause_resume"])
@@ -371,7 +378,7 @@ def test_stale_cancellation_save_cannot_overwrite_acknowledged_control(
         outcome_calls += 1
         if outcome_calls == 1:
             first_outcome.set()
-            assert first_control_done.wait(2)
+            assert first_control_done.wait(30)
 
     monkeypatch.setattr(capture._custody, "outcome", pause_after_first_outcome)
     original_load = capture_store.load
@@ -387,7 +394,7 @@ def test_stale_cancellation_save_cannot_overwrite_acknowledged_control(
         )
         if selected and not stale_read.is_set():
             stale_read.set()
-            assert allow_stale_reader.wait(2)
+            assert allow_stale_reader.wait(30)
         return state
 
     monkeypatch.setattr(capture_store, "load", block_stale_load)
@@ -402,7 +409,7 @@ def test_stale_cancellation_save_cannot_overwrite_acknowledged_control(
         )
     )
     sync_thread.start()
-    assert first_outcome.wait(2)
+    assert first_outcome.wait(30)
     if schedule == "reset_disable":
         replacement = SourceResourceSelection(
             connector_name="github",
@@ -414,7 +421,7 @@ def test_stale_cancellation_save_cannot_overwrite_acknowledged_control(
     else:
         owner.pause("github.fixture")
     first_control_done.set()
-    assert stale_read.wait(2)
+    assert stale_read.wait(30)
     final_control_done = threading.Event()
 
     def final_control() -> None:
@@ -428,8 +435,8 @@ def test_stale_cancellation_save_cannot_overwrite_acknowledged_control(
     control_thread.start()
     assert not final_control_done.wait(0.1)
     allow_stale_reader.set()
-    sync_thread.join(3)
-    control_thread.join(3)
+    sync_thread.join(30)
+    control_thread.join(30)
     assert len(results) == 1 and final_control_done.is_set()
     expected = "disabled" if schedule == "reset_disable" else "enabled"
     assert owner.status("github.fixture").status == expected
@@ -592,7 +599,7 @@ class _BlockingSink:
             raise AssertionError("unexpected intake")
         self.external_ids.append(intake.key.external_id)
         self._entered.set()
-        assert self._release.wait(2)
+        assert self._release.wait(30)
         self.returned.set()
 
 
@@ -603,7 +610,7 @@ class _ProcessBlockingSink:
 
     def submit(self, intake: SourceRecordIntake) -> None:
         self._entered.set()  # type: ignore[attr-defined]
-        assert self._release.wait(2)  # type: ignore[attr-defined]
+        assert self._release.wait(30)  # type: ignore[attr-defined]
 
 
 def _capture_in_process(state_path: Path, entered: object, release: object) -> None:
