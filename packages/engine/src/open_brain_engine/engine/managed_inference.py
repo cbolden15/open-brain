@@ -837,6 +837,7 @@ class ManagedInferenceTasks:
                             provider_id=provider_id,
                             brain_id=identity["brain_id"],
                             issuer_epoch=identity["issuer_epoch"],
+                            profile=self._engine.profile,
                         )
                     ):
                         raise ManagedWorkspaceFailure("ineligible_source")

@@ -15,11 +15,15 @@ from open_brain_engine.portable.v6 import (
 
 
 def source_authority_metadata(connection: sqlite3.Connection) -> dict[str, Any]:
-    if (
-        not connection.in_transaction
-        or connection.execute("PRAGMA user_version").fetchone()[0] not in {11, 12}
-    ):
+    if not connection.in_transaction or connection.execute("PRAGMA user_version").fetchone()[
+        0
+    ] not in {11, 12}:
         raise ValueError("Portable v6 requires an active schema-eleven snapshot")
+    return _source_authority_metadata(connection)
+
+
+def _source_authority_metadata(connection: sqlite3.Connection) -> dict[str, Any]:
+    """Shared exact row codec; version entry points own snapshot admission."""
     value: dict[str, Any] = {
         "schema_version": 1,
         "control_epoch": connection.execute(
@@ -45,7 +49,11 @@ def source_authority_metadata(connection: sqlite3.Connection) -> dict[str, Any]:
 
 
 def source_authority_sidecars(connection: sqlite3.Connection) -> dict[str, bytes]:
-    value = source_authority_metadata(connection)
+    return _source_authority_sidecars(source_authority_metadata(connection))
+
+
+def _source_authority_sidecars(metadata: dict[str, Any]) -> dict[str, bytes]:
+    value = dict(metadata)
     lifecycle = {
         "schema_version": 1,
         "source_lifecycle_state": value.pop("source_lifecycle_state"),

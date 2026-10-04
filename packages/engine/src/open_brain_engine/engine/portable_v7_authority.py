@@ -19,6 +19,11 @@ def sharing_authority_metadata(connection: sqlite3.Connection) -> dict[str, Any]
         or connection.execute("PRAGMA user_version").fetchone()[0] != 12
     ):
         raise ValueError("Portable 7 requires one active schema-12 snapshot")
+    return _sharing_authority_metadata(connection)
+
+
+def _sharing_authority_metadata(connection: sqlite3.Connection) -> dict[str, Any]:
+    """Shared row codec; public format entry points keep exact schema floors."""
     value: dict[str, Any] = {"schema_version": 1}
     for table, columns in SHARING_COLUMNS.items():
         names = [column.split(":")[0] for column in columns]

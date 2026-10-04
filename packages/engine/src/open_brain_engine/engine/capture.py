@@ -28,6 +28,7 @@ from open_brain_engine.storage import watermarks
 from open_brain_engine.storage.locks import WriterQueueFullError
 from open_brain_engine.storage.markdown import render_markdown
 
+from .capture_recovery import CaptureRecoveryPlan, CaptureReservationIdentity
 from .contracts import (
     BoundaryClassifier,
     CaptureAction,
@@ -352,8 +353,17 @@ class CaptureOperations(_LocalEngineOperations):
         submission: CaptureSubmission,
         *,
         admitted_privacy: PrivacyDecision,
+        recovery_plan: CaptureRecoveryPlan | None = None,
     ) -> CaptureReceipt:
         """Run the established capture stage machine under an already-held writer lease."""
+        if self._recovery_protection_guard is not None:
+            self._recovery_protection_guard.require_owner(cast("BrainEngine", self), submission)
+        if recovery_plan is not None and (
+            recovery_plan.envelope.submission != submission
+            or recovery_plan.envelope.admitted_privacy != admitted_privacy
+            or submission.submission_path is not CaptureSubmissionPath.OWNER
+        ):
+            raise ValueError("capture recovery plan does not match materialization")
         capture_submission_is_reserved(cast("BrainEngine", self), submission)
         validate_reserved_copy_submission(cast("BrainEngine", self), submission)
         payload = submission.payload
@@ -376,6 +386,10 @@ class CaptureOperations(_LocalEngineOperations):
                 "SELECT * FROM captures WHERE delivery_id = ?", (delivery_id,)
             ).fetchone()
             if existing is not None:
+                if recovery_plan is not None:
+                    from .capture_replay import require_matching_capture
+
+                    require_matching_capture(existing, recovery_plan)
                 if cast(str, existing["request_sha256"]) != request_sha:
                     if connection.execute("PRAGMA user_version").fetchone()[
                         0
@@ -452,9 +466,17 @@ class CaptureOperations(_LocalEngineOperations):
                     raise ValueError("unknown space")
                 if action is CaptureAction.CANONICAL_NOTE and space_id is None:
                     raise ValueError("canonical note requires a space")
-                capture_id = _new_id("capture")
-                accepted_at = _timestamp(self._clock())
                 canonical = action is CaptureAction.CANONICAL_NOTE
+                identities = (
+                    recovery_plan.identities
+                    if recovery_plan is not None
+                    else CaptureReservationIdentity.allocate(
+                        canonical=canonical,
+                        accepted_at=_timestamp(self._clock()),
+                    )
+                )
+                capture_id = identities.capture_id
+                accepted_at = identities.accepted_at
                 connection.execute(
                     """
                     INSERT INTO captures (
@@ -474,7 +496,7 @@ class CaptureOperations(_LocalEngineOperations):
                         delivery_id,
                         request_sha,
                         capture_id,
-                        _new_id("receipt"),
+                        identities.accepted_receipt_id,
                         payload.family,
                         payload_bytes,
                         payload.search_text(),
@@ -487,12 +509,12 @@ class CaptureOperations(_LocalEngineOperations):
                         action.value,
                         title,
                         accepted_at,
-                        _new_id("proposal") if canonical else None,
-                        _new_id("receipt") if canonical else None,
-                        _new_id("decision") if canonical else None,
-                        _new_id("receipt") if canonical else None,
-                        _new_id("page") if canonical else None,
-                        _new_id("publication") if canonical else None,
+                        identities.auto_proposal_id,
+                        identities.auto_proposal_receipt_id,
+                        identities.auto_decision_id,
+                        identities.auto_decision_receipt_id,
+                        identities.page_id,
+                        identities.publication_id,
                         submission.actor_id,
                         portable_canonical_json_bytes(
                             {
@@ -515,6 +537,10 @@ class CaptureOperations(_LocalEngineOperations):
         if conflict is not None:
             self._quarantine(delivery_id, expected=conflict[0], actual=conflict[1])
             raise DeliveryConflict()
+        if self._recovery_protection_guard is not None:
+            self._recovery_protection_guard.protect_capture(
+                cast("BrainEngine", self), delivery_id
+            )
         if not duplicate:
             self._fault(CaptureFault.AFTER_CAPTURE_RESERVATION)
         row = self._capture_row(capture_id)
@@ -586,6 +612,10 @@ class CaptureOperations(_LocalEngineOperations):
 
     def _process_capture(self, supplied_row: sqlite3.Row) -> None:
         row = self._capture_row(cast(str, supplied_row["capture_id"]))
+        if self._recovery_protection_guard is not None:
+            self._recovery_protection_guard.protect_capture(
+                cast("BrainEngine", self), cast(str, row["delivery_id"])
+            )
         connection = self._store.connect()
         try:
             if connection.execute("PRAGMA user_version").fetchone()[0] >= 7:

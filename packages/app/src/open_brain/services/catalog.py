@@ -181,7 +181,7 @@ def build_catalog(
         "compatibility": {
             "bridge_protocol": 1,
             "catalog_schema": CATALOG_SCHEMA_VERSION,
-            "portable_metadata": 7,
+            "portable_metadata": 8,
             "runtime_session": RUNTIME_SESSION_VERSION,
             "state_schema": PHASE1_STATE_SCHEMA_VERSION,
             "task_contract": "t03.v1",

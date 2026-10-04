@@ -212,6 +212,23 @@ def portable_capture_content(files: Mapping[str, bytes]) -> list[dict[str, objec
     if SOURCE_METADATA_PATH in files:
         for source in json.loads(files[SOURCE_METADATA_PATH])["sources"]:
             spaces[source["head_capture_id"]] = source["space_id"]
+    managed_titles: dict[str, str | None] = {}
+    # Only the unreleased v8 format restores titles from complete managed
+    # envelope evidence. The frozen v1-v7 capture record has no supplied title;
+    # its historical materialization semantics remain unchanged.
+    from open_brain_engine.portable.v6 import SOURCE_ADMISSION_PATH
+    from open_brain_engine.portable.v8 import HISTORICAL_AUTHORITY_PATH
+
+    if HISTORICAL_AUTHORITY_PATH in files:
+        admission = json.loads(files[SOURCE_ADMISSION_PATH])
+        for delivery in admission["managed_source_deliveries"]:
+            receipt = json.loads(delivery["receipt_json"])["source_receipt"]
+            capture_id = receipt["capture_id"]
+            envelope = json.loads(base64.b64decode(delivery["envelope_bytes"], validate=True))
+            title = envelope["submission"]["capture"]["title"]
+            if capture_id in managed_titles and managed_titles[capture_id] != title:
+                raise ValueError("Portable8 managed capture titles conflict")
+            managed_titles[capture_id] = title
     rows: list[dict[str, object]] = []
     for _, record in _json_records(files, "sources/captures"):
         capture_id = cast(str, record["capture_id"])
@@ -224,7 +241,7 @@ def portable_capture_content(files: Mapping[str, bytes]) -> list[dict[str, objec
                 "payload_family": payload["family"],
                 "payload_json": payload,
                 "search_text": _payload_search_text(payload),
-                "title": None,
+                "title": managed_titles.get(capture_id),
                 "source_origin": source["origin"],
                 "source_reference": source["reference"],
                 "provenance_json": record["provenance"],
@@ -239,6 +256,23 @@ def portable_capture_content(files: Mapping[str, bytes]) -> list[dict[str, objec
                 "publication_path": None if owner is None else owner[3],
             }
         )
+    from open_brain_engine.portable.v8_capture_metadata import (
+        CAPTURE_METADATA_PATH,
+        validate_capture_metadata,
+    )
+
+    if CAPTURE_METADATA_PATH in files:
+        original = {row["capture_id"]: row for row in validate_capture_metadata(files)}
+        for projection in rows:
+            metadata = original[projection["capture_id"]]
+            for key in projection:
+                value = metadata[key]
+                projection[key] = (
+                    json.loads(value)
+                    if key in {"payload_json", "provenance_json", "role_claim_json"}
+                    and value is not None
+                    else value
+                )
     return sorted(rows, key=lambda row: cast(str, row["capture_id"]))
 
 
@@ -632,6 +666,30 @@ def materialize_portable_root(
             )
         if _v5_restore is not None:
             _v5_restore.install(connection, profile=profile)
+        if snapshot.manifest["schema_version"] == 8:
+            from open_brain_engine.portable.v8_capture_metadata import (
+                CAPTURE_COLUMNS,
+                validate_capture_metadata,
+            )
+
+            # Only a new hidden schema, after ordinary Portable authority restore.
+            # Original rows are not inferred from lossy historical record shapes.
+            rows = validate_capture_metadata(files)
+            # The replacement retains every capture ID, including review
+            # provenance targets. Enforce their foreign keys at transaction
+            # commit, after all original rows have been reinserted.
+            connection.execute("PRAGMA defer_foreign_keys=ON")
+            connection.execute("DELETE FROM captures")
+            placeholders = ",".join("?" for _ in CAPTURE_COLUMNS)
+            connection.executemany(
+                f"INSERT INTO captures ({','.join(CAPTURE_COLUMNS)}) VALUES ({placeholders})",
+                [tuple(row[key] for key in CAPTURE_COLUMNS) for row in rows],
+            )
+            from open_brain_engine.portable.v8_custody import validate_capture_custody
+
+            from .portable_v8_journal import install_journal_snapshot
+
+            install_journal_snapshot(connection, validate_capture_custody(files), profile)
     batch_count = sum(
         path.startswith("sources/batches/") and path.endswith(".jsonl") for path in files
     )

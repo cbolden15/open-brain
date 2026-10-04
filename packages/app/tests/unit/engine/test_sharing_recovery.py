@@ -68,6 +68,7 @@ def test_sharing_pending_revoke_and_lost_response(
                 provider_id="openai",
                 brain_id=request.brain_id,
                 issuer_epoch=request.issuer_epoch,
+                profile=tasks.profile,
             )
     resumed = open_local_engine(tasks.profile)
     assert resumed.sharing is not None
@@ -149,6 +150,7 @@ def test_sharing_revoke_while_copy_pending_stays_historical(
             provider_id="openai",
             brain_id=request.brain_id,
             issuer_epoch=request.issuer_epoch,
+            profile=tasks.profile,
         )
 
 
@@ -310,6 +312,7 @@ def test_sharing_actual_sql_atomicity_and_committed_response_loss(
             provider_id="openai",
             brain_id=request.brain_id,
             issuer_epoch=request.issuer_epoch,
+            profile=tasks.profile,
         )
         assert eligible is (fault_stage in {"linked_response", "revocation", "version"})
         if not revoking and not committed_loss:
@@ -344,4 +347,5 @@ def test_sharing_actual_sql_atomicity_and_committed_response_loss(
             provider_id="openai",
             brain_id=request.brain_id,
             issuer_epoch=request.issuer_epoch,
+            profile=tasks.profile,
         ) is (not revoking)

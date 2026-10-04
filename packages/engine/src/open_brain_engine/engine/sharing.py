@@ -30,6 +30,7 @@ from .contracts import (
     CaptureReceipt,
     CaptureSubmission,
     JournalEnvelope,
+    LocalEngineContext,
     PublicJobCaptureContext,
     ReferencePayload,
     TextPayload,
@@ -73,6 +74,7 @@ _MAX_RESPONSE_BYTES = 240_000
 class EligibilityMode(StrEnum):
     OWNER_CURRENT = "owner-current"
     OWNER_HISTORY = "owner-history"
+    LOCAL_CURRENT = "local-current"
     LOCAL_HISTORY = "local-history"
     EXTERNAL_READ = "external-read"
     SEMANTIC_RELEASE = "semantic-release"
@@ -983,6 +985,7 @@ def sharing_eligible(
     provider_id: str | None = None,
     brain_id: str | None = None,
     issuer_epoch: int | None = None,
+    profile: LocalEngineContext | None = None,
 ) -> bool:
     """One managed-source decision, reused before content-bearing projection."""
     revision = connection.execute(
@@ -1017,16 +1020,36 @@ def sharing_eligible(
             and source["lifecycle"] == "active"
             and source["availability"] == "available"
         )
+    from .historical_visibility import historical_capture_visibility
+
+    historical = historical_capture_visibility(
+        connection,
+        profile,
+        capture_id,
+        local_history=mode in (EligibilityMode.LOCAL_HISTORY, EligibilityMode.LOCAL_CURRENT),
+        provider_id=provider_id,
+        brain_id=brain_id,
+        issuer_epoch=issuer_epoch,
+    )
+    if historical is not None:
+        return historical
     managed_copy = _managed_copy_identity(connection, capture_id, revision)
-    if mode is EligibilityMode.LOCAL_HISTORY:
+    local_mode = mode in (EligibilityMode.LOCAL_HISTORY, EligibilityMode.LOCAL_CURRENT)
+    if local_mode:
         source = connection.execute(
             "SELECT head_capture_id,lifecycle,availability FROM logical_sources WHERE source_id=?",
             (revision["source_id"],),
         ).fetchone()
-        if source is None or source["lifecycle"] != "active" or source["availability"] != "available":
+        if (
+            source is None
+            or source["lifecycle"] != "active"
+            or source["availability"] != "available"
+        ):
             return False
         if managed_original:
             return bool(source["head_capture_id"] == capture_id)
+        if mode is EligibilityMode.LOCAL_CURRENT and source["head_capture_id"] != capture_id:
+            return False
         if not managed_copy:
             # A local history grant still permits older ordinary source revisions.
             return True
@@ -1041,8 +1064,10 @@ def sharing_eligible(
     if not managed_copy:
         return True
     if (
-        mode is not EligibilityMode.LOCAL_HISTORY and provider_id is None
-        or brain_id is None or issuer_epoch is None
+        not local_mode
+        and provider_id is None
+        or brain_id is None
+        or issuer_epoch is None
     ):
         return False
     row = connection.execute(
@@ -1111,7 +1136,8 @@ def sharing_eligible(
             or receipt["copy_capture_id"] != capture_id
             or _hash(b"open-brain-sharing-preview.v1", bytes(row["preview_bytes"]))
             != row["preview_sha256"]
-            or mode is not EligibilityMode.LOCAL_HISTORY and provider_id not in frozen["provider_ids"]
+            or not local_mode
+            and provider_id not in frozen["provider_ids"]
             or (brain_id, issuer_epoch) != (frozen["brain_id"], frozen["issuer_epoch"])
             or marker != frozen["marker"]
             or marker != row["marker"]
@@ -1178,17 +1204,14 @@ def require_capture_eligibility(
     authority: EffectiveAuthority,
     *,
     history: bool = False,
+    profile: LocalEngineContext | None = None,
 ) -> None:
-    if authority.egress_mode is EgressMode.OWNER_LOCAL and history:
-        mode = EligibilityMode.OWNER_HISTORY if authority.owner else EligibilityMode.LOCAL_HISTORY
+    if authority.egress_mode is EgressMode.EXTERNAL_PROVIDER:
+        mode = EligibilityMode.EXTERNAL_READ
     elif authority.owner:
         mode = EligibilityMode.OWNER_HISTORY if history else EligibilityMode.OWNER_CURRENT
     else:
-        mode = (
-            EligibilityMode.EXTERNAL_READ
-            if authority.egress_mode is EgressMode.EXTERNAL_PROVIDER
-            else EligibilityMode.OWNER_CURRENT
-        )
+        mode = EligibilityMode.LOCAL_HISTORY if history else EligibilityMode.LOCAL_CURRENT
     if not sharing_eligible(
         connection,
         capture_id,
@@ -1196,6 +1219,7 @@ def require_capture_eligibility(
         provider_id=authority.provider_id,
         brain_id=authority.brain_id,
         issuer_epoch=authority.issuer_epoch,
+        profile=profile,
     ):
         from .t03_contracts import T03Error
 

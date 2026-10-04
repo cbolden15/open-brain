@@ -1,7 +1,8 @@
 """Frozen SQL for the local schema migrations; independent of event storage."""
 
-from open_brain_engine.storage.migrations import _migration
+from open_brain_engine.storage.migrations import Migration, _migration
 
+from .historical_schema import HISTORICAL_AUTHORITY_SCHEMA
 from .source_schema import SOURCE_HISTORY_SCHEMA
 
 BASELINE = (
@@ -1325,7 +1326,7 @@ INSERT INTO runtime_compatibility (
     """.strip(),
 )
 
-LOCAL_MIGRATIONS = (
+LOCAL_MIGRATIONS: tuple[Migration, ...] = (
     _migration(1, "local_baseline", BASELINE),
     _migration(2, "local_search_and_import", _MIGRATION_2),
     _migration(3, "managed_workspace", MANAGED_WORKSPACE_SCHEMA),
@@ -1536,4 +1537,8 @@ CREATE TABLE runtime_compatibility (
             "INSERT INTO runtime_compatibility VALUES(1,7,12)",
         ),
     ),
+)
+
+LOCAL_MIGRATIONS += (
+    _migration(13, "historical_authority_reconciliation", HISTORICAL_AUTHORITY_SCHEMA),
 )

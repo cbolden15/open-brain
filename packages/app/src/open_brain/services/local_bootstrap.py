@@ -103,6 +103,10 @@ def open_local_brain(
             # The owner product bootstrap owns the explicit chained migration;
             # hold_local_runtime_session's registry admission spans both phases.
             coordinate_local_migration(profile)
+            from open_brain_engine.engine.historical_recovery import require_historical_settled
+
+            if inspect_phase1_state(profile).state != "absent":
+                require_historical_settled(profile)
             if receipt_protection_port is None:
                 tasks = open_local_engine(
                     profile,

@@ -176,10 +176,22 @@ def _validate_intake_capture(
     retained = json.loads(files[revision["source_path"]])
     if (
         type(claimed) is not dict
-        or set(claimed) != {
-            "schema_version", "payload", "source_origin", "source_reference", "provenance",
-            "privacy", "tenant_id", "actor_id", "role_claim", "space_id", "intent",
-            "capture_why", "capture_why_origin", "title",
+        or set(claimed)
+        != {
+            "schema_version",
+            "payload",
+            "source_origin",
+            "source_reference",
+            "provenance",
+            "privacy",
+            "tenant_id",
+            "actor_id",
+            "role_claim",
+            "space_id",
+            "intent",
+            "capture_why",
+            "capture_why_origin",
+            "title",
         }
         or type(claimed["schema_version"]) is not int
         or claimed["schema_version"] != 1
@@ -190,30 +202,45 @@ def _validate_intake_capture(
         or any(
             canonical(claimed[key]) != canonical(retained[key])
             for key in (
-                "schema_version", "payload", "tenant_id", "actor_id", "role_claim", "intent",
+                "schema_version",
+                "payload",
+                "tenant_id",
+                "actor_id",
+                "role_claim",
+                "intent",
                 "capture_why",
             )
         )
-        or canonical(claimed["provenance"]) != canonical({
-            "content_origin": claimed["source_origin"],
-            "owner_context": "automation_absent",
-            "source_ref": claimed["source_reference"],
-        })
-        or canonical(retained["source"]) != canonical({
-            "origin": "third_party", "reference": claimed["source_reference"],
-        })
-        or canonical(retained["provenance"]) != canonical({
-            **claimed["provenance"], "transformation_receipts": [],
-        })
+        or canonical(claimed["provenance"])
+        != canonical(
+            {
+                "content_origin": claimed["source_origin"],
+                "owner_context": "automation_absent",
+                "source_ref": claimed["source_reference"],
+            }
+        )
+        or canonical(retained["source"])
+        != canonical(
+            {
+                "origin": "third_party",
+                "reference": claimed["source_reference"],
+            }
+        )
+        or canonical(retained["provenance"])
+        != canonical(
+            {
+                **claimed["provenance"],
+                "transformation_receipts": [],
+            }
+        )
     ):
         raise ValueError("intake contradicts retained capture")
     if _optional_text(claimed["title"], field="title", maximum=200) != claimed["title"]:
         raise ValueError("intake title is not normalized")
     requested = PrivacyDecision.from_dict(claimed["privacy"])
     admitted = PrivacyDecision.from_dict(retained["privacy"])
-    if (
-        canonical(narrow_retained_privacy_decision(requested, admitted.tier).to_dict())
-        != canonical(retained["privacy"])
+    if canonical(narrow_retained_privacy_decision(requested, admitted.tier).to_dict()) != canonical(
+        retained["privacy"]
     ):
         raise ValueError("intake privacy contradicts admitted narrowing")
     if retained["payload"].get("kind") == "file":
@@ -235,6 +262,7 @@ def _validate_intake_order(
     admissions: Mapping[str, Any],
     outcomes: Mapping[str, str],
     intake_delivery_id: str,
+    historical_admissions: Mapping[str, Mapping[str, Any]],
 ) -> None:
     revision = revisions[receipt["capture_id"]]
     expected = submission["expected_head"]
@@ -242,32 +270,41 @@ def _validate_intake_order(
     predecessor = revision["predecessor_capture_id"]
     if expected == receipt["capture_id"] and intake_delivery_id.startswith("adoption."):
         if (
-            order["kind"] == "predecessor" or predecessor is not None
+            order["kind"] == "predecessor"
+            or predecessor is not None
             or receipt["outcome"] != "captured"
         ):
             raise ValueError("adopted revision order invalid")
         return
     if expected is None:
         if (
-            revision["sequence"] != 1 or predecessor is not None or order["kind"] == "predecessor"
+            revision["sequence"] != 1
+            or predecessor is not None
+            or order["kind"] == "predecessor"
             or receipt["outcome"] != "captured"
         ):
             raise ValueError("initial revision order invalid")
         return
     head = revisions[expected]
     if (
-        head["source_id"] != revision["source_id"] or head["sequence"] >= revision["sequence"]
+        head["source_id"] != revision["source_id"]
+        or head["sequence"] >= revision["sequence"]
         or outcomes.get(expected) == "history_only"
     ):
         raise ValueError("expected head is not earlier source membership")
+    head_admission = admissions[expected]
+    if head_admission["revision_key"] is None and expected in historical_admissions:
+        # Only v8 supplies proven baseline evidence, without rewriting old bytes.
+        head_admission = historical_admissions[expected]
     if order["kind"] == "predecessor":
         if (
-            predecessor != expected or admissions[expected]["revision_key"] != order["revision_key"]
+            predecessor != expected
+            or head_admission["revision_key"] != order["revision_key"]
             or receipt["outcome"] != "captured"
         ):
             raise ValueError("predecessor admission contradicts retained chain")
     elif order["kind"] == "monotonic":
-        previous = json.loads(admissions[expected]["ordering_json"] or "null")
+        previous = json.loads(head_admission["ordering_json"] or "null")
         if (
             type(previous) is not dict
             or any(
@@ -284,6 +321,13 @@ def _validate_intake_order(
 
 
 def validate_source_authority(files: Mapping[str, bytes]) -> dict[str, Any]:
+    """Frozen v6 interpretation requires an ordinary predecessor intake key."""
+    return _validate_source_authority(files, historical_admissions={})
+
+
+def _validate_source_authority(
+    files: Mapping[str, bytes], *, historical_admissions: Mapping[str, Mapping[str, Any]]
+) -> dict[str, Any]:
     """Validate closed rows, hashes, receipts and references using archive bytes."""
     try:
         lifecycle = _portable_record(files.get(SOURCE_LIFECYCLE_PATH, b""), "source lifecycle")
@@ -480,7 +524,13 @@ def validate_source_authority(files: Mapping[str, bytes]) -> dict[str, Any]:
                 raise ValueError("intake revision evidence invalid")
             _validate_intake_capture(files, revisions[receipt["capture_id"]], submission)
             _validate_intake_order(
-                submission, receipt, revisions, admissions, outcomes, row["delivery_id"]
+                submission,
+                receipt,
+                revisions,
+                admissions,
+                outcomes,
+                row["delivery_id"],
+                historical_admissions,
             )
             key = (row["source_id"], row["revision_key"])
             if key in intakes:
@@ -502,7 +552,8 @@ def validate_source_authority(files: Mapping[str, bytes]) -> dict[str, Any]:
                     "submission",
                     "expected_lifecycle_version",
                     "delivery_id",
-                } | ({"observation"} if envelope.get("dto_version") == 2 else set())
+                }
+                | ({"observation"} if envelope.get("dto_version") == 2 else set())
                 or canonical(envelope) != raw
                 or sha256(raw).hexdigest() != row["envelope_sha256"]
                 or type(envelope["dto_version"]) is not int
@@ -516,8 +567,11 @@ def validate_source_authority(files: Mapping[str, bytes]) -> dict[str, Any]:
                 or type(envelope["binding"]) is not dict
                 or set(envelope["binding"])
                 != {
-                    "destination_brain_id", "issuer_epoch", "root_fingerprint",
-                    "accepted_source_id", "namespace",
+                    "destination_brain_id",
+                    "issuer_epoch",
+                    "root_fingerprint",
+                    "accepted_source_id",
+                    "namespace",
                 }
                 or any(
                     type(envelope["binding"][key]) is not str or not envelope["binding"][key]

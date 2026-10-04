@@ -4,6 +4,132 @@ Non-obvious behaviors, sharp edges, and lessons learned belong here.
 
 ## Registry
 
+### RECOVERY-001: Every replay entrypoint needs the same completed-record checks
+
+Symptom: Mixed owner replay refuses a damaged completed source file, but the
+capture-only replay API accepts the same damaged closure and returns a duplicate
+receipt. Separately, a Portable8 capture metadata sidecar with a changed intent
+or capture reason validates and later replaces the restored capture row.
+
+Cause: The completed source and blob check lived in one replay module, and the
+capture-only path stopped after comparing database fields. The Portable8
+cross-record comparison listed fields one by one and omitted two that the
+retained capture record also carries.
+
+Fix: Keep completed-file validation in the shared capture replay module and
+call it from every entrypoint before any materialization. Bind every immutable
+field the retained capture record carries; routed fields such as `space_id`
+change legitimately and need their own receipts, not a record comparison. Add
+a negative case per entrypoint and per field.
+
+Tests: `test_repeated_capture_replay_refuses_damaged_completed_files_before_any_write`
+and `test_v8_rejects_owner_intent_or_reason_disagreeing_with_archived_capture`.
+
+Discovered: 2026-10-04, independent final-candidate review of the 13/8/8
+recovery extension.
+
+### PORTABLE-010: Historical authority tests need genuine historical exports
+
+Symptom: A sharing forgery test fails on Portable inventory validation before
+reaching the intended authority refusal.
+
+Cause: The fixture exports the current format, removes one newer sidecar, then
+labels the result as Portable7. Other required current sidecars remain. This
+does not produce evidence from the historical catalog.
+
+Fix: Generate Portable7 from its actual schema12 catalog in a scoped test
+context. Assert the original schema and manifest version, then restore current
+runtime definitions before testing import. Preserve all forged receipt, job,
+provider, independent witness and no-promotion assertions. Keep Portable8
+coverage separate; do not weaken frozen inventory validators.
+
+Discovered: 2026-10-03, full verification and exact synthetic reproduction.
+
+### CUSTODY-002: Capture allocation evidence omits terminal journal history
+
+Symptom: Protection retains an original queue and capture allocation, but its
+mixed closure cannot restore an acknowledged capture through either homogeneous
+replay API. The original terminal event disappears during local compaction.
+
+Cause: Protecting the stage3 capture repeats the stage0 allocation commitment.
+It does not retain a separate operation containing original event sequences,
+receipt bytes, attempts or recorded times. Hash closure alone is not recovery.
+
+Fix: Protect the exact terminal journal transition before compaction, separately
+from its original custody and capture allocation. Validate the whole mixed chain
+before replay writes. Preserve capture rows, original receipts and journal
+high-water marks; retain unallocated queues and test interrupted/repeated replay.
+Same-process terminal retries must also require journal protection. After local
+compaction, a capture-only protected prefix cannot acknowledge a duplicate.
+Authenticate the append chain unchanged, but derive queue materialization order
+from original journal sequences: protection callbacks can finish out of order.
+Before repeated replay, check completed physical source and file-blob bytes;
+a matching stage3 database row does not prove that those files remain intact.
+The owner replay seam currently supports initial queues and protected completed
+captures. Later nonterminal/discard, source/control/non-owner recovery, mandatory
+all-writer configuration and real independent disaster recovery remain required
+before activation. Never filter or renumber an authenticated recovery chain.
+
+Discovered: 2026-10-03, actual synthetic guard closure clean-restore diagnostic.
+
+### PORTABLE-009: Fenced source receipts do not settle retained custody
+
+Symptom: Export of fenced source custody reaches the source-authority validator
+and fails there instead of refusing with `ingestion_pending` before staging.
+
+Cause: Portable8 permits ordinary queued journal custody. The schema13 bypass
+also admitted source-intake bodies retained after fencing, although their terminal
+quarantine receipts do not make that custody representable by the frozen source
+authority format.
+
+Fix: Refuse export when a pending journal delivery belongs to a source intake.
+Keep ordinary queued exports, including managed-workspace owner custody, enabled.
+Test reservation, source-write and blob-write faults, exact replay, absence of an
+export destination and unchanged journal bodies, receipts and quarantine records.
+This refusal preserves custody but does not provide fenced-history recovery;
+complete typed source/control recovery remains required before live cutover.
+
+Discovered: 2026-10-03, five synthetic source-task full-gate failures.
+
+### CUSTODY-001: Restart draining must protect the original queue too
+
+Symptom: A failed initial protection call retains the queued body, but a later
+startup drain protects only a newly allocated capture and omits the original
+custody identity from recovery evidence.
+
+Cause: Protection runs on foreground enqueue but startup enters the drain
+directly. Protecting a capture allocation does not preserve its earlier cue ID,
+queue order or recorded time.
+
+Fix: Read the exact initial plan from a consistent SQLite snapshot and require
+the configured protection guard before every drain, including startup. Protect
+the original allocation before materialization and require evidence again before
+terminal compaction. A protection failure is not an ingestion attempt failure.
+Test timeout, missing and mismatched evidence, restart, original cue/allocation
+identity and retained bodies. The optional owner guard is not a real independent
+backend, persisted all-writer policy or complete mutation recovery acceptance.
+
+Discovered: 2026-10-03, synthetic protection-guard restart regression.
+
+### PORTABLE-008: Managed titles require whole-envelope restore evidence
+
+Symptom: A managed source restores with its original body and receipt, but its
+owner-history title changes to a title inferred from redacted body text.
+
+Cause: The frozen capture record has no supplied-title field. Base materialization
+sets the capture title to null even when a managed delivery retains the exact
+admitted submission and its supplied title. Archive round-trip equality alone
+does not detect this loss because both exports retain the same envelope bytes.
+
+Fix: For the unreleased Portable8 format, recover managed titles from validated
+whole-envelope terminal evidence. Refuse conflicting titles for one capture.
+Preserve Portable1–7 materialization semantics. Test three managed revisions,
+withdrawal, exact history responses and terminal replay with original Brain,
+source files and sender caches unavailable. A local fixture is not independent
+encrypted protection or proof of post-snapshot write coverage.
+
+Discovered: 2026-10-03, synthetic managed-record recovery format rehearsal.
+
 ### PORTABLE-005: Owner replay identity outlives derived capture keys
 
 Symptom: Retrying an original owner delivery after clean Portable restore creates
@@ -2545,3 +2671,42 @@ restart unchanged; the same item's version-2 observation requires new approval
 and invalidates the old public copy. Historical fixtures remain unchanged.
 
 Discovered: 2026-10-03, private source preflight and independent synthetic probe.
+
+### PORTABLE-006: Test Portable-first imports in an empty interpreter
+
+Symptom: Portable validation works in pytest but importing its version dispatcher
+in a clean process fails with a partially initialized module.
+
+Cause: A format module imports engine reconciliation types at module scope. The
+engine package initializer imports the local runtime, which imports that format
+module again. Existing pytest imports can hide the cycle.
+
+Fix: Keep runtime engine imports inside the format's validation/codec functions.
+Use TYPE_CHECKING for annotations. Do not weaken validation or alter package
+initialization to make the cycle disappear.
+
+Test: `test_portable_first_import_in_clean_interpreter_has_no_engine_cycle` runs
+the version dispatcher and v8 imports in an actual fresh subprocess.
+
+Discovered: 2026-10-03, historical-authority Portable8 export integration.
+
+### PORTABLE-007: Check CLI verification bookkeeping after a format bump
+
+Symptom: Engine export succeeds, but the same foreground CLI export with
+`--verify` exits78 and does not record verified-export status.
+
+Cause: Manifest validation supports the new format, but the CLI's separate
+verified-export evidence writer and status reader still reject its version.
+Package version0.1.0 does not detect this drift.
+
+Fix: Keep both bookkeeping version checks aligned with supported Portable
+formats and require integer versions rather than accepting booleans. Preserve
+the evidence record shape and old-format interpretation. Exercise the real CLI,
+not just engine export, before claiming the format works end to end.
+
+Tests: The source-executable review/publication acceptance journey and local
+CLI data journey prove verified export and subsequent status. Older restore
+tests must use actual older-format fixtures instead of passing a new archive
+to a frozen decoder or widening that decoder.
+
+Discovered: 2026-10-03, full historical-authority compatibility diagnostics.

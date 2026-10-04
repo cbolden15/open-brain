@@ -20,7 +20,14 @@ MAX_RESOLVED_RECEIPTS = 512
 _FILE = "custody.json"
 _OUTCOMES = {"pending", "captured", "duplicate", "quarantined", "history_only"}
 _TERMINAL = _OUTCOMES - {"pending"}
-_EVIDENCE = {None, "capture_id", "injected_sink", "acceleration_cache", "conflict"}
+_EVIDENCE = {
+    None,
+    "capture_id",
+    "historical_baseline",
+    "injected_sink",
+    "acceleration_cache",
+    "conflict",
+}
 _ID = re.compile(r"custody:[0-9a-f]{64}")
 _HEX = re.compile(r"[0-9a-f]{64}")
 _RECEIPT_KEYS = {
@@ -69,8 +76,11 @@ def intake_from_dict(value: object) -> SourceRecordIntake:
             text=cast(str, value["text"]),
             title=cast(str | None, value["title"]),
             privacy=PrivacyDecision.from_dict(value["privacy"]),
-            observation=(SourceRevisionObservation.from_value(value["observation"])
-                         if "observation" in value else None),
+            observation=(
+                SourceRevisionObservation.from_value(value["observation"])
+                if "observation" in value
+                else None
+            ),
         )
     except TypeError, ValueError, KeyError:
         raise LiveSourceError("collector_invalid_custody") from None
@@ -128,6 +138,14 @@ class CustodyStore:
         self._store = store
 
     @staticmethod
+    def _retains_revision_replay(receipt: dict[str, object]) -> bool:
+        # An observed source revision carries ordering and lifecycle replay
+        # evidence beyond a capture body. Neither local acceptance nor the
+        # capture-only v1 protection contract authorizes releasing this intake.
+        intake = receipt["intake"]
+        return isinstance(intake, dict) and "observation" in intake
+
+    @staticmethod
     def _valid_evidence(receipt: dict[str, object]) -> bool:
         outcome, evidence = receipt["outcome"], receipt["evidence"]
         if outcome == "pending":
@@ -145,6 +163,12 @@ class CustodyStore:
         if outcome in {"captured", "duplicate", "history_only"}:
             if receipt["reason_code"] is not None:
                 return False
+            if evidence == "historical_baseline":
+                return (
+                    outcome == "duplicate"
+                    and type(receipt["capture_id"]) is str
+                    and bool(receipt["capture_id"])
+                )
             if evidence == "capture_id":
                 return type(receipt["capture_id"]) is str and bool(receipt["capture_id"])
             return (
@@ -390,7 +414,8 @@ class CustodyStore:
                     or not self._valid_evidence(receipt)
                 ):
                     raise LiveSourceError("collector_incomplete_custody")
-                if receipt["intake"] is None:
+                if (receipt["intake"] is None or receipt["evidence"] == "historical_baseline"
+                        or self._retains_revision_replay(receipt)):
                     continue
                 if receipt["outcome"] != "quarantined":
                     receipt.update(intake=None, retained_bytes=0)
@@ -410,7 +435,7 @@ class CustodyStore:
             self._store.write(_FILE, state)
 
     def discard_unacknowledged(self, receipt_ids: tuple[str, ...]) -> None:
-        """Drop cancelled non-quarantine custody; provider checkpoint did not advance."""
+        """Retain observed revision replay even when its provider page was cancelled."""
         with self._store.lock("custody"):
             state = self._load()
             receipts = cast(dict[str, object], state["receipts"])
@@ -420,7 +445,11 @@ class CustodyStore:
                     continue
                 if not isinstance(receipt, dict):
                     raise LiveSourceError("collector_invalid_custody")
-                if receipt["outcome"] != "quarantined":
+                if (
+                    receipt["outcome"] != "quarantined"
+                    and receipt["evidence"] != "historical_baseline"
+                    and not self._retains_revision_replay(receipt)
+                ):
                     del receipts[receipt_id]
             self._store.write(_FILE, state)
 

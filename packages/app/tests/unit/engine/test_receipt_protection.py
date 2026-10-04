@@ -101,6 +101,15 @@ def test_accepted_and_duplicate_receipts_require_the_same_exact_replay_protectio
     assert len(protector.requests) == 2
     assert protector.requests[0].replay_bytes == protector.requests[1].replay_bytes
     assert protector.requests[0].commitment_sha256 == protector.requests[1].commitment_sha256
+    reopened = _engine(engine.profile.root, protector)
+    after_restart = reopened.capture.submit(submission)
+    assert isinstance(after_restart, CaptureReceipt)
+    assert after_restart.duplicate
+    assert after_restart.capture_id == accepted.capture_id
+    assert after_restart.protection_acknowledgement is not None
+    assert len(protector.requests) == 3
+    assert protector.requests[2].replay_bytes == protector.requests[0].replay_bytes
+    assert protector.requests[2].commitment_sha256 == protector.requests[0].commitment_sha256
     with sqlite3.connect(engine.profile.root / PHASE1_STATE_DATABASE) as connection:
         assert connection.execute("SELECT count(*) FROM captures").fetchone() == (1,)
 
@@ -141,7 +150,8 @@ def test_queued_custody_is_not_released_without_independent_protection(
     with FileLease(
         engine.profile.root / ".open-brain", "receipt-protection-competing-writer"
     ).acquire_shared_writer():
-        queued = engine.capture.submit(submission)
+        reopened = _engine(engine.profile.root, protector)
+        queued = reopened.capture.submit(submission)
 
     assert isinstance(queued, CaptureCustodyReceipt)
     assert queued.protection_acknowledgement is not None

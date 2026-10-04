@@ -37,6 +37,7 @@ from .source_store import source_metadata
 if TYPE_CHECKING:
     from .local import BrainEngine
     from .materializer import Materialization
+    from .portable_v5_evidence import PortableV5StateEvidence
 
 
 @dataclass(frozen=True, slots=True)
@@ -105,6 +106,14 @@ class V5RestoreBundle:
     def decode(
         cls, snapshot: PortableSnapshot, *, checkpoint: Callable[[str], None]
     ) -> V5RestoreBundle:
+        if snapshot.manifest["schema_version"] not in {5, 6, 7}:
+            raise ValueError("v5 restore requires a validated v5 snapshot")
+        return cls._decode_common(snapshot, checkpoint=checkpoint)
+
+    @classmethod
+    def _decode_common(
+        cls, snapshot: PortableSnapshot, *, checkpoint: Callable[[str], None]
+    ) -> V5RestoreBundle:
         from open_brain_engine.portable.v5 import (
             EFFECTIVE_PRIVACY_PATH,
             ISSUER_MIGRATION_PATH,
@@ -112,8 +121,6 @@ class V5RestoreBundle:
             decode_retained_privacy_value,
         )
 
-        if snapshot.manifest["schema_version"] not in {5, 6, 7}:
-            raise ValueError("v5 restore requires a validated v5 snapshot")
         for row in json.loads(snapshot.files[EFFECTIVE_PRIVACY_PATH])["retained_privacy"]:
             value = decode_retained_privacy_value(row["privacy_json"])
             if type(value) in (int, float):
@@ -205,13 +212,19 @@ class V5RestoreBundle:
                     )
                 ),
             )
-        if self.snapshot.manifest["schema_version"] in {6, 7}:
+        if self.snapshot.manifest["schema_version"] in {6, 7, 8}:
             from open_brain_engine.portable.v6 import validate_source_authority
 
             from .portable_v6_authority import restore_source_authority
 
-            restore_source_authority(connection, validate_source_authority(files))
-        if self.snapshot.manifest["schema_version"] == 7:
+            if self.snapshot.manifest["schema_version"] == 8:
+                from open_brain_engine.portable.v8 import validate_source_authority_v8
+
+                authority = validate_source_authority_v8(files)
+            else:
+                authority = validate_source_authority(files)
+            restore_source_authority(connection, authority)
+        if self.snapshot.manifest["schema_version"] in {7, 8}:
             from open_brain_engine.portable.v7 import validate_sharing_authority
 
             from .portable_v7_authority import restore_sharing_authority
@@ -263,7 +276,12 @@ class V5RestoreBundle:
         self.checkpoint("privacy_evidence_restored")
         _rederive_search(connection, profile, portable_files=files)
         self.checkpoint("search_rederived")
-        _audit_connection(connection, profile=profile, snapshot=self.snapshot)
+        _audit_connection(
+            connection,
+            profile=profile,
+            snapshot=self.snapshot,
+            _historical_installed=self.snapshot.manifest["schema_version"] != 8,
+        )
 
 
 def _restore_relationships(connection: sqlite3.Connection, payload: bytes | None) -> None:
@@ -359,10 +377,12 @@ def _rederive_search(
 
 
 def _audit_connection(
-    connection: sqlite3.Connection, *, profile: LocalEngineContext, snapshot: PortableSnapshot
+    connection: sqlite3.Connection,
+    *,
+    profile: LocalEngineContext,
+    snapshot: PortableSnapshot,
+    _historical_installed: bool = True,
 ) -> None:
-    from .portable_v5_evidence import serialize_portable_v5_state
-
     verify_issuer_evidence(connection, tenant_id=profile.tenant_id)
     _verify_privacy_projections(connection)
     if [row[0] for row in connection.execute("PRAGMA quick_check")] != ["ok"]:
@@ -371,20 +391,25 @@ def _audit_connection(
         raise ValueError("v5 restored database reference mismatch")
     if canonical(source_metadata(connection)) != snapshot.files[SOURCE_METADATA_PATH]:
         raise ValueError("v5 restored source metadata mismatch")
-    if snapshot.manifest["schema_version"] in {6, 7}:
-        from .portable_v6_authority import source_authority_sidecars
+    if snapshot.manifest["schema_version"] in {6, 7, 8}:
+        from .portable_v6_authority import (
+            _source_authority_metadata,
+            _source_authority_sidecars,
+        )
 
         if any(
             snapshot.files[path] != data
-            for path, data in source_authority_sidecars(connection).items()
+            for path, data in _source_authority_sidecars(
+                _source_authority_metadata(connection)
+            ).items()
         ):
             raise ValueError("v6 restored source authority mismatch")
-    if snapshot.manifest["schema_version"] == 7:
+    if snapshot.manifest["schema_version"] in {7, 8}:
         from open_brain_engine.portable.v7 import SHARING_APPROVALS_PATH
 
-        from .portable_v7_authority import sharing_authority_sidecar
+        from .portable_v7_authority import _sharing_authority_metadata
 
-        _, sharing_bytes = sharing_authority_sidecar(connection)
+        sharing_bytes = canonical(_sharing_authority_metadata(connection))
         if snapshot.files[SHARING_APPROVALS_PATH] != sharing_bytes:
             raise ValueError("v7 restored sharing authority mismatch")
     relationships = relationship_metadata(connection)
@@ -394,10 +419,11 @@ def _audit_connection(
     if (None if relationships is None else canonical(relationships)) != expected:
         raise ValueError("v5 restored relationship metadata mismatch")
     _audit_capture_search_content(connection, profile=profile, snapshot=snapshot)
-    evidence = serialize_portable_v5_state(
+    evidence = restored_portable_semantic_state(
         connection,
-        tenant_id=profile.tenant_id,
-        relationship_sidecar_present=expected is not None,
+        profile=profile,
+        snapshot=snapshot,
+        historical_installed=_historical_installed,
     )
     if any(snapshot.files[path] != payload for path, payload in evidence.sidecars.items()):
         raise ValueError("v5 restored semantic evidence mismatch")
@@ -500,6 +526,56 @@ def audit_restored_v5(profile: LocalEngineContext, *, snapshot: PortableSnapshot
         _audit_connection(connection, profile=profile, snapshot=snapshot)
     finally:
         connection.close()
+
+
+def restored_portable_semantic_state(
+    connection: sqlite3.Connection,
+    *,
+    profile: LocalEngineContext,
+    snapshot: PortableSnapshot,
+    historical_installed: bool = True,
+) -> PortableV5StateEvidence:
+    """Current-schema audit without widening frozen serializer admission.
+
+    Older archives must restore with an explicit empty historical registry. V8
+    audit before historical installation is only the hidden base-restore phase.
+    Full v8 audit commits to the complete independently settled authority.
+    """
+    from .historical_contracts import HistoricalDestination
+    from .historical_projection import verify_historical_projection
+    from .historical_recovery import require_historical_snapshot_settled
+    from .historical_registry import HistoricalRegistryStore
+    from .portable_v5_evidence import _serialize_portable_state, serialize_portable_v5_state
+    from .portable_v6_authority import _source_authority_metadata
+
+    relationship_present = RELATIONSHIP_METADATA_PATH in snapshot.files
+    version = connection.execute("PRAGMA user_version").fetchone()[0]
+    if version < 13:
+        return serialize_portable_v5_state(
+            connection,
+            tenant_id=profile.tenant_id,
+            relationship_sidecar_present=relationship_present,
+        )
+    require_historical_snapshot_settled(connection, profile)
+    if snapshot.manifest["schema_version"] == 8 and historical_installed:
+        from .portable_v8_authority import serialize_portable_v8_state
+
+        return serialize_portable_v8_state(
+            connection, profile, relationship_sidecar_present=relationship_present
+        )
+    identity = connection.execute("SELECT brain_id,issuer_epoch FROM brain_identity").fetchone()
+    registry = HistoricalRegistryStore(profile.root, profile.root_identity).read(
+        HistoricalDestination(brain_id=identity[0], issuer_epoch=identity[1])
+    )
+    if registry.generation != 0 or registry.memberships:
+        raise ValueError("base restore requires explicit empty historical authority")
+    verify_historical_projection(connection, profile, registry)
+    return _serialize_portable_state(
+        connection,
+        tenant_id=profile.tenant_id,
+        relationship_sidecar_present=relationship_present,
+        source_authority=_source_authority_metadata(connection),
+    )
 
 
 def restore_portable_v5_root(

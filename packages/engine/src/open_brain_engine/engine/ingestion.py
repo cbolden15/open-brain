@@ -29,6 +29,7 @@ from .contracts import (
     JournalEnvelope,
 )
 from .normalization import _timestamp
+from .recovery_protection import RecoveryProtectionPendingError
 
 if TYPE_CHECKING:
     from .local import BrainEngine
@@ -132,13 +133,19 @@ class IngestionJournal:
 
     def enqueue(self, submission: CaptureSubmission) -> CaptureOutcome:
         """Commit custody before any writer work, returning a stable replay result."""
+        guard = self._engine._recovery_protection_guard
+        if guard is not None:
+            guard.require_owner(self._engine, submission)
         envelope = self._engine._prepare_journal_submission(submission)
         request_sha = submission.request_sha256()
         body = envelope.to_bytes()
         if len(body) > self._engine._admission_limits.max_journal_item_bytes:
             raise JournalCapacityError("journal capacity exceeded")
         new_delivery = False
+        custody_plan = None
         with self._engine._store.transaction() as connection:
+            if guard is not None:
+                guard.validate_identity(connection)
             existing = self._identity_row(connection, submission.delivery_id)
             if existing is not None:
                 outcome = self._replay_existing(connection, existing, submission)
@@ -184,8 +191,29 @@ class IngestionJournal:
                     (submission.delivery_id, body),
                 )
                 self._append_event(connection, submission.delivery_id, "queued", 0, custody)
+                if guard is not None:
+                    from .custody_recovery import CaptureCustodyRecoveryPlan
+
+                    item = connection.execute(
+                        "SELECT journal_sequence FROM capture_ingestion_items WHERE delivery_id=?",
+                        (submission.delivery_id,),
+                    ).fetchone()
+                    event = connection.execute(
+                        "SELECT event_sequence,recorded_at FROM capture_ingestion_events "
+                        "WHERE delivery_id=?", (submission.delivery_id,),
+                    ).fetchone()
+                    custody_plan = CaptureCustodyRecoveryPlan(
+                        guard.baseline, envelope, custody, item[0], event[0], event[1]
+                    )
                 outcome = custody
                 new_delivery = True
+        if guard is not None:
+            if custody_plan is not None:
+                guard.protect(self._engine, custody_plan)
+            elif isinstance(outcome, CaptureReceipt):
+                guard.validate_duplicate(self._engine, submission, outcome)
+            else:
+                guard.protect_pending(self._engine, submission)
         if new_delivery:
             self._engine._fault(CaptureFault.AFTER_JOURNAL_COMMIT)
         return outcome
@@ -275,11 +303,13 @@ class IngestionJournal:
                 raise ValueError("digest mismatch")
             envelope = JournalEnvelope.from_bytes(raw)
             submission = envelope.submission
+            if self._engine._recovery_protection_guard is not None:
+                self._engine._recovery_protection_guard.protect_pending(self._engine, submission)
             receipt = self._engine._materialize_capture_locked(
                 submission, admitted_privacy=envelope.admitted_privacy
             )
             self._engine._fault(CaptureFault.AFTER_CANONICAL_COMPLETION)
-        except InjectedFault:
+        except InjectedFault, RecoveryProtectionPendingError:
             raise
         except ValueError:
             self._terminal_metadata(
@@ -314,7 +344,19 @@ class IngestionJournal:
 
     def compact(self, delivery_id: str) -> None:
         """Remove active terminal custody only after ``captures`` owns replay."""
+        guard = self._engine._recovery_protection_guard
+        if guard is not None:
+            with self._engine._store.connect() as connection:
+                active = connection.execute(
+                    "SELECT 1 FROM capture_ingestion_items WHERE delivery_id=?", (delivery_id,),
+                ).fetchone()
+            if active is None:
+                return
+            guard.protect_capture(self._engine, delivery_id)
+            guard.protect_terminal_journal(self._engine, delivery_id)
         with self._engine._store.transaction() as connection:
+            if guard is not None:
+                guard.validate_identity(connection)
             row = connection.execute(
                 "SELECT request_sha256 FROM capture_ingestion_items WHERE delivery_id = ?",
                 (delivery_id,),
@@ -479,6 +521,24 @@ class IngestionJournal:
             "FROM capture_ingestion_tombstones WHERE delivery_id = ?",
             (delivery_id, delivery_id, delivery_id),
         ).fetchall()
+        # Current Portable restores retain original delivery keys as well as
+        # aliases. A direct hit must not bypass the alias's terminal evidence.
+        alias = connection.execute(
+            "SELECT source_id,evidence_sha256 FROM source_aliases WHERE delivery_id=?",
+            (delivery_id,),
+        ).fetchone()
+        if row and alias is not None:
+            retained = connection.execute(
+                "SELECT c.capture_id FROM source_aliases a "
+                "JOIN source_revisions r ON r.source_id=a.source_id "
+                "AND r.request_sha256=a.evidence_sha256 "
+                "JOIN captures c ON c.capture_id=r.capture_id "
+                "WHERE a.delivery_id=? AND c.delivery_id=a.delivery_id "
+                "AND c.request_sha256=a.evidence_sha256 AND c.stage=3",
+                (delivery_id,),
+            ).fetchall()
+            if len(retained) != 1:
+                raise RuntimeError("retained replay evidence unavailable or ambiguous")
         if len(row) > 1:
             locations = {cast(str, item["location"]) for item in row}
             digests = {cast(str, item["request_sha256"]) for item in row}
@@ -492,10 +552,6 @@ class IngestionJournal:
         # Portable reconstruction derives capture-table delivery keys. The
         # retained alias is still the original replay identity; never admit it
         # as a fresh delivery just because its derived projection uses a new key.
-        alias = connection.execute(
-            "SELECT source_id,evidence_sha256 FROM source_aliases WHERE delivery_id=?",
-            (delivery_id,),
-        ).fetchone()
         if alias is None:
             return None
         retained = connection.execute(

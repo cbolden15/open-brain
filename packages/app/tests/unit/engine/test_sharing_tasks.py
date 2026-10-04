@@ -190,6 +190,7 @@ def test_sharing_preview_approve_replay_revoke_and_original_privacy(tmp_path: Pa
             provider_id="openai",
             brain_id=request.brain_id,
             issuer_epoch=request.issuer_epoch,
+            profile=tasks.profile,
         )
         assert not sharing_eligible(
             connection,
@@ -198,6 +199,7 @@ def test_sharing_preview_approve_replay_revoke_and_original_privacy(tmp_path: Pa
             provider_id="gemini",
             brain_id=request.brain_id,
             issuer_epoch=request.issuer_epoch,
+            profile=tasks.profile,
         )
         assert not sharing_eligible(
             connection,
@@ -206,6 +208,7 @@ def test_sharing_preview_approve_replay_revoke_and_original_privacy(tmp_path: Pa
             provider_id="openai",
             brain_id=request.brain_id,
             issuer_epoch=request.issuer_epoch,
+            profile=tasks.profile,
         )
         original_privacy = connection.execute(
             "SELECT privacy_json FROM captures WHERE capture_id=?", (request.expected_head,)
@@ -232,6 +235,7 @@ def test_sharing_preview_approve_replay_revoke_and_original_privacy(tmp_path: Pa
             provider_id="openai",
             brain_id=request.brain_id,
             issuer_epoch=request.issuer_epoch,
+            profile=tasks.profile,
         )
 
 

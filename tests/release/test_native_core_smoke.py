@@ -54,9 +54,9 @@ def _catalog() -> dict[str, object]:
         "compatibility": {
             "bridge_protocol": 1,
             "catalog_schema": 2,
-            "portable_metadata": 7,
-            "runtime_session": 7,
-            "state_schema": 12,
+            "portable_metadata": 8,
+            "runtime_session": 8,
+            "state_schema": 13,
             "task_contract": "t03.v1",
         },
         "packages": [
@@ -71,16 +71,23 @@ def _catalog() -> dict[str, object]:
 
 def test_native_audit_requires_catalog_implementation() -> None:
     assert "open_brain.services.catalog" in base_native._REQUIRED_MODULES
+    assert {
+        "open_brain_engine.engine.portable_v8_authority",
+        "open_brain_engine.engine.portable_v8_restore",
+        "open_brain_engine.engine.historical_checkpoint",
+        "open_brain_engine.portable.v8",
+    } <= base_native._REQUIRED_MODULES
 
 
 def test_native_portable_smoke_requires_sharing_and_all_retained_sidecars() -> None:
-    assert base_native._PORTABLE_V7_SIDECARS == (
+    assert base_native._PORTABLE_V8_SIDECARS == (
         "history/issuer/legacy-bindings-v1.json",
         "history/issuer/migration-v1.json",
         "history/privacy/effective-privacy-v1.json",
         "history/sources/lifecycle-v1.json",
         "history/sources/admission-v1.json",
         "history/sharing/approvals-v1.json",
+        "history/historical-authority/reconciliation-v1.json",
     )
 
 

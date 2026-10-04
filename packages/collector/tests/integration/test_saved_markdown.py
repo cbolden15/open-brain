@@ -123,7 +123,7 @@ def test_revision_delivery_exact_envelope_pending_receipt_and_destination(
                                 capture_sink=restarted_sink)
     assert replay.outcome.value == "completed"
     assert submitted[0] == submitted[1]
-    assert restarted.custody_status("synthetic")["retained_items"] == 0
+    assert restarted.custody_status("synthetic")["retained_items"] == 1
     with open_local_database_read_only(tasks.profile) as connection:
         assert connection.execute("SELECT count(*) FROM source_revisions").fetchone()[0] == 1
 
@@ -187,7 +187,7 @@ def test_observation_survives_custody_restart_exact_retry_and_terminal_engine_ev
                                 capture_sink=restarted_sink)
     assert replay.outcome.value == "completed"
     assert submitted[0] == submitted[1]
-    assert restarted.custody_status("synthetic")["retained_items"] == 0
+    assert restarted.custody_status("synthetic")["retained_items"] == 1
     with open_local_database_read_only(restarted_tasks.profile) as connection:
         rows = connection.execute(
             "SELECT envelope_bytes,receipt_json FROM managed_source_deliveries"
@@ -574,7 +574,7 @@ def test_uncertain_saved_markdown_delivery_after_owner_withdrawal_stays_retired(
     else:
         with pytest.raises(RuntimeError, match="synthetic lost response"):
             controller.sync_due(source_id="synthetic", runtime=runtime, capture_sink=sink)
-    assert controller.custody_status("synthetic")["retained_items"] == 1
+    assert controller.custody_status("synthetic")["retained_items"] == 2
     request = _withdraw_saved_source(tasks, owner)
     retained = _retained_source_snapshot(tasks, owner)
     expected_count = 1 if uncertain == "pending" else 2
@@ -594,12 +594,17 @@ def test_uncertain_saved_markdown_delivery_after_owner_withdrawal_stays_retired(
         result = restarted.sync_due(source_id="synthetic", runtime=restarted_runtime,
                                     capture_sink=restarted_sink)
     except T03Error as error:
-        assert uncertain == "pending"
         assert error.code in {"revision_changed", "source_revision_conflict"}
+        # Terminal acceptance remains valid, but withdrawal removes current
+        # checkpoint eligibility even after a lost response.
+        state = CollectorStateStore(state_path).load()
+        entry = cast(dict[str, object], cast(dict[str, object], state["sources"])["synthetic"])
+        assert entry["active_run"] is not None
+        assert entry["next_cursor"] is None
     else:
         if uncertain == "lost_response":
             assert result.outcome.value == "completed"
-            assert restarted.custody_status("synthetic")["retained_items"] == 0
+            assert restarted.custody_status("synthetic")["retained_items"] == 2
         else:
             assert result.captured_count == result.duplicate_count == 0
     assert submitted[0] == submitted[1]
@@ -968,7 +973,11 @@ def test_saved_markdown_refusals_do_not_enter_collector_custody(tmp_path: Path) 
     assert [item.refusal_code for item in runtime.last_scan.candidates if not item.accepted] == [
         "saved_markdown_secret_bearing"
     ]
-    assert controller.custody_status("saved-markdown.synthetic")["retained_items"] == 0
+    status = controller.custody_status("saved-markdown.synthetic")
+    assert status["retained_items"] == 1
+    retained = controller._custody.intake(cast(list[str], status["receipt_ids"])[0])
+    assert retained == _intake(root)
+    assert "api_key" not in retained.text
 
 
 class _LostResponseSink:

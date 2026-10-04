@@ -164,8 +164,8 @@ def test_handshake_is_bounded_and_does_not_initialize_the_brain(tmp_path: Path) 
     assert result["protocol_version"] == OPEN_BRAIN_CLIENT_PROTOCOL_VERSION
     assert result["desktop_only"] is True
     assert result["brain_root"] == str(selection.brain_root)
-    assert result["runtime_session_version"] == 7
-    assert result["state_schema_version"] == 12
+    assert result["runtime_session_version"] == 8
+    assert result["state_schema_version"] == 13
     assert "graph.review" in cast(list[str], result["operations"])
     assert "system.status" in cast(list[str], result["operations"])
     assert "agent.setup.preview" in cast(list[str], result["operations"])
@@ -849,8 +849,8 @@ def test_status_is_non_mutating_for_empty_state_and_reports_initialized_state(
     assert empty == {
         "brain_root": str(selection.brain_root),
         "initialized": False,
-        "runtime_session_version": 7,
-        "state_schema_version": 12,
+        "runtime_session_version": 8,
+        "state_schema_version": 13,
         "status": "ok",
     }
     assert not selection.brain_root.exists()
@@ -858,7 +858,7 @@ def test_status_is_non_mutating_for_empty_state_and_reports_initialized_state(
     assert _call(selection, "brain.initialize")["ok"] is True
     initialized = cast(dict[str, object], _call(selection, "system.status")["result"])
     assert initialized["initialized"] is True
-    assert initialized["state_schema_version"] == 12
+    assert initialized["state_schema_version"] == 13
 
 
 def test_plugin_bridge_exposes_durable_collector_controls(
@@ -1430,7 +1430,7 @@ def test_v3_migration_waits_until_an_older_registered_runtime_exits(
 
     with open_local_brain(selection, filesystem_type_probe=_filesystem) as reopened:
         assert reopened.tasks.retrieval.search("compatibility")[0].title
-    assert sqlite3.connect(database).execute("PRAGMA user_version").fetchone() == (12,)
+    assert sqlite3.connect(database).execute("PRAGMA user_version").fetchone() == (13,)
 
 
 def test_bridge_rejects_wrong_or_missing_protocol_versions(tmp_path: Path) -> None:

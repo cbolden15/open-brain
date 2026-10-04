@@ -10,13 +10,14 @@ import re
 import stat
 import threading
 from collections.abc import Callable, Iterator, Mapping
-from contextlib import contextmanager
+from contextlib import ExitStack, contextmanager
 from dataclasses import asdict, dataclass
 from enum import StrEnum
 from pathlib import Path
 from tempfile import NamedTemporaryFile
 from typing import Protocol, cast, runtime_checkable
 
+from open_brain_engine.core.ids import portable_canonical_json_bytes
 from open_brain_engine.core.models import narrowest_tier
 from open_brain_engine.engine import (
     CaptureCustodyReceipt,
@@ -28,8 +29,13 @@ from open_brain_engine.engine import (
     SourceRevisionBinding,
     SourceRevisionDelivery,
     SourceRevisionDeliveryReceipt,
+    SourceRevisionReceipt,
     SourceRevisionSubmission,
     verify_capture_custody_receipt,
+)
+from open_brain_engine.engine.historical_checkpoint import (
+    CurrentRevisionCheckpoint,
+    HistoricalBaselineDuplicate,
 )
 from open_brain_engine.engine.source_intake import SourceRevisionObservedDelivery
 from open_brain_engine.engine.t03_contracts import T03Error
@@ -68,6 +74,7 @@ _FAILURE_CODE = {
     "collector_paused",
     "collector_disabled",
     "storage_unavailable",
+    "collector_scan_incomplete",
 }
 _CREDENTIAL_STATUS = {"available", "locked", "missing"}
 _MAX_INTERVAL = 31_536_000
@@ -142,6 +149,17 @@ class CollectorSourceRuntime(Protocol):
         cursor: str | None,
     ) -> CollectorRunPage:
         """Return the next bounded page for a selected resource."""
+
+
+@runtime_checkable
+class RestartableInventoryRuntime(Protocol):
+    """Reset only a failed inventory after its exact page custody is retained."""
+
+    def restart_failed_inventory(
+        self, *, selection: SourceResourceSelection, cursor: str | None,
+        retained_intakes: tuple[SourceRecordIntake, ...], recovery_id: str,
+    ) -> None:
+        """Persist an idempotent reset bound to the failed controller run."""
 
 
 @runtime_checkable
@@ -551,6 +569,62 @@ class CollectorController:
             self._store.save(state)
         return self.status(source_id)
 
+    def restart_failed_scan(
+        self, *, source_id: str, runtime: RestartableInventoryRuntime,
+        expected_run_id: str,
+    ) -> CollectorCommandResult:
+        """Restart inventory, retaining terminal custody without success or release.
+
+        Pending deliveries must be resolved through their existing exact replay
+        path first. This operation neither acknowledges protection nor retries
+        capture, changes a source policy, or revives a stopped collector.
+        """
+        if not isinstance(runtime, RestartableInventoryRuntime) or type(expected_run_id) is not str:
+            raise ConnectorContractError("invalid collector recovery")
+        with self._capture_guard, self._selection_barrier():
+            state = self._store.load()
+            entry = _source(_sources(state), source_id)
+            active = entry["active_run"]
+            if not isinstance(active, dict) or active["run_id"] != expected_run_id:
+                raise LiveSourceError("collector_recovery_stale")
+            receipt_ids = tuple(cast(list[str], active.get("custody_ids", [])))
+            if len(receipt_ids) != len(cast(list[object], active["intakes"])):
+                raise LiveSourceError("collector_incomplete_custody")
+            self._custody.validate_terminal(receipt_ids)
+            for receipt_id in receipt_ids:
+                receipt = self._custody.receipt(receipt_id)
+                if (receipt["binding"] != self._binding or receipt["source_id"] != source_id
+                        or receipt["generation"] != entry["generation"]
+                        or receipt["control_epoch"] != entry["control_epoch"]):
+                    raise LiveSourceError("collector_custody_stale")
+            recovery_id = hashlib.sha256(bounded_json({
+                "binding": self._binding, "source_id": source_id,
+                "generation": entry["generation"], "control_epoch": entry["control_epoch"],
+                "run_id": expected_run_id,
+            })).hexdigest()
+            runtime.restart_failed_inventory(
+                selection=_selection_from_entry(entry),
+                cursor=cast(str | None, entry["next_cursor"]),
+                retained_intakes=tuple(self._custody.intake(item) for item in receipt_ids),
+                recovery_id=recovery_id,
+            )
+            # The runtime reset is durable first. If saving controller state
+            # fails, its same failed run retries the exact reset marker.
+            entry["control_epoch"] = cast(int, entry["control_epoch"]) + 1
+            entry["active_run"] = None
+            entry["next_cursor"] = None
+            now = self._clock()
+            if entry["status"] == "enabled":
+                entry["next_run_epoch"] = now
+            entry["last_run"] = _last_run_payload(
+                run_id=expected_run_id, finished_epoch=now, outcome=CollectorRunOutcome.FAILED,
+                captured_count=0, duplicate_count=0, next_cursor=None,
+                failure_code="collector_scan_incomplete",
+            )
+            self._store.save(state)
+            return _result(source_id, entry, CollectorRunOutcome.FAILED,
+                           failure_code="collector_scan_incomplete")
+
     def status(self, source_id: str) -> CollectorCommandResult:
         state = self._store.load()
         entry = _source(_sources(state), source_id)
@@ -610,6 +684,9 @@ class CollectorController:
             raise
         if isinstance(result, CaptureCustodyReceipt):
             return self._custody.inspect(receipt_id)
+        replayed = isinstance(result, SavedMarkdownDelivery) and result.replayed
+        if isinstance(result, SavedMarkdownDelivery):
+            result = result.receipt
         if isinstance(result, SourceRevisionDeliveryReceipt):
             if not isinstance(capture_sink, EngineRevisionSink):
                 raise LiveSourceError("collector_invalid_custody_receipt")
@@ -618,7 +695,7 @@ class CollectorController:
             if result.source_receipt is None:
                 raise LiveSourceError("collector_invalid_custody_receipt")
             result = result.source_receipt
-        duplicate = (getattr(result, "outcome", None) == "duplicate"
+        duplicate = (replayed or getattr(result, "outcome", None) == "duplicate"
                      or bool(getattr(result, "duplicate", False)))
         capture_id = getattr(result, "capture_id", None)
         result_outcome = getattr(result, "outcome", None)
@@ -802,7 +879,8 @@ class CollectorController:
             page = runtime.fetch_page(selection, cast(str | None, entry.get("next_cursor")))
             if page.selection != selection:
                 raise ConnectorContractError("invalid collector page")
-            run_id = _run_id(source_id, now, cast(str | None, entry.get("next_cursor")))
+            run_id = _run_id(source_id, now, cast(str | None, entry.get("next_cursor")),
+                             control_epoch=cast(int, entry["control_epoch"]))
             intended_ids = self._custody.receipt_ids(
                 source_id=source_id,
                 binding=self._binding,
@@ -939,7 +1017,11 @@ class CollectorController:
                             raise LiveSourceError("collector_import_cancelled")
                         self._in_capture.active = True
                         try:
-                            result = capture_sink.submit(intake)
+                            baseline = (capture_sink.lookup_baseline(
+                                intake, selection_generation=cast(str, entry["generation"]),
+                                allow_successor=True,
+                            ) if isinstance(capture_sink, EngineRevisionSink) else None)
+                            result = baseline if baseline is not None else capture_sink.submit(intake)
                         finally:
                             self._in_capture.active = False
                 except Exception as error:
@@ -958,6 +1040,17 @@ class CollectorController:
                 # boundary returns a canonical receipt.
                 if isinstance(result, CaptureCustodyReceipt):
                     continue
+                if isinstance(result, SavedMarkdownBaseline):
+                    self._custody.outcome(receipt_id, "duplicate", capture_id=result.result.capture_id,
+                                         evidence="historical_baseline")
+                    committed[delivery_id] = revision_identity
+                    committed_capture_ids[delivery_id] = result.result.capture_id
+                    committed_digests[delivery_id] = digest
+                    duplicates += 1
+                    continue
+                replayed = isinstance(result, SavedMarkdownDelivery) and result.replayed
+                if isinstance(result, SavedMarkdownDelivery):
+                    result = result.receipt
                 if isinstance(result, SourceRevisionDeliveryReceipt):
                     if not isinstance(capture_sink, EngineRevisionSink):
                         raise LiveSourceError("collector_invalid_custody_receipt")
@@ -966,12 +1059,9 @@ class CollectorController:
                     source_receipt = result.source_receipt
                     if source_receipt is None:
                         raise LiveSourceError("collector_invalid_custody_receipt")
-                    terminal_hook = getattr(runtime, "record_terminal", None)
-                    if callable(terminal_hook):
-                        terminal_hook(intake, result)
                     result = source_receipt
                 result_outcome = getattr(result, "outcome", None)
-                duplicate = (result_outcome == "duplicate"
+                duplicate = (replayed or result_outcome == "duplicate"
                              or bool(getattr(result, "duplicate", False)))
                 capture_id = getattr(result, "capture_id", None)
                 outcome = (
@@ -1104,24 +1194,39 @@ class CollectorController:
                     pause_ack_epoch=cast(int | None, latest_entry.get("pause_ack_epoch")),
                     next_cursor=cast(str | None, latest_entry.get("next_cursor")),
                 )
-            self._custody.validate_terminal(receipt_ids)
-            latest_committed = cast(dict[str, str], latest_entry["committed_revisions"])
-            latest_committed.update(committed)
-            cast(dict[str, str], latest_entry["committed_capture_ids"]).update(
-                committed_capture_ids
-            )
-            cast(dict[str, str], latest_entry["committed_digests"]).update(committed_digests)
-            latest_entry["next_cursor"] = page.next_cursor
-            latest_entry["active_run"] = None
-            latest_entry["cleanup_receipts"] = list(receipt_ids)
-            latest_entry["last_run"] = last_run
-            latest_entry["last_success_epoch"] = now
-            latest_status = latest_entry["status"]
-            latest_entry["next_run_epoch"] = now + cast(int, latest_entry["interval_seconds"])
-            self._store.save(latest_state)
-        page_hook = getattr(runtime, "acknowledge_page", None)
-        if callable(page_hook):
-            page_hook()
+            with ExitStack() as checkpoint:
+                page_validator = getattr(runtime, "validate_page_checkpoint", None)
+                if callable(page_validator):
+                    page_validator()
+                if isinstance(capture_sink, EngineRevisionSink):
+                    items = tuple(
+                        (self._custody.intake(receipt_id), cast(str, self._custody.receipt(receipt_id)["capture_id"]))
+                        for receipt_id in receipt_ids
+                        if self._custody.receipt(receipt_id)["outcome"] in {"captured", "duplicate"}
+                    )
+                    terminals = checkpoint.enter_context(capture_sink.page_checkpoint(
+                        items, selection_generation=cast(str, entry["generation"])
+                    ))
+                    terminal_hook = getattr(runtime, "record_terminal", None)
+                    if callable(terminal_hook):
+                        for (intake, _), terminal_result in zip(items, terminals, strict=True):
+                            terminal_hook(intake, terminal_result)
+                self._custody.validate_terminal(receipt_ids)
+                latest_committed = cast(dict[str, str], latest_entry["committed_revisions"])
+                latest_committed.update(committed)
+                cast(dict[str, str], latest_entry["committed_capture_ids"]).update(committed_capture_ids)
+                cast(dict[str, str], latest_entry["committed_digests"]).update(committed_digests)
+                latest_entry["next_cursor"] = page.next_cursor
+                latest_entry["active_run"] = None
+                latest_entry["cleanup_receipts"] = list(receipt_ids)
+                latest_entry["last_run"] = last_run
+                latest_entry["last_success_epoch"] = now
+                latest_status = latest_entry["status"]
+                latest_entry["next_run_epoch"] = now + cast(int, latest_entry["interval_seconds"])
+                self._store.save(latest_state)
+                page_hook = getattr(runtime, "acknowledge_page", None)
+                if callable(page_hook):
+                    page_hook()
         self._drain_cleanup(source_id)
         return CollectorCommandResult(
             source_id=source_id,
@@ -1167,6 +1272,7 @@ class CollectorController:
                     source_id,
                     now,
                     cast(str | None, latest.get("next_cursor")),
+                    control_epoch=cast(int, latest["control_epoch"]),
                 ),
                 finished_epoch=now,
                 outcome=outcome,
@@ -1274,6 +1380,33 @@ class EngineCaptureSink:
         return receipt
 
 
+@dataclass(frozen=True, slots=True)
+class SavedMarkdownBaseline:
+    """Exact observed intake and historical witness, not protected custody."""
+
+    delivery: SourceRevisionObservedDelivery
+    result: HistoricalBaselineDuplicate
+
+
+@dataclass(frozen=True, slots=True)
+class SavedMarkdownDelivery:
+    """Collector replay classification alongside the unchanged engine receipt."""
+
+    delivery: SourceRevisionDelivery
+    receipt: SourceRevisionDeliveryReceipt
+    replayed: bool
+
+    @property
+    def source_receipt(self) -> SourceRevisionReceipt | None:
+        return self.receipt.source_receipt
+
+    @property
+    def outcome(self) -> str:
+        if self.replayed and self.receipt.outcome in {"captured", "duplicate"}:
+            return "duplicate"
+        return self.receipt.outcome
+
+
 class EngineRevisionSink:
     """Saved-Markdown-only bridge to the engine's narrow revision capability."""
 
@@ -1297,7 +1430,9 @@ class EngineRevisionSink:
             raise LiveSourceError("source_brain_unavailable")
         return binding
 
-    def submit(self, intake: SourceRecordIntake) -> SourceRevisionDeliveryReceipt:
+    def _revision_capability(
+        self, intake: SourceRecordIntake,
+    ) -> tuple[SourceRevisionBinding, PublicJobRevisionSink]:
         if type(intake) is not SourceRecordIntake or intake.key.connector_name != "saved_markdown":
             raise ConnectorContractError("invalid collector capture")
         identity = self._capture_sink.brain_identity
@@ -1316,21 +1451,131 @@ class EngineRevisionSink:
             namespace=namespace,
         )
         sink = self._sink(binding) if callable(self._sink) else self._sink
+        return binding, sink
+
+    def lookup_baseline(
+        self, intake: SourceRecordIntake, *, selection_generation: str,
+        allow_successor: bool = False, expected_capture_id: str | None = None,
+    ) -> SavedMarkdownBaseline | None:
+        """Reconstruct from incoming content, never retrieve historical owner text."""
+        if type(allow_successor) is not bool or (allow_successor and expected_capture_id is not None):
+            raise T03Error("invalid_arguments")
+        binding, sink = self._revision_capability(intake)
+        if intake.observation is None:
+            return None
+        template = sink.baseline_template()
+        if template is None:
+            return None
+        if expected_capture_id is not None and expected_capture_id != template.expected_head:
+            # A normal terminal must be verified against its own envelope, not
+            # the old baseline merely because the upstream bytes reverted.
+            return None
+        capture = CaptureSubmission.for_public_job(
+            context=self._capture_sink.context,
+            payload=intake.payload(),
+            delivery_id=template.capture_delivery_id,
+            source_origin="third_party",
+            source_reference=intake.source_reference,
+            provenance=intake.provenance(),
+            privacy=intake.privacy,
+            intent="reference",
+            title=intake.title,
+        )
+        delivery = SourceRevisionObservedDelivery(
+            binding=binding,
+            submission=SourceRevisionSubmission(
+                capture=capture, namespace=binding.namespace,
+                revision_key=template.revision_key, canonical_sha256=capture.request_sha256(),
+                expected_head=template.expected_head, ordering=template.ordering,
+                expected_control_epoch=template.expected_control_epoch,
+            ),
+            expected_lifecycle_version=template.expected_lifecycle_version,
+            delivery_id=template.delivery_id,
+            observation=intake.observation,
+        )
+        if delivery.envelope_sha256 != template.observed_envelope_sha256:
+            return None
+        if allow_successor:
+            head = sink.inspect_head()
+            if (head.lifecycle == "active" and head.capture_id is not None
+                    and head.capture_id != template.expected_head):
+                # This is only a new-observation decision. Normal admission
+                # rechecks the complete source CAS under the writer lease.
+                return None
+        result = sink.lookup_baseline(delivery, selection_generation=selection_generation)
+        return None if result is None else SavedMarkdownBaseline(delivery, result)
+
+    def submit(self, intake: SourceRecordIntake) -> SavedMarkdownDelivery:
+        binding, sink = self._revision_capability(intake)
+        namespace = dict(binding.namespace)
         name = "saved-revision-" + hashlib.sha256(bounded_json(namespace, 4096)).hexdigest() + ".json"
-        with self._store.lock(name):
+        with self._store.lock("saved-revision-capacity"), self._store.lock(name):
             return self._submit_retained(intake, sink, binding, name)
+
+    @contextmanager
+    def page_checkpoint(
+        self, items: tuple[tuple[SourceRecordIntake, str], ...], *, selection_generation: str,
+    ) -> Iterator[tuple[SavedMarkdownBaseline | SavedMarkdownDelivery, ...]]:
+        terminals: list[SavedMarkdownBaseline | SavedMarkdownDelivery] = []
+        witnesses: list[tuple[SourceRevisionDelivery, HistoricalBaselineDuplicate | CurrentRevisionCheckpoint]] = []
+        page_sink = None
+        for intake, capture_id in items:
+            binding, sink = self._revision_capability(intake)
+            page_sink = sink if page_sink is None else page_sink
+            baseline = self.lookup_baseline(intake, selection_generation=selection_generation,
+                                            expected_capture_id=capture_id)
+            if baseline is not None:
+                if baseline.result.capture_id != capture_id:
+                    raise T03Error("revision_changed")
+                terminals.append(baseline)
+                witnesses.append((baseline.delivery, baseline.result))
+            else:
+                name = "saved-revision-" + hashlib.sha256(bounded_json(dict(binding.namespace), 4096)).hexdigest() + ".json"
+                with self._store.lock(name):
+                    terminal = self._submit_retained(intake, sink, binding, name, lookup_only=True)
+                if terminal.source_receipt is None or terminal.source_receipt.capture_id != capture_id:
+                    raise T03Error("revision_changed")
+                witness = sink.lookup_checkpoint(terminal.delivery, terminal.receipt, selection_generation=selection_generation)
+                terminals.append(terminal)
+                witnesses.append((terminal.delivery, witness))
+        if page_sink is None:
+            yield ()
+        else:
+            with page_sink.revision_page_checkpoint(tuple(witnesses), selection_generation=selection_generation):
+                yield tuple(terminals)
 
     def _submit_retained(
         self, intake: SourceRecordIntake, sink: PublicJobRevisionSink,
         binding: SourceRevisionBinding, name: str,
-    ) -> SourceRevisionDeliveryReceipt:
+        *, lookup_only: bool = False,
+    ) -> SavedMarkdownDelivery:
         saved = self._store.read(name)
         if saved is not None and not isinstance(saved, dict):
             raise LiveSourceError("collector_invalid_custody")
         retained = cast(dict[str, object] | None, saved)
+        if retained is not None and (
+            set(retained) != {"intake_digest", "envelope", "envelope_sha256", "terminal"}
+            or not isinstance(retained["envelope"], dict)
+            or "submission" not in retained["envelope"]
+        ):
+            raise LiveSourceError("collector_invalid_custody")
+        if retained is not None and hashlib.sha256(
+            portable_canonical_json_bytes(retained["envelope"])
+        ).hexdigest() != retained["envelope_sha256"]:
+            raise LiveSourceError("collector_custody_stale")
         terminal = None if retained is None else retained.get("terminal")
+        if terminal is not None and (
+            not isinstance(terminal, dict)
+            or terminal.get("outcome") not in {"captured", "duplicate", "quarantined"}
+        ):
+            raise LiveSourceError("collector_invalid_custody")
         quarantined = isinstance(terminal, dict) and terminal.get("outcome") == "quarantined"
-        if retained is not None and (terminal is None or quarantined):
+        replayed = retained is not None and terminal is not None and not quarantined and retained.get("intake_digest") == intake_digest(intake)
+        if lookup_only and not replayed:
+            raise LiveSourceError("collector_custody_stale")
+        use_retained = retained is not None and (terminal is None or quarantined or replayed)
+        if use_retained:
+            assert retained is not None
             if retained.get("intake_digest") != intake_digest(intake):
                 raise LiveSourceError("collector_custody_stale")
             envelope = cast(dict[str, object], retained["envelope"])
@@ -1341,19 +1586,6 @@ class EngineRevisionSink:
             lifecycle_version = cast(int, envelope["expected_lifecycle_version"])
         else:
             head = sink.inspect_head()
-            if retained is not None and retained.get("intake_digest") == intake_digest(intake):
-                terminal = cast(dict[str, object], retained["terminal"])
-                if (terminal.get("capture_id") == head.capture_id and head.lifecycle == "active"
-                        and terminal.get("control_epoch") == head.control_epoch):
-                    envelope = cast(dict[str, object], retained["envelope"])
-                    from open_brain_engine.engine import SourceRevisionReceipt
-
-                    return SourceRevisionDeliveryReceipt(
-                        cast(str, envelope["delivery_id"]), cast(str, retained["envelope_sha256"]),
-                        binding.destination_brain_id, binding.issuer_epoch,
-                        SourceRevisionReceipt(head.source_id, head.capture_id, "duplicate", head.control_epoch),
-                        "duplicate",
-                    )
             predecessor_key, expected_head = head.revision_key, head.capture_id
             control_epoch, lifecycle_version = head.control_epoch, head.lifecycle_version
         revision_key = hashlib.sha256(bounded_json({
@@ -1398,26 +1630,41 @@ class EngineRevisionSink:
                 observation=intake.observation,
             )
         envelope_value = json.loads(delivery.custody_bytes())
-        if retained is not None and (terminal is None or quarantined):
+        if use_retained:
+            assert retained is not None
             if (retained["envelope"] != envelope_value
                     or retained["envelope_sha256"] != delivery.envelope_sha256):
                 raise LiveSourceError("collector_custody_stale")
         else:
+            previous = retained
             retained = {"intake_digest": intake_digest(intake), "envelope": envelope_value,
                         "envelope_sha256": delivery.envelope_sha256, "terminal": None}
-            pending_bytes = len(delivery.custody_bytes())
+            archive_name = None
+            if previous is not None:
+                archive_name = "saved-revision-archive-" + cast(str, previous["envelope_sha256"]) + ".json"
+                archived = self._store.read(archive_name)
+                if archived is not None and archived != previous:
+                    raise LiveSourceError("collector_invalid_custody")
+            pending_bytes = len(bounded_json(retained, 4_194_304))
             pending_count = 1
             for pending_name in self._store.names("saved-revision-"):
                 if pending_name == name:
                     continue
                 pending = self._store.read(pending_name)
-                if isinstance(pending, dict) and pending.get("terminal") is None:
+                if isinstance(pending, dict):
                     pending_count += 1
                     pending_bytes += len(bounded_json(pending, 4_194_304))
+                else:
+                    raise LiveSourceError("collector_invalid_custody")
+            if archive_name is not None and previous is not None and archived is None:
+                pending_count += 1
+                pending_bytes += len(bounded_json(previous, 4_194_304))
             if pending_count > 256 or pending_bytes > 2_097_152:
                 raise LiveSourceError("collector_custody_full")
+            if archive_name is not None and previous is not None and archived is None:
+                self._store.write(archive_name, previous)
             self._store.write(name, retained)
-        result = sink.submit(delivery)
+        result = sink.lookup_receipt(delivery) if lookup_only else sink.submit(delivery)
         if (result.delivery_id != delivery.delivery_id
                 or result.envelope_sha256 != delivery.envelope_sha256
                 or result.destination_brain_id != binding.destination_brain_id
@@ -1427,7 +1674,7 @@ class EngineRevisionSink:
         if result.outcome == "operation_pending":
             if receipt is not None:
                 raise LiveSourceError("collector_invalid_custody_receipt")
-            return result
+            return SavedMarkdownDelivery(delivery, result, replayed=False)
         try:
             sink.verify_receipt(delivery, result)
         except T03Error:
@@ -1445,10 +1692,11 @@ class EngineRevisionSink:
                 or receipt.control_epoch != control_epoch
                 or receipt.source_id is None or receipt.capture_id is None):
             raise LiveSourceError("collector_invalid_custody_receipt")
+        if lookup_only:
+            return SavedMarkdownDelivery(delivery, result, replayed=True)
         retained["terminal"] = asdict(receipt)
-        retained["envelope"] = {"delivery_id": delivery.delivery_id}
         self._store.write(name, retained)
-        return result
+        return SavedMarkdownDelivery(delivery, result, replayed=replayed)
 
 
 def _result(
@@ -1477,9 +1725,9 @@ def _selection_from_entry(entry: Mapping[str, object]) -> SourceResourceSelectio
     )
 
 
-def _run_id(source_id: str, now: int, cursor: str | None) -> str:
+def _run_id(source_id: str, now: int, cursor: str | None, *, control_epoch: int) -> str:
     suffix = cursor if cursor is not None else "initial"
-    return f"{source_id}:{now}:{suffix}"
+    return f"{source_id}:{now}:{control_epoch}:{suffix}"
 
 
 def _run_payload(

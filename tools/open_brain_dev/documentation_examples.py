@@ -72,12 +72,12 @@ AGENT_SETUP_GRANTS: Final = {
 }
 COMPATIBILITY_COORDINATES: Final = {
     "Core / engine package": "0.1.0 / exactly 0.1.0",
-    "Local state schema": "12",
-    "Runtime session": "7",
+    "Local state schema": "13",
+    "Runtime session": "8",
     "Task contract": "t03.v1",
     "Catalog schema": "2",
     "Plugin bridge": "1",
-    "Portable metadata": "7",
+    "Portable metadata": "8",
 }
 README_MCP_CONFIGS: Final = (
     ("Capture only", ("mcp", "--allow-capture")),

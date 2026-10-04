@@ -70,8 +70,17 @@ def coordinate_local_migration(
     )
     lifecycle_phase = schema.state == "supported_old" and schema.version == 10 and target >= 11
     sharing_phase = schema.state == "supported_old" and schema.version == 11 and target >= 12
+    historical_phase = schema.state == "supported_old" and schema.version == 12 and target >= 13
     if not any(
-        (source_phase, privacy_phase, issuer_phase, ingestion_phase, lifecycle_phase, sharing_phase)
+        (
+            source_phase,
+            privacy_phase,
+            issuer_phase,
+            ingestion_phase,
+            lifecycle_phase,
+            sharing_phase,
+            historical_phase,
+        )
     ):
         return
 
@@ -130,6 +139,14 @@ def coordinate_local_migration(
             from .sharing_migration import migrate_sharing
 
             migrate_sharing(
+                profile, admission=admission, clock=resolved_clock, checkpoint=checkpoint
+            )
+            schema = inspect_phase1_state(profile)
+        historical_phase = schema.state == "supported_old" and schema.version == 12 and target >= 13
+        if historical_phase:
+            from .historical_migration import migrate_historical
+
+            migrate_historical(
                 profile, admission=admission, clock=resolved_clock, checkpoint=checkpoint
             )
             schema = inspect_phase1_state(profile)

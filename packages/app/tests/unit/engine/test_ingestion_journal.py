@@ -101,7 +101,7 @@ def test_schema_nine_migrates_only_through_coordinator_and_preserves_capture(
         BrainEngine.open(profile)
 
     coordinate_local_migration(profile, clock=_clock)
-    assert inspect_phase1_state(profile) == local_schema.SchemaState("current", 12)
+    assert inspect_phase1_state(profile) == local_schema.SchemaState("current", 13)
     with sqlite3.connect(profile.root / PHASE1_STATE_DATABASE) as connection:
         assert connection.execute("SELECT capture_id FROM captures").fetchone() == (
             capture.capture_id,
@@ -141,7 +141,13 @@ def test_schema_nine_migrates_only_through_coordinator_and_preserves_capture(
             )
 
 
-def test_portable_export_refuses_active_journal_payload(tmp_path: Path) -> None:
+def test_portable_export_refuses_active_journal_payload(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Freeze the historical Portable7 refusal on actual schema12 storage.
+    # Portable8 now carries validated custody rather than dropping the queue.
+    monkeypatch.setattr(local_schema, "PHASE1_STATE_SCHEMA_VERSION", 12)
+    monkeypatch.setattr(local_schema, "LOCAL_MIGRATIONS", LOCAL_MIGRATIONS[:12])
     profile = compile_single_user_local(tmp_path / "brain")
     engine = BrainEngine.open(profile)
     submission = CaptureSubmission.for_local_owner(

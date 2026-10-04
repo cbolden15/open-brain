@@ -66,3 +66,51 @@ target until a later release prunes it. The complete custody document has a 4 Mi
 capture failures also stop the batch; they are not treated as content quarantine. Do not delete
 custody files to bypass backpressure: after provider acknowledgement they may contain the only
 replayable copy of an item.
+
+## Failed saved-Markdown inventory
+
+The saved-Markdown runtime refuses a final checkpoint with
+`collector_scan_incomplete` when enumeration, binding or file validation fails.
+Its active run and cached page remain retained. Restoring the files or restarting
+the process does not make the failed inventory successful. A bounded continuation
+page with no errors remains eligible; an unfinished scan is not absence evidence.
+
+The local host API `CollectorController.restart_failed_scan` takes the selected
+`source_id`, its `SavedMarkdownCollectorRuntime`, and the exact `expected_run_id`
+from retained controller state. This is not a collector CLI command or an engine
+owner operation. The host must bind the existing Brain and selection as usual.
+The operation checks that every page item still has exact replayable terminal
+custody under the current destination, selection generation and control epoch.
+Pending custody refuses with `collector_incomplete_custody`; resolve its original
+envelope through the existing replay path before restarting inventory.
+
+Recovery persists an exact-request reset marker before detaching the active run.
+If controller persistence fails after that reset, retrying the same failed run
+finishes the reset without changing custody. A changed run or selection refuses;
+a valid inventory cannot be reset by this operation. The reset advances the local
+control epoch, clears the failed cursor and absence candidates, and leaves known
+sources, prior success time, every retained custody body and canonical receipt
+unchanged. The run remains recorded as failed. The next eligible invocation begins
+a fresh scan and uses ordinary exact replay or current revision admission.
+
+This path does not acknowledge independent protection, release payload budget,
+infer withdrawal, grant sharing, or enable a paused or disabled schedule. Retained
+recovery custody remains subject to the normal aggregate limits. Do not delete it
+to create capacity; independent protection and an authorized cleanup mechanism
+are separate requirements.
+
+## Observed revision custody
+
+Observed source revisions retain their serialized intake after terminal completion,
+retry cleanup, pause, disable or selection reset. A capture ID, local terminal
+receipt or historical baseline is not independently protected revision replay.
+The capture-only `receipt-protection.v1` contract also cannot authorize removal
+of managed source ordering, lifecycle and whole-envelope evidence.
+
+This retention guard uses the existing aggregate custody limits and no eviction.
+When accepted retained revisions fill capacity, admission stops rather than
+discarding them. Full saved-revision sender envelopes and prior versions remain
+in their existing bounded cache/archive as well. These local copies are not an
+independent disaster-recovery proof. A separate managed-record protection and
+verified import protocol is required before observed revision compaction can be
+enabled; no such release acknowledgement is implemented here.

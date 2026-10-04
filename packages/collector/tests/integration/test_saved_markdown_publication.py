@@ -32,6 +32,7 @@ from open_brain_collector.lifecycle import (
     EngineRevisionSink,
 )
 from open_brain_collector.saved_markdown import SavedMarkdownCollectorRuntime
+from open_brain_connectors.runtime.live_common import LiveSourceError
 from open_brain_connectors.runtime.live_storage import PrivateJsonStore
 from open_brain_connectors.runtime.saved_markdown import SavedMarkdownRootAdapter
 from packages.app.tests.integration.engine.test_sharing_surfaces import _external
@@ -105,7 +106,9 @@ def test_publication_collects_sixty_files_through_restart_continuation(
         assert result.duplicate_count == result.quarantined_count == 0
         assert (result.next_cursor is None) is (page_index == 2)
         assert result.next_run_epoch == now[0] + 60
-        assert controller.custody_status("synthetic-publication")["retained_items"] == 0
+        assert controller.custody_status("synthetic-publication")["retained_items"] == sum(
+            (25, 25, 10)[: page_index + 1]
+        )
         state = CollectorStateStore(tmp_path / "state.json").load()
         entry = cast(dict[str, object], cast(dict[str, object], state["sources"])[
             "synthetic-publication"
@@ -178,7 +181,7 @@ def test_publication_collects_sixty_files_through_restart_continuation(
         assert result.captured_count == result.quarantined_count == 0
         assert result.duplicate_count == expected_count
         assert (result.next_cursor is None) is (page_index == 2)
-        assert controller.custody_status("synthetic-publication")["retained_items"] == 0
+        assert controller.custody_status("synthetic-publication")["retained_items"] == 60
     assert _terminal_snapshot(tasks) == before
     assert runtime.last_scan is not None and runtime.last_scan.complete
     assert runtime.absence_candidates == ()
@@ -394,15 +397,19 @@ def test_publication_incomplete_or_refused_scan_never_withdraws(
     now = [100]
     tasks, sink, runtime, controller = _collector(tmp_path, selected, now)
     controller.enable(
-        source_id="synthetic-publication", selection=_adapter(selected).selection,
+        source_id="synthetic-publication",
+        selection=_adapter(selected).selection,
         interval_seconds=60,
     )
-    assert controller.sync_due(
-        source_id="synthetic-publication", runtime=runtime, capture_sink=sink
-    ).captured_count == 1
-    source_id = json.loads(cast(str, _terminal_snapshot(tasks)[0][2]))[
-        "source_receipt"
-    ]["source_id"]
+    assert (
+        controller.sync_due(
+            source_id="synthetic-publication", runtime=runtime, capture_sink=sink
+        ).captured_count
+        == 1
+    )
+    source_id = json.loads(cast(str, _terminal_snapshot(tasks)[0][2]))["source_receipt"][
+        "source_id"
+    ]
     owner = EffectiveAuthority("synthetic-owner", "session", frozenset(), None, owner=True)
     approved = _approve_current(tasks, source_id, owner, "scan-boundary")
     assert tasks.sources is not None and approved.copy_capture_id is not None
@@ -420,10 +427,13 @@ def test_publication_incomplete_or_refused_scan_never_withdraws(
                 tuple(tuple(row) for row in connection.execute(f"SELECT * FROM {table} ORDER BY 1"))
                 for table in tables
             ) + (
-                tuple(tuple(row) for row in connection.execute(
-                    "SELECT * FROM source_revisions WHERE source_id=? ORDER BY sequence",
-                    (source_id,),
-                )),
+                tuple(
+                    tuple(row)
+                    for row in connection.execute(
+                        "SELECT * FROM source_revisions WHERE source_id=? ORDER BY sequence",
+                        (source_id,),
+                    )
+                ),
             )
 
     retained_before = retained_snapshot(tasks)
@@ -453,14 +463,31 @@ def test_publication_incomplete_or_refused_scan_never_withdraws(
         now[0] = 220
         with monkeypatch.context() as patch:
             if failure == "enumeration":
+
                 def inaccessible(_path: object) -> object:
                     raise OSError("synthetic enumeration denied")
 
                 patch.setattr(os, "scandir", inaccessible)
-            last = controller.sync_due(
-                source_id="synthetic-publication", runtime=runtime, capture_sink=sink
-            )
-        assert last.next_cursor is None
+            if failure == "refused_present":
+                last = controller.sync_due(
+                    source_id="synthetic-publication", runtime=runtime, capture_sink=sink
+                )
+                assert last.next_cursor is None
+            else:
+                with pytest.raises(LiveSourceError, match="collector_scan_incomplete"):
+                    controller.sync_due(
+                        source_id="synthetic-publication", runtime=runtime, capture_sink=sink
+                    )
+                entry = cast(
+                    dict[str, object],
+                    cast(dict[str, object], controller._store.load()["sources"])[
+                        "synthetic-publication"
+                    ],
+                )
+                assert entry["last_success_epoch"] == 160
+                assert entry["next_cursor"] == first.next_cursor
+                assert entry["active_run"] is not None
+                assert runtime._load()["page"] is not None
         assert runtime.last_scan is not None
         assert runtime.last_scan.complete is (failure == "refused_present")
         if failure == "refused_present":
@@ -468,24 +495,32 @@ def test_publication_incomplete_or_refused_scan_never_withdraws(
             assert len(refusals) == 1 and refusals[0].relative_path == "saved.md"
     assert runtime.absence_candidates == ()
     assert retained_snapshot(tasks) == retained_before
-    assert tasks.sources.inspect(
-        SourceInspectRequest(source_id=source_id), authority=owner
-    ) == inspected
+    assert (
+        tasks.sources.inspect(SourceInspectRequest(source_id=source_id), authority=owner)
+        == inspected
+    )
     assert tasks.retrieval.read_record(reading, authority=external).to_wire() == visible_before
     # Reopening durable objects cannot turn incomplete/refused presence into withdrawal.
     tasks, sink, runtime, controller = _collector(tmp_path, selected, now)
+    if failure in {"enumeration", "membership", "concurrent_edit"}:
+        with pytest.raises(LiveSourceError, match="collector_scan_incomplete"):
+            controller.sync_due(
+                source_id="synthetic-publication", runtime=runtime, capture_sink=sink
+            )
     assert runtime.absence_candidates == ()
     assert retained_snapshot(tasks) == retained_before
     assert tasks.sources is not None and tasks.history is not None
-    assert tasks.sources.inspect(
-        SourceInspectRequest(source_id=source_id), authority=owner
-    ) == inspected
+    assert (
+        tasks.sources.inspect(SourceInspectRequest(source_id=source_id), authority=owner)
+        == inspected
+    )
     tasks.portability.rebuild_index()
     assert tasks.retrieval.read_record(reading, authority=external).to_wire() == visible_before
     original = tasks.history.read_history(
         RecordReadRequest(
             record_id=inspected.head_capture_id, expected_revision_id=inspected.head_capture_id
-        ), authority=owner,
+        ),
+        authority=owner,
     ).to_wire()
     assert "Full synthetic retained body 漢字" in cast(
         str, cast(dict[str, object], original["content"])["text"]

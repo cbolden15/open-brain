@@ -258,12 +258,12 @@ def test_coordinator_is_a_no_op_for_absent_and_current_state(tmp_path: Path) -> 
     current = compile_single_user_local(tmp_path / "current")
     BrainEngine.open(current)
     coordinate(current)
-    assert inspect_phase1_state(current) == local_schema.SchemaState("current", 12)
+    assert inspect_phase1_state(current) == local_schema.SchemaState("current", 13)
     assert _journal_stage(current.root, SOURCE_JOURNAL) is None
     assert _journal_stage(current.root, PRIVACY_JOURNAL) is None
 
 
-def test_coordinator_chains_schema_five_and_six_to_current_eleven(
+def test_coordinator_chains_schema_five_and_six_to_current_thirteen(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     from open_brain_engine.engine import coordinate_local_migration as coordinate
@@ -271,7 +271,7 @@ def test_coordinator_chains_schema_five_and_six_to_current_eleven(
     for version in (5, 6):
         profile = _legacy_brain(tmp_path / f"v{version}", monkeypatch, version)
         coordinate(profile, clock=_clock)
-        assert inspect_phase1_state(profile) == local_schema.SchemaState("current", 12)
+        assert inspect_phase1_state(profile) == local_schema.SchemaState("current", 13)
         assert _journal_stage(profile.root, SOURCE_JOURNAL) == "complete"
         assert _journal_stage(profile.root, PRIVACY_JOURNAL) == "complete"
         # The ordinary opener works unchanged once the chain has ended at current.
@@ -279,14 +279,14 @@ def test_coordinator_chains_schema_five_and_six_to_current_eleven(
         assert reopened.retrieval.search("synthetic")[0].result_id
 
 
-def test_coordinator_migrates_schema_seven_to_eleven(
+def test_coordinator_migrates_schema_seven_to_current_thirteen(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     from open_brain_engine.engine import coordinate_local_migration as coordinate
 
     profile = _schema_seven_brain(tmp_path, monkeypatch)
     coordinate(profile, clock=_clock)
-    assert inspect_phase1_state(profile) == local_schema.SchemaState("current", 12)
+    assert inspect_phase1_state(profile) == local_schema.SchemaState("current", 13)
     assert _journal_stage(profile.root, SOURCE_JOURNAL) is None
     assert _journal_stage(profile.root, PRIVACY_JOURNAL) == "complete"
 
@@ -310,7 +310,7 @@ def test_coordinator_resumes_a_pending_source_journal(
     assert _journal_stage(profile.root, SOURCE_JOURNAL) == "journal_durable"
 
     coordinate(profile, clock=_clock)
-    assert inspect_phase1_state(profile) == local_schema.SchemaState("current", 12)
+    assert inspect_phase1_state(profile) == local_schema.SchemaState("current", 13)
     assert _journal_stage(profile.root, SOURCE_JOURNAL) == "complete"
     assert _journal_stage(profile.root, PRIVACY_JOURNAL) == "complete"
 
@@ -334,7 +334,7 @@ def test_coordinator_resumes_a_pending_privacy_journal(
     assert _journal_stage(profile.root, PRIVACY_JOURNAL) != "complete"
 
     coordinate(profile, clock=_clock)
-    assert inspect_phase1_state(profile) == local_schema.SchemaState("current", 12)
+    assert inspect_phase1_state(profile) == local_schema.SchemaState("current", 13)
     assert _journal_stage(profile.root, PRIVACY_JOURNAL) == "complete"
 
 
@@ -364,7 +364,7 @@ def test_coordinator_resumes_after_a_crash_between_phases(
     assert _journal_stage(profile.root, PRIVACY_JOURNAL) is None
 
     coordinate(profile, clock=_clock)
-    assert inspect_phase1_state(profile) == local_schema.SchemaState("current", 12)
+    assert inspect_phase1_state(profile) == local_schema.SchemaState("current", 13)
     assert _journal_stage(profile.root, SOURCE_JOURNAL) == "complete"
     assert _journal_stage(profile.root, PRIVACY_JOURNAL) == "complete"
 
@@ -375,7 +375,7 @@ def test_coordinator_refuses_invalid_and_newer_state(tmp_path: Path) -> None:
     newer = compile_single_user_local(tmp_path / "newer")
     BrainEngine.open(newer)
     with sqlite3.connect(newer.root / _STATE_DATABASE) as connection:
-        connection.execute("PRAGMA user_version=13")
+        connection.execute("PRAGMA user_version=14")
     assert inspect_phase1_state(newer).state == "newer"
     with pytest.raises(StateSchemaUnavailableError, match="newer"):
         coordinate(newer)
@@ -403,7 +403,7 @@ def test_one_exclusive_admission_spans_every_phase(
     # The chain reused the already-live root-bound proof and acquired once.
     assert len(acquisitions) == 1
     assert acquisitions[0] is profile
-    assert inspect_phase1_state(profile) == local_schema.SchemaState("current", 12)
+    assert inspect_phase1_state(profile) == local_schema.SchemaState("current", 13)
 
 
 def test_product_bootstrap_migrates_old_state_only_after_peers_exit(
@@ -455,7 +455,7 @@ def test_product_bootstrap_migrates_old_state_only_after_peers_exit(
             TextPayload("synthetic post-migration capture"),
             delivery_id="bootstrap.after",
         )
-    assert _user_version(profile.root) == 12
+    assert _user_version(profile.root) == 13
     assert _journal_stage(profile.root, SOURCE_JOURNAL) == "complete"
     assert _journal_stage(profile.root, PRIVACY_JOURNAL) == "complete"
     assert len(acquisitions) == 1
@@ -528,14 +528,14 @@ def _assert_exact_migrated_issuer_evidence(profile: LocalEngineContext) -> None:
         ] == [(path, ordinal, digest, 1) for path, ordinal, digest in expected_bindings]
 
 
-def test_coordinator_migrates_schema_eight_to_eleven_with_exact_issuer_evidence(
+def test_coordinator_migrates_schema_eight_to_current_thirteen_with_exact_issuer_evidence(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     from open_brain_engine.engine import coordinate_local_migration as coordinate
 
     profile = _schema_eight_brain(tmp_path, monkeypatch)
     coordinate(profile, clock=_clock)
-    assert inspect_phase1_state(profile) == local_schema.SchemaState("current", 12)
+    assert inspect_phase1_state(profile) == local_schema.SchemaState("current", 13)
     _assert_exact_migrated_issuer_evidence(profile)
     # The ordinary opener works unchanged once the issuer phase has ended at current.
     reopened = BrainEngine.open(profile)
@@ -571,7 +571,7 @@ def test_issuer_migration_is_atomic_across_a_crash_and_idempotent_on_reentry(
             assert table not in absent
 
     coordinate(profile, clock=_clock)
-    assert inspect_phase1_state(profile) == local_schema.SchemaState("current", 12)
+    assert inspect_phase1_state(profile) == local_schema.SchemaState("current", 13)
     _assert_exact_migrated_issuer_evidence(profile)
 
     # Re-entry on committed schema nine verifies the stored evidence and is a no-op.
@@ -579,9 +579,21 @@ def test_issuer_migration_is_atomic_across_a_crash_and_idempotent_on_reentry(
         before = connection.execute(
             "SELECT source_manifest_sha256, recorded_at FROM issuer_migration_marker"
         ).fetchone()
-    with exclusive_runtime_admission(profile) as admission:
-        migrate_issuer(profile, admission=admission, clock=_clock)
-    assert inspect_phase1_state(profile) == local_schema.SchemaState("current", 12)
+    from open_brain_engine.engine import issuer_state
+
+    database_bytes = (profile.root / _STATE_DATABASE).read_bytes()
+    with monkeypatch.context() as retry, exclusive_runtime_admission(profile) as admission:
+        retry.setattr(
+            issuer_state,
+            "cutover_inventory",
+            lambda _profile: pytest.fail("committed issuer migration re-read the vault"),
+        )
+        migrate_issuer(
+            profile, admission=admission, clock=_clock,
+            checkpoint=lambda _stage: pytest.fail("committed issuer migration reran"),
+        )
+    assert (profile.root / _STATE_DATABASE).read_bytes() == database_bytes
+    assert inspect_phase1_state(profile) == local_schema.SchemaState("current", 13)
     with sqlite3.connect(Path(profile.root) / _STATE_DATABASE) as connection:
         assert tuple(
             connection.execute(
@@ -639,11 +651,11 @@ def test_schema_ten_lifecycle_migration_faults_preserve_exact_legacy_evidence(
         ]
 
     coordinate(profile, clock=_clock)
-    assert inspect_phase1_state(profile) == local_schema.SchemaState("current", 12)
+    assert inspect_phase1_state(profile) == local_schema.SchemaState("current", 13)
     assert _schema_ten_evidence(profile) == evidence
     assert _vault_files(profile) == files
     with sqlite3.connect(profile.root / _STATE_DATABASE) as connection:
-        assert connection.execute("SELECT * FROM runtime_compatibility").fetchall() == [(1, 7, 12)]
+        assert connection.execute("SELECT * FROM runtime_compatibility").fetchall() == [(1, 8, 13)]
         assert (
             connection.execute(
                 "SELECT source_id,lifecycle_version FROM source_lifecycle_state ORDER BY source_id"
@@ -655,11 +667,11 @@ def test_schema_ten_lifecycle_migration_faults_preserve_exact_legacy_evidence(
         for table in ("source_lifecycle_operations", "managed_source_deliveries"):
             assert connection.execute(f"SELECT COUNT(*) FROM {table}").fetchone() == (0,)
         ledger = connection.execute("SELECT * FROM schema_migrations ORDER BY version").fetchall()
-        assert len(ledger) == 12
+        assert len(ledger) == 13
         assert tuple(ledger[-1][:3]) == (
-            LOCAL_MIGRATIONS[11].version,
-            LOCAL_MIGRATIONS[11].name,
-            LOCAL_MIGRATIONS[11].checksum,
+            LOCAL_MIGRATIONS[12].version,
+            LOCAL_MIGRATIONS[12].name,
+            LOCAL_MIGRATIONS[12].checksum,
         )
 
     with exclusive_runtime_admission(profile) as admission:
@@ -779,12 +791,12 @@ def test_schema_ten_lifecycle_migration_refuses_live_peer_before_database_writes
             os.close(handle)
         peer.unlink()
     coordinate(profile, clock=_clock)
-    assert _user_version(profile.root) == 12
+    assert _user_version(profile.root) == 13
     assert _schema_ten_evidence(profile) == evidence
 
 
 @pytest.mark.parametrize("opener", ["engine", "bootstrap"])
-def test_historical_runtime_five_refuses_schema_eleven_before_writes(
+def test_historical_runtime_five_refuses_current_thirteen_before_writes(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, opener: str
 ) -> None:
     from open_brain_engine.engine import coordinate_local_migration as coordinate
@@ -809,8 +821,8 @@ def test_historical_runtime_five_refuses_schema_eleven_before_writes(
                 with open_local_brain(
                     selection, filesystem_type_probe=lambda *_args, **_kwargs: "apfs"
                 ):
-                    pytest.fail("historical runtime-five bootstrap entered schema eleven")
-    assert _user_version(profile.root) == 12
+                    pytest.fail("historical runtime-five bootstrap entered schema thirteen")
+    assert _user_version(profile.root) == 13
     assert (profile.root / _STATE_DATABASE).read_bytes() == database_bytes
     assert _schema_ten_evidence(profile) == evidence
     assert _vault_files(profile) == files

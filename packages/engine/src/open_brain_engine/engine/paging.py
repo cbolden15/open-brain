@@ -95,6 +95,8 @@ def _authorized_retrieval_digest(
         parameters.extend(readable_tiers)
     else:
         clauses.append("0")
+    if not authority.owner and authority.egress_mode is EgressMode.OWNER_LOCAL:
+        clauses.append("scoped_projection_visible(d.record_type,d.result_id)=1")
     if authority.egress_mode is EgressMode.EXTERNAL_PROVIDER:
         clauses.append("d.effective_external_egress=1")
         clauses.append("sharing_visible(d.capture_id)=1")
@@ -156,8 +158,41 @@ def generations(
     row = connection.execute("SELECT * FROM engine_generations WHERE singleton=1").fetchone()
     if row is None:
         raise T03Error("operation_pending")
-    if authority is None or authority.owner:
+    if authority is None or authority.owner and authority.egress_mode is EgressMode.OWNER_LOCAL:
         return dict(row)
+    if authority.egress_mode is EgressMode.OWNER_LOCAL:
+        from .historical_visibility import historical_capture_visibility
+
+        local_projector = RecordProjector(profile, connection, authority)
+
+        def historical_visible(capture_id: str) -> bool:
+            return historical_capture_visibility(
+                connection, profile, capture_id, local_history=True,
+                provider_id=None, brain_id=None, issuer_epoch=None,
+            ) is not False
+
+        def scoped_projection_visible(record_type: object, record_id: object) -> int:
+            if not isinstance(record_id, str):
+                return 0
+            try:
+                if record_type == "source":
+                    return int(historical_visible(record_id))
+                elif record_type == "canonical":
+                    publication = local_projector.current_publication(record_id)
+                    members = connection.execute(
+                        "SELECT capture_id FROM canonical_revision_members "
+                        "WHERE page_id=? AND publication_id=? ORDER BY ordinal",
+                        (record_id, publication),
+                    ).fetchall()
+                    return int(
+                        bool(members) and all(historical_visible(item[0]) for item in members)
+                    )
+                else:
+                    return 0
+            except T03Error, StorageError, ValueError, TypeError, KeyError:
+                return 0
+
+        connection.create_function("scoped_projection_visible", 2, scoped_projection_visible)
     if authority.egress_mode is EgressMode.EXTERNAL_PROVIDER:
         projector = RecordProjector(profile, connection, authority)
 
@@ -188,6 +223,7 @@ def generations(
                     provider_id=authority.provider_id,
                     brain_id=authority.brain_id,
                     issuer_epoch=authority.issuer_epoch,
+                    profile=profile,
                 )
             ),
         )
@@ -296,6 +332,8 @@ def search_page(
             parameters.extend(readable_tiers)
         else:
             clauses.append("0")
+        if not authority.owner and authority.egress_mode is EgressMode.OWNER_LOCAL:
+            clauses.append("scoped_projection_visible(d.record_type,d.result_id)=1")
         if authority.egress_mode is EgressMode.EXTERNAL_PROVIDER:
             clauses.append("d.effective_external_egress=1")
             clauses.append("sharing_visible(d.capture_id)=1")
