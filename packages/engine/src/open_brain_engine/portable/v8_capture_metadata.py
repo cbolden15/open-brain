@@ -13,9 +13,9 @@ from open_brain_engine.core.ids import portable_canonical_json_bytes as canonica
 from open_brain_engine.storage.markdown import parse_markdown
 
 from .v1 import PortableValidationError
-from .v5 import EFFECTIVE_PRIVACY_PATH, decode_retained_privacy_value
+from .v5 import EFFECTIVE_PRIVACY_PATH, decode_retained_privacy_value, encode_retained_privacy_value
 
-CAPTURE_METADATA_PATH = "history/capture-metadata/original-v1.json"
+CAPTURE_METADATA_PATH = "history/capture-metadata/original-v2.json"
 MAX_CAPTURE_METADATA_BYTES = 64 * 1024 * 1024
 CAPTURE_COLUMNS = (
     "delivery_id",
@@ -79,11 +79,12 @@ def capture_metadata_bytes(rows: list[dict[str, Any]]) -> bytes:
     encoded = []
     for row in rows:
         value = dict(row)
+        value["privacy_json"] = encode_retained_privacy_value(value["privacy_json"])
         for name in ("payload_json", "file_bytes"):
             if value[name] is not None:
                 value[name] = base64.b64encode(value[name]).decode("ascii")
         encoded.append(value)
-    raw = canonical({"schema_version": 1, "captures": encoded})
+    raw = canonical({"schema_version": 2, "captures": encoded})
     if len(raw) > MAX_CAPTURE_METADATA_BYTES:
         raise ValueError("Portable8 capture metadata exceeds bounds")
     return raw
@@ -170,7 +171,7 @@ def validate_capture_metadata(files: Mapping[str, bytes]) -> tuple[dict[str, Any
             type(value) is not dict
             or set(value) != {"schema_version", "captures"}
             or type(value["schema_version"]) is not int
-            or value["schema_version"] != 1
+            or value["schema_version"] != 2
             or type(value["captures"]) is not list
             or len(value["captures"]) > 100000
             or canonical(value) != raw
@@ -206,7 +207,9 @@ def validate_capture_metadata(files: Mapping[str, bytes]) -> tuple[dict[str, Any
             if type(row) is not dict or set(row) != set(CAPTURE_COLUMNS):
                 raise ValueError
             for key, item in row.items():
-                if key == "stage":
+                if key == "privacy_json":
+                    row[key] = decode_retained_privacy_value(item)
+                elif key == "stage":
                     if type(item) is not int or item != 3:
                         raise ValueError
                 elif item is None:
@@ -245,7 +248,11 @@ def validate_capture_metadata(files: Mapping[str, bytes]) -> tuple[dict[str, Any
                 }.get(key, record.get(key))
                 if row[key] != expected:
                     raise ValueError
-            if row["source_path"] != path or row["privacy_json"] != privacy[capture_id]:
+            if (
+                row["source_path"] != path
+                or type(row["privacy_json"]) is not type(privacy[capture_id])
+                or row["privacy_json"] != privacy[capture_id]
+            ):
                 raise ValueError
             receipt = next(
                 item for item in record["receipt_refs"] if item["kind"] == "capture_accepted"

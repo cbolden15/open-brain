@@ -52,7 +52,7 @@ PORTABLE_V8_SCHEMA_CATALOG_DIGEST = sha256(
         {
             "base": "portable-brain-v7-sharing-authority",
             "historical_authority": 1,
-            "original_capture_metadata": 1,
+            "original_capture_metadata": 2,
             "capture_custody": 1,
             "schema_version": 8,
         }

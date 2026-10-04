@@ -46,7 +46,7 @@ before activation; a snapshot alone is not a freshness or zero-loss proof.
 
 ## Clean restore
 
-V8 also requires `history/capture-metadata/original-v1.json`. It preserves the
+V8 also requires `history/capture-metadata/original-v2.json`. It preserves the
 original settled capture row, including delivery/request identity, supplied title,
 admission provenance, stored privacy, canonical allocation and file bytes. Its
 closed, canonical representation is bounded to 64 MiB and sorted by capture ID.
@@ -54,7 +54,14 @@ Validation requires complete capture coverage and correspondence to archived
 payloads, accepted receipts, immutable privacy evidence and record paths. Hidden
 materialization and fresh semantic audits use this evidence, not inferred owner
 metadata or import aliases. The unreleased v8 catalog digest commits to this
-required sidecar; Portable1–7 interpretations remain unchanged.
+required sidecar; Portable1–7 interpretations remain unchanged. Metadata v2 uses
+the frozen retained-privacy tagged codec to preserve SQLite text, NULL, BLOB,
+integer and real values without normalization. Validation requires the exact
+type and value to match immutable privacy evidence. The versioned path and v8
+catalog reject earlier unreleased metadata rather than reinterpreting its bytes.
+The existing current-state importer still refuses numeric privacy storage that
+SQLite TEXT affinity cannot reproduce exactly; the codec does not widen that
+admission contract or silently coerce a numeric value to text.
 
 This metadata is not a replay grant or a fresh audit of a live upstream source.
 V8 also requires `history/capture-custody/journal-v1.json`. It preserves capture

@@ -15,11 +15,95 @@ from open_brain_engine.engine import (
     TextPayload,
 )
 from open_brain_engine.portable.v1 import PortableValidationError
+from open_brain_engine.portable.v5 import (
+    EFFECTIVE_PRIVACY_PATH,
+    decode_retained_privacy_value,
+    encode_retained_privacy_value,
+)
 from open_brain_engine.portable.v8 import validate_portable_file_set_v8
-from open_brain_engine.portable.v8_capture_metadata import CAPTURE_METADATA_PATH
+from open_brain_engine.portable.v8_capture_metadata import (
+    CAPTURE_METADATA_PATH,
+    capture_metadata_bytes,
+    validate_capture_metadata,
+)
 from open_brain_engine.portable.versioned import validated_portable_snapshot
 
 from open_brain.profile import compile_single_user_local
+from packages.engine.tests.contract.test_portable_brain_v5 import _fixture, _privacy_state, _write
+
+
+@pytest.mark.parametrize("original,changed", ((1, 1.0), (1.0, 1)))
+def test_v8_metadata_refuses_equal_numeric_value_with_changed_storage_type(
+    tmp_path: Path,
+    original: int | float,
+    changed: int | float,
+) -> None:
+    engine = BrainEngine.open(compile_single_user_local(tmp_path / "primary"))
+    engine.capture.accept(TextPayload("Synthetic type binding"), delivery_id="privacy.type")
+    archive = tmp_path / "archive"
+    engine.portability.export(archive, export_id="export_" + str(uuid4()))
+    files = dict(validated_portable_snapshot(archive).files)
+    immutable = json.loads(files[EFFECTIVE_PRIVACY_PATH])
+    immutable["retained_privacy"][0]["privacy_json"] = encode_retained_privacy_value(original)
+    files[EFFECTIVE_PRIVACY_PATH] = portable_canonical_json_bytes(immutable)
+    metadata = json.loads(files[CAPTURE_METADATA_PATH])
+    metadata["captures"][0]["privacy_json"] = encode_retained_privacy_value(changed)
+    files[CAPTURE_METADATA_PATH] = portable_canonical_json_bytes(metadata)
+    # Exercise original-metadata cross-binding directly. Numeric restore
+    # admission remains independently refused by the existing importer.
+    with pytest.raises(PortableValidationError):
+        validate_capture_metadata(files)
+
+
+@pytest.mark.parametrize("privacy", (None, b"\x00invalid\xff", "malformed text", 123, 1.25))
+def test_v8_metadata_privacy_codec_preserves_original_storage_type(
+    tmp_path: Path,
+    privacy: object,
+) -> None:
+    engine = BrainEngine.open(compile_single_user_local(tmp_path / "primary"))
+    engine.capture.accept(TextPayload("Synthetic codec body"), delivery_id="privacy.codec")
+    with engine._store.connect() as connection:
+        row = dict(connection.execute("SELECT * FROM captures").fetchone())
+    row["privacy_json"] = privacy
+    encoded = json.loads(capture_metadata_bytes([row]))
+    assert encoded["schema_version"] == 2
+    tagged = encoded["captures"][0]["privacy_json"]
+    assert tagged == encode_retained_privacy_value(privacy)
+    restored = decode_retained_privacy_value(tagged)
+    assert type(restored) is type(privacy) and restored == privacy
+
+
+@pytest.mark.parametrize("privacy", (None, b"\x00invalid\xff", "malformed text"))
+def test_v8_clean_restore_preserves_historical_privacy_storage_value(
+    tmp_path: Path,
+    privacy: object,
+) -> None:
+    files = _fixture()
+    state = _privacy_state(files, privacy)
+    expected = {
+        row["capture_id"]: decode_retained_privacy_value(row["privacy_json"])
+        for row in state["retained_privacy"]
+    }
+    historical = tmp_path / "historical"
+    _write(historical, files)
+    engine = BrainEngine.open(compile_single_user_local(tmp_path / "control"))
+    engine.portability.import_clean(
+        historical, tmp_path / "upgraded", import_id="import_" + str(uuid4())
+    )
+    upgraded = BrainEngine.open(compile_single_user_local(tmp_path / "upgraded"))
+    archive = tmp_path / "current"
+    upgraded.portability.export(archive, export_id="export_" + str(uuid4()))
+    engine.portability.import_clean(
+        archive, tmp_path / "restored", import_id="import_" + str(uuid4())
+    )
+    restored = BrainEngine.open(compile_single_user_local(tmp_path / "restored"))
+    with restored._store.connect() as connection:
+        values = dict(connection.execute("SELECT capture_id,privacy_json FROM captures"))
+    assert values.keys() == expected.keys()
+    assert all(
+        type(value) is type(expected[key]) and value == expected[key]
+        for key, value in values.items()
+    )
 
 
 @pytest.mark.parametrize("canonical,file_payload", ((False, False), (True, False), (False, True)))
