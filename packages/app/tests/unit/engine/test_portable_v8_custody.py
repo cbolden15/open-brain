@@ -51,12 +51,26 @@ def _journal_state(profile: LocalEngineContext) -> dict[str, object]:
 
 
 @pytest.mark.parametrize(
-    "state", ("queued", "failed", "quarantined", "retried", "discarded", "compacted", "terminal")
+    "state",
+    (
+        "queued",
+        "queued-managed",
+        "failed",
+        "quarantined",
+        "retried",
+        "discarded",
+        "compacted",
+        "terminal",
+    ),
 )
 def test_v8_restores_original_journal_and_watermarks_before_drain(
     tmp_path: Path, state: str
 ) -> None:
     primary = BrainEngine.open(compile_single_user_local(tmp_path / "primary"))
+    if state == "queued-managed":
+        workspace = tmp_path / "workspace"
+        workspace.mkdir(mode=0o700)
+        primary.managed_workspace.setup(str(workspace), operation_id="custody.workspace")
     submission = CaptureSubmission.for_local_owner(
         profile=primary.profile,
         payload=TextPayload("Synthetic original pending envelope"),

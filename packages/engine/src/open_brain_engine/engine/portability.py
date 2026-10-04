@@ -1043,7 +1043,18 @@ class _PortableImporter:
                             raise ValueError("Portable managed state is invalid")
                         from .local import BrainEngine
 
-                        staged_engine = BrainEngine.open(materialization.profile)
+                        # Installing settled managed state must not drain the
+                        # already-restored Portable8 capture custody.
+                        staged_engine = (
+                            BrainEngine(
+                                materialization.profile,
+                                faults=set(),
+                                clock=lambda: datetime.now(UTC),
+                                enrichment_provider=None,
+                            )
+                            if manifest["schema_version"] == 8
+                            else BrainEngine.open(materialization.profile)
+                        )
                         import_managed_workspace_state(
                             staged_engine,
                             stage_snapshot.files[managed_paths[0]],
