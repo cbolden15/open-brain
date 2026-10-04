@@ -5,6 +5,7 @@ import multiprocessing
 import stat
 import threading
 from pathlib import Path
+from typing import cast
 
 import pytest
 from open_brain_engine.engine import PrivacyDecision
@@ -186,53 +187,66 @@ def test_cancel_after_terminal_receipt_does_not_read_discarded_custody(
     assert controller.custody_status("github.fixture")["retained_items"] == 0
 
 
-def test_pause_cannot_discard_completed_capture_before_its_outcome_is_recorded(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+@pytest.mark.parametrize("command", ["pause", "disable"])
+@pytest.mark.parametrize("records", ["one", "two"])
+def test_cancel_before_outcome_matches_cancel_after_outcome(
+    tmp_path: Path, command: str, records: str
 ) -> None:
-    clock = _Clock(100)
-    state_store = CollectorStateStore(tmp_path / "collector.json")
-    controller = CollectorController(state_store, clock=clock)
-    control = CollectorController(state_store, clock=clock)
+    source_type = _Source if records == "one" else _MultiRecordSource
+    before = _cancel_around_first_outcome(tmp_path / "before", command, source_type, first=True)
+    after = _cancel_around_first_outcome(tmp_path / "after", command, source_type, first=False)
+    # The racy ordering really ran: the cancel discarded the pending receipt.
+    assert before["tolerated"] == ["collector_custody_not_found"]
+    assert after["tolerated"] == []
+    assert before["result"] == after["result"]
+    assert before["result"] and cast(tuple[object, ...], before["result"])[0] == "failed"
+    assert before["state"] == after["state"]
+    assert before["retained_items"] == after["retained_items"] == 0
+
+
+def _cancel_around_first_outcome(
+    root: Path, command: str, source_type: type[_Source], *, first: bool
+) -> dict[str, object]:
+    state_store = CollectorStateStore(root / "collector.json")
+    controller = CollectorController(state_store, clock=lambda: 100)
+    control = CollectorController(state_store, clock=lambda: 100)
     selection = _selection()
-    entered = threading.Event()
-    release = threading.Event()
-    pause_done = threading.Event()
-    sink = _BlockingSink(entered, release)
-    record_outcome = CustodyStore.outcome
-
-    def outcome_after_pause_window(self: CustodyStore, *args: object, **kwargs: object) -> None:
-        # Give a waiting pause every chance to run between submit and outcome.
-        pause_done.wait(2)
-        record_outcome(self, *args, **kwargs)  # type: ignore[arg-type]
-
-    monkeypatch.setattr(CustodyStore, "outcome", outcome_after_pause_window)
     controller.enable(source_id="github.fixture", selection=selection, interval_seconds=30)
-    results: list[object] = []
-    sync_thread = threading.Thread(
-        target=lambda: results.append(
-            controller.sync_due(
-                source_id="github.fixture", runtime=_Source(selection), capture_sink=sink
-            )
-        )
+    record = controller._custody.outcome
+    calls: list[int] = []
+    tolerated: list[str] = []
+
+    def cancel_around(receipt_id: str, outcome: str, **details: str | None) -> None:
+        calls.append(1)
+        if len(calls) == 1 and first:
+            getattr(control, command)("github.fixture")
+        try:
+            record(receipt_id, outcome, **details)
+        except LiveSourceError as error:
+            tolerated.append(error.code)
+            raise
+        if len(calls) == 1 and not first:
+            getattr(control, command)("github.fixture")
+
+    controller._custody.outcome = cancel_around  # type: ignore[method-assign]
+    result = controller.sync_due(
+        source_id="github.fixture", runtime=source_type(selection), capture_sink=MemoryCaptureSink()
     )
-    sync_thread.start()
-    assert entered.wait(30)
-    pause_results: list[object] = []
-
-    def pause() -> None:
-        pause_results.append(control.pause("github.fixture"))
-        pause_done.set()
-
-    pause_thread = threading.Thread(target=pause)
-    pause_thread.start()
-    release.set()
-    sync_thread.join(30)
-    pause_thread.join(30)
-    assert len(results) == len(pause_results) == 1
-    assert results[0].outcome == "failed"  # type: ignore[attr-defined]
-    persisted = json.loads((tmp_path / "collector.json").read_text(encoding="utf-8"))
-    assert persisted["sources"]["github.fixture"]["status"] == "paused"
-
+    state = json.loads((root / "collector.json").read_text(encoding="utf-8"))
+    entry = state["sources"]["github.fixture"]
+    entry["last_run"].pop("run_id", None)
+    return {
+        "tolerated": tolerated,
+        "result": (
+            str(result.outcome),
+            result.failure_code,
+            result.captured_count,
+            result.duplicate_count,
+            result.status,
+        ),
+        "state": entry,
+        "retained_items": controller.custody_status("github.fixture")["retained_items"],
+    }
 
 
 def test_missing_custody_without_cancellation_still_fails_the_run(
