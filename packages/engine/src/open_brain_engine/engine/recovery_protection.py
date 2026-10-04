@@ -19,17 +19,20 @@ from .capture_recovery import CaptureRecoveryPlan, _capture_plan_from_connection
 from .capture_replay import require_matching_capture
 from .contracts import CaptureReceipt, CaptureSubmission, CaptureSubmissionPath, JournalEnvelope
 from .custody_recovery import CaptureCustodyRecoveryPlan, _custody_plan_from_connection
+from .journal_recovery import CaptureJournalRecoveryEvent, CaptureJournalRecoveryPlan
 from .recovery_closure import RecoveryClosure
 from .recovery_journal import RecoveryBaseline
 
 if TYPE_CHECKING:
     from .local import BrainEngine
 
-RecoveryPlan = CaptureRecoveryPlan | CaptureCustodyRecoveryPlan
+RecoveryPlan = CaptureRecoveryPlan | CaptureCustodyRecoveryPlan | CaptureJournalRecoveryPlan
 
 
 def operation_sha256(plan: RecoveryPlan) -> str:
-    if type(plan) not in (CaptureRecoveryPlan, CaptureCustodyRecoveryPlan):
+    if type(plan) not in (
+        CaptureRecoveryPlan, CaptureCustodyRecoveryPlan, CaptureJournalRecoveryPlan,
+    ):
         raise ValueError("unsupported recovery protection plan")
     return sha256(b"open-brain-recovery-operation.v1\0" + plan.to_bytes()).hexdigest()
 
@@ -125,6 +128,8 @@ class RecoveryProtectionGuard:
                 decoded = CaptureRecoveryPlan.from_record(record)
             elif record.kind == "capture_custody":
                 decoded = CaptureCustodyRecoveryPlan.from_record(record)
+            elif record.kind == "capture_journal":
+                decoded = CaptureJournalRecoveryPlan.from_record(record)
             else:
                 raise ValueError("unsupported protected recovery history")
             self.require_owner(engine, decoded.envelope.submission)
@@ -179,6 +184,53 @@ class RecoveryProtectionGuard:
 
     def protect_capture(self, engine: BrainEngine, delivery_id: str) -> None:
         self.protect(engine, self.capture_plan(engine, delivery_id))
+
+    def protect_terminal_journal(self, engine: BrainEngine, delivery_id: str) -> None:
+        """Commit original terminal events separately before deleting local custody."""
+        try:
+            capture = self.capture_plan(engine, delivery_id)
+            evidence = self.port.lookup(
+                delivery_id, timeout_seconds=float(self.timeout_seconds)
+            )
+            self._checked(engine, capture, evidence)
+            original = [CaptureCustodyRecoveryPlan.from_record(record)
+                        for record in evidence.closure.records
+                        if record.kind == "capture_custody"]
+            matching = [plan for plan in original
+                        if plan.receipt.delivery_id == delivery_id]
+            if len(matching) != 1 or matching[0].envelope != capture.envelope:
+                raise ValueError("missing original journal custody")
+            custody = matching[0]
+            with engine._store.connect() as connection:
+                self.validate_identity(connection)
+                from .custody_replay import _rows
+
+                item, _ = _rows(custody)
+                retained = connection.execute(
+                    "SELECT * FROM capture_ingestion_items WHERE delivery_id=?", (delivery_id,),
+                ).fetchone()
+                body = connection.execute(
+                    "SELECT envelope_bytes FROM capture_ingestion_payloads WHERE delivery_id=?",
+                    (delivery_id,),
+                ).fetchone()
+                if retained is None or dict(retained) != item or body is None or (
+                    body[0] != custody.envelope.to_bytes()
+                ):
+                    raise ValueError("journal protection original custody mismatch")
+                events = tuple(CaptureJournalRecoveryEvent(
+                    event_sequence=row["event_sequence"], event_kind=row["event_kind"],
+                    attempt_number=row["attempt_number"], receipt_json=row["receipt_json"],
+                    recorded_at=row["recorded_at"],
+                ) for row in connection.execute(
+                    "SELECT * FROM capture_ingestion_events WHERE delivery_id=? "
+                    "ORDER BY event_sequence", (delivery_id,),
+                ))
+            plan = CaptureJournalRecoveryPlan(
+                custody=custody, events=events, capture=capture, compacted=True,
+            )
+            self.protect(engine, plan)
+        except Exception:
+            raise RecoveryProtectionPendingError("recovery protection journal pending") from None
 
     def protect_pending(self, engine: BrainEngine, submission: CaptureSubmission) -> None:
         try:

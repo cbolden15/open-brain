@@ -7,6 +7,8 @@ from uuid import uuid4
 
 import pytest
 from open_brain_engine.engine import BrainEngine, CaptureReceipt, CaptureSubmission, TextPayload
+from open_brain_engine.engine.custody_recovery import CaptureCustodyRecoveryPlan
+from open_brain_engine.engine.journal_recovery import CaptureJournalRecoveryPlan
 from open_brain_engine.engine.recovery_closure import RecoveryClosure, RecoveryClosureBounds
 from open_brain_engine.engine.recovery_journal import RecoveryBaseline, RecoveryHead, RecoveryRecord
 from open_brain_engine.engine.recovery_protection import (
@@ -48,7 +50,9 @@ class SyntheticPort:
 
     def protect(self, plan: RecoveryPlan, *, timeout_seconds: float) -> RecoveryProtectionEvidence:
         assert timeout_seconds == 5.0
-        kind = "capture" if hasattr(plan, "identities") else "capture_custody"
+        kind = "capture_journal" if isinstance(plan, CaptureJournalRecoveryPlan) else (
+            "capture" if hasattr(plan, "identities") else "capture_custody"
+        )
         if self.engine is not None:
             with self.engine._store.connect() as connection:
                 row = connection.execute(
@@ -113,10 +117,16 @@ def test_guard_protects_original_cue_and_allocation_before_release(
     engine, port, _ = guarded
     receipt = engine.capture.accept(TextPayload("Synthetic owner"), delivery_id="owner.one")
     assert isinstance(receipt, CaptureReceipt)
-    assert [record.kind for record in port.records] == ["capture_custody", "capture"]
+    assert [record.kind for record in port.records] == [
+        "capture_custody", "capture", "capture_journal",
+    ]
+    terminal = CaptureJournalRecoveryPlan.from_record(port.records[-1])
+    assert [event.event_kind for event in terminal.events] == ["queued", "accepted"]
+    assert terminal.compacted and terminal.capture is not None
+    assert terminal.capture.identities.capture_id == receipt.capture_id
     assert port.stages[0] == ("capture_custody", None)
     assert next(stage for stage in port.stages if stage[0] == "capture") == ("capture", 0)
-    assert port.stages[-1] == ("capture", 3)
+    assert port.stages[-1] == ("capture_journal", 3)
     with engine._store.connect() as connection:
         before = tuple(connection.execute("SELECT * FROM captures").fetchone())
         assert connection.execute(
@@ -124,7 +134,7 @@ def test_guard_protects_original_cue_and_allocation_before_release(
         ).fetchone()[0] == 0
     duplicate = engine.capture.accept(TextPayload("Synthetic owner"), delivery_id="owner.one")
     assert isinstance(duplicate, CaptureReceipt) and duplicate.capture_id == receipt.capture_id
-    assert duplicate.duplicate and len(port.records) == 2
+    assert duplicate.duplicate and len(port.records) == 3
     with engine._store.connect() as connection:
         assert tuple(connection.execute("SELECT * FROM captures").fetchone()) == before
 
@@ -161,7 +171,8 @@ def test_failed_evidence_retains_body_and_retries_original_identity(
             assert connection.execute(
                 "SELECT accepted_receipt_id FROM captures WHERE delivery_id='owner.retry'"
             ).fetchone()[0] == allocation[1]
-    custody_plans = [plan for plan in port.plans.values() if not hasattr(plan, "identities")]
+    custody_plans = [plan for plan in port.plans.values()
+                    if isinstance(plan, CaptureCustodyRecoveryPlan)]
     assert len(custody_plans) == 1
     assert custody_plans[0].receipt.ingestion_id == cue[1]
     assert custody_plans[0].envelope.to_bytes() == raw
@@ -208,8 +219,41 @@ def test_terminal_failure_retains_original_body_until_recovered(
         TextPayload("Synthetic terminal"), delivery_id="owner.terminal"
     )
     assert isinstance(receipt, CaptureReceipt) and receipt.capture_id == row[0]
-    assert len(port.records) == 2
+    assert len(port.records) == 3
     with reopened._store.connect() as connection:
+        assert connection.execute(
+            "SELECT count(*) FROM capture_ingestion_payloads"
+        ).fetchone()[0] == 0
+
+
+@pytest.mark.parametrize("failure", ["timeout", "wrong", "missing"])
+def test_terminal_journal_proof_failure_retains_exact_events_before_compaction(
+    guarded: tuple[BrainEngine, SyntheticPort, RecoveryProtectionGuard], failure: str,
+) -> None:
+    engine, port, guard = guarded
+    port.fail_kind, port.failure = "capture_journal", failure
+    with pytest.raises(RecoveryProtectionPendingError):
+        engine.capture.accept(TextPayload("Synthetic original events"), delivery_id="owner.events")
+    with engine._store.connect() as connection:
+        original_events = tuple(tuple(row) for row in connection.execute(
+            "SELECT * FROM capture_ingestion_events ORDER BY event_sequence"
+        ))
+        original_capture = tuple(connection.execute("SELECT * FROM captures").fetchone())
+        original_body = connection.execute(
+            "SELECT envelope_bytes FROM capture_ingestion_payloads"
+        ).fetchone()[0]
+        assert len(original_events) == 2
+    port.fail_kind = None
+    reopened = BrainEngine.open(engine.profile, recovery_protection_guard=guard)
+    port.engine = reopened
+    proof = port.lookup("owner.events", timeout_seconds=5.0)
+    journal = CaptureJournalRecoveryPlan.from_record(proof.closure.records[-1])
+    assert tuple((event.event_sequence, "owner.events", event.event_kind,
+                  event.attempt_number, event.receipt_json, event.recorded_at)
+                 for event in journal.events) == original_events
+    assert journal.envelope.to_bytes() == original_body
+    with reopened._store.connect() as connection:
+        assert tuple(connection.execute("SELECT * FROM captures").fetchone()) == original_capture
         assert connection.execute(
             "SELECT count(*) FROM capture_ingestion_payloads"
         ).fetchone()[0] == 0

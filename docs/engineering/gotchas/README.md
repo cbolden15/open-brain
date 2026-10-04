@@ -4,6 +4,27 @@ Non-obvious behaviors, sharp edges, and lessons learned belong here.
 
 ## Registry
 
+### CUSTODY-002: Capture allocation evidence omits terminal journal history
+
+Symptom: Protection retains an original queue and capture allocation, but its
+mixed closure cannot restore an acknowledged capture through either homogeneous
+replay API. The original terminal event disappears during local compaction.
+
+Cause: Protecting the stage3 capture repeats the stage0 allocation commitment.
+It does not retain a separate operation containing original event sequences,
+receipt bytes, attempts or recorded times. Hash closure alone is not recovery.
+
+Fix: Protect the exact terminal journal transition before compaction, separately
+from its original custody and capture allocation. Validate the whole mixed chain
+before replay writes. Preserve capture rows, original receipts and journal
+high-water marks; retain unallocated queues and test interrupted/repeated replay.
+The owner replay seam currently supports initial queues and protected completed
+captures. Later nonterminal/discard, source/control/non-owner recovery, mandatory
+all-writer configuration and real independent disaster recovery remain required
+before activation. Never filter or renumber an authenticated recovery chain.
+
+Discovered: 2026-10-03, actual synthetic guard closure clean-restore diagnostic.
+
 ### PORTABLE-009: Fenced source receipts do not settle retained custody
 
 Symptom: Export of fenced source custody reaches the source-authority validator

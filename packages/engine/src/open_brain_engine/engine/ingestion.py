@@ -353,6 +353,7 @@ class IngestionJournal:
             if active is None:
                 return
             guard.protect_capture(self._engine, delivery_id)
+            guard.protect_terminal_journal(self._engine, delivery_id)
         with self._engine._store.transaction() as connection:
             if guard is not None:
                 guard.validate_identity(connection)

@@ -22,7 +22,7 @@ MAX_RECOVERY_RECORD_BYTES = ((MAX_RECOVERY_PAYLOAD_BYTES + 2) // 3) * 4 + 16_384
 MAX_RECOVERY_DEPENDENCIES = 64
 _MAX_SEQUENCE = 9_007_199_254_740_991
 _KINDS = frozenset({
-    "capture_custody", "capture", "managed_revision", "withdrawal", "sharing",
+    "capture_custody", "capture", "capture_journal", "managed_revision", "withdrawal", "sharing",
     "historical", "control",
 })
 _DOMAIN = b"open-brain-recovery-record.v1\0"
