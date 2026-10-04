@@ -67,15 +67,25 @@ captures.
 
 Fix: One `protect_journal(compact)` rebuilds the original cue from the item's
 first queued event, protects the reservation when present, then protects the
-exact retained history; a changed local row yields a second cue or allocation
-for the delivery and is refused. Failure and retry commits protect their
-non-terminal history immediately. A guarded discard commits the event and
+exact retained history. Every cue or allocation is compared with the
+authenticated closure before it is appended, so a changed local row refuses
+with the protected head unchanged instead of poisoning the append-only chain.
+Allocation protection ensures the cue first on every reservation path,
+including startup resume of a reservation that predates the guard. Failure and
+retry commits protect their non-terminal history immediately. A guarded discard commits the event and
 tombstone, protects the compacted journal, and only then deletes custody; an
 interrupted discard resumes at the protection step. Replay restores pending
 allocations (resume the bound stage machine, keep the queue item; the next drain
 writes the terminal event), exact non-terminal histories and tombstones.
 Quarantined or discarded originals skip destination re-admission on replay,
-since their destination may no longer exist, but keep the privacy check.
+since their destination may no longer exist, but keep the privacy check. A
+discarded journal that carries an allocation is refused: resuming it would
+publish discarded content. An interrupted replay (capture committed, queue
+item not yet restored) resumes on the next attempt. Terminal events and the
+tombstone are written before custody is deleted, because `BEFORE DELETE`
+guards refuse to drop items or payloads without them. Duplicate validation
+accepts several protected journals per delivery as long as each extends the
+previous and only the latest is the compacted terminal.
 Deleting a queue item cascades its local events: the protected journal is the
 retained history, so tests must not expect local events after compaction.
 

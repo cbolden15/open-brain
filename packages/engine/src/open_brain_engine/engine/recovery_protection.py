@@ -142,32 +142,51 @@ class RecoveryProtectionGuard:
         if matches != 1:
             raise ValueError("missing or ambiguous protected recovery operation")
 
-    def _protected(self, engine: BrainEngine, plan: RecoveryPlan) -> RecoveryProtectionEvidence:
+    def protect(self, engine: BrainEngine, plan: RecoveryPlan) -> None:
         try:
-            evidence = self.port.protect(plan, timeout_seconds=float(self.timeout_seconds))
-            self._checked(engine, plan, evidence)
+            self._checked(engine, plan, self.port.protect(
+                plan, timeout_seconds=float(self.timeout_seconds)
+            ))
         except Exception:
             raise RecoveryProtectionPendingError("recovery protection pending") from None
-        return evidence
 
-    def protect(self, engine: BrainEngine, plan: RecoveryPlan) -> None:
-        self._protected(engine, plan)
+    def _lookup_closure(self, delivery_id: str) -> RecoveryClosure:
+        """Current authenticated closure for a delivery, allocated or not."""
+        evidence = self.port.lookup(delivery_id, timeout_seconds=float(self.timeout_seconds))
+        if type(evidence) is not RecoveryProtectionEvidence or (
+            evidence.closure.expected_head.baseline != self.baseline
+        ):
+            raise ValueError("invalid recovery lookup")
+        return evidence.closure
 
-    @staticmethod
-    def _require_unique(evidence: RecoveryProtectionEvidence, delivery_id: str, kind: str) -> None:
-        """One original cue/allocation per delivery: a changed local row cannot be re-protected."""
-        matches = 0
-        for record in evidence.closure.records:
+    def _ensure_protected(
+        self, engine: BrainEngine, plan: CaptureRecoveryPlan | CaptureCustodyRecoveryPlan,
+    ) -> None:
+        """Compare with the authenticated chain before appending.
+
+        One original cue and one allocation exist per delivery. A changed local
+        row must refuse here, without appending a conflicting second record
+        that would poison the append-only chain for every later replay.
+        """
+        kind = "capture" if isinstance(plan, CaptureRecoveryPlan) else "capture_custody"
+        delivery = plan.envelope.submission.delivery_id
+        existing = []
+        for record in self._lookup_closure(delivery).records:
             if record.kind != kind:
                 continue
-            delivery = (
-                CaptureCustodyRecoveryPlan.from_record(record).receipt.delivery_id
-                if kind == "capture_custody"
-                else CaptureRecoveryPlan.from_record(record).envelope.submission.delivery_id
+            decoded: RecoveryPlan = (
+                CaptureRecoveryPlan.from_record(record) if kind == "capture"
+                else CaptureCustodyRecoveryPlan.from_record(record)
             )
-            matches += delivery == delivery_id
-        if matches != 1:
+            if decoded.envelope.submission.delivery_id == delivery:
+                existing.append(record.payload)
+        if len(existing) > 1:
             raise ValueError("ambiguous protected recovery history")
+        if existing:
+            if existing[0] != plan.to_bytes():
+                raise ValueError("protected recovery history mismatch")
+            return
+        self.protect(engine, plan)
 
     def capture_plan(self, engine: BrainEngine, delivery_id: str) -> CaptureRecoveryPlan:
         """Read original retained bytes, or fetch exact protected allocation proof."""
@@ -206,7 +225,26 @@ class RecoveryProtectionGuard:
             raise RecoveryProtectionPendingError("recovery protection replay pending") from None
 
     def protect_capture(self, engine: BrainEngine, delivery_id: str) -> None:
-        self.protect(engine, self.capture_plan(engine, delivery_id))
+        """Protect the allocation after its original cue on every reservation path.
+
+        A reservation that predates the guard is resumed at startup before any
+        drain; protecting its cue here keeps the chain in custody-first order.
+        """
+        try:
+            plan = self.capture_plan(engine, delivery_id)
+            with engine._store.connect() as connection:
+                self.validate_identity(connection)
+                retained = connection.execute(
+                    "SELECT 1 FROM capture_ingestion_items WHERE delivery_id=?", (delivery_id,),
+                ).fetchone()
+                cue = None if retained is None else _custody_plan_from_connection(
+                    connection, plan.envelope.submission, self.baseline, initial_only=False,
+                )
+            if cue is not None:
+                self._ensure_protected(engine, cue)
+            self._ensure_protected(engine, plan)
+        except Exception:
+            raise RecoveryProtectionPendingError("recovery protection allocation pending") from None
 
     def protect_journal(self, engine: BrainEngine, delivery_id: str, *, compact: bool) -> None:
         """Protect the exact retained journal of a progressed or allocated item.
@@ -256,9 +294,9 @@ class RecoveryProtectionGuard:
                 )
             if compact and events[-1].event_kind not in {"accepted", "duplicate", "discarded"}:
                 raise ValueError("journal compaction requires terminal history")
-            self._require_unique(self._protected(engine, custody), delivery_id, "capture_custody")
+            self._ensure_protected(engine, custody)
             if capture is not None:
-                self._require_unique(self._protected(engine, capture), delivery_id, "capture")
+                self._ensure_protected(engine, capture)
             self.protect(engine, CaptureJournalRecoveryPlan(
                 custody=custody, events=events, capture=capture, tombstone=tombstone,
                 compacted=compact,
@@ -282,7 +320,7 @@ class RecoveryProtectionGuard:
                     "SELECT count(*) FROM capture_ingestion_events WHERE delivery_id=?",
                     (submission.delivery_id,),
                 ).fetchone()[0] > 1
-                plan: RecoveryPlan | None = None
+                plan: CaptureRecoveryPlan | CaptureCustodyRecoveryPlan | None = None
                 if progressed:
                     pass
                 elif reserved is not None:
@@ -292,7 +330,7 @@ class RecoveryProtectionGuard:
             if plan is None:
                 self.protect_journal(engine, submission.delivery_id, compact=False)
             else:
-                self.protect(engine, plan)
+                self._ensure_protected(engine, plan)
         except Exception:
             raise RecoveryProtectionPendingError("recovery protection custody pending") from None
 
@@ -304,7 +342,10 @@ class RecoveryProtectionGuard:
             plan.identities.capture_id != receipt.capture_id
         ):
             raise RecoveryProtectionPendingError("recovery protection replay mismatch")
-        self.protect(engine, plan)
+        try:
+            self._ensure_protected(engine, plan)
+        except Exception:
+            raise RecoveryProtectionPendingError("recovery protection pending") from None
         with engine._store.connect() as connection:
             active = connection.execute(
                 "SELECT 1 FROM capture_ingestion_items WHERE delivery_id=?",
@@ -316,19 +357,23 @@ class RecoveryProtectionGuard:
             # Once local custody is compacted, allocation evidence alone cannot
             # prove the original terminal events. Require the independently
             # retained journal rather than inventing a replacement history.
+            # Failure and retry commits protect intermediate histories, so the
+            # delivery may carry several journals: each must extend the last,
+            # and only the latest may be the compacted terminal.
             try:
-                evidence = self.port.lookup(
-                    submission.delivery_id, timeout_seconds=float(self.timeout_seconds),
-                )
-                self._checked(engine, plan, evidence)
-                journals = [CaptureJournalRecoveryPlan.from_record(record)
-                            for record in evidence.closure.records
-                            if record.kind == "capture_journal"]
-                matching = [journal for journal in journals
-                            if journal.envelope.submission.delivery_id == submission.delivery_id]
-                if len(matching) != 1 or matching[0].capture != plan or (
-                    not matching[0].compacted
-                    or matching[0].events[-1].event_kind not in {"accepted", "duplicate"}
+                journals = sorted((
+                    CaptureJournalRecoveryPlan.from_record(record)
+                    for record in self._lookup_closure(submission.delivery_id).records
+                    if record.kind == "capture_journal"
+                    and CaptureJournalRecoveryPlan.from_record(record)
+                    .envelope.submission.delivery_id == submission.delivery_id
+                ), key=lambda journal: len(journal.events))
+                for earlier, later in zip(journals, journals[1:], strict=False):
+                    if earlier.compacted or later.events[:len(earlier.events)] != earlier.events:
+                        raise ValueError("protected journal progression conflict")
+                if not journals or journals[-1].capture != plan or (
+                    not journals[-1].compacted
+                    or journals[-1].events[-1].event_kind not in {"accepted", "duplicate"}
                 ):
                     raise ValueError("missing original terminal journal proof")
             except Exception:

@@ -5,6 +5,7 @@ from pathlib import Path
 from uuid import uuid4
 
 import pytest
+from open_brain_engine.core.ids import portable_canonical_json_bytes as canonical
 from open_brain_engine.core.models import PrivacyDecision
 from open_brain_engine.engine import (
     BrainEngine,
@@ -18,8 +19,13 @@ from open_brain_engine.engine import (
 )
 from open_brain_engine.engine.capture_recovery import CaptureRecoveryPlan
 from open_brain_engine.engine.custody_recovery import CaptureCustodyRecoveryPlan
-from open_brain_engine.engine.journal_recovery import CaptureJournalRecoveryPlan
+from open_brain_engine.engine.journal_recovery import (
+    CaptureJournalRecoveryEvent,
+    CaptureJournalRecoveryPlan,
+    CaptureJournalRecoveryTombstone,
+)
 from open_brain_engine.engine.owner_replay import replay_owner_recovery_chain
+from open_brain_engine.engine.portability import restore_portable_clean
 from open_brain_engine.engine.recovery_journal import RecoveryBaseline, RecoveryHead, RecoveryRecord
 from open_brain_engine.engine.recovery_protection import (
     RecoveryProtectionGuard,
@@ -356,3 +362,270 @@ def test_discarded_closure_restores_tombstone_without_custody(
     before = _snapshot(restored)
     replay_owner_recovery_chain(restored, records, expected_head=head, authority=owner)
     assert _snapshot(restored) == before
+
+
+def _fail_after_reservation_once(engine: BrainEngine) -> None:
+    """A retryable failure after stage-0 reservation leaves an allocated failed item."""
+    original = engine._fault
+    calls = {"count": 0}
+
+    def fault(point: object) -> None:
+        if point is CaptureFault.AFTER_CAPTURE_RESERVATION and calls["count"] == 0:
+            calls["count"] += 1
+            raise RuntimeError("synthetic failure after reservation")
+        original(point)  # type: ignore[arg-type]
+
+    engine._fault = fault  # type: ignore[method-assign]
+
+
+def _tamper_journal_sequence(engine: BrainEngine, delivery_id: str) -> None:
+    """Rows are immutable; an out-of-band tamper re-sequences the item, validly shaped."""
+    with engine._store.transaction() as connection:
+        guards = [tuple(row) for row in connection.execute(
+            "SELECT name,sql FROM sqlite_master WHERE type='trigger' "
+            "AND sql LIKE '%DELETE%' AND sql LIKE '%capture_ingestion_%'"
+        )]
+        for name, _ in guards:
+            connection.execute(f"DROP TRIGGER {name}")
+        item = dict(connection.execute(
+            "SELECT * FROM capture_ingestion_items WHERE delivery_id=?", (delivery_id,),
+        ).fetchone())
+        payload = connection.execute(
+            "SELECT envelope_bytes FROM capture_ingestion_payloads WHERE delivery_id=?",
+            (delivery_id,),
+        ).fetchone()[0]
+        events = [dict(row) for row in connection.execute(
+            "SELECT * FROM capture_ingestion_events WHERE delivery_id=? ORDER BY event_sequence",
+            (delivery_id,),
+        )]
+        connection.execute(
+            "DELETE FROM capture_ingestion_items WHERE delivery_id=?", (delivery_id,),
+        )
+        item["journal_sequence"] = item["journal_sequence"] + 100
+        connection.execute(
+            "INSERT INTO capture_ingestion_items VALUES(?,?,?,?,?,?,?,?)", tuple(item.values()),
+        )
+        connection.execute(
+            "INSERT INTO capture_ingestion_payloads VALUES(?,?)", (delivery_id, payload),
+        )
+        for event in events:
+            connection.execute(
+                "INSERT INTO capture_ingestion_events VALUES(?,?,?,?,?,?)", tuple(event.values()),
+            )
+        for _, sql in guards:
+            connection.execute(sql)
+
+
+def test_baseline_existing_reservation_closure_replays_in_custody_first_order(
+    tmp_path: Path,
+) -> None:
+    """Startup protection of an old reservation must still yield a replayable chain."""
+    profile = compile_single_user_local(tmp_path / "brain")
+    engine = BrainEngine.open(profile)
+    archive = tmp_path / "baseline"
+    engine.portability.export(archive, export_id="export_" + str(uuid4()))
+    files = tuple(sorted(validated_portable_snapshot(archive).files.items()))
+    with engine._store.connect() as connection:
+        identity = connection.execute("SELECT brain_id,issuer_epoch FROM brain_identity").fetchone()
+    baseline = RecoveryBaseline(
+        identity[0], identity[1], sha256(dict(files)["portable-manifest.json"]).hexdigest()
+    )
+    faulty = BrainEngine.open(profile, faults={CaptureFault.AFTER_CAPTURE_RESERVATION})
+    with pytest.raises(InjectedFault):
+        faulty.capture.accept(TextPayload("Synthetic old reservation"), delivery_id="old.alloc")
+    port = SyntheticPort(baseline, files)
+    guard = RecoveryProtectionGuard(baseline, port)
+    guarded_engine = BrainEngine.open(profile, recovery_protection_guard=guard)
+    port.engine = guarded_engine
+    journal = guarded_engine.tasks.journal
+    assert journal is not None
+    journal.drain(authority=_owner(guarded_engine))
+    assert [record.kind for record in port.records] == [
+        "capture_custody", "capture", "capture_journal",
+    ]
+    records, head = _closure(port)
+    restored, owner = _restore(guarded_engine, tmp_path)
+    receipts = replay_owner_recovery_chain(restored, records, expected_head=head, authority=owner)
+    assert len(receipts) == 1 and isinstance(receipts[0], CaptureReceipt)
+    assert receipts[0].capture_id == CaptureJournalRecoveryPlan.from_record(
+        port.records[-1]
+    ).capture.identities.capture_id  # type: ignore[union-attr]
+
+
+def test_tampered_retained_cue_is_refused_without_poisoning_the_protected_chain(
+    guarded: tuple[BrainEngine, SyntheticPort, RecoveryProtectionGuard],
+) -> None:
+    engine, port, _ = guarded
+    journal = engine.tasks.journal
+    assert journal is not None
+    engine.ingestion.enqueue(CaptureSubmission.for_local_owner(
+        profile=engine.profile, payload=TextPayload("Synthetic tampered"),
+        delivery_id="owner.tampered",
+    ))
+    _fail_next_materialization(engine)
+    assert journal.drain(authority=_owner(engine)).receipts == ()
+    protected = list(port.records)
+    _tamper_journal_sequence(engine, "owner.tampered")
+    with pytest.raises(RecoveryProtectionPendingError):
+        journal.drain(authority=_owner(engine))
+    # Refusal must not append a second cue: the authenticated head is unchanged.
+    assert port.records == protected
+    assert _journal_rows(engine, "owner.tampered")[:2] == (1, 1)
+
+
+@pytest.mark.parametrize("fault", [
+    CaptureFault.AFTER_CAPTURE_RESERVATION, CaptureFault.AFTER_SOURCE_WRITE,
+])
+@pytest.mark.parametrize("shape", ["allocation_only", "allocated_failed_history"])
+def test_interrupted_pending_allocation_replay_resumes(
+    guarded: tuple[BrainEngine, SyntheticPort, RecoveryProtectionGuard], tmp_path: Path,
+    fault: CaptureFault, shape: str,
+) -> None:
+    primary, port, _ = guarded
+    journal = primary.tasks.journal
+    assert journal is not None
+    if shape == "allocation_only":
+        receipt = primary.capture.accept(TextPayload("Synthetic resume"), delivery_id="resume.one")
+        assert isinstance(receipt, CaptureReceipt)
+        records, head = _prefix(_closure(port)[0], 2)
+        capture_id = receipt.capture_id
+    else:
+        primary.ingestion.enqueue(CaptureSubmission.for_local_owner(
+            profile=primary.profile, payload=TextPayload("Synthetic resume"),
+            delivery_id="resume.one",
+        ))
+        _fail_after_reservation_once(primary)
+        assert journal.drain(authority=_owner(primary)).receipts == ()
+        with primary._store.connect() as connection:
+            capture_id, stage = connection.execute(
+                "SELECT capture_id,stage FROM captures WHERE delivery_id='resume.one'"
+            ).fetchone()
+        assert stage == 0
+        assert _journal_rows(primary, "resume.one")[2] == ["queued", "attempt_failed"]
+        records, head = _closure(port)
+        assert [record.kind for record in records] == [
+            "capture_custody", "capture", "capture_journal",
+        ]
+    owner = EffectiveAuthority(
+        primary.profile.owner_actor_id, "recovery", frozenset(), None, owner=True,
+    )
+    primary.profile.root.rename(tmp_path / "unavailable-primary")
+    target = tmp_path / "restored"
+    restore_portable_clean(
+        tmp_path / "baseline", target, import_id="import_" + str(uuid4()), authority=owner,
+    )
+    interrupted = BrainEngine.open(compile_single_user_local(target), faults={fault})
+    with pytest.raises(InjectedFault):
+        replay_owner_recovery_chain(interrupted, records, expected_head=head, authority=owner)
+    assert _journal_rows(interrupted, "resume.one")[:2] == (0, 0)
+    restored = BrainEngine.open(compile_single_user_local(target))
+    replay_owner_recovery_chain(restored, records, expected_head=head, authority=owner)
+    with restored._store.connect() as connection:
+        row = connection.execute(
+            "SELECT capture_id,stage FROM captures WHERE delivery_id='resume.one'"
+        ).fetchone()
+    assert tuple(row) == (capture_id, 3)
+    expected_events = ["queued"] if shape == "allocation_only" else ["queued", "attempt_failed"]
+    assert _journal_rows(restored, "resume.one") == (1, 1, expected_events, 0)
+    before = _snapshot(restored)
+    replay_owner_recovery_chain(restored, records, expected_head=head, authority=owner)
+    assert _snapshot(restored) == before
+    restored_journal = restored.tasks.journal
+    assert restored_journal is not None
+    drained = restored_journal.drain(authority=_owner(restored)).receipts
+    assert [item.capture_id for item in drained] == [capture_id]
+
+
+def test_quarantined_prefix_then_discard_closure_replays_forward(
+    guarded: tuple[BrainEngine, SyntheticPort, RecoveryProtectionGuard], tmp_path: Path,
+) -> None:
+    primary, port, _ = guarded
+    journal = primary.tasks.journal
+    assert journal is not None
+    _quarantine(primary, "forward.discard")
+    prefix_records, prefix_head = _closure(port)
+    journal.discard("forward.discard", reason="owner_requested", authority=_owner(primary))
+    records, head = _closure(port)
+    restored, owner = _restore(primary, tmp_path)
+    replay_owner_recovery_chain(
+        restored, prefix_records, expected_head=prefix_head, authority=owner,
+    )
+    assert _journal_rows(restored, "forward.discard") == (1, 1, ["queued", "quarantined"], 0)
+    replay_owner_recovery_chain(restored, records, expected_head=head, authority=owner)
+    assert _journal_rows(restored, "forward.discard") == (0, 0, [], 1)
+    before = _snapshot(restored)
+    replay_owner_recovery_chain(restored, records, expected_head=head, authority=owner)
+    assert _snapshot(restored) == before
+
+
+def test_resubmission_after_transient_failure_acknowledges_duplicate(
+    guarded: tuple[BrainEngine, SyntheticPort, RecoveryProtectionGuard],
+) -> None:
+    engine, port, _ = guarded
+    journal = engine.tasks.journal
+    assert journal is not None
+    submission = CaptureSubmission.for_local_owner(
+        profile=engine.profile, payload=TextPayload("Synthetic resubmitted"),
+        delivery_id="owner.resubmit",
+    )
+    engine.ingestion.enqueue(submission)
+    _fail_next_materialization(engine)
+    assert journal.drain(authority=_owner(engine)).receipts == ()
+    receipts = journal.drain(authority=_owner(engine)).receipts
+    assert len(receipts) == 1
+    assert len(_journals(port)) == 2
+    duplicate = engine.capture.submit(submission)
+    assert isinstance(duplicate, CaptureReceipt)
+    assert duplicate.duplicate and duplicate.capture_id == receipts[0].capture_id
+
+
+def test_replay_refuses_a_discarded_allocation_before_any_write(
+    guarded: tuple[BrainEngine, SyntheticPort, RecoveryProtectionGuard], tmp_path: Path,
+) -> None:
+    primary, port, _ = guarded
+    journal = primary.tasks.journal
+    assert journal is not None
+    primary.ingestion.enqueue(CaptureSubmission.for_local_owner(
+        profile=primary.profile, payload=TextPayload("Synthetic forged discard"),
+        delivery_id="forged.discard",
+    ))
+    _fail_after_reservation_once(primary)
+    assert journal.drain(authority=_owner(primary)).receipts == ()
+    records, _ = _closure(port)
+    cue = CaptureCustodyRecoveryPlan.from_record(records[0])
+    capture = CaptureRecoveryPlan.from_record(records[1])
+    failed = CaptureJournalRecoveryPlan.from_record(records[2])
+    result = canonical({"status": "discarded", "reason": "forged"}).decode()
+    last = failed.events[-1]
+    forged = CaptureJournalRecoveryPlan(
+        custody=cue,
+        events=(
+            *failed.events,
+            CaptureJournalRecoveryEvent(
+                last.event_sequence + 1, "quarantined", last.attempt_number,
+                canonical({"status": "quarantined", "reason": "invalid"}).decode(),
+                last.recorded_at,
+            ),
+            CaptureJournalRecoveryEvent(
+                last.event_sequence + 2, "discarded", 0, result, last.recorded_at,
+            ),
+        ),
+        capture=capture,
+        tombstone=CaptureJournalRecoveryTombstone(
+            cue.receipt.request_sha256, result, last.recorded_at,
+        ),
+        compacted=True,
+    )
+    forged_record = RecoveryRecord(
+        baseline=cue.baseline, sequence=4, previous_sha256=records[2].record_sha256,
+        kind="capture_journal", payload=forged.to_bytes(),
+    )
+    records = (*records, forged_record)
+    head = RecoveryHead(cue.baseline, 4, forged_record.record_sha256)
+    restored, owner = _restore(primary, tmp_path)
+    before = _snapshot(restored)
+    with pytest.raises(ValueError, match="discarded allocation"):
+        replay_owner_recovery_chain(restored, records, expected_head=head, authority=owner)
+    assert _snapshot(restored) == before
+    with restored._store.connect() as connection:
+        assert connection.execute("SELECT count(*) FROM captures").fetchone()[0] == 0

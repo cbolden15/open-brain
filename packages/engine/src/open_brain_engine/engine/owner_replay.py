@@ -71,6 +71,11 @@ def _operations(records: tuple[RecoveryRecord, ...]) -> tuple[
     # (the next drain writes the terminal event); a journal without an
     # allocation restores its exact non-terminal or discarded history. The
     # codec already binds accepted/duplicate terminals to their allocation.
+    # Resuming an allocation the owner discarded would publish discarded
+    # content, so that shape is refused before any write.
+    for journal in journals.values():
+        if journal.events[-1].event_kind == "discarded" and journal.capture is not None:
+            raise ValueError("owner recovery cannot replay a discarded allocation")
     # Authenticate the append chain unchanged; materialize a separate view in
     # original queue order, not callback completion order.
     return (
@@ -89,6 +94,7 @@ def _journal_preflight(
     ingestion_ids: set[str] = set()
     previous_item = previous_event = 0
     pending: list[CaptureCustodyRecoveryPlan] = []
+    allocated: set[str] = set()
     for cue in cues:
         delivery = cue.receipt.delivery_id
         if cue.journal_sequence <= previous_item or cue.event_sequence <= previous_event:
@@ -128,6 +134,11 @@ def _journal_preflight(
         ).fetchone()
         if plan is None:
             if retained is None or capture is None:
+                if retained is None and capture is not None:
+                    # Interrupted replay: the bound capture committed before
+                    # its queue item. Its row was matched by the capture
+                    # preflight, so it is not a delivery collision.
+                    allocated.add(delivery)
                 pending.append(cue)
                 continue
             # A restored pending allocation keeps its initial queue item beside
@@ -164,7 +175,9 @@ def _journal_preflight(
                 # a missing terminal cue, even when final state is compacted.
                 pending.append(cue)
             elif not plan.compacted:
-                raise ValueError("owner recovery lost uncompacted journal")
+                # Interrupted replay of an allocated pending history.
+                allocated.add(delivery)
+                pending.append(cue)
             continue
         body = connection.execute(
             "SELECT envelope_bytes FROM capture_ingestion_payloads WHERE delivery_id=?",
@@ -183,7 +196,7 @@ def _journal_preflight(
             raise ValueError("owner recovery retained journal conflict")
     # Only new cues reach this initial-only validator. Existing progressed
     # captures/journals were compared with their full exact plans above.
-    return _preflight(connection, tuple(pending))
+    return _preflight(connection, tuple(pending), allocated=frozenset(allocated))
 
 
 def replay_owner_recovery_chain(
@@ -279,14 +292,11 @@ def replay_owner_recovery_chain(
                 delivery = cue.receipt.delivery_id
                 plan = terminals.get(delivery)
                 item, event = _rows(cue)
-                if plan is not None and plan.compacted:
-                    connection.execute(
-                        "DELETE FROM capture_ingestion_payloads WHERE delivery_id=?", (delivery,),
-                    )
-                    connection.execute(
-                        "DELETE FROM capture_ingestion_items WHERE delivery_id=?", (delivery,),
-                    )
-                elif cue in missing:
+                compacted = plan is not None and plan.compacted
+                present = connection.execute(
+                    "SELECT 1 FROM capture_ingestion_items WHERE delivery_id=?", (delivery,),
+                ).fetchone() is not None
+                if cue in missing and not compacted:
                     connection.execute(
                         "INSERT INTO capture_ingestion_items VALUES(?,?,?,?,?,?,?,?)",
                         tuple(item.values()),
@@ -299,7 +309,10 @@ def replay_owner_recovery_chain(
                         "INSERT INTO capture_ingestion_events VALUES(?,?,?,?,?,?)",
                         tuple(event.values()),
                     )
-                if plan is not None and not plan.compacted:
+                    present = True
+                # Terminal rows land before any deletion: the schema refuses to
+                # drop custody that lacks a terminal event or tombstone.
+                if plan is not None and present:
                     for event_row in plan.events[1:]:
                         connection.execute(
                             "INSERT OR IGNORE INTO capture_ingestion_events VALUES(?,?,?,?,?,?)",
@@ -313,6 +326,13 @@ def replay_owner_recovery_chain(
                         "INSERT OR IGNORE INTO capture_ingestion_tombstones VALUES(?,?,?,?)",
                         (delivery, plan.tombstone.request_sha256, plan.tombstone.result_json,
                          plan.tombstone.decided_at),
+                    )
+                if compacted:
+                    connection.execute(
+                        "DELETE FROM capture_ingestion_payloads WHERE delivery_id=?", (delivery,),
+                    )
+                    connection.execute(
+                        "DELETE FROM capture_ingestion_items WHERE delivery_id=?", (delivery,),
                     )
             for table, high in (
                 ("capture_ingestion_items", max((cue.journal_sequence for cue in cues), default=0)),
