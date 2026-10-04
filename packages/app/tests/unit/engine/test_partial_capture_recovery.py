@@ -11,6 +11,7 @@ from open_brain_engine.engine import (
     CaptureAction,
     CaptureFault,
     CaptureSubmission,
+    FilePayload,
     InjectedFault,
     TextPayload,
 )
@@ -28,23 +29,27 @@ from open_brain.profile import compile_single_user_local
 
 
 @pytest.mark.parametrize(
-    "canonical,fault",
+    "variant,fault",
     (
-        (False, CaptureFault.AFTER_CAPTURE_RESERVATION),
-        (False, CaptureFault.AFTER_SOURCE_WRITE),
-        (True, CaptureFault.AFTER_CAPTURE_RESERVATION),
-        (True, CaptureFault.AFTER_SOURCE_WRITE),
-        (True, CaptureFault.AFTER_AUTOMATIC_PROPOSAL_WRITE),
-        (True, CaptureFault.AFTER_AUTOMATIC_DECISION_WRITE),
-        (True, CaptureFault.AFTER_CANONICAL_PAGE_WRITE),
-        (True, CaptureFault.AFTER_PUBLICATION_WRITE),
+        ("quick", CaptureFault.AFTER_CAPTURE_RESERVATION),
+        ("quick", CaptureFault.AFTER_SOURCE_WRITE),
+        ("canonical", CaptureFault.AFTER_CAPTURE_RESERVATION),
+        ("canonical", CaptureFault.AFTER_SOURCE_WRITE),
+        ("canonical", CaptureFault.AFTER_AUTOMATIC_PROPOSAL_WRITE),
+        ("canonical", CaptureFault.AFTER_AUTOMATIC_DECISION_WRITE),
+        ("canonical", CaptureFault.AFTER_CANONICAL_PAGE_WRITE),
+        ("canonical", CaptureFault.AFTER_PUBLICATION_WRITE),
+        ("file", CaptureFault.AFTER_CAPTURE_RESERVATION),
+        ("file", CaptureFault.AFTER_BLOB_WRITE),
+        ("file", CaptureFault.AFTER_SOURCE_WRITE),
     ),
 )
 def test_partial_owner_capture_recovers_original_allocation_without_primary(
     tmp_path: Path,
-    canonical: bool,
+    variant: str,
     fault: CaptureFault,
 ) -> None:
+    canonical = variant == "canonical"
     primary_path = tmp_path / "primary"
     primary = BrainEngine.open(
         compile_single_user_local(primary_path, starter_spaces=("Recovery",))
@@ -62,7 +67,11 @@ def test_partial_owner_capture_recovers_original_allocation_without_primary(
     )
     submission = CaptureSubmission.for_local_owner(
         profile=primary.profile,
-        payload=TextPayload("Synthetic interrupted original body"),
+        payload=(
+            FilePayload("synthetic.txt", "text/plain", b"Synthetic interrupted original file bytes")
+            if variant == "file"
+            else TextPayload("Synthetic interrupted original body")
+        ),
         delivery_id="recovery.partial.owner",
         title="Original interrupted title",
         privacy_tier="personal",
@@ -135,6 +144,7 @@ def test_partial_owner_capture_recovers_original_allocation_without_primary(
         "title",
         "privacy_json",
         "payload_json",
+        "file_bytes",
         "auto_proposal_id",
         "auto_proposal_receipt_id",
         "auto_decision_id",
