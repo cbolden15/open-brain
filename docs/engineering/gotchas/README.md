@@ -4,6 +4,28 @@ Non-obvious behaviors, sharp edges, and lessons learned belong here.
 
 ## Registry
 
+### TESTING-003: macOS killpg reports EPERM for a zombie-only process group
+
+Symptom: A required NW0 proof job on macOS fails in about 20 seconds with
+`phase=tests`, `RuntimeError` and an empty runner log, then passes on re-run.
+The probe code is unchanged and a successful run also leaves an empty log.
+
+Cause: The shared command runner kills the child's process group after the
+child exits. On macOS, `killpg` returns EPERM, not ESRCH, when every remaining
+member is a zombie: the leader before reaping, or an orphaned descendant that
+launchd has not reaped yet. The runner treated that EPERM as unverified cleanup
+and failed the passing proof. Measured: 5 of 5 unreaped single-member groups
+raised EPERM, and ESRCH after reaping.
+
+Fix: On EPERM, reap the leader, then retry the group kill for a bounded two
+seconds. The group disappearing or accepting the kill is verified cleanup; a
+persistent EPERM still fails. Do not re-run the job as the fix.
+
+Tests: `test_zombie_only_group_permission_denial_settles_after_reap` and the
+existing persistent-denial test in `tests/test_nw0_graphify_probe.py`.
+
+Discovered: 2026-10-04, PR62 CI run 37185252077.
+
 ### RECOVERY-001: Every replay entrypoint needs the same completed-record checks
 
 Symptom: Mixed owner replay refuses a damaged completed source file, but the

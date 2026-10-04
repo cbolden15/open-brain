@@ -55,9 +55,31 @@ def test_cleanup_permission_failure_rejects_and_reaps_child(
     monkeypatch.setattr(os, "killpg", denied)
     with pytest.raises(RuntimeError, match="cleanup failed"):
         run([sys.executable, "-c", "print('done')"], tmp_path, {}, "cleanup", timeout=3)
-    assert len(children) == 1
+    assert children and set(children) == {children[0]}
     with pytest.raises(ChildProcessError):
         os.waitpid(children[0], os.WNOHANG)
+
+
+@pytest.mark.parametrize("retry", ("gone", "killed"))
+def test_zombie_only_group_permission_denial_settles_after_reap(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, retry: str,
+) -> None:
+    # macOS returns EPERM from killpg when every remaining group member is a zombie.
+    calls: list[int] = []
+
+    def zombie_group(pid: int, signal_number: int) -> None:
+        calls.append(pid)
+        if len(calls) == 1:
+            raise PermissionError("synthetic zombie-only group")
+        if retry == "gone":
+            raise ProcessLookupError
+
+    monkeypatch.setattr(os, "killpg", zombie_group)
+    run([sys.executable, "-c", "print('done')"], tmp_path, {}, "settled", timeout=3)
+    assert (tmp_path / "settled.log").read_text() == "done\n"
+    assert len(calls) == 2 and calls[0] == calls[1]
+    with pytest.raises(ChildProcessError):
+        os.waitpid(calls[0], os.WNOHANG)
 
 
 def test_helper_archive_identity_notices_and_reproducibility(tmp_path: Path) -> None:
