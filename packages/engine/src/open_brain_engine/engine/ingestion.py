@@ -335,6 +335,13 @@ class IngestionJournal:
             self._append_event(
                 connection, delivery_id, event, attempts, {"status": event, "reason": reason}
             )
+        self._protect_pending_journal(delivery_id)
+
+    def _protect_pending_journal(self, delivery_id: str) -> None:
+        """Protect a committed non-terminal history; custody stays until that succeeds."""
+        guard = self._engine._recovery_protection_guard
+        if guard is not None:
+            guard.protect_journal(self._engine, delivery_id, compact=False)
 
     def _terminal_receipt(self, delivery_id: str, event: str, receipt: CaptureReceipt) -> None:
         with self._engine._store.transaction() as connection:
@@ -485,6 +492,7 @@ class IngestionJournal:
             if state != "quarantined":
                 raise ValueError("journal item is not quarantined")
             self._append_event(connection, delivery_id, "queued", 0, {"status": "queued"})
+        self._protect_pending_journal(delivery_id)
 
     def discard(self, delivery_id: str, *, reason: str) -> None:
         if not isinstance(reason, str) or not 1 <= len(reason) <= 128:
