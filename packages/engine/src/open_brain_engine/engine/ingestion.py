@@ -35,6 +35,10 @@ if TYPE_CHECKING:
     from .local import BrainEngine
 
 
+class JournalAllocatedError(ValueError):
+    """Discarding an allocated item would let recovery resume and publish it."""
+
+
 class JournalCapacityError(ValueError):
     """The Brain retained every existing journal item and has no ingress capacity."""
 
@@ -509,6 +513,12 @@ class IngestionJournal:
             resuming = guard is not None and latest == "discarded"
             if item is None or latest != "quarantined" and not resuming:
                 raise ValueError("journal item is not quarantined")
+            # Recovery resumes every reservation before draining, so a discarded
+            # allocation would still publish. The owner retries it instead.
+            if not resuming and connection.execute(
+                "SELECT 1 FROM captures WHERE delivery_id = ?", (delivery_id,),
+            ).fetchone() is not None:
+                raise JournalAllocatedError("journal item has a capture allocation")
             if not resuming:
                 result = portable_canonical_json_bytes(
                     {"status": "discarded", "reason": reason}
@@ -695,4 +705,4 @@ class IngestionJournal:
         return None if row is None else cast(str, row["event_kind"])
 
 
-__all__ = ["IngestionJournal", "JournalCapacityError"]
+__all__ = ["IngestionJournal", "JournalAllocatedError", "JournalCapacityError"]

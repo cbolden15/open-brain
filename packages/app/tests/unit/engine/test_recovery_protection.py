@@ -88,14 +88,15 @@ class SyntheticPort:
     def lookup(self, delivery_id: str, *, timeout_seconds: float) -> RecoveryProtectionEvidence:
         assert timeout_seconds == 5.0
         # Compare-before-append consults the authenticated head instead of
-        # re-protecting an identical allocation, so an injected capture failure
-        # at a stage must surface here as well.
-        if self.engine is not None and self.fail_kind == "capture":
+        # re-protecting an identical allocation, so a capture failure injected
+        # at an explicit later stage surfaces here. Stage-less failures still
+        # corrupt protect evidence at the allocation itself.
+        if self.engine is not None and self.fail_kind == "capture" and self.fail_stage is not None:
             with self.engine._store.connect() as connection:
                 row = connection.execute(
                     "SELECT stage FROM captures WHERE delivery_id=?", (delivery_id,),
                 ).fetchone()
-            if self.fail_stage is None or (row is not None and row[0] == self.fail_stage):
+            if row is not None and row[0] == self.fail_stage:
                 raise TimeoutError()
         matching = [plan for plan in self.plans.values()
                     if plan.envelope.submission.delivery_id == delivery_id]

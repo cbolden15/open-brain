@@ -1,5 +1,6 @@
 """Progressed, allocated and baseline queue items stay protected and replayable."""
 
+from dataclasses import replace
 from hashlib import sha256
 from pathlib import Path
 from uuid import uuid4
@@ -8,6 +9,7 @@ import pytest
 from open_brain_engine.core.ids import portable_canonical_json_bytes as canonical
 from open_brain_engine.core.models import PrivacyDecision
 from open_brain_engine.engine import (
+    AdmissionLimits,
     BrainEngine,
     CaptureAction,
     CaptureCustodyReceipt,
@@ -17,8 +19,12 @@ from open_brain_engine.engine import (
     InjectedFault,
     TextPayload,
 )
-from open_brain_engine.engine.capture_recovery import CaptureRecoveryPlan
+from open_brain_engine.engine.capture_recovery import (
+    CaptureRecoveryPlan,
+    CaptureReservationIdentity,
+)
 from open_brain_engine.engine.custody_recovery import CaptureCustodyRecoveryPlan
+from open_brain_engine.engine.journal_ops import JournalOperationError
 from open_brain_engine.engine.journal_recovery import (
     CaptureJournalRecoveryEvent,
     CaptureJournalRecoveryPlan,
@@ -30,6 +36,7 @@ from open_brain_engine.engine.recovery_journal import RecoveryBaseline, Recovery
 from open_brain_engine.engine.recovery_protection import (
     RecoveryProtectionGuard,
     RecoveryProtectionPendingError,
+    operation_sha256,
 )
 from open_brain_engine.engine.t03_contracts import EffectiveAuthority
 from open_brain_engine.portable.versioned import validated_portable_snapshot
@@ -629,3 +636,158 @@ def test_replay_refuses_a_discarded_allocation_before_any_write(
     assert _snapshot(restored) == before
     with restored._store.connect() as connection:
         assert connection.execute("SELECT count(*) FROM captures").fetchone()[0] == 0
+
+
+def test_discard_refuses_an_allocated_item(
+    guarded: tuple[BrainEngine, SyntheticPort, RecoveryProtectionGuard],
+) -> None:
+    """One permitted attempt quarantines an allocated item inside a single drain."""
+    engine, port, guard = guarded
+    strict = BrainEngine.open(
+        engine.profile, recovery_protection_guard=guard,
+        admission_limits=AdmissionLimits(max_journal_attempts=1),
+    )
+    port.engine = strict
+    journal = strict.tasks.journal
+    assert journal is not None
+    strict.ingestion.enqueue(CaptureSubmission.for_local_owner(
+        profile=strict.profile, payload=TextPayload("Synthetic allocated quarantine"),
+        delivery_id="owner.allocated",
+    ))
+    _fail_after_reservation_once(strict)
+    assert journal.drain(authority=_owner(strict)).receipts == ()
+    assert journal.status(authority=_owner(strict))[0].state == "quarantined"
+    with strict._store.connect() as connection:
+        capture_id, stage = connection.execute(
+            "SELECT capture_id,stage FROM captures WHERE delivery_id='owner.allocated'"
+        ).fetchone()
+    assert stage == 0
+    with pytest.raises(JournalOperationError, match="allocated"):
+        journal.discard("owner.allocated", reason="owner_requested", authority=_owner(strict))
+    assert _journal_rows(strict, "owner.allocated") == (1, 1, ["queued", "quarantined"], 0)
+    assert all(plan.events[-1].event_kind != "discarded" for plan in _journals(port))
+    journal.retry("owner.allocated", authority=_owner(strict))
+    receipts = journal.drain(authority=_owner(strict)).receipts
+    assert [item.capture_id for item in receipts] == [capture_id]
+
+
+def test_replay_refuses_an_allocation_recorded_after_a_discard(
+    guarded: tuple[BrainEngine, SyntheticPort, RecoveryProtectionGuard], tmp_path: Path,
+) -> None:
+    primary, port, _ = guarded
+    journal = primary.tasks.journal
+    assert journal is not None
+    _quarantine(primary, "late.alloc")
+    journal.discard("late.alloc", reason="owner_requested", authority=_owner(primary))
+    records, _ = _closure(port)
+    cue = CaptureCustodyRecoveryPlan.from_record(records[0])
+    forged_capture = CaptureRecoveryPlan(
+        cue.baseline, cue.envelope,
+        CaptureReservationIdentity.allocate(canonical=True, accepted_at=cue.receipt.queued_at),
+    )
+    forged = RecoveryRecord(
+        baseline=cue.baseline, sequence=len(records) + 1,
+        previous_sha256=records[-1].record_sha256, kind="capture",
+        payload=forged_capture.to_bytes(),
+    )
+    records = (*records, forged)
+    head = RecoveryHead(cue.baseline, len(records), forged.record_sha256)
+    restored, owner = _restore(primary, tmp_path)
+    before = _snapshot(restored)
+    with pytest.raises(ValueError, match="allocation after"):
+        replay_owner_recovery_chain(restored, records, expected_head=head, authority=owner)
+    assert _snapshot(restored) == before
+
+
+def test_pending_protection_of_an_old_reservation_protects_its_cue_first(
+    tmp_path: Path,
+) -> None:
+    """Resubmission before startup recovery must not append the allocation first."""
+    profile = compile_single_user_local(tmp_path / "brain")
+    engine = BrainEngine.open(profile)
+    archive = tmp_path / "baseline"
+    engine.portability.export(archive, export_id="export_" + str(uuid4()))
+    files = tuple(sorted(validated_portable_snapshot(archive).files.items()))
+    with engine._store.connect() as connection:
+        identity = connection.execute("SELECT brain_id,issuer_epoch FROM brain_identity").fetchone()
+    baseline = RecoveryBaseline(
+        identity[0], identity[1], sha256(dict(files)["portable-manifest.json"]).hexdigest()
+    )
+    faulty = BrainEngine.open(profile, faults={CaptureFault.AFTER_CAPTURE_RESERVATION})
+    submission = CaptureSubmission.for_local_owner(
+        profile=profile, payload=TextPayload("Synthetic old reservation"),
+        delivery_id="old.resubmit",
+    )
+    with pytest.raises(InjectedFault):
+        faulty.capture.submit(submission)
+    port = SyntheticPort(baseline, files)
+    guard = RecoveryProtectionGuard(baseline, port)
+    # Startup recovery did not run (writer busy); the guard sees the reservation cold.
+    faulty._recovery_protection_guard = guard
+    port.engine = faulty
+    guard.protect_pending(faulty, submission)
+    assert [record.kind for record in port.records] == ["capture_custody", "capture"]
+
+
+def test_custody_only_chain_refuses_a_foreign_capture_row(
+    guarded: tuple[BrainEngine, SyntheticPort, RecoveryProtectionGuard], tmp_path: Path,
+) -> None:
+    """A capture row alone never proves it belongs to the cue being restored."""
+    primary, port, _ = guarded
+    journal = primary.tasks.journal
+    assert journal is not None
+    primary.capture.accept(TextPayload("Synthetic first"), delivery_id="warm.one")
+    primary.capture.accept(TextPayload("Synthetic second"), delivery_id="warm.two")
+    # A discarded gap consumes a primary sequence that the restore never re-inserts.
+    _quarantine(primary, "warm.gap")
+    journal.discard("warm.gap", reason="owner_requested", authority=_owner(primary))
+    cue = primary.ingestion.enqueue(CaptureSubmission.for_local_owner(
+        profile=primary.profile, payload=TextPayload("Synthetic original"),
+        delivery_id="foreign.cue",
+    ))
+    assert isinstance(cue, CaptureCustodyReceipt)
+    records, head = _closure(port)
+    assert records[-1].kind == "capture_custody"
+    prefix_records, prefix_head = _prefix(records, len(records) - 1)
+    restored, owner = _restore(primary, tmp_path)
+    replay_owner_recovery_chain(
+        restored, prefix_records, expected_head=prefix_head, authority=owner,
+    )
+    # The foreign row takes the gap's free sequence, so only ownership can refuse it.
+    foreign = restored.capture.accept(TextPayload("Synthetic foreign"), delivery_id="foreign.cue")
+    assert isinstance(foreign, CaptureReceipt)
+    before = _snapshot(restored)
+    with pytest.raises(ValueError, match="delivery collision"):
+        replay_owner_recovery_chain(restored, records, expected_head=head, authority=owner)
+    assert _snapshot(restored) == before
+
+
+def test_duplicate_validation_rejects_a_forged_journal_with_a_different_cue(
+    guarded: tuple[BrainEngine, SyntheticPort, RecoveryProtectionGuard],
+) -> None:
+    engine, port, _ = guarded
+    journal = engine.tasks.journal
+    assert journal is not None
+    submission = CaptureSubmission.for_local_owner(
+        profile=engine.profile, payload=TextPayload("Synthetic forged extension"),
+        delivery_id="owner.forged",
+    )
+    engine.ingestion.enqueue(submission)
+    _fail_next_materialization(engine)
+    assert journal.drain(authority=_owner(engine)).receipts == ()
+    assert len(journal.drain(authority=_owner(engine)).receipts) == 1
+    pending = next(plan for plan in _journals(port) if not plan.compacted)
+    # Same events, a re-sequenced cue: progression checks on events alone accept it.
+    forged = replace(
+        pending, custody=replace(
+            pending.custody, journal_sequence=pending.custody.journal_sequence + 100,
+        ),
+    )
+    port.records.append(RecoveryRecord(
+        baseline=forged.baseline, sequence=len(port.records) + 1,
+        previous_sha256=port.records[-1].record_sha256, kind="capture_journal",
+        payload=forged.to_bytes(),
+    ))
+    port.plans[operation_sha256(forged)] = forged
+    with pytest.raises(RecoveryProtectionPendingError):
+        engine.capture.submit(submission)

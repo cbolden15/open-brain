@@ -48,6 +48,9 @@ def _operations(records: tuple[RecoveryRecord, ...]) -> tuple[
                 capture.envelope != cues[delivery].envelope
             ):
                 raise ValueError("owner recovery allocation predecessor mismatch")
+            if delivery in journals:
+                # Journals without an allocation never precede one.
+                raise ValueError("owner recovery allocation after journal history")
             captures[delivery] = capture
         elif record.kind == "capture_journal":
             journal = CaptureJournalRecoveryPlan.from_record(record)
@@ -73,8 +76,10 @@ def _operations(records: tuple[RecoveryRecord, ...]) -> tuple[
     # codec already binds accepted/duplicate terminals to their allocation.
     # Resuming an allocation the owner discarded would publish discarded
     # content, so that shape is refused before any write.
-    for journal in journals.values():
-        if journal.events[-1].event_kind == "discarded" and journal.capture is not None:
+    for delivery, journal in journals.items():
+        if journal.events[-1].event_kind == "discarded" and (
+            journal.capture is not None or delivery in captures
+        ):
             raise ValueError("owner recovery cannot replay a discarded allocation")
     # Authenticate the append chain unchanged; materialize a separate view in
     # original queue order, not callback completion order.
@@ -87,7 +92,10 @@ def _operations(records: tuple[RecoveryRecord, ...]) -> tuple[
 def _journal_preflight(
     connection: sqlite3.Connection, cues: tuple[CaptureCustodyRecoveryPlan, ...],
     journals: tuple[CaptureJournalRecoveryPlan, ...],
+    captures: tuple[CaptureRecoveryPlan, ...] = (),
 ) -> tuple[CaptureCustodyRecoveryPlan, ...]:
+    """``captures`` are the explicit plans the capture preflight matched exactly."""
+    planned = {capture.envelope.submission.delivery_id for capture in captures}
     terminal = {plan.custody.receipt.delivery_id: plan for plan in journals}
     event_ids: dict[int, str] = {}
     item_ids: set[int] = set()
@@ -134,10 +142,10 @@ def _journal_preflight(
         ).fetchone()
         if plan is None:
             if retained is None or capture is None:
-                if retained is None and capture is not None:
+                if retained is None and capture is not None and delivery in planned:
                     # Interrupted replay: the bound capture committed before
-                    # its queue item. Its row was matched by the capture
-                    # preflight, so it is not a delivery collision.
+                    # its queue item. Its row was matched exactly by the
+                    # capture preflight, so it is not a delivery collision.
                     allocated.add(delivery)
                 pending.append(cue)
                 continue
@@ -174,10 +182,12 @@ def _journal_preflight(
                 # Reuse existing high-water and original identity checks for
                 # a missing terminal cue, even when final state is compacted.
                 pending.append(cue)
-            elif not plan.compacted:
+            elif not plan.compacted and delivery in planned:
                 # Interrupted replay of an allocated pending history.
                 allocated.add(delivery)
                 pending.append(cue)
+            elif not plan.compacted:
+                raise ValueError("owner recovery lost uncompacted journal")
             continue
         body = connection.execute(
             "SELECT envelope_bytes FROM capture_ingestion_payloads WHERE delivery_id=?",
@@ -271,7 +281,7 @@ def replay_owner_recovery_chain(
             require_historical_snapshot_settled(connection, engine.profile)
             _preflight_captures(connection, captures, paths)
             _require_completed_sources(engine, connection, captures)
-            missing = _journal_preflight(connection, cues, journals)
+            missing = _journal_preflight(connection, cues, journals, captures)
             count, size = connection.execute(
                 "SELECT count(*),COALESCE(sum(byte_count),0) FROM capture_ingestion_items"
             ).fetchone()

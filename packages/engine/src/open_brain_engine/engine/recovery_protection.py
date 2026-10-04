@@ -320,15 +320,15 @@ class RecoveryProtectionGuard:
                     "SELECT count(*) FROM capture_ingestion_events WHERE delivery_id=?",
                     (submission.delivery_id,),
                 ).fetchone()[0] > 1
-                plan: CaptureRecoveryPlan | CaptureCustodyRecoveryPlan | None = None
-                if progressed:
-                    pass
-                elif reserved is not None:
-                    plan = _capture_plan_from_connection(connection, submission, self.baseline)
-                else:
+                plan: CaptureCustodyRecoveryPlan | None = None
+                if not progressed and reserved is None:
                     plan = _custody_plan_from_connection(connection, submission, self.baseline)
-            if plan is None:
+            if progressed:
                 self.protect_journal(engine, submission.delivery_id, compact=False)
+            elif plan is None:
+                # A cold reservation (startup recovery skipped) still protects
+                # its cue before the allocation.
+                self.protect_capture(engine, submission.delivery_id)
             else:
                 self._ensure_protected(engine, plan)
         except Exception:
@@ -361,16 +361,28 @@ class RecoveryProtectionGuard:
             # delivery may carry several journals: each must extend the last,
             # and only the latest may be the compacted terminal.
             try:
-                journals = sorted((
-                    CaptureJournalRecoveryPlan.from_record(record)
-                    for record in self._lookup_closure(submission.delivery_id).records
-                    if record.kind == "capture_journal"
-                    and CaptureJournalRecoveryPlan.from_record(record)
-                    .envelope.submission.delivery_id == submission.delivery_id
-                ), key=lambda journal: len(journal.events))
-                for earlier, later in zip(journals, journals[1:], strict=False):
-                    if earlier.compacted or later.events[:len(earlier.events)] != earlier.events:
+                closure = self._lookup_closure(submission.delivery_id)
+                cues = [CaptureCustodyRecoveryPlan.from_record(record)
+                        for record in closure.records if record.kind == "capture_custody"]
+                cues = [cue for cue in cues if cue.receipt.delivery_id == submission.delivery_id]
+                if len(cues) != 1:
+                    raise ValueError("missing or ambiguous original custody")
+                journals = [CaptureJournalRecoveryPlan.from_record(record)
+                            for record in closure.records if record.kind == "capture_journal"]
+                journals = [journal for journal in journals
+                            if journal.envelope.submission.delivery_id == submission.delivery_id]
+                # Authenticated append order, not a sort: every journal binds the
+                # one original cue and allocation, and strictly extends the last.
+                previous: CaptureJournalRecoveryPlan | None = None
+                for journal in journals:
+                    if journal.custody != cues[0] or journal.capture not in (None, plan):
+                        raise ValueError("protected journal binding conflict")
+                    if previous is not None and (
+                        previous.compacted or len(journal.events) <= len(previous.events)
+                        or journal.events[:len(previous.events)] != previous.events
+                    ):
                         raise ValueError("protected journal progression conflict")
+                    previous = journal
                 if not journals or journals[-1].capture != plan or (
                     not journals[-1].compacted
                     or journals[-1].events[-1].event_kind not in {"accepted", "duplicate"}

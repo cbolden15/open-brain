@@ -19,6 +19,7 @@ class JournalOperationError(ValueError):
 
     def __init__(self, code: str) -> None:
         if code not in {
+            "allocated",
             "discard_confirmation_required",
             "invalid_request",
             "not_quarantined",
@@ -75,8 +76,12 @@ class JournalTasks:
         self._require_owner(authority)
         if not isinstance(reason, str) or not 1 <= len(reason) <= 128:
             raise JournalOperationError("invalid_request")
+        from .ingestion import JournalAllocatedError
+
         try:
             self._engine.ingestion.discard(delivery_id, reason=reason)
+        except JournalAllocatedError as error:
+            raise JournalOperationError("allocated") from error
         except ValueError as error:
             raise JournalOperationError("not_quarantined") from error
 

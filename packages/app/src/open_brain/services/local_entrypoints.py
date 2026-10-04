@@ -1919,6 +1919,7 @@ def _run_journal(parsed: argparse.Namespace, tasks: EngineTaskSet, *, json_outpu
 
 def _write_journal_failure(code: str, *, json_output: bool) -> int:
     messages = {
+        "allocated": "Journal item already has a capture allocation; retry it instead.",
         "discard_confirmation_required": "Journal discard requires --confirm.",
         "not_quarantined": "Journal item is not quarantined.",
         "owner_required": "Journal operations require owner-local authority.",
