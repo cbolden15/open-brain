@@ -645,6 +645,33 @@ class CollectorController:
     def custody_inspect(self, receipt_id: str) -> dict[str, object]:
         return self._custody.inspect(receipt_id)
 
+    def _record_run_outcome(
+        self,
+        source_id: str,
+        entry: dict[str, object],
+        receipt_id: str,
+        outcome: str,
+        **details: str | None,
+    ) -> None:
+        """A cancel that lands between a capture and its outcome already discarded it.
+
+        Treat that like a cancel after the outcome; the run then fails as cancelled.
+        A missing receipt without a confirmed cancellation remains an error.
+        """
+        try:
+            self._custody.outcome(receipt_id, outcome, **details)
+        except LiveSourceError as error:
+            if error.code != "collector_custody_not_found":
+                raise
+            with self._capture_guard, self._selection_barrier():
+                latest = _source(_sources(self._store.load()), source_id)
+            if not (
+                latest["status"] in {"paused", "disabled"}
+                or latest["control_epoch"] != entry["control_epoch"]
+                or latest["generation"] != entry["generation"]
+            ):
+                raise
+
     @staticmethod
     def _is_item_conflict(error: Exception) -> bool:
         return isinstance(error, DeliveryConflict) or (
@@ -994,7 +1021,9 @@ class CollectorController:
                     and committed_digests.get(delivery_id) == digest
                 ):
                     duplicates += 1
-                    self._custody.outcome(
+                    self._record_run_outcome(
+                        source_id,
+                        entry,
                         receipt_id,
                         "duplicate",
                         capture_id=committed_capture_ids.get(delivery_id),
@@ -1027,7 +1056,9 @@ class CollectorController:
                 except Exception as error:
                     if not self._is_item_conflict(error):
                         raise
-                    self._custody.outcome(
+                    self._record_run_outcome(
+                        source_id,
+                        entry,
                         receipt_id,
                         "quarantined",
                         reason_code="source_revision_conflict",
@@ -1041,8 +1072,14 @@ class CollectorController:
                 if isinstance(result, CaptureCustodyReceipt):
                     continue
                 if isinstance(result, SavedMarkdownBaseline):
-                    self._custody.outcome(receipt_id, "duplicate", capture_id=result.result.capture_id,
-                                         evidence="historical_baseline")
+                    self._record_run_outcome(
+                        source_id,
+                        entry,
+                        receipt_id,
+                        "duplicate",
+                        capture_id=result.result.capture_id,
+                        evidence="historical_baseline",
+                    )
                     committed[delivery_id] = revision_identity
                     committed_capture_ids[delivery_id] = result.result.capture_id
                     committed_digests[delivery_id] = digest
@@ -1071,7 +1108,9 @@ class CollectorController:
                     if duplicate
                     else "captured"
                 )
-                self._custody.outcome(receipt_id, outcome, capture_id=capture_id)
+                self._record_run_outcome(
+                    source_id, entry, receipt_id, outcome, capture_id=capture_id
+                )
                 committed[delivery_id] = revision_identity
                 if capture_id is not None:
                     committed_capture_ids[delivery_id] = capture_id

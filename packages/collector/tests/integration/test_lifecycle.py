@@ -5,10 +5,12 @@ import multiprocessing
 import stat
 import threading
 from pathlib import Path
+from typing import cast
 
 import pytest
 from open_brain_engine.engine import PrivacyDecision
 
+from open_brain_collector.custody import CustodyStore
 from open_brain_collector.lifecycle import (
     CollectorController,
     CollectorRunPage,
@@ -16,6 +18,7 @@ from open_brain_collector.lifecycle import (
     CollectorStateStore,
     MemoryCaptureSink,
 )
+from open_brain_connectors.runtime.live_common import LiveSourceError
 from open_brain_connectors.runtime.source_intake import SourceRecordIntake, SourceRecordKey
 from open_brain_connectors.runtime.source_registry import SourceResourceSelection
 
@@ -182,6 +185,88 @@ def test_cancel_after_terminal_receipt_does_not_read_discarded_custody(
         "paused" if command == "pause" else "disabled"
     )
     assert controller.custody_status("github.fixture")["retained_items"] == 0
+
+
+@pytest.mark.parametrize("command", ["pause", "disable"])
+@pytest.mark.parametrize("records", ["one", "two"])
+def test_cancel_before_outcome_matches_cancel_after_outcome(
+    tmp_path: Path, command: str, records: str
+) -> None:
+    source_type = _Source if records == "one" else _MultiRecordSource
+    before = _cancel_around_first_outcome(tmp_path / "before", command, source_type, first=True)
+    after = _cancel_around_first_outcome(tmp_path / "after", command, source_type, first=False)
+    # The racy ordering really ran: the cancel discarded the pending receipt.
+    assert before["tolerated"] == ["collector_custody_not_found"]
+    assert after["tolerated"] == []
+    assert before["result"] == after["result"]
+    assert before["result"] and cast(tuple[object, ...], before["result"])[0] == "failed"
+    assert before["state"] == after["state"]
+    assert before["retained_items"] == after["retained_items"] == 0
+
+
+def _cancel_around_first_outcome(
+    root: Path, command: str, source_type: type[_Source], *, first: bool
+) -> dict[str, object]:
+    state_store = CollectorStateStore(root / "collector.json")
+    controller = CollectorController(state_store, clock=lambda: 100)
+    control = CollectorController(state_store, clock=lambda: 100)
+    selection = _selection()
+    controller.enable(source_id="github.fixture", selection=selection, interval_seconds=30)
+    record = controller._custody.outcome
+    calls: list[int] = []
+    tolerated: list[str] = []
+
+    def cancel_around(receipt_id: str, outcome: str, **details: str | None) -> None:
+        calls.append(1)
+        if len(calls) == 1 and first:
+            getattr(control, command)("github.fixture")
+        try:
+            record(receipt_id, outcome, **details)
+        except LiveSourceError as error:
+            tolerated.append(error.code)
+            raise
+        if len(calls) == 1 and not first:
+            getattr(control, command)("github.fixture")
+
+    controller._custody.outcome = cancel_around  # type: ignore[method-assign]
+    result = controller.sync_due(
+        source_id="github.fixture", runtime=source_type(selection), capture_sink=MemoryCaptureSink()
+    )
+    state = json.loads((root / "collector.json").read_text(encoding="utf-8"))
+    entry = state["sources"]["github.fixture"]
+    entry["last_run"].pop("run_id", None)
+    return {
+        "tolerated": tolerated,
+        "result": (
+            str(result.outcome),
+            result.failure_code,
+            result.captured_count,
+            result.duplicate_count,
+            result.status,
+        ),
+        "state": entry,
+        "retained_items": controller.custody_status("github.fixture")["retained_items"],
+    }
+
+
+def test_missing_custody_without_cancellation_still_fails_the_run(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    state_store = CollectorStateStore(tmp_path / "collector.json")
+    controller = CollectorController(state_store, clock=lambda: 100)
+    selection = _selection()
+    controller.enable(source_id="github.fixture", selection=selection, interval_seconds=30)
+
+    def lost(self: CustodyStore, *args: object, **kwargs: object) -> None:
+        raise LiveSourceError("collector_custody_not_found")
+
+    monkeypatch.setattr(CustodyStore, "outcome", lost)
+    with pytest.raises(LiveSourceError, match="collector_custody_not_found"):
+        controller.sync_due(
+            source_id="github.fixture", runtime=_Source(selection), capture_sink=MemoryCaptureSink()
+        )
+    assert controller.status("github.fixture").status == "enabled"
+
 
 
 def test_pause_during_multi_record_page_stops_remaining_imports(
