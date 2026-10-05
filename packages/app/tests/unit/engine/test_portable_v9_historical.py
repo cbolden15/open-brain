@@ -223,6 +223,159 @@ def test_v9_archive_is_refused_by_actual_v8_reader(
         validated_portable_snapshot_v8(archive)
 
 
+@pytest.mark.parametrize("damage", ["sql_prefix", "new_intent", "older_intent"])
+def test_v9_hidden_restore_refuses_stage_tampering_before_promotion(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, damage: str
+) -> None:
+    import sqlite3
+    from contextlib import closing
+
+    from open_brain_engine.engine import portable_v9_restore
+    from open_brain_engine.engine.sharing_contracts import SharingError
+    from open_brain_engine.portable.v1 import PortableSnapshot
+    from open_brain_engine.storage.filesystem import RootIdentity
+
+    engine = portable5_import_engine(tmp_path, monkeypatch)
+    linked_v2(engine)
+    archive = tmp_path / "archive"
+    engine.portability.export(archive, export_id="export_" + str(uuid4()))
+    original = validated_portable_snapshot(archive)
+    destination = tmp_path / "restored"
+    restore = portable_v9_restore.restore_portable_v9_root
+
+    def damaged_restore(
+        root: Path, *, snapshot: PortableSnapshot, expected_root_identity: RootIdentity
+    ) -> object:
+        completed = 0
+        damaged = False
+
+        def checkpoint(stage: str) -> None:
+            nonlocal completed, damaged
+            if stage == "historical_completed":
+                completed += 1
+            target = {
+                "sql_prefix": "historical_completed",
+                "new_intent": "historical_intent_restored",
+                "older_intent": "historical_intent_restored",
+            }[damage]
+            if damaged or stage != target or (damage == "older_intent" and completed < 2):
+                return
+            if damage == "sql_prefix":
+                with closing(sqlite3.connect(root / ".open-brain/state/phase1.sqlite3")) as conn:
+                    # Model corruption beyond the normal immutable SQL write guard.
+                    trigger = conn.execute(
+                        "SELECT sql FROM sqlite_schema WHERE name=?",
+                        ("historical_operations_update_immutable",),
+                    ).fetchone()[0]
+                    conn.execute("DROP TRIGGER historical_operations_update_immutable")
+                    conn.execute("UPDATE historical_operations SET request_sha256=?", ("0" * 64,))
+                    conn.execute(trigger)
+                    conn.commit()
+            else:
+                intents = sorted(
+                    (root / ".open-brain/historical-authority/historical-transitions.v2").glob(
+                        "*.json"
+                    )
+                )
+                if damage == "older_intent":
+                    import json
+
+                    intent = next(
+                        p
+                        for p in intents
+                        if json.loads(p.read_bytes())["previous"]["generation"] == 0
+                    )
+                else:
+                    intent = intents[0]
+                intent.write_bytes(b"{}")
+            damaged = True
+
+        return restore(
+            root,
+            snapshot=snapshot,
+            expected_root_identity=expected_root_identity,
+            checkpoint=checkpoint,
+        )
+
+    with monkeypatch.context() as fault:
+        fault.setattr(portable_v9_restore, "restore_portable_v9_root", damaged_restore)
+        with pytest.raises(SharingError, match="binding_mismatch|invalid_arguments"):
+            engine.portability.import_clean(
+                archive, destination, import_id="import_" + str(uuid4())
+            )
+    assert not destination.exists()
+    assert validated_portable_snapshot(archive).files == original.files
+
+
+def test_v9_hidden_restore_bounds_immutable_history_reads(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from dataclasses import replace
+
+    from open_brain_engine.engine import portable_v9_restore
+    from open_brain_engine.engine.historical_dispatch import (
+        Transition,
+        VersionedHistoricalTransitionStore,
+    )
+    from open_brain_engine.engine.historical_tasks import adopt_historical_baseline
+    from open_brain_engine.engine.runtime_admission import exclusive_runtime_admission
+    from open_brain_engine.engine.t03_contracts import EffectiveAuthority
+    from open_brain_engine.portable.v1 import PortableSnapshot
+    from open_brain_engine.storage.filesystem import RootIdentity
+
+    from open_brain.profile import compile_single_user_local
+
+    from .test_historical_baseline import _baseline
+
+    engine = BrainEngine.open(compile_single_user_local(tmp_path / "brain"))
+    count = 12
+    owner = EffectiveAuthority(
+        engine.profile.owner_actor_id, "owner", frozenset(), None, owner=True
+    )
+    for index in range(count):
+        request = replace(
+            _baseline(
+                engine,
+                retained_text=f"synthetic retained {index}",
+                retained_delivery_id=f"owner.{index}",
+            ),
+            expected_claim_generation=index,
+        )
+        with exclusive_runtime_admission(engine.profile) as admission:
+            adopt_historical_baseline(
+                engine.profile,
+                request,
+                authority=owner,
+                admission=admission,
+                validate_before_write=lambda: None,
+            )
+    archive = tmp_path / "archive"
+    engine.portability.export(archive, export_id="export_" + str(uuid4()))
+    restore = portable_v9_restore.restore_portable_v9_root
+    read = VersionedHistoricalTransitionStore.read
+    reads = 0
+
+    def counted_read(store: VersionedHistoricalTransitionStore, operation: str) -> Transition:
+        nonlocal reads
+        reads += 1
+        return read(store, operation)
+
+    def counted_restore(
+        root: Path, *, snapshot: PortableSnapshot, expected_root_identity: RootIdentity
+    ) -> object:
+        with monkeypatch.context() as counter:
+            counter.setattr(VersionedHistoricalTransitionStore, "read", counted_read)
+            return restore(root, snapshot=snapshot, expected_root_identity=expected_root_identity)
+
+    with monkeypatch.context() as counter:
+        counter.setattr(portable_v9_restore, "restore_portable_v9_root", counted_restore)
+        engine.portability.import_clean(
+            archive, tmp_path / "restored", import_id="import_" + str(uuid4())
+        )
+    # Allow several full final audits, but never decode every earlier prefix per append.
+    assert count <= reads <= 10 * count
+
+
 def test_frozen_v8_archive_restores_to_fourteen_without_reinterpreting_old_bytes(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
