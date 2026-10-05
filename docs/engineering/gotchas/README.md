@@ -2782,6 +2782,12 @@ regressions. Leave headroom for the complete suite and subsequent native build;
 do not weaken admission watermarks to make tests pass. Preserve diagnostics and
 recovery inputs before clearing disposable stopped test fixtures.
 
+Starting a pause thread does not establish that cancellation beat collector
+completion. The capture guard blocks pause during a sink submission. For the
+pause-before-completion interleaving, synchronize at the outcome boundary after
+submission releases the guard, wait for the actual pause acknowledgement, then
+record the outcome. Preserve the failed-run and durable paused-state assertions.
+
 Discovered: 2026-10-04, enabling pytest-xdist for the full suite.
 
 ### SHARING-005: Pre-query canonical eligibility must match the full projector

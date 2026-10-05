@@ -107,6 +107,7 @@ def test_pause_acknowledgement_prevents_scheduled_import_until_resume(tmp_path: 
 
 def test_pause_during_active_run_is_not_overwritten_by_collector_completion(
     tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     clock = _Clock(100)
     state_store = CollectorStateStore(tmp_path / "collector.json")
@@ -117,6 +118,24 @@ def test_pause_during_active_run_is_not_overwritten_by_collector_completion(
     entered = threading.Event()
     release = threading.Event()
     sink = _BlockingSink(entered, release)
+    outcome_entered = threading.Event()
+    pause_completed = threading.Event()
+    record_outcome = controller._record_run_outcome
+
+    def record_after_pause(
+        source_id: str,
+        entry: dict[str, object],
+        receipt_id: str,
+        outcome: str,
+        **details: str | None,
+    ) -> None:
+        # The capture guard prevents pause while submit is blocked. Synchronize
+        # the real cancellation after submit releases it, before run completion.
+        outcome_entered.set()
+        assert pause_completed.wait(30)
+        record_outcome(source_id, entry, receipt_id, outcome, **details)
+
+    monkeypatch.setattr(controller, "_record_run_outcome", record_after_pause)
 
     controller.enable(source_id="github.fixture", selection=selection, interval_seconds=30)
     results: list[object] = []
@@ -128,9 +147,13 @@ def test_pause_during_active_run_is_not_overwritten_by_collector_completion(
     sync_thread.start()
     assert entered.wait(30)
     pause_results: list[object] = []
-    pause_thread = threading.Thread(
-        target=lambda: pause_results.append(control.pause("github.fixture"))
-    )
+
+    def pause_after_capture() -> None:
+        assert outcome_entered.wait(30)
+        pause_results.append(control.pause("github.fixture"))
+        pause_completed.set()
+
+    pause_thread = threading.Thread(target=pause_after_capture)
     pause_thread.start()
     assert not pause_results
     release.set()
