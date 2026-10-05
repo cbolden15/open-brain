@@ -4,6 +4,44 @@ Non-obvious behaviors, sharp edges, and lessons learned belong here.
 
 ## Registry
 
+### SQLITE-001: Reinsert replacement parents after dropping the old table
+
+Symptom: A same-transaction historical table rebuild passes a final
+`foreign_key_check` but fails COMMIT with a deferred foreign-key violation.
+
+Cause: Copying parent rows into a differently named replacement before dropping
+the referenced old table leaves SQLite's deferred violation counter unresolved.
+Renaming the already-populated table does not reinsert the referenced keys.
+
+Fix: Keep foreign keys enabled. Retain exact rows in a transaction-local backup
+table, replace the old parent with the empty new definition, then insert those
+rows into the original parent name. Check foreign keys and the complete retained
+history before commit. Roll back the whole rebuild on interruption.
+
+Tests: Populated V1 relation-chain preservation, migration interruption/retry,
+old-runtime refusal and genuine escaped-max Portable5→V2→Portable9 restoration.
+
+Discovered: 2026-10-05, schema14 versioned historical bounds.
+
+### TYPE-001: A versioned runtime projection must not widen a frozen exporter
+
+Symptom: Adding V2 history to the shared projection verifier makes mypy reject
+Portable8's exporter: its closed V1 serializer receives a V1/V2 transition union.
+A runtime-only cast would hide the same transitive compatibility boundary.
+
+Cause: A shared consumer name represented both current runtime history and the
+frozen Portable8 format, which only admits V1 transitions.
+
+Fix: Keep `verify_historical_projection` closed over V1 and use the explicit
+`verify_versioned_historical_projection` for current runtime consumers. The V1
+wrapper verifies the full chain and refuses every V2 transition. Preserve the
+Portable8 serializer and validator bytes; put mixed history in Portable9.
+
+Tests: Static checking of engine/app source plus frozen V1 history regressions
+and the mixed V1/V2 Portable9 export/import fixture.
+
+Discovered: 2026-10-04, schema14 historical compatibility implementation.
+
 ### TESTING-003: macOS killpg reports EPERM for a zombie-only process group
 
 Symptom: A required NW0 proof job on macOS fails in about 20 seconds with
@@ -2737,8 +2775,18 @@ deadlock the child. Positive liveness waits (`join`, `wait` on an event that
 must fire) need generous bounds because parallel load slows threads; keep
 negative "must not happen yet" windows short. Parallel runs also multiply
 temporary disk use: with little free space the engine's storage watermark
-refuses captures and many unrelated tests fail with `storage_critical`.
-Check free disk before reading those failures as regressions.
+refuses captures and many unrelated tests fail with `storage_high` below the
+configured 2 GiB high watermark, or `storage_critical` below the critical one.
+Check free disk and retained pytest storage before reading those failures as
+regressions. Leave headroom for the complete suite and subsequent native build;
+do not weaken admission watermarks to make tests pass. Preserve diagnostics and
+recovery inputs before clearing disposable stopped test fixtures.
+
+Starting a pause thread does not establish that cancellation beat collector
+completion. The capture guard blocks pause during a sink submission. For the
+pause-before-completion interleaving, synchronize at the outcome boundary after
+submission releases the guard, wait for the actual pause acknowledgement, then
+record the outcome. Preserve the failed-run and durable paused-state assertions.
 
 Discovered: 2026-10-04, enabling pytest-xdist for the full suite.
 
@@ -2838,3 +2886,30 @@ tests must use actual older-format fixtures instead of passing a new archive
 to a frozen decoder or widening that decoder.
 
 Discovered: 2026-10-03, full historical-authority compatibility diagnostics.
+
+### COMPAT-001: Advance every current consumer with a schema floor
+
+Symptom: Schema14 export breaks owner recovery protection, the desktop rejects
+its matching core, and schema13 pending history cannot settle before upgrade.
+
+Cause: The historical extension updated export/bootstrap floors but left the
+complete recovery closure at Portable8, the desktop at13/8, and maintenance
+classification current-only while migration correctly requires settled history.
+The separately executed native smoke checker also retained13/8/8 catalog and
+Portable8 export expectations, so unit fixtures agreed with each other while the
+actual packaged current runtime correctly failed certification.
+
+Fix: Strictly dispatch complete recovery validation by canonical manifest8/9;
+update desktop/docs executable coordinates to14/9/9; permit only validated13/14
+restricted owner recovery before migration. Keep older formats and ordinary
+writer refusal intact. Trace all current consumers when advancing a floor.
+Require the current Portable9 mixed historical, capture-metadata and custody
+sidecars in native smoke and include the V2/Portable9 modules in the native
+archive audit. Keep exact integer coordinates and reject the previous13/8/8
+catalog; run the real native build and Homebrew journey before final acceptance.
+
+Tests: Actual Portable9 owner protection/closure/replay suites, schema13 pending
+CLI recovery followed by schema14 migration, documentation matrix and desktop
+handshake acceptance with old/fractional/unknown versions refused.
+
+Discovered: 2026-10-05, exact full gate and independent final review.

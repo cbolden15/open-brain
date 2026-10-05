@@ -77,9 +77,9 @@ def _approved_export(  # type: ignore[no-untyped-def]
     # Generate historical exports from their real catalog; restore current
     # runtime constants before validating or importing any forged artifact.
     with monkeypatch.context() as historical:
-        if portable_version == 7:
-            historical.setattr(local_schema, "PHASE1_STATE_SCHEMA_VERSION", 12)
-            historical.setattr(local_schema, "LOCAL_MIGRATIONS", LOCAL_MIGRATIONS[:12])
+        schema_version = {7: 12, 8: 13}[portable_version]
+        historical.setattr(local_schema, "PHASE1_STATE_SCHEMA_VERSION", schema_version)
+        historical.setattr(local_schema, "LOCAL_MIGRATIONS", LOCAL_MIGRATIONS[:schema_version])
         tasks, request, owner, _ = _managed_source(tmp_path)
         with open_local_database_read_only(tasks.profile) as connection:
             assert connection.execute("PRAGMA user_version").fetchone()[0] == (
@@ -356,9 +356,9 @@ def test_undecided_preview_job_cannot_use_retained_owner_identity(
     import tomllib
 
     with monkeypatch.context() as historical:
-        if portable_version == 7:
-            historical.setattr(local_schema, "PHASE1_STATE_SCHEMA_VERSION", 12)
-            historical.setattr(local_schema, "LOCAL_MIGRATIONS", LOCAL_MIGRATIONS[:12])
+        schema_version = {7: 12, 8: 13}[portable_version]
+        historical.setattr(local_schema, "PHASE1_STATE_SCHEMA_VERSION", schema_version)
+        historical.setattr(local_schema, "LOCAL_MIGRATIONS", LOCAL_MIGRATIONS[:schema_version])
         tasks, request, owner, _ = _managed_source(tmp_path)
         with open_local_database_read_only(tasks.profile) as connection:
             assert connection.execute("PRAGMA user_version").fetchone()[0] == (
@@ -385,9 +385,9 @@ def test_sharing_provider_forgery_fails_with_recomputed_manifest(
     tmp_path: Path, portable_version: int, monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     with monkeypatch.context() as historical:
-        if portable_version == 7:
-            historical.setattr(local_schema, "PHASE1_STATE_SCHEMA_VERSION", 12)
-            historical.setattr(local_schema, "LOCAL_MIGRATIONS", LOCAL_MIGRATIONS[:12])
+        schema_version = {7: 12, 8: 13}[portable_version]
+        historical.setattr(local_schema, "PHASE1_STATE_SCHEMA_VERSION", schema_version)
+        historical.setattr(local_schema, "LOCAL_MIGRATIONS", LOCAL_MIGRATIONS[:schema_version])
         tasks, request, owner, _ = _managed_source(tmp_path)
         with open_local_database_read_only(tasks.profile) as connection:
             assert connection.execute("PRAGMA user_version").fetchone()[0] == (

@@ -75,13 +75,13 @@ def test_current_portable_sharing_roundtrip(tmp_path: Path, state: str) -> None:
         )
     export = tmp_path / "export"
     receipt = tasks.portability.export(export, export_id="export_" + str(uuid4()))
-    assert receipt.schema_version == 8
+    assert receipt.schema_version == 9
     snapshot = validated_portable_snapshot(export)
     assert SHARING_APPROVALS_PATH in snapshot.files
     imported = tmp_path / "imported"
     import_id = "import_" + str(uuid4())
     restored = tasks.portability.import_clean(export, imported, import_id=import_id)
-    assert restored.schema_version == 8
+    assert restored.schema_version == 9
     duplicate = tasks.portability.import_clean(export, imported, import_id=import_id)
     assert duplicate.duplicate and duplicate.schema_version == restored.schema_version
     with sqlite3.connect(imported / PHASE1_STATE_DATABASE) as connection:
@@ -171,9 +171,9 @@ def test_portable_v7_refuses_pending_copy_export(
     exported = tmp_path / "reconciled-export"
     assert (
         reconciled.portability.export(exported, export_id="export_" + str(uuid4())).schema_version
-        == 8
+        == 9
     )
-    assert validated_portable_snapshot(exported).manifest["schema_version"] == 8
+    assert validated_portable_snapshot(exported).manifest["schema_version"] == 9
 
 
 def test_frozen_portable_v6_import_creates_no_sharing_approvals(tmp_path: Path) -> None:
@@ -590,7 +590,7 @@ def test_portable_v7_journal_copy_pending_refusal_then_exact_reconciliation(
         )
     export = tmp_path / "reconciled-export"
     reconciled.portability.export(export, export_id="export_" + str(uuid4()))
-    assert validated_portable_snapshot(export).manifest["schema_version"] == 8
+    assert validated_portable_snapshot(export).manifest["schema_version"] == 9
 
 
 def test_portable_v7_managed_source_pending_refusal_then_exact_reconciliation(
@@ -638,4 +638,4 @@ def test_portable_v7_managed_source_pending_refusal_then_exact_reconciliation(
         )
     export = tmp_path / "reconciled-export"
     reconciled.portability.export(export, export_id="export_" + str(uuid4()))
-    assert validated_portable_snapshot(export).manifest["schema_version"] == 8
+    assert validated_portable_snapshot(export).manifest["schema_version"] == 9

@@ -48,7 +48,7 @@ def test_standalone_restore_preserves_identity_without_primary_or_new_identity(
     destination = tmp_path / "restored"
     import_id = "import_" + str(uuid4())
     result = restore_portable_clean(archive, destination, import_id=import_id, authority=owner)
-    assert result.schema_version == 8 and not result.duplicate
+    assert result.schema_version == 9 and not result.duplicate
     assert restore_portable_clean(
         archive, destination, import_id=import_id, authority=owner,
     ).duplicate

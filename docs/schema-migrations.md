@@ -2,9 +2,10 @@
 
 ## Current catalog
 
-The current local schema is **10**, with runtime session version **5**. The frozen catalog is
+The current local schema is **14**, with runtime session version **9**. The catalog is
 `packages/engine/src/open_brain_engine/engine/local_schema_catalog.py`; its checksum fixture is
-`tests/fixtures/local-schema/catalog-checksums.json`. Migrations 1 through 5 remain unchanged.
+`tests/fixtures/local-schema/catalog-checksums.json`. Migrations 1 through 13 remain unchanged; the thirteen-entry checksum fixture is
+`tests/fixtures/local-schema/catalog-checksums-thirteen.json`.
 Migrations 6 through 9 add versioned managed-write authority, owner-recovery decision records,
 privacy and issuer evidence, and the Portable v5 compatibility state. Migration 6 marks
 every preexisting setup or materialize operation as version 0 without fabricating a descriptor,
@@ -43,6 +44,25 @@ schema-4 coverage. The existing migration suite continues to cover all earlier
 supported layouts, invalid/newer refusal, writer contention, concurrent upgrades, and interrupted
 transactions. Back up through verified Portable export and restore into a clean root, rather than
 copying a live SQLite file. Use the matching older runtime for a pre-upgrade export.
+
+## Historical authority compatibility
+
+Migrations 11 through 13 install saved-source lifecycle, owner-approved sharing
+and historical authority respectively. Schema13 uses runtime session8 and
+Portable8. Migration14 advances the compatibility floor to runtime9/schema14
+and the search projection policy generation. It rebuilds historical operation and
+baseline tables to admit the separately versioned V2 encoded ceilings while
+preserving all stored rows, immutable triggers and foreign keys. V1 requests and
+V1-parent baseline envelopes retain64KiB limits; V2 uses512KiB. It changes no captures, source
+revisions, aliases, historical operations, journal custody or canonical files.
+
+The coordinator runs13→14 only under exclusive root-bound admission with no
+live peers. A pending fence, incomplete immutable chain, missing registry or SQL
+projection disagreement refuses before the schema change. Failure before commit
+rolls back; a lost response after commit retries the exact settled state. An
+ordinary opener refuses schema13 and tells the owner to use the explicit
+coordinator. Schema13 clients refuse schema14 before writes. Portable9 records
+the new historical evidence interpretations without widening Portable1–8.
 
 ## Historical W5 design
 

@@ -13,7 +13,9 @@ from open_brain_engine.engine import (
     CaptureSubmission,
     FilePayload,
     TextPayload,
+    local_schema,
 )
+from open_brain_engine.engine.local_schema_catalog import LOCAL_MIGRATIONS
 from open_brain_engine.portable.v1 import PortableValidationError
 from open_brain_engine.portable.v5 import (
     EFFECTIVE_PRIVACY_PATH,
@@ -30,6 +32,13 @@ from open_brain_engine.portable.versioned import validated_portable_snapshot
 
 from open_brain.profile import compile_single_user_local
 from packages.engine.tests.contract.test_portable_brain_v5 import _fixture, _privacy_state, _write
+
+
+@pytest.fixture(autouse=True)
+def frozen_schema_thirteen(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Exercise actual Portable8/schema13 behavior after the current format advances."""
+    monkeypatch.setattr(local_schema, "PHASE1_STATE_SCHEMA_VERSION", 13)
+    monkeypatch.setattr(local_schema, "LOCAL_MIGRATIONS", LOCAL_MIGRATIONS[:13])
 
 
 @pytest.mark.parametrize("original,changed", ((1, 1.0), (1.0, 1)))

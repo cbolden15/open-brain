@@ -8,7 +8,8 @@ from uuid import uuid4
 
 import pytest
 from open_brain_engine.core.ids import portable_canonical_json_bytes
-from open_brain_engine.engine import BrainEngine, TextPayload
+from open_brain_engine.engine import BrainEngine, TextPayload, local_schema
+from open_brain_engine.engine.local_schema_catalog import LOCAL_MIGRATIONS
 from open_brain_engine.engine.t03_contracts import (
     DecisionHistoryRequest,
     EffectiveAuthority,
@@ -34,6 +35,8 @@ from open_brain_engine.portable.v8 import (
     V8_SIDECAR_PATHS,
     validate_historical_authority,
 )
+from open_brain_engine.portable.v9 import PORTABLE_V9_SCHEMA_CATALOG_DIGEST, V9_SIDECAR_PATHS
+from open_brain_engine.portable.v9 import validate_historical_authority as validate_v9_history
 from open_brain_engine.portable.versioned import validated_portable_snapshot
 
 from open_brain.profile import compile_single_user_local
@@ -60,7 +63,10 @@ def request(left: str, right: str, kind: str = "duplicate_of") -> RelationshipDe
 
 def _write_v4_fixture(source: Path, destination: Path) -> dict[str, Any]:
     snapshot = validated_portable_snapshot(source)
-    historical = validate_historical_authority(snapshot.files)
+    historical = (
+        validate_historical_authority(snapshot.files)
+        if snapshot.manifest["schema_version"] == 8 else validate_v9_history(snapshot.files)
+    )
     assert historical.records == ()
     assert historical.registry.generation == 0
     assert historical.registry.memberships == ()
@@ -72,6 +78,7 @@ def _write_v4_fixture(source: Path, destination: Path) -> dict[str, Any]:
         and relative not in V6_SIDECAR_PATHS
         and relative not in V7_SIDECAR_PATHS
         and relative not in V8_SIDECAR_PATHS
+        and relative not in V9_SIDECAR_PATHS
     }
     for relative, payload in files.items():
         target = destination / relative
@@ -170,7 +177,16 @@ def test_symmetric_relationship_replay_versions_and_hidden_endpoint(tmp_path: Pa
         engine.relationships.decide(proposed, authority=scoped)
 
 
-def test_supersedes_cycle_self_and_export_complete_decisions(tmp_path: Path) -> None:
+@pytest.mark.parametrize("portable_version", [8, 9])
+def test_supersedes_cycle_self_and_export_complete_decisions(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, portable_version: int
+) -> None:
+    if portable_version == 8:
+        monkeypatch.setattr(local_schema, "PHASE1_STATE_SCHEMA_VERSION", 13)
+        monkeypatch.setattr(local_schema, "LOCAL_MIGRATIONS", LOCAL_MIGRATIONS[:13])
+    expected_catalog = {
+        8: PORTABLE_V8_SCHEMA_CATALOG_DIGEST, 9: PORTABLE_V9_SCHEMA_CATALOG_DIGEST
+    }[portable_version]
     engine = BrainEngine.open(compile_single_user_local(tmp_path / "brain"))
     ids = [
         engine.capture.accept(TextPayload("Separate source"), delivery_id=str(i)).capture_id
@@ -184,7 +200,7 @@ def test_supersedes_cycle_self_and_export_complete_decisions(tmp_path: Path) -> 
     engine.portability.export(old_export, export_id="export_" + str(uuid4()))
     assert (
         validated_portable_snapshot(old_export).manifest["schema_catalog_digest"]
-        == PORTABLE_V8_SCHEMA_CATALOG_DIGEST
+        == expected_catalog
     )
     assert (
         _write_v4_fixture(old_export, tmp_path / "legacy-v4-base")["schema_catalog_digest"]
@@ -199,7 +215,7 @@ def test_supersedes_cycle_self_and_export_complete_decisions(tmp_path: Path) -> 
     export = tmp_path / "export"
     engine.portability.export(export, export_id="export_" + str(uuid4()))
     snapshot = validated_portable_snapshot(export)
-    assert snapshot.manifest["schema_catalog_digest"] == PORTABLE_V8_SCHEMA_CATALOG_DIGEST
+    assert snapshot.manifest["schema_catalog_digest"] == expected_catalog
     assert (
         _write_v4_fixture(export, tmp_path / "legacy-v4-relationships")[
             "schema_catalog_digest"

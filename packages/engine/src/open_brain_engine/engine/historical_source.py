@@ -6,10 +6,10 @@ from hashlib import sha256
 from typing import TYPE_CHECKING, Any, cast
 
 from .contracts import LocalEngineContext
-from .historical_admission import verify_retained_capture
-from .historical_contracts import HistoricalBaselineRequest, HistoricalDestination
+from .historical_contracts import HistoricalDestination
+from .historical_dispatch import BASELINE_TYPES, BaselineRequest, verify_retained_capture
 from .historical_fence import HistoricalPendingFence
-from .historical_projection import verify_historical_projection
+from .historical_projection import verify_versioned_historical_projection
 from .historical_registry import HistoricalRegistryStore
 from .sharing_contracts import SharingError
 
@@ -23,7 +23,7 @@ def historical_baseline_for_namespace(
     namespace_sha256: str,
     *,
     binding: SourceRevisionBinding | None = None,
-) -> HistoricalBaselineRequest | None:
+) -> BaselineRequest | None:
     """Resolve retained identity even after withdrawal, not current eligibility.
 
     Missing authority must never mean an unbound namespace/new logical source.
@@ -37,11 +37,11 @@ def historical_baseline_for_namespace(
     destination = HistoricalDestination(brain_id=identity[0], issuer_epoch=identity[1])
     registry = HistoricalRegistryStore(profile.root, profile.root_identity).read(destination)
     HistoricalPendingFence(profile.root, profile.root_identity).assert_settled(registry)
-    records = verify_historical_projection(connection, profile, registry)
+    records = verify_versioned_historical_projection(connection, profile, registry)
     matches = tuple(
         item.request
         for item in records
-        if isinstance(item.request, HistoricalBaselineRequest)
+        if isinstance(item.request, BASELINE_TYPES)
         and sha256(item.request.observed_delivery.submission.namespace_bytes()).hexdigest()
         == namespace_sha256
     )
@@ -58,9 +58,7 @@ def historical_baseline_for_namespace(
     return baseline
 
 
-def historical_source_row(
-    connection: sqlite3.Connection, baseline: HistoricalBaselineRequest
-) -> sqlite3.Row:
+def historical_source_row(connection: sqlite3.Connection, baseline: BaselineRequest) -> sqlite3.Row:
     row = connection.execute(
         "SELECT s.*,l.lifecycle_version FROM logical_sources s "
         "JOIN source_lifecycle_state l USING(source_id) WHERE s.source_id=?",
@@ -73,7 +71,7 @@ def historical_source_row(
 
 def historical_revision_head(
     head: sqlite3.Row | None,
-    baseline: HistoricalBaselineRequest | None,
+    baseline: BaselineRequest | None,
 ) -> sqlite3.Row | dict[str, Any] | None:
     """Overlay only the verified retained head in memory; never rewrite old SQL."""
     if (

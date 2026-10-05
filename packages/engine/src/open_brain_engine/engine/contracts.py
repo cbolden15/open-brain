@@ -772,6 +772,7 @@ class PortabilityReceipt:
             6,
             7,
             8,
+            9,
         }:
             raise ValueError("invalid portability receipt schema version")
         if self.index_generation is not None and (

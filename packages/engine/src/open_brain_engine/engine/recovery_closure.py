@@ -19,6 +19,10 @@ from open_brain_engine.portable.v8 import (
     PORTABLE_V8_SCHEMA_CATALOG_DIGEST,
     validate_portable_file_set_v8,
 )
+from open_brain_engine.portable.v9 import (
+    PORTABLE_V9_SCHEMA_CATALOG_DIGEST,
+    validate_portable_file_set_v9,
+)
 
 from .recovery_journal import (
     MAX_RECOVERY_DEPENDENCIES,
@@ -49,7 +53,7 @@ class RecoveryClosureBounds:
 class RecoveryClosure:
     """Immutable complete bytes bound to a caller-authenticated exact head.
 
-    Construction checks Portable8 semantics and hash/dependency closure only.
+    Construction checks exact Portable8/9 semantics and hash/dependency closure only.
     Every journal operation still needs its own typed semantic replay validator;
     a recognized record kind is not proof that its payload can be recovered.
     Authenticate the latest head and baseline independently, never from this
@@ -118,12 +122,17 @@ class RecoveryClosure:
             manifest = json.loads(raw)
             if type(manifest) is not dict or canonical(manifest) != raw:
                 raise ValueError("invalid recovery baseline manifest")
-            inventory = _manifest(
-                manifest, version=8, catalog=PORTABLE_V8_SCHEMA_CATALOG_DIGEST
-            )
+            version = manifest.get("schema_version")
+            if type(version) is not int or version not in {8, 9}:
+                raise ValueError("unsupported recovery baseline version")
+            catalog, validator = {
+                8: (PORTABLE_V8_SCHEMA_CATALOG_DIGEST, validate_portable_file_set_v8),
+                9: (PORTABLE_V9_SCHEMA_CATALOG_DIGEST, validate_portable_file_set_v9),
+            }[version]
+            inventory = _manifest(manifest, version=version, catalog=catalog)
             if inventory != {path: sha256(body).hexdigest() for path, body in files.items()}:
                 raise ValueError("recovery baseline inventory mismatch")
-            validate_portable_file_set_v8(files, tenant_id=cast(str, manifest["tenant_id"]))
+            validator(files, tenant_id=cast(str, manifest["tenant_id"]))
             identity = json.loads(files[ISSUER_MIGRATION_PATH])
             if identity["brain_id"] != baseline.brain_id or (
                 identity["current_issuer_epoch"] != baseline.issuer_epoch

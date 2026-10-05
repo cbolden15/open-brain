@@ -51,7 +51,7 @@ if TYPE_CHECKING:
     from .portable_v5_restore import ValidatedV5IssuerSeed
 
 PHASE1_STATE_DATABASE = ".open-brain/state/phase1.sqlite3"
-PHASE1_STATE_SCHEMA_VERSION = 13
+PHASE1_STATE_SCHEMA_VERSION = 14
 
 
 class LocalRecoveryRequiredError(SchemaError):
@@ -115,6 +115,8 @@ def _expected_shape(era: int, nullable: bool, ledger: bool) -> tuple[tuple[str, 
         statements.extend(LOCAL_MIGRATIONS[11].statements)
     if era >= 15 and len(LOCAL_MIGRATIONS) >= 13:
         statements.extend(LOCAL_MIGRATIONS[12].statements)
+    if era >= 16 and len(LOCAL_MIGRATIONS) >= 14:
+        statements.extend(LOCAL_MIGRATIONS[13].statements)
     if ledger:
         statements.append(_SCHEMA_MIGRATIONS_SQL)
     return _cached_shape(tuple(statements))
@@ -147,7 +149,10 @@ def classify_local_schema(connection: sqlite3.Connection) -> SchemaState:
             ).fetchall()
             if any(type(row[0]) is int and row[0] > PHASE1_STATE_SCHEMA_VERSION for row in rows):
                 return SchemaState("newer", version)
-            if version not in (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13) or len(rows) != version:
+            if (
+                version not in (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14)
+                or len(rows) != version
+            ):
                 return SchemaState("invalid", version)
             for row, migration in zip(rows, LOCAL_MIGRATIONS[:version], strict=True):
                 if tuple(row[:3]) != (migration.version, migration.name, migration.checksum):
@@ -164,7 +169,11 @@ def classify_local_schema(connection: sqlite3.Connection) -> SchemaState:
                         "FROM runtime_compatibility"
                     ).fetchall()
                     if [tuple(row) for row in compatibility] != [
-                        (1, {7: 2, 8: 3, 9: 4, 10: 5, 11: 6, 12: 7, 13: 8}.get(version, 1), version)
+                        (
+                            1,
+                            {7: 2, 8: 3, 9: 4, 10: 5, 11: 6, 12: 7, 13: 8, 14: 9}.get(version, 1),
+                            version,
+                        )
                     ]:
                         return SchemaState("invalid", version)
                 return SchemaState(
@@ -274,12 +283,12 @@ def _validate_upgrade_data(connection: sqlite3.Connection) -> None:
         ).fetchall()
         state_version = connection.execute("PRAGMA user_version").fetchone()[0]
         compatibility_version = (
-            state_version if state_version in (5, 6, 7, 8, 9, 10, 11, 12, 13) else 4
+            state_version if state_version in (5, 6, 7, 8, 9, 10, 11, 12, 13, 14) else 4
         )
         if [tuple(row) for row in compatibility] != [
             (
                 1,
-                {7: 2, 8: 3, 9: 4, 10: 5, 11: 6, 12: 7, 13: 8}.get(state_version, 1),
+                {7: 2, 8: 3, 9: 4, 10: 5, 11: 6, 12: 7, 13: 8, 14: 9}.get(state_version, 1),
                 compatibility_version,
             )
         ]:

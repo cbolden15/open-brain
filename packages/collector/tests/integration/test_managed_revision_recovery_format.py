@@ -65,7 +65,7 @@ def test_portable_recovers_three_revisions_and_withdrawal_without_primary_or_sen
     archive = tmp_path / "recovery-record"
     tasks.portability.export(archive, export_id="export_" + str(uuid4()))
     original_snapshot = validated_portable_snapshot(archive)
-    assert original_snapshot.manifest["schema_version"] == 8
+    assert original_snapshot.manifest["schema_version"] == 9
 
     # Keep synthetic inputs recoverable but remove every normal primary/sender
     # path before recovery. Import must consume only the exported format.
@@ -83,7 +83,7 @@ def test_portable_recovers_three_revisions_and_withdrawal_without_primary_or_sen
     import_id = "import_" + str(uuid4())
     assert recovery_tool.portability.import_clean(
         archive, restored_root, import_id=import_id,
-    ).schema_version == 8
+    ).schema_version == 9
     assert recovery_tool.portability.import_clean(
         archive, restored_root, import_id=import_id,
     ).duplicate

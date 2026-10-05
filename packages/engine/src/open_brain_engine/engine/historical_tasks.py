@@ -8,31 +8,37 @@ from open_brain_engine.core.ids import portable_canonical_json_bytes
 from open_brain_engine.storage.locks import FileLease
 
 from .contracts import LocalEngineContext
-from .historical_admission import (
-    HistoricalConsentSnapshot,
+from .historical_admission import HistoricalConsentSnapshot, verify_historical_source_cas
+from .historical_contracts import HistoricalDestination
+from .historical_dispatch import (
+    BASELINE_TYPES,
+    CLAIM_TYPES,
+    RELATION_TYPES,
+    REVOCATION_TYPES,
+    BaselineRequest,
+    ClaimRequest,
+    Receipt,
+    RelationRequest,
+    RevocationRequest,
+    VersionedHistoricalTransitionStore,
+    create_historical_transition,
+    decode_receipt,
     require_historical_provider_consent,
     verify_historical_baseline_evidence,
     verify_historical_relation_evidence,
-    verify_historical_source_cas,
     verify_retained_capture,
 )
-from .historical_contracts import (
-    HistoricalBaselineRequest,
-    HistoricalClaimRequest,
-    HistoricalCopyRelationRequest,
-    HistoricalDestination,
-    HistoricalReceipt,
-    HistoricalRevocationRequest,
-)
 from .historical_fence import HistoricalPendingFence
-from .historical_projection import historical_projection_rows, verify_historical_projection
+from .historical_projection import (
+    historical_projection_rows,
+    verify_versioned_historical_projection,
+)
 from .historical_recovery import _historical_transaction, _recover_historical
 from .historical_registry import (
     HistoricalClaimMembership,
     HistoricalClaimRegistry,
     HistoricalRegistryStore,
 )
-from .historical_transition import HistoricalTransition, HistoricalTransitionStore
 from .local_schema import open_local_database_read_only
 from .normalization import _utc_now
 from .runtime_admission import HeldRuntimeAdmission
@@ -43,20 +49,20 @@ from .t03_contracts import EffectiveAuthority
 
 def register_historical_claim(
     profile: LocalEngineContext,
-    request: HistoricalClaimRequest,
+    request: ClaimRequest,
     *,
     authority: EffectiveAuthority,
     admission: HeldRuntimeAdmission,
     validate_before_write: Callable[[], None],
     clock: Callable[[], datetime] = _utc_now,
     checkpoint: Callable[[str], None] = lambda _stage: None,
-) -> HistoricalReceipt:
+) -> Receipt:
     """Persist denial, never capture, approve, move or reactivate existing content.
 
     A completed exact retry returns its immutable receipt before present-source
     eligibility checks. That receipt is not publication or protected custody.
     """
-    if type(request) is not HistoricalClaimRequest:
+    if type(request) not in CLAIM_TYPES:
         raise SharingError("invalid_arguments")
     return _register_existing(
         profile,
@@ -71,14 +77,14 @@ def register_historical_claim(
 
 def adopt_historical_baseline(
     profile: LocalEngineContext,
-    request: HistoricalBaselineRequest,
+    request: BaselineRequest,
     *,
     authority: EffectiveAuthority,
     admission: HeldRuntimeAdmission,
     validate_before_write: Callable[[], None],
     clock: Callable[[], datetime] = _utc_now,
     checkpoint: Callable[[str], None] = lambda _stage: None,
-) -> HistoricalReceipt:
+) -> Receipt:
     """Bind a separately observed revision without recapturing the retained owner record.
 
     The trusted private caller verifies installed upstream binding/raw-file
@@ -86,7 +92,7 @@ def adopt_historical_baseline(
     retained identity and exact transformed payload under exclusive admission.
     This grants neither public-copy authority nor independently protected custody.
     """
-    if type(request) is not HistoricalBaselineRequest:
+    if type(request) not in BASELINE_TYPES:
         raise SharingError("invalid_arguments")
     return _register_existing(
         profile,
@@ -101,7 +107,7 @@ def adopt_historical_baseline(
 
 def link_historical_copy(
     profile: LocalEngineContext,
-    request: HistoricalCopyRelationRequest,
+    request: RelationRequest,
     *,
     authority: EffectiveAuthority,
     admission: HeldRuntimeAdmission,
@@ -109,14 +115,14 @@ def link_historical_copy(
     load_consent: Callable[[], HistoricalConsentSnapshot],
     clock: Callable[[], datetime] = _utc_now,
     checkpoint: Callable[[str], None] = lambda _stage: None,
-) -> HistoricalReceipt:
+) -> Receipt:
     """Reconcile an existing copy after private authentic approval verification.
 
     This never approves a new capture. The trusted runtime reloads existing
     Brain-bound provider consent; no consent or owner override is request JSON.
     Completed replay is receipt truth even if current output is now denied.
     """
-    if type(request) is not HistoricalCopyRelationRequest:
+    if type(request) not in RELATION_TYPES:
         raise SharingError("invalid_arguments")
     return _register_existing(
         profile,
@@ -132,20 +138,20 @@ def link_historical_copy(
 
 def revoke_historical_copy(
     profile: LocalEngineContext,
-    request: HistoricalRevocationRequest,
+    request: RevocationRequest,
     *,
     authority: EffectiveAuthority,
     admission: HeldRuntimeAdmission,
     validate_before_write: Callable[[], None],
     clock: Callable[[], datetime] = _utc_now,
     checkpoint: Callable[[str], None] = lambda _stage: None,
-) -> HistoricalReceipt:
+) -> Receipt:
     """Revoke an exact existing relation without removing claims or restoring content.
 
     The original source may have advanced or retired. Its present CAS is checked,
     while the receipt preserves the relation's original historical identities.
     """
-    if type(request) is not HistoricalRevocationRequest:
+    if type(request) not in REVOCATION_TYPES:
         raise SharingError("invalid_arguments")
     return _register_existing(
         profile,
@@ -160,10 +166,7 @@ def revoke_historical_copy(
 
 def _register_existing(
     profile: LocalEngineContext,
-    request: HistoricalBaselineRequest
-    | HistoricalClaimRequest
-    | HistoricalRevocationRequest
-    | HistoricalCopyRelationRequest,
+    request: BaselineRequest | ClaimRequest | RevocationRequest | RelationRequest,
     *,
     authority: EffectiveAuthority,
     admission: HeldRuntimeAdmission,
@@ -171,23 +174,23 @@ def _register_existing(
     clock: Callable[[], datetime],
     checkpoint: Callable[[str], None],
     load_consent: Callable[[], HistoricalConsentSnapshot] | None = None,
-) -> HistoricalReceipt:
+) -> Receipt:
     _owner_local(authority)
     request.canonical_bytes()
-    if isinstance(request, HistoricalBaselineRequest):
+    if isinstance(request, BASELINE_TYPES):
         kind, outcome, role = "baseline", "baseline_adopted", "baseline_original"
         evidence, capture_cas = request.retained_original, request.source_cas
-    elif isinstance(request, HistoricalClaimRequest):
+    elif isinstance(request, CLAIM_TYPES):
         kind, outcome, role = "claim", "denied_claim_recorded", request.claim_role
         evidence, capture_cas = request.retained_capture, request.capture_source_cas
-    elif isinstance(request, HistoricalRevocationRequest):
+    elif isinstance(request, REVOCATION_TYPES):
         kind, outcome, role = "revocation", "historical_copy_revoked", None
         evidence, capture_cas = None, None
     else:
         kind, outcome, role = "relation", "historical_copy_linked", None
         evidence, capture_cas = None, None
 
-    def validate_consent(relation: HistoricalCopyRelationRequest) -> None:
+    def validate_consent(relation: RelationRequest) -> None:
         if load_consent is None:
             raise SharingError("unsupported_capability")
         require_historical_provider_consent(load_consent(), relation)
@@ -210,9 +213,9 @@ def _register_existing(
     )
     with lease.acquire_shared_writer():
         fence = HistoricalPendingFence(profile.root, profile.root_identity)
-        retained = HistoricalTransitionStore(profile.root, profile.root_identity).read_optional(
-            request.operation_id
-        )
+        retained = VersionedHistoricalTransitionStore(
+            profile.root, profile.root_identity
+        ).read_optional(request.operation_id)
         if retained is not None and retained.request.canonical_bytes() != request.canonical_bytes():
             raise SharingError("binding_mismatch")
         pending = fence.pending()
@@ -232,7 +235,7 @@ def _register_existing(
                     request.destination
                 )
                 fence.assert_settled(registry)
-                records = verify_historical_projection(connection, profile, registry)
+                records = verify_versioned_historical_projection(connection, profile, registry)
                 completed = next(
                     (item for item in records if item.request.operation_id == request.operation_id),
                     None,
@@ -246,13 +249,13 @@ def _register_existing(
                 verify_historical_source_cas(connection, request.source_cas)
                 copy_capture_id: str | None
                 relation_version: int | None
-                if isinstance(request, HistoricalBaselineRequest):
+                if isinstance(request, BASELINE_TYPES):
                     verify_historical_baseline_evidence(connection, profile, request)
-                elif isinstance(request, HistoricalClaimRequest):
+                elif isinstance(request, CLAIM_TYPES):
                     assert capture_cas is not None and evidence is not None
                     verify_historical_source_cas(connection, capture_cas)
                     verify_retained_capture(connection, profile, evidence, capture_cas.source_id)
-                if isinstance(request, HistoricalCopyRelationRequest):
+                if isinstance(request, RELATION_TYPES):
                     baseline = next(
                         (
                             item.request
@@ -261,7 +264,7 @@ def _register_existing(
                         ),
                         None,
                     )
-                    if not isinstance(baseline, HistoricalBaselineRequest):
+                    if not isinstance(baseline, BASELINE_TYPES):
                         raise SharingError("binding_mismatch")
                     verify_historical_relation_evidence(connection, profile, request, baseline)
                     validate_consent(request)
@@ -269,7 +272,7 @@ def _register_existing(
                     copy_capture_id = request.retained_copy.capture_id
                     relation_version = 1
                     proposed = registry
-                elif isinstance(request, HistoricalRevocationRequest):
+                elif isinstance(request, REVOCATION_TYPES):
                     relation = next(
                         (
                             item.request
@@ -279,11 +282,11 @@ def _register_existing(
                         None,
                     )
                     if (
-                        not isinstance(relation, HistoricalCopyRelationRequest)
+                        not isinstance(relation, RELATION_TYPES)
                         or request.expected_relation_version != 1
                         or request.source_cas.source_id != relation.source_cas.source_id
                         or any(
-                            isinstance(item.request, HistoricalRevocationRequest)
+                            isinstance(item.request, REVOCATION_TYPES)
                             and item.request.relation_operation_id == request.relation_operation_id
                             for item in records
                         )
@@ -318,7 +321,7 @@ def _register_existing(
                     if instant.tzinfo is None or instant.utcoffset() is None:
                         raise SharingError("invalid_arguments")
                     body: dict[str, object] = {
-                        "dto_version": 1,
+                        "dto_version": request.dto_version,
                         "operation_id": request.operation_id,
                         "request_sha256": request.request_sha256,
                         "destination": request.destination.value(),
@@ -331,13 +334,14 @@ def _register_existing(
                         "recorded_at": instant.astimezone(UTC).isoformat().replace("+00:00", "Z"),
                     }
                     body["receipt_sha256"] = sha256(
-                        b"open-brain-historical-receipt.v1\0" + portable_canonical_json_bytes(body)
+                        f"open-brain-historical-receipt.v{request.dto_version}\0".encode()
+                        + portable_canonical_json_bytes(body)
                     ).hexdigest()
-                    retained = HistoricalTransition.create(
+                    retained = create_historical_transition(
                         request=request,
                         previous=registry,
                         proposed=proposed,
-                        receipt=HistoricalReceipt.from_value(body),
+                        receipt=decode_receipt(body, request.dto_version),
                     )
                 elif retained.previous != registry or retained.proposed != proposed:
                     raise SharingError("binding_mismatch")

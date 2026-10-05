@@ -7,25 +7,27 @@ from hashlib import sha256
 from open_brain_engine.core.ids import portable_canonical_json_bytes as canonical
 
 from .contracts import LocalEngineContext
-from .historical_contracts import (
-    HistoricalBaselineRequest,
-    HistoricalClaimRequest,
-    HistoricalCopyRelationRequest,
-    HistoricalRevocationRequest,
-)
-from .historical_registry import HistoricalClaimRegistry
-from .historical_transition import (
-    HistoricalTransition,
-    HistoricalTransitionStore,
+from .historical_dispatch import (
+    BASELINE_TYPES,
+    CLAIM_TYPES,
+    RELATION_TYPES,
+    REVOCATION_TYPES,
+    BaselineRequest,
+    ClaimRequest,
+    RelationRequest,
+    Transition,
+    VersionedHistoricalTransitionStore,
     validate_historical_chain,
 )
+from .historical_registry import HistoricalClaimRegistry
+from .historical_transition import HistoricalTransition
 from .sharing_contracts import SharingError
 
 type ProjectionRows = dict[str, list[tuple[object, ...]]]
 
 
 def historical_projection_rows(
-    registry: HistoricalClaimRegistry, records: Iterable[HistoricalTransition]
+    registry: HistoricalClaimRegistry, records: Iterable[Transition]
 ) -> ProjectionRows:
     """Derive all facts, including optional links/revocations, from a full chain.
 
@@ -43,9 +45,9 @@ def historical_projection_rows(
             "historical_revocations",
         )
     }
-    baselines: dict[str, HistoricalBaselineRequest] = {}
-    claims: dict[str, HistoricalClaimRequest] = {}
-    relations: dict[str, HistoricalCopyRelationRequest] = {}
+    baselines: dict[str, BaselineRequest] = {}
+    claims: dict[str, ClaimRequest] = {}
+    relations: dict[str, RelationRequest] = {}
     linked: set[str] = set()
     revoked: set[str] = set()
     baseline_sources: set[str] = set()
@@ -53,7 +55,7 @@ def historical_projection_rows(
     for record in chain:
         request, receipt = record.request, record.receipt
         operation = request.operation_id
-        if type(request) is HistoricalBaselineRequest:
+        if isinstance(request, BASELINE_TYPES):
             kind = "baseline"
             observed = request.observed_delivery
             namespace = sha256(observed.submission.namespace_bytes()).hexdigest()
@@ -73,10 +75,10 @@ def historical_projection_rows(
                     observed.custody_bytes(),
                 )
             )
-        elif type(request) is HistoricalClaimRequest:
+        elif isinstance(request, CLAIM_TYPES):
             kind = "claim"
             claims[operation] = request
-        elif type(request) is HistoricalCopyRelationRequest:
+        elif isinstance(request, RELATION_TYPES):
             kind = "relation"
             baseline = baselines.get(request.baseline_operation_id)
             claim = claims.get(request.copy_claim_operation_id)
@@ -109,7 +111,7 @@ def historical_projection_rows(
                     1,
                 )
             )
-        elif type(request) is HistoricalRevocationRequest:
+        elif isinstance(request, REVOCATION_TYPES):
             kind = "revocation"
             relation = relations.get(request.relation_operation_id)
             if (
@@ -152,11 +154,11 @@ def historical_projection_rows(
     return rows
 
 
-def verify_historical_projection(
+def verify_versioned_historical_projection(
     connection: sqlite3.Connection,
     profile: LocalEngineContext,
     registry: HistoricalClaimRegistry,
-) -> tuple[HistoricalTransition, ...]:
+) -> tuple[Transition, ...]:
     """Require a snapshot, exact identity, complete chain and every SQL fact.
 
     The caller must also assert the independent pending fence is settled before
@@ -184,7 +186,7 @@ def verify_historical_projection(
         )
     ]:
         raise SharingError("binding_mismatch")
-    store = HistoricalTransitionStore(profile.root, profile.root_identity)
+    store = VersionedHistoricalTransitionStore(profile.root, profile.root_identity)
     records = tuple(
         store.read(row[0])
         for row in connection.execute(
@@ -199,10 +201,22 @@ def verify_historical_projection(
     return records
 
 
+def verify_historical_projection(
+    connection: sqlite3.Connection,
+    profile: LocalEngineContext,
+    registry: HistoricalClaimRegistry,
+) -> tuple[HistoricalTransition, ...]:
+    """Keep the frozen Portable8 consumer closed over V1 transitions."""
+    records = verify_versioned_historical_projection(connection, profile, registry)
+    if any(type(record) is not HistoricalTransition for record in records):
+        raise SharingError("binding_mismatch")
+    return tuple(record for record in records if isinstance(record, HistoricalTransition))
+
+
 def _append_historical_projection(
     connection: sqlite3.Connection,
     profile: LocalEngineContext,
-    record: HistoricalTransition,
+    record: Transition,
 ) -> None:
     """Internal projection step after admitted immutable intent/pending fence.
 
@@ -210,8 +224,8 @@ def _append_historical_projection(
     validation, registry advancement, commit and completion. This helper grants
     no authority and must not be exposed as a mutation task accepting JSON.
     """
-    previous = verify_historical_projection(connection, profile, record.previous)
-    store = HistoricalTransitionStore(profile.root, profile.root_identity)
+    previous = verify_versioned_historical_projection(connection, profile, record.previous)
+    store = VersionedHistoricalTransitionStore(profile.root, profile.root_identity)
     if store.read(record.request.operation_id) != record:
         raise SharingError("binding_mismatch")
     old = historical_projection_rows(record.previous, previous)
@@ -234,4 +248,4 @@ def _append_historical_projection(
     )
     if changed.rowcount != 1:
         raise SharingError("binding_mismatch")
-    verify_historical_projection(connection, profile, record.proposed)
+    verify_versioned_historical_projection(connection, profile, record.proposed)

@@ -212,19 +212,23 @@ class V5RestoreBundle:
                     )
                 ),
             )
-        if self.snapshot.manifest["schema_version"] in {6, 7, 8}:
+        if self.snapshot.manifest["schema_version"] in {6, 7, 8, 9}:
             from open_brain_engine.portable.v6 import validate_source_authority
 
             from .portable_v6_authority import restore_source_authority
 
-            if self.snapshot.manifest["schema_version"] == 8:
+            if self.snapshot.manifest["schema_version"] == 9:
+                from open_brain_engine.portable.v9 import validate_source_authority_v9
+
+                authority = validate_source_authority_v9(files)
+            elif self.snapshot.manifest["schema_version"] == 8:
                 from open_brain_engine.portable.v8 import validate_source_authority_v8
 
                 authority = validate_source_authority_v8(files)
             else:
                 authority = validate_source_authority(files)
             restore_source_authority(connection, authority)
-        if self.snapshot.manifest["schema_version"] in {7, 8}:
+        if self.snapshot.manifest["schema_version"] in {7, 8, 9}:
             from open_brain_engine.portable.v7 import validate_sharing_authority
 
             from .portable_v7_authority import restore_sharing_authority
@@ -280,7 +284,7 @@ class V5RestoreBundle:
             connection,
             profile=profile,
             snapshot=self.snapshot,
-            _historical_installed=self.snapshot.manifest["schema_version"] != 8,
+            _historical_installed=self.snapshot.manifest["schema_version"] not in {8, 9},
         )
 
 
@@ -391,7 +395,7 @@ def _audit_connection(
         raise ValueError("v5 restored database reference mismatch")
     if canonical(source_metadata(connection)) != snapshot.files[SOURCE_METADATA_PATH]:
         raise ValueError("v5 restored source metadata mismatch")
-    if snapshot.manifest["schema_version"] in {6, 7, 8}:
+    if snapshot.manifest["schema_version"] in {6, 7, 8, 9}:
         from .portable_v6_authority import (
             _source_authority_metadata,
             _source_authority_sidecars,
@@ -404,7 +408,7 @@ def _audit_connection(
             ).items()
         ):
             raise ValueError("v6 restored source authority mismatch")
-    if snapshot.manifest["schema_version"] in {7, 8}:
+    if snapshot.manifest["schema_version"] in {7, 8, 9}:
         from open_brain_engine.portable.v7 import SHARING_APPROVALS_PATH
 
         from .portable_v7_authority import _sharing_authority_metadata
@@ -542,7 +546,7 @@ def restored_portable_semantic_state(
     Full v8 audit commits to the complete independently settled authority.
     """
     from .historical_contracts import HistoricalDestination
-    from .historical_projection import verify_historical_projection
+    from .historical_projection import verify_versioned_historical_projection
     from .historical_recovery import require_historical_snapshot_settled
     from .historical_registry import HistoricalRegistryStore
     from .portable_v5_evidence import _serialize_portable_state, serialize_portable_v5_state
@@ -557,7 +561,19 @@ def restored_portable_semantic_state(
             relationship_sidecar_present=relationship_present,
         )
     require_historical_snapshot_settled(connection, profile)
+    if snapshot.manifest["schema_version"] == 9 and historical_installed:
+        from .portable_v9_authority import serialize_portable_v9_state
+
+        return serialize_portable_v9_state(
+            connection, profile, relationship_sidecar_present=relationship_present
+        )
     if snapshot.manifest["schema_version"] == 8 and historical_installed:
+        if version == 14:
+            from .portable_v9_authority import serialize_restored_v8_state
+
+            return serialize_restored_v8_state(
+                connection, profile, relationship_sidecar_present=relationship_present
+            )
         from .portable_v8_authority import serialize_portable_v8_state
 
         return serialize_portable_v8_state(
@@ -569,7 +585,7 @@ def restored_portable_semantic_state(
     )
     if registry.generation != 0 or registry.memberships:
         raise ValueError("base restore requires explicit empty historical authority")
-    verify_historical_projection(connection, profile, registry)
+    verify_versioned_historical_projection(connection, profile, registry)
     return _serialize_portable_state(
         connection,
         tenant_id=profile.tenant_id,

@@ -5,11 +5,13 @@ from pathlib import Path
 
 import pytest
 from open_brain_engine.core.models import PrivacyTier
-from open_brain_engine.engine import BrainEngine
+from open_brain_engine.engine import BrainEngine, local_schema
 from open_brain_engine.engine.historical_fence import HistoricalPendingFence
 from open_brain_engine.engine.historical_projection import verify_historical_projection
+from open_brain_engine.engine.historical_recovery import recover_historical_profile
 from open_brain_engine.engine.historical_tasks import link_historical_copy, revoke_historical_copy
 from open_brain_engine.engine.local_schema import open_local_database_read_only
+from open_brain_engine.engine.local_schema_catalog import LOCAL_MIGRATIONS
 from open_brain_engine.engine.runtime_admission import exclusive_runtime_admission
 from open_brain_engine.engine.t03_contracts import EffectiveAuthority
 
@@ -210,7 +212,7 @@ def test_cli_recovers_pending_history_without_ordinary_startup(
         assert verify_historical_projection(connection, profile, record.proposed) == (record,)
         assert connection.execute("SELECT count(*) FROM captures").fetchone()[0] == 1
         assert connection.execute("SELECT count(*) FROM source_intakes").fetchone()[0] == 0
-        assert connection.execute("PRAGMA user_version").fetchone()[0] == 13
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 14
     finally:
         connection.close()
     monkeypatch.undo()
@@ -222,6 +224,55 @@ def test_cli_recovers_pending_history_without_ordinary_startup(
         == 0
     )
     assert json.loads(capsys.readouterr().out)["profile"] == "local"
+
+
+@pytest.mark.parametrize("stage", ["pending", "historical_sql_committed"])
+def test_current_cli_settles_schema_thirteen_pending_before_upgrade(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], stage: str
+) -> None:
+    profile = compile_single_user_local(tmp_path / "brain")
+    with monkeypatch.context() as old:
+        old.setattr(local_schema, "PHASE1_STATE_SCHEMA_VERSION", 13)
+        old.setattr(local_schema, "LOCAL_MIGRATIONS", LOCAL_MIGRATIONS[:13])
+        engine = BrainEngine.open(profile)
+        record = _claim_transition(engine)
+        fence = HistoricalPendingFence(profile.root, profile.root_identity)
+        fence.prepare(record)
+        if stage != "pending":
+            def crash(point: str) -> None:
+                if point == stage:
+                    raise RuntimeError("synthetic interruption")
+
+            owner = EffectiveAuthority(
+                profile.owner_actor_id, "owner", frozenset(), None, owner=True
+            )
+            with (
+                exclusive_runtime_admission(profile) as admission,
+                pytest.raises(RuntimeError, match="synthetic interruption"),
+            ):
+                recover_historical_profile(
+                    profile, authority=owner, admission=admission,
+                    validate_before_write=lambda: None, checkpoint=crash,
+                )
+    command = ("historical", "recover", "--data-dir", str(profile.root), "--json")
+    assert run_cli(command, filesystem_type_probe=_filesystem) == 0
+    assert json.loads(capsys.readouterr().out) == {
+        "status": "recovered", "receipt": record.receipt.value(),
+    }
+    with open_local_database_read_only(profile, allow_old=True) as connection:
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 13
+        assert verify_historical_projection(connection, profile, record.proposed) == (record,)
+    assert fence.pending() is None
+    assert run_cli(command, filesystem_type_probe=_filesystem) == 0
+    assert json.loads(capsys.readouterr().out) == {"status": "settled", "receipt": None}
+    assert run_cli(
+        ("status", "--data-dir", str(profile.root), "--json"),
+        filesystem_type_probe=_filesystem,
+    ) == 0
+    assert json.loads(capsys.readouterr().out)["profile"] == "local"
+    with open_local_database_read_only(profile) as connection:
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 14
+        assert verify_historical_projection(connection, profile, record.proposed) == (record,)
 
 
 def test_cli_historical_recovery_refuses_live_peer(

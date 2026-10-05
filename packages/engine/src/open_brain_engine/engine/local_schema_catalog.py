@@ -2,6 +2,7 @@
 
 from open_brain_engine.storage.migrations import Migration, _migration
 
+from .historical_compatibility_schema import HISTORICAL_STORED_V2_BOUNDS
 from .historical_schema import HISTORICAL_AUTHORITY_SCHEMA
 from .source_schema import SOURCE_HISTORY_SCHEMA
 
@@ -1541,4 +1542,22 @@ CREATE TABLE runtime_compatibility (
 
 LOCAL_MIGRATIONS += (
     _migration(13, "historical_authority_reconciliation", HISTORICAL_AUTHORITY_SCHEMA),
+)
+
+
+HISTORICAL_COMPATIBILITY_SCHEMA = (
+    *HISTORICAL_STORED_V2_BOUNDS,
+    "UPDATE engine_generations SET projection_policy_version=projection_policy_version+1",
+    "DROP TABLE runtime_compatibility",
+    """CREATE TABLE runtime_compatibility (
+ singleton INTEGER PRIMARY KEY CHECK(singleton=1),
+ minimum_runtime_session_version INTEGER NOT NULL CHECK(minimum_runtime_session_version=9),
+ state_schema_version INTEGER NOT NULL CHECK(state_schema_version=14)
+)""",
+    "INSERT INTO runtime_compatibility VALUES(1,9,14)",
+)
+
+
+LOCAL_MIGRATIONS += (
+    _migration(14, "historical_retained_compatibility", HISTORICAL_COMPATIBILITY_SCHEMA),
 )

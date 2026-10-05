@@ -14,9 +14,11 @@ from open_brain_engine.engine import (
     CaptureSubmission,
     InjectedFault,
     TextPayload,
+    local_schema,
 )
 from open_brain_engine.engine.capture_recovery import emit_owner_capture_plan
 from open_brain_engine.engine.custody_recovery import emit_owner_custody_plan
+from open_brain_engine.engine.local_schema_catalog import LOCAL_MIGRATIONS
 from open_brain_engine.engine.recovery_closure import RecoveryClosure, RecoveryClosureBounds
 from open_brain_engine.engine.recovery_journal import RecoveryBaseline, RecoveryHead, RecoveryRecord
 from open_brain_engine.engine.t03_contracts import EffectiveAuthority
@@ -26,13 +28,19 @@ from open_brain_engine.portable.versioned import validated_portable_snapshot
 from open_brain.profile import compile_single_user_local
 
 
-@pytest.fixture
-def closure(tmp_path: Path) -> RecoveryClosure:
+@pytest.fixture(params=(8, 9))
+def closure(
+    tmp_path: Path, request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch
+) -> RecoveryClosure:
+    if request.param == 8:
+        monkeypatch.setattr(local_schema, "PHASE1_STATE_SCHEMA_VERSION", 13)
+        monkeypatch.setattr(local_schema, "LOCAL_MIGRATIONS", LOCAL_MIGRATIONS[:13])
     engine = BrainEngine.open(compile_single_user_local(tmp_path / "primary"))
     engine.capture.accept(TextPayload("Synthetic baseline body"), delivery_id="baseline.owner")
     archive = tmp_path / "baseline"
     engine.portability.export(archive, export_id="export_" + str(uuid4()))
     files = tuple(sorted(validated_portable_snapshot(archive).files.items()))
+    assert json.loads(dict(files)["portable-manifest.json"])["schema_version"] == request.param
     with engine._store.connect() as connection:
         identity = connection.execute("SELECT brain_id,issuer_epoch FROM brain_identity").fetchone()
     baseline = RecoveryBaseline(

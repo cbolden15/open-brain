@@ -148,9 +148,10 @@ class BrainEngine(CaptureOperations, SpaceOperations, ReviewOperations, Retrieva
     ) -> None:
         if admission_limits is not None and not isinstance(admission_limits, AdmissionLimits):
             raise ValueError("invalid admission limits")
-        if recovery_protection_guard is not None and type(
-            recovery_protection_guard
-        ) is not RecoveryProtectionGuard:
+        if (
+            recovery_protection_guard is not None
+            and type(recovery_protection_guard) is not RecoveryProtectionGuard
+        ):
             raise ValueError("invalid recovery protection guard")
         if storage_probe is not None and not callable(storage_probe):
             raise ValueError("invalid storage probe")
@@ -178,7 +179,7 @@ class BrainEngine(CaptureOperations, SpaceOperations, ReviewOperations, Retrieva
         assert_root_identity(profile.root, profile.root_identity)
         schema = inspect_phase1_state(profile)
         if recovery_protection_guard is not None and (
-            schema.state != "current" or schema.version != 13
+            schema.state != "current" or schema.version not in {13, 14}
         ):
             raise StateSchemaUnavailableError("recovery protection requires existing schema13")
         if recovery_protection_guard is not None:
@@ -259,9 +260,18 @@ class BrainEngine(CaptureOperations, SpaceOperations, ReviewOperations, Retrieva
                 "exclusive admission"
             )
         if (
+            schema.state == "supported_old"
+            and schema.version == 13
+            and local_schema.PHASE1_STATE_SCHEMA_VERSION >= 14
+        ):
+            raise StateSchemaUnavailableError(
+                "local state schema is supported_old: historical compatibility migration "
+                "requires exclusive admission"
+            )
+        if (
             receipt_protection_port is not None
             and schema.state != "absent"
-            and schema.version not in {12, 13}
+            and schema.version not in {12, 13, 14}
         ):
             raise StateSchemaUnavailableError(
                 "receipt protection requires the schema-10 ingestion journal"
@@ -328,7 +338,7 @@ class BrainEngine(CaptureOperations, SpaceOperations, ReviewOperations, Retrieva
                 finally:
                     connection.close()
         except LockBusyError:
-            if schema.state != "current" or schema.version not in {12, 13}:
+            if schema.state != "current" or schema.version not in {12, 13, 14}:
                 raise
             self._store = _LocalStore(profile, clock=self._clock, initialize=False)
         self.capture = CaptureTasks(self)
