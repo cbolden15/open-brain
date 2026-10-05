@@ -2895,11 +2895,18 @@ its matching core, and schema13 pending history cannot settle before upgrade.
 Cause: The historical extension updated export/bootstrap floors but left the
 complete recovery closure at Portable8, the desktop at13/8, and maintenance
 classification current-only while migration correctly requires settled history.
+The separately executed native smoke checker also retained13/8/8 catalog and
+Portable8 export expectations, so unit fixtures agreed with each other while the
+actual packaged current runtime correctly failed certification.
 
 Fix: Strictly dispatch complete recovery validation by canonical manifest8/9;
 update desktop/docs executable coordinates to14/9/9; permit only validated13/14
 restricted owner recovery before migration. Keep older formats and ordinary
 writer refusal intact. Trace all current consumers when advancing a floor.
+Require the current Portable9 mixed historical, capture-metadata and custody
+sidecars in native smoke and include the V2/Portable9 modules in the native
+archive audit. Keep exact integer coordinates and reject the previous13/8/8
+catalog; run the real native build and Homebrew journey before final acceptance.
 
 Tests: Actual Portable9 owner protection/closure/replay suites, schema13 pending
 CLI recovery followed by schema14 migration, documentation matrix and desktop
