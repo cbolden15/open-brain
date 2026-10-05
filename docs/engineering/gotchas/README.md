@@ -102,6 +102,9 @@ atomic: without the fence, owner retry can protect a longer history between
 those calls and the resubmission can append its stale prefix. Busy guarded
 resubmissions retain custody and return pending protection; already locked
 source and Markdown callers reuse their surrounding fence.
+Build Pipeline prevention: when adding an enqueue keyword, update monkeypatched
+callers to accept it and assert the expected lease ownership. The Markdown
+reservation-stop fixture otherwise fails before reaching its recovery fault.
 Source rows are validated for every
 replayed cue before any branch: an intake row never belongs to an owner
 delivery, and an alias must carry the request digest and name the logical
