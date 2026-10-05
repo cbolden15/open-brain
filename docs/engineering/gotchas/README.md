@@ -4,6 +4,50 @@ Non-obvious behaviors, sharp edges, and lessons learned belong here.
 
 ## Registry
 
+### BUILD-001: Native packaging needs a writable PyInstaller cache
+
+Category: Config/Environment.
+
+Symptom: Python, desktop and Rust checks pass, then native packaging fails with
+`PermissionError` while creating PyInstaller's macOS cache under `~/Library`.
+
+Cause: A restricted build environment permits the checkout and temporary storage
+but cannot write the default user cache. `TMPDIR` alone does not redirect it.
+
+Fix: Set `PYINSTALLER_CONFIG_DIR` to a dedicated writable cache directory before
+running the complete native build, audit and Homebrew smoke gates. Retain failed
+logs and artifacts; keep the source and installed-runtime pins unchanged.
+
+Verification: PyInstaller's supported configuration reads this environment
+variable before choosing its platform cache directory. Re-run the full build
+and type check, then native audit and Homebrew smoke.
+
+If the compiled bootloader then fails with `semctl: Operation not permitted`,
+the execution environment denies its required semaphore. Verify the exact commit
+on an authorized test host with the matching architecture and Python version;
+the denied local smoke run remains failed evidence.
+
+Discovered: 2026-10-05, restricted macOS native packaging.
+
+### RECOVERY-003: Clean restore must bound immutable history decoding
+
+Category: Database/Migrations.
+
+Symptom: Clean restoration slows sharply as the historical authority chain grows.
+
+Cause: Reopening and decoding the entire prefix before and after every historical
+append repeats expensive validation of all earlier registry memberships.
+
+Fix: Only in the hidden Portable9 restore stage, derive the complete typed SQL
+projection once and check every exact SQL prefix and newly persisted intent.
+Keep durable pending/completion fences and registry checks. Reopen and audit the
+complete immutable history before promotion; interrupted stages never promote.
+
+Tests: Immutable-history read growth, SQL/intent tampering, interruption/retry
+fidelity and independent mixed V1/V2 chains with both revocation versions.
+
+Discovered: 2026-10-05, production-shaped Portable9 recovery rehearsal.
+
 ### SQLITE-001: Reinsert replacement parents after dropping the old table
 
 Symptom: A same-transaction historical table rebuild passes a final
