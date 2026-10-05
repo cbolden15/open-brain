@@ -2775,8 +2775,12 @@ deadlock the child. Positive liveness waits (`join`, `wait` on an event that
 must fire) need generous bounds because parallel load slows threads; keep
 negative "must not happen yet" windows short. Parallel runs also multiply
 temporary disk use: with little free space the engine's storage watermark
-refuses captures and many unrelated tests fail with `storage_critical`.
-Check free disk before reading those failures as regressions.
+refuses captures and many unrelated tests fail with `storage_high` below the
+configured 2 GiB high watermark, or `storage_critical` below the critical one.
+Check free disk and retained pytest storage before reading those failures as
+regressions. Leave headroom for the complete suite and subsequent native build;
+do not weaken admission watermarks to make tests pass. Preserve diagnostics and
+recovery inputs before clearing disposable stopped test fixtures.
 
 Discovered: 2026-10-04, enabling pytest-xdist for the full suite.
 
