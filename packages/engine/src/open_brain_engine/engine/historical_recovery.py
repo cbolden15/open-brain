@@ -40,6 +40,20 @@ if TYPE_CHECKING:
     from .local import BrainEngine
 
 
+def open_historical_recovery_database_read_only(
+    profile: LocalEngineContext,
+) -> sqlite3.Connection:
+    """Accept only validated history schemas, without migration or bootstrap."""
+    from .local_schema import open_local_database_read_only
+
+    connection = open_local_database_read_only(profile, allow_old=True)
+    state = classify_local_schema(connection)
+    if state.state not in {"current", "supported_old"} or state.version not in {13, 14}:
+        connection.close()
+        raise SchemaError("historical recovery requires schema13 or schema14")
+    return connection
+
+
 def require_historical_settled(profile: LocalEngineContext) -> None:
     """Read-only startup preflight before any ordinary engine writer runs."""
     from .local_schema import open_local_database_read_only
@@ -74,12 +88,13 @@ def _historical_transaction(
 ) -> Iterator[sqlite3.Connection]:
     """Open existing state without bootstrap or ordinary registration hooks."""
 
-    # Refuse absent/old state in the connection preparation callback before
+    # Refuse absent or unsupported state in the connection preparation callback before
     # storage can initialize WAL or adjust files. This path never migrates.
     def prepare(connection: sqlite3.Connection, created: bool, setup_required: bool) -> None:
         state = classify_local_schema(connection)
-        if created or state.state != "current" or state.version not in {13, 14}:
-            raise SchemaError("historical recovery requires current schema13")
+        if (created or state.state not in {"current", "supported_old"}
+                or state.version not in {13, 14}):
+            raise SchemaError("historical recovery requires schema13 or schema14")
 
     validate_before_write()
     connection = connect_database(
@@ -91,7 +106,7 @@ def _historical_transaction(
     try:
         begin_immediate(connection)
         state = classify_local_schema(connection)
-        if state.state != "current" or state.version not in {13, 14}:
+        if state.state not in {"current", "supported_old"} or state.version not in {13, 14}:
             raise SchemaError("local state schema changed before recovery")
         yield connection
         validate_before_write()
@@ -121,9 +136,7 @@ def recover_historical_profile(
         raise SharingError("operation_pending")
     validate_before_write()
     # Read-only classification also prevents creating a missing database.
-    from .local_schema import open_local_database_read_only
-
-    connection = open_local_database_read_only(profile)
+    connection = open_historical_recovery_database_read_only(profile)
     connection.close()
 
     def validate() -> None:
@@ -201,6 +214,9 @@ def _recover_historical(
             validate_relation_consent(pending_relation)
 
     with _historical_transaction(profile, validate_pending) as connection:
+        if (record is not None and connection.execute("PRAGMA user_version").fetchone()[0] == 13
+                and record.request.dto_version != 1):
+            raise SharingError("binding_mismatch")
         identity = connection.execute(
             "SELECT brain_id,issuer_epoch FROM brain_identity WHERE singleton=1"
         ).fetchone()

@@ -7,8 +7,10 @@ from open_brain_engine.engine.historical_dispatch import (
     RelationRequest,
     require_historical_provider_consent,
 )
-from open_brain_engine.engine.historical_recovery import recover_historical_profile
-from open_brain_engine.engine.local_schema import open_local_database_read_only
+from open_brain_engine.engine.historical_recovery import (
+    open_historical_recovery_database_read_only,
+    recover_historical_profile,
+)
 from open_brain_engine.engine.runtime_admission import exclusive_runtime_admission
 from open_brain_engine.engine.sharing_contracts import SharingError
 from open_brain_engine.engine.t03_contracts import EffectiveAuthority, T03Error
@@ -65,8 +67,9 @@ def run_historical_recovery(
             )
 
         try:
-            # Refuse old state before even creating a runtime-registry lock.
-            connection = open_local_database_read_only(profile)
+            # Validated13 pending history must settle before its14 upgrade.
+            # Unsupported older schemas still refuse before creating a registry lock.
+            connection = open_historical_recovery_database_read_only(profile)
             connection.close()
             with exclusive_runtime_admission(profile) as admission:
                 receipt = recover_historical_profile(

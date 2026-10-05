@@ -2876,3 +2876,23 @@ tests must use actual older-format fixtures instead of passing a new archive
 to a frozen decoder or widening that decoder.
 
 Discovered: 2026-10-03, full historical-authority compatibility diagnostics.
+
+### COMPAT-001: Advance every current consumer with a schema floor
+
+Symptom: Schema14 export breaks owner recovery protection, the desktop rejects
+its matching core, and schema13 pending history cannot settle before upgrade.
+
+Cause: The historical extension updated export/bootstrap floors but left the
+complete recovery closure at Portable8, the desktop at13/8, and maintenance
+classification current-only while migration correctly requires settled history.
+
+Fix: Strictly dispatch complete recovery validation by canonical manifest8/9;
+update desktop/docs executable coordinates to14/9/9; permit only validated13/14
+restricted owner recovery before migration. Keep older formats and ordinary
+writer refusal intact. Trace all current consumers when advancing a floor.
+
+Tests: Actual Portable9 owner protection/closure/replay suites, schema13 pending
+CLI recovery followed by schema14 migration, documentation matrix and desktop
+handshake acceptance with old/fractional/unknown versions refused.
+
+Discovered: 2026-10-05, exact full gate and independent final review.

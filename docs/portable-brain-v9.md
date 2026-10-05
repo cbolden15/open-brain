@@ -113,3 +113,10 @@ separate protection authority before activation.
 Existing source adapters keep their own ingress limits. Supporting a large retained
 V2 observation does not change an adapter’s source-file ceiling or make that item
 checkpoint-seedable through an unverified adapter.
+
+Owner `historical recover` accepts validated schema13 or14 before ordinary
+bootstrap. A retained V1 pending intent must settle at schema13 before upgrade;
+maintenance neither migrates nor admits caller-supplied replacement requests.
+Schemas below13 remain refused before runtime registration. Current owner
+recovery closures validate exact Portable8 or9 manifests, catalogues, complete
+inventories and destination identity with the existing byte/count bounds.

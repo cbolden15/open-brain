@@ -11,8 +11,8 @@ use std::time::Duration;
 use tauri::{AppHandle, Manager, State, path::BaseDirectory};
 use uuid::Uuid;
 
-const SUPPORTED_STATE_SCHEMA: u64 = 13;
-const SUPPORTED_RUNTIME_SESSION: u64 = 8;
+const SUPPORTED_STATE_SCHEMA: u64 = 14;
+const SUPPORTED_RUNTIME_SESSION: u64 = 9;
 const BASE_OPERATIONS: &[&str] = &[
     "system.status",
     "capture.create",
@@ -530,7 +530,7 @@ mod tests {
 
     #[test]
     fn unknown_schema_and_relative_brain_are_rejected() {
-        for unsupported in [4, 5, 6, 7, 8, 9, 10, 11, 12, 14] {
+        for unsupported in [4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 15] {
             let mut wrong_version = handshake();
             wrong_version["state_schema_version"] = json!(unsupported);
             assert!(validate_handshake(&wrong_version).is_err());
@@ -544,8 +544,8 @@ mod tests {
         let next = handshake();
         assert!(validate_handshake(&next).is_ok());
         let raw = serde_json::to_string(&next).unwrap().replace(
-            "\"runtime_session_version\":8",
-            "\"runtime_session_version\":8.0",
+            "\"runtime_session_version\":9",
+            "\"runtime_session_version\":9.0",
         );
         let fractional = crate::strict_json::from_slice(raw.as_bytes()).unwrap();
         assert!(validate_handshake(&fractional).is_err());
@@ -558,6 +558,7 @@ mod tests {
             (10, 5),
             (11, 6),
             (12, 7),
+            (13, 8),
         ] {
             let mut old = next.clone();
             old["state_schema_version"] = json!(state_schema);
