@@ -95,7 +95,14 @@ compaction transition, and a compacted journal is final; anything else refuses
 with the protected head unchanged. A terminal snapshot is always protected as
 compacted so a resubmission racing a drain cannot leave an uncompacted twin. Owner retry and discard
 take the writer fence like drain, so a racing edit is refused as `writer_busy`
-instead of reordering protected journals. Source rows are validated for every
+instead of reordering protected journals.
+Existing pending-custody resubmissions also take that fence before reading,
+comparing and protecting their history. A lookup followed by append is not
+atomic: without the fence, owner retry can protect a longer history between
+those calls and the resubmission can append its stale prefix. Busy guarded
+resubmissions retain custody and return pending protection; already locked
+source and Markdown callers reuse their surrounding fence.
+Source rows are validated for every
 replayed cue before any branch: an intake row never belongs to an owner
 delivery, and an alias must carry the request digest and name the logical
 source that holds a revision of exactly the matched capture. An interrupted replay (capture committed, queue

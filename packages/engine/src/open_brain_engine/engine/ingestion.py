@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
+from contextlib import nullcontext
 from dataclasses import replace
 from datetime import UTC, datetime
 from hashlib import sha256
@@ -16,6 +17,7 @@ from uuid import uuid4
 
 from open_brain_engine.core.ids import portable_canonical_json_bytes
 from open_brain_engine.core.models import PrivacyDecision, PrivacyTier
+from open_brain_engine.storage.locks import LockBusyError
 
 from .contracts import (
     CaptureCustodyReceipt,
@@ -135,8 +137,10 @@ class IngestionJournal:
             raise RuntimeError("capture protection replay mismatch")
         return envelope
 
-    def enqueue(self, submission: CaptureSubmission) -> CaptureOutcome:
-        """Commit custody before any writer work, returning a stable replay result."""
+    def enqueue(
+        self, submission: CaptureSubmission, *, writer_locked: bool = False,
+    ) -> CaptureOutcome:
+        """Commit custody before writer work; ``writer_locked`` requires the caller's lease."""
         guard = self._engine._recovery_protection_guard
         if guard is not None:
             guard.require_owner(self._engine, submission)
@@ -217,7 +221,20 @@ class IngestionJournal:
             elif isinstance(outcome, CaptureReceipt):
                 guard.validate_duplicate(self._engine, submission, outcome)
             else:
-                guard.protect_pending(self._engine, submission)
+                # Custody has committed before admission. Existing pending
+                # history must be read, compared and protected under the same
+                # fence as drain/retry/discard; a stale lookup cannot authorize
+                # an append after another writer has advanced the history.
+                try:
+                    with (
+                        nullcontext() if writer_locked
+                        else self._engine._writer_lease.acquire_shared_writer()
+                    ):
+                        guard.protect_pending(self._engine, submission)
+                except LockBusyError:
+                    raise RecoveryProtectionPendingError(
+                        "recovery protection custody pending"
+                    ) from None
         if new_delivery:
             self._engine._fault(CaptureFault.AFTER_JOURNAL_COMMIT)
         return outcome

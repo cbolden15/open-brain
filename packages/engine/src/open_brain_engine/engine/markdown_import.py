@@ -572,11 +572,11 @@ class MarkdownImportTasks:
             finally:
                 connection.close()
             if journal_available:
-                outcome = self._engine.ingestion.enqueue(submission)
+                outcome = self._engine.ingestion.enqueue(submission, writer_locked=True)
                 if not isinstance(outcome, CaptureReceipt):
                     self._engine._recover_captures_locked()
                     self._engine.ingestion.drain_locked()
-                    outcome = self._engine.ingestion.enqueue(submission)
+                    outcome = self._engine.ingestion.enqueue(submission, writer_locked=True)
             else:
                 outcome = self._engine._submit_capture(submission)
             if not isinstance(outcome, CaptureReceipt):

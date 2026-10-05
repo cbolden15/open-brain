@@ -1,8 +1,10 @@
 """Progressed, allocated and baseline queue items stay protected and replayable."""
 
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
 from hashlib import sha256
 from pathlib import Path
+from threading import Event
 from uuid import uuid4
 
 import pytest
@@ -1189,3 +1191,86 @@ def test_tampered_journal_event_is_refused_without_poisoning_the_protected_chain
         journal.drain(authority=_owner(engine))
     assert port.records == protected
     assert _journal_rows(engine, "owner.tampered.event")[:2] == (1, 1)
+
+
+def test_owner_retry_cannot_advance_history_after_ingress_protection_lookup(
+    guarded: tuple[BrainEngine, SyntheticPort, RecoveryProtectionGuard], tmp_path: Path,
+) -> None:
+    engine, port, guard = guarded
+    engine = BrainEngine.open(
+        engine.profile, recovery_protection_guard=guard,
+        admission_limits=AdmissionLimits(max_journal_attempts=1),
+    )
+    port.engine = engine
+    journal = engine.tasks.journal
+    assert journal is not None
+    submission = CaptureSubmission.for_local_owner(
+        profile=engine.profile, payload=TextPayload("Synthetic lookup race"),
+        delivery_id="owner.lookup.race",
+    )
+    engine.ingestion.enqueue(submission)
+    _fail_next_materialization(engine)
+    port.fail_kind = "capture_journal"
+    with pytest.raises(RecoveryProtectionPendingError):
+        journal.drain(authority=_owner(engine))
+    port.fail_kind = None
+    assert _journal_rows(engine, submission.delivery_id)[2] == ["queued", "quarantined"]
+    assert _journals(port) == []
+    original_lookup = port.lookup
+    looked_up, resume = Event(), Event()
+    lookups = 0
+
+    def paused_lookup(delivery_id: str, *, timeout_seconds: float) -> RecoveryProtectionEvidence:
+        nonlocal lookups
+        evidence = original_lookup(delivery_id, timeout_seconds=timeout_seconds)
+        lookups += 1
+        # The cue comparison is first; pause after the journal progression lookup.
+        if lookups == 2:
+            looked_up.set()
+            assert resume.wait(5)
+        return evidence
+
+    port.lookup = paused_lookup  # type: ignore[method-assign]
+    with ThreadPoolExecutor(max_workers=1) as executor:
+        ingress = executor.submit(engine.ingestion.enqueue, submission)
+        try:
+            assert looked_up.wait(5)
+            with pytest.raises(JournalOperationError, match="writer_busy"):
+                journal.retry(submission.delivery_id, authority=_owner(engine))
+        finally:
+            resume.set()
+        assert isinstance(ingress.result(timeout=5), CaptureCustodyReceipt)
+    port.lookup = original_lookup  # type: ignore[method-assign]
+    journal.retry(submission.delivery_id, authority=_owner(engine))
+    assert [[event.event_kind for event in plan.events] for plan in _journals(port)] == [
+        ["queued", "quarantined"], ["queued", "quarantined", "queued"],
+    ]
+    records, head = _closure(port)
+    restored, owner = _restore(engine, tmp_path)
+    replay_owner_recovery_chain(restored, records, expected_head=head, authority=owner)
+    assert _journal_rows(restored, submission.delivery_id)[2] == ["queued", "quarantined", "queued"]
+
+
+def test_busy_guarded_resubmission_retains_custody_until_protection_can_retry(
+    guarded: tuple[BrainEngine, SyntheticPort, RecoveryProtectionGuard],
+) -> None:
+    engine, port, _ = guarded
+    submission = CaptureSubmission.for_local_owner(
+        profile=engine.profile, payload=TextPayload("Synthetic busy resubmission"),
+        delivery_id="owner.busy.resubmission",
+    )
+    with engine._writer_lease.acquire_shared_writer():
+        # New custody still commits and protects before writer admission.
+        assert isinstance(engine.ingestion.enqueue(submission), CaptureCustodyReceipt)
+        protected = list(port.records)
+        with pytest.raises(RecoveryProtectionPendingError):
+            engine.ingestion.enqueue(submission)
+        assert port.records == protected
+        assert _journal_rows(engine, submission.delivery_id)[:2] == (1, 1)
+        # Internal callers already holding the fence can protect retained custody.
+        assert isinstance(
+            engine.ingestion.enqueue(submission, writer_locked=True), CaptureCustodyReceipt,
+        )
+    receipt = engine.capture.submit(submission)
+    assert isinstance(receipt, CaptureReceipt)
+    assert _journal_rows(engine, submission.delivery_id)[:2] == (0, 0)
