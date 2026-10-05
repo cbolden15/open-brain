@@ -35,7 +35,7 @@ def test_profile_recovery_refuses_old_state_before_writable_connection(
     monkeypatch.setattr("open_brain_engine.engine.historical_recovery.connect_database", forbidden)
     with (
         exclusive_runtime_admission(profile) as admission,
-        pytest.raises(SchemaError, match="supported_old"),
+        pytest.raises(SchemaError, match="schema13 or schema14"),
     ):
         recover_historical_profile(
             profile, authority=owner, admission=admission, validate_before_write=lambda: None
