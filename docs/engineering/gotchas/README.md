@@ -22,6 +22,11 @@ Verification: PyInstaller's supported configuration reads this environment
 variable before choosing its platform cache directory. Re-run the full build
 and type check, then native audit and Homebrew smoke.
 
+If the compiled bootloader then fails with `semctl: Operation not permitted`,
+the execution environment denies its required semaphore. Verify the exact commit
+on an authorized test host with the matching architecture and Python version;
+the denied local smoke run remains failed evidence.
+
 Discovered: 2026-10-05, restricted macOS native packaging.
 
 ### RECOVERY-003: Clean restore must bound immutable history decoding
