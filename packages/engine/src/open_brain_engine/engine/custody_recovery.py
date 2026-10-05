@@ -167,17 +167,26 @@ def emit_owner_custody_plan(
 
 def _custody_plan_from_connection(
     connection: sqlite3.Connection, submission: CaptureSubmission, baseline: RecoveryBaseline,
+    *, initial_only: bool = True,
 ) -> CaptureCustodyRecoveryPlan:
-    """Read exact initial custody under the caller's authority/consistent snapshot."""
+    """Read exact initial custody under the caller's authority/consistent snapshot.
+
+    ``initial_only=False`` reads the original queued event of a progressed or
+    allocated item so its later history can be protected against that cue.
+    """
+    state = (
+        "AND (SELECT count(*) FROM capture_ingestion_events "
+        "WHERE delivery_id=i.delivery_id)=1 "
+        "AND NOT EXISTS(SELECT 1 FROM captures WHERE delivery_id=i.delivery_id)"
+        if initial_only else ""
+    )
     row = connection.execute(
         "SELECT i.*,p.envelope_bytes,e.event_sequence,e.recorded_at,e.receipt_json "
         "FROM capture_ingestion_items i "
         "JOIN capture_ingestion_payloads p USING(delivery_id) "
         "JOIN capture_ingestion_events e USING(delivery_id) "
         "WHERE i.delivery_id=? AND e.event_kind='queued' AND e.attempt_number=0 "
-        "AND (SELECT count(*) FROM capture_ingestion_events "
-        "WHERE delivery_id=i.delivery_id)=1 "
-        "AND NOT EXISTS(SELECT 1 FROM captures WHERE delivery_id=i.delivery_id)",
+        f"{state} ORDER BY e.event_sequence LIMIT 1",
         (submission.delivery_id,),
     ).fetchone()
     if row is None:

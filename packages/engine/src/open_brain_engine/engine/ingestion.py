@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
+from contextlib import nullcontext
 from dataclasses import replace
 from datetime import UTC, datetime
 from hashlib import sha256
@@ -16,6 +17,7 @@ from uuid import uuid4
 
 from open_brain_engine.core.ids import portable_canonical_json_bytes
 from open_brain_engine.core.models import PrivacyDecision, PrivacyTier
+from open_brain_engine.storage.locks import LockBusyError
 
 from .contracts import (
     CaptureCustodyReceipt,
@@ -33,6 +35,10 @@ from .recovery_protection import RecoveryProtectionPendingError
 
 if TYPE_CHECKING:
     from .local import BrainEngine
+
+
+class JournalAllocatedError(ValueError):
+    """Discarding an allocated item would let recovery resume and publish it."""
 
 
 class JournalCapacityError(ValueError):
@@ -131,8 +137,10 @@ class IngestionJournal:
             raise RuntimeError("capture protection replay mismatch")
         return envelope
 
-    def enqueue(self, submission: CaptureSubmission) -> CaptureOutcome:
-        """Commit custody before any writer work, returning a stable replay result."""
+    def enqueue(
+        self, submission: CaptureSubmission, *, writer_locked: bool = False,
+    ) -> CaptureOutcome:
+        """Commit custody before writer work; ``writer_locked`` requires the caller's lease."""
         guard = self._engine._recovery_protection_guard
         if guard is not None:
             guard.require_owner(self._engine, submission)
@@ -213,7 +221,20 @@ class IngestionJournal:
             elif isinstance(outcome, CaptureReceipt):
                 guard.validate_duplicate(self._engine, submission, outcome)
             else:
-                guard.protect_pending(self._engine, submission)
+                # Custody has committed before admission. Existing pending
+                # history must be read, compared and protected under the same
+                # fence as drain/retry/discard; a stale lookup cannot authorize
+                # an append after another writer has advanced the history.
+                try:
+                    with (
+                        nullcontext() if writer_locked
+                        else self._engine._writer_lease.acquire_shared_writer()
+                    ):
+                        guard.protect_pending(self._engine, submission)
+                except LockBusyError:
+                    raise RecoveryProtectionPendingError(
+                        "recovery protection custody pending"
+                    ) from None
         if new_delivery:
             self._engine._fault(CaptureFault.AFTER_JOURNAL_COMMIT)
         return outcome
@@ -335,6 +356,13 @@ class IngestionJournal:
             self._append_event(
                 connection, delivery_id, event, attempts, {"status": event, "reason": reason}
             )
+        self._protect_pending_journal(delivery_id)
+
+    def _protect_pending_journal(self, delivery_id: str) -> None:
+        """Protect a committed non-terminal history; custody stays until that succeeds."""
+        guard = self._engine._recovery_protection_guard
+        if guard is not None:
+            guard.protect_journal(self._engine, delivery_id, compact=False)
 
     def _terminal_receipt(self, delivery_id: str, event: str, receipt: CaptureReceipt) -> None:
         with self._engine._store.transaction() as connection:
@@ -485,31 +513,55 @@ class IngestionJournal:
             if state != "quarantined":
                 raise ValueError("journal item is not quarantined")
             self._append_event(connection, delivery_id, "queued", 0, {"status": "queued"})
+        self._protect_pending_journal(delivery_id)
 
     def discard(self, delivery_id: str, *, reason: str) -> None:
         if not isinstance(reason, str) or not 1 <= len(reason) <= 128:
             raise ValueError("invalid discard reason")
+        guard = self._engine._recovery_protection_guard
         with self._engine._store.transaction() as connection:
             item = connection.execute(
                 "SELECT request_sha256 FROM capture_ingestion_items WHERE delivery_id = ?",
                 (delivery_id,),
             ).fetchone()
-            if item is None or self._latest_event(connection, delivery_id) != "quarantined":
+            latest = None if item is None else self._latest_event(connection, delivery_id)
+            # A guarded discard commits its terminal history first; an item still
+            # present after a committed discard resumes at the protection step.
+            resuming = guard is not None and latest == "discarded"
+            if item is None or latest != "quarantined" and not resuming:
                 raise ValueError("journal item is not quarantined")
-            result = portable_canonical_json_bytes(
-                {"status": "discarded", "reason": reason}
-            ).decode("utf-8")
-            self._append_event(connection, delivery_id, "discarded", 0, json.loads(result))
-            connection.execute(
-                "INSERT INTO capture_ingestion_tombstones VALUES (?, ?, ?, ?)",
-                (delivery_id, item["request_sha256"], result, _timestamp(self._engine._clock())),
-            )
-            connection.execute(
-                "DELETE FROM capture_ingestion_payloads WHERE delivery_id = ?", (delivery_id,)
-            )
-            connection.execute(
-                "DELETE FROM capture_ingestion_items WHERE delivery_id = ?", (delivery_id,)
-            )
+            # Recovery resumes every reservation before draining, so a discarded
+            # allocation would still publish. The owner retries it instead.
+            if not resuming and connection.execute(
+                "SELECT 1 FROM captures WHERE delivery_id = ?", (delivery_id,),
+            ).fetchone() is not None:
+                raise JournalAllocatedError("journal item has a capture allocation")
+            if not resuming:
+                result = portable_canonical_json_bytes(
+                    {"status": "discarded", "reason": reason}
+                ).decode("utf-8")
+                self._append_event(connection, delivery_id, "discarded", 0, json.loads(result))
+                connection.execute(
+                    "INSERT INTO capture_ingestion_tombstones VALUES (?, ?, ?, ?)",
+                    (delivery_id, item["request_sha256"], result,
+                     _timestamp(self._engine._clock())),
+                )
+            if guard is None:
+                self._delete_custody(connection, delivery_id)
+        if guard is not None:
+            guard.protect_journal(self._engine, delivery_id, compact=True)
+            with self._engine._store.transaction() as connection:
+                guard.validate_identity(connection)
+                self._delete_custody(connection, delivery_id)
+
+    @staticmethod
+    def _delete_custody(connection: sqlite3.Connection, delivery_id: str) -> None:
+        connection.execute(
+            "DELETE FROM capture_ingestion_payloads WHERE delivery_id = ?", (delivery_id,)
+        )
+        connection.execute(
+            "DELETE FROM capture_ingestion_items WHERE delivery_id = ?", (delivery_id,)
+        )
 
     def _identity_row(self, connection: sqlite3.Connection, delivery_id: str) -> sqlite3.Row | None:
         row = connection.execute(
@@ -670,4 +722,4 @@ class IngestionJournal:
         return None if row is None else cast(str, row["event_kind"])
 
 
-__all__ = ["IngestionJournal", "JournalCapacityError"]
+__all__ = ["IngestionJournal", "JournalAllocatedError", "JournalCapacityError"]

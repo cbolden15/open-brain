@@ -241,7 +241,7 @@ def test_mixed_replay_retains_unallocated_original_queue_beside_compacted_captur
 
 
 @pytest.mark.parametrize("damage", [
-    "prefix", "order", "later-kind", "nonowner", "privacy", "unprotected-terminal",
+    "prefix", "order", "later-kind", "nonowner", "privacy",
     "item-identity", "event-identity", "receipt-identity",
 ])
 def test_malformed_later_mixed_history_refuses_before_any_write(
@@ -258,16 +258,13 @@ def test_malformed_later_mixed_history_refuses_before_any_write(
     if damage == "prefix":
         records = records[:-1]
     elif damage in {
-        "order", "later-kind", "unprotected-terminal",
-        "item-identity", "event-identity", "receipt-identity",
+        "order", "later-kind", "item-identity", "event-identity", "receipt-identity",
     }:
         changed = list(records)
         if damage == "order":
             changed[0], changed[1] = changed[1], changed[0]
         elif damage == "later-kind":
             changed[-1] = replace(changed[-1], kind="control")
-        elif damage == "unprotected-terminal":
-            changed.pop()
         elif damage == "receipt-identity":
             first_capture = CaptureRecoveryPlan.from_record(changed[1])
             capture = CaptureRecoveryPlan.from_record(changed[4])

@@ -50,6 +50,81 @@ and `test_v8_rejects_owner_intent_or_reason_disagreeing_with_archived_capture`.
 Discovered: 2026-10-04, independent final-candidate review of the 13/8/8
 recovery extension.
 
+### RECOVERY-002: Protect every journal transition, not only the terminal one
+
+Symptom: Under a recovery guard, a queue item with any later event (a failed
+attempt, a quarantine, an owner retry) raised a pending-protection error on
+every drain and blocked every item behind it. A guard-protected closure holding
+an allocation without its terminal journal, or a journal without an allocation,
+could not be replayed by any entrypoint. Items queued before the guard existed
+could never compact because the port held no original cue for them.
+
+Cause: `protect_pending` only knew two shapes, initial custody or a reservation,
+and the only journal protector required a terminal history and the cue already
+present in the port. Failure, retry and discard commits never protected at all,
+and the replay classifier refused everything except initial queues and completed
+captures.
+
+Fix: One `protect_journal(compact)` rebuilds the original cue from the item's
+first queued event, protects the reservation when present, then protects the
+exact retained history. Every cue or allocation is compared with the
+authenticated closure before it is appended, so a changed local row refuses
+with the protected head unchanged instead of poisoning the append-only chain.
+Allocation protection ensures the cue first on every reservation path,
+including startup resume of a reservation that predates the guard. Failure and
+retry commits protect their non-terminal history immediately. A guarded discard commits the event and
+tombstone, protects the compacted journal, and only then deletes custody; an
+interrupted discard resumes at the protection step. Replay restores pending
+allocations (resume the bound stage machine, keep the queue item; the next drain
+writes the terminal event), exact non-terminal histories and tombstones.
+Quarantined or discarded originals skip destination re-admission on replay,
+since their destination may no longer exist, but keep the privacy check. A
+discarded journal that carries or is followed by an allocation is refused, and
+`discard` itself refuses an allocated item (`allocated`): recovery resumes every
+reservation, so a discarded allocation would still publish. With one permitted
+attempt that state is reachable inside a single drain. A quarantined allocation
+is deliberately completed on replay: the primary applies the same
+resume-before-ingress policy at its next drain, and the owner's later retry
+terminalizes the item as a duplicate. When only the allocation binding changed
+since the last protected journal, no new journal is emitted; an equal-length
+twin would fork the history. Every journal protection is checked as a
+progression of the latest protected journal before the port sees it: an
+identical history re-proves, a strict prefix is stale and skipped, a longer
+history must extend the protected one, equal length admits only a binding or
+compaction transition, and a compacted journal is final; anything else refuses
+with the protected head unchanged. A terminal snapshot is always protected as
+compacted so a resubmission racing a drain cannot leave an uncompacted twin. Owner retry and discard
+take the writer fence like drain, so a racing edit is refused as `writer_busy`
+instead of reordering protected journals.
+Existing pending-custody resubmissions also take that fence before reading,
+comparing and protecting their history. A lookup followed by append is not
+atomic: without the fence, owner retry can protect a longer history between
+those calls and the resubmission can append its stale prefix. Busy guarded
+resubmissions retain custody and return pending protection; already locked
+source and Markdown callers reuse their surrounding fence.
+Build Pipeline prevention: when adding an enqueue keyword, update monkeypatched
+callers to accept it and assert the expected lease ownership. The Markdown
+reservation-stop fixture otherwise fails before reaching its recovery fault.
+Source rows are validated for every
+replayed cue before any branch: an intake row never belongs to an owner
+delivery, and an alias must carry the request digest and name the logical
+source that holds a revision of exactly the matched capture. An interrupted replay (capture committed, queue
+item not yet restored) resumes on the next attempt. Terminal events and the
+tombstone are written before custody is deleted, because `BEFORE DELETE`
+guards refuse to drop items or payloads without them. Duplicate validation
+accepts several protected journals per delivery in authenticated record order,
+each bound to the one original cue and allocation, each strictly extending the
+previous, and only the latest the compacted terminal. Replay exempts a delivery
+from capture-row collision checks only when an explicit capture plan matched
+that row exactly; a row alone proves nothing.
+Deleting a queue item cascades its local events: the protected journal is the
+retained history, so tests must not expect local events after compaction.
+
+Tests: `test_pending_allocation_recovery.py`.
+
+Discovered: 2026-10-04, pending-allocation recovery milestone grounded on the
+reservation45 static map.
+
 ### PORTABLE-010: Historical authority tests need genuine historical exports
 
 Symptom: A sharing forgery test fails on Portable inventory validation before
@@ -87,10 +162,11 @@ Authenticate the append chain unchanged, but derive queue materialization order
 from original journal sequences: protection callbacks can finish out of order.
 Before repeated replay, check completed physical source and file-blob bytes;
 a matching stage3 database row does not prove that those files remain intact.
-The owner replay seam currently supports initial queues and protected completed
-captures. Later nonterminal/discard, source/control/non-owner recovery, mandatory
-all-writer configuration and real independent disaster recovery remain required
-before activation. Never filter or renumber an authenticated recovery chain.
+The owner replay seam supports initial queues, protected completed captures,
+pending allocations, failed/quarantined/retried histories and discards (see
+RECOVERY-002). Source/control/non-owner recovery, mandatory all-writer
+configuration and real independent disaster recovery remain required before
+activation. Never filter or renumber an authenticated recovery chain.
 
 Discovered: 2026-10-03, actual synthetic guard closure clean-restore diagnostic.
 

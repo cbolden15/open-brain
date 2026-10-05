@@ -41,8 +41,10 @@ def _rows(plan: CaptureCustodyRecoveryPlan) -> tuple[dict[str, object], dict[str
 
 
 def _preflight(
-    connection: sqlite3.Connection, plans: tuple[CaptureCustodyRecoveryPlan, ...]
+    connection: sqlite3.Connection, plans: tuple[CaptureCustodyRecoveryPlan, ...],
+    *, allocated: frozenset[str] = frozenset(),
 ) -> tuple[CaptureCustodyRecoveryPlan, ...]:
+    """``allocated`` deliveries already matched their capture row upstream."""
     item_high = max(
         connection.execute(
             "SELECT COALESCE(max(seq),0) FROM sqlite_sequence WHERE name='capture_ingestion_items'"
@@ -77,6 +79,9 @@ def _preflight(
         for table in (
             "captures", "capture_ingestion_tombstones", "source_aliases", "source_intakes"
         ):
+            if table in {"captures", "source_aliases"} and delivery in allocated:
+                # Matched exactly and source-bound by the owner replay preflight.
+                continue
             if connection.execute(
                 f"SELECT 1 FROM {table} WHERE delivery_id=?", (delivery,)
             ).fetchone() is not None:
