@@ -10,9 +10,10 @@ from uuid import uuid4
 
 import pytest
 from open_brain_engine.core.ids import portable_canonical_json_bytes as canonical
-from open_brain_engine.engine import BrainEngine
+from open_brain_engine.engine import BrainEngine, local_schema
 from open_brain_engine.engine.historical_contracts import HistoricalCopyRelationRequest
 from open_brain_engine.engine.historical_tasks import link_historical_copy, revoke_historical_copy
+from open_brain_engine.engine.local_schema_catalog import LOCAL_MIGRATIONS
 from open_brain_engine.engine.portable_v5_evidence import serialize_portable_v5_state
 from open_brain_engine.engine.portable_v8_authority import historical_authority_sidecar
 from open_brain_engine.engine.runtime_admission import exclusive_runtime_admission
@@ -40,6 +41,13 @@ from open_brain.profile import compile_single_user_local
 from packages.app.tests.unit.engine.test_historical_continuity import _adopt, _successor
 from packages.app.tests.unit.engine.test_historical_link import _link_request
 from packages.app.tests.unit.engine.test_historical_revocation import _request as _revocation
+
+
+@pytest.fixture(autouse=True)
+def frozen_schema_thirteen(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Exercise actual Portable8/schema13 behavior after the current format advances."""
+    monkeypatch.setattr(local_schema, "PHASE1_STATE_SCHEMA_VERSION", 13)
+    monkeypatch.setattr(local_schema, "LOCAL_MIGRATIONS", LOCAL_MIGRATIONS[:13])
 
 
 def _files(engine: BrainEngine) -> dict[str, bytes]:

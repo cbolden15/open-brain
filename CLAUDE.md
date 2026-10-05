@@ -130,8 +130,9 @@ be changed. Review CLI/MCP operations share `services/review_publication.py`; th
 source-bound proposals and stable page revisions. See `docs/review-publication.md` and
 `docs/records-and-history.md` and `docs/portable-brain-v7.md`. Use synthetic client profiles for tests.
 Sharing was introduced at schema/runtime/Portable12/7/7. The current unreleased
-historical-authority candidate requires13/8/8; its required historical sidecar,
-forward recovery and retained authority are documented in `docs/portable-brain-v8.md`.
+historical-compatibility candidate requires14/9/9; its required mixed historical sidecar,
+forward recovery and retained import evidence are documented in `docs/portable-brain-v9.md`.
+Frozen13/8/8 semantics remain documented in `docs/portable-brain-v8.md`.
 merged source-continuity B used 11/6/6. Never weaken compatibility checks to admit an older client. Owner-only legacy write
 recovery is documented in `docs/managed-workspace-recovery.md`. Its read-only preview precedes
 ordinary bootstrap; abandonment requires exclusive admission and never exposes general engine tasks.

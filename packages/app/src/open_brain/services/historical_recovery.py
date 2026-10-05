@@ -2,11 +2,11 @@
 
 from pathlib import Path
 
-from open_brain_engine.engine.historical_admission import (
-    HistoricalConsentSnapshot,
+from open_brain_engine.engine.historical_admission import HistoricalConsentSnapshot
+from open_brain_engine.engine.historical_dispatch import (
+    RelationRequest,
     require_historical_provider_consent,
 )
-from open_brain_engine.engine.historical_contracts import HistoricalCopyRelationRequest
 from open_brain_engine.engine.historical_recovery import recover_historical_profile
 from open_brain_engine.engine.local_schema import open_local_database_read_only
 from open_brain_engine.engine.runtime_admission import exclusive_runtime_admission
@@ -48,7 +48,7 @@ def run_historical_recovery(
             profile.owner_actor_id, "owner-historical-maintenance", frozenset(), None, owner=True
         )
 
-        def validate_consent(request: HistoricalCopyRelationRequest) -> None:
+        def validate_consent(request: RelationRequest) -> None:
             if consent_state_path is None:
                 raise SharingError("unsupported_capability")
             try:

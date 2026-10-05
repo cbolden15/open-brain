@@ -89,6 +89,9 @@ def test_retained_evidence_survives_genuine_portable_restore(
         if portable_version == 7:
             historical.setattr(local_schema, "PHASE1_STATE_SCHEMA_VERSION", 12)
             historical.setattr(local_schema, "LOCAL_MIGRATIONS", LOCAL_MIGRATIONS[:12])
+        else:
+            historical.setattr(local_schema, "PHASE1_STATE_SCHEMA_VERSION", 13)
+            historical.setattr(local_schema, "LOCAL_MIGRATIONS", LOCAL_MIGRATIONS[:13])
         engine = BrainEngine.open(compile_single_user_local(tmp_path / "brain"))
         receipt = engine.capture.accept(
             TextPayload("synthetic retained original"), delivery_id="synthetic.old.owner"

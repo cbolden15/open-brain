@@ -21,8 +21,8 @@ from open_brain_engine.storage.filesystem import (
 )
 
 from .historical_contracts import HistoricalDestination, _ClosedComponent, _unique_object
+from .historical_dispatch import TRANSITION_TYPES, Transition, VersionedHistoricalTransitionStore
 from .historical_registry import HistoricalClaimRegistry, HistoricalRegistryStore
-from .historical_transition import HistoricalTransition, HistoricalTransitionStore
 from .sharing_contracts import _OPERATION, SharingError, _digest, _text, _version
 
 _PATH = ".open-brain/historical-authority/historical-fence.v1.json"
@@ -76,7 +76,7 @@ class _FenceHead(_ClosedComponent):
 
     @classmethod
     def create(
-        cls, *, registry: HistoricalClaimRegistry, state: str, record: HistoricalTransition | None
+        cls, *, registry: HistoricalClaimRegistry, state: str, record: Transition | None
     ) -> _FenceHead:
         body: dict[str, object] = {
             "dto_version": 1,
@@ -132,7 +132,7 @@ def _head_digest(body: dict[str, object]) -> str:
 class HistoricalPendingFence:
     def __init__(self, root: Path, root_identity: RootIdentity) -> None:
         self._root, self._root_identity = root, root_identity
-        self._records = HistoricalTransitionStore(root, root_identity)
+        self._records = VersionedHistoricalTransitionStore(root, root_identity)
         self._registry = HistoricalRegistryStore(root, root_identity)
 
     def _read(self) -> _FenceHead:
@@ -173,7 +173,7 @@ class HistoricalPendingFence:
             expected_root_identity=self._root_identity,
         )
 
-    def _bound_record(self, head: _FenceHead) -> HistoricalTransition:
+    def _bound_record(self, head: _FenceHead) -> Transition:
         if head.operation_id is None:
             raise SharingError("binding_mismatch")
         record = self._records.read(head.operation_id)
@@ -186,15 +186,15 @@ class HistoricalPendingFence:
             raise SharingError("binding_mismatch")
         return record
 
-    def pending(self) -> HistoricalTransition | None:
+    def pending(self) -> Transition | None:
         head = self._read()
         if head.state == "idle":
             return None
         record = self._bound_record(head)
         return record if head.state == "pending" else None
 
-    def prepare(self, record: HistoricalTransition) -> None:
-        if type(record) is not HistoricalTransition:
+    def prepare(self, record: Transition) -> None:
+        if type(record) not in TRANSITION_TYPES:
             raise SharingError("invalid_arguments")
         head = self._read()
         if head.state != "idle" and head.operation_id == record.request.operation_id:
@@ -217,13 +217,8 @@ class HistoricalPendingFence:
             head, _FenceHead.create(registry=record.proposed, state="pending", record=record)
         )
 
-    def mark_complete(
-        self, record: HistoricalTransition, registry: HistoricalClaimRegistry
-    ) -> None:
-        if (
-            type(record) is not HistoricalTransition
-            or type(registry) is not HistoricalClaimRegistry
-        ):
+    def mark_complete(self, record: Transition, registry: HistoricalClaimRegistry) -> None:
+        if type(record) not in TRANSITION_TYPES or type(registry) is not HistoricalClaimRegistry:
             raise SharingError("invalid_arguments")
         head = self._read()
         if (

@@ -1,9 +1,9 @@
 # Portable Brain v8
 
-The historical-authority candidate uses local schema 13, runtime session 8 and
+The previous historical-authority candidate uses local schema 13, runtime session 8 and
 Portable 8. This is an unreleased contract. Product version `0.1.0` does not prove
 compatibility. Schema 12/runtime 7 used Portable 7; those format interpretations
-remain unchanged.
+remain unchanged. The current compatibility candidate is documented in [Portable 9](portable-brain-v9.md).
 
 ## Required history
 

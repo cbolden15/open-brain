@@ -10,7 +10,9 @@ from open_brain_engine.storage.filesystem import RootIdentity
 
 from .contracts import LocalEngineContext
 from .historical_admission import verify_historical_source_cas
-from .historical_contracts import HistoricalReceipt, HistoricalSourceCAS
+from .historical_contracts import HistoricalSourceCAS
+from .historical_dispatch import Receipt, decode_receipt
+from .historical_observation_v2 import MAX_HISTORICAL_V2_BYTES
 from .historical_source import historical_baseline_for_namespace
 from .source_intake import (
     SourceRevisionBinding,
@@ -77,7 +79,7 @@ class HistoricalBaselineDuplicate:
     serialized historical authority. A checkpoint must recompute this result.
     """
 
-    receipt: HistoricalReceipt
+    receipt: Receipt
     source_cas: HistoricalSourceCAS
     observed_envelope_sha256: str
     selection_generation: str
@@ -205,12 +207,14 @@ def lookup_historical_baseline(
         raise T03Error("invalid_arguments")
     _validate_generation(selection_generation)
     raw = delivery.custody_bytes()
-    if len(raw) > 65536:
+    if len(raw) > MAX_HISTORICAL_V2_BYTES:
         raise T03Error("invalid_arguments")
     namespace_sha256 = sha256(delivery.submission.namespace_bytes()).hexdigest()
     baseline = historical_baseline_for_namespace(
         connection, profile, namespace_sha256, binding=delivery.binding
     )
+    if len(raw) > 65536 and (baseline is None or baseline.dto_version == 1):
+        raise T03Error("invalid_arguments")
     if baseline is None:
         return None
     # Eligibility changes must not turn a bound namespace into an unbound one.
@@ -230,7 +234,7 @@ def lookup_historical_baseline(
     ).fetchone()
     if row is None:
         raise T03Error("revision_changed")
-    receipt = HistoricalReceipt.from_value(json.loads(bytes(row[0])))
+    receipt = decode_receipt(json.loads(bytes(row[0])), baseline.dto_version)
     return HistoricalBaselineDuplicate(
         receipt=receipt,
         source_cas=baseline.source_cas,

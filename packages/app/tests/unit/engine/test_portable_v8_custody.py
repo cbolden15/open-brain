@@ -13,9 +13,11 @@ from open_brain_engine.engine import (
     CaptureSubmission,
     InjectedFault,
     TextPayload,
+    local_schema,
 )
 from open_brain_engine.engine.contracts import LocalEngineContext
 from open_brain_engine.engine.local_schema import open_local_database_read_only
+from open_brain_engine.engine.local_schema_catalog import LOCAL_MIGRATIONS
 from open_brain_engine.portable.v1 import PortableValidationError
 from open_brain_engine.portable.v8_custody import CUSTODY_PATH, validate_capture_custody
 from open_brain_engine.portable.versioned import validated_portable_snapshot
@@ -28,6 +30,13 @@ _TABLES = (
     ("capture_ingestion_events", "event_sequence"),
     ("capture_ingestion_tombstones", "delivery_id"),
 )
+
+
+@pytest.fixture(autouse=True)
+def frozen_schema_thirteen(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Exercise actual Portable8/schema13 behavior after the current format advances."""
+    monkeypatch.setattr(local_schema, "PHASE1_STATE_SCHEMA_VERSION", 13)
+    monkeypatch.setattr(local_schema, "LOCAL_MIGRATIONS", LOCAL_MIGRATIONS[:13])
 
 
 def _journal_state(profile: LocalEngineContext) -> dict[str, object]:

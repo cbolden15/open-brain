@@ -30,6 +30,13 @@ from open_brain_engine.engine.sharing_contracts import SharingError
 from open_brain.profile import compile_single_user_local
 
 
+@pytest.fixture(autouse=True)
+def frozen_schema_thirteen(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Exercise actual Portable8/schema13 behavior after the current format advances."""
+    monkeypatch.setattr(local_schema, "PHASE1_STATE_SCHEMA_VERSION", 13)
+    monkeypatch.setattr(local_schema, "LOCAL_MIGRATIONS", LOCAL_MIGRATIONS[:13])
+
+
 def _schema_twelve(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> LocalEngineContext:
     profile = compile_single_user_local(tmp_path / "old", starter_spaces=())
     with monkeypatch.context() as old:

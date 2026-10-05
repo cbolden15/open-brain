@@ -18,6 +18,7 @@ from open_brain_engine.core.ids import portable_canonical_json_bytes
 from open_brain_engine.core.models import narrowest_tier
 from open_brain_engine.portable.v5 import _manifest
 from open_brain_engine.portable.v8 import PORTABLE_V8_SCHEMA_CATALOG_DIGEST
+from open_brain_engine.portable.v9 import PORTABLE_V9_SCHEMA_CATALOG_DIGEST
 from open_brain_engine.storage.filesystem import read_confined
 
 from .capture_recovery import CaptureRecoveryPlan
@@ -86,7 +87,13 @@ def _baseline_manifest(engine: BrainEngine, baseline: RecoveryBaseline) -> set[s
         return cast(dict[str, object], value)
 
     manifest = read_json("portable-manifest.json", 16 * 1024 * 1024)
-    paths = _manifest(manifest, version=8, catalog=PORTABLE_V8_SCHEMA_CATALOG_DIGEST)
+    version = manifest.get("schema_version")
+    if type(version) is not int or version not in (8, 9):
+        raise ValueError("capture recovery requires Portable8 or Portable9")
+    catalog = (
+        PORTABLE_V8_SCHEMA_CATALOG_DIGEST if version == 8 else PORTABLE_V9_SCHEMA_CATALOG_DIGEST
+    )
+    paths = _manifest(manifest, version=version, catalog=catalog)
     ready = read_json(".open-brain/state/portability-ready.json", 65536)
     _validate_ready_record(manifest, import_id=cast(str, ready.get("import_id")), ready=ready)
     if (
@@ -152,20 +159,24 @@ def _preflight_captures(
 
 
 def _require_completed_sources(
-    engine: BrainEngine, connection: sqlite3.Connection,
+    engine: BrainEngine,
+    connection: sqlite3.Connection,
     captures: tuple[CaptureRecoveryPlan, ...],
 ) -> None:
     """A matching completed row cannot stand in for missing physical records."""
     for plan in captures:
         row = connection.execute(
-            "SELECT * FROM captures WHERE delivery_id=?", (plan.envelope.submission.delivery_id,),
+            "SELECT * FROM captures WHERE delivery_id=?",
+            (plan.envelope.submission.delivery_id,),
         ).fetchone()
         if row is None or row["stage"] < 3:
             continue
         expected = portable_canonical_json_bytes(engine._capture_record(row))
         source = read_confined(
-            root=engine.profile.root, relative=row["source_path"],
-            expected_root_identity=engine.profile.root_identity, maximum_bytes=len(expected),
+            root=engine.profile.root,
+            relative=row["source_path"],
+            expected_root_identity=engine.profile.root_identity,
+            maximum_bytes=len(expected),
         )
         if source != expected:
             raise ValueError("owner recovery completed source mismatch")

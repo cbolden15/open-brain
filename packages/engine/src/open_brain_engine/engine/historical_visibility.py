@@ -6,14 +6,15 @@ from open_brain_engine.core.models import PrivacyDecision, PrivacyTier
 from open_brain_engine.storage.filesystem import StorageError
 
 from .contracts import LocalEngineContext
-from .historical_admission import verify_historical_source_cas, verify_retained_capture
-from .historical_contracts import (
-    HistoricalBaselineRequest,
-    HistoricalCopyRelationRequest,
-    HistoricalDestination,
+from .historical_admission import verify_historical_source_cas
+from .historical_contracts import HistoricalDestination
+from .historical_dispatch import (
+    BASELINE_TYPES,
+    RELATION_TYPES,
+    verify_retained_capture,
 )
 from .historical_fence import HistoricalPendingFence
-from .historical_projection import verify_historical_projection
+from .historical_projection import verify_versioned_historical_projection
 from .historical_registry import HistoricalRegistryStore
 from .sharing_contracts import SharingError
 
@@ -47,7 +48,7 @@ def historical_capture_visibility(
         destination = HistoricalDestination(brain_id=identity[0], issuer_epoch=identity[1])
         registry = HistoricalRegistryStore(profile.root, profile.root_identity).read(destination)
         HistoricalPendingFence(profile.root, profile.root_identity).assert_settled(registry)
-        records = verify_historical_projection(connection, profile, registry)
+        records = verify_versioned_historical_projection(connection, profile, registry)
         member = next(
             (item for item in registry.memberships if item.capture_id == capture_id), None
         )
@@ -70,8 +71,8 @@ def historical_capture_visibility(
         relation = requests[link["operation_id"]]
         baseline = requests[link["baseline_operation_id"]]
         if (
-            type(relation) is not HistoricalCopyRelationRequest
-            or type(baseline) is not HistoricalBaselineRequest
+            not isinstance(relation, RELATION_TYPES)
+            or not isinstance(baseline, BASELINE_TYPES)
             or not local_history
             and (
                 provider_id not in relation.provider_ids

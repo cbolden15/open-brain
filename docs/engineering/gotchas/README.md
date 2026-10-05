@@ -4,6 +4,44 @@ Non-obvious behaviors, sharp edges, and lessons learned belong here.
 
 ## Registry
 
+### SQLITE-001: Reinsert replacement parents after dropping the old table
+
+Symptom: A same-transaction historical table rebuild passes a final
+`foreign_key_check` but fails COMMIT with a deferred foreign-key violation.
+
+Cause: Copying parent rows into a differently named replacement before dropping
+the referenced old table leaves SQLite's deferred violation counter unresolved.
+Renaming the already-populated table does not reinsert the referenced keys.
+
+Fix: Keep foreign keys enabled. Retain exact rows in a transaction-local backup
+table, replace the old parent with the empty new definition, then insert those
+rows into the original parent name. Check foreign keys and the complete retained
+history before commit. Roll back the whole rebuild on interruption.
+
+Tests: Populated V1 relation-chain preservation, migration interruption/retry,
+old-runtime refusal and genuine escaped-max Portable5→V2→Portable9 restoration.
+
+Discovered: 2026-10-05, schema14 versioned historical bounds.
+
+### TYPE-001: A versioned runtime projection must not widen a frozen exporter
+
+Symptom: Adding V2 history to the shared projection verifier makes mypy reject
+Portable8's exporter: its closed V1 serializer receives a V1/V2 transition union.
+A runtime-only cast would hide the same transitive compatibility boundary.
+
+Cause: A shared consumer name represented both current runtime history and the
+frozen Portable8 format, which only admits V1 transitions.
+
+Fix: Keep `verify_historical_projection` closed over V1 and use the explicit
+`verify_versioned_historical_projection` for current runtime consumers. The V1
+wrapper verifies the full chain and refuses every V2 transition. Preserve the
+Portable8 serializer and validator bytes; put mixed history in Portable9.
+
+Tests: Static checking of engine/app source plus frozen V1 history regressions
+and the mixed V1/V2 Portable9 export/import fixture.
+
+Discovered: 2026-10-04, schema14 historical compatibility implementation.
+
 ### TESTING-003: macOS killpg reports EPERM for a zombie-only process group
 
 Symptom: A required NW0 proof job on macOS fails in about 20 seconds with

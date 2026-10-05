@@ -1,6 +1,4 @@
-"""Schema-11 lifecycle admission under exclusive runtime coordination."""
-
-from __future__ import annotations
+"""Exclusive schema14 floor upgrade; immutable source and authority evidence is retained."""
 
 from collections.abc import Callable
 from datetime import datetime
@@ -9,13 +7,14 @@ from open_brain_engine.storage.migrations import apply_migrations
 from open_brain_engine.storage.sqlite import connect_database
 
 from .contracts import LocalEngineContext
+from .historical_recovery import require_historical_snapshot_settled
 from .local_schema import PHASE1_STATE_DATABASE, _MigrationClock, classify_local_schema
 from .local_schema_catalog import LOCAL_MIGRATIONS
 from .runtime_admission import HeldRuntimeAdmission
-from .t03_contracts import T03Error
+from .sharing_contracts import SharingError
 
 
-def migrate_saved_lifecycle(
+def migrate_historical_compatibility(
     profile: LocalEngineContext,
     *,
     admission: HeldRuntimeAdmission,
@@ -24,7 +23,7 @@ def migrate_saved_lifecycle(
 ) -> None:
     admission.validate(profile)
     if admission.live_peer_count:
-        raise T03Error("operation_pending")
+        raise SharingError("operation_pending")
     connection = connect_database(
         root=profile.root,
         database_name=PHASE1_STATE_DATABASE,
@@ -32,21 +31,30 @@ def migrate_saved_lifecycle(
     )
     try:
         state = classify_local_schema(connection)
-        if state.state in {"current", "supported_old"} and state.version in {11, 12, 13, 14}:
+        if state.state == "current" and state.version == 14:
             return
-        if state.state != "supported_old" or state.version != 10:
-            raise T03Error("operation_pending")
-        checkpoint("saved_lifecycle_preflight")
+        if state.state != "supported_old" or state.version != 13:
+            raise SharingError("operation_pending")
         connection.execute("BEGIN IMMEDIATE")
+        if connection.execute("PRAGMA foreign_keys").fetchone()[0] != 1 or (
+            connection.execute("PRAGMA foreign_key_check").fetchone() is not None
+        ):
+            raise SharingError("binding_mismatch")
+        require_historical_snapshot_settled(connection, profile)
+        checkpoint("historical_compatibility_preflight")
         apply_migrations(
             connection,
             clock=_MigrationClock(clock),
-            migrations=LOCAL_MIGRATIONS[:11],
-            schema_version=11,
+            migrations=LOCAL_MIGRATIONS[:14],
+            schema_version=14,
         )
-        checkpoint("saved_lifecycle_schema_applied")
+        checkpoint("historical_compatibility_schema_applied")
+        if connection.execute("PRAGMA foreign_key_check").fetchone() is not None:
+            raise SharingError("binding_mismatch")
+        require_historical_snapshot_settled(connection, profile)
+        admission.validate(profile)
         connection.execute("COMMIT")
-        checkpoint("saved_lifecycle_complete")
+        checkpoint("historical_compatibility_complete")
     except BaseException:
         if connection.in_transaction:
             connection.execute("ROLLBACK")

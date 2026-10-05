@@ -13,11 +13,14 @@ from open_brain_engine.engine import (
     InjectedFault,
     PortabilityFault,
     TextPayload,
+    local_schema,
+    paging,
     portable_v8_restore,
 )
 from open_brain_engine.engine.historical_contracts import HistoricalBaselineRequest
 from open_brain_engine.engine.historical_recovery import _historical_transaction
 from open_brain_engine.engine.historical_tasks import revoke_historical_copy
+from open_brain_engine.engine.local_schema_catalog import LOCAL_MIGRATIONS
 from open_brain_engine.engine.runtime_admission import exclusive_runtime_admission
 from open_brain_engine.engine.sharing_contracts import SharingError
 from open_brain_engine.engine.source_lifecycle_contracts import SourceWithdrawRequest
@@ -32,6 +35,14 @@ from packages.app.tests.unit.engine.test_historical_continuity import _adopt, _s
 from packages.app.tests.unit.engine.test_historical_revocation import _request as _revocation
 from packages.app.tests.unit.engine.test_paging import external_authority
 from packages.app.tests.unit.engine.test_portable_v8_historical import _linked
+
+
+@pytest.fixture(autouse=True)
+def frozen_schema_thirteen(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Exercise actual Portable8/schema13 behavior after the current format advances."""
+    monkeypatch.setattr(local_schema, "PHASE1_STATE_SCHEMA_VERSION", 13)
+    monkeypatch.setattr(local_schema, "LOCAL_MIGRATIONS", LOCAL_MIGRATIONS[:13])
+    monkeypatch.setattr(paging, "PHASE1_STATE_SCHEMA_VERSION", 13)
 
 
 @pytest.mark.parametrize(

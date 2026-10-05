@@ -218,8 +218,9 @@ def portable_capture_content(files: Mapping[str, bytes]) -> list[dict[str, objec
     # its historical materialization semantics remain unchanged.
     from open_brain_engine.portable.v6 import SOURCE_ADMISSION_PATH
     from open_brain_engine.portable.v8 import HISTORICAL_AUTHORITY_PATH
+    from open_brain_engine.portable.v9 import HISTORICAL_AUTHORITY_PATH as V9_AUTHORITY_PATH
 
-    if HISTORICAL_AUTHORITY_PATH in files:
+    if HISTORICAL_AUTHORITY_PATH in files or V9_AUTHORITY_PATH in files:
         admission = json.loads(files[SOURCE_ADMISSION_PATH])
         for delivery in admission["managed_source_deliveries"]:
             receipt = json.loads(delivery["receipt_json"])["source_receipt"]
@@ -666,7 +667,7 @@ def materialize_portable_root(
             )
         if _v5_restore is not None:
             _v5_restore.install(connection, profile=profile)
-        if snapshot.manifest["schema_version"] == 8:
+        if snapshot.manifest["schema_version"] in {8, 9}:
             from open_brain_engine.portable.v8_capture_metadata import (
                 CAPTURE_COLUMNS,
                 validate_capture_metadata,

@@ -11,21 +11,23 @@ from open_brain_engine.storage.locks import FileLease
 from open_brain_engine.storage.sqlite import SchemaError, begin_immediate, connect_database
 
 from .contracts import LocalEngineContext
-from .historical_admission import (
+from .historical_admission import verify_historical_source_cas
+from .historical_contracts import HistoricalDestination
+from .historical_dispatch import (
+    BASELINE_TYPES,
+    CLAIM_TYPES,
+    RELATION_TYPES,
+    Receipt,
+    RelationRequest,
     verify_historical_baseline_evidence,
     verify_historical_relation_evidence,
-    verify_historical_source_cas,
     verify_retained_capture,
 )
-from .historical_contracts import (
-    HistoricalBaselineRequest,
-    HistoricalClaimRequest,
-    HistoricalCopyRelationRequest,
-    HistoricalDestination,
-    HistoricalReceipt,
-)
 from .historical_fence import HistoricalPendingFence
-from .historical_projection import _append_historical_projection, verify_historical_projection
+from .historical_projection import (
+    _append_historical_projection,
+    verify_versioned_historical_projection,
+)
 from .historical_registry import HistoricalRegistryStore
 from .local_schema import PHASE1_STATE_DATABASE, classify_local_schema
 from .normalization import _utc_now
@@ -63,7 +65,7 @@ def require_historical_snapshot_settled(
     destination = HistoricalDestination(brain_id=identity[0], issuer_epoch=identity[1])
     registry = HistoricalRegistryStore(profile.root, profile.root_identity).read(destination)
     HistoricalPendingFence(profile.root, profile.root_identity).assert_settled(registry)
-    verify_historical_projection(connection, profile, registry)
+    verify_versioned_historical_projection(connection, profile, registry)
 
 
 @contextmanager
@@ -76,7 +78,7 @@ def _historical_transaction(
     # storage can initialize WAL or adjust files. This path never migrates.
     def prepare(connection: sqlite3.Connection, created: bool, setup_required: bool) -> None:
         state = classify_local_schema(connection)
-        if created or state.state != "current" or state.version != 13:
+        if created or state.state != "current" or state.version not in {13, 14}:
             raise SchemaError("historical recovery requires current schema13")
 
     validate_before_write()
@@ -89,7 +91,7 @@ def _historical_transaction(
     try:
         begin_immediate(connection)
         state = classify_local_schema(connection)
-        if state.state != "current" or state.version != 13:
+        if state.state != "current" or state.version not in {13, 14}:
             raise SchemaError("local state schema changed before recovery")
         yield connection
         validate_before_write()
@@ -110,8 +112,8 @@ def recover_historical_profile(
     validate_before_write: Callable[[], None],
     clock: Callable[[], datetime] = _utc_now,
     checkpoint: Callable[[str], None] = lambda _stage: None,
-    validate_relation_consent: Callable[[HistoricalCopyRelationRequest], None] | None = None,
-) -> HistoricalReceipt | None:
+    validate_relation_consent: Callable[[RelationRequest], None] | None = None,
+) -> Receipt | None:
     """Owner maintenance before engine startup, without ordinary writer hooks."""
     _owner_local(authority)
     admission.validate(profile)
@@ -150,7 +152,7 @@ def recover_historical_pending(
     authority: EffectiveAuthority,
     admission: HeldRuntimeAdmission,
     checkpoint: Callable[[str], None] = lambda _stage: None,
-) -> HistoricalReceipt | None:
+) -> Receipt | None:
     """Complete only the exact on-disk pending intent, never caller JSON.
 
     This returns historical operation truth, not a current-eligibility or
@@ -182,14 +184,14 @@ def _recover_historical(
     *,
     validate_before_write: Callable[[], None],
     checkpoint: Callable[[str], None],
-    validate_relation_consent: Callable[[HistoricalCopyRelationRequest], None] | None = None,
-) -> HistoricalReceipt | None:
+    validate_relation_consent: Callable[[RelationRequest], None] | None = None,
+) -> Receipt | None:
     fence = HistoricalPendingFence(profile.root, profile.root_identity)
     registry_store = HistoricalRegistryStore(profile.root, profile.root_identity)
     # Both entrypoints hold the same root-bound engine writer lease.
     validate_before_write()
     record = fence.pending()
-    pending_relation: HistoricalCopyRelationRequest | None = None
+    pending_relation: RelationRequest | None = None
 
     def validate_pending() -> None:
         validate_before_write()
@@ -208,7 +210,7 @@ def _recover_historical(
         registry = registry_store.read(destination)
         if record is None:
             fence.assert_settled(registry)
-            verify_historical_projection(connection, profile, registry)
+            verify_versioned_historical_projection(connection, profile, registry)
             return None
         if record.request.destination != destination or registry not in (
             record.previous,
@@ -221,12 +223,12 @@ def _recover_historical(
         if state is None:
             raise SharingError("binding_mismatch")
         if state[0] == record.previous.generation:
-            prior = verify_historical_projection(connection, profile, record.previous)
+            prior = verify_versioned_historical_projection(connection, profile, record.previous)
             request = record.request
             verify_historical_source_cas(connection, request.source_cas)
-            if type(request) is HistoricalBaselineRequest:
+            if isinstance(request, BASELINE_TYPES):
                 verify_historical_baseline_evidence(connection, profile, request)
-            elif type(request) is HistoricalClaimRequest:
+            elif isinstance(request, CLAIM_TYPES):
                 verify_historical_source_cas(connection, request.capture_source_cas)
                 verify_retained_capture(
                     connection,
@@ -234,7 +236,7 @@ def _recover_historical(
                     request.retained_capture,
                     request.capture_source_cas.source_id,
                 )
-            elif type(request) is HistoricalCopyRelationRequest:
+            elif isinstance(request, RELATION_TYPES):
                 baseline = next(
                     (
                         item.request
@@ -243,7 +245,7 @@ def _recover_historical(
                     ),
                     None,
                 )
-                if not isinstance(baseline, HistoricalBaselineRequest):
+                if not isinstance(baseline, BASELINE_TYPES):
                     raise SharingError("binding_mismatch")
                 verify_historical_relation_evidence(connection, profile, request, baseline)
                 pending_relation = request
@@ -259,7 +261,7 @@ def _recover_historical(
         elif state[0] == record.proposed.generation:
             if registry != record.proposed:
                 raise SharingError("binding_mismatch")
-            verify_historical_projection(connection, profile, record.proposed)
+            verify_versioned_historical_projection(connection, profile, record.proposed)
         else:
             raise SharingError("binding_mismatch")
     checkpoint("historical_sql_committed")
@@ -267,7 +269,7 @@ def _recover_historical(
     # success after a changed or incomplete projection.
     validate_before_write()
     with _historical_transaction(profile, validate_before_write) as connection:
-        verify_historical_projection(connection, profile, record.proposed)
+        verify_versioned_historical_projection(connection, profile, record.proposed)
         validate_before_write()
         fence.mark_complete(record, record.proposed)
     checkpoint("historical_recovery_complete")

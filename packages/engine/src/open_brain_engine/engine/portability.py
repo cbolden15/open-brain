@@ -28,6 +28,7 @@ from open_brain_engine.portable.v5 import V5_SIDECAR_PATHS, manifest_v5
 from open_brain_engine.portable.v6 import V6_SIDECAR_PATHS, manifest_v6
 from open_brain_engine.portable.v7 import V7_SIDECAR_PATHS, manifest_v7
 from open_brain_engine.portable.v8 import V8_SIDECAR_PATHS, manifest_v8
+from open_brain_engine.portable.v9 import V9_SIDECAR_PATHS, manifest_v9
 from open_brain_engine.portable.versioned import validate_portable_root, validated_portable_snapshot
 from open_brain_engine.storage.filesystem import RootIdentity, capture_root_identity, read_confined
 from open_brain_engine.storage.locks import FileLease
@@ -80,6 +81,7 @@ def _receipt(
         6,
         7,
         8,
+        9,
     }:
         raise ValueError("unsupported Portable Brain schema")
     entries = cast(list[dict[str, object]], manifest["files"])
@@ -105,6 +107,10 @@ def _manifest(
     tenant_id: str,
     version: int = 1,
 ) -> dict[str, object]:
+    if version == 9:
+        return manifest_v9(
+            dict(files), tenant_id=tenant_id, export_id=export_id, created_at=created_at
+        )
     if version == 8:
         return manifest_v8(
             dict(files), tenant_id=tenant_id, export_id=export_id, created_at=created_at
@@ -190,7 +196,7 @@ def _ready_record(
             "tenant_id": manifest["tenant_id"],
         },
     }
-    if manifest["schema_version"] in {5, 6, 7, 8}:
+    if manifest["schema_version"] in {5, 6, 7, 8, 9}:
         from .local_schema import open_local_database_read_only
 
         connection = open_local_database_read_only(materialization.profile)
@@ -206,7 +212,7 @@ def _ready_record(
                 ),
             )
             ready.update(
-                schema_version=3 if manifest["schema_version"] == 8 else 2,
+                schema_version=3 if manifest["schema_version"] in {8, 9} else 2,
                 authoritative_counts=_authoritative_counts(connection),
                 semantic_state_sha256=evidence.semantic_state_sha256,
                 index={
@@ -294,7 +300,7 @@ def _materialization_counts(manifest: dict[str, object]) -> dict[str, int]:
 def _validate_ready_record(
     manifest: dict[str, object], *, import_id: str, ready: dict[str, object]
 ) -> tuple[dict[str, int], int]:
-    v5 = manifest["schema_version"] in {5, 6, 7, 8}
+    v5 = manifest["schema_version"] in {5, 6, 7, 8, 9}
     extra_keys = {"authoritative_counts", "semantic_state_sha256"} if v5 else set()
     if (
         set(ready)
@@ -308,7 +314,8 @@ def _validate_ready_record(
         | extra_keys
         or ready.get("import_id") != import_id
         or type(ready.get("schema_version")) is not int
-        or ready.get("schema_version") != (3 if manifest["schema_version"] == 8 else 2 if v5 else 1)
+        or ready.get("schema_version")
+        != (3 if manifest["schema_version"] in {8, 9} else 2 if v5 else 1)
     ):
         raise ValueError("portable import retry evidence is invalid")
     source_manifest = ready.get("source_manifest")
@@ -455,7 +462,7 @@ def _validate_reopened_import(
     profile = _profile(destination, snapshot)
     if profile.tenant_id != manifest["tenant_id"]:
         raise ValueError("portable import retry evidence is invalid")
-    if manifest["schema_version"] in {5, 6, 7, 8}:
+    if manifest["schema_version"] in {5, 6, 7, 8, 9}:
         # Reject archive-bound drift before engine recovery can rewrite it.
         audit_restored_v5(profile, snapshot=snapshot)
     from .local import BrainEngine
@@ -466,13 +473,13 @@ def _validate_reopened_import(
         BrainEngine(
             profile, faults=set(), clock=lambda: datetime.now(UTC), enrichment_provider=None
         )
-        if manifest["schema_version"] == 8
+        if manifest["schema_version"] in {8, 9}
         else BrainEngine.open(profile)
     )
     connection = reopened._store.connect()
     try:
         row = connection.execute("SELECT COUNT(*) FROM captures").fetchone()
-        if manifest["schema_version"] in {5, 6, 7, 8}:
+        if manifest["schema_version"] in {5, 6, 7, 8, 9}:
             from .portable_v5_restore import restored_portable_semantic_state
 
             evidence = restored_portable_semantic_state(
@@ -682,14 +689,25 @@ class PortabilityTasks:
                 )
                 if schema_version >= 13:
                     from .portable_v8_authority import serialize_portable_v8_state
+                    from .portable_v9_authority import serialize_portable_v9_state
 
-                    evidence = serialize_portable_v8_state(
+                    serializer = (
+                        serialize_portable_v9_state
+                        if schema_version >= 14
+                        else serialize_portable_v8_state
+                    )
+
+                    evidence = serializer(
                         connection,
                         self._engine.profile,
                         relationship_sidecar_present=relation is not None,
                     )
                     sidecar_paths = (
-                        V5_SIDECAR_PATHS | V6_SIDECAR_PATHS | V7_SIDECAR_PATHS | V8_SIDECAR_PATHS
+                        V5_SIDECAR_PATHS
+                        | V6_SIDECAR_PATHS
+                        | V7_SIDECAR_PATHS
+                        | V8_SIDECAR_PATHS
+                        | V9_SIDECAR_PATHS
                     )
                     files = [(path, data) for path, data in files if path not in sidecar_paths]
                     files.extend(evidence.sidecars.items())
@@ -722,7 +740,9 @@ class PortabilityTasks:
             export_id=export_id,
             created_at=_timestamp(self._engine._clock()),
             tenant_id=self._engine.profile.tenant_id,
-            version=8
+            version=9
+            if schema_version >= 14
+            else 8
             if schema_version >= 13
             else 7
             if schema_version >= 12
@@ -822,7 +842,15 @@ class PortabilityTasks:
             created_at="1970-01-01T00:00:00Z",
             tenant_id=self._engine.profile.tenant_id,
             version=(
-                8
+                9
+                if all(
+                    any(path == sidecar for path, _ in files)
+                    for sidecar in V5_SIDECAR_PATHS
+                    | V6_SIDECAR_PATHS
+                    | V7_SIDECAR_PATHS
+                    | V9_SIDECAR_PATHS
+                )
+                else 8
                 if all(
                     any(path == sidecar for path, _ in files)
                     for sidecar in V5_SIDECAR_PATHS
@@ -923,7 +951,7 @@ class _PortableImporter:
         manifest = source_snapshot.manifest
         if manifest["schema_version"] == 4:
             raise ValueError("Portable v4 import is not supported")
-        if self._existing_identity_only and manifest["schema_version"] not in {5, 6, 7, 8}:
+        if self._existing_identity_only and manifest["schema_version"] not in {5, 6, 7, 8, 9}:
             raise ValueError("standalone recovery requires retained issuer evidence")
         actor_id = self._actor_id
         if actor_id is None:
@@ -1012,7 +1040,13 @@ class _PortableImporter:
                     raise ValueError("portable import stage differs from its source snapshot")
                 stage.assert_identity()
                 self._fault(PortabilityFault.AFTER_PROFILE)
-                if manifest["schema_version"] == 8:
+                if manifest["schema_version"] == 9:
+                    from .portable_v9_restore import restore_portable_v9_root
+
+                    materialization = restore_portable_v9_root(
+                        stage_root, snapshot=stage_snapshot, expected_root_identity=stage_identity
+                    )
+                elif manifest["schema_version"] == 8:
                     from .portable_v8_restore import restore_portable_v8_root
 
                     materialization = restore_portable_v8_root(
@@ -1032,12 +1066,12 @@ class _PortableImporter:
                         snapshot=stage_snapshot,
                         expected_root_identity=stage_identity,
                     )
-                if manifest["schema_version"] in {5, 6, 7, 8}:
+                if manifest["schema_version"] in {5, 6, 7, 8, 9}:
                     materialization = replace(
                         materialization,
                         history_records=_materialization_counts(manifest)["history_records"],
                     )
-                if manifest["schema_version"] in {2, 3, 5, 6, 7, 8}:
+                if manifest["schema_version"] in {2, 3, 5, 6, 7, 8, 9}:
                     managed_paths = [
                         path
                         for path in stage_snapshot.files
@@ -1059,14 +1093,14 @@ class _PortableImporter:
                                 clock=lambda: datetime.now(UTC),
                                 enrichment_provider=None,
                             )
-                            if manifest["schema_version"] == 8
+                            if manifest["schema_version"] in {8, 9}
                             else BrainEngine.open(materialization.profile)
                         )
                         import_managed_workspace_state(
                             staged_engine,
                             stage_snapshot.files[managed_paths[0]],
                         )
-                        if manifest["schema_version"] not in {5, 6, 7, 8}:
+                        if manifest["schema_version"] not in {5, 6, 7, 8, 9}:
                             materialization = replace(
                                 materialization,
                                 history_records=materialization.history_records + 1,
