@@ -77,6 +77,58 @@ module; an internal import in a consumer is not a declared mypy re-export.
 
 Discovered: 2026-10-05, bounded isolated historical authority startup profile.
 
+### RECOVERY-005: Historical filtering needs a guarded query lifetime
+
+Category: Database/Migrations.
+
+Symptom: Startup is fast after immutable decoding is reused, but a provider
+query still rereads the complete retained history for each candidate.
+
+Fix: Own validated historical inputs inside one read-only SQL transaction and
+held reader lease. Read current registry and pending state for every candidate;
+freshly audit the entire versioned history and SQL projection before output.
+Recheck every distinct historical grant, including dependencies beyond the
+returned page, with current retained bytes and exact authority parameters.
+Keep initial denial sticky and latch late invalidity even when callbacks hide it.
+
+SQLite pragma names are case insensitive. Guard transaction control and all
+`query_only` setters, retain unchanged `total_changes`, and reject nested scopes
+on the same connection before they replace its authorizer. ContextVar values
+alone do not prove ownership: reject copied contexts, other threads and expired
+scopes. Restore the context and authorizer before owned transaction cleanup.
+
+Tests: Entry/terminal audit counts, same-metadata changes, initial and late
+registry/pending failures, namespace collisions, retained-body damage,
+transaction restart, context isolation, nesting and fresh-query projection loss.
+Unexposed cursor allocations remain retained if the terminal barrier fails.
+Caller consent revalidation remains at the boundary that owns that policy.
+
+Discovered: 2026-10-05, bounded isolated provider-query profile and source review.
+
+### SQLITE-002: Save the original directory inside the SQLite open lock
+
+Category: Config/Environment.
+
+Symptom: Later service tests fail in `Path.cwd()` after a concurrent SQLite test
+leaves the worker in a temporary Brain directory that fixture cleanup removes.
+
+Cause: Both SQLite openers saved the process directory before acquiring their
+shared lock. A second opener could save the first opener's temporary directory,
+wait for the lock, then restore that directory instead of the original one.
+
+Fix: Hold the same lock while saving the original directory, opening SQLite,
+restoring the original directory and closing its saved descriptor. Keep the
+existing confined parent descriptor, no-follow checks and read-only URI intact.
+This fixes restoration between SQLite openers; unrelated code must still avoid
+changing the process directory concurrently with storage operations.
+
+Tests: Deterministically block both actual SQLite openers behind a competing
+holder and require that neither snapshots the directory before acquiring the
+lock. Both cases fail before the fix and pass afterward; the service tests also
+pass with successful pytest fixture cleanup enabled.
+
+Discovered: 2026-10-05, full gate with concurrent SQLite clients.
+
 ### SQLITE-001: Reinsert replacement parents after dropping the old table
 
 Symptom: A same-transaction historical table rebuild passes a final

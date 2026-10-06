@@ -21,6 +21,7 @@ from open_brain_engine.storage.filesystem import (
 )
 
 from .historical_contracts import HistoricalDestination, _ClosedComponent, _unique_object
+from .historical_decode_cache import decode_historical_bytes
 from .sharing_contracts import SharingError, _digest, _identity, _text, _version
 
 _REGISTRY_PATH = ".open-brain/historical-authority/historical-claims.v1.json"
@@ -203,7 +204,7 @@ class HistoricalRegistryStore:
         )
         if raw is None:
             raise SharingError("binding_mismatch")
-        registry = HistoricalClaimRegistry.from_bytes(raw)
+        registry = decode_historical_bytes(raw, HistoricalClaimRegistry.from_bytes)
         if registry.destination != destination:
             raise SharingError("binding_mismatch")
         return registry
