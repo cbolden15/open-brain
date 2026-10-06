@@ -105,6 +105,30 @@ Caller consent revalidation remains at the boundary that owns that policy.
 
 Discovered: 2026-10-05, bounded isolated provider-query profile and source review.
 
+### SQLITE-002: Save the original directory inside the SQLite open lock
+
+Category: Config/Environment.
+
+Symptom: Later service tests fail in `Path.cwd()` after a concurrent SQLite test
+leaves the worker in a temporary Brain directory that fixture cleanup removes.
+
+Cause: Both SQLite openers saved the process directory before acquiring their
+shared lock. A second opener could save the first opener's temporary directory,
+wait for the lock, then restore that directory instead of the original one.
+
+Fix: Hold the same lock while saving the original directory, opening SQLite,
+restoring the original directory and closing its saved descriptor. Keep the
+existing confined parent descriptor, no-follow checks and read-only URI intact.
+This fixes restoration between SQLite openers; unrelated code must still avoid
+changing the process directory concurrently with storage operations.
+
+Tests: Deterministically block both actual SQLite openers behind a competing
+holder and require that neither snapshots the directory before acquiring the
+lock. Both cases fail before the fix and pass afterward; the service tests also
+pass with successful pytest fixture cleanup enabled.
+
+Discovered: 2026-10-05, full gate with concurrent SQLite clients.
+
 ### SQLITE-001: Reinsert replacement parents after dropping the old table
 
 Symptom: A same-transaction historical table rebuild passes a final
