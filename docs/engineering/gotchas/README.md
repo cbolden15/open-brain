@@ -48,6 +48,35 @@ fidelity and independent mixed V1/V2 chains with both revocation versions.
 
 Discovered: 2026-10-05, production-shaped Portable9 recovery rehearsal.
 
+### RECOVERY-004: Ordinary writes still audit history with startup recovery disabled
+
+Category: Database/Migrations.
+
+Symptom: A multi-operation canary exceeds its bound after historical adoption.
+Disabling abandoned-session recovery does not disable ordinary writer authority
+checks. Each write boundary rereads and strictly decodes the retained history.
+
+Fix: Reuse only successful decoding keyed by exact freshly confined bytes, with
+byte and entry limits and transitively immutable results. Continue checking
+current files, pending state, registry, identity and every SQL projection on each
+boundary. Never cache settled authorization, absence, paths or modification times.
+
+Provider candidate filtering also repeatedly derives identical expected SQL rows.
+Reuse one pure derivation only for exact registry bytes and identical immutable
+decoded input objects, bounded by complete canonical input bytes and record count.
+Keep strong input references and return fresh mutable containers. Every current
+confined-file read and every current SQL-row comparison still runs on every call.
+
+Tests: Same-size/mtime byte changes, removal and path replacement after a warm
+read, mutable-result isolation, bounded eviction, nested evidence immutability
+and SQL projection tampering. Measure the complete retained chain separately;
+small fixtures cannot establish a production-shaped canary deadline.
+
+Category: Type Safety. Test spies must import storage functions from their owning
+module; an internal import in a consumer is not a declared mypy re-export.
+
+Discovered: 2026-10-05, bounded isolated historical authority startup profile.
+
 ### SQLITE-001: Reinsert replacement parents after dropping the old table
 
 Symptom: A same-transaction historical table rebuild passes a final
