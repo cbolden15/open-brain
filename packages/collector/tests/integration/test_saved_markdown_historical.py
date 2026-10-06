@@ -5,7 +5,7 @@ from dataclasses import replace
 from pathlib import Path
 
 import pytest
-from open_brain_engine.engine import BrainEngine, CaptureSubmission
+from open_brain_engine.engine import BrainEngine, CaptureSubmission, PublicJobCaptureContext
 from open_brain_engine.engine.historical_tasks import adopt_historical_baseline
 from open_brain_engine.engine.runtime_admission import exclusive_runtime_admission
 from open_brain_engine.engine.source_intake import SourceRevisionObservedDelivery
@@ -40,8 +40,10 @@ def _adopt_saved_intake(
     intake: SourceRecordIntake,
     *,
     slot: int = 0,
+    root_fingerprint: str | None = None,
+    context: PublicJobCaptureContext | None = None,
 ) -> SourceRevisionObservedDelivery:
-    context = _context(engine.profile)
+    context = _context(engine.profile) if context is None else context
     baseline = _baseline(
         engine,
         retained_text=intake.text,
@@ -49,6 +51,8 @@ def _adopt_saved_intake(
     )
     baseline = replace(baseline, expected_claim_generation=slot)
     binding, _ = sink._revision_capability(intake)
+    if root_fingerprint is not None:
+        binding = replace(binding, root_fingerprint=root_fingerprint)
     capture = CaptureSubmission.for_public_job(
         context=context,
         payload=intake.payload(),

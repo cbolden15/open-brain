@@ -4,6 +4,32 @@ Non-obvious behaviors, sharp edges, and lessons learned belong here.
 
 ## Registry
 
+### RECOVERY-006: Historical checkpoints retain the original physical binding
+
+Category: Database/Migrations.
+
+Symptom: A historical Saved baseline refuses after a device number changes, even
+though the same approved content and logical Brain remain at the same path/inode.
+
+Cause: The serialized historical envelope includes its original root fingerprint.
+Source scan rebinding does not change that immutable destination coordinate.
+Constructing an ordinary collector revision sink also invokes engine startup
+recovery before baseline lookup, so a refused stage does not prove mutation absence.
+
+Fix: Keep the exact retained page, original history and genuine protection
+evidence. Use the separate owner-authorized historical checkpoint host with a
+trusted continuity validator and the currently admitted physical root. It opens
+state read-only, preserves original envelope coordinates, revalidates content,
+privacy and source CAS, and uses the existing writer fence for checkpointing.
+Do not substitute an old fingerprint into an ordinary capture sink, rewrite
+historical bindings, reset the cursor, or infer a completed AFTER from a refusal.
+
+Verification: Device-only continuity fixtures reconstruct exact V1/V2 history,
+preserve canonical SQL and immutable bytes, and refuse identity, content, privacy,
+CAS and admission changes. An existing writer prevents checkpoint persistence.
+
+Discovered: 2026-10-06, historical checkpoint recovery.
+
 ### BUILD-001: Native packaging needs a writable PyInstaller cache
 
 Category: Config/Environment.
