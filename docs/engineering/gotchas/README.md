@@ -77,6 +77,34 @@ module; an internal import in a consumer is not a declared mypy re-export.
 
 Discovered: 2026-10-05, bounded isolated historical authority startup profile.
 
+### RECOVERY-005: Historical filtering needs a guarded query lifetime
+
+Category: Database/Migrations.
+
+Symptom: Startup is fast after immutable decoding is reused, but a provider
+query still rereads the complete retained history for each candidate.
+
+Fix: Own validated historical inputs inside one read-only SQL transaction and
+held reader lease. Read current registry and pending state for every candidate;
+freshly audit the entire versioned history and SQL projection before output.
+Recheck every distinct historical grant, including dependencies beyond the
+returned page, with current retained bytes and exact authority parameters.
+Keep initial denial sticky and latch late invalidity even when callbacks hide it.
+
+SQLite pragma names are case insensitive. Guard transaction control and all
+`query_only` setters, retain unchanged `total_changes`, and reject nested scopes
+on the same connection before they replace its authorizer. ContextVar values
+alone do not prove ownership: reject copied contexts, other threads and expired
+scopes. Restore the context and authorizer before owned transaction cleanup.
+
+Tests: Entry/terminal audit counts, same-metadata changes, initial and late
+registry/pending failures, namespace collisions, retained-body damage,
+transaction restart, context isolation, nesting and fresh-query projection loss.
+Unexposed cursor allocations remain retained if the terminal barrier fails.
+Caller consent revalidation remains at the boundary that owns that policy.
+
+Discovered: 2026-10-05, bounded isolated provider-query profile and source review.
+
 ### SQLITE-001: Reinsert replacement parents after dropping the old table
 
 Symptom: A same-transaction historical table rebuild passes a final

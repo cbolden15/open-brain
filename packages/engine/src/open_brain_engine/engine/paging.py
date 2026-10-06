@@ -18,6 +18,7 @@ from open_brain_engine.storage.filesystem import StorageError
 from .consent_contracts import EgressMode
 from .contracts import LocalEngineContext
 from .cursors import CursorStore, binding_digest
+from .historical_read_snapshot import historical_read_snapshot
 from .local_schema import PHASE1_STATE_SCHEMA_VERSION
 from .records import RecordProjector
 from .sharing import (
@@ -26,6 +27,7 @@ from .sharing import (
     external_canonical_clause,
     sharing_eligible,
 )
+from .sharing_contracts import SharingError
 from .t03_contracts import (
     EffectiveAuthority,
     RecordReadRequest,
@@ -73,8 +75,9 @@ def read_snapshot(engine: BrainEngine) -> Iterator[sqlite3.Connection]:
                 != PHASE1_STATE_SCHEMA_VERSION
             ):
                 raise T03Error("incompatible_runtime")
-            yield connection
-        except sqlite3.Error, StorageError:
+            with historical_read_snapshot(connection, engine.profile):
+                yield connection
+        except sqlite3.Error, StorageError, SharingError:
             raise T03Error("operation_pending") from None
         finally:
             connection.rollback()
