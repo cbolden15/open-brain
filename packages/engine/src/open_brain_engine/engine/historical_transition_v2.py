@@ -25,6 +25,7 @@ from .historical_contracts_v2 import (
     HistoricalReceiptV2,
     HistoricalRevocationRequestV2,
 )
+from .historical_decode_cache import decode_historical_bytes
 from .historical_registry import HistoricalClaimMembership, HistoricalClaimRegistry
 from .sharing_contracts import _OPERATION, SharingError, _digest, _text, _version
 
@@ -323,7 +324,7 @@ class HistoricalTransitionV2Store:
         )
         if raw is None:
             return None
-        record = HistoricalTransitionV2.from_bytes(raw)
+        record = decode_historical_bytes(raw, HistoricalTransitionV2.from_bytes)
         if record.request.operation_id != operation_id:
             raise SharingError("binding_mismatch")
         return record

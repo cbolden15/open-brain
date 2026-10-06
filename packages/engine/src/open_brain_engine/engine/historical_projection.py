@@ -3,10 +3,12 @@
 import sqlite3
 from collections.abc import Iterable
 from hashlib import sha256
+from threading import Lock
 
 from open_brain_engine.core.ids import portable_canonical_json_bytes as canonical
 
 from .contracts import LocalEngineContext
+from .historical_decode_cache import _immutable
 from .historical_dispatch import (
     BASELINE_TYPES,
     CLAIM_TYPES,
@@ -24,9 +26,60 @@ from .historical_transition import HistoricalTransition
 from .sharing_contracts import SharingError
 
 type ProjectionRows = dict[str, list[tuple[object, ...]]]
+type FrozenProjectionRows = tuple[tuple[str, tuple[tuple[object, ...], ...]], ...]
+
+# One pure derivation, bounded by its complete canonical input representation.
+# Strong references prevent object-identity reuse after decoder-cache eviction.
+_PROJECTION_MAX_BYTES = 64 * 1024 * 1024
+_PROJECTION_MAX_RECORDS = 1024
+_projection_lock = Lock()
+_projection_cache: tuple[bytes, tuple[Transition, ...], FrozenProjectionRows] | None = None
 
 
 def historical_projection_rows(
+    registry: HistoricalClaimRegistry, records: Iterable[Transition]
+) -> ProjectionRows:
+    """Reuse pure row derivation; callers still validate all current authority.
+
+    Every hit requires exact current registry bytes and the identical immutable
+    decoded records, freshly obtained by the caller. Return private mutable
+    containers so consumers cannot poison later comparisons. This never stores
+    a successful SQL, filesystem, pending-state or eligibility check.
+    """
+    global _projection_cache
+    if type(registry) is not HistoricalClaimRegistry:
+        raise SharingError("invalid_arguments")
+    chain = tuple(records)
+    registry_bytes = registry.canonical_bytes()
+    with _projection_lock:
+        retained = _projection_cache
+        if (
+            retained is not None
+            and retained[0] == registry_bytes
+            and len(retained[1]) == len(chain)
+            and all(old is new for old, new in zip(retained[1], chain, strict=True))
+        ):
+            return {table: list(rows) for table, rows in retained[2]}
+    rows = _derive_historical_projection_rows(registry, chain)
+    if (
+        len(chain) <= _PROJECTION_MAX_RECORDS
+        and _immutable(registry)
+        and all(_immutable(record) for record in chain)
+    ):
+        size = len(registry_bytes)
+        for record in chain:
+            size += len(record.canonical_bytes())
+            if size > _PROJECTION_MAX_BYTES:
+                break
+        if size <= _PROJECTION_MAX_BYTES:
+            frozen = tuple((table, tuple(values)) for table, values in rows.items())
+            if _immutable(frozen):
+                with _projection_lock:
+                    _projection_cache = (registry_bytes, chain, frozen)
+    return rows
+
+
+def _derive_historical_projection_rows(
     registry: HistoricalClaimRegistry, records: Iterable[Transition]
 ) -> ProjectionRows:
     """Derive all facts, including optional links/revocations, from a full chain.
