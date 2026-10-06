@@ -9,6 +9,7 @@ from open_brain_engine.engine import BrainEngine, PublicJobCaptureSink
 from open_brain_engine.engine.historical_contracts import HistoricalBaselineRequest
 from open_brain_engine.engine.historical_recovery import _historical_transaction
 from open_brain_engine.engine.historical_root_checkpoint import (
+    HistoricalRootCheckpointCapability,
     HistoricalRootCheckpointHost,
     HistoricalRootContinuity,
 )
@@ -324,3 +325,40 @@ def test_v2_import_history_keeps_original_bytes_and_current_root_witness(
         ((request.observed_delivery, witness),), selection_generation="selection"
     ):
         assert capability.binding == request.observed_delivery.binding
+
+
+def test_direct_capability_constructor_cannot_bypass_authenticated_prior_root(
+    tmp_path: Path,
+) -> None:
+    engine, request, owner, continuity, binding = _fixture(tmp_path)
+    unrelated = replace(
+        continuity,
+        previous_root_identity=(
+            continuity.previous_root_identity[0] + 1,
+            continuity.previous_root_identity[1],
+        ),
+    )
+    host = HistoricalRootCheckpointHost(
+        engine.profile, unrelated, authority=owner, validate_continuity=lambda: None
+    )
+    with pytest.raises(T03Error, match="revision_changed"):
+        host.capability(binding)
+    with pytest.raises(T03Error, match="invalid_arguments"):
+        HistoricalRootCheckpointCapability(host, request.observed_delivery.binding)
+
+
+def test_capability_binding_is_read_only_and_revalidated_on_every_use(tmp_path: Path) -> None:
+    engine, request, owner, continuity, binding = _fixture(tmp_path)
+    host = HistoricalRootCheckpointHost(
+        engine.profile, continuity, authority=owner, validate_continuity=lambda: None
+    )
+    capability = host.capability(binding)
+    with pytest.raises(AttributeError):
+        capability.binding = binding  # type: ignore[misc]
+    # Private attributes are not an authorization boundary: public operations
+    # still reject tampered original coordinates before issuing a witness.
+    capability._binding = binding
+    with pytest.raises(T03Error, match="invalid_arguments"):
+        capability.baseline_template()
+    with pytest.raises(T03Error, match="invalid_arguments"):
+        capability.lookup_baseline(request.observed_delivery, selection_generation="selection")

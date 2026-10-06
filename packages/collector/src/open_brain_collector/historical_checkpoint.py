@@ -111,8 +111,12 @@ class HistoricalSavedCheckpointSink:
         *,
         selection_generation: str,
     ) -> Iterator[tuple[SavedMarkdownBaseline, ...]]:
-        if type(items) is not tuple or not 1 <= len(items) <= 25:
+        if type(items) is not tuple or not 0 <= len(items) <= 25:
             raise T03Error("invalid_arguments")
+        if not items:
+            with self._host.empty_page_checkpoint(selection_generation=selection_generation):
+                yield ()
+            return
         terminals = []
         for intake, capture_id in items:
             baseline = self.lookup_baseline(

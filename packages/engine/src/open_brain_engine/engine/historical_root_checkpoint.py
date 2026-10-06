@@ -21,6 +21,7 @@ from .contracts import LocalEngineContext, PublicJobCaptureSink
 from .historical_checkpoint import (
     HistoricalBaselineDuplicate,
     HistoricalBaselineTemplate,
+    _validate_generation,
     historical_baseline_template,
     lookup_historical_baseline,
 )
@@ -164,21 +165,52 @@ class HistoricalRootCheckpointHost:
                 raise T03Error("revision_changed")
             return HistoricalRootCheckpointCapability(self, original)
 
+    def _validate_historical_binding(self, binding: SourceRevisionBinding) -> None:
+        self._validate()
+        destination = self.continuity.destination
+        if (
+            type(binding) is not SourceRevisionBinding
+            or binding.destination_brain_id != destination.brain_id
+            or binding.issuer_epoch != destination.issuer_epoch
+            or binding.root_fingerprint
+            != self.continuity.fingerprint(self.continuity.previous_root_identity)
+        ):
+            raise T03Error("invalid_arguments")
+
+    @contextmanager
+    def empty_page_checkpoint(self, *, selection_generation: str) -> Iterator[None]:
+        """Fence a caller-validated empty scan page without inventing a baseline."""
+        _validate_generation(selection_generation)
+        with self._lease.acquire_shared_writer(), self._snapshot() as connection:
+            require_historical_snapshot_settled(connection, self.profile)
+            self._validate()
+            yield
+            self._validate()
+
 
 class HistoricalRootCheckpointCapability:
     """Historical lookup/checkpoint only; no normal submission methods."""
 
     def __init__(self, host: HistoricalRootCheckpointHost, binding: SourceRevisionBinding) -> None:
+        if type(host) is not HistoricalRootCheckpointHost:
+            raise T03Error("invalid_arguments")
+        host._validate_historical_binding(binding)
         self._host = host
-        self.binding = binding
+        self._binding = binding
+
+    @property
+    def binding(self) -> SourceRevisionBinding:
+        return self._binding
 
     def baseline_template(self) -> HistoricalBaselineTemplate | None:
+        self._host._validate_historical_binding(self.binding)
         with self._host._snapshot() as connection:
             return historical_baseline_template(connection, self._host.profile, self.binding)
 
     def lookup_baseline(
         self, delivery: SourceRevisionObservedDelivery, *, selection_generation: str
     ) -> HistoricalBaselineDuplicate | None:
+        self._host._validate_historical_binding(self.binding)
         if type(delivery) is not SourceRevisionObservedDelivery or delivery.binding != self.binding:
             raise T03Error("invalid_arguments")
         with self._host._snapshot() as connection:
@@ -193,6 +225,7 @@ class HistoricalRootCheckpointCapability:
         *,
         selection_generation: str,
     ) -> Iterator[None]:
+        self._host._validate_historical_binding(self.binding)
         if type(entries) is not tuple or not 1 <= len(entries) <= 25:
             raise T03Error("invalid_arguments")
         seen: set[bytes] = set()

@@ -128,3 +128,25 @@ def test_changed_saved_content_cannot_become_a_checkpoint_or_capture(
     ):
         pytest.fail("changed content reached checkpoint persistence")
     assert not hasattr(sink, "submit")
+
+
+def test_empty_saved_scan_page_still_uses_admission_and_writer_fence(tmp_path: Path) -> None:
+    engine, _, _, owner, continuity = _fixture(tmp_path)
+    validations: list[bool] = []
+    sink = collector_historical_checkpoint_sink(
+        engine.profile.root,
+        continuity,
+        authority=owner,
+        validate_continuity=lambda: validations.append(True),
+    )
+    with sink.page_checkpoint((), selection_generation="selection") as terminal:
+        assert terminal == ()
+    assert len(validations) >= 5
+    from open_brain_engine.storage.locks import LockBusyError
+
+    with (
+        engine._writer_lease.acquire_shared_writer(),
+        pytest.raises(LockBusyError),
+        sink.page_checkpoint((), selection_generation="selection"),
+    ):
+        pytest.fail("empty page crossed an existing canonical writer")
