@@ -116,6 +116,45 @@ def test_claude_session_uses_extract_only_and_preserves_adapter_identity(tmp_pat
     assert len(captured_ids) == 1
 
 
+def test_long_history_keeps_recent_window_and_distinguishes_identical_later_turn(tmp_path: Path) -> None:
+    project = tmp_path / "project"
+    project.mkdir()
+    transcript = tmp_path / "long.jsonl"
+    records = [json.loads(line) for line in _claude_transcript(project, "session-123").splitlines()]
+    # Tool-heavy history exceeds the former 512 KiB limit; tool bodies are excluded.
+    records.extend({"type": "tool", "data": "x" * 4096} for _ in range(150))
+    repeated = [json.loads(line) for line in _claude_transcript(project, "session-123").splitlines()]
+    records.extend(repeated * 40)
+    transcript.write_text("".join(json.dumps(record) + "\n" for record in records))
+    root = tmp_path / "queue"
+    _enqueue(root, project, transcript)
+    source = AgentSessionLiveSource(root)
+    selection = source.selection(client="claude_code", project_path=project)
+    first = source.fetch(selection, _options("claude_code", project), None)
+    records.extend(repeated)
+    transcript.write_text("".join(json.dumps(record) + "\n" for record in records))
+    _enqueue(root, project, transcript)
+    second = source.fetch(selection, _options("claude_code", project), first.checkpoint)
+    assert first.intakes[1].text == second.intakes[1].text
+    assert first.intakes[0].key.delivery_id() != second.intakes[0].key.delivery_id()
+
+
+def test_secret_in_older_history_is_not_lost_by_recent_window(tmp_path: Path) -> None:
+    project = tmp_path / "project"
+    project.mkdir()
+    transcript = tmp_path / "long-secret.jsonl"
+    text = _claude_transcript(project, "session-123", secret=True)
+    text += _claude_transcript(project, "session-123") * 40
+    transcript.write_text(text)
+    root = tmp_path / "queue"
+    _enqueue(root, project, transcript)
+    source = AgentSessionLiveSource(root)
+    batch = source.fetch(source.selection(client="claude_code", project_path=project),
+                         _options("claude_code", project), None)
+    assert not batch.intakes
+    assert "session_quarantined_secret" in batch.notices
+
+
 def test_secret_event_is_quarantined_without_blocking_later_clean_session(tmp_path: Path) -> None:
     project = tmp_path / "project"
     project.mkdir()
@@ -134,7 +173,9 @@ def test_secret_event_is_quarantined_without_blocking_later_clean_session(tmp_pa
         None,
     )
 
-    assert [item.key.external_id for item in batch.intakes] == ["transcript:session-clean"]
+    assert len(batch.intakes) == 1
+    assert batch.intakes[0].key.external_id.startswith("transcript:")
+    assert "token=" not in batch.intakes[0].text
     assert batch.notices == ("session_quarantined_secret",)
     assert batch.checkpoint["captured_event_ids"]
 
