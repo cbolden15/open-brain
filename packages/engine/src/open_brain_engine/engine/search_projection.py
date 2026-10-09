@@ -13,6 +13,12 @@ from open_brain_engine.core.ids import portable_canonical_json_bytes
 from open_brain_engine.core.models import ContentOrigin, Provenance
 
 from .contracts import project_public_result_text
+from .harness_memory import (
+    HarnessMemory,
+    encode_memory,
+    is_harness_source_reference,
+    recognized_memory,
+)
 from .privacy_projection import (
     RepairedPrivacyEvidence,
     RetainedPrivacyEvidence,
@@ -46,6 +52,28 @@ def source_search_title(
 ) -> str:
     first_line = next((line.strip() for line in body.splitlines() if line.strip()), "")
     return first_line[:200] or f"{payload_family} source"
+
+
+def public_harness_record_text(value: str, *, source_reference: str) -> tuple[str, str]:
+    """Project fields independently so redaction cannot break inert JSON framing."""
+    memory = recognized_memory(value, source_reference=source_reference)
+    if memory is None:
+        body = public_search_text(value, protected_source_reference=source_reference)
+        return body, body
+    selected = public_search_text(memory.text, protected_source_reference=source_reference)
+    context = public_search_text(memory.source_context, protected_source_reference=source_reference)
+    # Citation identifiers must survive the existing projection intact. Withhold
+    # structured citation instead of bypassing protected-value removal.
+    for value in (
+        memory.citation.harness, memory.citation.client, memory.citation.project_id,
+        memory.citation.session_id, memory.citation.timestamp or "",
+    ):
+        if public_search_text(value, protected_source_reference=source_reference) != value:
+            return selected, selected
+    if not selected.strip():
+        return "", ""
+    projected = HarnessMemory(memory.kind, selected, context, memory.citation)
+    return encode_memory(projected), selected
 
 
 def public_source_origin(capture: Mapping[str, object] | sqlite3.Row) -> str:
@@ -173,6 +201,15 @@ def project_search_document(
     if record_type == "source":
         trust = source_trust(origin)
         canonical_frontmatter_trust = None
+        if is_harness_source_reference(source_reference):
+            try:
+                memory = recognized_memory(body, source_reference=source_reference)
+            except ValueError:
+                memory = None
+            body = "" if memory is None else public_search_text(
+                memory.text, protected_source_reference=source_reference,
+            )
+            title = source_search_title(payload_family="text", body=body)
     elif record_type == "canonical":
         captures = canonical_source_rows(connection, result_id=result_id, capture_id=capture_id)
         capture_ids = tuple(str(source["capture_id"]) for source in captures)
