@@ -84,6 +84,17 @@ Directions:
 """
 
 
+def test_user_provided_recipe_is_retained_without_an_explicit_save_request() -> None:
+    message = MemoryMessage("user", RECIPE, 8, source_id="native-recipe")
+    selected = select_memories([message])
+    assert len(selected) == 1
+    assert selected[0].kind == "material"
+    assert selected[0].text == RECIPE.strip()
+    assert selected[0].role == "user"
+    assert selected[0].source_excerpt == RECIPE
+    assert selected[0].source_id == "native-recipe"
+
+
 def test_requested_recipe_retains_complete_assistant_authored_material() -> None:
     messages = [
         MemoryMessage("user", "Give me a chickpea salad recipe.", 20),

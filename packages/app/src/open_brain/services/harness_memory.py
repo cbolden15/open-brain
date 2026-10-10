@@ -56,6 +56,7 @@ class MemoryMessage:
     text: str
     ordinal: int
     authored: bool = True
+    source_id: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -65,6 +66,7 @@ class MemoryCandidate:
     ordinal: int
     role: str
     source_excerpt: str
+    source_id: str | None = None
 
 
 def select_memories(messages: Sequence[MemoryMessage]) -> tuple[MemoryCandidate, ...]:
@@ -85,6 +87,7 @@ def select_memories(messages: Sequence[MemoryMessage]) -> tuple[MemoryCandidate,
     input_bytes = 0
     output_bytes = 0
     recipe_requested = False
+    excerpts: list[tuple[Literal["fact", "decision", "preference", "material"], str]]
     for message in messages[:MAX_MESSAGES]:
         size = len(message.text.encode("utf-8"))
         input_bytes += size
@@ -99,7 +102,11 @@ def select_memories(messages: Sequence[MemoryMessage]) -> tuple[MemoryCandidate,
             recipe_requested = False
             continue
         if message.role == "user":
-            excerpts = _user_statements(message.text)
+            excerpts = (
+                [("material", message.text)]
+                if _complete_recipe(message.text)
+                else _user_statements(message.text)
+            )
         elif message.role == "assistant" and recipe_requested:
             excerpts = [("material", message.text)] if _complete_recipe(message.text) else []
             recipe_requested = False
@@ -115,7 +122,11 @@ def select_memories(messages: Sequence[MemoryMessage]) -> tuple[MemoryCandidate,
                 or output_bytes + candidate_bytes > MAX_TOTAL_BYTES
             ):
                 return tuple(candidates)
-            candidates.append(MemoryCandidate(kind, text, message.ordinal, message.role, excerpt))
+            candidates.append(
+                MemoryCandidate(
+                    kind, text, message.ordinal, message.role, excerpt, message.source_id
+                )
+            )
             output_bytes += candidate_bytes
     return tuple(candidates)
 

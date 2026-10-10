@@ -1,0 +1,391 @@
+from __future__ import annotations
+
+import io
+import json
+import time
+from contextlib import contextmanager
+from pathlib import Path
+from typing import Any
+
+import pytest
+from open_brain_engine.core.models import PrivacyTier
+
+from open_brain.local_data import select_local_root
+from open_brain.services import harness_bridge
+from open_brain.services.harness_bridge import HarnessBridgeConfig, HarnessBridgeError, run_harness
+from open_brain.services.harness_cli import HarnessDeadlineExceeded, _deadline
+from open_brain.services.local_bootstrap import open_local_brain
+from open_brain.services.local_entrypoints import run_cli
+from open_brain.services.local_operations import current_brain_identity
+from open_brain.services.session_consent import DurableProviderConsentStore
+
+
+def setup(tmp_path: Path) -> tuple[Path, Path, dict[str, Any], dict[str, Any]]:
+    project = tmp_path / "project"
+    project.mkdir()
+    authority = tmp_path / "authority"
+    authority.mkdir(mode=0o700)
+    root = tmp_path / "brain"
+    with open_local_brain(
+        select_local_root(data_dir=str(root), environment={"HOME": str(tmp_path)})
+    ) as session:
+        brain_id, issuer_epoch = current_brain_identity(session.tasks)
+    store = DurableProviderConsentStore(
+        authority / "consent.json",
+        brain_id=brain_id,
+        issuer_epoch=issuer_epoch,
+    )
+    for client in ("codex", "claude-code", "pi"):
+        store.grant(
+            provider_id=client,
+            allowed_tiers=frozenset({PrivacyTier.WORK}),
+            operation_id="grant-" + client,
+            decided_at="2026-01-01T00:00:00Z",
+        )
+    policy = {
+        "schema_version": "open-brain-harness-policy.v1",
+        "enabled": True,
+        "providers": {client: ["work"] for client in ("codex", "claude-code", "pi")},
+        "sources": [
+            {"id": "example", "project_root": str(project), "tier": "work", "local_only": False}
+        ],
+        "exclusions": [],
+    }
+    _write(authority / "policy.json", policy)
+    config = {
+        "schema_version": "open-brain-harness-bridge.v1",
+        "brain_root": str(root),
+        "brain_id": brain_id,
+        "policy": str(authority / "policy.json"),
+        "consent_state": str(authority / "consent.json"),
+        "outbox": str(authority / "outbox"),
+    }
+    path = authority / "bridge.json"
+    _write(path, config)
+    return path, project, policy, config
+
+
+def _write(path: Path, value: object) -> None:
+    path.write_text(json.dumps(value))
+    path.chmod(0o600)
+
+
+def event(project: Path) -> dict[str, object]:
+    transcript = project / "session.jsonl"
+    records = [
+        {"type": "session_meta", "payload": {"id": "native-fixture", "cwd": str(project)}},
+        {
+            "type": "response_item",
+            "timestamp": "2026-01-01T00:00:00Z",
+            "payload": {
+                "type": "message",
+                "role": "user",
+                "content": [{"type": "input_text", "text": "My preferred editor is Vim."}],
+            },
+        },
+    ]
+    transcript.write_text("".join(json.dumps(item) + "\n" for item in records))
+    return {
+        "session_id": "native-fixture",
+        "cwd": str(project),
+        "hook_event_name": "Stop",
+        "transcript_path": str(transcript),
+    }
+
+
+def test_enqueue_custody_drain_and_three_provider_reads(tmp_path: Path) -> None:
+    path, project, _, _ = setup(tmp_path)
+    queued = run_harness("enqueue", path, "codex", event(project))
+    assert queued["status"] == "queued"
+    assert "Vim" not in json.dumps(queued)
+    assert run_harness("status", path, "codex")["counts"] == {
+        "pending": 1,
+        "delivered": 0,
+        "refused": 0,
+        "unavailable": 0,
+    }
+    drained = run_harness("drain", path, "codex")
+    assert drained["status"] in {"ok", "delivered"}, drained
+    for client in ("codex", "claude-code", "pi"):
+        request = {"cwd": str(project), "project_path": str(project), "query": "preferred editor"}
+        recalled = run_harness("recall", path, client, request)
+        assert recalled["status"] == "ok", recalled
+        rows = recalled["results"]
+        assert isinstance(rows, list)
+        assert rows[0]["text"] == "My preferred editor is Vim."
+        citation = json.loads(rows[0]["citation"])
+        assert citation["harness"] == "codex"
+        assert citation["timestamp"] == "2026-01-01T00:00:00Z"
+
+
+def test_enqueue_and_status_do_not_require_brain_availability(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    path, project, _, config = setup(tmp_path)
+    config["brain_root"] = str(tmp_path / "offline-brain")
+    _write(path, config)
+
+    def forbidden(*args: Any, **kwargs: Any) -> Any:
+        raise AssertionError("SDK startup forbidden")
+
+    monkeypatch.setattr(harness_bridge, "open_local_brain", forbidden)
+    assert run_harness("enqueue", path, "codex", event(project))["status"] == "queued"
+    assert run_harness("status", path, "codex")["counts"] == {
+        "pending": 1,
+        "delivered": 0,
+        "refused": 0,
+        "unavailable": 0,
+    }
+    assert not (tmp_path / "offline-brain").exists()
+
+
+def private_event(project: Path) -> dict[str, object]:
+    payload = event(project)
+    transcript = Path(str(payload["transcript_path"]))
+    with transcript.open("a") as stream:
+        stream.write(
+            json.dumps(
+                {
+                    "type": "response_item",
+                    "payload": {
+                        "type": "message",
+                        "role": "user",
+                        "content": [
+                            {"type": "input_text", "text": "Confidential: keep this local."}
+                        ],
+                    },
+                }
+            )
+            + "\n"
+        )
+    return payload
+
+
+def test_pending_source_restriction_blocks_cloud_before_sdk(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    path, project, _, _ = setup(tmp_path)
+    assert run_harness("enqueue", path, "codex", private_event(project))["status"] == "queued"
+
+    def forbidden(*args: Any, **kwargs: Any) -> Any:
+        raise AssertionError("pending restriction must block SDK startup")
+
+    monkeypatch.setattr(harness_bridge, "open_local_brain", forbidden)
+    result = run_harness("recall", path, "codex", {"cwd": str(project), "query": "editor"})
+    assert result["status"] == "refused"
+    assert result["error_code"] == "pending_source_restriction"
+    assert "results" not in result
+
+
+def test_pending_source_restriction_during_read_blocks_content_release(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    path, project, _, _ = setup(tmp_path)
+    assert run_harness("enqueue", path, "codex", event(project))["status"] == "queued"
+    assert run_harness("drain", path, "codex")["status"] in {"ok", "delivered"}
+    original = harness_bridge._workflow
+
+    @contextmanager
+    def concurrent_restriction(*args: Any, **kwargs: Any) -> Any:
+        with original(*args, **kwargs) as workflow:
+            yield workflow
+            assert (
+                run_harness("enqueue", path, "codex", private_event(project))["status"] == "queued"
+            )
+
+    monkeypatch.setattr(harness_bridge, "_workflow", concurrent_restriction)
+    result = run_harness("recall", path, "codex", {"cwd": str(project), "query": "editor"})
+    assert result["status"] == "refused"
+    assert result["error_code"] == "pending_source_restriction"
+    assert "results" not in result
+
+
+def test_backend_startup_failure_remains_visible_in_status(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    path, project, _, _ = setup(tmp_path)
+    assert run_harness("enqueue", path, "codex", event(project))["status"] == "queued"
+
+    def unavailable(*args: Any, **kwargs: Any) -> Any:
+        raise OSError("private backend failure detail")
+
+    monkeypatch.setattr(harness_bridge, "open_local_brain", unavailable)
+    result = run_harness("drain", path, "codex")
+    assert result == {"status": "unavailable", "error_code": "bridge_unavailable"}
+    status = run_harness("status", path, "codex")
+    counts = status["counts"]
+    assert isinstance(counts, dict)
+    assert counts["unavailable"] == 1
+    assert status["error_count"] == 1
+    assert "private backend failure detail" not in json.dumps(status)
+
+
+def test_explicit_local_capture_restriction_survives_queue_and_delivery(tmp_path: Path) -> None:
+    path, project, _, _ = setup(tmp_path)
+    payload = {
+        "session_id": "local-session",
+        "project_path": str(project),
+        "local_only": True,
+        "provider": "local",
+        "messages": [
+            {
+                "role": "user",
+                "ordinal": 0,
+                "source_id": "entry-local",
+                "text": "My preferred editor is Vim.",
+            }
+        ],
+    }
+    assert run_harness("enqueue", path, "pi", payload, local_only_host=True)["status"] == "queued"
+    before = run_harness("recall", path, "codex", {"cwd": str(project), "query": "editor"})
+    assert before["error_code"] == "pending_source_restriction"
+    assert run_harness("drain", path, "pi")["status"] in {"ok", "delivered"}
+    after = run_harness("recall", path, "codex", {"cwd": str(project), "query": "editor"})
+    assert after == {"status": "ok", "results": [], "omitted_count": 0}
+    local = run_harness(
+        "recall",
+        path,
+        "pi",
+        {"project_path": str(project), "query": "editor", "local_only": True},
+        local_only_host=True,
+    )
+    assert local["status"] == "ok"
+    assert local["results"]
+    # An unmarked replay cannot widen the accepted source restriction.
+    payload["local_only"] = False
+    assert run_harness("enqueue", path, "pi", payload)["status"] == "queued"
+    assert run_harness("drain", path, "pi")["status"] in {"ok", "delivered"}
+    assert run_harness("recall", path, "codex", {"cwd": str(project), "query": "editor"}) == after
+
+
+def test_consent_revocation_during_shutdown_blocks_content_release(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    path, project, _, _ = setup(tmp_path)
+    assert run_harness("enqueue", path, "codex", event(project))["status"] == "queued"
+    assert run_harness("drain", path, "codex")["status"] in {"ok", "delivered"}
+    original = harness_bridge._workflow
+
+    @contextmanager
+    def revoke_before_release(*args: Any, **kwargs: Any) -> Any:
+        with original(*args, **kwargs) as workflow:
+            yield workflow
+            active = next(
+                record
+                for record in workflow.consent_snapshot().records
+                if record.active and record.provider_id == "codex"
+            )
+            workflow._consent.revoke(
+                consent_id=active.consent_id,
+                operation_id="revoke-during-close",
+                decided_at="2026-01-02T00:00:00Z",
+            )
+
+    monkeypatch.setattr(harness_bridge, "_workflow", revoke_before_release)
+    result = run_harness("recall", path, "codex", {"cwd": str(project), "query": "editor"})
+    assert result == {"status": "refused", "error_code": "authorization_changed"}
+
+
+def test_exclusion_refuses_before_named_transcript_or_sdk_reads(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    path, project, policy, config = setup(tmp_path)
+    policy["exclusions"] = [str(project)]
+    _write(Path(config["policy"]), policy)
+
+    def forbidden(*args: Any, **kwargs: Any) -> Any:
+        raise AssertionError("excluded source read forbidden")
+
+    monkeypatch.setattr(harness_bridge, "capture_event", forbidden)
+    result = run_harness("enqueue", path, "codex", {"cwd": str(project)})
+    assert result == {"status": "refused", "error_code": "source_excluded"}
+    assert not Path(config["outbox"]).exists()
+
+
+def test_cloud_caller_cannot_claim_local_only_even_with_private_project(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    path, project, _, _ = setup(tmp_path)
+    unknown = project.parent / "unknown"
+    unknown.mkdir()
+
+    def forbidden(*args: Any, **kwargs: Any) -> Any:
+        raise AssertionError("private SDK read forbidden")
+
+    monkeypatch.setattr(harness_bridge, "open_local_brain", forbidden)
+    for client in ("codex", "claude-code", "pi"):
+        result = run_harness(
+            "recall",
+            path,
+            client,
+            {
+                "cwd": str(unknown),
+                "project_path": str(unknown),
+                "query": "violet",
+                "local_only": True,
+                "provider": "local",
+            },
+        )
+        assert result["error_code"] == "local_only_host_required"
+        assert "results" not in result
+
+
+def test_wrong_destination_is_refused_before_bootstrap(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    path, project, _, config = setup(tmp_path)
+    other = tmp_path / "other"
+    with open_local_brain(
+        select_local_root(data_dir=str(other), environment={"HOME": str(tmp_path)})
+    ):
+        pass
+    config["brain_root"] = str(other)
+    _write(path, config)
+
+    def forbidden(*args: Any, **kwargs: Any) -> Any:
+        raise AssertionError("wrong destination startup forbidden")
+
+    monkeypatch.setattr(harness_bridge, "open_local_brain", forbidden)
+    result = run_harness("recall", path, "codex", {"cwd": str(project), "query": "editor"})
+    assert result == {"status": "refused", "error_code": "destination_mismatch"}
+
+
+@pytest.mark.parametrize("unsafe", ["mode", "symlink", "duplicate"])
+def test_unsafe_or_ambiguous_configuration_is_rejected(tmp_path: Path, unsafe: str) -> None:
+    path, _, _, _ = setup(tmp_path)
+    if unsafe == "mode":
+        path.chmod(0o644)
+    elif unsafe == "symlink":
+        link = path.parent / "link.json"
+        link.symlink_to(path)
+        path = link
+    else:
+        path.write_text('{"schema_version":"one","schema_version":"two"}')
+    with pytest.raises(HarnessBridgeError):
+        HarnessBridgeConfig.load(path)
+
+
+def test_cli_rejects_bad_input_without_private_parser_details(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.setattr("sys.stdin", io.StringIO('{"private-material":bad'))
+    result = run_cli(
+        ["harness", "enqueue", "--config", str(tmp_path / "missing.json"), "--client", "codex"]
+    )
+    assert result == 1
+    output = capsys.readouterr().out
+    assert json.loads(output) == {"status": "refused", "error_code": "invalid_request"}
+    assert "private-material" not in output
+
+
+def test_deadline_interrupts_a_pending_foreground_operation() -> None:
+    started = time.monotonic()
+    with pytest.raises(HarnessDeadlineExceeded), _deadline(0.03):
+        time.sleep(1)
+    assert time.monotonic() - started < 0.5

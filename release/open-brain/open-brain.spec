@@ -18,6 +18,7 @@ datas = sorted(
             "portability/**/*.json",
         ],
     )
+    + collect_data_files("open_brain", includes=["assets/*.mjs"])
     + copy_metadata("open-brain")
     + copy_metadata("open-brain-engine")
     + copy_metadata("rfc8785"),

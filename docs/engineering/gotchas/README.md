@@ -4,6 +4,83 @@ Non-obvious behaviors, sharp edges, and lessons learned belong here.
 
 ## Registry
 
+### BUILD-004: Retained test fixtures can cross the storage admission watermark
+
+Category: Config/Environment, Build Pipeline.
+
+Symptom: A later full test run fails collector and connector capture cases with
+`storage_high`, although the same cases passed in the preceding run.
+
+Cause: Those test trees use the real storage probe. Each full run retained about
+four GiB of disposable fixtures; repeated runs reduced available storage below
+the engine's two-GiB watermark. App and engine fixtures use hermetic probes, so
+their passing results alone do not reveal this host condition.
+
+Fix: Check available bytes before a full run. Remove only completed synthetic
+fixtures created by the current task, retaining their logs. Rerun the failed
+cases after storage recovers, then the full gate. Keep production admission
+guards enabled. Leave space for package and native build artifacts as well.
+
+Discovered: 2026-10-09, repeated automatic harness bridge verification.
+
+### MEMORY-001: Harness boundaries can lose restrictions and cancellation
+
+Category: Config/Environment, Type Safety.
+
+Independent review of the foreground memory bridge reproduced four failures:
+
+- A Pi host's local-only state disappeared during message normalization. Keep
+  the restrictive boolean in immutable custody and source revisions. It may
+  narrow capture, but it never grants permission to read private memory.
+- Consent revoked during runtime cleanup missed the last read gate. Recheck
+  the retained authorization after cleanup and pending-source inspection,
+  immediately before releasing results.
+- A one-shot alarm raised `TimeoutError`, which ordinary error handlers caught.
+  Use distinct deadline cancellation that escapes those handlers; cleanup must
+  propagate it. Test the nested drain path, not only a bare sleep.
+- Hash-sorted retries repeatedly selected the same sixteen failures. Try new
+  requests first and oldest attempts next while retaining failed requests.
+
+Verification: Disposable engine tests and independent repros cover each repair,
+including consent revocation during the final guard, private replay, cancellation
+inside delivery and a seventeenth healthy request behind sixteen refusals.
+
+Discovered: 2026-10-09, independent automatic harness bridge review.
+
+### BUILD-003: Mixed literal branches need an explicit collection type
+
+Category: Type Safety.
+
+Symptom: Harness selection and subprocess fixture tests pass, but the full type
+check rejects a candidate kind as `str` and untyped JSON results as `Any`.
+
+Cause: A conditional list of literal tuples loses its narrow type without an
+annotation. `json.loads` also returns `Any`; a passing fixture does not establish
+the type of its return value or nested fields.
+
+Fix: Annotate the collection before assigning either branch. Give fixture JSON
+an explicit result type and check nested object shapes before indexing. Run the
+whole repository type check and build when changing the shared selector or CLI.
+
+Discovered: 2026-10-09, automatic harness bridge verification.
+
+### BUILD-002: Exception aliases still require a parenthesized type tuple
+
+Category: Type Safety.
+
+Symptom: Ruff cannot parse a Python 3.14 exception handler that catches several
+types and binds the exception with `as error`.
+
+Cause: Python 3.14 permits an unparenthesized exception list only when there is
+no `as` binding. `except FirstError, SecondError as error` remains invalid.
+
+Fix: Use `except (FirstError, SecondError) as error`. Run the full type check and
+build after changing a shared entry point, then exercise its actual CLI caller.
+The foreground harness adapter emits closed error metadata; parser exceptions
+must never print source data or configuration contents.
+
+Discovered: 2026-10-09, automatic harness bridge implementation.
+
 ### RECOVERY-006: Historical checkpoints retain the original physical binding
 
 Category: Database/Migrations.

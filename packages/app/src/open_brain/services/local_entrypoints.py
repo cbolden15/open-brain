@@ -198,6 +198,10 @@ def run_cli(
         return 2
     if parsed.command == "restore":
         return _run_portable_restore(parsed, json_output=json_output)
+    if parsed.command == "harness":
+        from open_brain.services.harness_cli import run_harness_cli
+
+        return run_harness_cli(parsed)
     if parsed.command == "workspace":
         try:
             _validate_workspace_recovery_arguments(parsed)
@@ -612,6 +616,15 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
     _add_local_options(parser)
     subparsers = parser.add_subparsers(dest="command", metavar="COMMAND")
+    harness_parser = subparsers.add_parser(
+        "harness", help="Foreground automatic-memory bridge for optional harness integrations."
+    )
+    harness_parser.add_argument(
+        "action", choices=("enqueue", "drain", "status", "recall", "search")
+    )
+    harness_parser.add_argument("--config", required=True, type=Path)
+    harness_parser.add_argument("--client", required=True, choices=("codex", "claude-code", "pi"))
+    harness_parser.add_argument("--json", action="store_true", default=argparse.SUPPRESS)
     init_parser = subparsers.add_parser("init", help="Create or reopen one private local Brain.")
     _add_local_options(init_parser)
     restore_parser = subparsers.add_parser(
