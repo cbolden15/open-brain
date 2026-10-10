@@ -49,13 +49,15 @@ from open_brain_engine.engine.t03_contracts import (
     T03Error,
 )
 
-from .harness_memory import MemoryMessage, select_memories
+from .harness_continuity import indexed_memories
+from .harness_memory import MemoryMessage
 from .harness_policy import (
     HarnessPolicy,
     HarnessPolicyError,
     HarnessSourceDecision,
     HarnessSourceRule,
 )
+from .harness_retrieval import decision_state, plan_task_query
 from .session_consent import DurableProviderConsentStore
 
 
@@ -64,6 +66,14 @@ class HarnessRecallResult:
     status: str
     memories: tuple[HarnessMemory, ...] = ()
     error_code: str | None = None
+    memory_ids: tuple[str, ...] = ()
+    memory_states: tuple[str, ...] = ()
+
+
+class _RecallRefusal(ValueError):
+    def __init__(self, code: str) -> None:
+        self.code = code
+        super().__init__(code)
 
 
 def _digest(value: str) -> str:
@@ -147,6 +157,9 @@ class HarnessWorkflow:
         *,
         timestamps: Mapping[int, str | None] | None = None,
         local_only: bool = False,
+        selection: Sequence[tuple[int, int]] | None = None,
+        origin_sessions: Mapping[str, str] | None = None,
+        origin_ordinals: Mapping[str, int] | None = None,
     ) -> dict[str, object]:
         """Return only custody metadata; no source text enters acknowledgements."""
         captured: list[str] = []
@@ -161,12 +174,22 @@ class HarnessWorkflow:
                 decision = replace(decision, local_only=True)
             if has_redaction_finding(authored):
                 return {"status": "refused", "error_code": "credential_signal"}
-            candidates = select_memories(messages)
+            indexed = indexed_memories(messages)
+            if selection is not None:
+                selected_keys = set(selection)
+                if (
+                    len(selection) > 32
+                    or len(selected_keys) != len(selection)
+                    or not selected_keys.issubset({item.key for item in indexed})
+                ):
+                    return {"status": "refused", "error_code": "invalid_request"}
+                indexed = tuple(item for item in indexed if item.key in selected_keys)
+            candidates = indexed
             if not candidates:
                 return {"status": "success_empty", "capture_ids": []}
             queued = False
-            ordinal_indexes: dict[int, int] = {}
-            for candidate in candidates:
+            for selected in candidates:
+                candidate = selected.candidate
                 if self.policy() != policy:
                     return {
                         "status": "refused",
@@ -174,24 +197,36 @@ class HarnessWorkflow:
                         "capture_ids": captured,
                         "delivery_ids": deliveries,
                     }
-                index = ordinal_indexes.get(candidate.ordinal, 0)
-                ordinal_indexes[candidate.ordinal] = index + 1
+                index = selected.index
                 message_id = candidate.source_id or str(candidate.ordinal)
+                source_session = (origin_sessions or {}).get(message_id, session_id)
                 locator = portable_canonical_json_bytes(
-                    [client, session_id, str(project.resolve()), message_id, index]
+                    [client, source_session, str(project.resolve()), message_id, index]
                 ).decode("utf-8")
                 identity = _digest(locator)
                 source = SOURCE_PREFIX + identity
                 memory = HarnessMemory(
                     candidate.kind,
                     candidate.text,
-                    candidate.source_excerpt[:2048],
+                    next(
+                        (
+                            message.text
+                            for message in messages
+                            if message.ordinal == candidate.ordinal
+                            and message.authored
+                            and message.role == candidate.role
+                            and message.source_id == candidate.source_id
+                            and candidate.source_excerpt in message.text
+                            and len(message.text.encode("utf-8")) <= 8192
+                        ),
+                        candidate.source_excerpt,
+                    ),
                     HarnessCitation(
                         client,
                         client,
                         "project-" + _digest(str(project.resolve())),
-                        session_id,
-                        candidate.ordinal,
+                        source_session,
+                        (origin_ordinals or {}).get(message_id, candidate.ordinal),
                         candidate.role,
                         None if timestamps is None else timestamps.get(candidate.ordinal),
                     ),
@@ -415,77 +450,79 @@ class HarnessWorkflow:
     def recall(self, query: str, *, provider: str, limit: int = 5) -> HarnessRecallResult:
         try:
             policy = self.policy()
-            if not policy.allowed_tiers(provider):
-                return HarnessRecallResult("refused", error_code="provider_denied")
-            state = self._consent.load()
-            active = [
-                record
-                for record in state.records
-                if record.active and record.provider_id == provider
-            ]
-            if len(active) != 1:
-                return HarnessRecallResult("refused", error_code="consent_unavailable")
-            consent = state.active_consent(
-                consent_id=active[0].consent_id,
-                provider_id=provider,
-                authorization_generation=state.authorization_generation,
-            )
-            names = {
-                _space_name(
-                    policy,
-                    HarnessSourceDecision(rule.source_id, rule.tier, rule.local_only),
-                    rule.project_root,
-                )
-                for rule in policy.sources
-                if _cloud_rule(policy, rule, provider)
-            }
-            spaces = frozenset(
-                space.space_id for space in self.tasks.spaces.spaces() if space.name in names
-            )
-            authority = EffectiveAuthority(
-                "harness-" + provider,
-                "harness-recall",
-                frozenset({"search", "content-read"}),
-                spaces,
-                authorization_generation=state.authorization_generation,
-                allowed_read_tiers=policy.allowed_tiers(provider) & consent.allowed_tiers,
-                egress_mode=EgressMode.EXTERNAL_PROVIDER,
-                provider_id=provider,
-                consent_id=consent.consent_id,
-                brain_id=self._consent.brain_id,
-                issuer_epoch=self._consent.issuer_epoch,
-            )
+            authority, state = self._provider_authority(policy, provider)
             return self._recall(query, authority, policy, limit, state)
+        except (HarnessPolicyError, _RecallRefusal) as error:
+            return HarnessRecallResult("refused", error_code=error.code)
         except Exception:
             return HarnessRecallResult("unavailable", error_code="recall_unavailable")
+
+    def _provider_authority(
+        self, policy: HarnessPolicy, provider: str
+    ) -> tuple[EffectiveAuthority, ProviderConsentState]:
+        if not policy.allowed_tiers(provider):
+            raise _RecallRefusal("provider_denied")
+        state = self._consent.load()
+        active = [r for r in state.records if r.active and r.provider_id == provider]
+        if len(active) != 1:
+            raise _RecallRefusal("consent_unavailable")
+        consent = state.active_consent(
+            consent_id=active[0].consent_id,
+            provider_id=provider,
+            authorization_generation=state.authorization_generation,
+        )
+        names = {
+            _space_name(
+                policy,
+                HarnessSourceDecision(rule.source_id, rule.tier, rule.local_only),
+                rule.project_root,
+            )
+            for rule in policy.sources
+            if _cloud_rule(policy, rule, provider)
+        }
+        spaces = frozenset(s.space_id for s in self.tasks.spaces.spaces() if s.name in names)
+        return EffectiveAuthority(
+            "harness-" + provider,
+            "harness-recall",
+            frozenset({"search", "content-read"}),
+            spaces,
+            authorization_generation=state.authorization_generation,
+            allowed_read_tiers=policy.allowed_tiers(provider) & consent.allowed_tiers,
+            egress_mode=EgressMode.EXTERNAL_PROVIDER,
+            provider_id=provider,
+            consent_id=consent.consent_id,
+            brain_id=self._consent.brain_id,
+            issuer_epoch=self._consent.issuer_epoch,
+        ), state
+
+    def _local_authority(self, policy: HarnessPolicy, project: Path) -> EffectiveAuthority:
+        if not self._local_only_host:
+            raise ValueError("local_only_host_required")
+        decision = policy.classify(project)
+        rule = next((r for r in policy.sources if r.source_id == decision.source_id), None)
+        if rule is not None and any(
+            _overlaps(rule.project_root, path) for path in policy.exclusions
+        ):
+            raise _RecallRefusal("source_scope_excluded")
+        names = {_space_name(policy, decision, project), _local_space_name(project)}
+        spaces = frozenset(s.space_id for s in self.tasks.spaces.spaces() if s.name in names)
+        return EffectiveAuthority(
+            self.tasks.profile.owner_actor_id,
+            "harness-local-recall",
+            frozenset({"search", "content-read"}),
+            spaces,
+            owner=True,
+            allowed_read_tiers=frozenset(PrivacyTier),
+        )
 
     def recall_local(self, query: str, *, project: Path, limit: int = 5) -> HarnessRecallResult:
         if not self._local_only_host:
             raise ValueError("local_only_host_required")
         try:
             policy = self.policy()
-            decision = policy.classify(project)
-            rule = next(
-                (rule for rule in policy.sources if rule.source_id == decision.source_id), None
-            )
-            if rule is not None and any(
-                _overlaps(rule.project_root, path) for path in policy.exclusions
-            ):
-                return HarnessRecallResult("refused", error_code="source_scope_excluded")
-            names = {_space_name(policy, decision, project), _local_space_name(project)}
-            spaces = frozenset(
-                space.space_id for space in self.tasks.spaces.spaces() if space.name in names
-            )
-            authority = EffectiveAuthority(
-                self.tasks.profile.owner_actor_id,
-                "harness-local-recall",
-                frozenset({"search", "content-read"}),
-                spaces,
-                owner=True,
-                allowed_read_tiers=frozenset(PrivacyTier),
-            )
+            authority = self._local_authority(policy, project)
             return self._recall(query, authority, policy, limit, None)
-        except HarnessPolicyError as error:
+        except (HarnessPolicyError, _RecallRefusal) as error:
             return HarnessRecallResult("refused", error_code=error.code)
         except Exception:
             return HarnessRecallResult("unavailable", error_code="recall_unavailable")
@@ -500,12 +537,55 @@ class HarnessWorkflow:
     ) -> HarnessRecallResult:
         if type(limit) is not int or not 1 <= limit <= 5:
             raise ValueError("invalid_limit")
-        rows = cast(
+        plan = plan_task_query(query)
+        if not plan.search_text:
+            self._require_current(policy, consent)
+            return HarnessRecallResult("success_empty")
+        response = self._search(plan.search_text, authority, policy, consent)
+        candidates = [
+            (row["record_id"], self._read_memory(row["record_id"], authority, policy, consent))
+            for row in response["results"]
+            if row["provenance"]["source_origin"] == "third_party"
+        ]
+        changes = (
+            self._decision_changes(authority, policy, consent)
+            if any(memory.kind == "decision" for _, memory in candidates)
+            else ()
+        )
+        ranked = sorted(
+            (
+                (plan.relevance(memory), capture_id, memory)
+                for capture_id, memory in candidates
+                if decision_state(memory, changes) == "current" and plan.relevance(memory) > 0
+            ),
+            key=lambda item: (-item[0], item[1]),
+        )[:limit]
+        self._require_current(policy, consent)
+        return HarnessRecallResult(
+            "success" if ranked else "success_empty",
+            tuple(memory for _, _, memory in ranked),
+            memory_ids=tuple(capture_id for _, capture_id, _ in ranked),
+            memory_states=tuple("current" for _ in ranked),
+        )
+
+    def _require_current(self, policy: HarnessPolicy, consent: ProviderConsentState | None) -> None:
+        if not self.authorization_current(policy, consent):
+            raise _RecallRefusal("authorization_changed")
+
+    def _search(
+        self,
+        query: str,
+        authority: EffectiveAuthority,
+        policy: HarnessPolicy,
+        consent: ProviderConsentState | None,
+    ) -> dict[str, Any]:
+        self._require_current(policy, consent)
+        result = cast(
             dict[str, Any],
             self.tasks.retrieval.search_page(
                 SearchPageRequest(
                     query=query,
-                    limit=limit,
+                    limit=100,
                     filters={
                         "space_ids": [],
                         "payload_families": ["text"],
@@ -514,36 +594,108 @@ class HarnessWorkflow:
                 ),
                 authority=authority,
             ).to_wire(),
-        )["results"]
-        memories: list[HarnessMemory] = []
-        for row in rows:
-            chunks: list[str] = []
-            cursor: str | None = None
-            for _ in range(8):
-                if not self.authorization_current(policy, consent):
-                    return HarnessRecallResult("refused", error_code="authorization_changed")
-                response = cast(
-                    dict[str, Any],
-                    self.tasks.retrieval.read_record(
-                        RecordReadRequest(
-                            record_id=row["record_id"],
-                            expected_revision_id=row["revision_id"],
-                            target_bytes=32768,
-                            cursor=cursor,
-                        ),
-                        authority=authority,
-                    ).to_wire(),
-                )
-                chunks.append(response["content"]["text"])
-                if response["complete"]:
-                    break
-                cursor = response["next_cursor"]
-            else:
-                raise ValueError("record_read_incomplete")
-            memories.append(decode_memory("".join(chunks)))
-        if not self.authorization_current(policy, consent):
-            return HarnessRecallResult("refused", error_code="authorization_changed")
-        return HarnessRecallResult("success" if memories else "success_empty", tuple(memories))
+        )
+        self._require_current(policy, consent)
+        if not result["complete"]:
+            raise _RecallRefusal("retrieval_budget_exceeded")
+        return result
+
+    def _read_memory(
+        self,
+        capture_id: str,
+        authority: EffectiveAuthority,
+        policy: HarnessPolicy,
+        consent: ProviderConsentState | None,
+    ) -> HarnessMemory:
+        # Capture IDs bind immutable source revisions. Never admit page/owner IDs.
+        if not isinstance(capture_id, str) or not capture_id.startswith("capture_"):
+            raise _RecallRefusal("source_unavailable")
+        chunks: list[str] = []
+        cursor: str | None = None
+        for _ in range(3):
+            self._require_current(policy, consent)
+            response = cast(
+                dict[str, Any],
+                self.tasks.retrieval.read_record(
+                    RecordReadRequest(
+                        record_id=capture_id,
+                        expected_revision_id=capture_id,
+                        target_bytes=32768,
+                        cursor=cursor,
+                    ),
+                    authority=authority,
+                ).to_wire(),
+            )
+            if (
+                response["record"]["record_type"] != "source"
+                or response["record"]["provenance"]["source_origin"] != "third_party"
+            ):
+                raise _RecallRefusal("source_unavailable")
+            chunks.append(response["content"]["text"])
+            if response["complete"]:
+                memory = decode_memory("".join(chunks))
+                self._require_current(policy, consent)
+                return memory
+            cursor = response["next_cursor"]
+        raise _RecallRefusal("source_unavailable")
+
+    def _decision_changes(
+        self,
+        authority: EffectiveAuthority,
+        policy: HarnessPolicy,
+        consent: ProviderConsentState | None,
+    ) -> tuple[HarnessMemory, ...]:
+        # Search is policy-scoped BEFORE matching, counts, or currentness evaluation.
+        rows = self._search("changed instead now", authority, policy, consent)["results"]
+        return tuple(
+            self._read_memory(row["record_id"], authority, policy, consent)
+            for row in rows
+            if row["provenance"]["source_origin"] == "third_party"
+        )
+
+    def read_context(self, capture_id: str, *, provider: str) -> HarnessRecallResult:
+        """Resolve only an authorized retained harness source, including historical decisions."""
+        try:
+            policy = self.policy()
+            authority, state = self._provider_authority(policy, provider)
+            return self._context(capture_id, authority, policy, state)
+        except (HarnessPolicyError, _RecallRefusal) as error:
+            return HarnessRecallResult("refused", error_code=error.code)
+        except T03Error:
+            return HarnessRecallResult("refused", error_code="source_unavailable")
+        except Exception:
+            return HarnessRecallResult("unavailable", error_code="source_read_unavailable")
+
+    def read_context_local(self, capture_id: str, *, project: Path) -> HarnessRecallResult:
+        if not self._local_only_host:
+            raise ValueError("local_only_host_required")
+        try:
+            policy = self.policy()
+            authority = self._local_authority(policy, project)
+            return self._context(capture_id, authority, policy, None)
+        except (HarnessPolicyError, _RecallRefusal) as error:
+            return HarnessRecallResult("refused", error_code=error.code)
+        except T03Error:
+            return HarnessRecallResult("refused", error_code="source_unavailable")
+        except Exception:
+            return HarnessRecallResult("unavailable", error_code="source_read_unavailable")
+
+    def _context(
+        self,
+        capture_id: str,
+        authority: EffectiveAuthority,
+        policy: HarnessPolicy,
+        consent: ProviderConsentState | None,
+    ) -> HarnessRecallResult:
+        memory = self._read_memory(capture_id, authority, policy, consent)
+        changes = (
+            self._decision_changes(authority, policy, consent) if memory.kind == "decision" else ()
+        )
+        state = decision_state(memory, changes)
+        self._require_current(policy, consent)
+        return HarnessRecallResult(
+            "success", (memory,), memory_ids=(capture_id,), memory_states=(state,)
+        )
 
     def consent_snapshot(self) -> ProviderConsentState:
         return self._consent.load()

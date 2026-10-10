@@ -182,7 +182,7 @@ def _project(client: str, payload: dict[str, object]) -> Path:
     return Path(raw)
 
 
-def _citation(memory: HarnessMemory) -> str:
+def _citation(memory: HarnessMemory, capture_id: str | None, state: str) -> str:
     citation = memory.citation
     return json.dumps(
         {
@@ -193,6 +193,8 @@ def _citation(memory: HarnessMemory) -> str:
             "message_ordinal": citation.message_ordinal,
             "timestamp": citation.timestamp,
             "authorship": citation.authorship,
+            "capture_id": capture_id,
+            "state": state,
         },
         ensure_ascii=False,
         sort_keys=True,
@@ -200,13 +202,28 @@ def _citation(memory: HarnessMemory) -> str:
     )
 
 
-def _bounded_results(memories: tuple[HarnessMemory, ...], *, automatic: bool) -> dict[str, object]:
-    results: list[dict[str, str]] = []
+def _bounded_results(
+    memories: tuple[HarnessMemory, ...],
+    *,
+    automatic: bool,
+    memory_ids: tuple[str, ...] = (),
+    memory_states: tuple[str, ...] = (),
+    source_context: bool = False,
+) -> dict[str, object]:
+    results: list[dict[str, object]] = []
     used = 128  # Reserve the integration's untrusted-data wrapper.
     omitted = 0
-    for memory in memories:
-        row = {"text": memory.text, "citation": _citation(memory)}
-        cost = len((row["text"] + "\nSource: " + row["citation"] + "\n\n").encode())
+    for index, memory in enumerate(memories):
+        capture_id = memory_ids[index] if index < len(memory_ids) else None
+        state = memory_states[index] if index < len(memory_states) else "currentness_unknown"
+        citation = _citation(memory, capture_id, state)
+        row: dict[str, object] = {"text": memory.text, "citation": citation}
+        if capture_id is not None:
+            row["capture_id"] = capture_id
+        if source_context:
+            row["source_context"] = memory.source_context
+            row["state"] = state
+        cost = len((memory.text + "\nSource: " + citation + "\n\n").encode())
         if automatic and used + cost > 8192:
             omitted += 1
             continue
@@ -236,6 +253,7 @@ def run_harness(
             "status",
             "recall",
             "search",
+            "source",
         }:
             raise HarnessBridgeError("invalid_request")
         config = HarnessBridgeConfig.load(config_path)
@@ -261,7 +279,15 @@ def run_harness(
             raise HarnessBridgeError("invalid_request")
         decision = policy.classify(project, authored_text=query)
         if action == "enqueue":
-            event = capture_event(client, payload)
+            try:
+                event = capture_event(client, payload)
+            except HarnessEventError as error:
+                if error.code == "credential_signal" and isinstance(payload.get("session_id"), str):
+                    return outbox.restrict_session(
+                        client, cast(str, payload["session_id"]), project,
+                        reason="credential_signal",
+                    )
+                raise
             policy.classify(
                 project,
                 authored_text="\n".join(
@@ -269,7 +295,19 @@ def run_harness(
                 ),
             )
             return outbox.enqueue(event)
-        if not query.strip() or len(query.encode()) > 2048:
+        capture_id = payload.get("capture_id")
+        if action == "source" and (
+            not isinstance(capture_id, str)
+            or not 1 <= len(capture_id) <= 128
+            or any(
+                character not in (
+                    "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789._:-"
+                )
+                for character in capture_id
+            )
+        ):
+            raise HarnessBridgeError("invalid_request")
+        if action != "source" and (not query.strip() or len(query.encode()) > 2048):
             raise HarnessBridgeError("invalid_request")
         _screen(query)
         limit = payload.get("limit", 5)
@@ -294,11 +332,18 @@ def run_harness(
                 return guard
         with _workflow(config, local_only_host=local_only_host) as workflow:
             consent = None if requested_local else workflow.consent_snapshot()
-            response = (
-                workflow.recall_local(query, project=project, limit=limit)
-                if requested_local
-                else workflow.recall(query, provider=client, limit=limit)
-            )
+            if action == "source":
+                assert isinstance(capture_id, str)
+                response = (
+                    workflow.read_context_local(capture_id, project=project)
+                    if requested_local else workflow.read_context(capture_id, provider=client)
+                )
+            else:
+                response = (
+                    workflow.recall_local(query, project=project, limit=limit)
+                    if requested_local
+                    else workflow.recall(query, provider=client, limit=limit)
+                )
         if response.status not in {"success", "success_empty"}:
             return {"status": response.status, "error_code": response.error_code}
         # Recheck source policy after closing runtime and before releasing content.
@@ -310,7 +355,13 @@ def run_harness(
                 return guard
         if not workflow.authorization_current(policy, consent):
             return {"status": "refused", "error_code": "authorization_changed"}
-        return _bounded_results(response.memories, automatic=action == "recall")
+        return _bounded_results(
+            response.memories,
+            automatic=action == "recall",
+            memory_ids=response.memory_ids,
+            memory_states=response.memory_states,
+            source_context=action == "source",
+        )
     except (HarnessBridgeError, HarnessEventError, HarnessPolicyError) as error:
         return {"status": "refused", "error_code": error.code}
     except Exception:

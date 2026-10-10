@@ -115,7 +115,10 @@ def select_memories(messages: Sequence[MemoryMessage]) -> tuple[MemoryCandidate,
         for kind, excerpt in excerpts:
             text = excerpt.strip() if kind == "material" else " ".join(excerpt.split())
             candidate_bytes = len(text.encode("utf-8"))
-            if candidate_bytes > MAX_CANDIDATE_BYTES:
+            if (
+                candidate_bytes > MAX_CANDIDATE_BYTES
+                or len(excerpt.encode("utf-8")) > MAX_CANDIDATE_BYTES
+            ):
                 continue
             if (
                 len(candidates) >= MAX_CANDIDATES

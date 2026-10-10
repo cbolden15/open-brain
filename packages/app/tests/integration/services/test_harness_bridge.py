@@ -5,7 +5,7 @@ import json
 import time
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import pytest
 from open_brain_engine.core.models import PrivacyTier
@@ -91,6 +91,27 @@ def event(project: Path) -> dict[str, object]:
         "hook_event_name": "Stop",
         "transcript_path": str(transcript),
     }
+
+
+def test_credential_refusal_latches_metadata_without_source_custody(tmp_path: Path) -> None:
+    path, project, _, config = setup(tmp_path)
+    payload = event(project)
+    assert run_harness("enqueue", path, "codex", payload)["status"] == "queued"
+    drained = run_harness("drain", path, "codex")
+    assert cast(list[dict[str, object]], drained["results"])[0]["status"] == "delivered"
+    transcript = Path(str(payload["transcript_path"]))
+    with transcript.open("a") as stream:
+        stream.write(json.dumps({"type": "response_item", "payload": {
+            "type": "message", "role": "user", "content": [{"type": "input_text",
+            "text": "-----BEGIN PRIVATE KEY----- synthetic fixture"}],
+        }}) + "\n")
+    refused = run_harness("enqueue", path, "codex", payload)
+    assert refused["error_code"] == "credential_signal"
+    recalled = run_harness("recall", path, "codex", {"cwd": str(project), "query": "editor"})
+    assert recalled["status"] == "refused"
+    assert "Vim" not in json.dumps(recalled)
+    retained = [p.read_bytes() for p in Path(config["outbox"]).rglob("*") if p.is_file()]
+    assert all(b"BEGIN PRIVATE KEY" not in content for content in retained)
 
 
 def test_enqueue_custody_drain_and_three_provider_reads(tmp_path: Path) -> None:

@@ -197,7 +197,12 @@ def test_credentials_are_rejected_before_any_persistence(tmp_path: Path, text: s
     result = HarnessOutbox(root, BRAIN).enqueue(source)
     assert result["status"] == "refused"
     assert result["error_code"] == "credential_signal"
-    assert not root.exists()
+    assert not list((root / "requests").iterdir())
+    assert text not in "".join(path.read_text() for path in root.rglob("*.json"))
+    assert HarnessOutbox(root, BRAIN).cloud_read_guard(cloud_policy(tmp_path)) == {
+        "status": "refused",
+        "error_code": "credential_signal",
+    }
 
 
 def test_file_and_directory_modes_and_fsync_precede_queued(
@@ -851,3 +856,211 @@ def test_completed_receipt_directory_is_fsynced_once_per_guard(
     monkeypatch.setattr(os, "fsync", fsync)
     assert outbox.cloud_read_guard(cloud_policy(tmp_path)) == {"status": "allowed"}
     assert calls == 1
+
+
+def test_long_event_chunks_replay_all_sources_without_first_page_loss(tmp_path: Path) -> None:
+    source = replace(
+        event(tmp_path),
+        messages=tuple(
+            MemoryMessage("user", f"I prefer fixture{i} pencils.", i, True, f"entry-{i}")
+            for i in range(300)
+        ),
+        timestamps={},
+    )
+    outbox = HarnessOutbox(tmp_path / "outbox", BRAIN)
+    queued = outbox.enqueue(source)
+    assert queued["status"] == "queued"
+    assert queued["batch_count"] == 10
+    fake = FakeWorkflow()
+    assert outbox.drain(fake.workflow())["status"] == "delivered"
+    assert sum(len(cast(tuple[object, ...], call[3])) for call in fake.calls) == 300
+    assert all(
+        len(cast(list[object], cast(dict[str, object], call[-1])["selection"])) <= 32
+        for call in fake.calls
+    )
+    assert outbox.enqueue(source) == queued
+    outbox.drain(fake.workflow())
+    assert len(fake.calls) == 10
+
+
+def test_fork_origin_is_retained_metadata_and_unknown_parent_is_visible(tmp_path: Path) -> None:
+    outbox = HarnessOutbox(tmp_path / "outbox", BRAIN)
+    source = replace(
+        event(tmp_path),
+        client="pi",
+        session_id="parent",
+        messages=(MemoryMessage("user", "I prefer lentil soup.", 12, True, "native-12"),),
+    )
+    assert outbox.enqueue(source)["status"] == "queued"
+    child = replace(
+        source,
+        session_id="child",
+        parent_session_id="parent",
+        session_timestamp="2026-01-02T00:00:00Z",
+        messages=(replace(source.messages[0], ordinal=0),),
+        timestamps={},
+    )
+    assert outbox.enqueue(child)["status"] == "queued"
+    fake = FakeWorkflow()
+    outbox.drain(fake.workflow())
+    child_call = next(call for call in fake.calls if call[1] == "child")
+    assert cast(dict[str, object], child_call[-1])["origin_sessions"] == {"native-12": "parent"}
+    assert cast(dict[str, object], child_call[-1])["origin_ordinals"] == {"native-12": 12}
+    assert (
+        outbox.enqueue(replace(child, session_id="unknown", parent_session_id="missing"))[
+            "error_code"
+        ]
+        == "lineage_unavailable"
+    )
+    new_source = replace(
+        child,
+        messages=(MemoryMessage("user", "I prefer violet pencils.", 14, True, "native-14"),),
+        timestamps={14: "2026-01-02T01:00:00Z"},
+    )
+    assert outbox.enqueue(new_source)["status"] == "queued"
+    ambiguous = replace(
+        child,
+        messages=(MemoryMessage("user", "I prefer unknown pencils.", 15, True, "native-15"),),
+        timestamps={15: None},
+    )
+    assert outbox.enqueue(ambiguous)["error_code"] == "lineage_unavailable"
+
+
+def test_unknown_parent_cannot_drop_current_session_privacy_marking(tmp_path: Path) -> None:
+    outbox = HarnessOutbox(tmp_path / "outbox", BRAIN)
+    source = replace(event(tmp_path), client="pi")
+    assert outbox.enqueue(source)["status"] == "queued"
+    outbox.drain(FakeWorkflow().workflow())
+    assert outbox.cloud_read_guard(cloud_policy(tmp_path)) == {"status": "allowed"}
+    marked = replace(
+        source, parent_session_id="missing-parent",
+        messages=(MemoryMessage("user", "Confidential:", 0, True, "new-marker"),),
+        timestamps={},
+    )
+    assert outbox.enqueue(marked)["error_code"] == "lineage_unavailable"
+    assert outbox.cloud_read_guard(cloud_policy(tmp_path)) == {
+        "status": "refused", "error_code": "pending_source_restriction",
+    }
+
+
+def test_late_marking_latches_across_rotation_and_requeues_retained_source(tmp_path: Path) -> None:
+    outbox = HarnessOutbox(tmp_path / "outbox", BRAIN)
+    source = replace(
+        event(tmp_path),
+        messages=(MemoryMessage("user", "I prefer lentil soup.", 12, True, "native-12"),),
+    )
+    assert outbox.enqueue(source)["status"] == "queued"
+    outbox.drain(FakeWorkflow().workflow())
+    marked = replace(source, messages=(MemoryMessage("user", "Confidential:", 99, True, "mark"),))
+    assert outbox.enqueue(marked)["status"] == "queued"
+    assert (
+        outbox.cloud_read_guard(cloud_policy(tmp_path))["error_code"]
+        == "pending_source_restriction"
+    )
+    fake = FakeWorkflow()
+    assert outbox.drain(fake.workflow())["status"] == "delivered"
+    assert all(cast(dict[str, object], call[-1])["local_only"] is True for call in fake.calls)
+    rotated = replace(
+        source,
+        messages=(MemoryMessage("user", "I prefer violet pencils.", 100, True, "native-100"),),
+    )
+    assert outbox.enqueue(rotated)["status"] == "queued"
+    fake = FakeWorkflow()
+    outbox.drain(fake.workflow())
+    assert cast(dict[str, object], fake.calls[-1][-1])["local_only"] is True
+
+
+def test_partial_chunk_publication_retains_custody_and_blocks_cloud(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from open_brain.services import harness_outbox
+
+    outbox = HarnessOutbox(tmp_path / "outbox", BRAIN)
+    source = replace(
+        event(tmp_path),
+        messages=tuple(
+            MemoryMessage("user", f"I prefer fixture{i} pencils.", i, True, f"entry-{i}")
+            for i in range(40)
+        ),
+        timestamps={},
+    )
+    original = harness_outbox._publish
+    published = 0
+
+    def fail_second(directory: int, name: str, body: bytes, *, replace: bool = False) -> None:
+        nonlocal published
+        if b'"messages"' in body:
+            published += 1
+            if published == 2:
+                raise OSError(5, "synthetic io")
+        original(directory, name, body, replace=replace)
+
+    monkeypatch.setattr(harness_outbox, "_publish", fail_second)
+    assert outbox.enqueue(source)["status"] == "unavailable"
+    assert len(list((outbox.root / "requests").iterdir())) == 1
+    assert outbox.cloud_read_guard(cloud_policy(tmp_path))["status"] == "refused"
+    monkeypatch.setattr(harness_outbox, "_publish", original)
+    assert outbox.enqueue(source)["status"] == "queued"
+    assert len(list((outbox.root / "requests").iterdir())) == 2
+    assert outbox.drain(FakeWorkflow().workflow())["status"] == "delivered"
+    assert outbox.cloud_read_guard(cloud_policy(tmp_path))["status"] == "allowed"
+
+
+def test_pending_v1_envelope_expands_without_discarding_its_source(tmp_path: Path) -> None:
+    outbox = HarnessOutbox(tmp_path / "outbox", BRAIN)
+    queued = outbox.enqueue(event(tmp_path))
+    original = outbox.root / "requests" / f"{queued['request_id']}.json"
+    document = json.loads(original.read_bytes())
+    document["messages"] = [
+        {
+            "role": "user",
+            "text": f"I prefer fixture{i} pencils.",
+            "ordinal": i,
+            "authored": True,
+            "source_id": None,
+        }
+        for i in range(40)
+    ]
+    body = portable_canonical_json_bytes(document)
+    request_id = sha256(body).hexdigest()
+    pending = original.with_name(request_id + ".json")
+    pending.write_bytes(body)
+    pending.chmod(0o600)
+    original.unlink()
+    fake = FakeWorkflow()
+    assert outbox.drain(fake.workflow())["status"] == "pending"
+    assert fake.calls == []
+    assert pending.read_bytes() == body
+    assert outbox.drain(fake.workflow())["status"] == "delivered"
+    assert len(fake.calls) == 2
+    assert sum(len(cast(tuple[object, ...], call[3])) for call in fake.calls) == 40
+    assert (outbox.root / "receipts" / pending.name).exists()
+    assert outbox.drain(fake.workflow())["status"] == "delivered"
+    assert len(fake.calls) == 2
+
+
+def test_child_marking_restricts_known_parent_even_after_inherited_entries_rotate_away(
+    tmp_path: Path,
+) -> None:
+    outbox = HarnessOutbox(tmp_path / "outbox", BRAIN)
+    parent = replace(
+        event(tmp_path),
+        client="pi",
+        session_id="parent",
+        messages=(MemoryMessage("user", "I prefer lentil soup.", 12, True, "entry-12"),),
+    )
+    assert outbox.enqueue(parent)["status"] == "queued"
+    outbox.drain(FakeWorkflow().workflow())
+    marker = replace(
+        parent,
+        session_id="child",
+        parent_session_id="parent",
+        session_timestamp="2026-01-02T00:00:00Z",
+        messages=(MemoryMessage("user", "Confidential:", 20, True, "mark"),),
+    )
+    assert outbox.enqueue(marker)["status"] == "queued"
+    fake = FakeWorkflow()
+    assert outbox.drain(fake.workflow())["status"] == "delivered"
+    replay = next(call for call in fake.calls if call[1] == "parent")
+    assert cast(dict[str, object], replay[-1])["local_only"] is True

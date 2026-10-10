@@ -8,6 +8,8 @@ import pytest
 from open_brain_engine.core.access_contracts import derive_brain_id
 from open_brain_engine.core.models import PrivacyTier
 from open_brain_engine.engine.capture import CaptureTasks
+from open_brain_engine.engine.contracts import TextPayload
+from open_brain_engine.engine.harness_memory import encode_memory
 from open_brain_engine.engine.local import open_local_engine
 from open_brain_engine.storage.filesystem import StorageError
 
@@ -340,3 +342,299 @@ def test_stable_native_id_survives_changed_display_ordinal_and_timestamp(tmp_pat
     assert len(recalled.memories) == 1
     assert recalled.memories[0].citation.message_ordinal == 8
     assert recalled.memories[0].citation.timestamp is None
+
+
+def test_paraphrased_tasks_keep_recipe_details_and_source_resolution(tmp_path: Path) -> None:
+    workflow, raw, project, _, _ = setup(tmp_path)
+    recipe = (
+        "Chickpea supper\nIngredients\n- 1 cup chickpeas\n- 2 tablespoons lemon juice\n"
+        "Directions\n1. Rinse the chickpeas.\n2. Mix and chill for 15 minutes."
+    )
+    message = "My preferred editor is Vim.\nCan you explain its shortcuts?"
+    captured = workflow.capture(
+        "claude-code",
+        "task-source",
+        project,
+        [
+            MemoryMessage("user", message, 1),
+            MemoryMessage("user", "Please give me a chickpea recipe.", 2),
+            MemoryMessage("assistant", recipe, 3),
+            MemoryMessage("assistant", "You probably prefer meat.", 4),
+            MemoryMessage("user", "My preferred editor is Emacs.", 5, authored=False),
+            *[MemoryMessage("user", "Thanks!", i) for i in range(6, 12)],
+        ],
+    )
+    assert captured["status"] == "acknowledged"
+    meal = workflow.recall("Prepare supper tomorrow", provider="codex")
+    assert meal.status == "success"
+    assert [memory.text for memory in meal.memories] == [recipe]
+    coding = workflow.recall("Configure an editing environment", provider="pi")
+    assert [memory.text for memory in coding.memories] == ["My preferred editor is Vim."]
+    assert len(coding.memory_ids) == 1
+    context = workflow.read_context(coding.memory_ids[0], provider="codex")
+    assert context.status == "success"
+    assert context.memories[0].source_context == message
+    assert context.memories[0].citation.timestamp is None
+    raw["exclusions"] = [str(project)]
+    assert workflow.read_context(coding.memory_ids[0], provider="codex").memories == ()
+
+
+def test_explicit_changed_decision_withholds_previous_value_even_when_query_only_matches_old(
+    tmp_path: Path,
+) -> None:
+    workflow, _, project, _, _ = setup(tmp_path)
+    original = MemoryMessage("user", "We decided to use SQLite for the sample project.", 1)
+    change = MemoryMessage(
+        "user", "We changed our decision to PostgreSQL for the sample project.", 9
+    )
+    saved = workflow.capture("codex", "decision-source", project, [original, change])
+    assert saved["status"] == "acknowledged"
+    assert workflow.recall("SQLite", provider="claude-code").memories == ()
+    current = workflow.recall("Which database should this sample project use?", provider="pi")
+    assert [memory.text for memory in current.memories] == [change.text]
+    capture_ids = saved["capture_ids"]
+    assert isinstance(capture_ids, list)
+    retained = workflow.read_context(capture_ids[0], provider="claude-code")
+    assert retained.memories[0].text == original.text
+    assert retained.memory_states == ("superseded",)
+
+
+def test_changed_decision_does_not_supersede_a_different_named_subject(tmp_path: Path) -> None:
+    workflow, _, project, _, _ = setup(tmp_path)
+    workflow.capture(
+        "codex",
+        "decision-subjects",
+        project,
+        [
+            MemoryMessage("user", "We decided to use SQLite for the archive project.", 1),
+            MemoryMessage("user", "We decided to use YAML for the export format.", 2),
+            MemoryMessage("user", "We changed our decision to JSON for the export format.", 3),
+        ],
+    )
+    assert len(workflow.recall("SQLite", provider="codex").memories) == 1
+    assert workflow.recall("YAML", provider="codex").memories == ()
+
+
+def test_source_context_ids_cannot_read_private_or_ordinary_owner_records(tmp_path: Path) -> None:
+    workflow, _, project, unknown, _ = setup(tmp_path)
+    private = workflow.capture(
+        "pi",
+        "private-source",
+        unknown,
+        [MemoryMessage("user", "I prefer violet notebooks.", 1)],
+    )
+    ids = private["capture_ids"]
+    assert isinstance(ids, list)
+    cloud = workflow.read_context(ids[0], provider="codex")
+    assert cloud.status == "refused" and cloud.memories == ()
+    local = workflow.read_context_local(ids[0], project=unknown)
+    assert local.status == "success"
+    assert workflow.read_context_local(ids[0], project=project).memories == ()
+    assert workflow.read_context("invalid-id", provider="codex").memories == ()
+
+
+def test_owner_json_cannot_impersonate_harness_context_even_in_a_harness_space(
+    tmp_path: Path,
+) -> None:
+    workflow, _, project, _, _ = setup(tmp_path)
+    workflow.capture(
+        "codex",
+        "harness-context",
+        project,
+        [MemoryMessage("user", "I prefer violet notebooks.", 1)],
+    )
+    recalled = workflow.recall("violet", provider="codex")
+    spaces = workflow.tasks.spaces.spaces()
+    assert len(spaces) == 1
+    owner = workflow.tasks.capture.accept(
+        TextPayload(encode_memory(recalled.memories[0])),
+        delivery_id="owner-json",
+        space_id=spaces[0].space_id,
+        privacy_tier=PrivacyTier.WORK,
+    )
+    assert owner.capture_id is not None
+    assert workflow.read_context_local(owner.capture_id, project=project).status == "refused"
+    assert workflow.read_context(owner.capture_id, provider="codex").memories == ()
+    assert len(workflow.recall("violet", provider="codex").memories) == 1
+
+
+def test_resolved_context_rechecks_consent_before_release(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workflow, _, project, _, consent = setup(tmp_path)
+    workflow.capture(
+        "codex",
+        "context-revoked",
+        project,
+        [MemoryMessage("user", "I prefer violet notebooks.", 1)],
+    )
+    source_id = workflow.recall("violet", provider="codex").memory_ids[0]
+    read = workflow.tasks.retrieval.read_record
+
+    def revoked(*args: Any, **kwargs: Any) -> Any:
+        result = read(*args, **kwargs)
+        grant = next(r for r in consent.load().records if r.provider_id == "codex" and r.active)
+        consent.revoke(
+            consent_id=grant.consent_id,
+            operation_id="revoke-during-context",
+            decided_at="2026-01-02T00:00:00Z",
+        )
+        return result
+
+    monkeypatch.setattr(workflow.tasks.retrieval, "read_record", revoked)
+    result = workflow.read_context(source_id, provider="codex")
+    assert result.status == "refused"
+    assert result.error_code == "authorization_changed"
+    assert result.memories == ()
+    assert result.memory_ids == ()
+
+
+def test_supersession_scan_fails_closed_when_incomplete(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workflow, _, project, _, _ = setup(tmp_path)
+    workflow.capture(
+        "codex",
+        "scan-bound",
+        project,
+        [MemoryMessage("user", "We decided to use SQLite for the sample project.", 1)],
+    )
+    search = workflow.tasks.retrieval.search_page
+
+    class Incomplete:
+        def to_wire(self) -> dict[str, Any]:
+            return {"results": [], "complete": False, "next_cursor": "metadata-only"}
+
+    def bounded(*args: Any, **kwargs: Any) -> Any:
+        if args[0].query == "changed instead now":
+            return Incomplete()
+        return search(*args, **kwargs)
+
+    monkeypatch.setattr(workflow.tasks.retrieval, "search_page", bounded)
+    result = workflow.recall("SQLite", provider="codex")
+    assert result.status == "refused"
+    assert result.error_code == "retrieval_budget_exceeded"
+    assert result.memories == ()
+
+
+@pytest.mark.parametrize(
+    "change",
+    [
+        "Our decision is now PostgreSQL for the sample project.",
+        "We decided to use PostgreSQL instead of SQLite for the sample project.",
+    ],
+)
+def test_other_explicit_supersession_syntax_is_source_grounded(tmp_path: Path, change: str) -> None:
+    workflow, _, project, _, _ = setup(tmp_path)
+    workflow.capture(
+        "codex",
+        "changed-wording",
+        project,
+        [
+            MemoryMessage("user", "We decided to use SQLite for the sample project.", 1),
+            MemoryMessage("user", change, 2),
+        ],
+    )
+    recalled = workflow.recall("SQLite", provider="codex")
+    assert all(memory.text == change for memory in recalled.memories)
+    assert workflow.recall("PostgreSQL", provider="codex").memories[0].text == change
+
+
+def test_child_first_delivery_retains_original_parent_ordinal(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from dataclasses import replace
+
+    from open_brain.services.harness_events import HarnessCaptureEvent
+    from open_brain.services.harness_outbox import HarnessOutbox
+
+    workflow, _, project, _, _ = setup(tmp_path)
+    outbox = HarnessOutbox(tmp_path / "outbox", derive_brain_id(workflow.tasks.profile.tenant_id))
+    parent = HarnessCaptureEvent(
+        "pi", "parent", project,
+        (MemoryMessage("user", "I prefer violet notebooks.", 7, True, "native-entry"),), {},
+    )
+    assert outbox.enqueue(parent)["status"] == "queued"
+    child = replace(
+        parent, session_id="child", parent_session_id="parent",
+        messages=(replace(parent.messages[0], ordinal=0),),
+    )
+    assert outbox.enqueue(child)["status"] == "queued"
+    capture = workflow.capture
+
+    def parent_offline(client: str, session: str, *args: Any, **kwargs: Any) -> dict[str, object]:
+        if session == "parent":
+            return {"status": "unavailable", "error_code": "bridge_unavailable"}
+        return capture(client, session, *args, **kwargs)
+
+    monkeypatch.setattr(workflow, "capture", parent_offline)
+    outbox.drain(workflow)
+    first = workflow.recall("violet", provider="codex")
+    assert len(first.memories) == 1
+    assert first.memories[0].citation.session_id == "parent"
+    assert first.memories[0].citation.message_ordinal == 7
+    monkeypatch.setattr(workflow, "capture", capture)
+    outbox.drain(workflow)
+    again = workflow.recall("violet", provider="codex")
+    assert again.memory_ids == first.memory_ids
+    assert again.memories == first.memories
+
+
+def test_native_custody_long_session_delivers_early_late_recipe_and_stable_fork(
+    tmp_path: Path,
+) -> None:
+    from dataclasses import replace
+
+    from open_brain.services.harness_events import HarnessCaptureEvent
+    from open_brain.services.harness_outbox import HarnessOutbox
+
+    workflow, _, project, _, _ = setup(tmp_path)
+    outbox = HarnessOutbox(tmp_path / "outbox", derive_brain_id(workflow.tasks.profile.tenant_id))
+    messages = tuple(
+        MemoryMessage(
+            "user",
+            f"I prefer fixture{i} pencils." if i < 40 or i >= 260 else "Thanks.",
+            i,
+            True,
+            f"entry-{i}",
+        )
+        for i in range(300)
+    )
+    recipe = (
+        "Ingredients:\n- 1 cup lentils\n- 2 cups water\nDirections:\n"
+        "1. Rinse lentils.\n2. Simmer 20 minutes."
+    )
+    messages += (
+        MemoryMessage("user", "Please give me a complete soup recipe.", 300, True, "request"),
+        MemoryMessage("assistant", recipe, 301, True, "recipe"),
+    )
+    source = HarnessCaptureEvent("pi", "parent", project, messages, {})
+    assert outbox.enqueue(source)["batch_count"] == 3
+    assert outbox.drain(workflow)["status"] == "delivered"
+    early = workflow.recall("fixture0", provider="codex")
+    late = workflow.recall("fixture299", provider="claude-code")
+    assert early.status == late.status == "success"
+    assert [m.text for m in late.memories] == ["I prefer fixture299 pencils."]
+    meal = workflow.recall("lentils", provider="pi")
+    assert meal.status == "success"
+    assert meal.memories[0].text == recipe
+    context = workflow.read_context(meal.memory_ids[0], provider="pi")
+    assert context.memories[0].source_context == recipe
+    assert outbox.enqueue(source)["status"] == "queued"
+    assert outbox.drain(workflow)["already_delivered"] == 3
+    child = replace(
+        source,
+        session_id="child",
+        parent_session_id="parent",
+        session_timestamp="2026-01-02T00:00:00Z",
+        messages=(messages[-1], messages[-2]),
+    )
+    # Native chronological order is part of the event contract.
+    child = replace(child, messages=tuple(reversed(child.messages)))
+    assert outbox.enqueue(child)["status"] == "queued"
+    assert outbox.drain(workflow)["status"] == "delivered"
+    again = workflow.recall("lentils", provider="codex")
+    assert again.memory_ids == meal.memory_ids
+    assert again.memories[0].citation.session_id == "parent"

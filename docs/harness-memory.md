@@ -1,8 +1,8 @@
 # Automatic harness memory
 
 This implementation adds a foreground memory bridge and optional lifecycle
-adapters for Codex, Claude Code and Pi. Installer wiring and native acceptance
-are still in progress. The current tests use disposable Brains and synthetic
+adapters for Codex, Claude Code and Pi. Reusable setup and source resolution are
+implemented; native acceptance is still in progress. Tests use disposable Brains and synthetic
 native events; they do not establish that an installed harness captures or
 receives memory during real inference.
 
@@ -14,10 +14,13 @@ repository.
 
 ## Foreground commands
 
-`open-brain harness` supports `enqueue`, `drain`, `status`, `recall` and `search`.
+`open-brain harness` supports `enqueue`, `drain`, `status`, `recall`, `search`,
+`source`, `mcp` and `setup`. See `docs/harness-setup.md` for installation.
 Every command takes an absolute `--config` path and a fixed `--client` identity:
 `codex`, `claude-code` or `pi`. Enqueue, recall and search read bounded JSON from
-stdin. Results are JSON; failures contain closed metadata codes.
+stdin. Source accepts a returned capture ID and resolves retained context under
+current policy. MCP exposes search and source tools over inherited stdio.
+Results are JSON; failures contain closed metadata codes.
 
 Enqueue acknowledges durable local custody without opening the destination
 Brain. Drain opens an existing, identity-matched Brain and submits source
@@ -126,8 +129,11 @@ Successful empty retrieval differs from unavailable or refused retrieval.
 The optional Pi asset `assets/pi-memory.mjs` exports
 `createPiMemoryExtension`. Its host supplies the bridge, SDK session manager,
 project, fixed provider identity, search schema and local-only enforcement
-capabilities. It captures authored branch entries with their stable native IDs,
-recalls before agent start and exposes `brain_search_page`. Synthetic fixtures
+capabilities. A session-bound `isLocalOnly()` probe does not grant confinement;
+the host must strictly assert enforcement before private reads and release.
+The extension captures authored branch entries with stable native IDs and
+available header/entry timestamps. It recalls before agent start and exposes
+`brain_search_page` and, when supplied by the bridge, `brain_read_source`. Synthetic fixtures
 cover confinement handshakes and refusal; the host must prove actual enforcement.
 
 ## Current selection and continuity limits
@@ -136,17 +142,27 @@ Selection is conservative and extractive. It recognizes specified English
 patterns for facts, decisions and preferences, plus requested complete recipes.
 Authorship is retained; assistant guesses and inferred preferences are excluded.
 Selection is not factual verification or general semantic understanding.
-Changed decisions currently remain historical statements until currentness
-projection is implemented.
+Current recall excludes explicitly superseded decisions; source reads label
+retained history as current, superseded or unknown. The projection recognizes
+specified replacement wording within the same project and source order. It
+refuses incomplete currentness scans. A local lexical planner expands supported
+task paraphrases, such as meal planning, without cloud extraction or embedding.
 
-Inputs are bounded to 256 messages and 128 KiB. Oversized native events fail
-visibly rather than discarding an earlier confidentiality marking. Selection has
-separate message and output bounds; unsupported wording and oversized candidates
-are omitted. Incremental capture for longer sessions remains acceptance work.
+The normalizer accepts at most 16,384 messages and eight MiB of authored text
+from the currently named transcript or SDK branch. Pi enqueue JSON also has a
+nine-MiB transport ceiling. Oversized events fail visibly. Durable chunks keep
+each selected candidate within the existing 32-candidate and 128-KiB input
+bounds; replay retries partial publication without a lossy cursor. Source
+messages are bounded to sixteen KiB and candidates to eight KiB. Unsupported
+wording and oversized candidates remain selection limits.
 
 Claude message UUIDs and Pi branch entry IDs provide native identity. Codex's
 fallback hashes authored role/text with occurrence order, independently of
 physical transcript lines. It survives inserted tool metadata and rotation that
-retains authored messages. Dropping repeated identical messages or changing fork
-lineage still needs a continuity map. Detailed policy-aware source resolution,
-current decisions and native cross-harness acceptance remain required work.
+retains authored messages. Retained enabled-session custody resolves known fork
+origins, including the original message position when a shorter branch changes
+ordinals. Missing or conflicting lineage fails visibly. Parent transcript bodies
+are never mined. A later restriction is latched before lineage refusal or chunk
+publication; credential refusals retain denial metadata without credential bytes.
+Actual installed capture, deadlines and cross-harness retrieval remain acceptance
+work.

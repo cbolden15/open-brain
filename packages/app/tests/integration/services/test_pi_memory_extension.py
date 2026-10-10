@@ -9,6 +9,59 @@ import pytest
 ASSET = Path(__file__).parents[3] / "src/open_brain/assets/pi-memory.mjs"
 
 
+def test_pi_source_resolution_checks_host_before_release() -> None:
+    node = shutil.which("node")
+    if node is None:
+        pytest.skip("Node is required for Pi extension fixtures")
+    script = r"""
+import assert from 'node:assert/strict';
+import {pathToFileURL} from 'node:url';
+const {createPiMemoryExtension} = await import(pathToFileURL(process.argv[1]));
+const tools = [], calls = [];
+let local = false, deny = true, response = {status:'ok',requires_local_only:true,
+  results:[{text:'private excerpt',source_context:'private full context',citation:'capture-1'}]};
+const bridge = {capture:async()=>({status:'queued'}),recall:async()=>({status:'ok',results:[]}),
+  search:async()=>({status:'ok',results:[]}),
+  source:async request=>{calls.push(request);return response;}};
+createPiMemoryExtension({bridge,
+  sessionManager:{getSessionId:()=> 'source-session',getBranch:()=>[]},
+  project:'/synthetic/project',provider:'pi',searchSchema:{type:'object'},
+  localOnlyHost:{assertLocalOnly:()=>local,
+    requireLocalOnly:()=>{if(deny)throw Error();local=true;}}})(
+  {on:()=>{},registerTool:tool=>tools.push(tool)});
+const tool=tools.find(tool=>tool.name==='brain_read_source');
+assert.ok(tool);
+const denied=await tool.execute('id',{capture_id:'capture-1'});
+assert.equal(denied.isError,true);
+assert.ok(!JSON.stringify(denied).includes('private full context'));
+deny=false;
+response={status:'ok',results:[{text:'short excerpt',
+  source_context:'full context '+ 'x'.repeat(9000),
+  citation:'capture-1 current'}]};
+const allowed=await tool.execute('id',{capture_id:'capture-1'});
+assert.equal(allowed.details.status,'ok');
+assert.ok(allowed.content[0].text.includes(response.results[0].source_context));
+assert.ok(allowed.content[0].text.includes('Source: capture-1 current'));
+assert.equal(calls.at(-1).capture_id,'capture-1');
+assert.equal(calls.at(-1).local_only,false); // No local read was needed by this response.
+local=true;
+response.results[0].source_context='x'.repeat(33000);
+assert.equal((await tool.execute('id',{capture_id:'capture-1'})).isError,true);
+assert.equal(calls.at(-1).local_only,true);
+local=false;
+const before=calls.length;
+assert.equal((await tool.execute('id',{capture_id:'capture-1'})).isError,true);
+assert.equal(calls.length,before);
+assert.equal((await tool.execute('id',{capture_id:'invalid id'})).isError,true);
+console.log('synthetic source fixture passed');
+"""
+    result = subprocess.run(
+        [node, "--input-type=module", "-e", script, str(ASSET)],
+        capture_output=True, text=True, timeout=8, check=False,
+    )
+    assert result.returncode == 0, result.stderr
+
+
 def test_pi_memory_extension_fixture() -> None:
     node = shutil.which("node")
     if node is None:
@@ -21,14 +74,18 @@ const handlers = {}, tools = [], calls = [], warnings = [];
 const pi = {on: (name, fn) => handlers[name] = fn, registerTool: t => tools.push(t)};
 const ctx = {ui: {notify: message => warnings.push(message)}};
 let enforced = false, deny = false, pendingCapture, response = {status:'ok',results:[]};
-const host = {assertLocalOnly: () => enforced,
+const host = {isLocalOnly:()=>enforced,
+  assertLocalOnly: () => {if(!enforced)throw Error('LOCAL_ONLY_GUARD_UNAVAILABLE');return true;},
   requireLocalOnly: () => { if (!deny) enforced = true; }};
 const messages = Array.from({length:8}, (_,i) =>
   ({role:i%2?'assistant':'user',content:`fact ${i}`}));
 messages.splice(2,0,{role:'toolResult',content:'never capture'});
 let session = 'synthetic-session';
-const branch = messages.map((message,index) => ({type:'message',id:`entry-${index}`,message}));
-const manager = {getSessionId: () => session,getBranch: () => branch};
+const branch = messages.map((message,index) => ({type:'message',id:`entry-${index}`,
+  timestamp:'2026-10-09T00:00:01.000Z',message}));
+const manager = {getSessionId: () => session,getBranch: () => branch,
+  getHeader:()=>({id:session,timestamp:'2026-10-09T00:00:00.000Z',
+    ...(session==='synthetic-fork'?{parentSession:'/synthetic/2026-10-09T00-00-00-000Z_synthetic-session.jsonl'}:{})})};
 const bridge = {recall: async r => {calls.push(r); return response;},
   search: async r => {calls.push(r); return response;},
   capture: r => {calls.push(r); return new Promise(resolve => pendingCapture = resolve);}};
@@ -39,6 +96,10 @@ assert.equal(tools[0].name,'brain_search_page');
 assert.equal(tools[0].parameters,schema);
 assert.equal(await handlers.before_agent_start({prompt:'question'},ctx),undefined);
 assert.equal(warnings.length,0);
+response = {status:'ok',results:[],omitted_count:1};
+await handlers.before_agent_start({prompt:'question'},ctx);
+assert.ok(warnings.at(-1).includes('omitted'));
+warnings.length=0;
 response = {status:'unavailable',results:[]};
 await handlers.before_agent_start({prompt:'question'},ctx);
 assert.equal(warnings.length,1);
@@ -62,6 +123,8 @@ assert.equal(ended,false);
 const request = calls.at(-1);
 assert.equal(request.client,'pi');
 assert.equal(request.messages.length,8);
+assert.equal(request.session_timestamp,'2026-10-09T00:00:00.000Z');
+assert.ok(request.messages.every(m=>m.timestamp==='2026-10-09T00:00:01.000Z'));
 assert.deepEqual(request.messages.map(m=>m.ordinal),[0,1,2,3,4,5,6,7]);
 assert.ok(request.messages.every(m=>m.authored===true));
 assert.deepEqual(request.messages.map(m=>m.source_id),
@@ -87,6 +150,8 @@ const forkCapture = handlers.agent_end({},ctx);
 await new Promise(resolve=>setTimeout(resolve,0));
 assert.deepEqual(calls.at(-1).messages.map(m=>m.source_id),['entry-7','entry-8']);
 assert.deepEqual(calls.at(-1).messages.map(m=>m.ordinal),[0,1]);
+assert.equal(calls.at(-1).parent_session_path,
+  '/synthetic/2026-10-09T00-00-00-000Z_synthetic-session.jsonl');
 pendingCapture({status:'queued'}); await forkCapture;
 session='synthetic-session';
 branch.splice(0,branch.length,...originalBranch);
@@ -106,6 +171,11 @@ assert.equal(await handlers.before_agent_start({prompt:'question'},ctx),undefine
 const refused=await tools[0].execute('id',{query:'question'},undefined,undefined,ctx);
 assert.equal(refused.isError,true);
 assert.ok(!JSON.stringify(refused).includes('local fixture'));
+// A refused host handshake released no memory and cannot disable capture custody.
+const captureAfterDenied = handlers.agent_end({},ctx);
+await new Promise(resolve=>setTimeout(resolve,0));
+assert.equal(calls.at(-1).local_only,false);
+pendingCapture({status:'queued'}); await captureAfterDenied;
 deny=false;
 await handlers.before_agent_start({prompt:'question'},ctx);
 assert.equal(enforced,true);

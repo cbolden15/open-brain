@@ -194,8 +194,10 @@ def test_old_confidential_marking_cannot_be_trimmed_into_cloud_eligible_event(
         + [codex_user("Thanks.")] * 256
         + [codex_user("I prefer violet pencils.")],
     )
-    with pytest.raises(HarnessEventError, match="transcript_too_large"):
-        capture_event("codex", payload)
+    event = capture_event("codex", payload)
+    assert event.local_only
+    assert len(event.messages) == 258
+    assert event.messages[-1].text == "I prefer violet pencils."
 
 
 def test_native_source_identity_survives_inserted_metadata_and_rotation(tmp_path: Path) -> None:
@@ -212,3 +214,47 @@ def test_native_source_identity_survives_inserted_metadata_and_rotation(tmp_path
     second = capture_event("codex", payload).messages[0]
     assert first.ordinal != second.ordinal
     assert first.source_id == second.source_id
+
+
+@pytest.mark.parametrize("session", ["synthetic-session", "session_with_under.score-7", "a"])
+def test_pi_parent_metadata_resolver_accepts_sdk_custom_ids(session: str) -> None:
+    from open_brain.services.harness_events import pi_parent_session_id
+
+    assert (
+        pi_parent_session_id(f"/does-not-exist/2026-10-09T12-13-14-000Z_{session}.jsonl") == session
+    )
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        "relative.jsonl",
+        "/tmp/custom.jsonl",
+        "/tmp/2026-10-09T12-13-14-000Z_bad:id.jsonl",
+        "/tmp/2026-10-09T12-13-14-000Z_" + "a" * 129 + ".jsonl",
+    ],
+)
+def test_pi_parent_metadata_resolver_refuses_unverified_filename(path: str) -> None:
+    from open_brain.services.harness_events import pi_parent_session_id
+
+    with pytest.raises(HarnessEventError, match="lineage_unavailable"):
+        pi_parent_session_id(path)
+
+
+def test_partial_trailing_utf8_is_not_a_complete_authored_record(tmp_path: Path) -> None:
+    payload = hook(tmp_path, [codex_meta(tmp_path), codex_user("I prefer violet pencils.")])
+    with Path(str(payload["transcript_path"])).open("ab") as stream:
+        stream.write(b'{"partial":"\xf0\x9f')
+    assert len(capture_event("codex", payload).messages) == 1
+
+
+def test_credential_refusal_never_precedes_native_metadata_binding(tmp_path: Path) -> None:
+    payload = hook(tmp_path, [codex_user("password=synthetic-example")])
+    with pytest.raises(HarnessEventError, match="identity_mismatch"):
+        capture_event("codex", payload)
+
+
+def test_duplicate_unstamped_useful_sources_require_lineage(tmp_path: Path) -> None:
+    payload = hook(tmp_path, [codex_meta(tmp_path)] + [codex_user("I prefer violet pencils.")] * 2)
+    with pytest.raises(HarnessEventError, match="lineage_unavailable"):
+        capture_event("codex", payload)

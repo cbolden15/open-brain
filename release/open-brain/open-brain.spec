@@ -33,7 +33,7 @@ analysis = Analysis(
     ],
     binaries=[],
     datas=datas,
-    hiddenimports=[],
+    hiddenimports=["open_brain.services.harness_native_entrypoint"],
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
@@ -120,4 +120,42 @@ executable = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
+)
+
+# Optional integration commands have strict startup budgets. Keep their shared
+# interpreter files installed rather than extracting a one-file bundle per hook.
+# This executable remains an unprivileged foreground command with the same
+# audited dependency closure as the core; there is no resident worker or listener.
+harness_scripts = [entry for entry in analysis.scripts if entry[1] != str(ENTRYPOINT)]
+harness_scripts.append(
+    (
+        "harness_native_entrypoint",
+        str(ROOT / "packages/app/src/open_brain/services/harness_native_entrypoint.py"),
+        "PYSOURCE",
+    )
+)
+harness_executable = EXE(
+    pyz,
+    harness_scripts,
+    [],
+    exclude_binaries=True,
+    name="open-brain-harness",
+    debug=False,
+    bootloader_ignore_signals=False,
+    strip=False,
+    upx=False,
+    console=True,
+    disable_windowed_traceback=False,
+    argv_emulation=False,
+    target_arch=None,
+    codesign_identity=None,
+    entitlements_file=None,
+)
+harness_runtime = COLLECT(
+    harness_executable,
+    analysis.binaries,
+    analysis.datas,
+    strip=False,
+    upx=False,
+    name="open-brain-harness",
 )

@@ -4,6 +4,52 @@ Non-obvious behaviors, sharp edges, and lessons learned belong here.
 
 ## Registry
 
+### BUILD-006: Public command changes must update every exact inventory
+
+Category: Build Pipeline.
+
+Adding the foreground harness entry point and source/setup/MCP commands passed
+focused integration checks but failed four full-suite assertions: two exact
+package script maps and two catalog command counts. Update those inventories
+with the explicitly supported additions while retaining exact equality,
+dependency restrictions and hidden-owner-command checks. Check the app and
+collector package boundaries together, then run the full verification gate.
+
+Discovered: 2026-10-09, native harness integration verification.
+
+### MEMORY-002: Confinement status and enforcement are different host operations
+
+Category: Type Safety, Config/Environment.
+
+The native Pi enforcement assertion throws when a fresh session is unconfined.
+Using that assertion as a boolean probe prevented ordinary capture, recall and
+search from reaching the bridge. Supply a session-bound `isLocalOnly()` probe
+for durable restriction state; keep `assertLocalOnly()` strict before every
+private read and release. A probe never grants access. Poisoned state and a
+replaced or disposed session must still throw. Test the real native capability
+with the public extension, as separate passing suites missed this mismatch.
+
+Discovered: 2026-10-09, independent native integration review.
+
+### BUILD-005: Native hook setup must finish cold runtime validation first
+
+Category: Config/Environment, Build Pipeline, Type Safety.
+
+The optional native harness helper took 5.539 seconds on its first launch from
+a freshly extracted prefix. Later launches took about 0.3 seconds; synthetic
+enqueue and recall took 0.250 and 0.514 seconds. First-launch validation can
+therefore exceed the two-second capture and three-second retrieval deadlines.
+Apply setup only after the exact selected runtime completes side-effect-free
+`harness --help`. Refuse failed warm-up and recheck all preview preimages before
+activating hooks. Keep lifecycle deadlines unchanged.
+
+The shared setup exception exposes `code`, not `reason`. A CLI integration that
+read the wrong field failed typecheck and hid the intended refusal status.
+Trace the service's exception and environment contracts through its actual CLI
+caller; verify setup in a disposable HOME, then run the full build/typecheck.
+
+Discovered: 2026-10-09, native automatic-memory setup verification.
+
 ### BUILD-004: Retained test fixtures can cross the storage admission watermark
 
 Category: Config/Environment, Build Pipeline.

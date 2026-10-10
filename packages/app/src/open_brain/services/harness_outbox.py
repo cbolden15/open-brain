@@ -11,24 +11,31 @@ This protects against accidental paths/modes; it is not hostile same-user isolat
 from __future__ import annotations
 
 import errno
+import fcntl
 import json
 import os
 import re
 import stat
-from collections.abc import Iterator
+from collections.abc import Iterator, Mapping
 from contextlib import contextmanager, suppress
+from dataclasses import replace
 from datetime import UTC, datetime
 from hashlib import sha256
 from pathlib import Path
-from typing import cast
+from typing import NotRequired, TypedDict, cast
 from uuid import uuid4
 
 from open_brain_engine.core.access_contracts import derive_brain_id
 from open_brain_engine.core.ids import portable_canonical_json_bytes
 
+from .harness_continuity import (
+    MAX_EVENT_BYTES,
+    MAX_EVENT_MESSAGES,
+    capture_batches,
+)
 from .harness_events import HarnessCaptureEvent, HarnessEventError, _screen
 from .harness_memory import MAX_MESSAGES, MemoryMessage
-from .harness_policy import HarnessPolicy, HarnessPolicyError
+from .harness_policy import _LOCAL_MARKING, HarnessPolicy, HarnessPolicyError
 from .harness_workflow import HarnessWorkflow, _cloud_rule
 
 _MAX_REQUEST_BYTES = 256 * 1024
@@ -65,12 +72,23 @@ _OUTBOX_CODES = frozenset(
         "outbox_unavailable",
         "capture_refused",
         "invalid_attempt",
+        "lineage_unavailable",
+        "lineage_conflict",
+        "continuity_scan_limit",
     }
 )
 
 
 class _OutboxFailure(ValueError):
     pass
+
+
+class _CaptureArguments(TypedDict):
+    timestamps: Mapping[int, str | None]
+    local_only: NotRequired[bool]
+    selection: NotRequired[tuple[tuple[int, int], ...]]
+    origin_sessions: NotRequired[Mapping[str, str]]
+    origin_ordinals: NotRequired[Mapping[str, int]]
 
 
 class HarnessOutbox:
@@ -99,17 +117,82 @@ class HarnessOutbox:
         """A queued result means the exact bounded event has durable local custody."""
         request_id: str | None = None
         try:
-            document = self._document(event)
-            # Validate direct dataclass construction too; adapters are not the boundary.
-            _decode_event(document)
-            body = portable_canonical_json_bytes(document)
-            if len(body) > _MAX_REQUEST_BYTES:
-                raise _OutboxFailure("request_too_large")
-            request_id = sha256(body).hexdigest()
-            with self._directories(create=True) as (_, requests, _receipts, _attempts):
-                _publish(requests, request_id + ".json", body)
-            return self._metadata("queued", request_id)
-        except HarnessEventError:
+            # Screen the entire current event before dividing it into batches.
+            # No cursor or tail can hide an earlier marking or credential.
+            full = self._document(event)
+            _decode_event(full, large_event=True)
+            try:
+                batches = capture_batches(event.messages)
+            except ValueError:
+                raise _OutboxFailure("request_too_large") from None
+            with (
+                self._directories(create=True) as (_, requests, _receipts, _attempts),
+                self._continuity(create=True) as continuity,
+            ):
+                event, states = self._resolve_origins(event, continuity)
+                # Mark the publication transaction pending before publishing
+                # any source bytes. Readers fail closed across interrupted fsync.
+                for state in states:
+                    state["pending_custody"] = True
+                    self._store_state(continuity, state)
+                documents: list[dict[str, object]] = []
+                if event.local_only:
+                    documents.extend(self._restricted_replays(requests, event))
+                preserve_v1 = (
+                    len(batches) == 1
+                    and len(event.messages) <= MAX_MESSAGES
+                    and sum(len(m.text.encode()) for m in event.messages) <= 128 * 1024
+                )
+                if preserve_v1:
+                    documents.append(self._document(event))
+                else:
+                    for batch in batches:
+                        ordinals = {m.ordinal for m in batch.messages}
+                        documents.append(
+                            self._document(
+                                replace(
+                                    event,
+                                    messages=batch.messages,
+                                    selection=batch.selection,
+                                    timestamps={
+                                        k: v for k, v in event.timestamps.items() if k in ordinals
+                                    },
+                                    origin_sessions={
+                                        key: value
+                                        for key, value in event.origin_sessions.items()
+                                        if key
+                                        in {m.source_id or str(m.ordinal) for m in batch.messages}
+                                    },
+                                    origin_ordinals={
+                                        key: value
+                                        for key, value in event.origin_ordinals.items()
+                                        if key in {m.source_id for m in batch.messages}
+                                    },
+                                )
+                            )
+                        )
+                request_ids: list[str] = []
+                for document in documents:
+                    _decode_event(document)
+                    body = portable_canonical_json_bytes(document)
+                    if len(body) > _MAX_REQUEST_BYTES:
+                        raise _OutboxFailure("request_too_large")
+                    request_id = sha256(body).hexdigest()
+                    _publish(requests, request_id + ".json", body)
+                    request_ids.append(request_id)
+                self._store_origins(continuity, event)
+                for state in states:
+                    state["pending_custody"] = False
+                    self._store_state(continuity, state)
+            result = self._metadata("queued", request_ids[-1])
+            if len(request_ids) > 1:
+                result.update({"request_ids": request_ids[:16], "batch_count": len(request_ids)})
+            return result
+        except HarnessEventError as error:
+            if error.code == "credential_signal":
+                self.restrict_session(
+                    event.client, event.session_id, event.project, reason="credential_signal"
+                )
             return self._metadata("refused", request_id, "credential_signal")
         except _OutboxFailure as error:
             return self._metadata("refused", request_id, str(error))
@@ -144,7 +227,287 @@ class HarnessOutbox:
             document["local_only"] = event.local_only
         elif type(event.local_only) is not bool:
             raise _OutboxFailure("invalid_event")
+        for key, value in (
+            ("parent_session_id", event.parent_session_id),
+            ("session_timestamp", event.session_timestamp),
+            ("selection", None if event.selection is None else [list(k) for k in event.selection]),
+            ("origin_sessions", dict(event.origin_sessions) or None),
+            ("origin_ordinals", dict(event.origin_ordinals) or None),
+        ):
+            if value is not None:
+                document[key] = value
         return document
+
+    @contextmanager
+    def _continuity(self, *, create: bool) -> Iterator[int]:
+        with self._directories(create=create) as (root, _, _, _):
+            directory = _open_child(root, "continuity", create=create)
+            try:
+                lock = os.open(
+                    "lock",
+                    os.O_RDWR | (os.O_CREAT if create else 0) | os.O_NOFOLLOW,
+                    0o600,
+                    dir_fd=directory,
+                )
+                try:
+                    _check(os.fstat(lock), directory=False)
+                    # Hook invocations never block behind another lifecycle event.
+                    fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    yield directory
+                finally:
+                    os.close(lock)
+            finally:
+                os.close(directory)
+
+    def _state_name(self, client: str, project: Path, session: str) -> str:
+        return (
+            "session-"
+            + sha256(portable_canonical_json_bytes([client, str(project), session])).hexdigest()
+            + ".json"
+        )
+
+    def _state(self, directory: int, client: str, project: Path, session: str) -> dict[str, object]:
+        try:
+            raw = _load(_read(directory, self._state_name(client, project, session)))
+        except FileNotFoundError:
+            return {
+                "version": _VERSION,
+                "brain_id": self.brain_id,
+                "client": client,
+                "project": str(project),
+                "session_id": session,
+                "local_only": False,
+                "credential_blocked": False,
+                "pending_custody": False,
+            }
+        if (
+            not isinstance(raw, dict)
+            or set(raw)
+            != {
+                "version",
+                "brain_id",
+                "client",
+                "project",
+                "session_id",
+                "local_only",
+                "credential_blocked",
+                "pending_custody",
+            }
+            or any(
+                raw.get(key) != value
+                for key, value in (
+                    ("version", _VERSION),
+                    ("brain_id", self.brain_id),
+                    ("client", client),
+                    ("project", str(project)),
+                    ("session_id", session),
+                )
+            )
+            or any(
+                type(raw[key]) is not bool
+                for key in ("local_only", "credential_blocked", "pending_custody")
+            )
+        ):
+            raise _OutboxFailure("invalid_request")
+        return cast(dict[str, object], raw)
+
+    def _store_state(self, directory: int, state: dict[str, object]) -> None:
+        _publish(
+            directory,
+            self._state_name(
+                cast(str, state["client"]),
+                Path(cast(str, state["project"])),
+                cast(str, state["session_id"]),
+            ),
+            portable_canonical_json_bytes(state),
+            replace=True,
+        )
+
+    def _origin_name(self, event: HarnessCaptureEvent, session: str, key: str) -> str:
+        return (
+            "message-"
+            + sha256(
+                portable_canonical_json_bytes([event.client, str(event.project), session, key])
+            ).hexdigest()
+            + ".json"
+        )
+
+    def _origin(
+        self, directory: int, event: HarnessCaptureEvent, session: str, message: MemoryMessage
+    ) -> tuple[str, int] | None:
+        if message.source_id is None:
+            return None  # V1 ordinals remain valid local revision locators, not lineage evidence.
+        key = message.source_id
+        try:
+            raw = _load(_read(directory, self._origin_name(event, session, key)))
+        except FileNotFoundError:
+            return None
+        if (
+            not isinstance(raw, dict)
+            or set(raw) != {"source_id", "origin_session", "origin_ordinal", "sha256"}
+            or raw["source_id"] != key
+            or not isinstance(raw["origin_session"], str)
+            or _IDENTIFIER.fullmatch(raw["origin_session"]) is None
+            or type(raw["origin_ordinal"]) is not int
+            or not 0 <= raw["origin_ordinal"] <= 2**53 - 1
+        ):
+            raise _OutboxFailure("invalid_request")
+        digest = sha256((message.role + "\0" + message.text).encode()).hexdigest()
+        if raw["sha256"] != digest:
+            raise _OutboxFailure("lineage_conflict")
+        return raw["origin_session"], raw["origin_ordinal"]
+
+    def _resolve_origins(
+        self, event: HarnessCaptureEvent, directory: int
+    ) -> tuple[HarnessCaptureEvent, list[dict[str, object]]]:
+        if event.origin_sessions or event.origin_ordinals:
+            # Origin mappings are only produced by the local custody boundary.
+            raise _OutboxFailure("invalid_event")
+        current = self._state(directory, event.client, event.project, event.session_id)
+        states = [current]
+        marked = event.local_only or bool(
+            _LOCAL_MARKING.search("\n".join(m.text for m in event.messages if m.authored))
+        )
+        # An unavailable parent cannot undo a current session's newly declared
+        # restriction. Retain only its denial metadata before checking lineage.
+        if marked:
+            current["local_only"] = True
+            current["pending_custody"] = True
+            self._store_state(directory, current)
+        parent = event.parent_session_id
+        if parent is not None:
+            if parent == event.session_id:
+                raise _OutboxFailure("lineage_unavailable")
+            try:
+                _read(directory, self._state_name(event.client, event.project, parent))
+            except FileNotFoundError:
+                raise _OutboxFailure("lineage_unavailable") from None
+            states.append(self._state(directory, event.client, event.project, parent))
+        # Latch a marking before origin resolution can fail. Missing lineage
+        # cannot leave previously released knowledge eligible for cloud reads.
+        if marked:
+            for state in states:
+                state["local_only"] = True
+                state["pending_custody"] = True
+                self._store_state(directory, state)
+        origins: dict[str, str] = {}
+        origin_ordinals: dict[str, int] = {}
+        needed = {m.ordinal for batch in capture_batches(event.messages) for m in batch.messages}
+        for message in event.messages:
+            if message.ordinal not in needed:
+                continue
+            origin = self._origin(directory, event, event.session_id, message)
+            if origin is None and parent is not None:
+                if message.source_id is None:
+                    raise _OutboxFailure("lineage_unavailable")
+                origin = self._origin(directory, event, parent, message)
+                if origin is None:
+                    timestamp = event.timestamps.get(message.ordinal)
+                    try:
+                        if timestamp is None or event.session_timestamp is None:
+                            raise ValueError
+                        created = datetime.fromisoformat(event.session_timestamp)
+                        authored = datetime.fromisoformat(timestamp)
+                        if created.tzinfo is None or authored.tzinfo is None or authored < created:
+                            raise ValueError
+                    except ValueError, TypeError:
+                        raise _OutboxFailure("lineage_unavailable") from None
+            if origin is not None:
+                origin_session, origin_ordinal = origin
+                key = message.source_id or str(message.ordinal)
+                if origin_session != event.session_id:
+                    origins[key] = origin_session
+                    if origin_session not in {state["session_id"] for state in states}:
+                        states.append(
+                            self._state(directory, event.client, event.project, origin_session)
+                        )
+                if origin_session != event.session_id or origin_ordinal != message.ordinal:
+                    origin_ordinals[key] = origin_ordinal
+        authored_text = "\n".join(m.text for m in event.messages if m.authored)
+        restricted = (
+            event.local_only
+            or bool(_LOCAL_MARKING.search(authored_text))
+            or any(state["local_only"] or state["credential_blocked"] for state in states)
+        )
+        if restricted:
+            for state in states:
+                state["local_only"] = True
+        return replace(
+            event, local_only=restricted, origin_sessions=origins, origin_ordinals=origin_ordinals
+        ), states
+
+    def _store_origins(self, directory: int, event: HarnessCaptureEvent) -> None:
+        needed = {m.ordinal for batch in capture_batches(event.messages) for m in batch.messages}
+        for message in event.messages:
+            if message.ordinal not in needed:
+                continue
+            if message.source_id is None:
+                continue
+            key = message.source_id
+            document = {
+                "source_id": key,
+                "origin_session": event.origin_sessions.get(key, event.session_id),
+                "origin_ordinal": event.origin_ordinals.get(key, message.ordinal),
+                "sha256": sha256((message.role + "\0" + message.text).encode()).hexdigest(),
+            }
+            _publish(
+                directory,
+                self._origin_name(event, event.session_id, key),
+                portable_canonical_json_bytes(document),
+            )
+
+    def _restricted_replays(
+        self, requests: int, event: HarnessCaptureEvent
+    ) -> list[dict[str, object]]:
+        names = os.listdir(requests)
+        if len(names) > 4096:
+            raise _OutboxFailure("continuity_scan_limit")
+        sessions = {event.session_id, *event.origin_sessions.values()}
+        if event.parent_session_id is not None:
+            sessions.add(event.parent_session_id)
+        documents: list[dict[str, object]] = []
+        for name in names:
+            if _REQUEST_NAME.fullmatch(name) is None:
+                raise _OutboxFailure("invalid_request")
+            body = _read(requests, name)
+            if sha256(body).hexdigest() != name[:-5]:
+                raise _OutboxFailure("request_identity_mismatch")
+            document = _load(body)
+            previous = _decode_event(document)
+            if (
+                previous.client == event.client
+                and previous.project == event.project
+                and previous.session_id in sessions
+                and not previous.local_only
+            ):
+                documents.append(self._document(replace(previous, local_only=True)))
+        return documents
+
+    def restrict_session(
+        self, client: str, session_id: str, project: Path, *, reason: str
+    ) -> dict[str, object]:
+        """Latch a credential denial using validated metadata, never source bytes."""
+        if (
+            not isinstance(client, str)
+            or client not in {"codex", "claude-code", "pi"}
+            or not isinstance(session_id, str)
+            or _IDENTIFIER.fullmatch(session_id) is None
+            or not isinstance(project, Path)
+            or not project.is_absolute()
+            or reason != "credential_signal"
+        ):
+            return self._metadata("refused", error_code="invalid_event")
+        try:
+            with self._continuity(create=True) as directory:
+                state = self._state(directory, client, project, session_id)
+                state["credential_blocked"] = True
+                state["local_only"] = True
+                self._store_state(directory, state)
+            return self._metadata("refused", error_code="credential_signal")
+        except OSError as error:
+            return self._io_failure(error, None)
+        except _OutboxFailure as error:
+            return self._metadata("refused", error_code=str(error))
 
     def drain(self, workflow: HarnessWorkflow, *, limit: int = 16) -> dict[str, object]:
         """Replay at most 16 pending requests under the workflow's current policy.
@@ -222,7 +585,7 @@ class HarnessOutbox:
                             _publish(receipts, name, receipt_body)
                             already_delivered += 1
                             continue
-                        result = self._deliver(workflow, event, request_id, receipts)
+                        result = self._deliver(workflow, event, request_id, requests, receipts)
                     except HarnessEventError:
                         result = self._metadata("refused", request_id, "credential_signal")
                     except _OutboxFailure as error:
@@ -480,6 +843,64 @@ class HarnessOutbox:
             return {"status": "refused", "error_code": "disabled"}
         try:
             with self._directories(create=False) as (_, requests, receipts, attempts):
+                try:
+                    with self._continuity(create=False) as continuity:
+                        states = os.listdir(continuity)
+                        if len(states) > 32768:
+                            raise _OutboxFailure("continuity_scan_limit")
+                        for name in states:
+                            if not name.startswith("session-"):
+                                continue
+                            raw_state = _load(_read(continuity, name))
+                            if (
+                                not isinstance(raw_state, dict)
+                                or not all(
+                                    isinstance(raw_state.get(key), str)
+                                    for key in ("client", "project", "session_id")
+                                )
+                                or self._state_name(
+                                    cast(str, raw_state["client"]),
+                                    Path(cast(str, raw_state["project"])),
+                                    cast(str, raw_state["session_id"]),
+                                )
+                                != name
+                            ):
+                                raise _OutboxFailure("invalid_request")
+                            state = self._state(
+                                continuity,
+                                cast(str, raw_state["client"]),
+                                Path(cast(str, raw_state["project"])),
+                                cast(str, raw_state["session_id"]),
+                            )
+                            if not state["credential_blocked"] and not state["pending_custody"]:
+                                continue
+                            project = Path(cast(str, state["project"]))
+                            try:
+                                decision = policy.classify(project)
+                            except HarnessPolicyError as error:
+                                if error.code == "source_excluded":
+                                    continue
+                                raise
+                            rule = next(
+                                (r for r in policy.sources if r.source_id == decision.source_id),
+                                None,
+                            )
+                            if rule is not None and any(
+                                _cloud_rule(policy, rule, provider)
+                                for provider, _ in policy.providers
+                            ):
+                                return {
+                                    "status": "refused",
+                                    "error_code": (
+                                        "credential_signal"
+                                        if state["credential_blocked"]
+                                        else "pending_source_restriction"
+                                    ),
+                                }
+                except FileNotFoundError:
+                    if (self.root / "continuity").exists():
+                        raise _OutboxFailure("invalid_outbox") from None
+                    # V1 custody remains readable without a continuity directory.
                 names: dict[int, set[str]] = {requests: set(), receipts: set(), attempts: set()}
                 for directory in names:
                     with os.scandir(directory) as entries:
@@ -555,20 +976,89 @@ class HarnessOutbox:
         workflow: HarnessWorkflow,
         event: HarnessCaptureEvent,
         request_id: str,
+        requests: int,
         receipts: int,
     ) -> dict[str, object]:
         try:
+            # Apply retained session restrictions even to older queued envelopes.
+            try:
+                with self._continuity(create=False) as continuity:
+                    state = self._state(continuity, event.client, event.project, event.session_id)
+                    if state["local_only"]:
+                        event = replace(event, local_only=True)
+            except FileNotFoundError:
+                if (self.root / "continuity").exists():
+                    raise _OutboxFailure("invalid_outbox") from None
+                # Legacy V1 outboxes have no continuity directory.
+            # Pending V1 envelopes may contain more than one selector page.
+            # Publish bounded child custody first; the original completes only
+            # after every child has a valid durable receipt. A crash only replays.
+            batches = capture_batches(event.messages) if event.selection is None else ()
+            if len(batches) > 1:
+                acknowledgements: list[dict[str, object]] = []
+                pending = False
+                for batch in batches:
+                    child = replace(event, messages=batch.messages, selection=batch.selection)
+                    body = portable_canonical_json_bytes(self._document(child))
+                    child_id = sha256(body).hexdigest()
+                    _publish(requests, child_id + ".json", body)
+                    try:
+                        receipt = _load(_read(receipts, child_id + ".json"))
+                        _validate_receipt(receipt, child_id, self.brain_id)
+                    except FileNotFoundError:
+                        pending = True
+                    else:
+                        acknowledgements.append(
+                            cast(
+                                dict[str, object],
+                                cast(dict[str, object], receipt)["acknowledgement"],
+                            )
+                        )
+                if pending:
+                    return {
+                        **self._metadata("pending", request_id),
+                        "acknowledgement": {
+                            "status": "queued",
+                            "capture_ids": [],
+                            "delivery_ids": [],
+                        },
+                    }
+                raw: object = {
+                    "status": "acknowledged",
+                    "capture_ids": [
+                        identifier
+                        for ack in acknowledgements
+                        for identifier in cast(list[str], ack["capture_ids"])
+                    ][:32],
+                    "delivery_ids": [
+                        identifier
+                        for ack in acknowledgements
+                        for identifier in cast(list[str], ack["delivery_ids"])
+                    ][:32],
+                }
+                return self._receipt(raw, request_id, receipts)
+            arguments: _CaptureArguments = {"timestamps": event.timestamps}
+            if event.local_only:
+                arguments["local_only"] = True
+            if event.selection is not None:
+                arguments["selection"] = event.selection
+            if event.origin_sessions:
+                arguments["origin_sessions"] = event.origin_sessions
+            if event.origin_ordinals:
+                arguments["origin_ordinals"] = event.origin_ordinals
             raw = workflow.capture(
                 event.client,
                 event.session_id,
                 event.project,
                 event.messages,
-                timestamps=event.timestamps,
-                **({"local_only": True} if event.local_only else {}),
+                **arguments,
             )
         except Exception:
             # Callers must never log raw provider/storage exception contents.
             return self._metadata("unavailable", request_id, "capture_unavailable")
+        return self._receipt(raw, request_id, receipts)
+
+    def _receipt(self, raw: object, request_id: str, receipts: int) -> dict[str, object]:
         acknowledgement = _acknowledgement(raw)
         status = acknowledgement["status"]
         if status in {"acknowledged", "success_empty"}:
@@ -734,7 +1224,7 @@ def _publish(directory: int, name: str, body: bytes, *, replace: bool = False) -
     os.fsync(directory)
 
 
-def _decode_event(document: object) -> HarnessCaptureEvent:
+def _decode_event(document: object, *, large_event: bool = False) -> HarnessCaptureEvent:
     required = {
         "version",
         "brain_id",
@@ -744,7 +1234,19 @@ def _decode_event(document: object) -> HarnessCaptureEvent:
         "messages",
         "timestamps",
     }
-    if not isinstance(document, dict) or set(document) not in (required, required | {"local_only"}):
+    optional = {
+        "local_only",
+        "parent_session_id",
+        "session_timestamp",
+        "origin_sessions",
+        "origin_ordinals",
+        "selection",
+    }
+    if (
+        not isinstance(document, dict)
+        or not required.issubset(document)
+        or not set(document).issubset(required | optional)
+    ):
         raise _OutboxFailure("invalid_request")
     local_only = document.get("local_only", False)
     if type(local_only) is not bool:
@@ -762,11 +1264,12 @@ def _decode_event(document: object) -> HarnessCaptureEvent:
     ):
         raise _OutboxFailure("invalid_request")
     messages, timestamps = document["messages"], document["timestamps"]
+    max_messages = MAX_EVENT_MESSAGES if large_event else MAX_MESSAGES
     if (
         not isinstance(messages, list)
-        or len(messages) > MAX_MESSAGES
+        or len(messages) > max_messages
         or not isinstance(timestamps, list)
-        or len(timestamps) > MAX_MESSAGES
+        or len(timestamps) > max_messages
     ):
         raise _OutboxFailure("invalid_request")
     parsed: list[MemoryMessage] = []
@@ -814,6 +1317,61 @@ def _decode_event(document: object) -> HarnessCaptureEvent:
         ):
             raise _OutboxFailure("invalid_request")
         parsed_times[item[0]] = item[1]
+    if sum(len(m.text.encode()) for m in parsed) > (MAX_EVENT_BYTES if large_event else 128 * 1024):
+        raise _OutboxFailure("request_too_large")
+    parent = document.get("parent_session_id")
+    session_time = document.get("session_timestamp")
+    if parent is not None and (
+        not isinstance(parent, str) or _IDENTIFIER.fullmatch(parent) is None
+    ):
+        raise _OutboxFailure("invalid_request")
+    if session_time is not None:
+        try:
+            if (
+                not isinstance(session_time, str)
+                or datetime.fromisoformat(session_time).tzinfo is None
+            ):
+                raise ValueError
+        except ValueError, TypeError:
+            raise _OutboxFailure("invalid_request") from None
+    origins = document.get("origin_sessions", {})
+    if (
+        not isinstance(origins, dict)
+        or len(origins) > max_messages
+        or any(
+            not isinstance(key, str)
+            or _IDENTIFIER.fullmatch(key) is None
+            or not isinstance(value, str)
+            or _IDENTIFIER.fullmatch(value) is None
+            for key, value in origins.items()
+        )
+    ):
+        raise _OutboxFailure("invalid_request")
+    origin_ordinals = document.get("origin_ordinals", {})
+    if (
+        not isinstance(origin_ordinals, dict)
+        or not set(origin_ordinals).issubset({m.source_id for m in parsed})
+        or any(type(value) is not int or not 0 <= value <= 2**53 - 1
+               for value in origin_ordinals.values())
+    ):
+        raise _OutboxFailure("invalid_request")
+    selection_raw = document.get("selection")
+    selection: tuple[tuple[int, int], ...] | None = None
+    if selection_raw is not None:
+        if (
+            not isinstance(selection_raw, list)
+            or len(selection_raw) > 32
+            or any(
+                not isinstance(k, list)
+                or len(k) != 2
+                or any(type(index) is not int or index < 0 for index in k)
+                for k in selection_raw
+            )
+        ):
+            raise _OutboxFailure("invalid_request")
+        selection = tuple((key[0], key[1]) for key in selection_raw)
+        if len(set(selection)) != len(selection) or any(key[0] not in seen for key in selection):
+            raise _OutboxFailure("invalid_request")
     return HarnessCaptureEvent(
         cast(str, document["client"]),
         document["session_id"],
@@ -821,6 +1379,11 @@ def _decode_event(document: object) -> HarnessCaptureEvent:
         tuple(parsed),
         parsed_times,
         local_only,
+        parent,
+        session_time,
+        origins,
+        selection,
+        origin_ordinals,
     )
 
 

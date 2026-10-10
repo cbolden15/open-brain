@@ -249,3 +249,8 @@ def test_classification_normalizes_whitespace_but_keeps_exact_excerpt() -> None:
     assert len(candidates) == 1
     assert candidates[0].text == "I prefer vegetarian meals."
     assert candidates[0].source_excerpt == statement
+
+
+def test_oversized_exact_source_cannot_fit_only_by_normalizing_whitespace() -> None:
+    statement = "I prefer " + " " * 9000 + "Vim."
+    assert select_memories([MemoryMessage("user", statement, 0)]) == ()

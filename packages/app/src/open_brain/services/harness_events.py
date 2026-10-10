@@ -7,14 +7,16 @@ import os
 import re
 import stat
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from hashlib import sha256
 from pathlib import Path
 from typing import cast
 
 from open_brain_engine.capture.redaction import has_redaction_finding
 
-from .harness_memory import MAX_INPUT_BYTES, MAX_MESSAGES, MemoryMessage
+from .harness_continuity import MAX_EVENT_BYTES, MAX_EVENT_MESSAGES
+from .harness_memory import MemoryMessage, select_memories
+from .harness_policy import _LOCAL_MARKING
 
 _MAX_TRANSCRIPT = 8 * 1024 * 1024
 _IDENTIFIER = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:-]{0,255}\Z")
@@ -32,6 +34,7 @@ class HarnessEventError(ValueError):
             "transcript_too_large",
             "unsupported_transcript",
             "credential_signal",
+            "lineage_unavailable",
         }:
             raise ValueError("invalid event error")
         self.code = code
@@ -46,6 +49,27 @@ class HarnessCaptureEvent:
     messages: tuple[MemoryMessage, ...]
     timestamps: Mapping[int, str | None]
     local_only: bool = False
+    parent_session_id: str | None = None
+    session_timestamp: str | None = None
+    origin_sessions: Mapping[str, str] = field(default_factory=dict)
+    selection: tuple[tuple[int, int], ...] | None = None
+    origin_ordinals: Mapping[str, int] = field(default_factory=dict)
+
+
+def pi_parent_session_id(value: object) -> str | None:
+    """Parse the installed SDK's parent filename; never open a parent transcript."""
+    if value is None:
+        return None
+    if not isinstance(value, str) or not Path(value).is_absolute():
+        raise HarnessEventError("lineage_unavailable")
+    match = re.fullmatch(
+        r"\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-\d{3}Z_"
+        r"([A-Za-z0-9](?:[A-Za-z0-9._-]{0,126}[A-Za-z0-9])?)\.jsonl",
+        Path(value).name,
+    )
+    if match is None:
+        raise HarnessEventError("lineage_unavailable")
+    return match[1]
 
 
 def capture_event(client: str, payload: object) -> HarnessCaptureEvent:
@@ -69,12 +93,31 @@ def _capture_event(client: str, payload: object) -> HarnessCaptureEvent:
         raise HarnessEventError("invalid_event")
     project = _project(payload.get("project_path") if client == "pi" else payload.get("cwd"))
     if client == "pi":
+        if payload.get("header_session_id", session) != session:
+            raise HarnessEventError("identity_mismatch")
         messages, timestamps = _pi_messages(payload)
+        parent = pi_parent_session_id(payload.get("parent_session_path"))
+        supplied_parent = payload.get("parent_session_id")
+        if supplied_parent is not None and (parent is None or supplied_parent != parent):
+            raise HarnessEventError("lineage_unavailable")
+        session_time = payload.get("session_timestamp")
     else:
         if payload.get("hook_event_name") not in ("Stop", "SessionEnd"):
             raise HarnessEventError("invalid_event")
-        messages, timestamps = _transcript(client, session, project, payload.get("transcript_path"))
-    return HarnessCaptureEvent(client, session, project, messages, timestamps, local_only)
+        messages, timestamps, parent, session_time = _transcript(
+            client, session, project, payload.get("transcript_path")
+        )
+    authored = "\n".join(message.text for message in messages if message.authored)
+    return HarnessCaptureEvent(
+        client,
+        session,
+        project,
+        messages,
+        timestamps,
+        local_only or bool(_LOCAL_MARKING.search(authored)),
+        parent,
+        session_time if isinstance(session_time, str) else None,
+    )
 
 
 def _project(value: object) -> Path:
@@ -93,7 +136,7 @@ def _pi_messages(
     payload: dict[str, object],
 ) -> tuple[tuple[MemoryMessage, ...], dict[int, str | None]]:
     raw = payload.get("messages")
-    if not isinstance(raw, list) or len(raw) > MAX_MESSAGES:
+    if not isinstance(raw, list) or len(raw) > MAX_EVENT_MESSAGES:
         raise HarnessEventError("invalid_event")
     messages: list[MemoryMessage] = []
     timestamps: dict[int, str | None] = {}
@@ -123,7 +166,7 @@ def _pi_messages(
         messages.append(MemoryMessage(role, text, ordinal, authored, source_id))
         timestamp = value.get("timestamp")
         timestamps[ordinal] = timestamp if isinstance(timestamp, str) else None
-    if sum(len(message.text.encode()) for message in messages) > MAX_INPUT_BYTES:
+    if sum(len(message.text.encode()) for message in messages) > MAX_EVENT_BYTES:
         raise HarnessEventError("transcript_too_large")
     return tuple(messages), timestamps
 
@@ -133,7 +176,7 @@ def _transcript(
     session: str,
     project: Path,
     value: object,
-) -> tuple[tuple[MemoryMessage, ...], dict[int, str | None]]:
+) -> tuple[tuple[MemoryMessage, ...], dict[int, str | None], str | None, str | None]:
     if not isinstance(value, str) or not Path(value).is_absolute():
         raise HarnessEventError("transcript_unavailable")
     try:
@@ -150,7 +193,7 @@ def _transcript(
             raise HarnessEventError("transcript_changed")
         if len(raw) > _MAX_TRANSCRIPT:
             raise HarnessEventError("transcript_too_large")
-        lines = raw.decode().splitlines()
+        lines = raw.splitlines()
     except HarnessEventError:
         raise
     except OSError, UnicodeError, ValueError:
@@ -160,12 +203,15 @@ def _transcript(
     bound = client == "claude-code"
     retained_bytes = 0
     occurrences: dict[str, int] = {}
+    parent: str | None = None
+    session_time: str | None = None
+    credential = False
     for ordinal, line in enumerate(lines):
         if not line.strip():
             continue
         try:
             record = json.loads(line)
-        except ValueError:
+        except ValueError, UnicodeError:
             if ordinal == len(lines) - 1 and not raw.endswith(b"\n"):
                 break
             raise HarnessEventError("unsupported_transcript") from None
@@ -176,14 +222,29 @@ def _transcript(
             if not isinstance(metadata, dict):
                 raise HarnessEventError("identity_mismatch")
             _bind(metadata.get("id"), metadata.get("cwd"), session, project)
+            parent_value = metadata.get("forked_from_id")
+            if parent_value is not None:
+                if not isinstance(parent_value, str) or _IDENTIFIER.fullmatch(parent_value) is None:
+                    raise HarnessEventError("lineage_unavailable")
+                parent = parent_value
+            native_time = metadata.get("timestamp", record.get("timestamp"))
+            session_time = native_time if isinstance(native_time, str) else None
             bound = True
         elif client == "claude-code" and record.get("type") in {"user", "assistant"}:
             _bind(record.get("sessionId"), record.get("cwd"), session, project)
         message = _native_message(client, record, ordinal)
         if message is None:
             continue
-        _screen(message.text)
-        native_id = record.get("uuid") if client == "claude-code" else None
+        try:
+            _screen(message.text)
+        except HarnessEventError:
+            credential = True
+        item = record.get("payload")
+        native_id = (
+            record.get("uuid")
+            if client == "claude-code"
+            else (item.get("id") if isinstance(item, dict) else None)
+        )
         if isinstance(native_id, str) and _IDENTIFIER.fullmatch(native_id):
             identity = "native:" + native_id
         else:
@@ -192,12 +253,22 @@ def _transcript(
             # retaining the authored messages. Repeated identical messages use
             # occurrence order; dropping one needs an adapter continuity map.
             digest = sha256((message.role + "\0" + message.text).encode()).hexdigest()
-            occurrence = occurrences.get(digest, 0)
-            occurrences[digest] = occurrence + 1
-            identity = f"message:{digest}:{occurrence}"
+            timestamp = record.get("timestamp")
+            occurrence_key = digest + (timestamp if isinstance(timestamp, str) else "")
+            occurrence = occurrences.get(occurrence_key, 0)
+            occurrences[occurrence_key] = occurrence + 1
+            if occurrence and select_memories([message]):
+                raise HarnessEventError("lineage_unavailable")
+            if isinstance(timestamp, str):
+                stamp = sha256(timestamp.encode()).hexdigest()[:24]
+                identity = f"stamped:{digest}:{stamp}:{occurrence}"
+            else:
+                if occurrence and select_memories([message]):
+                    raise HarnessEventError("lineage_unavailable")
+                identity = f"message:{digest}:{occurrence}"
         message = MemoryMessage(message.role, message.text, ordinal, True, identity)
         size = len(message.text.encode())
-        if size > MAX_INPUT_BYTES:
+        if size > MAX_EVENT_BYTES:
             raise HarnessEventError("transcript_too_large")
         messages.append(message)
         retained_bytes += size
@@ -205,11 +276,13 @@ def _transcript(
         timestamps[ordinal] = timestamp if isinstance(timestamp, str) else None
         # Refuse overflow visibly. A rolling window can lose a confidentiality
         # marking while retaining later facts, which would widen their policy.
-        if len(messages) > MAX_MESSAGES or retained_bytes > MAX_INPUT_BYTES:
+        if len(messages) > MAX_EVENT_MESSAGES or retained_bytes > MAX_EVENT_BYTES:
             raise HarnessEventError("transcript_too_large")
     if not bound:
         raise HarnessEventError("identity_mismatch")
-    return tuple(messages), timestamps
+    if credential:
+        raise HarnessEventError("credential_signal")
+    return tuple(messages), timestamps, parent, session_time
 
 
 def _bind(actual_session: object, actual_project: object, session: str, project: Path) -> None:

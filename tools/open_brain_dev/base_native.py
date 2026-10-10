@@ -29,13 +29,14 @@ _MANIFEST = "open-brain-component-manifest-v1.txt"
 _OBSIDIAN_PLUGIN_ASSETS: Final = ("main.js", "manifest.json", "styles.css")
 _PLATFORMS: Final = ("linux-x86_64", "macos-arm64")
 _ARCHIVE_PATTERN: Final = re.compile(
-    r"^open-brain-(?:(?P<component>graphify)-)?"
+    r"^open-brain-(?:(?P<component>graphify|harness)-)?"
     r"(?P<version>[0-9A-Za-z][0-9A-Za-z._-]*)-"
     r"(?P<platform>linux-x86_64|macos-arm64)\.tar\.gz$"
 )
 _RESOURCE_DESTINATIONS: Final = {
     "base": "bin/open-brain",
     "graphify": "libexec/open-brain-graphify",
+    "harness": "libexec/open-brain-harness/open-brain-harness",
 }
 _PORTABLE_V9_SIDECARS: Final = (
     "history/issuer/legacy-bindings-v1.json",
@@ -328,20 +329,29 @@ def write_base_archive(
     return archive
 
 
+def _validate_resource_sets(artifacts: Sequence[ReleaseArtifact]) -> None:
+    keys = {(item.platform_tag, item.role) for item in artifacts}
+    platforms = {item.platform_tag for item in artifacts}
+    role_sets = {
+        frozenset(item.role for item in artifacts if item.platform_tag == platform)
+        for platform in platforms
+    }
+    if (
+        not artifacts
+        or len(keys) != len(artifacts)
+        or len(role_sets) != 1
+        or next(iter(role_sets))
+        not in {frozenset({"base", "graphify"}), frozenset({"base", "graphify", "harness"})}
+    ):
+        raise BaseNativeError("release manifest resource pairs are invalid")
+
+
 def write_release_manifest(artifacts: Sequence[ReleaseArtifact], destination: Path) -> Path:
-    role_order = {"base": 0, "graphify": 1}
+    role_order = {"base": 0, "graphify": 1, "harness": 2}
     ordered = tuple(
         sorted(artifacts, key=lambda item: (item.platform_tag, role_order.get(item.role, 99)))
     )
-    keys = {(item.platform_tag, item.role) for item in ordered}
-    platforms = {item.platform_tag for item in ordered}
-    if (
-        not ordered
-        or len(keys) != len(ordered)
-        or any({(platform, "base"), (platform, "graphify")} - keys for platform in platforms)
-        or len(ordered) != len(platforms) * 2
-    ):
-        raise BaseNativeError("release manifest resource pairs are invalid")
+    _validate_resource_sets(ordered)
     versions = {item.version for item in ordered}
     if len(versions) != 1:
         raise BaseNativeError("release manifest versions do not match")
@@ -404,17 +414,13 @@ def read_release_manifest(path: Path) -> ReleaseManifest:
     canonical = tuple(
         sorted(
             manifest.artifacts,
-            key=lambda item: (item.platform_tag, {"base": 0, "graphify": 1}.get(item.role, 99)),
+            key=lambda item: (
+                item.platform_tag,
+                {"base": 0, "graphify": 1, "harness": 2}.get(item.role, 99),
+            ),
         )
     )
-    keys = {(item.platform_tag, item.role) for item in manifest.artifacts}
-    platforms = {item.platform_tag for item in manifest.artifacts}
-    if (
-        len(keys) != len(manifest.artifacts)
-        or len(manifest.artifacts) != len(platforms) * 2
-        or any({(platform, "base"), (platform, "graphify")} - keys for platform in platforms)
-    ):
-        raise BaseNativeError("release manifest resource pairs are invalid")
+    _validate_resource_sets(manifest.artifacts)
     if manifest.artifacts != canonical:
         raise BaseNativeError("release manifest is not canonical")
     return manifest
@@ -460,6 +466,7 @@ def render_homebrew_formula(
         }
         base = resources["base"]
         helper = resources["graphify"]
+        harness = resources.get("harness")
         block, architecture = platform_blocks[platform_tag]
         lines.extend(
             (
@@ -471,10 +478,18 @@ def render_homebrew_formula(
                 f'      url "{origin}/{helper.filename}"',
                 f'      sha256 "{helper.sha256}"',
                 "    end",
-                "  end",
-                "",
             )
         )
+        if harness is not None:
+            lines.extend(
+                (
+                    '    resource "harness" do',
+                    f'      url "{origin}/{harness.filename}"',
+                    f'      sha256 "{harness.sha256}"',
+                    "    end",
+                )
+            )
+        lines.extend(("  end", ""))
     lines.extend(
         (
             "  def install",
@@ -484,6 +499,19 @@ def render_homebrew_formula(
             '      libexec.install "open-brain" => "open-brain-graphify"',
             '      (share/"open-brain/licenses/graphify").install Dir["licenses/graphify/*"]',
             "    end",
+        )
+    )
+    if any(item.role == "harness" for item in manifest.artifacts):
+        lines.extend(
+            (
+                '    resource("harness").stage do',
+                '      libexec.install "open-brain-harness"',
+                '      (share/"open-brain/harness").install Dir["harness/*"]',
+                "    end",
+            )
+        )
+    lines.extend(
+        (
             "  end",
             "",
             "  test do",
@@ -496,11 +524,17 @@ def render_homebrew_formula(
                 '    assert_match "open-brain-graphify-helper-v1", '
                 'shell_output("#{libexec}/open-brain-graphify --capabilities")'
             ),
-            "  end",
-            "end",
-            "",
         )
     )
+    if any(item.role == "harness" for item in manifest.artifacts):
+        lines.extend(
+            (
+                '    assert_path_exists share/"open-brain/harness/harness-hook.mjs"',
+                '    assert_match "harness", '
+                'shell_output("#{libexec}/open-brain-harness/open-brain-harness harness --help")',
+            )
+        )
+    lines.extend(("  end", "end", ""))
     selected = destination.resolve()
     selected.parent.mkdir(parents=True, exist_ok=True)
     selected.write_text("\n".join(lines), encoding="utf-8")
@@ -534,10 +568,19 @@ def build_base_artifact(root: Path, output: Path) -> tuple[Path, Path, Path, Pat
     from tools.open_brain_dev.graphify_native import build_graphify_artifact
 
     graphify_artifact, graphify_archive = build_graphify_artifact(root, output, version=version)
+    from tools.open_brain_dev.harness_distribution import write_harness_archive
+
+    harness_archive = write_harness_archive(
+        output.resolve() / "dist/open-brain-harness",
+        root.resolve(strict=True) / "packages/app/src/open_brain/assets",
+        output.resolve() / "release",
+        version=version,
+    )
     manifest = write_release_manifest(
         (
             _release_artifact(archive, executable=artifact),
             _release_artifact(graphify_archive, executable=graphify_artifact),
+            _release_artifact(harness_archive),
         ),
         output.resolve() / "release" / _MANIFEST,
     )
@@ -549,7 +592,12 @@ def _release_artifact(archive: Path, *, executable: Path | None = None) -> Relea
     match = _ARCHIVE_PATTERN.fullmatch(selected.name)
     if match is None or not selected.is_file():
         raise BaseNativeError("release artifact filename is invalid")
-    role = "graphify" if match.group("component") == "graphify" else "base"
+    role = match.group("component") or "base"
+    if role == "harness":
+        from tools.open_brain_dev.artifact_audit import inspect_artifact
+
+        if inspect_artifact(selected, ()):
+            raise BaseNativeError("harness archive failed the strict content audit")
     return ReleaseArtifact(
         version=match.group("version"),
         platform_tag=match.group("platform"),
@@ -576,18 +624,21 @@ def _validate_release_artifact(artifact: ReleaseArtifact) -> None:
         or match is None
         or match.group("version") != artifact.version
         or match.group("platform") != artifact.platform_tag
-        or ("graphify" if match.group("component") == "graphify" else "base") != artifact.role
+        or (match.group("component") or "base") != artifact.role
     ):
         raise BaseNativeError("release artifact record is invalid")
 
 
 def _archive_executable_sha256(archive: Path) -> str:
     try:
+        name = (
+            "open-brain-harness/open-brain-harness" if "-harness-" in archive.name else _EXECUTABLE
+        )
         with tarfile.open(archive, "r:gz") as bundle:
             matches = [
                 member
                 for member in bundle.getmembers()
-                if member.name == _EXECUTABLE and member.isfile() and not member.issym()
+                if member.name == name and member.isfile() and not member.issym()
             ]
             if len(matches) != 1 or not 0 < matches[0].size <= 64 * 1024 * 1024:
                 raise BaseNativeError("release archive executable is invalid")
@@ -1240,7 +1291,10 @@ def _smoke_catalog(executable: Path, environment: Mapping[str, str]) -> None:
         or any(
             type(compatibility.get(key)) is not int
             for key in (
-                "bridge_protocol", "catalog_schema", "portable_metadata", "runtime_session",
+                "bridge_protocol",
+                "catalog_schema",
+                "portable_metadata",
+                "runtime_session",
                 "state_schema",
             )
         )
@@ -1553,6 +1607,17 @@ def _main(argv: Sequence[str] | None = None) -> int:
             "artifact": os.fspath(artifact),
             "graphify_archive": os.fspath(graphify_archive),
             "graphify_artifact": os.fspath(graphify_artifact),
+            "harness_artifact": os.fspath(
+                namespace.output.resolve() / "dist/open-brain-harness/open-brain-harness"
+            ),
+            "harness_archive": os.fspath(
+                namespace.output.resolve()
+                / "release"
+                / (
+                    f"open-brain-harness-{product_version(namespace.root)}-"
+                    f"{native_platform_tag()}.tar.gz"
+                )
+            ),
             "manifest": os.fspath(manifest_path),
             "status": "built",
         }
