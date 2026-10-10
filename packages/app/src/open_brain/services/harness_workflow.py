@@ -399,15 +399,20 @@ class HarnessWorkflow:
         egress = not decision.local_only and any(
             decision.tier in tiers for _, tiers in policy.providers
         )
-        reasons = {
-            PrivacyTier.PUBLIC: PrivacyReason.POLICY_PUBLIC,
-            PrivacyTier.WORK: PrivacyReason.POLICY_WORK,
-            PrivacyTier.PERSONAL: PrivacyReason.PERSONAL_CONFIRMED
-            if egress
-            else PrivacyReason.PERSONAL_LOCAL_ONLY,
-            PrivacyTier.SECRET: PrivacyReason.SECRET_DETECTED,
-            PrivacyTier.UNKNOWN: PrivacyReason.CLASSIFICATION_MISSING,
-        }
+        reasons = dict(
+            (
+                (PrivacyTier.PUBLIC, PrivacyReason.POLICY_PUBLIC),
+                (PrivacyTier.WORK, PrivacyReason.POLICY_WORK),
+                (
+                    PrivacyTier.PERSONAL,
+                    PrivacyReason.PERSONAL_CONFIRMED
+                    if egress
+                    else PrivacyReason.PERSONAL_LOCAL_ONLY,
+                ),
+                (PrivacyTier.SECRET, PrivacyReason.SECRET_DETECTED),
+                (PrivacyTier.UNKNOWN, PrivacyReason.CLASSIFICATION_MISSING),
+            )
+        )
         return PrivacyDecision.create(
             tier=decision.tier,
             reason=reasons[decision.tier],

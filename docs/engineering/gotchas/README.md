@@ -4,6 +4,24 @@ Non-obvious behaviors, sharp edges, and lessons learned belong here.
 
 ## Registry
 
+### BUILD-007: Acceptance evidence helpers need explicit types and source bindings
+
+Category: Type Safety, Build Pipeline.
+
+The harness acceptance tooling initially failed targeted mypy on unannotated
+evidence collections and helper exports. Give JSON evidence, byte digests and
+filesystem references explicit contracts, then check the complete build and
+typecheck. A passing fixture matrix does not prove native inference. Bind every
+selected test parametrization to its retained JUnit result and keep unavailable
+native collection a failing outcome.
+
+Independent review also found that hashing selected tests without their active
+`conftest.py` missed behavior-changing fixture edits. Bind the complete Git source
+inventory, including uncommitted files, test configuration, imported fixtures
+and lockfiles; verify an in-memory conftest change invalidates that digest.
+
+Discovered: 2026-10-09, automatic-memory acceptance tooling verification.
+
 ### BUILD-006: Public command changes must update every exact inventory
 
 Category: Build Pipeline.
