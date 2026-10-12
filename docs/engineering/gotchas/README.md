@@ -4,6 +4,26 @@ Non-obvious behaviors, sharp edges, and lessons learned belong here.
 
 ## Registry
 
+### MEMORY-003: Revalidate durable restrictions before custody and sources after cleanup
+
+Category: Database/Migrations, Config/Environment.
+
+An unmarked Hermes event can inherit a session or origin restriction. Screening
+only the current payload allowed the rejected body into custody before the SDK
+refused it. Resolve durable restrictions before any request, replay or origin
+publication. Embedding callers with their own custody must apply the read-only
+capture guard before retaining bodies, and protect new metadata-only latches
+through their normal operation path.
+
+Policy and consent equality do not prove a cached source is still readable.
+Canonical routing, lifecycle, privacy, head, historical authorization or retained
+bytes can change during runtime cleanup. Hold canonical exclusion through release
+and recheck the complete scoped source state after cleanup without another SDK
+startup. Check external policy, consent and restriction stores after the final
+source scan. Regressions must mutate actual canonical state at these boundaries.
+
+Discovered: 2026-10-12, independent harness and embedding-boundary review.
+
 ### STORAGE-002: Reading a held POSIX lock file can release the lock
 
 Category: Database/Migrations, Config/Environment.

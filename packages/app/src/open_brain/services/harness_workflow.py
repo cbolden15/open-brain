@@ -36,6 +36,11 @@ from open_brain_engine.engine.harness_memory import (
     decode_memory,
     encode_memory,
 )
+from open_brain_engine.engine.retrieval_release import (
+    RetrievalReleaseCheckpoint,
+    retrieval_release_checkpoint,
+    validate_retrieval_release,
+)
 from open_brain_engine.engine.source_intake import (
     SourceRevisionBinding,
     SourceRevisionSubmission,
@@ -68,6 +73,8 @@ class HarnessRecallResult:
     error_code: str | None = None
     memory_ids: tuple[str, ...] = ()
     memory_states: tuple[str, ...] = ()
+    release_checkpoint: RetrievalReleaseCheckpoint | None = None
+    release_record_ids: tuple[str, ...] = ()
 
 
 class _RecallRefusal(ValueError):
@@ -137,6 +144,7 @@ class HarnessWorkflow:
         self.policy = policy
         self._consent = consent_store
         self._local_only_host = local_only_host
+        self._read_dependencies: list[str] = []
 
     def _owner(self) -> EffectiveAuthority:
         return EffectiveAuthority(
@@ -565,10 +573,12 @@ class HarnessWorkflow:
     ) -> HarnessRecallResult:
         if type(limit) is not int or not 1 <= limit <= 5:
             raise ValueError("invalid_limit")
+        checkpoint = retrieval_release_checkpoint(self.tasks.profile, authority)
+        self._read_dependencies = []
         plan = plan_task_query(query)
         if not plan.search_text:
             self._require_current(policy, consent)
-            return HarnessRecallResult("success_empty")
+            return HarnessRecallResult("success_empty", release_checkpoint=checkpoint)
         response = self._search(plan.search_text, authority, policy, consent)
         candidates = [
             (row["record_id"], self._read_memory(row["record_id"], authority, policy, consent))
@@ -594,6 +604,8 @@ class HarnessWorkflow:
             tuple(memory for _, _, memory in ranked),
             memory_ids=tuple(capture_id for _, capture_id, _ in ranked),
             memory_states=tuple("current" for _ in ranked),
+            release_checkpoint=checkpoint,
+            release_record_ids=tuple(self._read_dependencies),
         )
 
     def _require_current(self, policy: HarnessPolicy, consent: ProviderConsentState | None) -> None:
@@ -663,6 +675,7 @@ class HarnessWorkflow:
             if response["complete"]:
                 memory = decode_memory("".join(chunks))
                 self._require_current(policy, consent)
+                self._read_dependencies.append(capture_id)
                 return memory
             cursor = response["next_cursor"]
         raise _RecallRefusal("source_unavailable")
@@ -718,6 +731,8 @@ class HarnessWorkflow:
         policy: HarnessPolicy,
         consent: ProviderConsentState | None,
     ) -> HarnessRecallResult:
+        checkpoint = retrieval_release_checkpoint(self.tasks.profile, authority)
+        self._read_dependencies = []
         memory = self._read_memory(capture_id, authority, policy, consent)
         changes = (
             self._decision_changes(authority, policy, consent) if memory.kind == "decision" else ()
@@ -725,7 +740,15 @@ class HarnessWorkflow:
         state = decision_state(memory, changes)
         self._require_current(policy, consent)
         return HarnessRecallResult(
-            "success", (memory,), memory_ids=(capture_id,), memory_states=(state,)
+            "success", (memory,), memory_ids=(capture_id,), memory_states=(state,),
+            release_checkpoint=checkpoint,
+            release_record_ids=tuple(self._read_dependencies),
+        )
+
+    def sources_current(self, response: HarnessRecallResult) -> bool:
+        """Validate cached sources after cleanup without using closed SDK tasks."""
+        return response.release_checkpoint is not None and validate_retrieval_release(
+            self.tasks.profile, response.release_checkpoint, response.release_record_ids,
         )
 
     def consent_snapshot(self) -> ProviderConsentState:

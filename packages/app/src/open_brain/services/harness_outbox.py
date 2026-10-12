@@ -114,6 +114,44 @@ class HarnessOutbox:
         self.root = root
         self.brain_id = brain_id
 
+    def capture_guard(self, event: HarnessCaptureEvent) -> dict[str, object]:
+        """Screen unrestricted external custody without writes or SDK startup.
+
+        The embedding caller checks current source policy separately and invokes
+        this before retaining source bytes. A refusal is not a durable restriction
+        acknowledgement; use the protected metadata-only restriction operation to
+        latch a new denial. Existing latches and lineage are read under continuity.
+        """
+        try:
+            _decode_event(self._document(event), large_event=True)
+            if event.origin_sessions or event.origin_ordinals:
+                raise _OutboxFailure("invalid_event")
+            if event.local_only or _LOCAL_MARKING.search(
+                "\n".join(message.text for message in event.messages if message.authored)
+            ):
+                return self._metadata("refused", error_code="source_denied")
+            try:
+                with self._continuity(create=False) as continuity:
+                    resolved, _ = self._resolve_origins(
+                        event, continuity, persist_restrictions=False,
+                    )
+                if resolved.local_only:
+                    return self._metadata("refused", error_code="source_denied")
+            except FileNotFoundError:
+                if self.root.exists() or self.root.is_symlink():
+                    raise _OutboxFailure("invalid_outbox") from None
+                if event.parent_session_id is not None:
+                    raise _OutboxFailure("lineage_unavailable") from None
+            return self._metadata("allowed")
+        except HarnessEventError as error:
+            return self._metadata("refused", error_code=error.code)
+        except _OutboxFailure as error:
+            return self._metadata("refused", error_code=str(error))
+        except OSError as error:
+            return self._io_failure(error, None)
+        except ValueError, TypeError, AttributeError:
+            return self._metadata("refused", error_code="invalid_event")
+
     def enqueue(self, event: HarnessCaptureEvent) -> dict[str, object]:
         """A queued result means the exact bounded event has durable local custody."""
         request_id: str | None = None
@@ -136,6 +174,11 @@ class HarnessOutbox:
                 for state in states:
                     state["pending_custody"] = True
                     self._store_state(continuity, state)
+                # Hermes restrictions are metadata-only, including restrictions
+                # inherited from durable session or origin state. Refuse while
+                # holding continuity and before publishing any body or replay.
+                if event.client == "hermes" and event.local_only:
+                    return self._metadata("refused", error_code="source_denied")
                 documents: list[dict[str, object]] = []
                 if event.local_only:
                     documents.extend(self._restricted_replays(requests, event))
@@ -359,7 +402,7 @@ class HarnessOutbox:
         return raw["origin_session"], raw["origin_ordinal"]
 
     def _resolve_origins(
-        self, event: HarnessCaptureEvent, directory: int
+        self, event: HarnessCaptureEvent, directory: int, *, persist_restrictions: bool = True,
     ) -> tuple[HarnessCaptureEvent, list[dict[str, object]]]:
         if event.origin_sessions or event.origin_ordinals:
             # Origin mappings are only produced by the local custody boundary.
@@ -371,7 +414,7 @@ class HarnessOutbox:
         )
         # An unavailable parent cannot undo a current session's newly declared
         # restriction. Retain only its denial metadata before checking lineage.
-        if marked:
+        if marked and persist_restrictions:
             current["local_only"] = True
             current["pending_custody"] = True
             self._store_state(directory, current)
@@ -386,7 +429,7 @@ class HarnessOutbox:
             states.append(self._state(directory, event.client, event.project, parent))
         # Latch a marking before origin resolution can fail. Missing lineage
         # cannot leave previously released knowledge eligible for cloud reads.
-        if marked:
+        if marked and persist_restrictions:
             for state in states:
                 state["local_only"] = True
                 state["pending_custody"] = True

@@ -11,12 +11,24 @@ from pathlib import Path
 from typing import Any, cast
 
 import pytest
+from open_brain_engine.core.ids import portable_canonical_json_bytes
 from open_brain_engine.core.models import PrivacyTier
+from open_brain_engine.engine import retrieval_release
+from open_brain_engine.engine.harness_memory import decode_memory
+from open_brain_engine.engine.local_schema import open_local_database_read_only
+from open_brain_engine.engine.source_lifecycle_contracts import (
+    SourceInspectRequest,
+    SourceWithdrawRequest,
+)
+from open_brain_engine.engine.t03_contracts import RecordReadRequest
 
 from open_brain.local_data import select_local_root
-from open_brain.services import harness_bridge
+from open_brain.services import harness_bridge, harness_workflow
 from open_brain.services.harness_bridge import HarnessBridgeConfig, HarnessBridgeError, run_harness
 from open_brain.services.harness_cli import HarnessDeadlineExceeded, _deadline
+from open_brain.services.harness_memory import MemoryMessage
+from open_brain.services.harness_policy import HarnessSourceDecision
+from open_brain.services.harness_workflow import _digest, _local_space_name
 from open_brain.services.local_bootstrap import (
     hold_existing_local_brain_transaction,
     open_local_brain,
@@ -804,3 +816,369 @@ def test_hermes_provider_revocation_withholds_previously_readable_memory(tmp_pat
         read_tiers=frozenset({PrivacyTier.WORK}),
     )
     assert after == {"status": "refused", "error_code": "consent_unavailable"}
+
+
+@pytest.mark.parametrize("action", ["recall", "source"])
+def test_cleanup_source_route_narrowing_withholds_cached_body(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, action: str,
+) -> None:
+    path, project, _, _ = setup(tmp_path)
+    captured = run_harness("capture", path, "hermes", hermes_payload(project))
+    capture_id = cast(list[str], captured["capture_ids"])[0]
+    original = harness_bridge._workflow
+
+    @contextmanager
+    def narrow_after_read(*args: Any, **kwargs: Any) -> Any:
+        with original(*args, **kwargs) as workflow:
+            yield workflow
+            space = workflow.tasks.spaces.create_space(
+                _local_space_name(project), delivery_id="synthetic.cleanup.narrow",
+            )
+            workflow._route(capture_id, space.space_id)
+
+    monkeypatch.setattr(harness_bridge, "_workflow", narrow_after_read)
+    result = run_harness(
+        action, path, "hermes", {
+            "project_path": str(project), "query": "editor", "capture_id": capture_id,
+        }, provider_id="codex", read_tiers=frozenset({PrivacyTier.WORK}),
+    )
+    assert result == {"status": "refused", "error_code": "source_changed"}
+    assert "Vim" not in json.dumps(result)
+
+
+@pytest.mark.parametrize("action", ["enqueue", "capture"])
+@pytest.mark.parametrize("restriction", ["local_only", "credential"])
+def test_hermes_latched_restriction_denies_later_unmarked_body_custody(
+    tmp_path: Path, action: str, restriction: str,
+) -> None:
+    path, project, _, config = setup(tmp_path)
+    first = hermes_payload(project, source="never-admitted")
+    if restriction == "local_only":
+        first["local_only"] = True
+    else:
+        cast(list[dict[str, Any]], first["messages"])[0]["text"] = "password=synthetic-blocked"
+    assert run_harness(action, path, "hermes", first)["status"] == "refused"
+    later = hermes_payload(project, source="later-unmarked")
+    marker = "SYNTHETIC_RESTRICTED_BODY: My preferred editor is Vim."
+    cast(list[dict[str, Any]], later["messages"])[0]["text"] = marker
+    result = run_harness(action, path, "hermes", later)
+    assert result["status"] == "refused" and result["error_code"] == "source_denied"
+    retained = [p.read_bytes() for p in Path(config["outbox"]).rglob("*") if p.is_file()]
+    assert all(marker.encode() not in body for body in retained)
+
+
+@pytest.mark.parametrize("action", ["recall", "source"])
+@pytest.mark.parametrize(
+    "mutation", ["withdraw", "head", "privacy", "source_bytes", "history", "space_name"],
+)
+def test_cleanup_canonical_changes_withhold_cached_source(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, action: str, mutation: str,
+) -> None:
+    path, project, _, config = setup(tmp_path)
+    capture = run_harness("capture", path, "hermes", hermes_payload(project))
+    capture_id = cast(list[str], capture["capture_ids"])[0]
+    original = harness_bridge._workflow
+
+    @contextmanager
+    def mutate_after_read(*args: Any, **kwargs: Any) -> Any:
+        with original(*args, **kwargs) as workflow:
+            yield workflow
+            authority = workflow._owner()
+            record = cast(dict[str, Any], workflow.tasks.retrieval.read_record(
+                RecordReadRequest(record_id=capture_id, expected_revision_id=capture_id),
+                authority=authority,
+            ).to_wire())
+            if mutation == "withdraw":
+                assert workflow.tasks.sources is not None
+                inspected = workflow.tasks.sources.inspect(
+                    SourceInspectRequest(source_id=record["record"]["source_id"]),
+                    authority=authority,
+                )
+                workflow.tasks.sources.withdraw(SourceWithdrawRequest(
+                    operation_id="withdraw.synthetic.cleanup", source_id=inspected.source_id,
+                    expected_head=capture_id,
+                    expected_lifecycle_version=inspected.lifecycle_version,
+                    brain_id=inspected.destination_brain_id, issuer_epoch=inspected.issuer_epoch,
+                    reason_code="synthetic_withdrawal",
+                ), authority=authority)
+            elif mutation == "head":
+                result = workflow.capture(
+                    "hermes", "synthetic-hermes-session", project,
+                    (MemoryMessage(
+                        "user", "My preferred editor is Emacs.", 11,
+                        source_id="mattermost:synthetic-post:user",
+                    ),),
+                )
+                assert result["status"] == "acknowledged", result
+            elif mutation == "privacy":
+                # Use actual source admission with the same logical namespace;
+                # narrowing creates a new private head, retaining old bytes.
+                memory = decode_memory(record["content"]["text"])
+                identity = _digest(portable_canonical_json_bytes([
+                    "hermes", "synthetic-hermes-session", str(project.resolve()),
+                    "mattermost:synthetic-post:user", 0,
+                ]).decode())
+                receipt = workflow._capture_revision(
+                    "hermes", project, workflow.policy(),
+                    HarnessSourceDecision("example", PrivacyTier.SECRET, True),
+                    identity, "urn:open-brain:harness:v1:" + identity, memory,
+                )
+                assert receipt[0] is not None and receipt[0] != capture_id
+            elif mutation == "space_name":
+                workflow.tasks.spaces.rename_space(
+                    record["record"]["space_id"], _local_space_name(project),
+                    delivery_id="synthetic.rename.space",
+                )
+            elif mutation == "source_bytes":
+                root = Path(config["brain_root"])
+                connection = sqlite3.connect(
+                    f"file:{root / '.open-brain/state/phase1.sqlite3'}?mode=ro", uri=True,
+                )
+                try:
+                    relative = connection.execute(
+                        "SELECT source_path FROM source_revisions WHERE capture_id=?",
+                        (capture_id,),
+                    ).fetchone()[0]
+                finally:
+                    connection.close()
+                (root / relative).write_bytes(b"synthetic damaged custody")
+        if mutation == "history":
+            target = Path(config["brain_root"]) / (
+                ".open-brain/historical-authority/historical-claims.v1.json"
+            )
+            target.write_bytes(b"synthetic damaged custody")
+
+    monkeypatch.setattr(harness_bridge, "_workflow", mutate_after_read)
+    result = run_harness(
+        action, path, "hermes", {
+            "project_path": str(project), "query": "editor", "capture_id": capture_id,
+        }, provider_id="codex", read_tiers=frozenset({PrivacyTier.WORK}),
+    )
+    assert result == {"status": "refused", "error_code": "source_changed"}
+    assert "results" not in result
+
+
+@pytest.mark.parametrize("action", ["recall", "source"])
+def test_post_cleanup_validator_failure_is_refused_without_sdk_reopen(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, action: str,
+) -> None:
+    path, project, _, _ = setup(tmp_path)
+    captured = run_harness("capture", path, "hermes", hermes_payload(project))
+    capture_id = cast(list[str], captured["capture_ids"])[0]
+    original_workflow = harness_bridge._workflow
+    original_read = open_local_database_read_only
+    closed = False
+
+    @contextmanager
+    def mark_cleanup(*args: Any, **kwargs: Any) -> Any:
+        nonlocal closed
+        with original_workflow(*args, **kwargs) as workflow:
+            yield workflow
+        closed = True
+
+    def read_only(*args: Any, **kwargs: Any) -> Any:
+        if closed:
+            raise OSError("synthetic read-only validator unavailable")
+        return original_read(*args, **kwargs)
+
+    monkeypatch.setattr(harness_bridge, "_workflow", mark_cleanup)
+    monkeypatch.setattr(retrieval_release, "open_local_database_read_only", read_only)
+    result = run_harness(
+        action, path, "hermes", {
+            "project_path": str(project), "query": "editor", "capture_id": capture_id,
+        }, provider_id="codex", read_tiers=frozenset({PrivacyTier.WORK}),
+    )
+    assert closed
+    assert result == {"status": "refused", "error_code": "source_changed"}
+
+
+@pytest.mark.parametrize("held", [False, True])
+def test_writer_excludes_competing_process_through_final_result_construction(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, held: bool,
+) -> None:
+    path, project, _, config = setup(tmp_path)
+    assert run_harness("capture", path, "hermes", hermes_payload(project))["status"] == (
+        "acknowledged"
+    )
+    root = Path(config["brain_root"])
+    original = harness_bridge._bounded_results
+    checked = False
+    script = """
+import errno, fcntl, sys
+with open(sys.argv[1], 'r+b') as handle:
+    for mode in (fcntl.LOCK_EX, fcntl.LOCK_SH):
+        try:
+            fcntl.lockf(handle, mode | fcntl.LOCK_NB)
+        except OSError as error:
+            assert error.errno in (errno.EACCES, errno.EAGAIN)
+        else:
+            raise AssertionError('writer released before content construction')
+"""
+
+    def guarded_results(*args: Any, **kwargs: Any) -> Any:
+        nonlocal checked
+        for _ in range(2):
+            subprocess.run(
+                [sys.executable, "-c", script,
+                 str(root / ".open-brain/.open-brain-locks/lease.shared-writer")],
+                check=True, capture_output=True, timeout=5,
+            )
+            result = original(*args, **kwargs)
+        checked = True
+        return result
+
+    monkeypatch.setattr(harness_bridge, "_bounded_results", guarded_results)
+
+    def operation() -> dict[str, object]:
+        return run_harness(
+            "recall", path, "hermes", {"project_path": str(project), "query": "editor"},
+            provider_id="codex", read_tiers=frozenset({PrivacyTier.WORK}),
+        )
+
+    if held:
+        with hold_existing_local_brain_transaction(root) as transaction:
+            response = transaction.run(operation)
+            transaction.validate()
+    else:
+        response = operation()
+    assert response["status"] == "ok" and response["results"], response
+    assert checked
+
+
+@pytest.mark.parametrize("change", ["policy", "consent", "outbox"])
+def test_authorization_revocation_after_final_source_scan_withholds_content(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, change: str,
+) -> None:
+    path, project, policy, config = setup(tmp_path)
+    assert run_harness("capture", path, "hermes", hermes_payload(project))["status"] == (
+        "acknowledged"
+    )
+    validate = retrieval_release.validate_retrieval_release
+
+    def revoke_after_scan(*args: Any, **kwargs: Any) -> bool:
+        assert validate(*args, **kwargs)
+        if change == "policy":
+            policy["enabled"] = False
+            _write(Path(config["policy"]), policy)
+        elif change == "consent":
+            store = DurableProviderConsentStore(
+                Path(config["consent_state"]), brain_id=config["brain_id"], issuer_epoch=1,
+            )
+            active = next(
+                record for record in store.load().records
+                if record.active and record.provider_id == "codex"
+            )
+            store.revoke(
+                consent_id=active.consent_id, operation_id="synthetic.revoke.final.scan",
+                decided_at="2026-01-02T00:00:00Z",
+            )
+        else:
+            denied = hermes_payload(project)
+            denied["local_only"] = True
+            assert run_harness("enqueue", path, "hermes", denied)["status"] == "refused"
+        return True
+
+    monkeypatch.setattr(harness_workflow, "validate_retrieval_release", revoke_after_scan)
+    result = run_harness(
+        "recall", path, "hermes", {"project_path": str(project), "query": "editor"},
+        provider_id="codex", read_tiers=frozenset({PrivacyTier.WORK}),
+    )
+    assert result["status"] == "refused"
+    assert result["error_code"] == {
+        "policy": "policy_changed", "consent": "authorization_changed",
+        "outbox": "pending_source_restriction",
+    }[change]
+    assert "results" not in result
+
+
+@pytest.mark.parametrize("action", ["recall", "source"])
+def test_cleanup_decision_change_withholds_cached_currentness(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, action: str,
+) -> None:
+    path, project, _, _ = setup(tmp_path)
+    first = hermes_payload(project)
+    cast(list[dict[str, Any]], first["messages"])[0]["text"] = (
+        "We decided to use SQLite for the sample project."
+    )
+    captured = run_harness("capture", path, "hermes", first)
+    capture_id = cast(list[str], captured["capture_ids"])[0]
+    original = harness_bridge._workflow
+
+    @contextmanager
+    def change_decision(*args: Any, **kwargs: Any) -> Any:
+        with original(*args, **kwargs) as workflow:
+            yield workflow
+            result = workflow.capture(
+                "hermes", "synthetic-hermes-session", project,
+                (MemoryMessage(
+                    "user", "We changed our decision to PostgreSQL for the sample project.", 12,
+                    source_id="mattermost:changed-decision:user",
+                ),),
+            )
+            assert result["status"] == "acknowledged", result
+
+    monkeypatch.setattr(harness_bridge, "_workflow", change_decision)
+    result = run_harness(
+        action, path, "hermes", {
+            "project_path": str(project), "query": "SQLite", "capture_id": capture_id,
+        }, provider_id="codex", read_tiers=frozenset({PrivacyTier.WORK}),
+    )
+    assert result == {"status": "refused", "error_code": "source_changed"}
+
+
+def test_final_guard_revalidates_unreturned_decision_dependencies_and_is_read_only(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    path, project, _, config = setup(tmp_path)
+    first = hermes_payload(project)
+    cast(list[dict[str, Any]], first["messages"])[0]["text"] = (
+        "We decided to use SQLite for the sample project."
+    )
+    captured = run_harness("capture", path, "hermes", first)
+    selected_id = cast(list[str], captured["capture_ids"])[0]
+    changed = hermes_payload(project, source="changed-decision")
+    cast(list[dict[str, Any]], changed["messages"])[0]["text"] = (
+        "We changed our decision to PostgreSQL for the sample project."
+    )
+    dependency = run_harness("capture", path, "hermes", changed)
+    dependency_id = cast(list[str], dependency["capture_ids"])[0]
+    original = harness_bridge._workflow
+    closed = False
+    final_checked = False
+
+    @contextmanager
+    def damage_dependency_after_cleanup(*args: Any, **kwargs: Any) -> Any:
+        nonlocal closed
+        with original(*args, **kwargs) as workflow:
+            yield workflow
+        closed = True
+        root = Path(config["brain_root"])
+        connection = sqlite3.connect(
+            f"file:{root / '.open-brain/state/phase1.sqlite3'}?mode=ro", uri=True,
+        )
+        try:
+            relative = connection.execute(
+                "SELECT source_path FROM source_revisions WHERE capture_id=?", (dependency_id,),
+            ).fetchone()[0]
+        finally:
+            connection.close()
+        (root / relative).write_bytes(b"synthetic damaged currentness dependency")
+
+    def guarded_read(*args: Any, **kwargs: Any) -> Any:
+        nonlocal final_checked
+        connection = open_local_database_read_only(*args, **kwargs)
+        if closed:
+            final_checked = True
+            assert connection.execute("PRAGMA query_only").fetchone()[0] == 1
+            with pytest.raises(sqlite3.OperationalError):
+                connection.execute("UPDATE engine_generations SET retrieval_generation=0")
+        return connection
+
+    monkeypatch.setattr(harness_bridge, "_workflow", damage_dependency_after_cleanup)
+    monkeypatch.setattr(retrieval_release, "open_local_database_read_only", guarded_read)
+    result = run_harness(
+        "source", path, "hermes", {"project_path": str(project), "capture_id": selected_id},
+        provider_id="codex", read_tiers=frozenset({PrivacyTier.WORK}),
+    )
+    assert closed and final_checked
+    assert result == {"status": "refused", "error_code": "source_changed"}

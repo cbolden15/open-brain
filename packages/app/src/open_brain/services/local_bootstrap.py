@@ -114,6 +114,28 @@ def hold_existing_local_brain_transaction(root: Path) -> Iterator[LocalBrainTran
             yield transaction
 
 
+def run_existing_local_brain_transaction[T](root: Path, operation: Callable[[], T]) -> T:
+    """Run under existing barriers, or borrow the active same-root callback.
+
+    Borrowing preserves the original transaction's PID/thread and inode checks
+    without nesting ``run`` or opening another writer lock descriptor.
+    """
+    transaction = _ACTIVE_TRANSACTION.get()
+    if transaction is None:
+        with hold_existing_local_brain_transaction(root) as transaction:
+            return transaction.run(operation)
+    transaction.validate()
+    if root.resolve() != transaction.profile.root:
+        raise RuntimeError("local Brain transaction root mismatch")
+    result = operation()
+    if inspect.isawaitable(result):
+        if inspect.iscoroutine(result):
+            result.close()
+        raise RuntimeError("local Brain transaction requires a synchronous operation")
+    transaction.validate()
+    return result
+
+
 @dataclass(frozen=True, slots=True)
 class LocalInitReceipt:
     status: str
@@ -281,4 +303,5 @@ __all__ = [
     "initialize_local_brain",
     "hold_existing_local_brain_transaction",
     "open_local_brain",
+    "run_existing_local_brain_transaction",
 ]

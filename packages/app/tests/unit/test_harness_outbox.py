@@ -44,6 +44,113 @@ def test_enqueue_is_durable_and_replay_identity_is_deterministic(tmp_path: Path)
     assert "lentil" not in str(first)
 
 
+@pytest.mark.parametrize("reason", ["source_denied", "credential_signal"])
+@pytest.mark.parametrize("inheritance", ["session", "parent", "origin"])
+def test_hermes_latched_restriction_refuses_before_source_publication(
+    tmp_path: Path, reason: str, inheritance: str,
+) -> None:
+    outbox = HarnessOutbox(tmp_path / "outbox", BRAIN)
+    source = replace(
+        event(tmp_path), client="hermes", session_id="parent",
+        messages=(MemoryMessage("user", "I prefer lentil soup.", 12, True, "native-12"),),
+    )
+    if inheritance == "origin":
+        # Establish an actual inherited origin, then restrict it after the child
+        # no longer names its parent in subsequent events.
+        assert outbox.enqueue(source)["status"] == "queued"
+        source = replace(source, session_id="child", parent_session_id="parent")
+        assert outbox.enqueue(source)["status"] == "queued"
+        source = replace(source, parent_session_id=None)
+    outbox.restrict_session("hermes", "parent", tmp_path, reason=reason)
+    if inheritance == "parent":
+        source = replace(
+            source, session_id="child", parent_session_id="parent",
+            session_timestamp="2026-01-01T00:00:00Z",
+        )
+    marker = "SYNTHETIC_REFUSED_HERMES_BODY"
+    source = replace(
+        source,
+        messages=(
+            *(source.messages if inheritance == "origin" else ()),
+            MemoryMessage("user", f"I prefer {marker} pencils.", 20, True, "native-20"),
+        ),
+        timestamps={20: "2026-01-02T00:00:00Z"},
+    )
+    before = {
+        item: item.read_bytes() for item in outbox.root.rglob("*.json")
+        if item.parent.name == "requests" or item.name.startswith("message-")
+    }
+    original_metadata = {
+        item: item.read_bytes() for item in outbox.root.rglob("*") if item.is_file()
+    }
+    assert outbox.capture_guard(source)["status"] == "refused"
+    assert {
+        item: item.read_bytes() for item in outbox.root.rglob("*") if item.is_file()
+    } == original_metadata
+    result = outbox.enqueue(source)
+    assert result["status"] == "refused"
+    assert result["error_code"] == "source_denied"
+    after = {
+        item: item.read_bytes() for item in outbox.root.rglob("*.json")
+        if item.parent.name == "requests" or item.name.startswith("message-")
+    }
+    assert after == before
+    assert all(
+        marker.encode() not in item.read_bytes()
+        for item in outbox.root.rglob("*") if item.is_file()
+    )
+    assert outbox.cloud_read_guard(cloud_policy(tmp_path))["status"] == "refused"
+
+
+@pytest.mark.parametrize("text,local_only,allowed", [
+    ("I prefer lentil soup.", False, True),
+    ("I prefer lentil soup.", True, False),
+    ("Confidential: I prefer lentil soup.", False, False),
+    ("-----BEGIN PRIVATE KEY----- synthetic fixture", False, False),
+])
+def test_capture_guard_screens_new_source_without_creating_custody(
+    tmp_path: Path, text: str, local_only: bool, allowed: bool,
+) -> None:
+    outbox = HarnessOutbox(tmp_path / "outbox", BRAIN)
+    source = replace(
+        event(tmp_path), client="hermes", local_only=local_only,
+        messages=(MemoryMessage("user", text, 0, True, "native-0"),),
+    )
+    assert outbox.capture_guard(source)["status"] == ("allowed" if allowed else "refused")
+    assert not outbox.root.exists()
+
+
+def test_capture_guard_refuses_incomplete_custody_or_missing_lineage(tmp_path: Path) -> None:
+    outbox = HarnessOutbox(tmp_path / "outbox", BRAIN)
+    source = replace(
+        event(tmp_path), client="hermes",
+        messages=(MemoryMessage("user", "I prefer lentil soup.", 0, True, "native-0"),),
+    )
+    assert outbox.capture_guard(replace(source, parent_session_id="missing"))["status"] == "refused"
+    outbox.root.mkdir(mode=0o700)
+    assert outbox.capture_guard(source)["status"] == "refused"
+    assert not list(outbox.root.iterdir())
+
+
+def test_direct_hermes_local_marking_retains_only_denial_metadata(tmp_path: Path) -> None:
+    outbox = HarnessOutbox(tmp_path / "outbox", BRAIN)
+    marker = "SYNTHETIC_MARKED_HERMES_BODY"
+    source = replace(
+        event(tmp_path), client="hermes", local_only=True,
+        messages=(MemoryMessage("user", f"I prefer {marker}.", 0, True, "native-0"),),
+    )
+    result = outbox.enqueue(source)
+    assert result["status"] == "refused"
+    assert result["error_code"] == "source_denied"
+    assert not list((outbox.root / "requests").iterdir())
+    assert not list(outbox.root.rglob("message-*.json"))
+    assert all(
+        marker.encode() not in item.read_bytes()
+        for item in outbox.root.rglob("*") if item.is_file()
+    )
+    assert outbox.cloud_read_guard(cloud_policy(tmp_path))["status"] == "refused"
+
+
 class FakeWorkflow:
     def __init__(self, result: dict[str, object] | None = None, *, tenant: str = TENANT) -> None:
         self.tasks = SimpleNamespace(profile=SimpleNamespace(tenant_id=tenant))

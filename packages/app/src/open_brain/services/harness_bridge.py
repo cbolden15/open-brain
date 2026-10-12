@@ -30,7 +30,7 @@ from .harness_events import HarnessEventError, _screen, capture_event
 from .harness_outbox import HarnessOutbox
 from .harness_policy import HarnessPolicyError, load_harness_policy
 from .harness_workflow import HarnessWorkflow
-from .local_bootstrap import open_local_brain
+from .local_bootstrap import open_local_brain, run_existing_local_brain_transaction
 from .local_operations import current_brain_identity
 from .session_consent import DurableProviderConsentStore
 
@@ -395,42 +395,48 @@ def run_harness(
             guard = outbox.cloud_read_guard(policy)
             if guard.get("status") != "allowed":
                 return guard
-        with _workflow(config, local_only_host=local_only_host) as workflow:
-            consent = None if requested_local else workflow.consent_snapshot()
-            if action == "source":
-                assert isinstance(capture_id, str)
-                response = (
-                    workflow.read_context_local(capture_id, project=project)
-                    if requested_local else workflow.read_context(
-                        capture_id, provider=provider, read_tiers=read_tiers,
+
+        def read_and_release() -> dict[str, object]:
+            with _workflow(config, local_only_host=local_only_host) as workflow:
+                consent = None if requested_local else workflow.consent_snapshot()
+                if action == "source":
+                    assert isinstance(capture_id, str)
+                    response = (
+                        workflow.read_context_local(capture_id, project=project)
+                        if requested_local else workflow.read_context(
+                            capture_id, provider=provider, read_tiers=read_tiers,
+                        )
                     )
-                )
-            else:
-                response = (
-                    workflow.recall_local(query, project=project, limit=limit)
-                    if requested_local
-                    else workflow.recall(
-                        query, provider=provider, limit=limit, read_tiers=read_tiers,
+                else:
+                    response = (
+                        workflow.recall_local(query, project=project, limit=limit)
+                        if requested_local
+                        else workflow.recall(
+                            query, provider=provider, limit=limit, read_tiers=read_tiers,
+                        )
                     )
-                )
-        if response.status not in {"success", "success_empty"}:
-            return {"status": response.status, "error_code": response.error_code}
-        # Recheck source policy after closing runtime and before releasing content.
-        if load_harness_policy(config.policy) != policy:
-            return {"status": "refused", "error_code": "policy_changed"}
-        if not requested_local:
-            guard = outbox.cloud_read_guard(policy)
-            if guard.get("status") != "allowed":
-                return guard
-        if not workflow.authorization_current(policy, consent):
-            return {"status": "refused", "error_code": "authorization_changed"}
-        return _bounded_results(
-            response.memories,
-            automatic=action == "recall",
-            memory_ids=response.memory_ids,
-            memory_states=response.memory_states,
-            source_context=action == "source",
-        )
+            if response.status not in {"success", "success_empty"}:
+                return {"status": response.status, "error_code": response.error_code}
+            if not workflow.sources_current(response):
+                return {"status": "refused", "error_code": "source_changed"}
+            # Recheck source policy after closing runtime and before releasing content.
+            if load_harness_policy(config.policy) != policy:
+                return {"status": "refused", "error_code": "policy_changed"}
+            if not requested_local:
+                guard = outbox.cloud_read_guard(policy)
+                if guard.get("status") != "allowed":
+                    return guard
+            if not workflow.authorization_current(policy, consent):
+                return {"status": "refused", "error_code": "authorization_changed"}
+            return _bounded_results(
+                response.memories,
+                automatic=action == "recall",
+                memory_ids=response.memory_ids,
+                memory_states=response.memory_states,
+                source_context=action == "source",
+            )
+
+        return run_existing_local_brain_transaction(config.brain_root, read_and_release)
     except (HarnessBridgeError, HarnessEventError, HarnessPolicyError) as error:
         return {"status": "refused", "error_code": error.code}
     except Exception:

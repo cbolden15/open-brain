@@ -152,3 +152,58 @@ def test_transaction_refuses_async_callback_and_other_root_without_creating_it(
             transaction.run(lambda: local_bootstrap.initialize_local_brain(selection))
         assert not other.exists()
         _excluded(root)
+
+
+def test_run_existing_transaction_borrows_same_root_without_nested_run(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "brain"
+    local_bootstrap.initialize_local_brain(
+        select_local_root(data_dir=str(root), environment={"HOME": str(tmp_path)})
+    )
+    other = tmp_path / "other"
+    with local_bootstrap.hold_existing_local_brain_transaction(root) as transaction:
+        def operation() -> str:
+            with pytest.raises(RuntimeError, match="already active"):
+                transaction.run(lambda: None)
+            with pytest.raises(RuntimeError, match="root mismatch"):
+                local_bootstrap.run_existing_local_brain_transaction(other, lambda: None)
+            _excluded(root)
+            return "borrowed"
+
+        assert transaction.run(lambda: local_bootstrap.run_existing_local_brain_transaction(
+            root, operation,
+        )) == "borrowed"
+        assert not other.exists()
+        _excluded(root)
+
+
+def test_active_transaction_borrow_refuses_other_thread_and_async_callback(tmp_path: Path) -> None:
+    root = tmp_path / "brain"
+    local_bootstrap.initialize_local_brain(
+        select_local_root(data_dir=str(root), environment={"HOME": str(tmp_path)})
+    )
+
+    async def asynchronous() -> None:
+        pass
+
+    failures: list[BaseException] = []
+    with local_bootstrap.hold_existing_local_brain_transaction(root) as transaction:
+        def operation() -> None:
+            context = contextvars.copy_context()
+
+            def wrong_owner() -> None:
+                try:
+                    local_bootstrap.run_existing_local_brain_transaction(root, lambda: None)
+                except RuntimeError as error:
+                    failures.append(error)
+
+            thread = threading.Thread(target=lambda: context.run(wrong_owner))
+            thread.start()
+            thread.join(timeout=2)
+            assert len(failures) == 1
+            with pytest.raises(RuntimeError, match="synchronous"):
+                _ = local_bootstrap.run_existing_local_brain_transaction(root, asynchronous)
+
+        transaction.run(operation)
+        _excluded(root)
