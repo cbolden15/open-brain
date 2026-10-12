@@ -15,6 +15,10 @@ publication. Embedding callers with their own custody must apply the read-only
 capture guard before retaining bodies, and protect new metadata-only latches
 through their normal operation path.
 
+A retained origin reference proves its session already existed. Require its
+validated state even when it names the current session; a missing restriction
+file must fail closed instead of initializing an unrestricted session.
+
 Policy and consent equality do not prove a cached source is still readable.
 Canonical routing, lifecycle, privacy, head, historical authorization or retained
 bytes can change during runtime cleanup. Hold canonical exclusion through release

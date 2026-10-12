@@ -120,6 +120,43 @@ def test_capture_guard_screens_new_source_without_creating_custody(
     assert not outbox.root.exists()
 
 
+@pytest.mark.parametrize("inheritance", ["session", "origin"])
+@pytest.mark.parametrize("operation", ["capture_guard", "enqueue"])
+def test_known_origin_requires_retained_session_state(
+    tmp_path: Path, inheritance: str, operation: str,
+) -> None:
+    outbox = HarnessOutbox(tmp_path / "outbox", BRAIN)
+    source = replace(
+        event(tmp_path), client="hermes", session_id="parent",
+        messages=(MemoryMessage("user", "I prefer lentil soup.", 12, True, "native-12"),),
+    )
+    assert outbox.enqueue(source)["status"] == "queued"
+    if inheritance == "origin":
+        source = replace(source, session_id="child", parent_session_id="parent")
+        assert outbox.enqueue(source)["status"] == "queued"
+        source = replace(source, parent_session_id=None)
+    outbox.restrict_session("hermes", "parent", tmp_path, reason="source_denied")
+    marker = "SYNTHETIC_DAMAGED_LINEAGE_BODY"
+    source = replace(
+        source,
+        messages=(*source.messages, MemoryMessage("user", marker, 20, True, "native-20")),
+        timestamps={**source.timestamps, 20: "2026-01-02T00:00:00Z"},
+    )
+    assert outbox.capture_guard(source)["error_code"] == "source_denied"
+    states = list(outbox.root.rglob("session-*.json"))
+    parent = next(
+        path for path in states if json.loads(path.read_bytes())["session_id"] == "parent"
+    )
+    parent.unlink()  # Only this test's disposable restriction state is damaged.
+    before = {path: path.read_bytes() for path in outbox.root.rglob("*") if path.is_file()}
+    result = getattr(outbox, operation)(source)
+    assert result["status"] == "refused"
+    assert result["error_code"] == "lineage_unavailable"
+    after = {path: path.read_bytes() for path in outbox.root.rglob("*") if path.is_file()}
+    assert after == before
+    assert all(marker.encode() not in body for body in after.values())
+
+
 def test_capture_guard_refuses_incomplete_custody_or_missing_lineage(tmp_path: Path) -> None:
     outbox = HarnessOutbox(tmp_path / "outbox", BRAIN)
     source = replace(

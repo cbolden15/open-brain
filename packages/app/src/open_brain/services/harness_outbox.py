@@ -310,10 +310,14 @@ class HarnessOutbox:
             + ".json"
         )
 
-    def _state(self, directory: int, client: str, project: Path, session: str) -> dict[str, object]:
+    def _state(
+        self, directory: int, client: str, project: Path, session: str, *, required: bool = False,
+    ) -> dict[str, object]:
         try:
             raw = _load(_read(directory, self._state_name(client, project, session)))
         except FileNotFoundError:
+            if required:
+                raise _OutboxFailure("lineage_unavailable") from None
             return {
                 "version": _VERSION,
                 "brain_id": self.brain_id,
@@ -422,11 +426,9 @@ class HarnessOutbox:
         if parent is not None:
             if parent == event.session_id:
                 raise _OutboxFailure("lineage_unavailable")
-            try:
-                _read(directory, self._state_name(event.client, event.project, parent))
-            except FileNotFoundError:
-                raise _OutboxFailure("lineage_unavailable") from None
-            states.append(self._state(directory, event.client, event.project, parent))
+            states.append(
+                self._state(directory, event.client, event.project, parent, required=True)
+            )
         # Latch a marking before origin resolution can fail. Missing lineage
         # cannot leave previously released knowledge eligible for cloud reads.
         if marked and persist_restrictions:
@@ -458,13 +460,17 @@ class HarnessOutbox:
                         raise _OutboxFailure("lineage_unavailable") from None
             if origin is not None:
                 origin_session, origin_ordinal = origin
+                # A retained origin proves this session already existed. Missing
+                # restriction state cannot become a new unrestricted session,
+                # including when the origin names the current session itself.
+                origin_state = self._state(
+                    directory, event.client, event.project, origin_session, required=True,
+                )
                 key = message.source_id or str(message.ordinal)
                 if origin_session != event.session_id:
                     origins[key] = origin_session
                     if origin_session not in {state["session_id"] for state in states}:
-                        states.append(
-                            self._state(directory, event.client, event.project, origin_session)
-                        )
+                        states.append(origin_state)
                 if origin_session != event.session_id or origin_ordinal != message.ordinal:
                     origin_ordinals[key] = origin_ordinal
         authored_text = "\n".join(m.text for m in event.messages if m.authored)
