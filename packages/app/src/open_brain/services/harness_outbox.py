@@ -55,6 +55,7 @@ _ERROR_CODES = frozenset(
         "policy_changed",
         "credential_signal",
         "capture_unavailable",
+        "source_denied",
     }
 )
 _OUTBOX_CODES = frozenset(
@@ -394,7 +395,7 @@ class HarnessOutbox:
         origin_ordinals: dict[str, int] = {}
         needed = {m.ordinal for batch in capture_batches(event.messages) for m in batch.messages}
         for message in event.messages:
-            if message.ordinal not in needed:
+            if event.client != "hermes" and message.ordinal not in needed:
                 continue
             origin = self._origin(directory, event, event.session_id, message)
             if origin is None and parent is not None:
@@ -439,7 +440,7 @@ class HarnessOutbox:
     def _store_origins(self, directory: int, event: HarnessCaptureEvent) -> None:
         needed = {m.ordinal for batch in capture_batches(event.messages) for m in batch.messages}
         for message in event.messages:
-            if message.ordinal not in needed:
+            if event.client != "hermes" and message.ordinal not in needed:
                 continue
             if message.source_id is None:
                 continue
@@ -486,24 +487,27 @@ class HarnessOutbox:
     def restrict_session(
         self, client: str, session_id: str, project: Path, *, reason: str
     ) -> dict[str, object]:
-        """Latch a credential denial using validated metadata, never source bytes."""
+        """Latch a source denial using validated metadata, never source bytes."""
         if (
             not isinstance(client, str)
-            or client not in {"codex", "claude-code", "pi"}
+            or client not in {"codex", "claude-code", "pi", "hermes"}
             or not isinstance(session_id, str)
             or _IDENTIFIER.fullmatch(session_id) is None
             or not isinstance(project, Path)
             or not project.is_absolute()
-            or reason != "credential_signal"
+            or reason not in {"credential_signal", "source_denied"}
         ):
             return self._metadata("refused", error_code="invalid_event")
         try:
             with self._continuity(create=True) as directory:
                 state = self._state(directory, client, project, session_id)
-                state["credential_blocked"] = True
+                if reason == "credential_signal":
+                    state["credential_blocked"] = True
+                else:
+                    state["pending_custody"] = True
                 state["local_only"] = True
                 self._store_state(directory, state)
-            return self._metadata("refused", error_code="credential_signal")
+            return self._metadata("refused", error_code=reason)
         except OSError as error:
             return self._io_failure(error, None)
         except _OutboxFailure as error:
@@ -627,6 +631,52 @@ class HarnessOutbox:
             "results": results,
             "already_delivered": already_delivered,
         }
+
+    def deliver_request(
+        self, workflow: HarnessWorkflow, request_id: str,
+    ) -> dict[str, object]:
+        """Deliver one retained immutable request; never sweep unrelated pending work."""
+        try:
+            if (
+                not isinstance(request_id, str)
+                or _REQUEST_NAME.fullmatch(request_id + ".json") is None
+            ):
+                raise _OutboxFailure("invalid_request")
+            if derive_brain_id(workflow.tasks.profile.tenant_id) != self.brain_id:
+                raise _OutboxFailure("destination_mismatch")
+            name = request_id + ".json"
+            with self._directories(create=False) as (_, requests, receipts, attempts):
+                body = _read(requests, name)
+                if sha256(body).hexdigest() != request_id:
+                    raise _OutboxFailure("request_identity_mismatch")
+                document = _load(body)
+                event = _decode_event(document)
+                if cast(dict[str, object], document)["brain_id"] != self.brain_id:
+                    raise _OutboxFailure("destination_mismatch")
+                with suppress(FileNotFoundError):
+                    _validate_attempt(_load(_read(attempts, name)), request_id, self.brain_id)
+                try:
+                    receipt_body = _read(receipts, name)
+                except FileNotFoundError:
+                    result = self._deliver(workflow, event, request_id, requests, receipts)
+                    if result["status"] != "delivered":
+                        self._record_attempt(attempts, request_id, result)
+                    return result
+                receipt = _load(receipt_body)
+                _validate_receipt(receipt, request_id, self.brain_id)
+                _publish(receipts, name, receipt_body)
+                return {
+                    **self._metadata("delivered", request_id),
+                    "acknowledgement": cast(dict[str, object], receipt)["acknowledgement"],
+                }
+        except _OutboxFailure as error:
+            return self._metadata("refused", error_code=str(error))
+        except HarnessEventError:
+            return self._metadata("refused", error_code="credential_signal")
+        except OSError as error:
+            return self._io_failure(error, request_id)
+        except ValueError, TypeError, UnicodeError:
+            return self._metadata("refused", error_code="invalid_request")
 
     def status(self) -> dict[str, object]:
         """Inspect up to 256 source/receipt/attempt entries without a Brain/workflow.
@@ -1255,7 +1305,7 @@ def _decode_event(document: object, *, large_event: bool = False) -> HarnessCapt
         document["version"] != _VERSION
         or not isinstance(document["brain_id"], str)
         or _BRAIN.fullmatch(document["brain_id"]) is None
-        or document["client"] not in {"codex", "claude-code", "pi"}
+        or document["client"] not in {"codex", "claude-code", "pi", "hermes"}
         or not isinstance(document["session_id"], str)
         or _IDENTIFIER.fullmatch(document["session_id"]) is None
         or not isinstance(document["project"], str)
@@ -1292,6 +1342,12 @@ def _decode_event(document: object, *, large_event: bool = False) -> HarnessCapt
             or type(item["authored"]) is not bool
             or source_id is not None
             and (not isinstance(source_id, str) or _IDENTIFIER.fullmatch(source_id) is None)
+        ):
+            raise _OutboxFailure("invalid_request")
+        if document["client"] == "hermes" and (
+            source_id is None or not item["authored"]
+            or source_id in {message.source_id for message in parsed}
+            or item["ordinal"] > 2**53 - 1
         ):
             raise _OutboxFailure("invalid_request")
         seen.add(item["ordinal"])

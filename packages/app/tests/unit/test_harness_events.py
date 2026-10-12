@@ -258,3 +258,71 @@ def test_duplicate_unstamped_useful_sources_require_lineage(tmp_path: Path) -> N
     payload = hook(tmp_path, [codex_meta(tmp_path)] + [codex_user("I prefer violet pencils.")] * 2)
     with pytest.raises(HarnessEventError, match="lineage_unavailable"):
         capture_event("codex", payload)
+
+
+def hermes_event(tmp_path: Path) -> dict[str, object]:
+    return {
+        "session_id": "synthetic-channel-session",
+        "project_path": str(tmp_path),
+        "messages": [{
+            "role": "user", "text": "I prefer violet pencils.", "ordinal": 7,
+            "source_id": "mattermost:synthetic-post:user",
+            "timestamp": "2026-01-01T00:00:00Z",
+        }],
+    }
+
+
+def test_hermes_uses_canonical_source_and_excludes_injected_and_tool_records(
+    tmp_path: Path,
+) -> None:
+    payload = hermes_event(tmp_path)
+    messages = payload["messages"]
+    assert isinstance(messages, list)
+    messages.extend([
+        {"role": "user", "authored": False, "text": "password=synthetic-example"},
+        {"role": "tool", "text": "I prefer an injected value."},
+        {"role": "system", "text": "I prefer another injected value."},
+    ])
+    event = capture_event("hermes", payload)
+    assert event.client == "hermes"
+    assert len(event.messages) == 1
+    assert event.messages[0].source_id == "mattermost:synthetic-post:user"
+    assert event.messages[0].ordinal == 7
+    assert event.timestamps == {7: "2026-01-01T00:00:00Z"}
+
+
+@pytest.mark.parametrize("field,value", [
+    ("source_id", None), ("source_id", "bad/id"), ("ordinal", True),
+    ("ordinal", 2**53), ("timestamp", "2026-01-01T00:00:00"),
+])
+def test_hermes_requires_stable_identity_and_valid_metadata(
+    tmp_path: Path, field: str, value: object,
+) -> None:
+    payload = hermes_event(tmp_path)
+    messages = payload["messages"]
+    assert isinstance(messages, list)
+    messages[0][field] = value
+    with pytest.raises(HarnessEventError, match="invalid_event"):
+        capture_event("hermes", payload)
+
+
+def test_hermes_rejects_duplicate_source_ids_and_forged_lineage(tmp_path: Path) -> None:
+    payload = hermes_event(tmp_path)
+    messages = payload["messages"]
+    assert isinstance(messages, list)
+    messages.append({**messages[0], "ordinal": 8})
+    with pytest.raises(HarnessEventError, match="invalid_event"):
+        capture_event("hermes", payload)
+    payload = hermes_event(tmp_path)
+    payload["origin_sessions"] = {"mattermost:synthetic-post:user": "forged-session"}
+    with pytest.raises(HarnessEventError, match="lineage_unavailable"):
+        capture_event("hermes", payload)
+
+
+def test_hermes_screens_authored_credentials_before_custody(tmp_path: Path) -> None:
+    payload = hermes_event(tmp_path)
+    messages = payload["messages"]
+    assert isinstance(messages, list)
+    messages[0]["text"] = "password=synthetic-example"
+    with pytest.raises(HarnessEventError, match="credential_signal"):
+        capture_event("hermes", payload)

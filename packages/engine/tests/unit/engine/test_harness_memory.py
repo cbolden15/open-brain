@@ -123,3 +123,27 @@ def test_record_read_redacts_context_without_invalidating_json() -> None:
     )
     projected, _ = public_harness_record_text(encode_memory(altered), source_reference=REFERENCE)
     assert "/private/synthetic" not in decode_memory(projected).source_context
+
+
+def test_hermes_citation_round_trip_requires_source_and_correct_attribution() -> None:
+    citation = HarnessCitation(
+        "hermes", "hermes", "synthetic-scope", "synthetic-session", 3, "user",
+        "2026-01-01T00:00:00Z", "mattermost:synthetic-post:user",
+    )
+    original = HarnessMemory("preference", "I prefer violet pencils.", "", citation)
+    assert decode_memory(encode_memory(original)) == original
+    raw = json.loads(encode_memory(original))
+    del raw["citation"]["source_id"]
+    with pytest.raises(ValueError):
+        decode_memory(json.dumps(raw))
+    raw["citation"]["source_id"] = "mattermost:synthetic-post:user"
+    raw["citation"]["client"] = "pi"
+    with pytest.raises(ValueError):
+        decode_memory(json.dumps(raw))
+
+
+def test_existing_citation_wire_shape_is_preserved() -> None:
+    original = memory()
+    raw = json.loads(encode_memory(original))
+    assert "source_id" not in raw["citation"]
+    assert decode_memory(json.dumps(raw)) == original

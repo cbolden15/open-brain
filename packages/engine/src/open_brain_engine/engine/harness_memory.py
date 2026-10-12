@@ -38,12 +38,17 @@ class HarnessCitation:
     message_ordinal: int
     authorship: str
     timestamp: str | None
+    source_id: str | None = None
 
     def __post_init__(self) -> None:
         for value in (self.harness, self.client, self.project_id, self.session_id):
             _identifier(value)
-        if self.harness not in {"codex", "claude-code", "pi"}:
+        if self.harness not in {"codex", "claude-code", "pi", "hermes"}:
             raise ValueError("invalid memory harness")
+        if self.source_id is not None:
+            _identifier(self.source_id)
+        if self.harness == "hermes" and (self.client != "hermes" or self.source_id is None):
+            raise ValueError("invalid Hermes source citation")
         if type(self.message_ordinal) is not int or not 0 <= self.message_ordinal <= 2**53 - 1:
             raise ValueError("invalid memory ordinal")
         if self.authorship not in {"user", "assistant"}:
@@ -81,7 +86,10 @@ class HarnessMemory:
 def encode_memory(memory: HarnessMemory) -> str:
     if not isinstance(memory, HarnessMemory):
         raise ValueError("invalid memory")
-    encoded = json.dumps(asdict(memory), ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    document = asdict(memory)
+    if memory.citation.source_id is None:
+        del document["citation"]["source_id"]
+    encoded = json.dumps(document, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
     if len(encoded.encode("utf-8")) > _MAX_BYTES:
         raise ValueError("memory envelope exceeds text payload budget")
     return encoded
@@ -105,10 +113,13 @@ def decode_memory(text: str) -> HarnessMemory:
         }:
             raise ValueError("invalid memory envelope")
         citation = raw["citation"]
-        if not isinstance(citation, dict) or set(citation) != {
+        citation_fields = {
             "harness", "client", "project_id", "session_id", "message_ordinal",
             "authorship", "timestamp",
-        }:
+        }
+        if not isinstance(citation, dict) or set(citation) not in (
+            citation_fields, citation_fields | {"source_id"},
+        ):
             raise ValueError("invalid memory citation")
         raw["citation"] = HarnessCitation(**citation)
         return HarnessMemory(**raw)

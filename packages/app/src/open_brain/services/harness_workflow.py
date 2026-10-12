@@ -172,6 +172,14 @@ class HarnessWorkflow:
                 return {"status": "refused", "error_code": "invalid_request"}
             if local_only:
                 decision = replace(decision, local_only=True)
+            if client == "hermes" and (
+                decision.local_only or decision.tier not in {PrivacyTier.PERSONAL, PrivacyTier.WORK}
+            ):
+                return {"status": "refused", "error_code": "source_denied"}
+            if client == "hermes" and any(
+                not message.authored or message.source_id is None for message in messages
+            ):
+                return {"status": "refused", "error_code": "invalid_request"}
             if has_redaction_finding(authored):
                 return {"status": "refused", "error_code": "credential_signal"}
             indexed = indexed_memories(messages)
@@ -229,6 +237,7 @@ class HarnessWorkflow:
                         (origin_ordinals or {}).get(message_id, candidate.ordinal),
                         candidate.role,
                         None if timestamps is None else timestamps.get(candidate.ordinal),
+                        candidate.source_id if client == "hermes" else None,
                     ),
                 )
                 capture_id, delivery_id = self._capture_revision(
@@ -452,10 +461,13 @@ class HarnessWorkflow:
             authority=authority,
         )
 
-    def recall(self, query: str, *, provider: str, limit: int = 5) -> HarnessRecallResult:
+    def recall(
+        self, query: str, *, provider: str, limit: int = 5,
+        read_tiers: frozenset[PrivacyTier] | None = None,
+    ) -> HarnessRecallResult:
         try:
             policy = self.policy()
-            authority, state = self._provider_authority(policy, provider)
+            authority, state = self._provider_authority(policy, provider, read_tiers=read_tiers)
             return self._recall(query, authority, policy, limit, state)
         except (HarnessPolicyError, _RecallRefusal) as error:
             return HarnessRecallResult("refused", error_code=error.code)
@@ -463,9 +475,17 @@ class HarnessWorkflow:
             return HarnessRecallResult("unavailable", error_code="recall_unavailable")
 
     def _provider_authority(
-        self, policy: HarnessPolicy, provider: str
+        self, policy: HarnessPolicy, provider: str,
+        *, read_tiers: frozenset[PrivacyTier] | None = None,
     ) -> tuple[EffectiveAuthority, ProviderConsentState]:
-        if not policy.allowed_tiers(provider):
+        tiers = policy.allowed_tiers(provider)
+        if read_tiers is not None:
+            if not isinstance(read_tiers, frozenset) or any(
+                not isinstance(tier, PrivacyTier) for tier in read_tiers
+            ):
+                raise _RecallRefusal("invalid_request")
+            tiers &= read_tiers
+        if not tiers:
             raise _RecallRefusal("provider_denied")
         state = self._consent.load()
         active = [r for r in state.records if r.active and r.provider_id == provider]
@@ -476,6 +496,9 @@ class HarnessWorkflow:
             provider_id=provider,
             authorization_generation=state.authorization_generation,
         )
+        tiers &= consent.allowed_tiers
+        if not tiers and read_tiers is not None:
+            raise _RecallRefusal("provider_denied")
         names = {
             _space_name(
                 policy,
@@ -483,7 +506,7 @@ class HarnessWorkflow:
                 rule.project_root,
             )
             for rule in policy.sources
-            if _cloud_rule(policy, rule, provider)
+            if rule.tier in tiers and _cloud_rule(policy, rule, provider)
         }
         spaces = frozenset(s.space_id for s in self.tasks.spaces.spaces() if s.name in names)
         return EffectiveAuthority(
@@ -492,7 +515,7 @@ class HarnessWorkflow:
             frozenset({"search", "content-read"}),
             spaces,
             authorization_generation=state.authorization_generation,
-            allowed_read_tiers=policy.allowed_tiers(provider) & consent.allowed_tiers,
+            allowed_read_tiers=tiers,
             egress_mode=EgressMode.EXTERNAL_PROVIDER,
             provider_id=provider,
             consent_id=consent.consent_id,
@@ -658,11 +681,14 @@ class HarnessWorkflow:
             if row["provenance"]["source_origin"] == "third_party"
         )
 
-    def read_context(self, capture_id: str, *, provider: str) -> HarnessRecallResult:
+    def read_context(
+        self, capture_id: str, *, provider: str,
+        read_tiers: frozenset[PrivacyTier] | None = None,
+    ) -> HarnessRecallResult:
         """Resolve only an authorized retained harness source, including historical decisions."""
         try:
             policy = self.policy()
-            authority, state = self._provider_authority(policy, provider)
+            authority, state = self._provider_authority(policy, provider, read_tiers=read_tiers)
             return self._context(capture_id, authority, policy, state)
         except (HarnessPolicyError, _RecallRefusal) as error:
             return HarnessRecallResult("refused", error_code=error.code)

@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import cast
 
 from open_brain_engine.core.access_contracts import derive_brain_id
+from open_brain_engine.core.models import PrivacyTier
 from open_brain_engine.engine.harness_memory import HarnessMemory
 from open_brain_engine.engine.local_schema import PHASE1_STATE_DATABASE
 from open_brain_engine.storage.sqlite import connect_database_read_only
@@ -34,7 +35,7 @@ from .local_operations import current_brain_identity
 from .session_consent import DurableProviderConsentStore
 
 _SCHEMA = "open-brain-harness-bridge.v1"
-_CLIENTS = frozenset({"codex", "claude-code", "pi"})
+_CLIENTS = frozenset({"codex", "claude-code", "pi", "hermes"})
 
 
 class HarnessBridgeError(ValueError):
@@ -176,7 +177,7 @@ def _workflow(config: HarnessBridgeConfig, *, local_only_host: bool) -> Iterator
 
 
 def _project(client: str, payload: dict[str, object]) -> Path:
-    raw = payload.get("project_path") if client == "pi" else payload.get("cwd")
+    raw = payload.get("project_path") if client in {"pi", "hermes"} else payload.get("cwd")
     if not isinstance(raw, str) or "\0" in raw or not Path(raw).is_absolute():
         raise HarnessBridgeError("invalid_request")
     return Path(raw)
@@ -193,6 +194,7 @@ def _citation(memory: HarnessMemory, capture_id: str | None, state: str) -> str:
             "message_ordinal": citation.message_ordinal,
             "timestamp": citation.timestamp,
             "authorship": citation.authorship,
+            **({"source_id": citation.source_id} if citation.source_id is not None else {}),
             "capture_id": capture_id,
             "state": state,
         },
@@ -239,22 +241,29 @@ def run_harness(
     payload: object = None,
     *,
     local_only_host: bool = False,
+    provider_id: str | None = None,
+    read_tiers: frozenset[PrivacyTier] | None = None,
 ) -> dict[str, object]:
     """Trusted host function; models cannot grant local-only host authority.
 
     The subprocess CLI always leaves local_only_host false. A Pi host may call
     this API after enforcing every provider path; that native gate is separate
-    from this function and must remain active through context release.
+    from this function and must remain active through context release. Hermes
+    reads require a trusted provider_id and a single personal/work read tier;
+    request JSON cannot select either authority and Hermes never grants local reads.
     """
     try:
         if client not in _CLIENTS or action not in {
             "enqueue",
+            "capture",
             "drain",
             "status",
             "recall",
             "search",
             "source",
         }:
+            raise HarnessBridgeError("invalid_request")
+        if action == "capture" and client != "hermes":
             raise HarnessBridgeError("invalid_request")
         config = HarnessBridgeConfig.load(config_path)
         outbox = HarnessOutbox(config.outbox, config.brain_id)
@@ -278,7 +287,7 @@ def run_harness(
         if not isinstance(query, str):
             raise HarnessBridgeError("invalid_request")
         decision = policy.classify(project, authored_text=query)
-        if action == "enqueue":
+        if action in {"enqueue", "capture"}:
             try:
                 event = capture_event(client, payload)
             except HarnessEventError as error:
@@ -288,13 +297,56 @@ def run_harness(
                         reason="credential_signal",
                     )
                 raise
-            policy.classify(
+            capture_decision = policy.classify(
                 project,
                 authored_text="\n".join(
                     message.text for message in event.messages if message.authored
                 ),
             )
-            return outbox.enqueue(event)
+            if client == "hermes" and (
+                event.local_only or capture_decision.local_only
+                or capture_decision.tier not in {PrivacyTier.PERSONAL, PrivacyTier.WORK}
+            ):
+                return outbox.restrict_session(
+                    client, event.session_id, project, reason="source_denied",
+                )
+            queued = outbox.enqueue(event)
+            if action == "enqueue" or queued["status"] != "queued":
+                return queued
+            request_ids = cast(list[str], queued.get("request_ids", [queued["request_id"]]))
+            if queued.get("batch_count", len(request_ids)) != len(request_ids):
+                # An oversized event still has custody; bounded drain completes it later.
+                return queued
+            with _workflow(config, local_only_host=False) as workflow:
+                results = [
+                    outbox.deliver_request(workflow, request_id) for request_id in request_ids
+                ]
+            acknowledgements = [
+                cast(dict[str, object], result["acknowledgement"])
+                for result in results if result.get("status") == "delivered"
+            ]
+            failed = next((result for result in results if result["status"] != "delivered"), None)
+            if failed is not None:
+                return {
+                    **queued,
+                    **cast(dict[str, object], failed.get("acknowledgement", {})),
+                    "status": "queued" if failed["status"] == "pending" else failed["status"],
+                    **({"error_code": failed["error_code"]} if "error_code" in failed else {}),
+                }
+            return {
+                **queued,
+                "status": "acknowledged" if any(
+                    ack["status"] == "acknowledged" for ack in acknowledgements
+                ) else "success_empty",
+                "capture_ids": [
+                    identifier for ack in acknowledgements
+                    for identifier in cast(list[str], ack["capture_ids"])
+                ],
+                "delivery_ids": [
+                    identifier for ack in acknowledgements
+                    for identifier in cast(list[str], ack["delivery_ids"])
+                ],
+            }
         capture_id = payload.get("capture_id")
         if action == "source" and (
             not isinstance(capture_id, str)
@@ -324,7 +376,20 @@ def run_harness(
             }
         if requested_local and not (client == "pi" and local_only_host):
             raise HarnessBridgeError("local_only_host_required")
-        if not requested_local and not policy.allowed_tiers(client):
+        provider = client
+        if client == "hermes":
+            if (
+                not isinstance(provider_id, str)
+                or not isinstance(read_tiers, frozenset)
+                or len(read_tiers) != 1
+                or any(not isinstance(tier, PrivacyTier) for tier in read_tiers)
+                or not read_tiers <= {PrivacyTier.PERSONAL, PrivacyTier.WORK}
+            ):
+                raise HarnessBridgeError("invalid_request")
+            if decision.tier not in read_tiers:
+                return {"status": "refused", "error_code": "source_denied"}
+            provider = provider_id
+        if not requested_local and not policy.allowed_tiers(provider):
             return {"status": "refused", "error_code": "provider_denied"}
         if not requested_local:
             guard = outbox.cloud_read_guard(policy)
@@ -336,13 +401,17 @@ def run_harness(
                 assert isinstance(capture_id, str)
                 response = (
                     workflow.read_context_local(capture_id, project=project)
-                    if requested_local else workflow.read_context(capture_id, provider=client)
+                    if requested_local else workflow.read_context(
+                        capture_id, provider=provider, read_tiers=read_tiers,
+                    )
                 )
             else:
                 response = (
                     workflow.recall_local(query, project=project, limit=limit)
                     if requested_local
-                    else workflow.recall(query, provider=client, limit=limit)
+                    else workflow.recall(
+                        query, provider=provider, limit=limit, read_tiers=read_tiers,
+                    )
                 )
         if response.status not in {"success", "success_empty"}:
             return {"status": response.status, "error_code": response.error_code}

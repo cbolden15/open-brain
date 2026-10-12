@@ -20,6 +20,10 @@ Independent review also found that hashing selected tests without their active
 inventory, including uncommitted files, test configuration, imported fixtures
 and lockfiles; verify an in-memory conftest change invalidates that digest.
 
+Follow-up, 2026-10-12: A Hermes assertion in `test_harness_bridge.py` indexed a
+nested JSON `counts` value typed as `object`. Cast the bounded mapping before
+indexing it. The repaired full typecheck passed all 571 source files.
+
 Discovered: 2026-10-09, automatic-memory acceptance tooling verification.
 
 ### BUILD-006: Public command changes must update every exact inventory
@@ -32,6 +36,10 @@ package script maps and two catalog command counts. Update those inventories
 with the explicitly supported additions while retaining exact equality,
 dependency restrictions and hidden-owner-command checks. Check the app and
 collector package boundaries together, then run the full verification gate.
+
+Follow-up, 2026-10-12: Hermes `harness capture` increased the exact catalog count
+from 72 to 73. Include that command explicitly and update both count assertions,
+preserving the hidden owner-command exclusions and exact inventory checks.
 
 Discovered: 2026-10-09, native harness integration verification.
 
@@ -84,6 +92,17 @@ Fix: Check available bytes before a full run. Remove only completed synthetic
 fixtures created by the current task, retaining their logs. Rerun the failed
 cases after storage recovers, then the full gate. Keep production admission
 guards enabled. Leave space for package and native build artifacts as well.
+
+Follow-up, 2026-10-12: Pytest's `tmp_path_retention_policy=none` retains passing
+fixtures during the run and cleans them at session end. Use `failed` with
+`tmp_path_retention_count=0` for immediate passing-fixture cleanup, plus failfast
+and a bounded worker count. Create a short task-specific `TMPDIR` outside the
+checkout: acceptance evidence intentionally refuses paths under the source root.
+Retain sanitized logs outside build output so subsequent gates cannot unlink them.
+Host swap growth can still exhaust disk with tiny fixtures. An eight-worker run
+hit `storage_high` and a helper timeout; both cases passed serially after workers
+exited, and the full two-worker gate passed with Cargo limited to two jobs.
+Keep the real admission limits and helper deadlines intact.
 
 Discovered: 2026-10-09, repeated automatic harness bridge verification.
 

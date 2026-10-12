@@ -638,3 +638,26 @@ def test_native_custody_long_session_delivers_early_late_recipe_and_stable_fork(
     again = workflow.recall("lentils", provider="codex")
     assert again.memory_ids == meal.memory_ids
     assert again.memories[0].citation.session_id == "parent"
+
+
+def test_existing_clients_keep_empty_recall_when_consent_and_policy_do_not_overlap(
+    tmp_path: Path,
+) -> None:
+    workflow, raw, project, _, _ = setup(tmp_path)
+    raw["sources"][0]["tier"] = "personal"
+    raw["providers"]["codex"] = ["personal"]
+    captured = workflow.capture(
+        "codex", "synthetic-personal-session", project,
+        [MemoryMessage("user", "I prefer violet pencils.", 1)],
+    )
+    assert captured["status"] == "acknowledged"
+    # Existing codex consent grants work only. Omitted narrowing retains the
+    # established empty-result status, while an explicit narrowed read is denied.
+    ordinary = workflow.recall("violet pencils", provider="codex")
+    assert ordinary.status == "success_empty"
+    assert ordinary.memories == ()
+    narrowed = workflow.recall(
+        "violet pencils", provider="codex", read_tiers=frozenset({PrivacyTier.PERSONAL}),
+    )
+    assert narrowed.status == "refused"
+    assert narrowed.error_code == "provider_denied"

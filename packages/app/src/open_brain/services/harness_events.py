@@ -8,6 +8,7 @@ import re
 import stat
 from collections.abc import Mapping
 from dataclasses import dataclass, field
+from datetime import datetime
 from hashlib import sha256
 from pathlib import Path
 from typing import cast
@@ -81,7 +82,7 @@ def capture_event(client: str, payload: object) -> HarnessCaptureEvent:
 
 
 def _capture_event(client: str, payload: object) -> HarnessCaptureEvent:
-    if not isinstance(client, str) or client not in {"codex", "claude-code", "pi"}:
+    if not isinstance(client, str) or client not in {"codex", "claude-code", "pi", "hermes"}:
         raise HarnessEventError("invalid_event")
     if not isinstance(payload, dict):
         raise HarnessEventError("invalid_event")
@@ -91,8 +92,17 @@ def _capture_event(client: str, payload: object) -> HarnessCaptureEvent:
     session = payload.get("session_id")
     if not isinstance(session, str) or _IDENTIFIER.fullmatch(session) is None:
         raise HarnessEventError("invalid_event")
-    project = _project(payload.get("project_path") if client == "pi" else payload.get("cwd"))
-    if client == "pi":
+    project = _project(
+        payload.get("project_path") if client in {"pi", "hermes"} else payload.get("cwd")
+    )
+    if client == "hermes":
+        if any(key in payload for key in (
+            "parent_session_id", "parent_session_path", "origin_sessions", "origin_ordinals",
+        )):
+            raise HarnessEventError("lineage_unavailable")
+        messages, timestamps = _hermes_messages(payload)
+        parent, session_time = None, None
+    elif client == "pi":
         if payload.get("header_session_id", session) != session:
             raise HarnessEventError("identity_mismatch")
         messages, timestamps = _pi_messages(payload)
@@ -130,6 +140,46 @@ def _project(value: object) -> Path:
         return path
     except OSError, UnicodeError:
         raise HarnessEventError("invalid_event") from None
+
+
+def _hermes_messages(
+    payload: dict[str, object],
+) -> tuple[tuple[MemoryMessage, ...], dict[int, str | None]]:
+    """Accept canonical host messages; injected and tool records never enter custody."""
+    raw = payload.get("messages")
+    if not isinstance(raw, list) or len(raw) > MAX_EVENT_MESSAGES:
+        raise HarnessEventError("invalid_event")
+    authored: list[dict[str, object]] = []
+    seen: set[str] = set()
+    for value in raw:
+        if not isinstance(value, dict) or type(value.get("authored", True)) is not bool:
+            raise HarnessEventError("invalid_event")
+        if value.get("authored", True) is False or value.get("role") in ("tool", "system"):
+            continue
+        source_id = value.get("source_id")
+        ordinal = value.get("ordinal")
+        if (
+            not isinstance(source_id, str)
+            or _IDENTIFIER.fullmatch(source_id) is None
+            or source_id in seen
+            or type(ordinal) is not int
+            or not 0 <= ordinal <= 2**53 - 1
+        ):
+            raise HarnessEventError("invalid_event")
+        timestamp = value.get("timestamp")
+        if timestamp is not None:
+            try:
+                if (
+                    not isinstance(timestamp, str)
+                    or len(timestamp) > 64
+                    or datetime.fromisoformat(timestamp).tzinfo is None
+                ):
+                    raise ValueError
+            except ValueError:
+                raise HarnessEventError("invalid_event") from None
+        seen.add(source_id)
+        authored.append(value)
+    return _pi_messages({"messages": authored})
 
 
 def _pi_messages(

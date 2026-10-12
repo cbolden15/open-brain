@@ -11,6 +11,8 @@ from collections.abc import Iterator, Mapping
 from contextlib import contextmanager
 from pathlib import Path
 
+from open_brain_engine.core.models import PrivacyTier
+
 from .harness_bridge import run_harness
 
 
@@ -86,12 +88,21 @@ def run_harness_cli(
         with _deadline(seconds):
             payload: object = None
             if action not in {"drain", "status"}:
-                maximum = 9 * 1024 * 1024 if action == "enqueue" else 256 * 1024
+                maximum = 9 * 1024 * 1024 if action in {"enqueue", "capture"} else 256 * 1024
                 raw = sys.stdin.read(maximum + 1)
                 if len(raw.encode("utf-8")) > maximum:
                     raise ValueError
                 payload = json.loads(raw)
-            result = run_harness(action, parsed.config, parsed.client, payload)
+            provider_id = getattr(parsed, "provider_id", None)
+            read_tier = getattr(parsed, "read_tier", None)
+            if (provider_id is not None or read_tier is not None) and (
+                parsed.client != "hermes" or action not in {"recall", "search", "source"}
+            ):
+                raise ValueError
+            result = run_harness(
+                action, parsed.config, parsed.client, payload, provider_id=provider_id,
+                read_tiers=None if read_tier is None else frozenset({PrivacyTier(read_tier)}),
+            )
     except HarnessDeadlineExceeded:
         result = {"status": "unavailable", "error_code": "bridge_timeout"}
     except Exception:
@@ -111,10 +122,14 @@ def add_harness_arguments(parser: argparse.ArgumentParser) -> None:
     """Shared arguments for the core CLI and optional fast foreground runtime."""
     parser.add_argument(
         "action",
-        choices=("enqueue", "drain", "status", "recall", "search", "source", "mcp", "setup"),
+        choices=(
+            "enqueue", "capture", "drain", "status", "recall", "search", "source", "mcp", "setup",
+        ),
     )
     parser.add_argument("--config", required=True, type=Path)
-    parser.add_argument("--client", required=True, choices=("codex", "claude-code", "pi"))
+    parser.add_argument("--client", required=True, choices=("codex", "claude-code", "pi", "hermes"))
+    parser.add_argument("--provider-id")
+    parser.add_argument("--read-tier", choices=("personal", "work"))
     parser.add_argument("--json", action="store_true", default=argparse.SUPPRESS)
     parser.add_argument("--mode", choices=("preview", "apply"))
     parser.add_argument("--setup-action", choices=("install", "uninstall"), default="install")

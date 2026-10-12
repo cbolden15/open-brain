@@ -12,14 +12,19 @@ configuration owns the Brain destination, source rules, exclusions and provider
 consent. Private notes, configuration and transcript files belong outside the
 repository.
 
+Hermes authored capture and provider-bound recall use this same bridge; see
+[the Hermes host contract](hermes-memory.md). Hermes has no native installation
+asset or local-only read exception.
+
 ## Foreground commands
 
-`open-brain harness` supports `enqueue`, `drain`, `status`, `recall`, `search`,
-`source`, `mcp` and `setup`. See `docs/harness-setup.md` for installation.
+`open-brain harness` supports `capture`, `enqueue`, `drain`, `status`, `recall`,
+`search`, `source`, `mcp` and `setup`. See `docs/harness-setup.md` for installation.
 Every command takes an absolute `--config` path and a fixed `--client` identity:
-`codex`, `claude-code` or `pi`. Enqueue, recall and search read bounded JSON from
-stdin. Source accepts a returned capture ID and resolves retained context under
-current policy. MCP exposes search and source tools over inherited stdio.
+`codex`, `claude-code`, `pi` or `hermes`. Capture is Hermes-only; setup and MCP
+support the existing native clients. Capture, enqueue, recall and search read
+bounded JSON from stdin. Source accepts a returned capture ID and resolves
+retained context under current policy. MCP exposes search and source tools over inherited stdio.
 Results are JSON; failures contain closed metadata codes.
 
 Enqueue acknowledges durable local custody without opening the destination
