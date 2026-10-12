@@ -16,7 +16,7 @@ from pathlib import Path
 
 from open_brain_engine.core.ids import canonical_json_bytes
 from open_brain_engine.engine.contracts import LocalEngineContext
-from open_brain_engine.engine.runtime_admission import hold_runtime_registry
+from open_brain_engine.engine.runtime_admission import HeldRuntimeAdmission, hold_runtime_registry
 from open_brain_engine.storage.filesystem import (
     DurabilityError,
     RootConfinementError,
@@ -63,8 +63,15 @@ def hold_local_runtime_session(
     recover_abandoned_sessions: Callable[[], object],
     admit_session: Callable[[LocalRuntimeSession], object] | None = None,
     admission_profile: LocalEngineContext | None = None,
+    held_admission: HeldRuntimeAdmission | None = None,
 ) -> Iterator[LocalRuntimeSession]:
     """Register one client and distinguish live peers from abandoned sessions."""
+    if held_admission is not None:
+        if admission_profile is None:
+            raise LocalRuntimeSessionError("held runtime admission requires a profile")
+        held_admission.validate(admission_profile)
+        if root != admission_profile.root or root_identity != admission_profile.root_identity:
+            raise LocalRuntimeSessionError("held runtime admission root mismatch")
     root_fd = state_fd = directory_fd = registry_fd = session_fd = -1
     session_name = f"session-{uuid.uuid4().hex}.lock"
     session_created = False
@@ -76,8 +83,13 @@ def hold_local_runtime_session(
         state_fd = _open_child_directory(root_fd, ".open-brain", create=False)
         directory_fd = _open_child_directory(state_fd, _RUNTIME_DIRECTORY, create=True)
         _require_private_directory(directory_fd)
-        registry_fd, _ = _open_private_file(directory_fd, _REGISTRY_LOCK, create=True)
-        if admission_profile is None:
+        if held_admission is not None:
+            registry_fd = held_admission.descriptor
+        else:
+            registry_fd, _ = _open_private_file(directory_fd, _REGISTRY_LOCK, create=True)
+        if held_admission is not None:
+            pass
+        elif admission_profile is None:
             _acquire_registry_lock(registry_fd)
         else:
             admission_stack.enter_context(
@@ -119,8 +131,9 @@ def hold_local_runtime_session(
             _create_registry_version(directory_fd)
         os.fsync(directory_fd)
         admission_stack.close()
-        fcntl.flock(registry_fd, fcntl.LOCK_UN)
-        registry_locked = False
+        if held_admission is None:
+            fcntl.flock(registry_fd, fcntl.LOCK_UN)
+            registry_locked = False
         body_entered = True
         yield runtime_session
     except LocalRuntimeCompatibilityError:
@@ -143,6 +156,9 @@ def hold_local_runtime_session(
     finally:
         try:
             if registry_fd >= 0 and session_created and body_entered:
+                if held_admission is not None:
+                    assert admission_profile is not None
+                    held_admission.validate(admission_profile)
                 if not registry_locked:
                     _acquire_registry_lock(registry_fd)
                     registry_locked = True
@@ -158,7 +174,7 @@ def hold_local_runtime_session(
                 os.fsync(directory_fd)
         finally:
             admission_stack.close()
-            if registry_locked:
+            if registry_locked and held_admission is None:
                 with suppress(OSError):
                     fcntl.flock(registry_fd, fcntl.LOCK_UN)
                 registry_locked = False
@@ -166,7 +182,8 @@ def hold_local_runtime_session(
                 with suppress(OSError):
                     fcntl.flock(session_fd, fcntl.LOCK_UN)
                 os.close(session_fd)
-            for descriptor in (registry_fd, directory_fd, state_fd, root_fd):
+            owned_registry = registry_fd if held_admission is None else -1
+            for descriptor in (owned_registry, directory_fd, state_fd, root_fd):
                 if descriptor >= 0:
                     os.close(descriptor)
 

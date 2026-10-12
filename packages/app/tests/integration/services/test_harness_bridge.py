@@ -2,6 +2,9 @@ from __future__ import annotations
 
 import io
 import json
+import sqlite3
+import subprocess
+import sys
 import time
 from contextlib import contextmanager
 from pathlib import Path
@@ -14,7 +17,10 @@ from open_brain.local_data import select_local_root
 from open_brain.services import harness_bridge
 from open_brain.services.harness_bridge import HarnessBridgeConfig, HarnessBridgeError, run_harness
 from open_brain.services.harness_cli import HarnessDeadlineExceeded, _deadline
-from open_brain.services.local_bootstrap import open_local_brain
+from open_brain.services.local_bootstrap import (
+    hold_existing_local_brain_transaction,
+    open_local_brain,
+)
 from open_brain.services.local_entrypoints import run_cli
 from open_brain.services.local_operations import current_brain_identity
 from open_brain.services.session_consent import DurableProviderConsentStore
@@ -445,6 +451,90 @@ def hermes_setup(tmp_path: Path) -> tuple[Path, Path, Path, dict[str, Any], dict
             operation_id="grant-synthetic-provider", decided_at="2026-01-01T00:00:00Z",
         )
     return path, work, personal, policy, config
+
+
+def test_held_transaction_runs_real_hermes_capture_recall_source_and_retry(tmp_path: Path) -> None:
+    path, work, _, _, config = hermes_setup(tmp_path)
+    root = Path(config["brain_root"])
+    payload = hermes_payload(work)
+    script = """
+import errno, fcntl, sys
+with open(sys.argv[1], 'r+b') as handle:
+    for mode in (fcntl.LOCK_EX, fcntl.LOCK_SH):
+        try:
+            fcntl.lockf(handle, mode | fcntl.LOCK_NB)
+        except OSError as error:
+            assert error.errno in (errno.EACCES, errno.EAGAIN)
+        else:
+            raise AssertionError('canonical writer released')
+"""
+
+    def excluded() -> None:
+        subprocess.run(
+            [sys.executable, "-c", script,
+             str(root / ".open-brain/.open-brain-locks/lease.shared-writer")],
+            check=True, capture_output=True, timeout=5,
+        )
+
+    with hold_existing_local_brain_transaction(root) as transaction:
+        excluded()  # BEFORE proof interval.
+        captured = transaction.run(lambda: run_harness("capture", path, "hermes", payload))
+        assert captured["status"] == "acknowledged", captured
+        excluded()
+        retry = transaction.run(lambda: run_harness("capture", path, "hermes", payload))
+        assert retry["capture_ids"] == captured["capture_ids"]
+        recalled = transaction.run(lambda: run_harness(
+            "recall", path, "hermes", {"project_path": str(work), "query": "editor"},
+            provider_id="synthetic-provider", read_tiers=frozenset({PrivacyTier.WORK}),
+        ))
+        assert recalled["status"] == "ok", recalled
+        rows = cast(list[dict[str, Any]], recalled["results"])
+        assert len(rows) == 1
+        source = transaction.run(lambda: run_harness(
+            "source", path, "hermes", {
+                "project_path": str(work), "capture_id": rows[0]["capture_id"],
+            }, provider_id="synthetic-provider", read_tiers=frozenset({PrivacyTier.WORK}),
+        ))
+        assert source["status"] == "ok", source
+        assert not list((root / ".open-brain/runtime-sessions").glob("session-*"))
+        excluded()  # AFTER and final release-authorization interval.
+        transaction.validate()
+
+
+def test_held_admission_blocks_ordinary_app_capture_before_canonical_enqueue(
+    tmp_path: Path,
+) -> None:
+    path, work, _, _, config = hermes_setup(tmp_path)
+    root = Path(config["brain_root"])
+
+    def canonical_counts() -> tuple[int, int]:
+        connection = sqlite3.connect(
+            f"file:{root / '.open-brain/state/phase1.sqlite3'}?mode=ro", uri=True
+        )
+        try:
+            return (
+                connection.execute("SELECT count(*) FROM capture_ingestion_items").fetchone()[0],
+                connection.execute("SELECT count(*) FROM captures").fetchone()[0],
+            )
+        finally:
+            connection.close()
+
+    script = """
+import json, sys
+from pathlib import Path
+from open_brain.services.harness_bridge import run_harness
+result = run_harness('capture', Path(sys.argv[1]), 'hermes', json.loads(sys.argv[2]))
+assert result == {'status': 'unavailable', 'error_code': 'bridge_unavailable'}, result
+"""
+    with hold_existing_local_brain_transaction(root) as transaction:
+        before = canonical_counts()
+        subprocess.run(
+            [sys.executable, "-c", script, str(path), json.dumps(hermes_payload(work))],
+            check=True, capture_output=True, timeout=8,
+        )
+        assert canonical_counts() == before
+        assert not list((root / ".open-brain/runtime-sessions").glob("session-*"))
+        transaction.validate()
 
 
 def test_hermes_provider_bound_tier_narrowing_citation_and_source_read(tmp_path: Path) -> None:

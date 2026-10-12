@@ -7,11 +7,12 @@ import fcntl
 import os
 import re
 import stat
+import threading
 import time
 from collections.abc import Iterator
 from contextlib import contextmanager
 from contextvars import ContextVar
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from open_brain_engine.storage.filesystem import (
     _open_child_directory,
@@ -49,10 +50,16 @@ class HeldRuntimeAdmission:
     profile: LocalEngineContext
     descriptor: int
     live_peer_count: int = 0
+    _pid: int = field(default_factory=os.getpid, repr=False)
+    _thread: int = field(default_factory=threading.get_ident, repr=False)
+    _active: bool = field(default=True, repr=False)
 
     def validate(self, profile: LocalEngineContext) -> None:
         if (
             _ACTIVE.get() is not self
+            or not self._active
+            or self._pid != os.getpid()
+            or self._thread != threading.get_ident()
             or self.profile.root != profile.root
             or self.profile.root_identity != profile.root_identity
         ):
@@ -145,6 +152,7 @@ def hold_runtime_registry(
         raise T03Error("operation_pending") from None
     finally:
         if token is not None:
+            object.__setattr__(proof, "_active", False)
             _ACTIVE.reset(token)
         if locked:
             fcntl.flock(descriptor, fcntl.LOCK_UN)

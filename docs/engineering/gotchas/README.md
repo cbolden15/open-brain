@@ -4,6 +4,35 @@ Non-obvious behaviors, sharp edges, and lessons learned belong here.
 
 ## Registry
 
+### STORAGE-002: Reading a held POSIX lock file can release the lock
+
+Category: Database/Migrations, Config/Environment.
+
+POSIX record locks belong to a process. Closing any descriptor for the locked
+inode releases that process's lock, even when its original descriptor stays
+open. A complete same-process file inventory can therefore defeat a held writer.
+Identity and lifetime checks cannot prove continuous kernel ownership afterward.
+
+Keep borrowed SDK acquisitions from reopening the writer inode. Run complete
+external inventories in a separate foreground process and retain the parent
+lease. Verify contention from another process throughout the real inventory;
+mocked backup callbacks do not exercise this failure. Do not reacquire the lock
+to hide a gap or omit control files from a complete inventory.
+
+Discovered: 2026-10-12, existing local transaction integration review.
+
+### BUILD-008: Async refusal tests still need valid static return handling
+
+Category: Type Safety.
+
+A negative test passed a coroutine-returning callback to a synchronous API and
+discarded its annotated return. Mypy rejected the unused coroutine even though
+the runtime correctly refused and closed it. Assign the return inside the
+expected-error context while preserving the runtime refusal assertion. Run the
+full typecheck and build; do not weaken the production API's return type.
+
+Discovered: 2026-10-12, existing local transaction verification.
+
 ### BUILD-007: Acceptance evidence helpers need explicit types and source bindings
 
 Category: Type Safety, Build Pipeline.
@@ -23,6 +52,12 @@ and lockfiles; verify an in-memory conftest change invalidates that digest.
 Follow-up, 2026-10-12: A Hermes assertion in `test_harness_bridge.py` indexed a
 nested JSON `counts` value typed as `object`. Cast the bounded mapping before
 indexing it. The repaired full typecheck passed all 571 source files.
+
+Follow-up, 2026-10-12: Starting the full gate while final tests or documentation
+are still being edited produces `source_changed_during_run`. Freeze the entire
+checkout before the source-bound acceptance fixture, including gotcha updates.
+Retain evidence outside the checkout. A passing focused test does not exempt its
+file from the acceptance source binding.
 
 Discovered: 2026-10-09, automatic-memory acceptance tooling verification.
 
