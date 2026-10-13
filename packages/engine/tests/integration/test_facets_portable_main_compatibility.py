@@ -42,9 +42,8 @@ def _mixed(engine: BrainEngine) -> tuple[str, dict[str, Any], EffectiveAuthority
         )
     linked_v2(engine)
     dimension = engine.facets.dimension_create(
-        fc.request_from_wire(
-            "facet.dimension.create",
-            {
+        fc.DimensionCreateRequest(
+            **{
                 "dto_version": 1,
                 "operation_id": "portable10.dimension",
                 "expected_version": 0,
@@ -54,9 +53,8 @@ def _mixed(engine: BrainEngine) -> tuple[str, dict[str, Any], EffectiveAuthority
         authority=owner,
     ).to_wire()["subject_id"]
     value = engine.facets.value_create(
-        fc.request_from_wire(
-            "facet.value.create",
-            {
+        fc.ValueCreateRequest(
+            **{
                 "dto_version": 1,
                 "operation_id": "portable10.value",
                 "expected_version": 0,
@@ -67,7 +65,7 @@ def _mixed(engine: BrainEngine) -> tuple[str, dict[str, Any], EffectiveAuthority
         ),
         authority=owner,
     ).to_wire()["subject_id"]
-    arguments = {
+    arguments: dict[str, Any] = {
         "dto_version": 1,
         "operation_id": "portable10.assignment",
         "expected_version": 0,
@@ -76,8 +74,8 @@ def _mixed(engine: BrainEngine) -> tuple[str, dict[str, Any], EffectiveAuthority
         "add_value_ids": [value],
         "remove_value_ids": [],
     }
-    receipt = engine.facets.assignment_patch(
-        fc.request_from_wire("facet.assignment.patch", arguments), authority=owner
+    receipt = engine.facets.assignments_patch(
+        fc.AssignmentsPatchRequest(**arguments), authority=owner
     ).to_wire()
     return old.retained_original.capture_id, {"arguments": arguments, "receipt": receipt}, owner
 
@@ -95,7 +93,7 @@ def test_mixed_history_custody_and_facets_survive_clean_roundtrip(
         "source_revisions",
         "source_aliases",
         "historical_operations",
-        "sharing_approvals",
+        "sharing_previews",
         "sharing_decisions",
         "sharing_links",
         "facet_operations",
@@ -126,8 +124,8 @@ def test_mixed_history_custody_and_facets_survive_clean_roundtrip(
                 tuple(row) for row in connection.execute(f"SELECT * FROM {table} ORDER BY 1")
             ] == rows
     assert (
-        restored.facets.assignment_patch(
-            fc.request_from_wire("facet.assignment.patch", assignment["arguments"]), authority=owner
+        restored.facets.assignments_patch(
+            fc.AssignmentsPatchRequest(**assignment["arguments"]), authority=owner
         ).to_wire()
         == assignment["receipt"]
     )

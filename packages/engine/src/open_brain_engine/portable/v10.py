@@ -29,6 +29,7 @@ from .facets_v10 import (
 from .v1 import PortableSnapshot, PortableValidationError, _portable_record, _snapshot_directory
 from .v3 import _BINDING_PATH, _records
 from .v5 import ISSUER_MIGRATION_PATH, _manifest
+from .v10_catalog import PORTABLE_V10_SCHEMA_CATALOG_DIGEST as PORTABLE_V10_SCHEMA_CATALOG_DIGEST
 
 
 def manifest_v10(
@@ -39,8 +40,6 @@ def manifest_v10(
     created_at: str,
 ) -> dict[str, object]:
     """Build a v10 manifest over exact inherited and facet payload bytes."""
-    from .v10_catalog import PORTABLE_V10_SCHEMA_CATALOG_DIGEST
-
     return {
         "compatibility": {"maximum_contract_version": "10", "minimum_contract_version": "1"},
         "contract_version": "10",
@@ -112,8 +111,6 @@ def validated_portable_snapshot_v10(
     expected_root_identity: RootIdentity | None = None,
 ) -> PortableSnapshot:
     """Capture one descriptor-confined byte snapshot and validate its v10 manifest."""
-    from .v10_catalog import PORTABLE_V10_SCHEMA_CATALOG_DIGEST
-
     try:
         identity = (
             capture_root_identity(root)

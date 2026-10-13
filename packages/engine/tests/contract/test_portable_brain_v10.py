@@ -409,7 +409,7 @@ def _empty_facet_archive() -> dict[str, bytes]:
     # Cut all inherited evidence from a real schema15 Brain. Portable10 requires
     # source/sharing/history/custody sidecars, including their explicit empty states.
     with TemporaryDirectory() as temporary:
-        root = Path(temporary)
+        root = Path(temporary).resolve()
         engine = BrainEngine.open(compile_single_user_local(root / "brain"))
         engine.capture.accept(TextPayload("Synthetic inherited evidence"), delivery_id="x-empty")
         archive = root / "archive"
