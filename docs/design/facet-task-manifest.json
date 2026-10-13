@@ -198,7 +198,7 @@
         "contract_revision": "facets-c0-v3",
         "fixture_manifest_sha256": "781a6b886baf6a904b974eb071ea30a36d2d8ff6d2f10f98fbd6da06de8653ba"
       },
-      "execution_status": "reserved compatibility expectation repair; final real P interface checks pending"
+      "execution_status": "compatibility repair integrated; reserved accepted CLI grammar correction"
     },
     "T": {
       "requires_verified": [
@@ -598,7 +598,8 @@
         "packages/app/tests/integration/engine/test_portability_v5.py",
         "tests/fixtures/local-schema/catalog-checksums.json",
         "packages/app/src/open_brain/services/catalog.py",
-        "packages/engine/src/open_brain_engine/engine/managed_recovery.py"
+        "packages/engine/src/open_brain_engine/engine/managed_recovery.py",
+        "packages/engine/src/open_brain_engine/engine/issuer_state.py"
       ],
       "acceptance_cases": [
         "F01",
