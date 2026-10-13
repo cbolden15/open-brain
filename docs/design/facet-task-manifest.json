@@ -111,9 +111,9 @@
       ],
       "coordination": "Deliver additive DDL/shape helpers; coordinator owns schema11/session6 registration and shared EngineTaskSet composition. Engine gate includes those integrated registrations.",
       "current_contract_pin": {
-        "commit": "1c14378dc4dc40026c3d2a592b85ae03a43521c1",
-        "contract_revision": "facets-c0-v3",
-        "fixture_manifest_sha256": "781a6b886baf6a904b974eb071ea30a36d2d8ff6d2f10f98fbd6da06de8653ba"
+        "commit": "ed74327f34ec2526fd36b1737e36b05bcd2cdc62",
+        "contract_revision": "facets-c0-v4",
+        "fixture_manifest_sha256": "95e85b535eeb4263a6e430970ecf1d49de8d0b72de7425e41be703897d93dbc5"
       },
       "execution_status": "wrapper-aware page admission repair active"
     },
@@ -192,9 +192,9 @@
       ],
       "preparation_completion": "Adapter tests against explicit fake pass; real-handler authority and publication proofs pending.",
       "current_contract_pin": {
-        "commit": "1c14378dc4dc40026c3d2a592b85ae03a43521c1",
-        "contract_revision": "facets-c0-v3",
-        "fixture_manifest_sha256": "781a6b886baf6a904b974eb071ea30a36d2d8ff6d2f10f98fbd6da06de8653ba"
+        "commit": "ed74327f34ec2526fd36b1737e36b05bcd2cdc62",
+        "contract_revision": "facets-c0-v4",
+        "fixture_manifest_sha256": "95e85b535eeb4263a6e430970ecf1d49de8d0b72de7425e41be703897d93dbc5"
       },
       "execution_status": "227 focused checks passed; adapter service and unit admission tests transferred to I"
     },
@@ -291,9 +291,9 @@
       ],
       "preparation_completion": "Independent acceptance/fault tests authored; missing producer cases remain tests-ready, not passed or skipped to fake completion.",
       "current_contract_pin": {
-        "commit": "1c14378dc4dc40026c3d2a592b85ae03a43521c1",
-        "contract_revision": "facets-c0-v3",
-        "fixture_manifest_sha256": "781a6b886baf6a904b974eb071ea30a36d2d8ff6d2f10f98fbd6da06de8653ba"
+        "commit": "ed74327f34ec2526fd36b1737e36b05bcd2cdc62",
+        "contract_revision": "facets-c0-v4",
+        "fixture_manifest_sha256": "95e85b535eeb4263a6e430970ecf1d49de8d0b72de7425e41be703897d93dbc5"
       },
       "execution_status": "independent MCP wire limits regression tests active"
     },
@@ -380,9 +380,9 @@
         "stage": "real publication and recovery verification; shared registration composed"
       },
       "current_contract_pin": {
-        "commit": "1c14378dc4dc40026c3d2a592b85ae03a43521c1",
-        "contract_revision": "facets-c0-v3",
-        "fixture_manifest_sha256": "781a6b886baf6a904b974eb071ea30a36d2d8ff6d2f10f98fbd6da06de8653ba"
+        "commit": "ed74327f34ec2526fd36b1737e36b05bcd2cdc62",
+        "contract_revision": "facets-c0-v4",
+        "fixture_manifest_sha256": "95e85b535eeb4263a6e430970ecf1d49de8d0b72de7425e41be703897d93dbc5"
       },
       "execution_status": "lineage route repair integrated; 106 focused real and legacy checks passed"
     },
@@ -463,9 +463,9 @@
         "E"
       ],
       "current_contract_pin": {
-        "commit": "1c14378dc4dc40026c3d2a592b85ae03a43521c1",
-        "contract_revision": "facets-c0-v3",
-        "fixture_manifest_sha256": "781a6b886baf6a904b974eb071ea30a36d2d8ff6d2f10f98fbd6da06de8653ba"
+        "commit": "ed74327f34ec2526fd36b1737e36b05bcd2cdc62",
+        "contract_revision": "facets-c0-v4",
+        "fixture_manifest_sha256": "95e85b535eeb4263a6e430970ecf1d49de8d0b72de7425e41be703897d93dbc5"
       },
       "execution_status": "lineage-aware restore validation active; managed restore checks integrated"
     },
@@ -541,9 +541,9 @@
         "E"
       ],
       "current_contract_pin": {
-        "commit": "1c14378dc4dc40026c3d2a592b85ae03a43521c1",
-        "contract_revision": "facets-c0-v3",
-        "fixture_manifest_sha256": "781a6b886baf6a904b974eb071ea30a36d2d8ff6d2f10f98fbd6da06de8653ba"
+        "commit": "ed74327f34ec2526fd36b1737e36b05bcd2cdc62",
+        "contract_revision": "facets-c0-v4",
+        "fixture_manifest_sha256": "95e85b535eeb4263a6e430970ecf1d49de8d0b72de7425e41be703897d93dbc5"
       },
       "execution_status": "runtime implementation integrated; focused real reconciliation/recovery checks passed"
     },
@@ -637,7 +637,12 @@
         "git diff --check",
         "actionlint .github/workflows/ci.yml"
       ],
-      "completion_gate": "real-producer acceptance plus coordinator repository checks; fake results alone do not complete task"
+      "completion_gate": "real-producer acceptance plus coordinator repository checks; fake results alone do not complete task",
+      "current_contract_pin": {
+        "commit": "ed74327f34ec2526fd36b1737e36b05bcd2cdc62",
+        "contract_revision": "facets-c0-v4",
+        "fixture_manifest_sha256": "95e85b535eeb4263a6e430970ecf1d49de8d0b72de7425e41be703897d93dbc5"
+      }
     },
     "R": {
       "requires_verified": [
@@ -693,9 +698,9 @@
       "executor": "native strong-model session",
       "worktree": "/Users/calebbolden/Projects/oss/open-brain-facets-stage-one-r",
       "current_contract_pin": {
-        "commit": "1c14378dc4dc40026c3d2a592b85ae03a43521c1",
-        "contract_revision": "facets-c0-v3",
-        "fixture_manifest_sha256": "781a6b886baf6a904b974eb071ea30a36d2d8ff6d2f10f98fbd6da06de8653ba"
+        "commit": "ed74327f34ec2526fd36b1737e36b05bcd2cdc62",
+        "contract_revision": "facets-c0-v4",
+        "fixture_manifest_sha256": "95e85b535eeb4263a6e430970ecf1d49de8d0b72de7425e41be703897d93dbc5"
       }
     }
   },
@@ -761,6 +766,12 @@
       "from": "A",
       "to": "I",
       "reason": "A finished9058225; coordinator owns trusted transport-size admission integration"
+    },
+    {
+      "file": "packages/app/tests/unit/test_facets_adapters.py",
+      "from": "A",
+      "to": "I",
+      "reason": "A complete; coordinator updates receipt reservation assertion for the complete transport cap"
     }
   ]
 }

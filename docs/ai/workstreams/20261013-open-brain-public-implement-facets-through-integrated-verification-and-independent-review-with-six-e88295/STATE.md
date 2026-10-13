@@ -8,6 +8,28 @@
 - Objective: Implement facets through integrated verification and independent review with six workers
 - Created date: 2026-10-13
 
+## Current checkpoint
+
+C0 v4 is verified at `ed74327f34ec2526fd36b1737e36b05bcd2cdc62`.
+Fixture manifest SHA-256: `95e85b535eeb4263a6e430970ecf1d49de8d0b72de7425e41be703897d93dbc5`.
+All six implementation streams are integrated. Three bounded native continuations remain active:
+E (transport-aware page admission), T (independent wire-limit regressions), and X (source-lineage
+archive validation). A, P and V terminal sessions are idle after scoped verification. The coordinator
+owns transport composition, shared inputs, registration, integration and this ledger.
+
+P's source-lineage publication repair `646f575` is integrated as `ca6c72b`; 106 focused checks pass.
+Coordinator adapter/transport changes are at `51c5fff`; 98 adapter/legacy Portable checks pass.
+X managed export/restore evidence `172185b` is integrated as `108cd89`.
+The combined acceptance run previously passed 64 cases with one successor-route export failure;
+P/X/coordinator changes address that failure. Final full verification and independent review are pending.
+
+The earlier full candidate `6a3ee76` completed lint/typecheck, then pytest returned 3790 passed,
+73 failed and 5 skipped. Its failures are recorded in the private run log and require the final
+combined rerun; that candidate lacked final publication/vault composition and compatibility repairs.
+No older full or fake-based result substitutes for final real-engine verification.
+
+## Historical execution checkpoints
+
 ## Execution contract
 
 C0: `4a29944b4fead146c6f9bf5c535d0a1595799870`, revision `facets-c0-v1`.

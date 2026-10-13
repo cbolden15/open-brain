@@ -2309,3 +2309,37 @@ Cause: The store connection starts its read transaction before the facet inspect
 Fix: Use the existing snapshot when it is active. Test inspection through the real store; an
 in-memory fixture connection does not reproduce this boundary. Independent F09–F14 checks
 found the publication path failure on 2026-10-13.
+
+### FACETS-007: Wire limits include both MCP response representations
+
+Symptom: A Unicode-heavy facet page fits its DTO limit but the actual MCP response is more than
+twice that size. A large JSON-RPC request ID can also make a small mutation's receipt exceed its cap.
+
+Cause: MCP encodes the result in both text content and structured content, with ASCII escaping.
+Counting only parsed arguments also omits request metadata, whitespace and the request ID.
+
+Fix: Pass the real raw request size through stdio, reserve a bounded complete receipt before
+mutation, and give an immutable engine task clone the actual response encoder for pagination.
+Keep the requested limit in cursor binding. Independent wire tests found these cases on 2026-10-13.
+
+### FACETS-008: Source routing follows proven revision lineage
+
+Symptom: Publication from a routed source successor succeeds, but Portable export rejects its
+frozen source state because the successor's immutable capture has no route of its own.
+
+Cause: Logical source space can be inherited from an ancestor. Route supersession chains are
+per capture, so the latest logical route also needs the proven source revision sequence.
+
+Fix: Bind current publication evidence to the newest routed revision's chain tip. Validate
+historical bindings against retained source lineage, route order, destination and proposal time.
+Keep legacy binding validation unchanged. Real successor/export acceptance exposed this on 2026-10-13.
+
+### FACETS-009: A no-op receipt still needs reachable history
+
+Symptom: Rehashed Portable evidence can claim an impossible unchanged version or membership.
+
+Cause: A no-op has no event, but syntactic receipt validation alone cannot prove it was possible.
+
+Fix: Require the unchanged request and receipt to match one reachable historical event boundary.
+Test the importer with a tampered, rehashed real export and assert rejection before writes.
+Independent stage-one review found this on 2026-10-13; contract revision v4 contains the correction.
