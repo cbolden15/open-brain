@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from contextlib import closing
 from copy import deepcopy
 from datetime import UTC, datetime
 from hashlib import sha256
@@ -10,14 +11,24 @@ from pathlib import Path
 from typing import Any, cast
 
 import pytest
-from open_brain_engine.core.models import PrivacyTier
+from open_brain_engine.core.models import (
+    Authority,
+    CaptureWhyOrigin,
+    ContentOrigin,
+    PrivacyDecision,
+    PrivacyReason,
+    PrivacyTier,
+    Provenance,
+)
 from open_brain_engine.engine import facet_contracts as fc
 from open_brain_engine.engine.contracts import (
     CaptureFault,
     CaptureReceipt,
+    CaptureSubmission,
     DecisionOutcome,
     InjectedFault,
     LocalEngineContext,
+    PublicJobCaptureContext,
     TextPayload,
 )
 from open_brain_engine.engine.facet_publication import (
@@ -28,13 +39,14 @@ from open_brain_engine.engine.facet_publication import (
     verify_facet_snapshot,
 )
 from open_brain_engine.engine.local import BrainEngine
-from open_brain_engine.engine.review import ReviewTasks
 from open_brain_engine.engine.review_bound import validate_current_binding
+from open_brain_engine.engine.source_intake import SourceRevisionReceipt, SourceRevisionSubmission
 from open_brain_engine.engine.t03_contracts import EffectiveAuthority
 from open_brain_engine.portable.review_binding import review_binding_digest, validate_review_binding
 from open_brain_engine.portable.v1 import PortableValidationError
 from open_brain_engine.portable.v4 import canonical_revision_id
 from open_brain_engine.providers.base import ProviderMode
+from open_brain_engine.storage.markdown import parse_markdown
 
 FIXTURES = Path(__file__).resolve().parents[1] / "fixtures" / "facets"
 
@@ -300,12 +312,14 @@ class LiveFacetBrain:
             "expected_version": 0,
         })["subject_id"])
 
-    def capture(self, space_id: str | None) -> CaptureReceipt:
+    def capture(
+        self, space_id: str | None, privacy_tier: PrivacyTier = PrivacyTier.WORK
+    ) -> CaptureReceipt:
         self.sequence += 1
         return cast(CaptureReceipt, self.engine.capture.accept(
             TextPayload(f"Synthetic evidence {self.sequence}"),
             delivery_id=f"synthetic-capture-{self.sequence}", space_id=space_id,
-            privacy_tier=PrivacyTier.WORK,
+            privacy_tier=privacy_tier,
         ))
 
     def patch(
@@ -446,10 +460,15 @@ def test_real_current_authority_covers_every_source(live_brain: LiveFacetBrain) 
         capabilities=frozenset({"review-read", "review-decide"}),
         space_ids=frozenset({proposal["space_id"]}),
     )
-    review = ReviewTasks(brain.engine, authority=authority)
+    review = brain.engine.review.with_authority(authority)
     with pytest.raises(ValueError, match="not_found"):
         review.show(proposal["proposal_id"])
     assert review.list() == ()
+    with pytest.raises(ValueError, match="not_found"):
+        review.decide(
+            proposal["proposal_id"], DecisionOutcome.APPROVED, delivery_id="denied-decision",
+            expected_review_digest=brain.engine.review.show(proposal["proposal_id"]).review_digest,
+        )
 
 
 @pytest.mark.parametrize("count", [0, 33])
@@ -521,21 +540,37 @@ def test_real_rejection_does_not_materialize_attachment(live_brain: LiveFacetBra
         connection.close()
 
 
-def test_real_admitted_publication_recovers_after_query_edit(live_brain: LiveFacetBrain) -> None:
+@pytest.mark.parametrize("mutation", ["selector", "archive"])
+def test_real_admitted_publication_recovers_after_query_edit(
+    live_brain: LiveFacetBrain, mutation: str,
+) -> None:
     brain = live_brain
     proposal = brain.propose("recovery-query-edit")
     brain.engine._faults.add(CaptureFault.AFTER_DECISION_RESERVATION)
     with pytest.raises(InjectedFault):
         brain.approve(proposal)
     brain.engine._faults.clear()
-    try:
-        brain.write("facet.query.update", {
-            "query_id": brain.query, "expected_version": 1, "name": "Changed selection",
+    # A no-op and a display rename remain safe while the bound selection is reserved.
+    brain.write("facet.query.update", {
+        "query_id": brain.query, "expected_version": 1,
+        "name": "Apollo sources", "selector": brain.selector,
+    })
+    brain.write("facet.query.update", {
+        "query_id": brain.query, "expected_version": 1,
+        "name": "Renamed during recovery", "selector": brain.selector,
+    })
+    method = "facet.query.update" if mutation == "selector" else "facet.query.archive"
+    update: dict[str, Any] = {"query_id": brain.query, "expected_version": 2}
+    if mutation == "selector":
+        update.update({
+            "name": "Changed selection",
             "selector": fc.FacetSelector(all_value_ids=[brain.unrelated]).to_wire(),
         })
-    except fc.FacetError as error:
-        assert error.code in {"operation_pending", "review_conflict", "version_conflict"}
+    with pytest.raises(fc.FacetError) as error:
+        brain.write(method, update)
+    assert error.value.code == "operation_pending"
     reopened = BrainEngine.open(brain.profile, clock=brain.clock)
+    brain.write(method, update)
     connection = reopened._store.connect()
     try:
         assert connection.execute(
@@ -569,5 +604,173 @@ def test_real_publication_recovery_attaches_once(
         assert connection.execute(
             "SELECT COUNT(*) FROM facet_operations WHERE operation_id LIKE 'publication-facet-%'"
         ).fetchone()[0] == 1
+        assert connection.execute(
+            "SELECT COUNT(*) FROM facet_events WHERE kind='query.attach'"
+        ).fetchone()[0] == 1
+        event = connection.execute(
+            "SELECT actor_id FROM facet_events WHERE kind='query.attach'"
+        ).fetchone()
+        assert event[0] == brain.profile.owner_actor_id
     finally:
         connection.close()
+
+
+def public_revision(engine: BrainEngine, sequence: int, head: str | None) -> SourceRevisionReceipt:
+    """Submit explicit proven ordering through the existing public source seam."""
+    actor = "actor_00000000-0000-4000-8000-000000000091"
+    context = PublicJobCaptureContext.create(
+        profile=engine.profile,
+        actor_id=actor,
+        role_claim={
+            "actor_id": actor,
+            "capabilities": ["capture.accept"],
+            "role_claim_id": "role_claim_00000000-0000-4000-8000-000000000092",
+            "role_id": "role_00000000-0000-4000-8000-000000000093",
+            "tenant_id": engine.profile.tenant_id,
+        },
+    )
+    reference = "https://example.test/independent-proven-record"
+    submission = CaptureSubmission.for_public_job(
+        context=context,
+        payload=TextPayload(f"Synthetic proven revision {sequence}"),
+        delivery_id="independent-proven-source",
+        source_origin=ContentOrigin.THIRD_PARTY,
+        source_reference=reference,
+        provenance=Provenance.create(
+            source_ref=reference,
+            content_origin=ContentOrigin.THIRD_PARTY,
+            owner_context=CaptureWhyOrigin.AUTOMATION_ABSENT,
+        ),
+        privacy=PrivacyDecision.create(
+            tier=PrivacyTier.WORK,
+            reason=PrivacyReason.POLICY_WORK,
+            policy_version="privacy-v1",
+            authority=Authority(cloud=False, external_egress=False),
+        ),
+    )
+    return engine.sources.submit_revision(
+        SourceRevisionSubmission(
+            capture=submission,
+            namespace={
+                "connector_name": "synthetic",
+                "connection_id": "independent",
+                "resource_id": "record",
+                "external_id": "one",
+            },
+            revision_key=str(sequence),
+            canonical_sha256=submission.request_sha256(),
+            expected_head=head,
+            ordering={
+                "kind": "monotonic",
+                "provider_namespace": "synthetic",
+                "epoch": "one",
+                "sequence": sequence,
+            },
+            expected_control_epoch=0,
+        )
+    )
+
+
+
+def test_real_selected_successor_stales_pending_but_preserves_inherited_evidence(
+    live_brain: LiveFacetBrain,
+) -> None:
+    brain = live_brain
+    first = public_revision(brain.engine, 1, None)
+    assert first.capture_id is not None
+    brain.write("facet.assignment.patch", {
+        "record_id": first.capture_id, "expected_revision_id": first.capture_id,
+        "expected_version": 0, "add_value_ids": [brain.value], "remove_value_ids": [],
+    })
+    published = brain.propose("before-successor")
+    decision = brain.approve(published)
+    pending = brain.propose("pending-before-successor")
+    successor = public_revision(brain.engine, 2, first.capture_id)
+    assert successor.capture_id != first.capture_id
+    with pytest.raises(ValueError, match="head conflict"):
+        brain.approve(pending)
+    update = brain.propose(
+        "after-successor", target_page_id=published["page_id"], destination_space_id=None,
+        expected_page_revision_id=canonical_revision_id(decision.publication_id),
+    )
+    inspected = brain.engine.review.show(update["proposal_id"])
+    assert first.capture_id in inspected.capture_ids
+    assert first.capture_id not in inspected.selected_capture_ids
+    assert successor.capture_id in inspected.selected_capture_ids
+    brain.approve(update)
+
+
+def test_real_privacy_join_survives_edit_and_inherited_provenance(
+    live_brain: LiveFacetBrain,
+) -> None:
+    brain = live_brain
+    personal = brain.capture(None, PrivacyTier.PERSONAL)
+    brain.patch(personal, expected_version=0, add=[brain.value])
+    proposal = brain.propose("mixed-privacy")
+    inspected = brain.engine.review.show(proposal["proposal_id"])
+    assert inspected.facet_binding_json is not None
+    binding = json.loads(inspected.facet_binding_json)
+    assert binding["schema_version"] == 5
+    assert set(binding["selected_capture_ids"]) == set(inspected.selected_capture_ids)
+    with closing(brain.engine._store.connect()) as connection:
+        retained = connection.execute(
+            "SELECT binding_json FROM review_contexts WHERE proposal_id=?",
+            (inspected.proposal_id,),
+        ).fetchone()[0]
+    assert json.loads(retained) == binding
+    limited = EffectiveAuthority(
+        principal_id="synthetic-reviewer", session_id="synthetic-work-only",
+        capabilities=frozenset({"review-read", "review-decide"}), space_ids=None,
+        allowed_read_tiers=frozenset({PrivacyTier.WORK}),
+    )
+    review = brain.engine.review.with_authority(limited)
+    assert review.list() == ()
+    with pytest.raises(ValueError, match="not_found"):
+        review.show(inspected.proposal_id)
+    with pytest.raises(ValueError, match="not_found"):
+        review.decide(
+            inspected.proposal_id, DecisionOutcome.APPROVED, delivery_id="privacy-denied",
+            expected_review_digest=inspected.review_digest,
+        )
+    reviewer = EffectiveAuthority(
+        principal_id="synthetic-reviewer", session_id="synthetic-personal-review",
+        capabilities=frozenset({"review-read", "review-decide"}), space_ids=None,
+    )
+    # Approval alone authorizes the already-bound attachment, with no proposal/query grants.
+    decision = brain.engine.review.with_authority(reviewer).decide(
+        inspected.proposal_id, DecisionOutcome.EDITED, delivery_id="edited-private",
+        edited_markdown="Synthetic edited personal synthesis.",
+        expected_review_digest=inspected.review_digest,
+    )
+    with closing(brain.engine._store.connect()) as connection:
+        row = connection.execute(
+            "SELECT effective_bytes FROM decisions WHERE decision_id=?", (decision.decision_id,),
+        ).fetchone()
+    privacy = cast(dict[str, Any], parse_markdown(row[0]).fields["privacy"])
+    assert privacy["tier"] == "personal"
+    assert privacy["authority"] == {"cloud": False, "external_egress": False}
+    assert decision.publication_id is not None
+    brain.patch(personal, expected_version=1, remove=[brain.value])
+    update = brain.propose(
+        "inherited-private", target_page_id=proposal["page_id"], destination_space_id=None,
+        expected_page_revision_id=canonical_revision_id(decision.publication_id),
+    )
+    inherited = brain.engine.review.show(update["proposal_id"])
+    assert personal.capture_id in inherited.capture_ids
+    assert personal.capture_id not in inherited.selected_capture_ids
+    with pytest.raises(ValueError, match="not_found"):
+        review.show(inherited.proposal_id)
+    approved = brain.approve(update)
+    with closing(brain.engine._store.connect()) as connection:
+        row = connection.execute(
+            "SELECT effective_bytes FROM decisions WHERE decision_id=?", (approved.decision_id,),
+        ).fetchone()
+    assert parse_markdown(row[0]).fields["privacy"] == privacy
+
+
+def test_v5_create_requires_complete_selected_provenance() -> None:
+    binding = _fixture("positive/review-create-cross-space.json")
+    binding["selected_capture_ids"].pop()
+    binding["facet_source_states"].pop()
+    with pytest.raises(PortableValidationError, match="provenance differs"):
+        validate_review_binding(binding)

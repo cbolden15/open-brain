@@ -513,7 +513,6 @@ class ReviewOperations(_LocalEngineOperations):
                 from .facet_publication import authorize_facet_evidence
                 from .t03_contracts import T03Error
 
-                connection.execute("BEGIN")
                 visible = []
                 for row in rows:
                     context = contexts[cast(str, row["proposal_id"])]
@@ -635,7 +634,6 @@ class ReviewOperations(_LocalEngineOperations):
                 if binding.get("schema_version") == 5:
                     from .facet_publication import authorize_facet_evidence, owner_review_authority
 
-                    connection.execute("BEGIN")
                     authorize_facet_evidence(
                         self, connection, binding,
                         owner_review_authority(self) if authority is None else authority,
@@ -741,6 +739,10 @@ class ReviewOperations(_LocalEngineOperations):
             ),
             patch=patch,
             patch_diff=patch_diff,
+            facet_binding_json=(
+                portable_canonical_json_bytes(binding).decode("utf-8")
+                if binding is not None and binding.get("schema_version") == 5 else None
+            ),
         )
 
     def _decide(
@@ -1152,6 +1154,10 @@ class ReviewTasks:
     ) -> None:
         self._engine = engine
         self._authority = authority
+
+    def with_authority(self, authority: EffectiveAuthority) -> ReviewTasks:
+        """Bind review reads and decisions to the current trusted session authority."""
+        return ReviewTasks(self._engine, authority=authority)
 
     def propose(
         self,

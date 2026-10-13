@@ -153,6 +153,9 @@ def validate_review_binding(binding: object) -> dict[str, object]:
     if any(capture_id not in provenance for capture_id in selected):
         raise PortableValidationError("review selected captures are not provenance")
 
+    if version == 5 and operation == "create" and selected != provenance:
+        raise PortableValidationError("facet create provenance differs from selection")
+
     raw_states = _required_list(value, "source_states", "review binding")
     if len(raw_states) != len(provenance):
         raise PortableValidationError("review source states are malformed")
