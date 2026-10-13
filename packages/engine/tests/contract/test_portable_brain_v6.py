@@ -12,7 +12,7 @@ from copy import deepcopy
 from dataclasses import replace
 from hashlib import sha256
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import pytest
 from open_brain_engine.core.ids import portable_canonical_json_bytes as canonical
@@ -608,3 +608,152 @@ def test_portable_and_engine_import_orders_in_fresh_process(modules: list[str]) 
         check=False,
     )
     assert result.returncode == 0, result.stderr
+
+
+def test_real_populated_facets_export_import_reopen_query_retry_and_reexport(
+    tmp_path: Path,
+) -> None:
+    from open_brain_engine.core.models import PrivacyTier
+    from open_brain_engine.engine import facet_contracts as fc
+    from open_brain_engine.engine.contracts import TextPayload
+    from open_brain_engine.engine.local import BrainEngine
+    from open_brain_engine.engine.t03_contracts import EffectiveAuthority
+    from open_brain_engine.portable.versioned import validated_portable_snapshot
+
+    from open_brain.profile import compile_single_user_local, open_existing_single_user_local
+
+    engine = BrainEngine.open(
+        compile_single_user_local(tmp_path / "brain", starter_spaces=("Notes",))
+    )
+    capture = engine.capture.accept(
+        TextPayload("Synthetic Portable facet record"),
+        delivery_id="x-real-source",
+        space_id=engine.inbox.spaces()[0].space_id,
+        privacy_tier=PrivacyTier.WORK,
+    )
+    authority = EffectiveAuthority(
+        principal_id="open-brain-mcp-local",
+        session_id="x-portable-delegated",
+        capabilities=frozenset(
+            {"facet-read", "facet-catalog-write", "facet-assign", "facet-query-write", "search"}
+        ),
+        space_ids=None,
+    )
+
+    def call(target: BrainEngine, method: str, **arguments: Any) -> dict[str, Any]:
+        request = fc.request_from_wire(method, {"dto_version": 1, **arguments})
+        return cast(
+            dict[str, Any],
+            getattr(target.facets, fc.OPERATION_METHODS[method])(
+                request, authority=authority
+            ).to_wire(),
+        )
+
+    dimension = call(
+        engine,
+        "facet.dimension.create",
+        operation_id="x-real-dimension",
+        expected_version=0,
+        name="Project",
+    )["subject_id"]
+    value = call(
+        engine,
+        "facet.value.create",
+        operation_id="x-real-value",
+        expected_version=0,
+        dimension_id=dimension,
+        expected_dimension_version=1,
+        name="Apollo",
+    )["subject_id"]
+    patch = {
+        "operation_id": "x-real-initial-assignment",
+        "expected_version": 0,
+        "record_id": capture.capture_id,
+        "expected_revision_id": capture.capture_id,
+        "add_value_ids": [value],
+        "remove_value_ids": [],
+    }
+    first_receipt = call(engine, "facet.assignment.patch", **patch)
+    call(
+        engine,
+        "facet.assignment.patch",
+        operation_id="x-real-remove",
+        expected_version=1,
+        record_id=capture.capture_id,
+        expected_revision_id=capture.capture_id,
+        add_value_ids=[],
+        remove_value_ids=[value],
+    )
+    call(
+        engine,
+        "facet.assignment.patch",
+        operation_id="x-real-restore",
+        expected_version=2,
+        record_id=capture.capture_id,
+        expected_revision_id=capture.capture_id,
+        add_value_ids=[value],
+        remove_value_ids=[],
+    )
+    query = call(
+        engine,
+        "facet.query.create",
+        operation_id="x-real-query",
+        expected_version=0,
+        name="Apollo sources",
+        selector={"all_value_ids": [value], "record_types": ["source"]},
+    )["subject_id"]
+    call(
+        engine,
+        "facet.dimension.rename",
+        operation_id="x-real-rename",
+        expected_version=1,
+        dimension_id=dimension,
+        name="Research",
+    )
+    call(
+        engine,
+        "facet.value.archive",
+        operation_id="x-real-archive",
+        expected_version=1,
+        value_id=value,
+    )
+    noop = call(
+        engine,
+        "facet.assignment.patch",
+        operation_id="x-real-noop",
+        expected_version=3,
+        record_id=capture.capture_id,
+        expected_revision_id=capture.capture_id,
+        add_value_ids=[value],
+        remove_value_ids=[],
+    )
+    assert noop["status"] == "unchanged" and noop["event_id"] is None
+    exported = tmp_path / "portable"
+    engine.portability.export(exported, export_id="export_00000000-0000-4000-8000-000000000091")
+    before = validated_portable_snapshot(exported)
+    assert before.manifest["schema_version"] == 6
+    operations = json.loads(before.files[FACET_OPERATIONS_PATH])["operations"]
+    assert {row["principal_id"] for row in operations} == {authority.principal_id}
+    events = json.loads(before.files[FACET_EVENTS_PATH])["events"]
+    assert {event["actor_id"] for event in events} == {engine.profile.owner_actor_id}
+    state = json.loads(before.files[FACET_STATE_PATH])
+    assert state["assignments"][0]["membership_version"] == 3
+    restored_root = tmp_path / "restored"
+    import_id = "import_00000000-0000-4000-8000-000000000092"
+    imported = engine.portability.import_clean(exported, restored_root, import_id=import_id)
+    assert imported.status == "imported" and not imported.duplicate
+    duplicate = engine.portability.import_clean(exported, restored_root, import_id=import_id)
+    assert duplicate.duplicate
+    restored = BrainEngine.open(open_existing_single_user_local(restored_root))
+    queried = call(restored, "facet.query.page", query_id=query, expected_query_version=1)
+    assert [item["record"]["record_id"] for item in queried["items"]] == [capture.capture_id]
+    assert call(restored, "facet.assignment.patch", **patch) == first_receipt
+    ready = json.loads((restored_root / ".open-brain/state/portability-ready.json").read_bytes())
+    assert ready["schema_version"] == 3
+    assert ready["facets"]["next_sequence"] == max(event["sequence"] for event in events) + 1
+    reexported = tmp_path / "reexported"
+    restored.portability.export(reexported, export_id="export_00000000-0000-4000-8000-000000000093")
+    after = validated_portable_snapshot(reexported)
+    assert {
+        path: data for path, data in after.files.items() if path != "portable-manifest.json"
+    } == {path: data for path, data in before.files.items() if path != "portable-manifest.json"}
