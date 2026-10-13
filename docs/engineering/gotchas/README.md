@@ -3508,3 +3508,19 @@ adapters. Run full typecheck after integration and verify on a fixed commit; har
 acceptance fingerprints intentionally reject source edits during a test run.
 
 Discovered: 2026-10-13, integrated PR79 tests and typecheck.
+
+### FACETS-015: Check historical settlement inside additive migrations
+
+Category: Database/Migrations.
+
+Symptom: Startup runs schema migration before its ordinary historical settlement
+check. An appended migration can therefore raise the writer floor while independent
+historical authority is pending or missing.
+
+Action: Check historical snapshot settlement inside the migration transaction before
+DDL and again before commit. Revalidate runtime admission and foreign keys. Exercise
+pending, missing and changed registry cases and assert exact database bytes and the
+old schema remain unchanged on refusal. Independent PR79 review reproduced both
+pre-migration bypasses and verified the corrected behavior.
+
+Discovered: 2026-10-13.

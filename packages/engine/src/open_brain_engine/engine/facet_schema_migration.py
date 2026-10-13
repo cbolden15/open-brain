@@ -110,6 +110,7 @@ def migrate_facets(
     the coordinator. A failed pre-commit stage leaves schema 14 unchanged; a
     post-commit fault explicitly reports committed-upgrade recovery.
     """
+    from .historical_recovery import require_historical_snapshot_settled
     from .local_schema import (
         PHASE1_STATE_DATABASE,
         LocalSchemaUpgradeCommittedError,
@@ -144,6 +145,11 @@ def migrate_facets(
             raise T03Error("operation_pending")
         if len(LOCAL_MIGRATIONS) != FACET_SCHEMA_VERSION:
             raise T03Error("operation_pending")
+        if connection.execute("PRAGMA foreign_keys").fetchone()[0] != 1 or (
+            connection.execute("PRAGMA foreign_key_check").fetchone() is not None
+        ):
+            raise T03Error("operation_pending")
+        require_historical_snapshot_settled(connection, profile)
         apply_migrations(
             connection,
             clock=_MigrationClock(clock),
@@ -165,6 +171,10 @@ def migrate_facets(
         if classify_local_schema(connection).state != "current":
             raise T03Error("operation_pending")
         checkpoint("facet_schema_applied")
+        if connection.execute("PRAGMA foreign_key_check").fetchone() is not None:
+            raise T03Error("operation_pending")
+        require_historical_snapshot_settled(connection, profile)
+        admission.validate(profile)
         connection.execute("COMMIT")
         committed = True
         checkpoint("facet_complete")
