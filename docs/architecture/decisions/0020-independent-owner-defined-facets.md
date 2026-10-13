@@ -6,6 +6,8 @@ Date: 2026-10-13
 
 Issue: [#78: Add owner-defined faceted classification](https://github.com/cbolden15/open-brain/issues/78)
 
+Stage-one contracts: [engine and interface specification](../../design/owner-defined-facets-stage-one.md).
+
 ## Context
 
 Spaces provide one organizational axis. A record can also belong to overlapping projects,
