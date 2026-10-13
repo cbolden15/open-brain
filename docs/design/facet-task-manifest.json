@@ -684,7 +684,15 @@
       "verification": [
         "make verify",
         "applicable native/package/release acceptance on exact candidate"
-      ]
+      ],
+      "execution_status": "reserved independent read-only audit; interim core review then final integrated candidate",
+      "executor": "native strong-model session",
+      "worktree": "/Users/calebbolden/Projects/oss/open-brain-facets-stage-one-r",
+      "current_contract_pin": {
+        "commit": "1c14378dc4dc40026c3d2a592b85ae03a43521c1",
+        "contract_revision": "facets-c0-v3",
+        "fixture_manifest_sha256": "781a6b886baf6a904b974eb071ea30a36d2d8ff6d2f10f98fbd6da06de8653ba"
+      }
     }
   },
   "c0_pin": {
