@@ -53,6 +53,8 @@ from open_brain_engine.portable.versioned import validated_portable_snapshot
 from open_brain_engine.providers.base import ProviderMode
 from open_brain_engine.storage.markdown import parse_markdown, render_markdown
 
+from packages.app.tests.unit.engine.test_portable_v8_custody import _journal_state
+
 TENANT = "tenant_00000000-0000-4000-8000-000000000001"
 ACTOR = "actor_00000000-0000-4000-8000-000000000002"
 FIXTURES = Path(__file__).parents[1] / "fixtures/facets"
@@ -704,7 +706,7 @@ def test_f19_legacy_v1_clean_import_has_empty_facets_after_current_admission(
     )
     assert receipt.schema_version == 1
     with sqlite3.connect(target / ".open-brain/state/phase1.sqlite3") as connection:
-        assert connection.execute("PRAGMA user_version").fetchone()[0] == 11
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 15
         assert connection.execute("SELECT count(*) FROM facet_dimensions").fetchone()[0] == 0
         assert connection.execute("SELECT count(*) FROM facet_events").fetchone()[0] == 0
 
@@ -728,19 +730,34 @@ def test_f19_future_portable_format_is_refused_before_creating_destination(
     assert not target.exists()
 
 
-def test_f19_pending_ingress_remains_an_export_gate(brain: FacetHarness) -> None:
+def test_f19_ordinary_pending_ingress_retains_main_lossless_portable_custody(
+    brain: FacetHarness,
+) -> None:
     submission = CaptureSubmission.for_local_owner(
         profile=brain.profile,
         payload=TextPayload("Synthetic pending ingress"),
         delivery_id="independent-pending-ingress",
     )
     brain.engine.ingestion.enqueue(submission)
+    original = _journal_state(brain.profile)
     target = brain.root.parent / "pending-export"
-    with pytest.raises(ValueError):
-        brain.engine.portability.export(
-            target, export_id="export_00000000-0000-4000-8000-000000000024"
-        )
-    assert not target.exists()
+    exported = brain.engine.portability.export(
+        target, export_id="export_00000000-0000-4000-8000-000000000024"
+    )
+    assert exported.schema_version == 10
+    assert _journal_state(brain.profile) == original
+    restored = brain.root.parent / "pending-restored"
+    brain.engine.portability.import_clean(
+        target, restored, import_id="import_00000000-0000-4000-8000-000000000027"
+    )
+    identity = restored.stat()
+    restored_profile = replace(
+        brain.profile, root=restored, root_identity=(identity.st_dev, identity.st_ino)
+    )
+    assert _journal_state(restored_profile) == original
+    restored_engine = BrainEngine.open(restored_profile)
+    replay = restored_engine.capture.submit(submission)
+    assert isinstance(replay, CaptureReceipt) and replay.duplicate
 
 
 def test_f21_generated_indexes_are_excluded_from_authoritative_portable_files(
