@@ -438,8 +438,7 @@ def validate_facet_current_binding(
     from .facet_store import get_row
     from .review_bound import (
         _capture_rows,
-        _latest_route_id,
-        _source_record_bytes,
+        _facet_source_state,
         _target_state,
         load_bound_context,
     )
@@ -464,11 +463,8 @@ def validate_facet_current_binding(
         }
     captures = _capture_rows(connection, cast(Sequence[str], binding["provenance"]))
     provenance = {
-        capture["capture_id"]: {
-            "sha256": sha256(_source_record_bytes(engine, capture)).hexdigest(),
-            "space_id": capture["space_id"],
-            "route_id": _latest_route_id(connection, capture["capture_id"]),
-        } for capture in captures
+        capture["capture_id"]: _facet_source_state(engine, connection, capture)
+        for capture in captures
     }
     target = (
         _target_state(engine, connection, cast(str, binding["page_id"]))

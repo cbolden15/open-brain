@@ -322,7 +322,7 @@ def binding_snapshot(
     facet: Mapping[str, object] | None = None,
 ) -> dict[str, object]:
     states = [
-        {
+        _facet_source_state(engine, connection, capture) if facet is not None else {
             "capture_id": capture["capture_id"],
             "route_id": _latest_route_id(connection, cast(str, capture["capture_id"])),
             "sha256": sha256(_source_record_bytes(engine, capture)).hexdigest(),
@@ -690,6 +690,51 @@ def _latest_route_id(connection: sqlite3.Connection, capture_id: str) -> str | N
     if len(rows) > 1:
         raise ValueError("review source state conflict")
     return None if not rows else cast(str, rows[0]["route_id"])
+
+
+def _facet_source_state(
+    engine: Any, connection: sqlite3.Connection, capture: sqlite3.Row,
+) -> dict[str, object]:
+    """Freeze v5 routing across proven revisions, independently of capture SQL space.
+
+    Routes target the then-current head. A successor inherits its logical route but
+    starts a separate per-capture supersedes chain on its first subsequent route.
+    Revision sequence orders those chains; timestamps need not be distinct.
+    """
+    source = connection.execute(
+        "SELECT s.source_id,s.space_id FROM source_revisions r "
+        "JOIN logical_sources s USING(source_id) WHERE r.capture_id=?",
+        (capture["capture_id"],),
+    ).fetchone()
+    if source is None:
+        raise ValueError("facet source lineage conflict")
+    routed = connection.execute(
+        "SELECT r.capture_id FROM source_revisions r "
+        "WHERE r.source_id=? AND EXISTS (SELECT 1 FROM route_operations o "
+        "WHERE o.capture_id=r.capture_id) ORDER BY r.sequence DESC LIMIT 1",
+        (source["source_id"],),
+    ).fetchone()
+    route_id = None
+    if routed is not None:
+        route_id = _latest_route_id(connection, routed["capture_id"])
+        route = connection.execute(
+            "SELECT space_id FROM route_operations WHERE route_id=?", (route_id,),
+        ).fetchone()
+        if route is None or route["space_id"] != source["space_id"]:
+            raise ValueError("facet source route conflict")
+    else:
+        first = connection.execute(
+            "SELECT source_bytes FROM source_revisions WHERE source_id=? ORDER BY sequence LIMIT 1",
+            (source["source_id"],),
+        ).fetchone()
+        if first is None or json.loads(first["source_bytes"])["space_id"] != source["space_id"]:
+            raise ValueError("facet source route conflict")
+    return {
+        "capture_id": capture["capture_id"],
+        "route_id": route_id,
+        "sha256": sha256(_source_record_bytes(engine, capture)).hexdigest(),
+        "space_id": source["space_id"],
+    }
 
 
 def _ordered_unique(values: Sequence[str]) -> tuple[str, ...]:

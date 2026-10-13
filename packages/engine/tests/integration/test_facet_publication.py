@@ -41,7 +41,7 @@ from open_brain_engine.engine.facet_publication import (
 from open_brain_engine.engine.local import BrainEngine
 from open_brain_engine.engine.review_bound import validate_current_binding
 from open_brain_engine.engine.source_intake import SourceRevisionReceipt, SourceRevisionSubmission
-from open_brain_engine.engine.t03_contracts import EffectiveAuthority
+from open_brain_engine.engine.t03_contracts import EffectiveAuthority, SourceRouteRequest
 from open_brain_engine.portable.review_binding import review_binding_digest, validate_review_binding
 from open_brain_engine.portable.v1 import PortableValidationError
 from open_brain_engine.portable.v4 import canonical_revision_id
@@ -774,3 +774,112 @@ def test_v5_create_requires_complete_selected_provenance() -> None:
     binding["facet_source_states"].pop()
     with pytest.raises(PortableValidationError, match="provenance differs"):
         validate_review_binding(binding)
+
+
+def route_proven_source(brain: LiveFacetBrain, capture_id: str, space_id: str) -> str:
+    with closing(brain.engine._store.connect()) as connection:
+        source = connection.execute(
+            "SELECT s.* FROM source_revisions r JOIN logical_sources s USING(source_id) "
+            "WHERE r.capture_id=?", (capture_id,),
+        ).fetchone()
+    brain.sequence += 1
+    operation_id = f"operation_00000000-0000-4000-8000-{brain.sequence:012d}"
+    brain.engine.sources.route(SourceRouteRequest(
+        source_id=source["source_id"], space_id=space_id,
+        expected_head=capture_id, expected_route_version=source["route_version"],
+        operation_id=operation_id,
+    ), authority=brain.owner)
+    with closing(brain.engine._store.connect()) as connection:
+        return cast(str, connection.execute(
+            "SELECT route_id FROM route_operations WHERE delivery_id=?",
+            ("source.route." + operation_id,),
+        ).fetchone()[0])
+
+
+def facet_state(brain: LiveFacetBrain, proposal_id: str, capture_id: str) -> dict[str, Any]:
+    inspected = brain.engine.review.show(proposal_id)
+    assert inspected.facet_binding_json is not None
+    binding = json.loads(inspected.facet_binding_json)
+    return cast(dict[str, Any], next(
+        state for state in binding["source_states"] if state["capture_id"] == capture_id
+    ))
+
+
+def test_real_route_before_successor_binds_retained_ancestor_route(
+    live_brain: LiveFacetBrain,
+) -> None:
+    brain = live_brain
+    first = public_revision(brain.engine, 1, None)
+    assert first.capture_id is not None
+    brain.write("facet.assignment.patch", {
+        "record_id": first.capture_id, "expected_revision_id": first.capture_id,
+        "expected_version": 0, "add_value_ids": [brain.value], "remove_value_ids": [],
+    })
+    route_proven_source(brain, first.capture_id, brain.spaces[0].space_id)
+    latest = route_proven_source(brain, first.capture_id, brain.spaces[1].space_id)
+    successor = public_revision(brain.engine, 2, first.capture_id)
+    assert successor.capture_id is not None
+    with closing(brain.engine._store.connect()) as connection:
+        original_bytes = connection.execute(
+            "SELECT source_bytes FROM source_revisions WHERE capture_id=?",
+            (successor.capture_id,),
+        ).fetchone()[0]
+    assert json.loads(original_bytes)["space_id"] is None
+    proposal = brain.propose("ancestor-route-create")
+    state = facet_state(brain, proposal["proposal_id"], successor.capture_id)
+    assert state["route_id"] == latest
+    assert state["space_id"] == brain.spaces[1].space_id
+    assert state["sha256"] == sha256(original_bytes).hexdigest()
+    brain.approve(proposal)
+    with closing(brain.engine._store.connect()) as connection:
+        assert connection.execute(
+            "SELECT source_bytes FROM source_revisions WHERE capture_id=?",
+            (successor.capture_id,),
+        ).fetchone()[0] == original_bytes
+
+
+def test_real_lineage_reroute_conflicts_and_cumulative_provenance_uses_current_route(
+    live_brain: LiveFacetBrain,
+) -> None:
+    brain = live_brain
+    first = public_revision(brain.engine, 1, None)
+    assert first.capture_id is not None
+    brain.write("facet.assignment.patch", {
+        "record_id": first.capture_id, "expected_revision_id": first.capture_id,
+        "expected_version": 0, "add_value_ids": [brain.value], "remove_value_ids": [],
+    })
+    original_route = route_proven_source(brain, first.capture_id, brain.spaces[0].space_id)
+    base = brain.propose("lineage-base")
+    published = brain.approve(base)
+    successor = public_revision(brain.engine, 2, first.capture_id)
+    assert successor.capture_id is not None
+    target = {
+        "target_page_id": base["page_id"], "destination_space_id": None,
+        "expected_page_revision_id": canonical_revision_id(published.publication_id),
+    }
+    pending = brain.propose("lineage-before-reroute", **target)
+    frozen = brain.engine.review.show(pending["proposal_id"]).facet_binding_json
+    for capture_id in (first.capture_id, successor.capture_id):
+        assert facet_state(brain, pending["proposal_id"], capture_id)["route_id"] == original_route
+    # A newer revision starts its own supersedes chain; old capture SQL space stays stale.
+    route_proven_source(brain, successor.capture_id, brain.spaces[1].space_id)
+    # Route away and back: the identity change still conflicts even if the space matches.
+    current_route = route_proven_source(brain, successor.capture_id, brain.spaces[0].space_id)
+    assert current_route != original_route
+    assert brain.engine.review.show(pending["proposal_id"]).facet_binding_json == frozen
+    with pytest.raises(ValueError, match="provenance conflict"):
+        brain.approve(pending)
+    # Route again to prove cumulative old evidence uses the logical space, not old capture SQL.
+    current_route = route_proven_source(brain, successor.capture_id, brain.spaces[1].space_id)
+    update = brain.propose("lineage-after-reroute", **target)
+    for capture_id in (first.capture_id, successor.capture_id):
+        state = facet_state(brain, update["proposal_id"], capture_id)
+        assert state["route_id"] == current_route
+        assert state["space_id"] == brain.spaces[1].space_id
+    with closing(brain.engine._store.connect()) as connection:
+        assert connection.execute(
+            "SELECT space_id FROM captures WHERE capture_id=?", (first.capture_id,),
+        ).fetchone()[0] == brain.spaces[0].space_id
+    brain.approve(update)
+    # Frozen historical evidence remains inspectable after later routes.
+    assert brain.engine.review.show(pending["proposal_id"]).facet_binding_json == frozen
