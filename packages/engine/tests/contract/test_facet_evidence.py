@@ -177,3 +177,57 @@ def test_create_binding_cannot_inherit_unselected_provenance() -> None:
     binding["facet_source_states"] = binding["facet_source_states"][:1]
     with pytest.raises(FacetEvidenceError):
         validate_evidence("review_binding_v5", binding)
+
+
+@pytest.mark.parametrize("method", [
+    "dimension.rename", "dimension.archive", "value.rename", "value.archive",
+    "query.update", "query.attach", "assignment.patch", "assignment.zero",
+])
+def test_noop_requires_one_reachable_historical_state(method: str) -> None:
+    bundle = _read("positive/portable-replay.json")
+    operation = bundle["operations"]["operations"][0]
+    receipt = operation["receipt_json"]
+    if method.startswith("assignment"):
+        arguments = operation["request_json"]["arguments"]
+        if method.endswith("zero"):
+            arguments["expected_version"] = receipt["version"] = 0
+            arguments["remove_value_ids"] = arguments["add_value_ids"]
+            arguments["add_value_ids"] = []
+    else:
+        event = next(row for row in bundle["events"]["events"] if row["kind"] == method)
+        applied = next(row for row in bundle["operations"]["operations"]
+                       if row["operation_id"] == event["operation_id"])
+        after = event["changes"][0]["after"]
+        arguments = deepcopy(applied["request_json"]["arguments"])
+        if method == "query.attach":
+            arguments = {
+                "dto_version": 1, "page_id": after["page_id"],
+                "query_id": after["query_id"], "expected_query_version": 3,
+                "expected_revision_id": "revision_00000000-0000-4000-8000-000000000009",
+            }
+        identity = "page_id" if method == "query.attach" else method.split(".")[0] + "_id"
+        receipt["subject_id"] = after[identity]
+        arguments["expected_version"] = receipt["version"] = after["version"]
+        arguments["operation_id"] = operation["operation_id"]
+        operation["request_json"] = {"method": "facet." + method, "arguments": arguments}
+    operation["request_sha256"] = sha256(
+        canonical_evidence_bytes(operation["request_json"])
+    ).hexdigest()
+    validate_portable_facet_sidecars(bundle["events"], bundle["operations"], bundle["state"])
+
+    if method.endswith("rename") or method == "query.update":
+        arguments["name"] += " impossible at this version"
+    elif method.endswith("archive"):
+        arguments["expected_version"] -= 1
+        receipt["version"] -= 1
+    elif method == "query.attach":
+        arguments["expected_query_version"] = 999
+    else:
+        arguments["add_value_ids"], arguments["remove_value_ids"] = (
+            arguments["remove_value_ids"], arguments["add_value_ids"],
+        )
+    operation["request_sha256"] = sha256(
+        canonical_evidence_bytes(operation["request_json"])
+    ).hexdigest()
+    with pytest.raises(FacetEvidenceError, match="operation_event_mismatch"):
+        validate_portable_facet_sidecars(bundle["events"], bundle["operations"], bundle["state"])

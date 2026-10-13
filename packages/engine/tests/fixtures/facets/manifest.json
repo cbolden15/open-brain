@@ -1,9 +1,9 @@
 {
-  "contract_revision": "facets-c0-v3",
+  "contract_revision": "facets-c0-v4",
   "status": "draft-unregistered",
   "schemas": {
-    "packages/engine/src/open_brain_engine/engine/facet_evidence_schema.json": "25d21df078f8605b329db69550d3d2688764699d85840ed3b508597be0bff1d9",
-    "packages/engine/src/open_brain_engine/engine/facet_schema.json": "522d2a267c7718a6b42a7ea38d76fb8601b81203009b84881a9b324d5ac8b626"
+    "packages/engine/src/open_brain_engine/engine/facet_evidence_schema.json": "5535dbc8a8026a9a8145e8e7f87c1220c43b6095ae70e40e549f4369d3225e5e",
+    "packages/engine/src/open_brain_engine/engine/facet_schema.json": "63d45f5c1d621a115f59be86735785f0384521bac37de9bdce6da6d0db6d96bf"
   },
   "fixtures": [
     {
@@ -384,6 +384,30 @@
       ],
       "purpose": "",
       "sha256": "845e810d3bbec006b885c7c3bc5f32d289aea87bfcf21271734e07bcb99d89a9"
+    },
+    {
+      "path": "negative/noop-unreachable-version.json",
+      "schema": "portable_assertion",
+      "outcome": "reject",
+      "error_code": "operation_event_mismatch",
+      "acceptance_cases": [
+        "F05",
+        "F17"
+      ],
+      "purpose": "No-op receipts must match one reachable historical semantic state.",
+      "sha256": "6ce74f3612d1fb2554d8cd59e4933d44d45628119ba761813907790cfb4d8631"
+    },
+    {
+      "path": "negative/noop-impossible-membership.json",
+      "schema": "portable_assertion",
+      "outcome": "reject",
+      "error_code": "operation_event_mismatch",
+      "acceptance_cases": [
+        "F05",
+        "F17"
+      ],
+      "purpose": "No-op receipts must match one reachable historical semantic state.",
+      "sha256": "dc2c8e1b56511b20f465141a5135e039952ae71c7d0ea084d2fb0d4a8c7acfd7"
     }
   ],
   "acceptance_ownership": {

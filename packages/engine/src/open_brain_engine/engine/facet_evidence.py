@@ -353,6 +353,57 @@ def _operation_effect(
                          "operation_event_mismatch")
 
 
+def _unchanged_reachable(
+    operation: dict[str, Any], rows: dict[str, dict[tuple[str, ...], Any]],
+) -> bool:
+    """Match a no-op at one replay boundary, including before later mutations.
+
+    No-op receipts have no event sequence. Their expected version and complete
+    requested effect must nevertheless describe a state the ledger reached.
+    """
+    method = operation["request_json"]["method"]
+    args = operation["request_json"]["arguments"]
+    receipt = operation["receipt_json"]
+    kind, action = method.removeprefix("facet.").split(".", maxsplit=1)
+    if kind == "assignment":
+        subject_kind = "source" if args["record_id"].startswith("capture_") else "canonical"
+        key = (subject_kind, receipt["subject_id"])
+        subject = rows["subject"].get(key)
+        if args["expected_version"] != (0 if subject is None else subject["version"]):
+            return False
+        for present, field in ((True, "add_value_ids"), (False, "remove_value_ids")):
+            for value_id in args[field]:
+                membership = rows["assignment"].get((*key, value_id))
+                if (value_id,) not in rows["value"] or bool(
+                    membership and membership["present"]
+                ) != present:
+                    return False
+        return True
+    if kind == "query" and action == "attach":
+        row = rows["attachment"].get((args["page_id"],))
+        query = rows["query"].get((args["query_id"],))
+        return bool(
+            row and query and receipt["subject_id"] == args["page_id"]
+            and row["version"] == args["expected_version"]
+            and row["query_id"] == args["query_id"]
+            and query["version"] == args["expected_query_version"]
+        )
+    if kind not in {"dimension", "value", "query"} or action not in {
+        "rename", "update", "archive",
+    }:
+        return False
+    identity = args[f"{kind}_id"]
+    row = rows[kind].get((identity,))
+    if not row or receipt["subject_id"] != identity or row["version"] != args["expected_version"]:
+        return False
+    if action == "archive":
+        return bool(row["archived"])
+    if action == "update":
+        return bool(not row["archived"] and row["name"] == args["name"]
+                    and row["selector"] == args["selector"])
+    return bool(row["name"] == args["name"])
+
+
 def validate_portable_facet_sidecars(
     events: object, operations: object, state: object,
 ) -> dict[str, object]:
@@ -367,6 +418,9 @@ def validate_portable_facet_sidecars(
     _require(event_doc["brain_id"] == operation_doc["brain_id"] == state_doc["brain_id"])
     rows: dict[str, dict[tuple[str, ...], Any]] = {kind: {} for kind in _ROWS}
     by_operation = {row["operation_id"]: row for row in operation_doc["operations"]}
+    unmatched = [operation for operation in operation_doc["operations"]
+                 if operation["receipt_json"]["status"] == "unchanged"]
+    unmatched = [operation for operation in unmatched if not _unchanged_reachable(operation, rows)]
     linked: set[str] = set()
     for event in event_doc["events"]:
         operation = by_operation.get(event["operation_id"])
@@ -400,6 +454,9 @@ def validate_portable_facet_sidecars(
         intermediate.update({table: [rows[kind][key] for key in sorted(rows[kind])]
                              for kind, (table, _field) in _ROWS.items()})
         validate_evidence("replay_state", intermediate)
+        unmatched = [operation for operation in unmatched
+                     if not _unchanged_reachable(operation, rows)]
+    _require(not unmatched, "operation_event_mismatch")
     for operation in operation_doc["operations"]:
         _require((operation["event_id"] is not None) == (operation["operation_id"] in linked),
                  "operation_event_mismatch")

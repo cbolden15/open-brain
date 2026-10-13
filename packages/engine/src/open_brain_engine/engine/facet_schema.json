@@ -1,6 +1,6 @@
 {
   "format": "facet-closed-schema-v1",
-  "contract_revision": "facets-c0-v3",
+  "contract_revision": "facets-c0-v4",
   "description": "Draft C0 only. Publication response preserves existing narrow review receipt plus dto_version; effective_idempotency_key is the effective operation ID. No runtime registration.",
   "definitions": {
     "cursor": {
