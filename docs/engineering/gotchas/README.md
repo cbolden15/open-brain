@@ -2286,3 +2286,26 @@ Cause: LocalMcpAdapter applies its own scoped operation matrix after collecting 
 Fix: Route facet names through the injected adapter's capability intersection in both discovery
 and invocation. Keep real-engine grant tests alongside fake transport tests. The independent F15
 suite found this integration gap on 2026-10-13.
+
+### TESTING-004: Shared virtualenv subprocesses can load a different worktree
+
+Symptom: Focused in-process tests pass, while managed-recovery subprocesses reject a schema
+checksum that belongs to the worker's current code.
+
+Cause: Pytest adds the worker's source roots, but a child Python launched through the coordinator's
+editable virtualenv resolves packages from the coordinator checkout.
+
+Fix: Give worker subprocess checks explicit absolute source roots in `PYTHONPATH`, or use an
+isolated worker virtualenv. Keep full candidate verification in its own worktree and environment.
+Four V recovery cases failed with mixed imports and passed with the V source roots on 2026-10-13.
+
+### FACETS-006: Store reads already hold a snapshot transaction
+
+Symptom: Facet publication inspection fails with “cannot start a transaction within a transaction.”
+
+Cause: The store connection starts its read transaction before the facet inspection path calls
+`BEGIN` again.
+
+Fix: Use the existing snapshot when it is active. Test inspection through the real store; an
+in-memory fixture connection does not reproduce this boundary. Independent F09–F14 checks
+found the publication path failure on 2026-10-13.
