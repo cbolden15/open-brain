@@ -1024,6 +1024,8 @@ class ReviewOperations(_LocalEngineOperations):
         canonical_path: str,
         published_sha256: str,
     ) -> None:
+        if binding.get("schema_version") == 5:
+            raise ValueError("facet publication requires transactional attachment commit")
         values = (
             row["page_id"],
             row["publication_id"],

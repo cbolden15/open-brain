@@ -456,6 +456,8 @@ def _draft_request_value(draft: ProposalDraft | PatchDraft) -> dict[str, object]
 
 
 def validate_current_binding(engine: Any, binding: Mapping[str, object]) -> None:
+    if binding.get("schema_version") == 5:
+        raise ValueError("facet publication requires transactional snapshot validation")
     connection = engine._store.connect()
     try:
         captures = _capture_rows(connection, cast(Sequence[str], binding["provenance"]))
