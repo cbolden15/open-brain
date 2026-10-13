@@ -2364,3 +2364,15 @@ after JSON-normalizing a real dataclass response, plus an incorrect fixture root
 Fix: Give the normalized producer return an explicit checked contract type, resolve temporary
 roots before engine creation on macOS, and run the generated-fixture/hash test from each worktree.
 Full repository mypy and plugin build are the prevention checks. No production types were loosened.
+
+### OBSIDIAN-002: Inspection excerpt and source checksums describe different bytes
+
+Symptom: The closed plugin inspection parser accepts synthetic bindings but rejects a real
+publication inspection because its two SHA-256 values differ.
+
+Cause: `ReviewEvidence.sha256` hashes the displayed excerpt; the v5 binding's source state
+hashes the immutable source. Equality is not part of the engine contract.
+
+Fix: Preserve both checksums and validate their grammar independently. Match evidence to
+provenance by capture identity/order. Keep a fixture from the real inspection producer in the
+TypeScript suite; independent O0 tests exposed this on 2026-10-13.

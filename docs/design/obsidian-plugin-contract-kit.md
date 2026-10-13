@@ -113,6 +113,8 @@ Validation checks source and membership order, unique IDs, safe versions, create
 predecessors, selected/provenance relationships and agreement with the outer inspection.
 Patch bindings and unknown fields are refused. The parser validates evidence structure;
 only the real engine validates authority, freshness, digests and decisions transactionally.
+The displayed evidence checksum covers its excerpt; it must not be equated with the immutable
+source checksum in `source_states`. Both are retained and checked for digest grammar.
 
 The shared fixtures include exact Python-encoded frames for all 23 operations and one inspection
 captured from a real Stage 1 proposal using synthetic data. Independent tests also cover frozen

@@ -77,7 +77,8 @@ export function parseFacetPublicationInspection(value: unknown): FacetPublicatio
   requireFacet(Array.isArray(v.evidence) && v.evidence.length === binding.provenance.length);
   for (const [index, raw] of v.evidence.entries()) {
     const evidence = exact(raw, ["capture_id", "excerpt", "sha256", "projection_applied"]);
-    requireFacet(evidence.capture_id === binding.provenance[index] && evidence.sha256 === binding.source_states[index]!.sha256 && typeof evidence.projection_applied === "boolean");
+    // ReviewEvidence hashes its displayed excerpt, not the immutable source payload.
+    requireFacet(evidence.capture_id === binding.provenance[index] && digest(evidence.sha256) && typeof evidence.projection_applied === "boolean");
     text(evidence.excerpt, 1048576);
   }
   return { ...JSON.parse(JSON.stringify(v)), facet_selection: binding } as FacetPublicationInspection;
