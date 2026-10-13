@@ -284,6 +284,7 @@ def _binding_semantics(binding: dict[str, Any]) -> None:
              "source" in binding["selector"]["record_types"])
     _require(binding["query_selection_version"] <= binding["query_version"])
     create = binding["operation"] == "create"
+    _require(not create or selected == provenance)
     _require((binding["attachment_version"] == 0) == create)
     _require((binding["expected_publication_id"] is None) == create)
     _require((binding["expected_page_sha256"] is None) == create)

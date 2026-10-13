@@ -9,7 +9,7 @@ import pytest
 from open_brain_engine.engine import facet_contracts as fc
 from open_brain_engine.engine.t03_contracts import EffectiveAuthority
 
-from open_brain.services.local_mcp import MCP_REGISTERED_TOOLS
+from open_brain.services.local_mcp import LocalMcpAdapter
 from packages.app.tests.facet_fake import FakeFacetEngine
 
 DIMENSION = "facetdim_00000000-0000-4000-8000-000000000001"
@@ -162,5 +162,8 @@ def test_fake_list_and_error_paths_use_real_closed_contracts() -> None:
 
 
 def test_c0_does_not_advertise_unimplemented_facet_tools() -> None:
-    names = {str(tool["name"]) for tool in MCP_REGISTERED_TOOLS}
+    names = {
+        str(tool["name"])
+        for tool in LocalMcpAdapter(authority=AUTHORITY, search=lambda _q, _limit: ()).list_tools()
+    }
     assert not any("facet" in name for name in names)

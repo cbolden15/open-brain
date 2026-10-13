@@ -169,3 +169,11 @@ def test_retained_canonical_revision_ids_accept_portable_uuid5() -> None:
         validate_evidence("revision_id", "revision_not-a-uuid")
     with pytest.raises(FacetEvidenceError):
         validate_evidence("facetquery_id", revision.replace("revision_", "facetquery_"))
+
+
+def test_create_binding_cannot_inherit_unselected_provenance() -> None:
+    binding = _read("positive/review-create-cross-space.json")
+    binding["selected_capture_ids"] = binding["selected_capture_ids"][:1]
+    binding["facet_source_states"] = binding["facet_source_states"][:1]
+    with pytest.raises(FacetEvidenceError):
+        validate_evidence("review_binding_v5", binding)

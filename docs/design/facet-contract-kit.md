@@ -80,3 +80,5 @@ verification. Historical Portable v1–v5 schemas remain unchanged. V6 catalog f
 integrated F17–F22 evidence and independent review.
 
 Contract revision `facets-c0-v2` admits retained canonical revision UUIDs, including the UUIDv5 IDs produced by historical Portable restore. New facet IDs remain UUIDv4. This correction invalidates evidence-schema and fixture-manifest checks from revision v1; consumers must rerun them on the new pin.
+
+Revision `facets-c0-v3` also requires a new publication to select every provenance capture. Only updates may inherit prior provenance. The cross-space create fixtures now select both sources; dependent binding checks must rerun.

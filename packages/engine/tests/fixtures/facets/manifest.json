@@ -1,9 +1,9 @@
 {
-  "contract_revision": "facets-c0-v2",
+  "contract_revision": "facets-c0-v3",
   "status": "draft-unregistered",
   "schemas": {
-    "packages/engine/src/open_brain_engine/engine/facet_evidence_schema.json": "48deca4cff8145cf3699767aa5cb33beede54382dbc00fbf68fb5c11fada2ecb",
-    "packages/engine/src/open_brain_engine/engine/facet_schema.json": "9805321fbbb9374c1dc3ce560379eaaca44b6a9a880f41e2f9c364767d1e030a"
+    "packages/engine/src/open_brain_engine/engine/facet_evidence_schema.json": "25d21df078f8605b329db69550d3d2688764699d85840ed3b508597be0bff1d9",
+    "packages/engine/src/open_brain_engine/engine/facet_schema.json": "522d2a267c7718a6b42a7ea38d76fb8601b81203009b84881a9b324d5ac8b626"
   },
   "fixtures": [
     {
@@ -183,7 +183,7 @@
         "F18"
       ],
       "purpose": "Selected unassigned source and retained provenance in another space; explicit independent destination.",
-      "sha256": "a0a1ce9d9f0d5512e329e1503f7032d7e93468219946d44161577a6bd014971d"
+      "sha256": "8c863b707c84d0db8525bf2881625a99a261a13903be646975e6dcc1928f96e2"
     },
     {
       "path": "positive/review-unrestricted-record-types.json",
@@ -195,7 +195,7 @@
         "F18"
       ],
       "purpose": "Empty optional record-type filter admits source evidence.",
-      "sha256": "d7bda854922df7d7cefdd4cf3127eef90491051875bf54aad48bdb175ac45fbc"
+      "sha256": "3e8ba72d775cabcdd10b66b512023a850611c040e8d463a923b77323942a4f37"
     },
     {
       "path": "positive/review-update.json",
