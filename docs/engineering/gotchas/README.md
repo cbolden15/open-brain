@@ -306,6 +306,20 @@ Fix: Stage and verify a complete generation off-path, hold an identity-bound exc
 
 Discovered: 2026-08-14.
 
+### PORTABLE-003: Historical format documentation is not the current import boundary
+
+Symptom: A feature assessment treats clean Portable import as missing because the v4 document
+states that v4 import is refused.
+
+Cause: Version-specific documents and package instructions retain older compatibility boundaries.
+The current implementation supports clean v5 import while still refusing standalone v4 import.
+
+Fix: Check the latest Portable document and `PortabilityTask.import_clean` before scoping format
+work. Extend the current supported round-trip path and derive schema/runtime requirements from
+current source; do not infer them from an older milestone document.
+
+Discovered: 2026-10-13, facet architecture assessment for issue #78.
+
 ### PORTABLE-001: UTC partitions come from persisted recording time
 
 Symptom: A record near a month boundary is written under different partitions on hosts with
