@@ -1780,7 +1780,6 @@ def _run_local_command(
             return search_brain(retrieval, reconciliation, query, limit=limit)
 
         organization = SpaceInboxService(tasks.spaces)
-        review = ReviewPublicationService(tasks.review)
         selected_grants = frozenset(
             grant
             for enabled, grant in (
@@ -1833,7 +1832,12 @@ def _run_local_command(
                 policy_authority,
                 capabilities=policy_authority.capabilities & selected_grants,
             )
+            facet_authority = session_authority
             capture_submit_capability = destination_bound_capture_submit(tasks, session_authority)
+        review = ReviewPublicationService(
+            tasks.review,
+            authority=facet_authority if tasks.facet_publication is not None else None,
+        )
         history = tasks.history
         sources = tasks.sources
         negotiated_tasks = SimpleNamespace(
