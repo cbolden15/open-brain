@@ -4,6 +4,24 @@ Non-obvious behaviors, sharp edges, and lessons learned belong here.
 
 ## Registry
 
+### BUILD-009: Desktop preparation must select its pair from the complete release manifest
+
+Category: Build Pipeline.
+
+The optional harness added a valid third native resource. Desktop preparation
+collected every target resource and required exactly two, so both platform builds
+failed before packaging. Validate the complete native manifest contract, including
+optional resources and other platforms, then copy only base and Graphify into the
+desktop runtime. Reject malformed rows, duplicate roles, inconsistent resource
+sets and wrong executable digests. Generate fixtures with the native manifest
+writer so desktop tests exercise its actual contract.
+
+An earlier contributor-check failure skips the later NW0 probe. Its always-run
+artifact upload then reports missing proof output; that does not make the probe's
+output path stale. Preserve artifact identities and fix the first failed step.
+
+Discovered: 2026-10-12, actual macOS and Linux contributor CI packaging failure.
+
 ### MEMORY-003: Revalidate durable restrictions before custody and sources after cleanup
 
 Category: Database/Migrations, Config/Environment.
