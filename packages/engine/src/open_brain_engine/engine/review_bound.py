@@ -246,6 +246,9 @@ def proposal_snapshot(
     sibling_ids: tuple[str, ...],
     supplied_reason: str | None,
     recorded_at: str,
+    destination_space_id: str | None = None,
+    privacy: Mapping[str, object] | None = None,
+    trust_label: str | None = None,
 ) -> dict[str, object]:
     evidence: list[dict[str, str]] = []
     references = tuple(cast(str, capture["source_reference"]) for capture in captures)
@@ -272,7 +275,7 @@ def proposal_snapshot(
         "expected_receipt": _receipt(
             "proposal_created", receipt_id, proposal_id, recorded_at, receipt_payload
         ),
-        "privacy": _privacy(),
+        "privacy": _privacy() if privacy is None else dict(privacy),
         "proposal_id": proposal_id,
         "proposed_content": {
             "bytes_base64": base64.b64encode(proposed_bytes).decode("ascii"),
@@ -284,14 +287,16 @@ def proposal_snapshot(
         "role_claim": _role_claim(engine.profile),
         "schema_version": 1,
         "sibling_context": {"proposal_ids": list(sibling_ids)},
-        "space_id": captures[0]["space_id"],
+        "space_id": (
+            captures[0]["space_id"] if destination_space_id is None else destination_space_id
+        ),
         "status": "pending",
         "supplied_reason": supplied_reason,
         "tenant_id": engine.profile.tenant_id,
         "trust": _trust(
             engine.profile,
             recorded_at,
-            (
+            trust_label if trust_label is not None else (
                 "third_party"
                 if any(capture["source_origin"] == "third_party" for capture in captures)
                 else "owner"
@@ -314,6 +319,7 @@ def binding_snapshot(
     recorded_at: str,
     target: dict[str, object] | None,
     patch: dict[str, object] | None,
+    facet: Mapping[str, object] | None = None,
 ) -> dict[str, object]:
     states = [
         {
@@ -342,6 +348,9 @@ def binding_snapshot(
     }
     if patch is not None:
         binding["patch"] = patch
+    if facet is not None:
+        binding.update(facet)
+        binding["schema_version"] = 5
     binding["review_digest"] = review_binding_digest(proposal, binding)
     return validate_review_binding(binding)
 
@@ -355,13 +364,14 @@ def render_bound_page(
     title: str,
     body: str,
     modified_at: str,
+    privacy: Mapping[str, object] | None = None,
 ) -> bytes:
     return render_markdown(
         fields={
             "actor_id": engine.profile.owner_actor_id,
             "modified_at": modified_at,
             "page_id": page_id,
-            "privacy": _privacy(),
+            "privacy": _privacy() if privacy is None else dict(privacy),
             "provenance": list(provenance),
             "role_claim": _role_claim(engine.profile),
             "schema_version": 1,
@@ -455,9 +465,17 @@ def _draft_request_value(draft: ProposalDraft | PatchDraft) -> dict[str, object]
     }
 
 
-def validate_current_binding(engine: Any, binding: Mapping[str, object]) -> None:
+def validate_current_binding(
+    engine: Any, binding: Mapping[str, object], *,
+    connection: sqlite3.Connection | None = None, authority: Any = None,
+) -> None:
     if binding.get("schema_version") == 5:
-        raise ValueError("facet publication requires transactional snapshot validation")
+        from .facet_publication import validate_facet_current_binding
+
+        if connection is None:
+            raise ValueError("facet publication requires transactional snapshot validation")
+        validate_facet_current_binding(engine, connection, binding, authority=authority)
+        return
     connection = engine._store.connect()
     try:
         captures = _capture_rows(connection, cast(Sequence[str], binding["provenance"]))
@@ -543,6 +561,10 @@ def bound_edited_bytes(
         title=cast(str, parsed.fields["title"]),
         body=body,
         modified_at=modified_at,
+        privacy=(
+            cast(Mapping[str, object], parsed.fields["privacy"])
+            if binding.get("schema_version") == 5 else None
+        ),
     )
 
 

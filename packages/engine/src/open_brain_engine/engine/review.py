@@ -54,6 +54,7 @@ from .review_bound import (
     propose_bound,
     validate_current_binding,
 )
+from .t03_contracts import EffectiveAuthority
 
 if TYPE_CHECKING:
     from .local import BrainEngine
@@ -447,6 +448,7 @@ class ReviewOperations(_LocalEngineOperations):
         limit: int | None = None,
         offset: int = 0,
         set_delivery_id: str | None = None,
+        authority: EffectiveAuthority | None = None,
     ) -> tuple[ProposalRecord, ...]:
         if capture_id is not None:
             _portable_id(capture_id, "capture")
@@ -486,10 +488,10 @@ class ReviewOperations(_LocalEngineOperations):
         if clauses:
             sql += " WHERE " + " AND ".join(clauses)
         sql += " ORDER BY rowid"
-        if limit is not None:
+        if limit is not None and authority is None:
             sql += " LIMIT ? OFFSET ?"
             parameters.extend((limit, offset))
-        elif offset:
+        elif offset and authority is None:
             sql += " LIMIT -1 OFFSET ?"
             parameters.append(offset)
         connection = self._store.connect()
@@ -506,6 +508,24 @@ class ReviewOperations(_LocalEngineOperations):
                 )
                 for row in rows
             }
+            if authority is not None:
+                from .facet_contracts import FacetError
+                from .facet_publication import authorize_facet_evidence
+                from .t03_contracts import T03Error
+
+                connection.execute("BEGIN")
+                visible = []
+                for row in rows:
+                    context = contexts[cast(str, row["proposal_id"])]
+                    if context is not None and context[1].get("schema_version") == 5:
+                        try:
+                            authorize_facet_evidence(self, connection, context[1], authority)
+                        except (FacetError, T03Error) as error:
+                            if error.code == "not_found":
+                                continue
+                            raise
+                    visible.append(row)
+                rows = tuple(visible[offset:] if limit is None else visible[offset:offset + limit])
             references_by_proposal = {
                 cast(str, row["proposal_id"]): tuple(
                     cast(str, capture["source_reference"])
@@ -587,7 +607,9 @@ class ReviewOperations(_LocalEngineOperations):
             raise ValueError("unknown proposal")
         return cast(sqlite3.Row, row)
 
-    def _show_proposal(self, proposal_id: str) -> ReviewProposal:
+    def _show_proposal(
+        self, proposal_id: str, *, authority: EffectiveAuthority | None = None
+    ) -> ReviewProposal:
         proposal = self._proposal_row(proposal_id)
         capture_ids: tuple[str, ...]
         selected_capture_ids: tuple[str, ...]
@@ -610,6 +632,14 @@ class ReviewOperations(_LocalEngineOperations):
                 review_digest = sha256(portable_canonical_json_bytes(proposal_value)).hexdigest()
             else:
                 proposal_value, binding = context
+                if binding.get("schema_version") == 5:
+                    from .facet_publication import authorize_facet_evidence, owner_review_authority
+
+                    connection.execute("BEGIN")
+                    authorize_facet_evidence(
+                        self, connection, binding,
+                        owner_review_authority(self) if authority is None else authority,
+                    )
                 capture_ids = tuple(cast(list[str], binding["provenance"]))
                 selected_capture_ids = tuple(cast(list[str], binding["selected_capture_ids"]))
                 review_digest = cast(str, binding["review_digest"])
@@ -721,6 +751,7 @@ class ReviewOperations(_LocalEngineOperations):
         delivery_id: str,
         edited_markdown: str | None,
         expected_review_digest: str | None = None,
+        authority: EffectiveAuthority | None = None,
     ) -> DecisionRecord:
         _portable_id(proposal_id, "proposal")
         _delivery_id(delivery_id)
@@ -730,7 +761,7 @@ class ReviewOperations(_LocalEngineOperations):
         )
         if (outcome is DecisionOutcome.EDITED) != (edited_markdown is not None):
             raise ValueError("edited outcome requires edited content")
-        inspection = self._show_proposal(proposal_id)
+        inspection = self._show_proposal(proposal_id, authority=authority)
         connection = self._store.connect()
         try:
             context = load_bound_context(connection, proposal_id)
@@ -764,7 +795,7 @@ class ReviewOperations(_LocalEngineOperations):
             and expected_review_digest != inspection.review_digest
         ):
             raise ValueError("review digest conflict")
-        if context is not None and reserved is None:
+        if context is not None and reserved is None and context[1].get("schema_version") != 5:
             validate_current_binding(self, context[1])
         conflict: tuple[str, str] | None = None
         created = False
@@ -817,6 +848,10 @@ class ReviewOperations(_LocalEngineOperations):
                 duplicate = True
                 decision_id = cast(str, existing["decision_id"])
             else:
+                if context is not None and context[1].get("schema_version") == 5:
+                    validate_current_binding(
+                        self, context[1], connection=connection, authority=authority
+                    )
                 if (
                     cast(str, proposal["proposed_kind"]) == "page_update"
                     and proposal["space_id"] is None
@@ -1024,8 +1059,6 @@ class ReviewOperations(_LocalEngineOperations):
         canonical_path: str,
         published_sha256: str,
     ) -> None:
-        if binding.get("schema_version") == 5:
-            raise ValueError("facet publication requires transactional attachment commit")
         values = (
             row["page_id"],
             row["publication_id"],
@@ -1044,6 +1077,14 @@ class ReviewOperations(_LocalEngineOperations):
                 """,
                 values,
             )
+            if binding.get("schema_version") == 5:
+                from .facet_publication import commit_publication_attachment
+
+                commit_publication_attachment(
+                    self, connection, binding=binding,
+                    publication_id=cast(str, row["publication_id"]),
+                    recorded_at=cast(str, row["recorded_at"]),
+                )
             return
         current_head = connection.execute(
             "SELECT publication_id FROM review_page_heads WHERE page_id = ?",
@@ -1106,8 +1147,11 @@ class ReviewOperations(_LocalEngineOperations):
 
 
 class ReviewTasks:
-    def __init__(self, engine: BrainEngine) -> None:
+    def __init__(
+        self, engine: BrainEngine, *, authority: EffectiveAuthority | None = None
+    ) -> None:
         self._engine = engine
+        self._authority = authority
 
     def propose(
         self,
@@ -1149,16 +1193,21 @@ class ReviewTasks:
         limit: int | None = None,
         offset: int = 0,
     ) -> tuple[ProposalRecord, ...]:
+        if self._authority is not None:
+            self._authority.require("review-read")
         return self._engine._list_proposals(
             capture_id=capture_id,
             status=status,
             space_id=space_id,
             limit=limit,
             offset=offset,
+            authority=self._authority,
         )
 
     def show(self, proposal_id: str) -> ReviewProposal:
-        return self._engine._show_proposal(proposal_id)
+        if self._authority is not None:
+            self._authority.require("review-read")
+        return self._engine._show_proposal(proposal_id, authority=self._authority)
 
     def decide(
         self,
@@ -1169,6 +1218,8 @@ class ReviewTasks:
         edited_markdown: str | None = None,
         expected_review_digest: str | None = None,
     ) -> DecisionRecord:
+        if self._authority is not None:
+            self._authority.require("review-decide")
         with self._engine._writer_lease.acquire_shared_writer():
             self._engine._drain_review_decisions()
             return self._engine._decide(
@@ -1177,4 +1228,5 @@ class ReviewTasks:
                 delivery_id=delivery_id,
                 edited_markdown=edited_markdown,
                 expected_review_digest=expected_review_digest,
+                authority=self._authority,
             )
