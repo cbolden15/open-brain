@@ -1,6 +1,6 @@
 {
   "milestone": "PR79 main reconciliation",
-  "status": "dispatching E X A",
+  "status": "integrated verification and independent review",
   "pins": {
     "feature": "7e161c2336c126c59c68b00b294e3823d5707491",
     "main": "621161ad48bc8fcfa64966c7a618c18cc72b660a",
@@ -20,8 +20,8 @@
   "execution": {
     "max_active_workers": 6,
     "max_total_attempts": 12,
-    "used_attempts": 3,
-    "reserved_active": 3,
+    "used_attempts": 4,
+    "reserved_active": 1,
     "authority": "User requested reconcile PR79 before merging. Update PR branch after verification; no merge or deployment.",
     "continuity": "New user-requested milestone after completed O0 handoff."
   },
@@ -65,6 +65,9 @@
     ],
     "coordinator": [
       "All shared contracts and schemas, registration/composition files, upstream conflict resolutions, docs/design/facets-main-reconciliation.json, workstream state, audit, integration and tests outside worker scopes. Workers propose shared changes privately; coordinator applies them."
+    ],
+    "R": [
+      "Read-only integrated candidate; report /tmp/facets-reconcile/R-report.md"
     ]
   },
   "workers": [
@@ -118,6 +121,12 @@
       },
       "verification": "Focused owned tests plus scoped Ruff/mypy; real temporary Brains only. Report missing coordinator seams rather than fake proof.",
       "completion": "Scoped committed implementation and tests; report exact commands, results, shared registration patch guidance and remaining gaps. No push or children."
+    },
+    {
+      "role": "R",
+      "status": "reserved",
+      "budget_minutes": 40,
+      "completion": "Independent review of preservation of main formats/policy plus facet semantics; concrete findings with source evidence; no edits/push"
     }
   ]
 }

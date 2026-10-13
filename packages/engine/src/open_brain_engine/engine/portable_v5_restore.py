@@ -574,7 +574,7 @@ def restored_portable_semantic_state(
             connection,
             profile,
             relationship_sidecar_present=relationship_present,
-            portable_version=cast(int, snapshot.manifest["schema_version"]),
+            portable_version=snapshot.manifest["schema_version"],
             expected_schema=15,
         )
     if snapshot.manifest["schema_version"] == 9 and historical_installed:

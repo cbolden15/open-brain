@@ -2,7 +2,7 @@
 
 ## Current catalog
 
-The current local schema is **14**, with runtime session version **9**. The catalog is
+The current local schema is **15**, with runtime session version **10**. The catalog is
 `packages/engine/src/open_brain_engine/engine/local_schema_catalog.py`; its checksum fixture is
 `tests/fixtures/local-schema/catalog-checksums.json`. Migrations 1 through 13 remain unchanged; the thirteen-entry checksum fixture is
 `tests/fixtures/local-schema/catalog-checksums-thirteen.json`.
@@ -63,6 +63,14 @@ rolls back; a lost response after commit retries the exact settled state. An
 ordinary opener refuses schema13 and tells the owner to use the explicit
 coordinator. Schema13 clients refuse schema14 before writes. Portable9 records
 the new historical evidence interpretations without widening Portable1–8.
+
+## Facet compatibility
+
+Migration15 appends the owner-defined facet catalog, assignment, saved-query, publication
+and vault-projection tables. It runs only through exclusive admission after schema14,
+retains earlier migration checksums and source/history rows, and installs runtime10.
+Older writers refuse the new floor. Portable10 composes facet evidence with all Portable9
+historical authority, sharing and receipt custody; see [Portable10](portable-brain-v10.md).
 
 ## Historical W5 design
 

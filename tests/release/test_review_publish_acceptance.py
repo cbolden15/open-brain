@@ -53,7 +53,7 @@ def test_source_executable_passes_required_review_publication_checks(tmp_path: P
     manifest = json.loads(
         (synthetic_root / "verified-export/portable-manifest.json").read_bytes()
     )
-    assert manifest["schema_version"] == 9
+    assert manifest["schema_version"] == 10
     export = synthetic_root / "verified-export"
     assert all((export / relative).is_file() for relative in V5_SIDECAR_PATHS)
     assert not any(".open-brain" in path.parts for path in export.rglob("*"))

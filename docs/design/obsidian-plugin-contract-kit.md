@@ -1,5 +1,10 @@
 # Obsidian O0 contract kit
 
+Reconciliation note: PR79 now targets schema15/runtime10/Portable10 over main14/9/9.
+Earlier commit and catalog pins below describe the original verified branch only.
+C0/O0 wire revisions and fixture bytes remain pinned; integrated verification is recorded in
+`docs/design/facets-main-reconciliation.json`. Future workers must use its verified candidate.
+
 Revision: `obsidian-o0-v1`. Obsidian is the Stage 2 interface. No standalone desktop feature
 work or remaining Stage 2 task is part of O0.
 

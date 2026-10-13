@@ -243,7 +243,7 @@ class VaultBrain:
         self.now = datetime(2026, 10, 13, 12, tzinfo=UTC)
         self.engine = BrainEngine.open(profile, clock=lambda: self.now)
         with self.engine._store.transaction() as connection:
-            assert facet_schema_available(connection), "real schema 11 registration required"
+            assert facet_schema_available(connection), "real schema 15 registration required"
             assert connection.execute("SELECT 1 FROM facet_content_preimages").fetchall() == []
         self.owner = EffectiveAuthority(
             principal_id="opaque-local-owner",

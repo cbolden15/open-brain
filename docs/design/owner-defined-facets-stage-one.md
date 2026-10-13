@@ -15,14 +15,14 @@ The accepted architecture is independent facets alongside spaces. No built-in di
 automatic classification, recursive synthesis from canonical pages, general query language,
 space conversion, background service, or new network path is included.
 
-The inspected baseline is commit `dd4d880`. Current source, rather than older milestone docs,
-defines the compatibility floor:
+The original implementation baseline was `dd4d880`. PR79 reconciliation advances the
+compatibility floor over main `621161ad48bc8fcfa64966c7a618c18cc72b660a`:
 
 | Surface | Current implementation | Facet target |
 |---|---|---|
-| Local state | `PHASE1_STATE_SCHEMA_VERSION = 10` | Schema 11 |
-| Runtime sessions | `RUNTIME_SESSION_VERSION = 5` | Session 6, required by schema 11 |
-| Portable | v5 export and clean import; standalone v4 import refused | Portable v6 export and clean import |
+| Local state | `PHASE1_STATE_SCHEMA_VERSION = 14` | Schema 15 |
+| Runtime sessions | `RUNTIME_SESSION_VERSION = 9` | Session 10, required by schema 15 |
+| Portable | v9 export and clean import; standalone v4 import refused | Portable v10 export and clean import |
 | Review bindings | Version 3 full-page and version 4 patch bindings | Version 5 for facet-query full-page proposals |
 | Facet wire contracts | Absent | `dto_version: 1`, closed shapes below |
 
@@ -494,8 +494,8 @@ editing retained source/canonical/history bytes. Perform the migration under exc
 admission. New tables start empty; no dimensions, values, or assignments are inferred from spaces.
 Supported older local states follow their existing guarded migration chain to schema 10 before
 the facet transition; invalid or unknown states are never admitted by skipping earlier checks.
-Set compatibility to schema 11/runtime 6 in the same committed schema transition. Validate ledger
-checksums and expected shape. Older sessions block migration, and older binaries refuse schema 11.
+Set compatibility to schema 15/runtime 10 in the same committed schema transition. Validate ledger
+checksums and expected shape. Older sessions block migration, and older binaries refuse schema 15.
 There is no automatic downgrade; a failed pre-commit migration leaves schema 10 intact. A failure
 after commit is reported as committed-upgrade recovery, never as a successful rollback.
 
@@ -734,7 +734,7 @@ them into absolute paths before dispatch.
 
 | Task | Required inputs | Implementation scope and completion evidence |
 |---|---|---|
-| E: engine | Verified C0 | Own facet storage/tasks, local schema migration, runtime admission, and focused engine tests. Prove F01–F08 and F16 against the real engine; expose tested mutation/query/snapshot seams for consumers. One owner assigns schema 11/runtime 6 changes. |
+| E: engine | Verified C0 | Own facet storage/tasks, local schema migration, runtime admission, and focused engine tests. Prove F01–F08 and F16 against the real engine; expose tested mutation/query/snapshot seams for consumers. One owner assigns schema 15/runtime 10 changes. |
 | A: adapters | Verified C0; E/P for final wiring | Own facet service adapters, CLI argument handling, grant setup, and adapter tests. Develop against the test fake first. Cover DTO/limit/grant cases from F15; final authority and review behavior must pass against real E/P handlers. |
 | T: independent tests | Verified C0; real producers as they land | Own separately assigned acceptance/fault test files covering F01–F22. Derive expectations from the ADR and contract fixtures, not implementation details. Deliver the test suite and passing results for available producers; I executes the combined F22 scenario. Missing producers remain tests-ready or blocked, never passed. |
 | P: publication | C0 binding fixtures; verified E for integration | Own facet publication logic, `engine/review_bound.py`, applicable `engine/review.py` changes, and `portable/review_binding.py`. Prove F09–F14 and supply real pending/approved/rejected evidence for X's F18 tests. |

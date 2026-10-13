@@ -38,7 +38,7 @@ _RESOURCE_DESTINATIONS: Final = {
     "graphify": "libexec/open-brain-graphify",
     "harness": "libexec/open-brain-harness/open-brain-harness",
 }
-_PORTABLE_V9_SIDECARS: Final = (
+_PORTABLE_V10_SIDECARS: Final = (
     "history/issuer/legacy-bindings-v1.json",
     "history/issuer/migration-v1.json",
     "history/privacy/effective-privacy-v1.json",
@@ -48,6 +48,9 @@ _PORTABLE_V9_SIDECARS: Final = (
     "history/historical-authority/reconciliation-v2.json",
     "history/capture-metadata/original-v2.json",
     "history/capture-custody/journal-v1.json",
+    "content/facets/state-v1.json",
+    "history/facets/operations-v1.json",
+    "history/facets/events-v1.json",
 )
 _REQUIRED_MODULES: Final = frozenset(
     {
@@ -85,6 +88,9 @@ _REQUIRED_MODULES: Final = frozenset(
         "open_brain_engine.engine.historical_checkpoint",
         "open_brain_engine.portable.v8",
         "open_brain_engine.portable.v9",
+        "open_brain_engine.portable.v10",
+        "open_brain_engine.engine.portable_v10_evidence",
+        "open_brain_engine.engine.portable_v10_restore",
         "open_brain_engine.engine.retrieval",
         "open_brain_engine.storage.operational",
         "open_brain_engine.storage.sqlite",
@@ -784,10 +790,10 @@ def _smoke_local_journey(
         exported.get("status") != "exported"
         or exported.get("verification") != "verified"
         or type(exported.get("schema_version")) is not int
-        or exported.get("schema_version") != 9
+        or exported.get("schema_version") != 10
         or not (export / "portable-manifest.json").is_file()
         or not (export / "sources/logical-sources.json").is_file()
-        or not all((export / relative).is_file() for relative in _PORTABLE_V9_SIDECARS)
+        or not all((export / relative).is_file() for relative in _PORTABLE_V10_SIDECARS)
         or not any(
             token.encode("utf-8") in path.read_bytes()
             for path in export.rglob("*")
@@ -964,9 +970,9 @@ def _smoke_markdown_import(
         exported.get("status") != "exported"
         or exported.get("verification") != "verified"
         or type(exported.get("schema_version")) is not int
-        or exported.get("schema_version") != 9
+        or exported.get("schema_version") != 10
         or not (export / "sources/logical-sources.json").is_file()
-        or not all((export / relative).is_file() for relative in _PORTABLE_V9_SIDECARS)
+        or not all((export / relative).is_file() for relative in _PORTABLE_V10_SIDECARS)
         or not blob.is_file()
         or blob.read_bytes() != source_bytes
         or len(captures) != 1
@@ -1302,9 +1308,9 @@ def _smoke_catalog(executable: Path, environment: Mapping[str, str]) -> None:
         != {
             "bridge_protocol": 1,
             "catalog_schema": 2,
-            "portable_metadata": 9,
-            "runtime_session": 9,
-            "state_schema": 14,
+            "portable_metadata": 10,
+            "runtime_session": 10,
+            "state_schema": 15,
             "task_contract": "t03.v1",
         }
         or not isinstance(product, dict)
