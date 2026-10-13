@@ -50,6 +50,7 @@ def facet_references_from_connection(
     connection: sqlite3.Connection,
     *,
     principal_actors: Mapping[str, str] | None = None,
+    owner_actor_id: str | None = None,
 ) -> FacetPortableReferences:
     """Read identities from the same snapshot, including retained canonical pages."""
     if not connection.in_transaction:
@@ -67,9 +68,9 @@ def facet_references_from_connection(
         )
     )
     if principal_actors is None:
-        # The real engine stores actor_id from EffectiveAuthority.principal_id.
+        # Local stage-one actors are explicitly mapped through the trusted owner context.
         principal_actors = {
-            row[0]: row[0]
+            row[0]: owner_actor_id if owner_actor_id is not None else row[0]
             for row in connection.execute("SELECT DISTINCT principal_id FROM facet_operations")
         }
     return FacetPortableReferences(
@@ -119,6 +120,7 @@ def serialize_portable_v6_facets(
     *,
     brain_id: str,
     principal_actors: Mapping[str, str] | None = None,
+    owner_actor_id: str | None = None,
 ) -> PortableFacetBundle:
     """Serialize exact events/operations and assert their stored projection agrees."""
     require_facet_snapshot(connection, brain_id=brain_id)
@@ -213,7 +215,11 @@ def serialize_portable_v6_facets(
         ),
         FACET_STATE_PATH: canonical(state),
     }
-    references = facet_references_from_connection(connection, principal_actors=principal_actors)
+    references = facet_references_from_connection(
+        connection,
+        principal_actors=principal_actors,
+        owner_actor_id=owner_actor_id,
+    )
     return decode_portable_facets(files, brain_id=brain_id, references=references)
 
 
@@ -222,10 +228,14 @@ def verify_portable_v6_facets(
     *,
     bundle: PortableFacetBundle,
     principal_actors: Mapping[str, str] | None = None,
+    owner_actor_id: str | None = None,
 ) -> PortableFacetBundle:
     """Audit replay/projection/receipts after staged restore or reopen."""
     actual = serialize_portable_v6_facets(
-        connection, brain_id=bundle.brain_id, principal_actors=principal_actors
+        connection,
+        brain_id=bundle.brain_id,
+        principal_actors=principal_actors,
+        owner_actor_id=owner_actor_id,
     )
     if actual.sidecars != bundle.sidecars:
         raise PortableValidationError("Portable v6 facet restored evidence mismatch")

@@ -46,6 +46,7 @@ def install_portable_v6_facets(
     *,
     bundle: PortableFacetBundle,
     principal_actors: Mapping[str, str] | None = None,
+    owner_actor_id: str | None = None,
 ) -> None:
     """Revalidate references, install exact ledger bytes, and audit the projection."""
     require_facet_snapshot(connection, brain_id=bundle.brain_id)
@@ -55,10 +56,16 @@ def install_portable_v6_facets(
         raise PortableValidationError("facet restore requires empty destination tables")
     if principal_actors is None:
         principal_actors = {
-            operation["principal_id"]: operation["principal_id"]
+            operation["principal_id"]: (
+                owner_actor_id if owner_actor_id is not None else operation["principal_id"]
+            )
             for operation in bundle.document(FACET_OPERATIONS_PATH)["operations"]
         }
-    references = facet_references_from_connection(connection, principal_actors=principal_actors)
+    references = facet_references_from_connection(
+        connection,
+        principal_actors=principal_actors,
+        owner_actor_id=owner_actor_id,
+    )
     # Do not trust even an explicitly constructed PortableFacetBundle without revalidation.
     validated = decode_portable_facets(
         bundle.sidecars, brain_id=bundle.brain_id, references=references
@@ -241,9 +248,17 @@ class V6RestoreBundle(V5RestoreBundle):
     def install(self, connection: sqlite3.Connection, *, profile: LocalEngineContext) -> None:
         # Preserve the real v6 snapshot; only the inherited evidence algorithm is reused.
         V5RestoreBundle.install(self, connection, profile=profile)
-        install_portable_v6_facets(connection, bundle=self.facets)
+        install_portable_v6_facets(
+            connection,
+            bundle=self.facets,
+            owner_actor_id=profile.owner_actor_id,
+        )
         self.checkpoint("facets_restored")
-        verify_portable_v6_facets(connection, bundle=self.facets)
+        verify_portable_v6_facets(
+            connection,
+            bundle=self.facets,
+            owner_actor_id=profile.owner_actor_id,
+        )
         self.checkpoint("facet_semantics_verified")
 
 
@@ -261,7 +276,11 @@ def audit_restored_v6(
     try:
         if not connection.in_transaction:
             connection.execute("BEGIN")
-        return verify_portable_v6_facets(connection, bundle=bundle.facets)
+        return verify_portable_v6_facets(
+            connection,
+            bundle=bundle.facets,
+            owner_actor_id=profile.owner_actor_id,
+        )
     finally:
         connection.close()
 

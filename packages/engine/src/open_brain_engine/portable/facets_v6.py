@@ -7,6 +7,7 @@ assertion. Base Portable lineage/provenance validation must precede this codec.
 from __future__ import annotations
 
 import base64
+import tomllib
 from collections.abc import Mapping
 from dataclasses import dataclass
 from hashlib import sha256
@@ -86,8 +87,10 @@ def references_from_portable_files(
         pages.update(cast(str, row["page_id"]) for row in publications.values())
         if principal_actors is None:
             operations = _canonical_record(files[FACET_OPERATIONS_PATH], "operations_sidecar")
+            owner_actor_id = tomllib.loads(files["brain.toml"].decode("utf-8"))["owner_actor_id"]
+            validate_evidence("actor_id", owner_actor_id)
             principal_actors = {
-                row["principal_id"]: row["principal_id"] for row in operations["operations"]
+                row["principal_id"]: owner_actor_id for row in operations["operations"]
             }
         return FacetPortableReferences(
             frozenset(row["source_id"] for row in sources),

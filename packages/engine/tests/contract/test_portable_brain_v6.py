@@ -464,3 +464,63 @@ def test_full_v6_snapshot_refuses_inherited_and_manifest_drift(
     manifest_path.write_bytes(canonical(manifest))
     with pytest.raises(PortableValidationError):
         validated_portable_snapshot_v6(tmp_path)
+
+
+def test_real_schema11_empty_facet_restore_reopens_and_preserves_inherited_bytes(
+    tmp_path: Path,
+) -> None:
+    from open_brain_engine.engine.local import BrainEngine
+    from open_brain_engine.engine.local_schema import open_local_database_read_only
+    from open_brain_engine.engine.portable_v6_restore import (
+        audit_restored_v6,
+        restore_portable_v6_root,
+    )
+    from open_brain_engine.portable.v6 import validated_portable_snapshot_v6
+
+    files = _empty_facet_archive()
+    _write_v6(tmp_path, files)
+    snapshot = validated_portable_snapshot_v6(tmp_path)
+    stages: list[str] = []
+    materialized = restore_portable_v6_root(
+        tmp_path,
+        snapshot=snapshot,
+        expected_root_identity=snapshot.root_identity,
+        checkpoint=stages.append,
+    )
+    assert "facets_restored" in stages and "facet_semantics_reopened" in stages
+    engine = BrainEngine.open(materialized.profile)
+    assert engine.profile.tenant_id == snapshot.manifest["tenant_id"]
+    bundle = audit_restored_v6(materialized.profile, snapshot=snapshot)
+    assert bundle.next_sequence == 1
+    with open_local_database_read_only(materialized.profile) as connection:
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 11
+        assert all(
+            connection.execute(f"SELECT count(*) FROM {table}").fetchone()[0] == 0
+            for table in FACET_TABLES
+        )
+    assert all((tmp_path / path).read_bytes() == payload for path, payload in files.items())
+
+
+def test_opaque_principals_use_explicit_owner_actor_mapping() -> None:
+    kit = deepcopy(KIT)
+    owner_actor_id = kit["events"]["events"][0]["actor_id"]
+    for operation in kit["operations"]["operations"]:
+        operation["principal_id"] = "open-brain-mcp-local"
+    bundle = decode_portable_facets(
+        _files(kit),
+        brain_id=BRAIN_ID,
+        references=_references(principal_actors={"open-brain-mcp-local": owner_actor_id}),
+    )
+    connection = _connection()
+    install_portable_v6_facets(connection, bundle=bundle, owner_actor_id=owner_actor_id)
+    restored = verify_portable_v6_facets(connection, bundle=bundle, owner_actor_id=owner_actor_id)
+    assert restored.sidecars == bundle.sidecars
+    assert connection.execute("SELECT DISTINCT principal_id FROM facet_operations").fetchall() == [
+        ("open-brain-mcp-local",)
+    ]
+    with pytest.raises(PortableValidationError, match="actor binding"):
+        serialize_portable_v6_facets(
+            connection,
+            brain_id=BRAIN_ID,
+            owner_actor_id="actor_00000000-0000-4000-8000-000000000099",
+        )
