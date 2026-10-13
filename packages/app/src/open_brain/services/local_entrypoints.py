@@ -209,6 +209,7 @@ def run_cli(
             or parsed.allow_review_read
             or parsed.allow_review_propose
             or parsed.allow_review_decide
+            or facet_grants_from_namespace(parsed)
         )
         or json_output
     ):
@@ -593,7 +594,7 @@ def _parser() -> argparse.ArgumentParser:
     _add_space_inbox_parsers(subparsers)
     _add_review_parsers(subparsers)
     facet_parser = add_facet_parsers(subparsers)
-    _add_local_options(facet_parser)
+    _add_facet_local_options(facet_parser)
     privacy_parser = subparsers.add_parser(
         "privacy", help="Perform owner-local privacy maintenance."
     )
@@ -846,6 +847,20 @@ def _parser() -> argparse.ArgumentParser:
     _add_local_options(doctor_parser)
     doctor_parser.add_argument("--check", required=True, choices=_DOCTOR_CHECKS)
     return parser
+
+
+def _add_facet_local_options(parser: argparse.ArgumentParser) -> None:
+    options = parser._option_string_actions
+    if "--json" not in options:
+        parser.add_argument("--json", action="store_true", default=argparse.SUPPRESS)
+    else:
+        options["--json"].default = argparse.SUPPRESS
+    if "--data-dir" not in options:
+        parser.add_argument("--data-dir", default=argparse.SUPPRESS)
+    for action in parser._actions:
+        if isinstance(action, argparse._SubParsersAction):
+            for child in action.choices.values():
+                _add_facet_local_options(child)
 
 
 def _add_local_options(parser: argparse.ArgumentParser) -> None:
@@ -1790,6 +1805,7 @@ def _run_local_command(
             session_id="mcp-" + str(uuid.uuid4()),
             grants=selected_grants,
         )
+        facet_authority = session_authority
         owner_grants = frozenset(
             {
                 "workspace-read",
@@ -1871,7 +1887,7 @@ def _run_local_command(
             facets=FacetAppAdapter(
                 facets=tasks.facets,
                 publication=tasks.facet_publication,
-                authority=session_authority,
+                authority=facet_authority,
                 granted_capabilities=selected_grants,
                 budget=FacetSessionBudget(negotiated=negotiated.budget if negotiated else None),
             ),

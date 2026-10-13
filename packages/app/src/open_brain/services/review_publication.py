@@ -193,6 +193,9 @@ class ReviewPublicationService:
         except ValueError as error:
             raise _public_error(error) from None
         result = asdict(proposal)
+        facet_binding = result.pop("facet_binding_json", None)
+        if facet_binding is not None:
+            result["facet_selection"] = json.loads(facet_binding)
         proposal_status = result.pop("status")
         result["review_token"] = result.pop("review_digest")
         if proposal.patch is None:
