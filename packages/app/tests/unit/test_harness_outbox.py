@@ -1,7 +1,8 @@
 import json
 import os
+import signal
 import stat
-import time
+import threading
 from dataclasses import replace
 from hashlib import sha256
 from pathlib import Path
@@ -215,16 +216,22 @@ def test_drain_deadline_escapes_delivery_error_handlers(tmp_path: Path) -> None:
         )
 
     class SlowWorkflow(FakeWorkflow):
+        completed = False
+
         def capture(self, *args: object, **kwargs: object) -> dict[str, object]:
             self.calls.append((*args, kwargs))
-            time.sleep(0.2)
+            # Synchronize the real deadline with capture, excluding preceding
+            # filesystem/scheduler delays from this error-unwinding regression.
+            assert signal.getitimer(signal.ITIMER_REAL)[0] > 0
+            signal.setitimer(signal.ITIMER_REAL, 0.03)
+            threading.Event().wait(timeout=1)
+            self.completed = True
             return self.result
 
     slow = SlowWorkflow()
-    started = time.monotonic()
-    with pytest.raises(HarnessDeadlineExceeded), _deadline(0.03):
+    with pytest.raises(HarnessDeadlineExceeded), _deadline(2):
         outbox.drain(slow.workflow())
-    assert time.monotonic() - started < 0.15
+    assert not slow.completed
     assert len(slow.calls) == 1
     assert not list((outbox.root / "receipts").iterdir())
     assert outbox.status()["counts"] == {
