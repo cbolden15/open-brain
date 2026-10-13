@@ -55,6 +55,7 @@ from .contracts import (
     TextPayload,
 )
 from .facet_publication import FacetPublicationTasks
+from .facet_vault import FacetVaultTasks
 from .facets import FacetTasks
 from .ingestion import IngestionJournal
 from .journal_ops import JournalTasks
@@ -292,6 +293,7 @@ class BrainEngine(CaptureOperations, SpaceOperations, ReviewOperations, Retrieva
         self.journal = JournalTasks(self)
         self.facets = FacetTasks(self)
         self.facet_publication = FacetPublicationTasks(self)
+        self.facet_vault = FacetVaultTasks(self)
         self._task_set = EngineTaskSet(
             profile=profile,
             capture=self.capture,
@@ -311,6 +313,7 @@ class BrainEngine(CaptureOperations, SpaceOperations, ReviewOperations, Retrieva
             journal=self.journal,
             facets=self.facets,
             facet_publication=self.facet_publication,
+            facet_vault=self.facet_vault,
         )
 
     @classmethod
