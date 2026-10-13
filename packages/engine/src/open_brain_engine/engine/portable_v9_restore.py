@@ -9,7 +9,10 @@ from collections.abc import Callable
 from pathlib import Path
 
 from open_brain_engine.portable.v1 import PortableSnapshot
-from open_brain_engine.portable.v9 import validate_historical_authority
+from open_brain_engine.portable.v9 import (
+    ValidatedHistoricalAuthority,
+    validate_historical_authority,
+)
 from open_brain_engine.storage.filesystem import RootIdentity
 
 from .contracts import LocalEngineContext
@@ -110,6 +113,19 @@ def restore_portable_v9_root(
         expected_root_identity=expected_root_identity,
         _v5_restore=bundle,
     )
+    restore_historical_authority(materialization, authority=authority, checkpoint=checkpoint)
+    audit_restored_v5(materialization.profile, snapshot=snapshot)
+    checkpoint("historical_audited")
+    return materialization
+
+
+def restore_historical_authority(
+    materialization: Materialization,
+    *,
+    authority: ValidatedHistoricalAuthority,
+    checkpoint: Callable[[str], None] = lambda _stage: None,
+) -> None:
+    """Install the same validated V2 history after the caller's base materialization."""
     profile = materialization.profile
     registry = HistoricalRegistryStore(profile.root, profile.root_identity)
     fence = HistoricalPendingFence(profile.root, profile.root_identity)
@@ -150,6 +166,3 @@ def restore_portable_v9_root(
     fence.assert_settled(authority.registry)
     with _historical_transaction(profile, lambda: None) as connection:
         verify_versioned_historical_projection(connection, profile, authority.registry)
-    audit_restored_v5(profile, snapshot=snapshot)
-    checkpoint("historical_audited")
-    return materialization

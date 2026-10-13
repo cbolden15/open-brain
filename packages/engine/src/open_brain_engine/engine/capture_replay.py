@@ -19,6 +19,7 @@ from open_brain_engine.core.models import narrowest_tier
 from open_brain_engine.portable.v5 import _manifest
 from open_brain_engine.portable.v8 import PORTABLE_V8_SCHEMA_CATALOG_DIGEST
 from open_brain_engine.portable.v9 import PORTABLE_V9_SCHEMA_CATALOG_DIGEST
+from open_brain_engine.portable.v10 import PORTABLE_V10_SCHEMA_CATALOG_DIGEST
 from open_brain_engine.storage.filesystem import read_confined
 
 from .capture_recovery import CaptureRecoveryPlan
@@ -88,11 +89,13 @@ def _baseline_manifest(engine: BrainEngine, baseline: RecoveryBaseline) -> set[s
 
     manifest = read_json("portable-manifest.json", 16 * 1024 * 1024)
     version = manifest.get("schema_version")
-    if type(version) is not int or version not in (8, 9):
-        raise ValueError("capture recovery requires Portable8 or Portable9")
-    catalog = (
-        PORTABLE_V8_SCHEMA_CATALOG_DIGEST if version == 8 else PORTABLE_V9_SCHEMA_CATALOG_DIGEST
-    )
+    if type(version) is not int or version not in (8, 9, 10):
+        raise ValueError("capture recovery requires Portable8, Portable9, or Portable10")
+    catalog = {
+        8: PORTABLE_V8_SCHEMA_CATALOG_DIGEST,
+        9: PORTABLE_V9_SCHEMA_CATALOG_DIGEST,
+        10: PORTABLE_V10_SCHEMA_CATALOG_DIGEST,
+    }[version]
     paths = _manifest(manifest, version=version, catalog=catalog)
     ready = read_json(".open-brain/state/portability-ready.json", 65536)
     _validate_ready_record(manifest, import_id=cast(str, ready.get("import_id")), ready=ready)
