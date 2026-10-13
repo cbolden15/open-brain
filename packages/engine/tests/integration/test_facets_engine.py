@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import sqlite3
 from collections.abc import Mapping
 from datetime import UTC, datetime
 from pathlib import Path

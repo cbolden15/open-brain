@@ -434,7 +434,7 @@ class FacetTasks:
             }
         )
         # Facet mutations conservatively invalidate all continuations, including denied changes.
-        generation = generations(connection)
+        generation = generations(connection, profile=self._engine.profile)
         store = CursorStore(self._engine.profile)
         now = self._engine._clock().timestamp()
         prior = continuation(

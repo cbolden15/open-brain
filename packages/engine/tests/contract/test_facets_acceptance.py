@@ -599,7 +599,7 @@ def test_f18_pending_facet_proposal_survives_clean_import_and_valid_approval(
     exported = brain.engine.portability.export(
         archive, export_id="export_00000000-0000-4000-8000-000000000010"
     )
-    assert exported.schema_version == 6
+    assert exported.schema_version == 10
     brain.engine.portability.import_clean(
         archive, restored, import_id="import_00000000-0000-4000-8000-000000000011"
     )
