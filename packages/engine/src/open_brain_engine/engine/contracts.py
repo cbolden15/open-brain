@@ -53,6 +53,7 @@ from .privacy_projection import _NARROWED_REASON
 from .t03_contracts import EffectiveAuthority, SourceRouteRequest, SourceRouteResponse
 
 if TYPE_CHECKING:
+    from .facet_contracts import FacetPublicationTasks, FacetTasks, FacetVaultTasks
     from .privacy_repairs import PrivacyRepairReceipt, PrivacyRepairRequest
     from .sharing_contracts import (
         SharingDecisionReceipt,
@@ -578,6 +579,7 @@ class ReviewProposal:
     projection_applied: bool
     patch: PatchDraft | None = None
     patch_diff: str | None = None
+    facet_binding_json: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -773,6 +775,7 @@ class PortabilityReceipt:
             7,
             8,
             9,
+            10,
         }:
             raise ValueError("invalid portability receipt schema version")
         if self.index_generation is not None and (
@@ -1377,6 +1380,7 @@ class MarkdownImportEntry:
             raise ValueError("invalid Markdown import path")
         if self.reason is not None and self.reason not in {
             "dot_directory",
+            "managed_projection",
             "file_changed",
             "file_too_large",
             "hardlink",
@@ -3515,6 +3519,9 @@ class EngineTaskSet:
     privacy_repair: PrivacyRepairTask | None = None
     journal: JournalTask | None = None
     sharing: SharingTask | None = None
+    facets: FacetTasks | None = None
+    facet_publication: FacetPublicationTasks | None = None
+    facet_vault: FacetVaultTasks | None = None
 
     @property
     def spaces(self) -> InboxSpaceTask:

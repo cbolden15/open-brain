@@ -1,6 +1,6 @@
 {
   "milestone": "PR79 main reconciliation",
-  "status": "reserved before dispatch",
+  "status": "dispatching E X A",
   "pins": {
     "feature": "7e161c2336c126c59c68b00b294e3823d5707491",
     "main": "621161ad48bc8fcfa64966c7a618c18cc72b660a",
@@ -8,7 +8,8 @@
     "c0_revision": "facets-c0-v4",
     "c0_fixture_manifest_sha256": "95e85b535eeb4263a6e430970ecf1d49de8d0b72de7425e41be703897d93dbc5",
     "o0_revision": "obsidian-o0-v1",
-    "o0_fixture_manifest_sha256": "bee455084d682e8e717f5f40e1a5cfad82ada7546fdf6412552a8e4844a50d9f"
+    "o0_fixture_manifest_sha256": "bee455084d682e8e717f5f40e1a5cfad82ada7546fdf6412552a8e4844a50d9f",
+    "integration_base": "89f238fa2c9f6bac03d5999d94b5d77b540dd7a5"
   },
   "target": {
     "schema": 15,

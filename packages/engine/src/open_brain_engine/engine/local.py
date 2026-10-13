@@ -55,6 +55,9 @@ from .contracts import (
     SpaceRecord,
     TextPayload,
 )
+from .facet_publication import FacetPublicationTasks
+from .facet_vault import FacetVaultTasks
+from .facets import FacetTasks
 from .ingestion import IngestionJournal
 from .journal_ops import JournalTasks
 from .local_schema import open_local_database_read_only
@@ -179,7 +182,7 @@ class BrainEngine(CaptureOperations, SpaceOperations, ReviewOperations, Retrieva
         assert_root_identity(profile.root, profile.root_identity)
         schema = inspect_phase1_state(profile)
         if recovery_protection_guard is not None and (
-            schema.state != "current" or schema.version not in {13, 14}
+            schema.state != "current" or schema.version not in {13, 14, 15}
         ):
             raise StateSchemaUnavailableError("recovery protection requires existing schema13")
         if recovery_protection_guard is not None:
@@ -271,10 +274,18 @@ class BrainEngine(CaptureOperations, SpaceOperations, ReviewOperations, Retrieva
         if (
             receipt_protection_port is not None
             and schema.state != "absent"
-            and schema.version not in {12, 13, 14}
+            and schema.version not in {12, 13, 14, 15}
         ):
             raise StateSchemaUnavailableError(
                 "receipt protection requires the schema-10 ingestion journal"
+            )
+        if (
+            schema.state == "supported_old"
+            and schema.version == 14
+            and local_schema.PHASE1_STATE_SCHEMA_VERSION >= 15
+        ):
+            raise StateSchemaUnavailableError(
+                "local state schema is supported_old: facet migration requires exclusive admission"
             )
         self.profile = profile
         self._faults = set(faults)
@@ -338,7 +349,7 @@ class BrainEngine(CaptureOperations, SpaceOperations, ReviewOperations, Retrieva
                 finally:
                     connection.close()
         except LockBusyError:
-            if schema.state != "current" or schema.version not in {12, 13, 14}:
+            if schema.state != "current" or schema.version not in {12, 13, 14, 15}:
                 raise
             self._store = _LocalStore(profile, clock=self._clock, initialize=False)
         self.capture = CaptureTasks(self)
@@ -362,6 +373,9 @@ class BrainEngine(CaptureOperations, SpaceOperations, ReviewOperations, Retrieva
         self.privacy_repair = PrivacyRepairTasks(self)
         self.journal = JournalTasks(self)
         self.sharing = SharingTasks(self)
+        self.facets = FacetTasks(self)
+        self.facet_publication = FacetPublicationTasks(self)
+        self.facet_vault = FacetVaultTasks(self)
         self._task_set = EngineTaskSet(
             profile=profile,
             capture=self.capture,
@@ -380,6 +394,9 @@ class BrainEngine(CaptureOperations, SpaceOperations, ReviewOperations, Retrieva
             privacy_repair=self.privacy_repair,
             journal=self.journal,
             sharing=self.sharing,
+            facets=self.facets,
+            facet_publication=self.facet_publication,
+            facet_vault=self.facet_vault,
         )
 
     @classmethod
