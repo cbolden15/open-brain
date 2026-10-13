@@ -1,6 +1,6 @@
 {
   "milestone": "PR79 main reconciliation",
-  "status": "integrated verification and independent review",
+  "status": "verified reconciliation; PR update authorized; no merge or deployment",
   "pins": {
     "feature": "7e161c2336c126c59c68b00b294e3823d5707491",
     "main": "621161ad48bc8fcfa64966c7a618c18cc72b660a",
@@ -21,9 +21,10 @@
     "max_active_workers": 6,
     "max_total_attempts": 12,
     "used_attempts": 4,
-    "reserved_active": 1,
+    "reserved_active": 0,
     "authority": "User requested reconcile PR79 before merging. Update PR branch after verification; no merge or deployment.",
-    "continuity": "New user-requested milestone after completed O0 handoff."
+    "continuity": "New user-requested milestone after completed O0 handoff.",
+    "active_workers": 0
   },
   "ownership": {
     "E": [
@@ -73,7 +74,7 @@
   "workers": [
     {
       "role": "E",
-      "status": "reserved",
+      "status": "completed",
       "worktree": "/Users/calebbolden/Projects/oss/open-brain-reconcile-e",
       "budget_minutes": 60,
       "input_pin": {
@@ -86,11 +87,12 @@
         "o0_fixture_manifest_sha256": "bee455084d682e8e717f5f40e1a5cfad82ada7546fdf6412552a8e4844a50d9f"
       },
       "verification": "Focused owned tests plus scoped Ruff/mypy; real temporary Brains only. Report missing coordinator seams rather than fake proof.",
-      "completion": "Scoped committed implementation and tests; report exact commands, results, shared registration patch guidance and remaining gaps. No push or children."
+      "completion": "Scoped committed implementation and tests; report exact commands, results, shared registration patch guidance and remaining gaps. No push or children.",
+      "result": "218 focused passed; two stale expectations fixed and their targeted cases passed; five real main-policy compatibility cases covered."
     },
     {
       "role": "X",
-      "status": "reserved",
+      "status": "completed",
       "worktree": "/Users/calebbolden/Projects/oss/open-brain-reconcile-x",
       "budget_minutes": 60,
       "input_pin": {
@@ -103,11 +105,12 @@
         "o0_fixture_manifest_sha256": "bee455084d682e8e717f5f40e1a5cfad82ada7546fdf6412552a8e4844a50d9f"
       },
       "verification": "Focused owned tests plus scoped Ruff/mypy; real temporary Brains only. Report missing coordinator seams rather than fake proof.",
-      "completion": "Scoped committed implementation and tests; report exact commands, results, shared registration patch guidance and remaining gaps. No push or children."
+      "completion": "Scoped committed implementation and tests; report exact commands, results, shared registration patch guidance and remaining gaps. No push or children.",
+      "result": "53 contract cases plus five real mixed historical authority/Portable10 cases passed; scoped Ruff/mypy clean."
     },
     {
       "role": "A",
-      "status": "reserved",
+      "status": "completed",
       "worktree": "/Users/calebbolden/Projects/oss/open-brain-reconcile-a",
       "budget_minutes": 60,
       "input_pin": {
@@ -120,13 +123,33 @@
         "o0_fixture_manifest_sha256": "bee455084d682e8e717f5f40e1a5cfad82ada7546fdf6412552a8e4844a50d9f"
       },
       "verification": "Focused owned tests plus scoped Ruff/mypy; real temporary Brains only. Report missing coordinator seams rather than fake proof.",
-      "completion": "Scoped committed implementation and tests; report exact commands, results, shared registration patch guidance and remaining gaps. No push or children."
+      "completion": "Scoped committed implementation and tests; report exact commands, results, shared registration patch guidance and remaining gaps. No push or children.",
+      "result": "139 focused adapter and real policy tests passed; scoped Ruff clean; integrated typecheck corrected test response narrowing."
     },
     {
       "role": "R",
-      "status": "reserved",
+      "status": "completed",
       "budget_minutes": 40,
-      "completion": "Independent review of preservation of main formats/policy plus facet semantics; concrete findings with source evidence; no edits/push"
+      "completion": "Independent review of preservation of main formats/policy plus facet semantics; concrete findings with source evidence; no edits/push",
+      "result": "80 independent focused cases and 14 follow-up authority/fault cases passed; native resource and historical migration-fence P1 findings fixed; no remaining confirmed findings."
     }
-  ]
+  ],
+  "candidate": {
+    "commit": "084c29423593f5a77b33e98ecc6357f3b74e749a",
+    "schema15_catalog_sha256": "1aff846971223ea267b649c9c0fdf6b4935cbd97b0b6976a2bd154d7bf0b35b8",
+    "portable10_catalog_sha256": "3099469f9a876e8d7e05e80ab009e7cba1d6a144d51e0846bcf10ea4819bbf50",
+    "status": "verified"
+  },
+  "verification": {
+    "ruff": "passed",
+    "mypy": "passed,617 source files",
+    "compatibility_focus": "161 follow-up cases,118 recovery/catalog/collector cases,52 privacy/historical cases and10 collector custody cases passed",
+    "fixture_pins": "C0 and O0 manifest hashes unchanged",
+    "independent_review": "closed on91db46b;084c294 changes only test expectations; no remaining confirmed findings",
+    "gitleaks": "92 branch commits scanned; no leaks",
+    "native": "make native-audit homebrew-smoke passed91db46b; runtime and packaging unchanged in084c294",
+    "full": "make verify passed084c294:7045 Python passed,5 filesystem skips,528 plugin tests,259 desktop frontend tests,30 desktop Python checks,26 Rust tests; all builds/typechecks passed",
+    "actionlint": "passed",
+    "diff_check": "passed"
+  }
 }
