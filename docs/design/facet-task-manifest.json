@@ -133,7 +133,6 @@
         "packages/app/tests/facet_fake.py"
       ],
       "exclusive_write_scope": [
-        "packages/app/src/open_brain/services/facets.py",
         "packages/app/tests/unit/test_facets_adapters.py",
         "packages/app/tests/integration/services/test_facets_cli_mcp.py",
         "packages/app/tests/unit/engine/test_ingestion_journal.py",
@@ -386,7 +385,7 @@
         "contract_revision": "facets-c0-v3",
         "fixture_manifest_sha256": "781a6b886baf6a904b974eb071ea30a36d2d8ff6d2f10f98fbd6da06de8653ba"
       },
-      "execution_status": "real implementation integrated; recovery and authority validation in progress"
+      "execution_status": "reserved successor-lineage route binding repair after verifiedP"
     },
     "X": {
       "requires_verified": [
@@ -599,7 +598,8 @@
         "tests/fixtures/local-schema/catalog-checksums.json",
         "packages/app/src/open_brain/services/catalog.py",
         "packages/engine/src/open_brain_engine/engine/managed_recovery.py",
-        "packages/engine/src/open_brain_engine/engine/issuer_state.py"
+        "packages/engine/src/open_brain_engine/engine/issuer_state.py",
+        "packages/app/src/open_brain/services/facets.py"
       ],
       "acceptance_cases": [
         "F01",
@@ -753,5 +753,13 @@
   "invalidated_checks": [
     "v3 semantic replay/restore checks; rerun all consumer focused gates and final combined gate against v4",
     "schema11 checksum pending final V custody DDL; rerun migration/runtime admission and freeze catalog on final combined candidate"
+  ],
+  "ownership_transfers": [
+    {
+      "file": "packages/app/src/open_brain/services/facets.py",
+      "from": "A",
+      "to": "I",
+      "reason": "A finished9058225; coordinator owns trusted transport-size admission integration"
+    }
   ]
 }
