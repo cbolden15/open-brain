@@ -43,25 +43,18 @@ def _mixed(engine: BrainEngine) -> tuple[str, dict[str, Any], EffectiveAuthority
     linked_v2(engine)
     dimension = engine.facets.dimension_create(
         fc.DimensionCreateRequest(
-            **{
-                "dto_version": 1,
-                "operation_id": "portable10.dimension",
-                "expected_version": 0,
-                "name": "Mixed evidence",
-            },
+            operation_id="portable10.dimension", expected_version=0, name="Mixed evidence"
         ),
         authority=owner,
     ).to_wire()["subject_id"]
+    assert isinstance(dimension, str)
     value = engine.facets.value_create(
         fc.ValueCreateRequest(
-            **{
-                "dto_version": 1,
-                "operation_id": "portable10.value",
-                "expected_version": 0,
-                "dimension_id": dimension,
-                "expected_dimension_version": 1,
-                "name": "Retained",
-            },
+            operation_id="portable10.value",
+            expected_version=0,
+            dimension_id=dimension,
+            expected_dimension_version=1,
+            name="Retained",
         ),
         authority=owner,
     ).to_wire()["subject_id"]
