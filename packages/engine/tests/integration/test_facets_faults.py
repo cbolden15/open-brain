@@ -135,21 +135,22 @@ def test_f06_concurrent_identical_retry_has_one_event_and_exact_receipt(tmp_path
 
 def _legacy_brain(tmp_path: Path) -> FacetHarness:
     brain = FacetHarness(tmp_path, initialize=False)
-    # Invoke the retained schema-10 creator for synthetic setup. No historical
-    # catalogue is edited and no version-11 database is downgraded.
+    # Invoke the retained schema-14 creator for synthetic setup. No historical
+    # catalogue is edited and no version-15 database is downgraded.
     connection = connect_database(
         root=brain.root,
         database_name=".open-brain/state/phase1.sqlite3",
         expected_root_identity=brain.profile.root_identity,
         prepare=partial(
             _prepare_local_schema,
-            schema_version=10,
+            schema_version=14,
+            profile=brain.profile,
             tenant_id=brain.profile.tenant_id,
             clock=lambda: datetime(2026, 10, 13, tzinfo=UTC),
         ),
     )
     connection.close()
-    assert inspect_phase1_state(brain.profile).version == 10
+    assert inspect_phase1_state(brain.profile).version == 14
     return brain
 
 
@@ -164,18 +165,18 @@ def _schema_evidence(
         )
 
 
-def test_f16_schema10_upgrade_changes_compatibility_once_and_reopens_empty_facets(
+def test_f16_schema14_upgrade_changes_compatibility_once_and_reopens_empty_facets(
     tmp_path: Path,
 ) -> None:
     brain = _legacy_brain(tmp_path)
     _, historical, _ = _schema_evidence(brain)
     coordinate_local_migration(brain.profile)
     version, migrations, compatibility = _schema_evidence(brain)
-    assert version == 11
-    assert migrations[:10] == historical, (
+    assert version == 15
+    assert migrations[:14] == historical, (
         "Retained migration names/checksums/times must remain exact"
     )
-    assert compatibility == [(1, 6, 11)]
+    assert compatibility == [(1, 10, 15)]
     brain.engine = BrainEngine.open(brain.profile)
     assert brain.call("facet.dimension.list")["items"] == []
     assert brain.call("facet.query.list")["items"] == []
@@ -185,7 +186,7 @@ def test_f16_schema10_upgrade_changes_compatibility_once_and_reopens_empty_facet
 
 
 @pytest.mark.parametrize("stage", ["facet_preflight", "facet_schema_applied"])
-def test_f16_precommit_migration_fault_leaves_exact_schema10(tmp_path: Path, stage: str) -> None:
+def test_f16_precommit_migration_fault_leaves_exact_schema14(tmp_path: Path, stage: str) -> None:
     brain = _legacy_brain(tmp_path)
     before = _schema_evidence(brain)
     reached: list[str] = []
@@ -200,7 +201,7 @@ def test_f16_precommit_migration_fault_leaves_exact_schema10(tmp_path: Path, sta
     assert stage in reached
     assert _schema_evidence(brain) == before
     coordinate_local_migration(brain.profile)
-    assert _schema_evidence(brain)[0] == 11
+    assert _schema_evidence(brain)[0] == 15
 
 
 def test_f16_postcommit_migration_fault_reports_committed_upgrade(tmp_path: Path) -> None:
@@ -215,8 +216,8 @@ def test_f16_postcommit_migration_fault_reports_committed_upgrade(tmp_path: Path
     ) as error:
         coordinate_local_migration(brain.profile, checkpoint=checkpoint)
     assert isinstance(error.value.__cause__, BoundaryFault)
-    assert _schema_evidence(brain)[0] == 11
-    assert _schema_evidence(brain)[2] == [(1, 6, 11)]
+    assert _schema_evidence(brain)[0] == 15
+    assert _schema_evidence(brain)[2] == [(1, 10, 15)]
     assert inspect_phase1_state(brain.profile).state == "current"
     coordinate_local_migration(brain.profile)
     brain.engine = BrainEngine.open(brain.profile)
@@ -226,20 +227,20 @@ def test_f16_postcommit_migration_fault_reports_committed_upgrade(tmp_path: Path
 def test_f16_bad_historical_checksum_is_not_admitted_or_repaired(tmp_path: Path) -> None:
     brain = _legacy_brain(tmp_path)
     with sqlite3.connect(brain.root / ".open-brain/state/phase1.sqlite3") as connection:
-        connection.execute("UPDATE schema_migrations SET checksum=? WHERE version=10", ("0" * 64,))
+        connection.execute("UPDATE schema_migrations SET checksum=? WHERE version=14", ("0" * 64,))
     corrupted = _schema_evidence(brain)
     with pytest.raises(StateSchemaUnavailableError):
         coordinate_local_migration(brain.profile)
     assert _schema_evidence(brain) == corrupted
 
 
-def test_f16_live_schema10_runtime_peer_blocks_upgrade(tmp_path: Path) -> None:
+def test_f16_live_schema14_runtime_peer_blocks_upgrade(tmp_path: Path) -> None:
     brain = _legacy_brain(tmp_path)
     registry = brain.root / ".open-brain/runtime-sessions"
     registry.mkdir(mode=0o700)
     marker = registry / ("session-" + "1" * 32 + ".lock")
     marker.touch(mode=0o600)
-    marker.write_text(json.dumps({"pid": 1, "session_id": "1" * 32, "version": 5}))
+    marker.write_text(json.dumps({"pid": 1, "session_id": "1" * 32, "version": 9}))
     before = _schema_evidence(brain)
     with marker.open("r+") as peer:
         fcntl.flock(peer.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
@@ -248,7 +249,7 @@ def test_f16_live_schema10_runtime_peer_blocks_upgrade(tmp_path: Path) -> None:
         assert _schema_evidence(brain) == before
         fcntl.flock(peer.fileno(), fcntl.LOCK_UN)
     coordinate_local_migration(brain.profile)
-    assert _schema_evidence(brain)[0] == 11
+    assert _schema_evidence(brain)[0] == 15
 
 
 def test_f16_unknown_newer_schema_is_refused_without_touching_evidence(tmp_path: Path) -> None:

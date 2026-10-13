@@ -1,15 +1,9 @@
-"""Real foreground facet state/evidence checks using only temporary synthetic Brains.
-
-When the coordinator has not registered schema 11, the fixture installs additive
-DDL and substitutes only SQL admission. It never fakes facet results. The same
-cases use the real admitted store unchanged on the integrated schema-11 tree.
-"""
+"""Real admitted facet state/evidence checks using temporary synthetic Brains."""
 
 from __future__ import annotations
 
 import sqlite3
-from collections.abc import Iterator, Mapping
-from contextlib import contextmanager
+from collections.abc import Mapping
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, cast
@@ -20,56 +14,16 @@ from open_brain_engine.engine import facet_contracts as fc
 from open_brain_engine.engine.contracts import CaptureReceipt, LocalEngineContext, TextPayload
 from open_brain_engine.engine.facet_evidence import validate_portable_facet_sidecars
 from open_brain_engine.engine.facet_schema_migration import (
-    FACET_TABLE_SCHEMA,
     facet_schema_available,
 )
 from open_brain_engine.engine.facet_store import events_sidecar, operations_sidecar, semantic_state
 from open_brain_engine.engine.facets import FacetTasks
 from open_brain_engine.engine.local import BrainEngine
-from open_brain_engine.engine.local_schema import PHASE1_STATE_DATABASE
-from open_brain_engine.engine.local_store import _LocalStore
-from open_brain_engine.engine.source_store import (
-    publish_source_metadata,
-    register_completed_captures,
-    register_publication_members,
-)
 from open_brain_engine.engine.t03_contracts import EffectiveAuthority
 from open_brain_engine.providers.base import ProviderMode
 
 TENANT = "tenant_00000000-0000-4000-8000-000000000001"
 ACTOR = "actor_00000000-0000-4000-8000-000000000002"
-
-
-class _AdditiveDDLTestStore:
-    """Temporary SQL admission seam pending coordinator registration; real SQLite."""
-
-    def __init__(self, profile: LocalEngineContext) -> None:
-        self.profile = profile
-
-    def connect(self) -> sqlite3.Connection:
-        connection = sqlite3.connect(
-            self.profile.root / PHASE1_STATE_DATABASE, isolation_level=None
-        )
-        connection.row_factory = sqlite3.Row
-        connection.execute("PRAGMA foreign_keys=ON")
-        return connection
-
-    @contextmanager
-    def transaction(self) -> Iterator[sqlite3.Connection]:
-        connection = self.connect()
-        try:
-            connection.execute("BEGIN IMMEDIATE")
-            yield connection
-            register_completed_captures(connection, self.profile)
-            register_publication_members(connection, self.profile)
-            connection.execute("COMMIT")
-            publish_source_metadata(connection, self.profile)
-        except BaseException:
-            if connection.in_transaction:
-                connection.execute("ROLLBACK")
-            raise
-        finally:
-            connection.close()
 
 
 class Brain:
@@ -111,12 +65,7 @@ class Brain:
         connection = self.engine._store.connect()
         self.migration_pending = not facet_schema_available(connection)
         connection.close()
-        if self.migration_pending:
-            test_store = _AdditiveDDLTestStore(self.profile)
-            with test_store.transaction() as connection:
-                for statement in FACET_TABLE_SCHEMA:
-                    connection.execute(statement)
-            self.engine._store = cast(_LocalStore, test_store)
+        assert not self.migration_pending, "Real schema-15 admission is required"
         self.tasks = FacetTasks(self.engine)
         self.owner = EffectiveAuthority(
             principal_id=ACTOR,

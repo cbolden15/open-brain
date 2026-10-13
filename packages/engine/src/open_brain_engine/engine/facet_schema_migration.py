@@ -1,4 +1,4 @@
-"""Additive schema-11 facet DDL and explicitly admitted empty-ledger cutover."""
+"""Additive schema-15 facet DDL and explicitly admitted empty-ledger cutover."""
 
 from __future__ import annotations
 
@@ -16,8 +16,8 @@ if TYPE_CHECKING:
     from .contracts import LocalEngineContext
     from .runtime_admission import HeldRuntimeAdmission
 
-FACET_SCHEMA_VERSION = 11
-FACET_RUNTIME_SESSION_VERSION = 6
+FACET_SCHEMA_VERSION = 15
+FACET_RUNTIME_SESSION_VERSION = 10
 FACET_TABLE_SCHEMA = (
     """CREATE TABLE facet_dimensions (
  dimension_id TEXT PRIMARY KEY, name TEXT NOT NULL, name_key TEXT NOT NULL UNIQUE,
@@ -78,12 +78,12 @@ FACET_SCHEMA = (
     "DROP TABLE runtime_compatibility",
     """CREATE TABLE runtime_compatibility (
  singleton INTEGER PRIMARY KEY CHECK(singleton=1),
- minimum_runtime_session_version INTEGER NOT NULL CHECK(minimum_runtime_session_version=6),
- state_schema_version INTEGER NOT NULL CHECK(state_schema_version=11)
+ minimum_runtime_session_version INTEGER NOT NULL CHECK(minimum_runtime_session_version=10),
+ state_schema_version INTEGER NOT NULL CHECK(state_schema_version=15)
 )""",
-    "INSERT INTO runtime_compatibility VALUES(1,6,11)",
+    "INSERT INTO runtime_compatibility VALUES(1,10,15)",
 )
-FACET_MIGRATION = _migration(11, "owner-defined-facets", FACET_SCHEMA)
+FACET_MIGRATION = _migration(15, "owner-defined-facets", FACET_SCHEMA)
 
 
 def facet_schema_available(connection: sqlite3.Connection) -> bool:
@@ -106,8 +106,8 @@ def migrate_facets(
 ) -> None:
     """Run only through the coordinator's exclusive schema/session admission.
 
-    Registration of migration 11 and recognition of its exact shape belong to
-    the coordinator. A failed pre-commit stage leaves schema 10 unchanged; a
+    Registration of migration 15 and recognition of its exact shape belong to
+    the coordinator. A failed pre-commit stage leaves schema 14 unchanged; a
     post-commit fault explicitly reports committed-upgrade recovery.
     """
     from .local_schema import (
@@ -134,13 +134,13 @@ def migrate_facets(
             if not facet_schema_available(connection):
                 raise T03Error("operation_pending")
             return
-        if state.state != "supported_old" or state.version != 10:
+        if state.state != "supported_old" or state.version != 14:
             raise T03Error("operation_pending")
         checkpoint("facet_preflight")
         admission.validate(profile)
         connection.execute("BEGIN IMMEDIATE")
         state = classify_local_schema(connection)
-        if state.state != "supported_old" or state.version != 10:
+        if state.state != "supported_old" or state.version != 14:
             raise T03Error("operation_pending")
         if len(LOCAL_MIGRATIONS) != FACET_SCHEMA_VERSION:
             raise T03Error("operation_pending")
