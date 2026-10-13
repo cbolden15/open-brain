@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import importlib
+import io
 import json
 import sqlite3
 from collections.abc import Callable
@@ -12,13 +13,17 @@ from typing import Any, cast
 import pytest
 from open_brain_engine.core.models import PrivacyTier
 from open_brain_engine.engine.contracts import CaptureReceipt, TextPayload
+from open_brain_engine.engine.facet_contracts import (
+    DimensionCreateRequest,
+    DimensionRenameRequest,
+)
 from open_brain_engine.engine.local import BrainEngine
 from open_brain_engine.engine.t03_contracts import EffectiveAuthority, SourceRouteRequest
 from open_brain_engine.storage.markdown import parse_markdown, render_markdown
 
 from open_brain.profile import compile_single_user_local, open_existing_single_user_local
 from open_brain.services.local_entrypoints import run_cli
-from open_brain.services.mcp_protocol import McpCallError
+from open_brain.services.mcp_protocol import McpCallError, serve_stdio_mcp
 from packages.engine.tests.contract.test_facets_acceptance import FacetHarness, public_revision
 
 
@@ -572,3 +577,189 @@ def test_f15_granted_mcp_review_cannot_use_owner_bypass_for_denied_evidence(
     _launch_scoped_review_mcp(brain, monkeypatch, spaces=frozenset(spaces), exercise=exercise)
     output = capsys.readouterr()
     assert "SYNTHETIC_PRIVATE_REVIEW" not in output.out + output.err
+
+
+@pytest.mark.parametrize(
+    "length,code", [(66000, "invalid_arguments"), (5000, "response_too_large")]
+)
+def test_f15_mcp_request_id_bytes_and_wrapped_receipt_cap_refuse_before_effects(
+    tmp_path: Path,
+    length: int,
+    code: str,
+) -> None:
+    root = tmp_path / "brain"
+    engine = BrainEngine.open(compile_single_user_local(root))
+    adapter = _mcp(engine, frozenset({"facet-catalog-write"}))
+    with pytest.raises(McpCallError, match=f"^{code}$"):
+        adapter.call_tool(
+            "brain_facet_dimension_create",
+            {
+                "dto_version": 1,
+                "name": "Synthetic transport bound",
+                "expected_version": 0,
+                "operation_id": "transport-request-id",
+            },
+            request_id="x" * length,
+        )
+    assert _facet_row_counts(root) == (0, 0, 0)
+
+
+def _stdio_facet_request(adapter: Any, raw_call: bytes) -> tuple[dict[str, Any], bytes]:
+    initialize = (
+        json.dumps(
+            {
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "initialize",
+                "params": {
+                    "protocolVersion": "2025-03-26",
+                    "capabilities": {},
+                    "clientInfo": {},
+                },
+            },
+            separators=(",", ":"),
+        ).encode("utf-8")
+        + b"\n"
+    )
+    sink = io.BytesIO()
+    serve_stdio_mcp(
+        adapter,
+        input_stream=io.BytesIO(initialize + raw_call),
+        output_stream=sink,
+        maximum_message_bytes=1024 * 1024,
+    )
+    lines = sink.getvalue().splitlines(keepends=True)
+    assert len(lines) == 2
+    assert "result" in json.loads(lines[0])
+    return cast(dict[str, Any], json.loads(lines[1])), lines[1].removesuffix(b"\n")
+
+
+@pytest.mark.parametrize("padding", ["metadata", "whitespace"])
+def test_f15_actual_stdio_counts_discarded_metadata_and_raw_whitespace_before_effects(
+    tmp_path: Path,
+    padding: str,
+) -> None:
+    root = tmp_path / "brain"
+    engine = BrainEngine.open(compile_single_user_local(root))
+    adapter = _mcp(engine, frozenset({"facet-catalog-write"}))
+    params: dict[str, Any] = {
+        "name": "brain_facet_dimension_create",
+        "arguments": {
+            "dto_version": 1,
+            "name": "Raw transport bound",
+            "expected_version": 0,
+            "operation_id": "raw-transport-bound",
+        },
+    }
+    if padding == "metadata":
+        params["_meta"] = {"synthetic_padding": "x" * 66000}
+    raw = json.dumps(
+        {"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": params}, separators=(",", ":")
+    ).encode("utf-8")
+    if padding == "whitespace":
+        raw += b" " * 66000
+    raw += b"\n"
+    assert 65536 < len(raw) < 1024 * 1024
+    response, _ = _stdio_facet_request(adapter, raw)
+    assert response["result"]["isError"] is True
+    assert response["result"]["content"][0]["text"] == "invalid_arguments"
+    assert _facet_row_counts(root) == (0, 0, 0)
+
+
+def test_f15_actual_stdio_admits_ordinary_utf8_request_and_bounded_receipt(tmp_path: Path) -> None:
+    root = tmp_path / "brain"
+    engine = BrainEngine.open(compile_single_user_local(root))
+    adapter = _mcp(engine, frozenset({"facet-catalog-write"}))
+    name = "研究🙂 café"
+    raw = (
+        json.dumps(
+            {
+                "jsonrpc": "2.0",
+                "id": "🙂" * 100,
+                "method": "tools/call",
+                "params": {
+                    "name": "brain_facet_dimension_create",
+                    "arguments": {
+                        "dto_version": 1,
+                        "name": name,
+                        "expected_version": 0,
+                        "operation_id": "valid-utf8",
+                    },
+                },
+            },
+            ensure_ascii=False,
+            separators=(",", ":"),
+        ).encode("utf-8")
+        + b"\n"
+    )
+    assert len(raw) < 65536
+    response, encoded = _stdio_facet_request(adapter, raw)
+    assert response["result"]["structuredContent"]["status"] == "applied"
+    assert len(encoded) <= 4096
+    assert _facet_row_counts(root) == (1, 1, 1)
+    with sqlite3.connect(root / ".open-brain/state/phase1.sqlite3") as connection:
+        assert connection.execute("SELECT name FROM facet_dimensions").fetchone()[0] == name
+
+
+def test_f15_unicode_history_pages_fit_full_encoded_stdio_envelope_without_lost_events(
+    tmp_path: Path,
+) -> None:
+    brain = FacetHarness(tmp_path)
+    created = brain.engine.facets.dimension_create(
+        DimensionCreateRequest(
+            operation_id="unicode-history-0",
+            expected_version=0,
+            name="🙂" * 112 + "-000",
+        ),
+        authority=brain.authority,
+    ).to_wire()
+    dimension = cast(str, created["subject_id"])
+    for index in range(1, 100):
+        brain.engine.facets.dimension_rename(
+            DimensionRenameRequest(
+                dimension_id=dimension,
+                expected_version=index,
+                operation_id=f"unicode-history-{index}",
+                name="🙂" * 112 + f"-{index:03d}",
+            ),
+            authority=brain.authority,
+        )
+    adapter = _mcp(brain.engine, frozenset({"facet-read", "history-read"}))
+    sequences: list[int] = []
+    cursor = None
+    page_count = 0
+    for _ in range(100):
+        raw = (
+            json.dumps(
+                {
+                    "jsonrpc": "2.0",
+                    "id": 2,
+                    "method": "tools/call",
+                    "params": {
+                        "name": "brain_facet_history_list",
+                        "arguments": {
+                            "dto_version": 1,
+                            "subject": {"kind": "dimension", "id": dimension},
+                            "limit": 100,
+                            "cursor": cursor,
+                        },
+                    },
+                },
+                separators=(",", ":"),
+            ).encode("utf-8")
+            + b"\n"
+        )
+        response, encoded = _stdio_facet_request(adapter, raw)
+        assert not response["result"].get("isError", False), response
+        assert len(encoded) <= 250000
+        page = response["result"]["structuredContent"]
+        assert page["items"], "A complete synthetic event fits; continuation must make progress"
+        sequences.extend(item["sequence"] for item in page["items"])
+        page_count += 1
+        cursor = page["next_cursor"]
+        if page["complete"]:
+            assert cursor is None
+            break
+        assert cursor is not None
+    assert page_count > 1, "The full ASCII-escaped double representation requires pagination"
+    assert sequences == list(range(1, 101))
