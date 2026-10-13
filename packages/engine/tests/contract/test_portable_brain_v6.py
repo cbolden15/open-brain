@@ -12,7 +12,7 @@ from copy import deepcopy
 from dataclasses import replace
 from hashlib import sha256
 from pathlib import Path
-from typing import Any, cast
+from typing import TYPE_CHECKING, Any, cast
 
 import pytest
 from open_brain_engine.core.ids import portable_canonical_json_bytes as canonical
@@ -35,6 +35,10 @@ from open_brain_engine.portable.facets_v6 import (
 from open_brain_engine.portable.review_binding import review_binding_digest
 from open_brain_engine.portable.v1 import PortableValidationError
 from open_brain_engine.storage.markdown import render_markdown
+
+if TYPE_CHECKING:
+    from open_brain_engine.engine.local import BrainEngine
+    from open_brain_engine.engine.t03_contracts import EffectiveAuthority
 
 FIXTURES = Path(__file__).parents[1] / "fixtures/facets"
 KIT: dict[str, Any] = json.loads((FIXTURES / "positive/portable-replay.json").read_bytes())
@@ -757,3 +761,286 @@ def test_real_populated_facets_export_import_reopen_query_retry_and_reexport(
     assert {
         path: data for path, data in after.files.items() if path != "portable-manifest.json"
     } == {path: data for path, data in before.files.items() if path != "portable-manifest.json"}
+
+
+def _real_publication_brain(
+    tmp_path: Path,
+) -> tuple[BrainEngine, EffectiveAuthority, str, str, list[str], str]:
+    from open_brain_engine.core.models import PrivacyTier
+    from open_brain_engine.engine import facet_contracts as fc
+    from open_brain_engine.engine.contracts import TextPayload
+    from open_brain_engine.engine.local import BrainEngine
+    from open_brain_engine.engine.t03_contracts import EffectiveAuthority
+
+    from open_brain.profile import compile_single_user_local
+
+    engine = BrainEngine.open(
+        compile_single_user_local(
+            tmp_path / "publication-brain", starter_spaces=("First", "Second", "Destination")
+        )
+    )
+    spaces = {space.name: space.space_id for space in engine.inbox.spaces()}
+    owner = EffectiveAuthority(
+        engine.profile.owner_actor_id, "x-publication-owner", frozenset(), None, owner=True
+    )
+    captures = []
+    for index, space in enumerate((spaces["First"], spaces["Second"], None)):
+        captures.append(
+            engine.capture.accept(
+                TextPayload(f"Synthetic cross-space evidence {index}"),
+                delivery_id=f"x-publication-source-{index}",
+                space_id=space,
+                privacy_tier=PrivacyTier.WORK,
+            )
+        )
+
+    def call(operation: str, **arguments: Any) -> dict[str, Any]:
+        request = fc.request_from_wire(operation, {"dto_version": 1, **arguments})
+        return cast(
+            dict[str, Any],
+            getattr(engine.facets, fc.OPERATION_METHODS[operation])(
+                request, authority=owner
+            ).to_wire(),
+        )
+
+    dimension = call(
+        "facet.dimension.create",
+        operation_id="x-publication-dimension",
+        expected_version=0,
+        name="Project",
+    )["subject_id"]
+    value = call(
+        "facet.value.create",
+        operation_id="x-publication-value",
+        expected_version=0,
+        dimension_id=dimension,
+        expected_dimension_version=1,
+        name="Apollo",
+    )["subject_id"]
+    for index, capture in enumerate(captures):
+        call(
+            "facet.assignment.patch",
+            operation_id=f"x-publication-assignment-{index}",
+            expected_version=0,
+            record_id=capture.capture_id,
+            expected_revision_id=capture.capture_id,
+            add_value_ids=[value],
+            remove_value_ids=[],
+        )
+    query = call(
+        "facet.query.create",
+        operation_id="x-publication-query",
+        expected_version=0,
+        name="Apollo sources",
+        selector={"all_value_ids": [value], "record_types": ["source"]},
+    )["subject_id"]
+    return (
+        engine,
+        owner,
+        query,
+        value,
+        [capture.capture_id for capture in captures],
+        spaces["Destination"],
+    )
+
+
+def _real_facet_proposal(
+    engine: BrainEngine,
+    owner: EffectiveAuthority,
+    query: str,
+    destination: str,
+    *,
+    operation_id: str = "x-roundtrip-proposal",
+) -> dict[str, Any]:
+    from open_brain_engine.engine import facet_contracts as fc
+
+    request = fc.ProposeFromFacetQueryRequest(
+        operation_id=operation_id,
+        query_id=query,
+        expected_query_version=1,
+        target_page_id=None,
+        expected_page_revision_id=None,
+        destination_space_id=destination,
+        title="Cross-space Portable page",
+        markdown="Synthetic reviewed source synthesis.\n",
+    )
+    return cast(
+        dict[str, Any],
+        engine.facet_publication.propose_from_facet_query(request, authority=owner).to_wire(),
+    )
+
+
+@pytest.mark.parametrize("status", ["pending", "approved", "rejected"])
+def test_real_cross_space_publication_evidence_roundtrip_and_pending_approval(
+    tmp_path: Path,
+    status: str,
+) -> None:
+    from open_brain_engine.engine.contracts import DecisionOutcome
+    from open_brain_engine.engine.local import BrainEngine
+    from open_brain_engine.portable.versioned import validated_portable_snapshot
+
+    from open_brain.profile import open_existing_single_user_local
+
+    engine, owner, query, _value, captures, destination = _real_publication_brain(tmp_path)
+    proposal = _real_facet_proposal(engine, owner, query, destination)
+    if status != "pending":
+        inspection = engine.review.show(proposal["proposal_id"])
+        engine.review.decide(
+            inspection.proposal_id,
+            DecisionOutcome.APPROVED if status == "approved" else DecisionOutcome.REJECTED,
+            delivery_id=f"x-roundtrip-{status}",
+            expected_review_digest=inspection.review_digest,
+        )
+    expected_destinations = {proposal["page_id"]: destination}
+    if status == "approved":
+        second_destination = next(
+            space.space_id for space in engine.inbox.spaces() if space.space_id != destination
+        )
+        second = _real_facet_proposal(
+            engine, owner, query, second_destination, operation_id="x-roundtrip-proposal-second"
+        )
+        inspected_second = engine.review.show(second["proposal_id"])
+        engine.review.decide(
+            inspected_second.proposal_id,
+            DecisionOutcome.APPROVED,
+            delivery_id="x-roundtrip-approved-second",
+            expected_review_digest=inspected_second.review_digest,
+        )
+        expected_destinations[second["page_id"]] = second_destination
+    exported = tmp_path / "publication-portable"
+    engine.portability.export(exported, export_id="export_00000000-0000-4000-8000-000000000071")
+    before = validated_portable_snapshot(exported)
+    binding_path = next(
+        path
+        for path in before.files
+        if path.startswith("history/review-bindings/")
+        and path.endswith(f"/{proposal['proposal_id']}.json")
+    )
+    proposal_path = next(
+        path
+        for path in before.files
+        if path.startswith("history/proposals/")
+        and path.endswith(f"/{proposal['proposal_id']}.json")
+    )
+    binding = json.loads(before.files[binding_path])
+    assert binding["schema_version"] == 5 and binding["destination_space_id"] == destination
+    assert set(binding["selected_capture_ids"]) == set(captures)
+    assert {state["space_id"] for state in binding["source_states"]} != {destination}
+    assert None in {state["space_id"] for state in binding["source_states"]}
+    before_state = json.loads(before.files[FACET_STATE_PATH])
+    assert bool(before_state["page_queries"]) == (status == "approved")
+    if status == "approved":
+        assert {row["page_id"] for row in before_state["page_queries"]} == set(
+            expected_destinations
+        )
+        assert len(expected_destinations) == 2
+        from open_brain_engine.storage.markdown import parse_markdown
+
+        pages = {
+            page.fields["page_id"]: page.fields
+            for path, data in before.files.items()
+            if path.startswith("content/spaces/") and "/notes/" in path
+            for page in [parse_markdown(data)]
+        }
+        for page_id, expected_destination in expected_destinations.items():
+            assert pages[page_id]["space_id"] == expected_destination
+            assert set(cast(list[str], pages[page_id]["provenance"])) == set(captures)
+    restored_root = tmp_path / "publication-restored"
+    engine.portability.import_clean(
+        exported, restored_root, import_id="import_00000000-0000-4000-8000-000000000072"
+    )
+    restored = BrainEngine.open(open_existing_single_user_local(restored_root))
+    reexported = tmp_path / "publication-reexported"
+    restored.portability.export(reexported, export_id="export_00000000-0000-4000-8000-000000000073")
+    after = validated_portable_snapshot(reexported)
+    assert {
+        path: data for path, data in after.files.items() if path != "portable-manifest.json"
+    } == {path: data for path, data in before.files.items() if path != "portable-manifest.json"}
+    if status == "pending":
+        inspection = restored.review.show(proposal["proposal_id"])
+        assert inspection.status == "pending"
+        decision = restored.review.decide(
+            inspection.proposal_id,
+            DecisionOutcome.APPROVED,
+            delivery_id="x-imported-pending-approval",
+            expected_review_digest=inspection.review_digest,
+        )
+        assert decision.publication_id is not None
+        with restored._store.connect() as connection:
+            attachment = connection.execute(
+                "SELECT query_id,version FROM facet_page_queries WHERE page_id=?",
+                (proposal["page_id"],),
+            ).fetchone()
+            assert tuple(attachment) == (query, 1)
+            assert (
+                connection.execute(
+                    "SELECT count(*) FROM facet_assignments "
+                    "WHERE subject_kind='canonical' AND subject_id=?",
+                    (proposal["page_id"],),
+                ).fetchone()[0]
+                == 0
+            )
+        assert (restored_root / binding_path).read_bytes() == before.files[binding_path]
+        assert (restored_root / proposal_path).read_bytes() == before.files[proposal_path]
+
+
+def test_real_import_preserves_stale_pending_facet_proposal_and_refuses_approval(
+    tmp_path: Path,
+) -> None:
+    from open_brain_engine.engine import facet_contracts as fc
+    from open_brain_engine.engine.contracts import DecisionOutcome
+    from open_brain_engine.engine.local import BrainEngine
+    from open_brain_engine.portable.versioned import validated_portable_snapshot
+
+    from open_brain.profile import open_existing_single_user_local
+
+    engine, owner, query, value, captures, destination = _real_publication_brain(tmp_path)
+    proposal = _real_facet_proposal(engine, owner, query, destination)
+    capture_id = captures[0]
+    for version, add, remove in ((1, [], [value]), (2, [value], [])):
+        request = fc.AssignmentsPatchRequest(
+            operation_id=f"x-stale-membership-{version}",
+            expected_version=version,
+            record_id=capture_id,
+            expected_revision_id=capture_id,
+            add_value_ids=add,
+            remove_value_ids=remove,
+        )
+        engine.facets.assignments_patch(request, authority=owner)
+    exported = tmp_path / "stale-portable"
+    engine.portability.export(exported, export_id="export_00000000-0000-4000-8000-000000000081")
+    snapshot = validated_portable_snapshot(exported)
+    binding_path = next(
+        path
+        for path in snapshot.files
+        if path.startswith("history/review-bindings/")
+        and path.endswith(f"/{proposal['proposal_id']}.json")
+    )
+    binding = json.loads(snapshot.files[binding_path])
+    captured_membership = next(
+        state for state in binding["facet_source_states"] if state["capture_id"] == capture_id
+    )["memberships"][0]
+    assert captured_membership["membership_version"] == 1
+    assert (
+        max(
+            row["membership_version"]
+            for row in json.loads(snapshot.files[FACET_STATE_PATH])["assignments"]
+        )
+        == 3
+    )
+    restored_root = tmp_path / "stale-restored"
+    engine.portability.import_clean(
+        exported, restored_root, import_id="import_00000000-0000-4000-8000-000000000082"
+    )
+    restored = BrainEngine.open(open_existing_single_user_local(restored_root))
+    assert (restored_root / binding_path).read_bytes() == snapshot.files[binding_path]
+    inspected = restored.review.show(proposal["proposal_id"])
+    with pytest.raises(ValueError, match="conflict"):
+        restored.review.decide(
+            inspected.proposal_id,
+            DecisionOutcome.APPROVED,
+            delivery_id="x-stale-imported-approval",
+            expected_review_digest=inspected.review_digest,
+        )
+    with restored._store.connect() as connection:
+        assert connection.execute("SELECT count(*) FROM facet_page_queries").fetchone()[0] == 0
