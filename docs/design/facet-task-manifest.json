@@ -348,7 +348,14 @@
       "preparation_completion": "Pure binding/codec/rendering/reconciliation logic and focused fixture tests pass; final real-engine integration pending.",
       "integration_requires_verified": [
         "E"
-      ]
+      ],
+      "continuation": {
+        "producer_pin": "015480fff34608e87115a04240b1d1078def0033",
+        "contract_pin": "1c14378dc4dc40026c3d2a592b85ae03a43521c1",
+        "contract_revision": "facets-c0-v3",
+        "fixture_manifest_sha256": "781a6b886baf6a904b974eb071ea30a36d2d8ff6d2f10f98fbd6da06de8653ba",
+        "stage": "real publication and recovery verification; shared registration composed"
+      }
     },
     "X": {
       "requires_verified": [
