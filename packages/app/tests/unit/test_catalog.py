@@ -20,9 +20,11 @@ from open_brain.services.catalog import (
     build_catalog,
     cli_registrations,
 )
+from open_brain.services.facets import FacetAppAdapter
 from open_brain.services.local_entrypoints import _parser, run_cli
 from open_brain.services.local_mcp import MCP_REGISTERED_TOOLS, LocalMcpAdapter
 from open_brain.services.mcp_protocol import McpCallError
+from packages.app.tests.facet_fake import FakeFacetEngine
 
 
 def _owner_authority() -> EffectiveAuthority:
@@ -128,7 +130,7 @@ def test_cli_catalog_uses_parser_registration_before_root_selection(
     }
     obsidian = next(item for item in commands if item["command"] == ["obsidian-plugin", "install"])
     assert obsidian["positional_choices"] == {"action": "install"}
-    assert len(commands) == 73
+    assert len(commands) == 95
     assert run_cli(("catalog", "--json", "--schema-version", "1")) == 2
     assert run_cli(("catalog", "--json", "--unknown")) == 2
 
@@ -144,7 +146,7 @@ def test_owner_privacy_repair_is_installed_but_excluded_from_every_catalog_conte
     assert parsed.command == "privacy"
     assert parsed.privacy_action == "repair"
     commands = cli_registrations(_parser())
-    assert len(commands) == 73
+    assert len(commands) == 95
     assert ("privacy", "repair") not in {
         tuple(cast(list[str], command["command"])) for command in commands
     }
@@ -224,8 +226,11 @@ def test_registered_mcp_catalog_matches_all_injected_tools() -> None:
     def empty() -> dict[str, object]:
         return {"status": "ok"}
 
+    authority = _owner_authority()
+    fake = FakeFacetEngine()
     adapter = LocalMcpAdapter(
-        authority=_owner_authority(),
+        authority=authority,
+        facets=FacetAppAdapter(facets=fake, publication=fake, authority=authority),
         search=lambda _query, _limit: (),
         workspace_status=empty,
         graph_suggestions=empty,

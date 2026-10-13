@@ -28,13 +28,14 @@ from open_brain_engine.portable.versioned import validated_portable_snapshot
 from open_brain.profile import compile_single_user_local
 
 
-@pytest.fixture(params=(8, 9))
+@pytest.fixture(params=(8, 9, 10))
 def closure(
     tmp_path: Path, request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch
 ) -> RecoveryClosure:
-    if request.param == 8:
-        monkeypatch.setattr(local_schema, "PHASE1_STATE_SCHEMA_VERSION", 13)
-        monkeypatch.setattr(local_schema, "LOCAL_MIGRATIONS", LOCAL_MIGRATIONS[:13])
+    if request.param in (8, 9):
+        schema_version = request.param + 5
+        monkeypatch.setattr(local_schema, "PHASE1_STATE_SCHEMA_VERSION", schema_version)
+        monkeypatch.setattr(local_schema, "LOCAL_MIGRATIONS", LOCAL_MIGRATIONS[:schema_version])
     engine = BrainEngine.open(compile_single_user_local(tmp_path / "primary"))
     engine.capture.accept(TextPayload("Synthetic baseline body"), delivery_id="baseline.owner")
     archive = tmp_path / "baseline"

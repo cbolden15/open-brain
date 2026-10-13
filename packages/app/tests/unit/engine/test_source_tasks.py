@@ -899,8 +899,8 @@ def test_current_schema_owner_recovery_retains_current_writer_floor(tmp_path: Pa
         assert connection.execute("PRAGMA user_version").fetchone()[0] == 15
         assert tuple(connection.execute("SELECT * FROM runtime_compatibility").fetchone()) == (
             1,
-            9,
-            14,
+            10,
+            15,
         )
 
 
