@@ -1,7 +1,7 @@
 {
   "manifest_version": 1,
   "milestone": "O0 Obsidian plugin contract kit",
-  "status": "O0 implemented; focused verification and independent review in progress",
+  "status": "complete: O0 verified and independently reviewed; remainingStage2notstarted",
   "scope": "Obsidian plugin only; B/U/P/V/T/I Stage2 runtime tasks not started; standalone desktop feature work excluded",
   "stage_one_pin": {
     "verified_commit": "abeab52136a668fd851a6d4a7c72aa8fa67baedb",
@@ -16,7 +16,7 @@
     "max_concurrent_workers": 6,
     "coordinators": 1,
     "max_total_attempts": 12,
-    "review_reserved_attempts": 1,
+    "review_reserved_attempts": 0,
     "review_lenses": [
       "feasibility",
       "security"
@@ -123,27 +123,50 @@
     {
       "task": "identity_probe",
       "executor": "native reused /root/evidence",
-      "status": "integrated,27 real tests passed",
+      "status": "complete: integrated27realcustodychecks",
       "budget_minutes": 30
     },
     {
       "task": "independent_contract_tests",
       "executor": "native reused /root/check",
-      "status": "tests integrated, producer verification pending",
+      "status": "complete:237independentcodecandproducerfixturechecks",
       "budget_minutes": 30
     },
     {
       "task": "independent_review",
       "executor": "native reused /root/review",
-      "status": "reserved",
+      "status": "complete: overallREADY at e3c165f; fullreceipt reviewed;0unresolvedfindings",
       "budget_minutes": 30
     }
   ],
   "contract_revision": "obsidian-o0-v1",
   "fixture_manifest_sha256": "bee455084d682e8e717f5f40e1a5cfad82ada7546fdf6412552a8e4844a50d9f",
   "verification": {
-    "candidate": "f7dd38d",
-    "status": "invalidated: real-inspection parser fix; new pure app codec needs explicit architecture allowlist entry",
-    "next": "focused fixes then full gate on repaired candidate"
-  }
+    "candidate": "e3c165f90753464271bcff2aacb1a8f45ad64872",
+    "status": "make verify exit0",
+    "focused_python": 48,
+    "independent_typescript": 237,
+    "architecture_guards": 5,
+    "review": "overallREADY on exactcandidate, both findings closed",
+    "prior_candidate": "f7dd38d fullgate interrupted after1 architectureallowlistfailure,1101pass5skip; superseded",
+    "python_passed": 4023,
+    "python_skipped": 5,
+    "plugin_passed": 528,
+    "desktop_frontend_passed": 259,
+    "desktop_packaging_passed": 1,
+    "rust_passed": 26,
+    "mypy_files": 436,
+    "builds": "all4Pythonpackages plusplugin/desktop",
+    "additional_checks": [
+      "git diff --check",
+      "actionlint .github/workflows/ci.yml"
+    ],
+    "full_log": "/tmp/obsidian-o0/full-candidate2.log",
+    "post_candidate_changes": "documentation, task status, audit and handoff only",
+    "skips": {
+      "count": 5,
+      "reason": "1nonUTF8filename refusal;4filesystem NFC/NFD distinction limitations"
+    }
+  },
+  "remaining_stage_two": "B/U/P/V/T/I not dispatched; O01-O15 not claimed; standalone desktop excluded"
 }

@@ -1,6 +1,7 @@
 # Owner-defined facets, Stage 2: Obsidian interface
 
-Status: reviewed against verified Stage 1; O0 contract kit implemented, verification in progress.
+Status: reviewed against verified Stage 1; O0 contract kit implemented and verified at
+`e3c165f90753464271bcff2aacb1a8f45ad64872`, with independent review complete.
 Remaining Stage 2 tasks have not started.
 
 Date: 2026-10-13.

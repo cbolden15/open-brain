@@ -3,6 +3,11 @@
 Revision: `obsidian-o0-v1`. Obsidian is the Stage 2 interface. No standalone desktop feature
 work or remaining Stage 2 task is part of O0.
 
+Verified implementation: `e3c165f90753464271bcff2aacb1a8f45ad64872`. Full `make verify`
+passed, and independent review closed both findings. The O0 fixture manifest SHA-256 is
+`bee455084d682e8e717f5f40e1a5cfad82ada7546fdf6412552a8e4844a50d9f`.
+See [the O0 audit](../audits/2026-10-13-obsidian-o0-review.md) for exact evidence and limits.
+
 ## Frozen inputs
 
 Stage 1 passed full checks at `abeab52136a668fd851a6d4a7c72aa8fa67baedb`, followed by
@@ -135,3 +140,9 @@ followed by independent review. The repository gate includes existing desktop re
 it adds no desktop features. O0 must pass before B/U/P/V/T/I dispatch. Full Stage 2 O01–O15
 remain pending: codec/fake tests cannot prove live stream admission, persistence, authorization,
 publication recovery, reconciliation integration, restore or actual Obsidian usability.
+
+Final gate: 4,023 Python tests passed with five filesystem-specific skips; 528 plugin tests,
+259 existing desktop frontend tests, one desktop packaging test and 26 Rust tests passed.
+All four Python distributions, plugin and desktop frontend builds passed. Ruff, mypy across
+436 files, actionlint and the branch whitespace check passed. The five skips concern invalid
+UTF-8 filenames and distinct NFC/NFD names unsupported by this filesystem, as in Stage 1.
