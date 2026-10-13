@@ -41,7 +41,11 @@ from open_brain_engine.engine.facet_publication import (
 from open_brain_engine.engine.local import BrainEngine
 from open_brain_engine.engine.review_bound import validate_current_binding
 from open_brain_engine.engine.source_intake import SourceRevisionReceipt, SourceRevisionSubmission
-from open_brain_engine.engine.t03_contracts import EffectiveAuthority, SourceRouteRequest
+from open_brain_engine.engine.t03_contracts import (
+    EffectiveAuthority,
+    RecordReadRequest,
+    SourceRouteRequest,
+)
 from open_brain_engine.portable.review_binding import review_binding_digest, validate_review_binding
 from open_brain_engine.portable.v1 import PortableValidationError
 from open_brain_engine.portable.v4 import canonical_revision_id
@@ -672,7 +676,7 @@ def public_revision(engine: BrainEngine, sequence: int, head: str | None) -> Sou
 
 
 
-def test_real_selected_successor_stales_pending_but_preserves_inherited_evidence(
+def test_real_selected_successor_stales_pending_and_current_target_but_retains_owner_history(
     live_brain: LiveFacetBrain,
 ) -> None:
     brain = live_brain
@@ -689,15 +693,23 @@ def test_real_selected_successor_stales_pending_but_preserves_inherited_evidence
     assert successor.capture_id != first.capture_id
     with pytest.raises(ValueError, match="head conflict"):
         brain.approve(pending)
-    update = brain.propose(
-        "after-successor", target_page_id=published["page_id"], destination_space_id=None,
-        expected_page_revision_id=canonical_revision_id(decision.publication_id),
-    )
-    inspected = brain.engine.review.show(update["proposal_id"])
-    assert first.capture_id in inspected.capture_ids
+    revision = canonical_revision_id(decision.publication_id)
+    with pytest.raises(fc.FacetError, match="^not_found$"):
+        brain.propose(
+            "after-successor", target_page_id=published["page_id"], destination_space_id=None,
+            expected_page_revision_id=revision,
+        )
+    retained = brain.engine.history.read_history(
+        RecordReadRequest(record_id=published["page_id"], expected_revision_id=revision),
+        authority=brain.owner,
+    ).to_wire()
+    summary = cast(dict[str, Any], retained["record"])
+    assert first.capture_id in summary["provenance"]["capture_ids"]
+    current = brain.propose("after-successor-current-sources")
+    inspected = brain.engine.review.show(current["proposal_id"])
     assert first.capture_id not in inspected.selected_capture_ids
     assert successor.capture_id in inspected.selected_capture_ids
-    brain.approve(update)
+    brain.approve(current)
 
 
 def test_real_privacy_join_survives_edit_and_inherited_provenance(
@@ -838,7 +850,7 @@ def test_real_route_before_successor_binds_retained_ancestor_route(
         ).fetchone()[0] == original_bytes
 
 
-def test_real_lineage_reroute_conflicts_and_cumulative_provenance_uses_current_route(
+def test_real_lineage_reroute_conflicts_and_successor_provenance_uses_current_route(
     live_brain: LiveFacetBrain,
 ) -> None:
     brain = live_brain
@@ -857,10 +869,13 @@ def test_real_lineage_reroute_conflicts_and_cumulative_provenance_uses_current_r
         "target_page_id": base["page_id"], "destination_space_id": None,
         "expected_page_revision_id": canonical_revision_id(published.publication_id),
     }
-    pending = brain.propose("lineage-before-reroute", **target)
+    with pytest.raises(fc.FacetError, match="^not_found$"):
+        brain.propose("lineage-stale-target", **target)
+    pending = brain.propose("lineage-before-reroute")
     frozen = brain.engine.review.show(pending["proposal_id"]).facet_binding_json
-    for capture_id in (first.capture_id, successor.capture_id):
-        assert facet_state(brain, pending["proposal_id"], capture_id)["route_id"] == original_route
+    assert facet_state(brain, pending["proposal_id"], successor.capture_id)[
+        "route_id"
+    ] == original_route
     # A newer revision starts its own supersedes chain; old capture SQL space stays stale.
     route_proven_source(brain, successor.capture_id, brain.spaces[1].space_id)
     # Route away and back: the identity change still conflicts even if the space matches.
@@ -869,13 +884,12 @@ def test_real_lineage_reroute_conflicts_and_cumulative_provenance_uses_current_r
     assert brain.engine.review.show(pending["proposal_id"]).facet_binding_json == frozen
     with pytest.raises(ValueError, match="provenance conflict"):
         brain.approve(pending)
-    # Route again to prove cumulative old evidence uses the logical space, not old capture SQL.
+    # A new page uses the current successor route without reviving stale target eligibility.
     current_route = route_proven_source(brain, successor.capture_id, brain.spaces[1].space_id)
-    update = brain.propose("lineage-after-reroute", **target)
-    for capture_id in (first.capture_id, successor.capture_id):
-        state = facet_state(brain, update["proposal_id"], capture_id)
-        assert state["route_id"] == current_route
-        assert state["space_id"] == brain.spaces[1].space_id
+    update = brain.propose("lineage-after-reroute")
+    state = facet_state(brain, update["proposal_id"], successor.capture_id)
+    assert state["route_id"] == current_route
+    assert state["space_id"] == brain.spaces[1].space_id
     with closing(brain.engine._store.connect()) as connection:
         assert connection.execute(
             "SELECT space_id FROM captures WHERE capture_id=?", (first.capture_id,),
