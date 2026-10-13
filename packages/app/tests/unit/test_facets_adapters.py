@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import cast
 
@@ -14,6 +15,7 @@ from open_brain_engine.engine.t03_contracts import EffectiveAuthority
 
 from open_brain.services.facets import (
     FacetAppAdapter,
+    FacetReviewQuota,
     FacetSessionBudget,
     add_facet_grant_flags,
     facet_cli_exit_code,
@@ -21,6 +23,7 @@ from open_brain.services.facets import (
     facet_grants_from_namespace,
     facet_mcp_operation,
 )
+from open_brain.services.mcp_protocol import encoded_tool_response_size
 from open_brain.services.t03_adapters import T03SessionBudget
 from packages.app.tests.facet_fake import FakeFacetEngine
 
@@ -252,3 +255,182 @@ def test_invalid_mapping_is_a_closed_error_without_quota_charge() -> None:
         app.invoke("facet.dimension.list", {"dto_version": object()})
     assert not app.budget.calls
     assert not fake.calls
+
+
+def test_owner_authority_with_empty_mcp_grants_exposes_nothing() -> None:
+    fake = FakeFacetEngine()
+    app = FacetAppAdapter(
+        fake,
+        authority(*set().union(*GRANTS.values()), owner=True),
+        publication=fake,
+        vault=fake,
+        granted_capabilities=frozenset(),
+    )
+    assert app.available_operations() == ()
+    assert app.tool_definitions() == ()
+    for operation in GRANTS:
+        with pytest.raises(fc.FacetError, match="unsupported_capability"):
+            app.invoke_mcp("brain_" + operation.replace(".", "_"), ACCEPTED[operation]["request"])
+    assert not fake.calls
+    assert not app.budget.calls
+
+
+@pytest.mark.parametrize("operation,required", tuple(GRANTS.items()))
+def test_explicit_owner_mcp_grants_require_every_capability(
+    operation: str, required: frozenset[str]
+) -> None:
+    fake = FakeFacetEngine()
+    for missing in required:
+        app = FacetAppAdapter(
+            fake,
+            authority(owner=True),
+            publication=fake,
+            granted_capabilities=required - {missing},
+        )
+        assert operation not in app.available_operations()
+        with pytest.raises(fc.FacetError, match="unsupported_capability"):
+            app.invoke(operation, ACCEPTED[operation]["request"])
+    assert not fake.calls
+    app = FacetAppAdapter(
+        fake,
+        authority(owner=True),
+        publication=fake,
+        granted_capabilities=required,
+    )
+    fake.configure(operation, ACCEPTED[operation]["response"])
+    assert app.invoke(operation, ACCEPTED[operation]["request"]) == ACCEPTED[operation]["response"]
+    assert fake.calls[0].authority is app.authority
+
+
+def test_explicit_grants_cannot_expand_nonowner_authority_and_owner_cli_bypasses_them() -> None:
+    fake = FakeFacetEngine()
+    case = ACCEPTED["facet.dimension.create"]
+    app = FacetAppAdapter(
+        fake, authority("facet-read"), granted_capabilities=frozenset({"facet-catalog-write"})
+    )
+    assert app.available_operations() == ()
+    with pytest.raises(fc.FacetError, match="unsupported_capability"):
+        app.invoke(case["operation"], case["request"])
+    assert not fake.calls
+    owner = FacetAppAdapter(fake, authority(owner=True), granted_capabilities=frozenset())
+    fake.configure(case["operation"], case["response"])
+    assert owner.invoke(case["operation"], case["request"], transport="cli") == case["response"]
+
+
+@dataclass
+class _SharedReviewLedger:
+    proposals: int = 0
+    response_bytes: int = 0
+    reservations: list[int] = field(default_factory=list)
+
+    def begin(self) -> None:
+        if self.proposals >= 100:
+            raise ValueError("session_review_proposal_limit")
+        self.proposals += 1
+
+    def reserve(self, size: int) -> None:
+        self.reservations.append(size)
+        if self.response_bytes + size > 16 * 1024 * 1024:
+            raise ValueError("session_review_response_limit")
+
+    def commit(self, size: int) -> None:
+        self.reserve(size)
+        self.response_bytes += size
+
+    def callbacks(self) -> FacetReviewQuota:
+        return FacetReviewQuota(self.begin, self.reserve, self.commit)
+
+
+def test_shared_review_call_limit_stops_facet_proposal_before_effects() -> None:
+    fake = FakeFacetEngine()
+    shared = _SharedReviewLedger(proposals=99)
+    shared.begin()  # An ordinary review proposal consumes the last shared call.
+    app = FacetAppAdapter(
+        fake,
+        authority(owner=True),
+        publication=fake,
+        budget=FacetSessionBudget(review=shared.callbacks()),
+    )
+    case = ACCEPTED[fc.PUBLICATION_OPERATION]
+    with pytest.raises(fc.FacetError, match="limit_exceeded"):
+        app.invoke(case["operation"], case["request"])
+    assert not fake.calls
+    assert not app.budget.calls
+    assert shared.proposals == 100
+
+
+def test_shared_review_reservation_uses_wrapped_capacity_before_effects() -> None:
+    fake = FakeFacetEngine()
+    shared = _SharedReviewLedger(response_bytes=16 * 1024 * 1024 - 4096)
+    app = FacetAppAdapter(
+        fake,
+        authority(owner=True),
+        publication=fake,
+        budget=FacetSessionBudget(review=shared.callbacks()),
+    )
+    case = ACCEPTED[fc.PUBLICATION_OPERATION]
+    with pytest.raises(fc.FacetError, match="limit_exceeded"):
+        app.invoke(
+            case["operation"],
+            case["request"],
+            encoded_size=lambda result: encoded_tool_response_size(11, result),
+        )
+    assert not fake.calls
+    assert shared.reservations[0] > 4096
+    assert shared.proposals == app.budget.calls["review"] == 1
+    assert shared.response_bytes == 16 * 1024 * 1024 - 4096
+
+
+def test_shared_review_counts_failures_and_retries_and_charges_actual_bytes() -> None:
+    fake = FakeFacetEngine()
+    shared = _SharedReviewLedger(proposals=97, response_bytes=123)
+    app = FacetAppAdapter(
+        fake,
+        authority(owner=True),
+        publication=fake,
+        budget=FacetSessionBudget(review=shared.callbacks()),
+    )
+    case = ACCEPTED[fc.PUBLICATION_OPERATION]
+    fake.configure(case["operation"], fc.FacetError("review_conflict"))
+    for _ in range(2):
+        fake.configure(case["operation"], case["response"])
+    with pytest.raises(fc.FacetError, match="review_conflict"):
+        app.invoke(case["operation"], case["request"])
+    assert shared.proposals == 98
+    assert shared.response_bytes == 123
+    for _ in range(2):
+        result = app.invoke(
+            case["operation"],
+            case["request"],
+            encoded_size=lambda value: encoded_tool_response_size(11, value),
+        )
+        assert result == case["response"]
+    size = encoded_tool_response_size(11, case["response"])
+    assert app.budget.response_bytes["review"] == 2 * size
+    assert shared.response_bytes == 123 + 2 * size
+    assert shared.proposals == 100
+    with pytest.raises(ValueError, match="session_review_proposal_limit"):
+        shared.begin()  # Ordinary review now sees quota used by facet proposals.
+    assert len(fake.calls) == 3
+    fake.assert_exhausted()
+
+
+@pytest.mark.parametrize(
+    "operation,legacy",
+    [("facet.query.page", "search.page"), ("facet.history.list", "history.list")],
+)
+def test_shared_search_history_call_limit_is_enforced_before_handlers(
+    operation: str, legacy: str
+) -> None:
+    fake = FakeFacetEngine()
+    shared = T03SessionBudget(content_calls=499, history_calls=499)
+    shared.begin(legacy)
+    app = FacetAppAdapter(
+        fake,
+        authority("facet-read", "search", "history-read"),
+        budget=FacetSessionBudget(negotiated=shared),
+    )
+    with pytest.raises(fc.FacetError, match="limit_exceeded"):
+        app.invoke(operation, ACCEPTED[operation]["request"])
+    assert not fake.calls
+    assert not app.budget.calls

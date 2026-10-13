@@ -73,13 +73,30 @@ _MCP_NAMES: dict[str, str] = {
 _MCP_OPERATIONS = {name: operation for operation, name in _MCP_NAMES.items()}
 
 
+@dataclass(frozen=True, slots=True)
+class FacetReviewQuota:
+    """Callbacks over the same counters used by ordinary review operations.
+
+    ``begin`` admits and counts one proposal attempt, including retries and failures.
+    ``reserve`` checks available response bytes without charging them; ``commit``
+    charges actual wrapped response bytes. All callbacks run synchronously on the
+    session dispatch thread and raise ValueError when the shared quota is exhausted.
+    Reservation is a capacity check, so failed handlers leave no bytes to release.
+    """
+
+    begin: Callable[[], None]
+    reserve: Callable[[int], None]
+    commit: Callable[[int], None]
+
+
 @dataclass(slots=True)
 class FacetSessionBudget:
-    """One per-session quota ledger; optional T03 ledger shares search/history custody."""
+    """Facet quotas with optional shared search/history and review accounting."""
 
     calls: dict[str, int] = field(default_factory=dict)
     response_bytes: dict[str, int] = field(default_factory=dict)
     negotiated: T03SessionBudget | None = None
+    review: FacetReviewQuota | None = None
 
     def begin(self, bucket: str) -> None:
         limit = MAX_REVIEW_PROPOSALS if bucket == "review" else MAX_SESSION_CALLS
@@ -90,11 +107,21 @@ class FacetSessionBudget:
                 self.negotiated.begin("search.page" if bucket == "search" else "history.list")
             except ValueError:
                 raise fc.FacetError("limit_exceeded") from None
+        if self.review is not None and bucket == "review":
+            try:
+                self.review.begin()
+            except ValueError:
+                raise fc.FacetError("limit_exceeded") from None
         self.calls[bucket] = self.calls.get(bucket, 0) + 1
 
     def reserve(self, bucket: str, bytes_: int) -> None:
         if self.response_bytes.get(bucket, 0) + bytes_ > MAX_SESSION_BYTES:
             raise fc.FacetError("limit_exceeded")
+        if self.review is not None and bucket == "review":
+            try:
+                self.review.reserve(bytes_)
+            except ValueError:
+                raise fc.FacetError("limit_exceeded") from None
 
     def commit(self, bucket: str, bytes_: int) -> None:
         self.reserve(bucket, bytes_)
@@ -103,6 +130,11 @@ class FacetSessionBudget:
                 self.negotiated.commit(
                     "search.page" if bucket == "search" else "history.list", bytes_
                 )
+            except ValueError:
+                raise fc.FacetError("limit_exceeded") from None
+        if self.review is not None and bucket == "review":
+            try:
+                self.review.commit(bytes_)
             except ValueError:
                 raise fc.FacetError("limit_exceeded") from None
         self.response_bytes[bucket] = self.response_bytes.get(bucket, 0) + bytes_
@@ -115,10 +147,18 @@ class FacetAppAdapter:
     publication: fc.FacetPublicationTasks | None = None
     vault: fc.FacetVaultTasks | None = None
     budget: FacetSessionBudget = field(default_factory=FacetSessionBudget)
+    # An additional MCP restriction, including when legacy setup supplies owner authority.
+    # None preserves existing construction; CLI dispatch uses trusted authority directly.
+    granted_capabilities: frozenset[str] | None = None
 
     def __post_init__(self) -> None:
         if not isinstance(self.authority, EffectiveAuthority):
             raise ValueError("invalid facet authority")
+        if self.granted_capabilities is not None and (
+            type(self.granted_capabilities) is not frozenset
+            or any(type(grant) is not str for grant in self.granted_capabilities)
+        ):
+            raise ValueError("invalid facet grants")
 
     def _method(self, operation: str) -> Callable[..., object] | None:
         component, _grants, _bucket, _cap = _OPERATIONS[operation]
@@ -134,6 +174,11 @@ class FacetAppAdapter:
             for operation, (_component, grants, _bucket, _cap) in _OPERATIONS.items()
             if (transport == "cli" or operation in _MCP_NAMES)
             and (self.authority.owner or grants <= self.authority.capabilities)
+            and (
+                transport == "cli"
+                or self.granted_capabilities is None
+                or grants <= self.granted_capabilities
+            )
             and (not operation.startswith("facet.vault.") or self.authority.owner)
             and self._method(operation) is not None
         )
