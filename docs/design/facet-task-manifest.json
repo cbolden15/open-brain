@@ -596,7 +596,9 @@
         "tests/release/test_review_publish_acceptance.py",
         "tests/security/test_architecture_boundaries.py",
         "packages/app/tests/integration/engine/test_portability_v5.py",
-        "tests/fixtures/local-schema/catalog-checksums.json"
+        "tests/fixtures/local-schema/catalog-checksums.json",
+        "packages/app/src/open_brain/services/catalog.py",
+        "packages/engine/src/open_brain_engine/engine/managed_recovery.py"
       ],
       "acceptance_cases": [
         "F01",
