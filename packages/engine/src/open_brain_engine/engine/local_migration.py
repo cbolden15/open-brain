@@ -40,7 +40,7 @@ def coordinate_local_migration(
     clock: Callable[[], datetime] | None = None,
     checkpoint: Callable[[str], None] = lambda _stage: None,
 ) -> None:
-    """Resume the source, privacy, issuer, and ingestion cutovers in order, re-inspecting between.
+    """Resume ordered cutovers, re-inspecting state between each phase.
 
     The whole chain runs under one exclusive runtime admission and ends only at the
     current state schema. The ordinary opener never performs any of these phases.
@@ -68,7 +68,8 @@ def coordinate_local_migration(
     ingestion_phase = (
         schema.state == "supported_old" and _needs_ingestion_phase(schema.version) and target >= 10
     )
-    if not source_phase and not privacy_phase and not issuer_phase and not ingestion_phase:
+    facet_phase = schema.state == "supported_old" and schema.version == 10 and target >= 11
+    if not any((source_phase, privacy_phase, issuer_phase, ingestion_phase, facet_phase)):
         return
 
     with exclusive_runtime_admission(profile) as admission:
@@ -110,6 +111,13 @@ def coordinate_local_migration(
             from .ingestion_migration import migrate_ingestion_journal
 
             migrate_ingestion_journal(
+                profile, admission=admission, clock=resolved_clock, checkpoint=checkpoint
+            )
+            schema = inspect_phase1_state(profile)
+        if schema.state == "supported_old" and schema.version == 10 and target >= 11:
+            from .facet_schema_migration import migrate_facets
+
+            migrate_facets(
                 profile, admission=admission, clock=resolved_clock, checkpoint=checkpoint
             )
             schema = inspect_phase1_state(profile)

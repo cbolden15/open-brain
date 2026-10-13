@@ -53,6 +53,7 @@ from .privacy_projection import _NARROWED_REASON
 from .t03_contracts import EffectiveAuthority, SourceRouteRequest, SourceRouteResponse
 
 if TYPE_CHECKING:
+    from .facet_contracts import FacetPublicationTasks, FacetTasks, FacetVaultTasks
     from .privacy_repairs import PrivacyRepairReceipt, PrivacyRepairRequest
     from .source_intake import SourceRevisionReceipt, SourceRevisionSubmission
     from .t03_contracts import (
@@ -2931,6 +2932,9 @@ class EngineTaskSet:
     relationships: RelationshipTask | None = None
     privacy_repair: PrivacyRepairTask | None = None
     journal: JournalTask | None = None
+    facets: FacetTasks | None = None
+    facet_publication: FacetPublicationTasks | None = None
+    facet_vault: FacetVaultTasks | None = None
 
     @property
     def spaces(self) -> InboxSpaceTask:

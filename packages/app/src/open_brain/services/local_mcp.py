@@ -16,9 +16,11 @@ from open_brain_engine.engine import (
     RetrievalResult,
     TextPayload,
 )
+from open_brain_engine.engine.facet_contracts import REQUIRED_CAPABILITIES, FacetError
 from open_brain_engine.engine.t03_contracts import EffectiveAuthority
 
 from open_brain.services.catalog import CatalogRequestError
+from open_brain.services.facets import FacetAppAdapter, facet_mcp_operation
 from open_brain.services.local_operations import (
     DestinationBoundCaptureCapability,
     capture_result,
@@ -102,6 +104,19 @@ MCP_REGISTERED_TOOLS: tuple[dict[str, object], ...] = (
 )
 
 
+MCP_REGISTERED_TOOLS = (
+    *MCP_REGISTERED_TOOLS,
+    *(
+        cast(
+            dict[str, object],
+            {"name": "brain_" + operation.replace(".", "_"), "required_grants": sorted(grants)},
+        )
+        for operation, grants in REQUIRED_CAPABILITIES.items()
+        if not operation.startswith("facet.vault.")
+    ),
+)
+
+
 @dataclass(slots=True)
 class LocalMcpAdapter:
     """Explicitly injected, bounded local capabilities without owner authority."""
@@ -126,6 +141,7 @@ class LocalMcpAdapter:
     review_reject: ReviewOperation | None = None
     review_edit_and_approve: ReviewOperation | None = None
     negotiated: T03AppAdapter | None = None
+    facets: FacetAppAdapter | None = None
     _capture_calls: int = field(default=0, init=False)
     _capture_bytes: int = field(default=0, init=False)
     _search_calls: int = field(default=0, init=False)
@@ -167,6 +183,7 @@ class LocalMcpAdapter:
                 self.review_reject,
                 self.review_edit_and_approve,
                 self.negotiated,
+                self.facets,
             )
         ):
             raise ValueError("no MCP capability selected")
@@ -212,6 +229,9 @@ class LocalMcpAdapter:
         if self.negotiated is not None and self.negotiated.authority is not self.authority:
             raise ValueError("invalid MCP negotiated authority")
 
+        if self.facets is not None and not isinstance(self.facets, FacetAppAdapter):
+            raise ValueError("invalid MCP facet capability")
+
     @property
     def _scoped(self) -> bool:
         return not self.authority.owner
@@ -222,6 +242,8 @@ class LocalMcpAdapter:
 
     def list_tools(self) -> tuple[McpToolDefinition, ...]:
         tools: list[McpToolDefinition] = []
+        if self.facets is not None:
+            tools.extend(cast(McpToolDefinition, tool) for tool in self.facets.tool_definitions())
         if self.negotiated is not None:
             available = set(self.negotiated.available_operations())
             if available:
@@ -837,6 +859,8 @@ class LocalMcpAdapter:
         try:
             if name not in {tool["name"] for tool in self.list_tools()}:
                 raise McpCallError("unknown tool")
+            if self.facets is not None and facet_mcp_operation(name) is not None:
+                return self._facet_call(name, arguments, request_id, maximum_response_bytes)
             if name == "brain_catalog":
                 try:
                     from open_brain.services.catalog import build_catalog, cli_registrations
@@ -976,6 +1000,40 @@ class LocalMcpAdapter:
             if isinstance(error, ValueError) and str(error) == "conflicting delivery":
                 raise McpCallError("idempotency_conflict") from None
             raise McpCallError("tool call failed") from None
+
+    def _facet_call(
+        self,
+        name: str,
+        arguments: Mapping[str, object],
+        request_id: object,
+        maximum_response_bytes: int,
+    ) -> dict[str, object]:
+        assert self.facets is not None
+        is_proposal = facet_mcp_operation(name) == "review.propose_from_facet_query"
+        if is_proposal:
+            if self._review_proposal_calls >= MAX_REVIEW_PROPOSAL_CALLS:
+                raise McpCallError("session_review_proposal_limit")
+            self._review_proposal_calls += 1
+            reserved = encoded_tool_response_size(
+                request_id, {"reserved": "\\" * (MAX_REVIEW_MUTATION_RESPONSE_BYTES * 3)}
+            )
+            if (
+                reserved > maximum_response_bytes
+                or self._review_response_bytes + reserved > MAX_REVIEW_RESPONSE_BYTES
+            ):
+                raise McpCallError("session_review_response_limit")
+        try:
+            result = self.facets.invoke_mcp(
+                name,
+                arguments,
+                maximum_response_bytes=maximum_response_bytes,
+                encoded_size=lambda value: encoded_tool_response_size(request_id, value),
+            )
+        except FacetError as error:
+            raise McpCallError(error.code) from None
+        if is_proposal:
+            self._review_response_bytes += encoded_tool_response_size(request_id, result)
+        return result
 
     def _review_call(
         self,

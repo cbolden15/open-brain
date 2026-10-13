@@ -41,7 +41,10 @@ def migrate_ingestion_journal(
     )
     try:
         state = classify_local_schema(connection)
-        if state.state == "current" and state.version == INGESTION_JOURNAL_SCHEMA_VERSION:
+        if (
+            state.state in {"current", "supported_old"}
+            and state.version == INGESTION_JOURNAL_SCHEMA_VERSION
+        ):
             return
         if state.state != "supported_old" or state.version != PREVIOUS_SCHEMA_VERSION:
             raise T03Error("operation_pending")

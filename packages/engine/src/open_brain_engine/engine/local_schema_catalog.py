@@ -2,6 +2,7 @@
 
 from open_brain_engine.storage.migrations import _migration
 
+from .facet_schema_migration import FACET_MIGRATION
 from .source_schema import SOURCE_HISTORY_SCHEMA
 
 BASELINE = (
@@ -1336,4 +1337,5 @@ LOCAL_MIGRATIONS = (
     _migration(8, "effective_privacy_projection", PRIVACY_SCHEMA),
     _migration(9, "issuer_identity_and_owner_repair", IDENTITY_AND_REPAIR_SCHEMA),
     _migration(10, "durable_capture_ingestion_journal", INGESTION_JOURNAL_SCHEMA),
+    FACET_MIGRATION,
 )

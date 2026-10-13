@@ -205,6 +205,14 @@ class BrainEngine(CaptureOperations, SpaceOperations, ReviewOperations, Retrieva
                 "local state schema is supported_old: ingestion migration requires "
                 "exclusive admission"
             )
+        if (
+            schema.state == "supported_old"
+            and schema.version == 10
+            and local_schema.PHASE1_STATE_SCHEMA_VERSION >= 11
+        ):
+            raise StateSchemaUnavailableError(
+                "local state schema is supported_old: facet migration requires exclusive admission"
+            )
         self.profile = profile
         self._faults = set(faults)
         self._clock = clock
@@ -254,7 +262,10 @@ class BrainEngine(CaptureOperations, SpaceOperations, ReviewOperations, Retrieva
                 finally:
                     connection.close()
         except LockBusyError:
-            if schema.state != "current" or schema.version != 10:
+            if (
+                schema.state != "current"
+                or schema.version != local_schema.PHASE1_STATE_SCHEMA_VERSION
+            ):
                 raise
             self._store = _LocalStore(profile, clock=self._clock, initialize=False)
         self.capture = CaptureTasks(self)
