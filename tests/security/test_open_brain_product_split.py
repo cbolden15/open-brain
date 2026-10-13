@@ -29,6 +29,7 @@ def test_package_metadata_has_no_secure_node_extra_or_entry_point() -> None:
     assert "optional-dependencies" not in engine["project"]
     assert app["project"]["scripts"] == {
         "open-brain": "open_brain.services.local_entrypoints:run_cli",
+        "open-brain-harness": "open_brain.services.harness_native_entrypoint:main",
     }
     assert collector["project"]["scripts"] == {
         "open-brain-collector": "open_brain_collector.cli:run_cli",

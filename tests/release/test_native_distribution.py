@@ -67,8 +67,12 @@ def test_native_specs_keep_base_and_graphify_in_separate_executables() -> None:
     assert "local_native_entrypoint.py" in spec
     assert "analysis.binaries" in spec
     assert "analysis.datas" in spec
-    assert "COLLECT(" not in spec
-    assert "exclude_binaries=True" not in spec
+    core_spec = spec.split("# Optional integration commands")[0]
+    assert "COLLECT(" not in core_spec
+    assert "exclude_binaries=True" not in core_spec
+    assert 'name="open-brain-harness"' in spec
+    assert "harness_runtime = COLLECT(" in spec
+    assert "harness_native_entrypoint.py" in spec
     graphify_spec = (ROOT / "release/open-brain-graphify/open-brain-graphify.spec").read_text(
         encoding="utf-8"
     )

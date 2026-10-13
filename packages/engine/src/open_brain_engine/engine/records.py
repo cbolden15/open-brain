@@ -17,10 +17,16 @@ from open_brain_engine.storage.markdown import parse_markdown, render_markdown
 
 from .consent_contracts import EgressMode
 from .contracts import FilePayload, LocalEngineContext
+from .harness_memory import is_harness_source_reference
 from .materializer import _payload_search_text
 from .normalization import _privacy, _role_claim
 from .privacy_projection import parse_effective_privacy_json
-from .search_projection import public_search_text, public_source_origin, source_search_title
+from .search_projection import (
+    public_harness_record_text,
+    public_search_text,
+    public_source_origin,
+    source_search_title,
+)
 from .sharing import require_capture_eligibility
 from .t03_contracts import EffectiveAuthority, T03Error, validate_wire
 
@@ -152,14 +158,15 @@ class RecordProjector:
             if blob is None or sha256(blob).hexdigest() != digest:
                 raise T03Error("not_found")
             text = FilePayload(payload["file_name"], payload["media_type"], blob).search_text()
-        body = public_search_text(text, protected_source_reference=reference)
+        body, indexed_body = public_harness_record_text(text, source_reference=reference)
         row = self.connection.execute(
             "SELECT title FROM captures WHERE capture_id=?", (head,)
         ).fetchone()
         title = (
             row["title"]
             if row is not None and row["title"] is not None
-            else source_search_title(payload_family=record["payload"]["family"], body=body)
+            and not is_harness_source_reference(reference)
+            else source_search_title(payload_family=record["payload"]["family"], body=indexed_body)
         )
         origin = self._origin(record)
         summary = {
@@ -170,7 +177,7 @@ class RecordProjector:
             "payload_family": record["payload"]["family"],
             "space_id": source["space_id"],
             "title": public_search_text(title, protected_source_reference=reference),
-            "excerpt": " ".join(body.split())[:500],
+            "excerpt": " ".join(indexed_body.split())[:500],
             "trust": "owner"
             if origin == "owner_authored"
             else "third_party"
@@ -184,7 +191,7 @@ class RecordProjector:
             "source_update_available": False,
         }
         validate_wire("summary", summary)
-        return ProjectedRecord(summary, body)
+        return ProjectedRecord(summary, body, indexed_text=indexed_body)
 
     @staticmethod
     def _origin(record: dict[str, Any]) -> str:

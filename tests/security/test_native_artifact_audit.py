@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import importlib.util
 import io
+import json
 import marshal
 import struct
 import subprocess
@@ -19,9 +20,169 @@ import pytest
 
 from tools.open_brain_dev import artifact_audit as native
 from tools.open_brain_dev.graphify_native import write_graphify_archive
+from tools.open_brain_dev.harness_distribution import ASSETS, EXECUTABLE, INVENTORY, SCHEMA
 from tools.open_brain_dev.release_audit import content_rule_ids, main
 
 TERM = "synthetic_owner_marker"
+
+
+def harness_archive_fixture(
+    platform: str = "linux-x86_64", *, surface: str = "", bad: str = ""
+) -> bytes:
+    payloads = {
+        EXECUTABLE: executable(
+            package(
+                [
+                    (
+                        "PYZ.pyz",
+                        b"z",
+                        pyz(module(f"value={TERM!r}" if surface == "embedded-code" else "pass")),
+                    )
+                ]
+            ),
+            platform,
+        ),
+        **{name: b"// synthetic adapter" for name in ASSETS},
+        "open-brain-harness/_internal/data.txt": TERM.encode() if surface == "data" else b"safe",
+    }
+    if surface == "library-code":
+        library = io.BytesIO()
+        with zipfile.ZipFile(library, "w") as bundle:
+            info = zipfile.ZipInfo("fixture.pyc")
+            info.external_attr = 0o100644 << 16
+            info.compress_type = zipfile.ZIP_DEFLATED
+            bundle.writestr(
+                info, importlib.util.MAGIC_NUMBER + bytes(12) + module(f"value={TERM!r}")
+            )
+        payloads["open-brain-harness/_internal/base_library.zip"] = library.getvalue()
+    if surface == "adapter":
+        payloads[sorted(ASSETS)[0]] = TERM.encode()
+    links = {"open-brain-harness/_internal/alias": "data.txt"}
+    if bad == "escaping-link":
+        links[next(iter(links))] = "../../outside"
+    elif bad == "dangling-link":
+        links[next(iter(links))] = "missing"
+    elif bad == "cycle":
+        links[next(iter(links))] = "alias"
+    elif bad == "absolute-link":
+        links[next(iter(links))] = "/outside"
+    if bad == "nested-archive":
+        payloads["open-brain-harness/_internal/hidden.zip"] = b"PK\x03\x04hidden"
+    if bad in {"bzip2", "xz", "zlib", "zstd", "lz4", "7zip", "rar"}:
+        import bz2
+        import lzma
+
+        payloads["open-brain-harness/_internal/data.txt"] = {
+            "bzip2": bz2.compress(TERM.encode()),
+            "xz": lzma.compress(TERM.encode()),
+            "zlib": zlib.compress(TERM.encode()),
+            "zstd": b"\x28\xb5\x2f\xfdhidden",
+            "lz4": b"\x04\x22\x4d\x18hidden",
+            "7zip": b"7z\xbc\xaf\x27\x1chidden",
+            "rar": b"Rar!\x1a\x07hidden",
+        }[bad]
+    directories = {"harness", "open-brain-harness", "open-brain-harness/_internal"}
+    records: list[dict[str, object]] = [
+        {"path": name, "kind": "directory", "mode": 0o755} for name in directories
+    ]
+    records += [
+        {
+            "path": name,
+            "kind": "file",
+            "mode": 0o755 if name == EXECUTABLE else 0o644,
+            "size": len(payload),
+            "sha256": sha256(payload).hexdigest(),
+        }
+        for name, payload in payloads.items()
+    ]
+    records += [
+        {"path": name, "kind": "symlink", "mode": 0o777, "target": target}
+        for name, target in links.items()
+    ]
+    records.sort(key=lambda row: str(row["path"]))
+    inventory = {
+        "schema_version": SCHEMA,
+        "version": "0.1.0",
+        "platform": platform,
+        "members": records,
+    }
+    if bad == "digest":
+        next(row for row in records if row["kind"] == "file")["sha256"] = "0" * 64
+    elif bad == "missing-record":
+        records.pop()
+    elif bad == "extra-record":
+        records.append({"path": "not-present", "kind": "directory", "mode": 0o755})
+    if bad == "missing-asset":
+        payloads.pop(sorted(ASSETS)[0])
+    if bad == "uninventoried":
+        payloads["open-brain-harness/_internal/extra.txt"] = b"safe"
+    if bad == "wrong-platform":
+        inventory["platform"] = "macos-arm64" if platform == "linux-x86_64" else "linux-x86_64"
+    payloads[INVENTORY] = json.dumps(inventory).encode()
+    buffer = io.BytesIO()
+    with tarfile.open(fileobj=buffer, mode="w:gz", format=tarfile.USTAR_FORMAT) as tar:
+        for name in sorted(directories | payloads.keys() | links.keys()):
+            member = tarfile.TarInfo(name)
+            if name in directories:
+                member.type = tarfile.DIRTYPE
+                member.mode = 0o755
+                tar.addfile(member)
+            elif name in links:
+                member.type = tarfile.SYMTYPE
+                member.mode = 0o777
+                member.linkname = links[name]
+                tar.addfile(member)
+            else:
+                payload = payloads[name]
+                member.size = len(payload)
+                member.mode = 0o755 if name == EXECUTABLE else 0o644
+                if bad == "unsafe-mode" and name == EXECUTABLE:
+                    member.mode = 0o777
+                tar.addfile(member, io.BytesIO(payload))
+    return buffer.getvalue()
+
+
+@pytest.mark.parametrize("platform", ["linux-x86_64", "macos-arm64"])
+def test_harness_inventory_inspects_safe_complete_closure(platform: str) -> None:
+    scanner = native.Scanner([])
+    scanner.archive(
+        harness_archive_fixture(platform), f"open-brain-harness-0.1.0-{platform}.tar.gz"
+    )
+    assert not scanner.findings
+
+
+@pytest.mark.parametrize("surface", ["embedded-code", "library-code", "data", "adapter"])
+def test_harness_inventory_scans_all_content_layers(surface: str) -> None:
+    scanner = native.Scanner([TERM])
+    scanner.archive(
+        harness_archive_fixture(surface=surface), "open-brain-harness-0.1.0-linux-x86_64.tar.gz"
+    )
+    assert any(rule == "private-denylist-term" for _, rule in scanner.findings)
+
+
+@pytest.mark.parametrize(
+    "bad",
+    [
+        "escaping-link",
+        "dangling-link",
+        "cycle",
+        "absolute-link",
+        "nested-archive",
+        "bzip2", "xz", "zlib", "zstd", "lz4", "7zip", "rar",
+        "digest",
+        "missing-record",
+        "extra-record",
+        "missing-asset",
+        "uninventoried",
+        "wrong-platform",
+        "unsafe-mode",
+    ],
+)
+def test_harness_inventory_refuses_invalid_closure(bad: str) -> None:
+    with pytest.raises(native.InvalidArtifact):
+        native.Scanner([]).archive(
+            harness_archive_fixture(bad=bad), "open-brain-harness-0.1.0-linux-x86_64.tar.gz"
+        )
 
 
 def module(text: str = "pass", filename: str = "fixture.py") -> bytes:

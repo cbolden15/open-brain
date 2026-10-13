@@ -5,6 +5,7 @@ import socket
 import sys
 import threading
 import time
+import uuid
 from pathlib import Path
 
 import pytest
@@ -49,7 +50,8 @@ def test_real_private_socket_roundtrip_cli_and_service_ownership(
 
 
 def test_socket_symlink_is_rejected(tmp_path: Path) -> None:
-    brain = tmp_path / "brain"
+    # pytest may reuse tmp_path across runs, while the real endpoint lives in /tmp.
+    brain = tmp_path / f"brain-{uuid.uuid4().hex}"
     compile_single_user_local(brain)
     state = brain / "collector" / "state.json"
     endpoint = control_endpoint(state, brain)
@@ -68,6 +70,8 @@ def test_socket_symlink_is_rejected(tmp_path: Path) -> None:
         assert target.read_text() == "preserve"
     finally:
         endpoint.unlink()
+        (endpoint.parent / "server.lock").unlink(missing_ok=True)
+        endpoint.parent.rmdir()
 
 
 @pytest.mark.parametrize("frame", [b"{}\n{}\n", b"[]\n", b"x" * 20 + b"\n"])

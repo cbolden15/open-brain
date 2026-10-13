@@ -1,0 +1,130 @@
+# Optional harness memory setup
+
+Open Brain can capture useful authored material at the end of a turn, recall
+authorized memory before a related task, and offer on-demand memory search.
+Codex, Claude Code, and Pi are separate optional integrations. Installation
+does not grant access to a privacy tier. The local owner policy and current
+consent decide what each reader can receive.
+
+Install the public Open Brain package and the selected harness first. Codex and
+Claude hooks need Node. Keep configuration, policy, consent, and outbox files
+outside source repositories. A bridge configuration binds the existing Brain
+root and identity, owner policy, consent state, and durable outbox. See the
+`HarnessBridgeConfig` schema in `packages/app/src/open_brain/services/harness_bridge.py`.
+Setup does not create a second Brain, read transcripts, or open the configured
+Brain. No private repository, fixed developer path, or remote host is required.
+
+## Preview, apply, and remove
+
+Use absolute paths for the installed runtime, Node executable, and owner bridge
+configuration. For example, replace the sample paths below with your installed
+paths and choose `codex`, `claude-code`, or `pi`:
+
+```sh
+open-brain harness setup --mode preview --setup-action install \
+  --client codex --config /absolute/path/bridge.json \
+  --runtime /absolute/path/open-brain --node /absolute/path/node
+```
+
+Read the returned fragments, destination paths, notices, and `preview_id`.
+Apply the same request with the exact preview ID:
+
+```sh
+open-brain harness setup --mode apply --setup-action install \
+  --client codex --config /absolute/path/bridge.json \
+  --runtime /absolute/path/open-brain --node /absolute/path/node \
+  --preview-id harness_setup_REPLACE_WITH_PREVIEW_DIGEST
+```
+
+Repeat preview and apply with `--setup-action uninstall` to remove unchanged
+owned fragments. Setup preserves other hooks, settings, and MCP servers. It
+refuses edited owned fragments and stale previews, including changed runtime,
+Node, asset, bridge configuration, and settings preimages. A failed multi-file
+apply attempts to restore only files still matching its own writes.
+
+Applying installation first launches the selected runtime with `harness --help`
+and allows up to fifteen seconds for native library validation. This command
+does not open the Brain. Failed warm-up leaves hooks inactive; settings and
+package preimages are checked again afterward. Preview and uninstall do not
+launch the runtime. Warm-up happens before the shorter lifecycle deadlines.
+
+Restart the selected harness after applying setup. Codex requires its native
+review and trust of non-managed hook definitions before they execute. Setup
+does not bypass that review or alter managed settings.
+
+## Installed files and commands
+
+| Harness | User-wide setup |
+| --- | --- |
+| Codex | `$CODEX_HOME/hooks.json` and `$CODEX_HOME/config.toml`; default `$HOME/.codex` |
+| Claude Code | `$HOME/.claude/settings.json` hooks and `$HOME/.claude.json` MCP; with `CLAUDE_CONFIG_DIR`, `settings.json` and `.claude.json` beneath that directory |
+| Pi | `$PI_CODING_AGENT_DIR/extensions/open-brain-memory.js`; default `$HOME/.pi/agent` |
+
+Codex and Claude use `Stop` for capture and `UserPromptSubmit` for recall.
+The command invokes the packaged `harness-hook.mjs` with fixed absolute
+runtime/config paths and client identity. Recall adds at most five results and
+eight KiB of untrusted reference context. Hook capture is bounded to two
+seconds, recall to three. A queued status means durable local custody; delivery
+still needs a checked acknowledgement. One bounded foreground drain invocation
+provides a delivery attempt after enqueue. There is no recurring service.
+
+The `open-brain-memory` MCP server runs over inherited stdio:
+
+```sh
+/absolute/path/runtime harness mcp --config /absolute/path/bridge.json --client codex
+```
+
+Its tools are `brain_search_page` and `brain_read_source`. Source reads apply
+the same current policy as search. Setup uses the optional fast foreground
+helper at `PREFIX/libexec/open-brain-harness/open-brain-harness` when installed.
+Persistent adapter assets live at `PREFIX/share/open-brain/harness`; commands
+never point into a frozen executable's temporary extraction directory.
+
+Pi loads the packaged `pi-entry.mjs` through the SDK's normal extension loader.
+The entry uses active branch message IDs for capture provenance and exposes
+`brain_search_page` and `brain_read_source`. Generic Pi has no trusted local confinement authority;
+confidential and unknown reads fail visibly before content release. A sealed
+local host can use the separate `createPiMemoryExtension` API in `pi-memory.mjs`
+only when it enforces every inference, classifier, summary, and retry path.
+Setting a flag or choosing a local model is not such enforcement.
+
+## Opt-out and troubleshooting
+
+Launch the harness with `OPEN_BRAIN_HARNESS_DISABLED=1` to disable new hook/extension
+capture and recall. Generic Pi's search tool also returns disabled without
+invoking the bridge. Policy `enabled: false` denies bridge operations, including
+on-demand MCP requests. Uninstall removes the integration without deleting
+retained queues or Brain data.
+
+Run the metadata diagnostic to distinguish unavailable/refused/queued from a
+successful empty search:
+
+```sh
+/absolute/path/runtime harness status --config /absolute/path/bridge.json --client codex
+```
+
+After restoring a failed route, a later capture hook attempts another bounded
+drain. Manual retry uses `harness drain` with the same configuration and client.
+Missing hook trust, excluded sources, revoked grants, destination mismatch,
+missing assets, and unsafe configuration are failures to resolve. They do not
+prove that no relevant memory exists. Keep diagnostic receipts private; do not
+publish transcripts or owner configuration.
+
+## Format and verification evidence
+
+The October 9, 2026 source implementation was checked against official
+[Codex hooks documentation](https://learn.chatgpt.com/docs/hooks),
+[Claude hook documentation](https://code.claude.com/docs/en/hooks),
+[Claude MCP scope documentation](https://code.claude.com/docs/en/mcp), and
+[Pi's extension loader source](https://github.com/badlogic/pi-mono/blob/main/packages/coding-agent/src/core/extensions/loader.ts).
+Pi's loader discovers `.js` and `.ts` entries; the generated `.js` file imports
+the packaged `.mjs` module. Codex documents its transcript format as unstable,
+so unsupported formats must be reported rather than silently treated as empty.
+
+The disposable tests cover clean HOME installation/removal, unrelated setting
+preservation, exact TOML restoration, stale previews, edited fragments, symlink
+refusal, partial-write rollback, fast-helper selection, opt-out, and generic Pi
+private-read refusal. These fixtures do not establish native capture or
+pre-inference injection. Tested client versions and exact installed digests
+belong in a successful native acceptance receipt. Native acceptance remains a
+separate gate; no client version is certified by these setup fixtures.

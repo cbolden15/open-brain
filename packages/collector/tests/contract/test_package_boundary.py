@@ -29,6 +29,7 @@ def test_collector_is_a_separate_optional_distribution() -> None:
     assert app["project"]["dependencies"] == ["open-brain-engine==0.1.0"]
     assert app["project"]["scripts"] == {
         "open-brain": "open_brain.services.local_entrypoints:run_cli",
+        "open-brain-harness": "open_brain.services.harness_native_entrypoint:main",
     }
     assert "packages/collector" in workspace["tool"]["uv"]["workspace"]["members"]
     assert "open-brain-collector" not in workspace["dependency-groups"]["native-build"]

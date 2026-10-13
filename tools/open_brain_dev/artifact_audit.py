@@ -52,6 +52,10 @@ GRAPHIFY_RELEASE_LEGAL = frozenset(
     "licenses/graphify/" + name
     for name in ("LICENSE", "LICENSE-MIT", "NOTICE", "OPEN-BRAIN-NOTICE")
 )
+HARNESS_RELEASE_NAME = re.compile(
+    r"open-brain-harness-([0-9A-Za-z][0-9A-Za-z._-]*)-"
+    r"(linux-x86_64|macos-arm64)\.tar\.gz"
+)
 BASE_RELEASE_MEMBERS = frozenset(
     {
         "open-brain",
@@ -652,9 +656,197 @@ class Scanner:
                 extensions = 0
         require(position + 1024 <= len(data) and not any(data[position:]))
 
+    def harness_archive(self, data: bytes, version: str, platform: str) -> None:
+        """Check an inventoried onedir closure without executing bundled code."""
+        from .harness_distribution import ASSETS, EXECUTABLE, INVENTORY, SCHEMA
+
+        require(data.startswith(b"\x1f\x8b"))
+        data = self.inflate(data, MAX_MEMBER, gzip=True)
+        self.content("archive", data, native=True)
+        self.tar_preflight(data, native=True)
+        members: dict[str, tuple[tarfile.TarInfo, bytes | None]] = {}
+        names: set[str] = set()
+        last_end = 0
+        with tarfile.open(fileobj=io.BytesIO(data), mode="r:") as archive:
+            for member in archive:
+                self.unique(member.name, names)
+                require(member.name == str(PurePosixPath(member.name)))
+                require(
+                    not PurePosixPath(member.name).is_absolute()
+                    and ".." not in PurePosixPath(member.name).parts
+                )
+                require(
+                    member.name in ASSETS | {INVENTORY, EXECUTABLE, "harness", "open-brain-harness"}
+                    or member.name == "open-brain-harness/_internal"
+                    or member.name.startswith("open-brain-harness/_internal/")
+                )
+                loc = safe_name(member.name, self.terms, f"member-{len(members)}")
+                self.name(member.name, loc)
+                require(not member.pax_headers and not member.sparse)
+                require(member.uid == member.gid == member.mtime == 0)
+                require(not member.uname and not member.gname)
+                last_end = member.offset_data + ((member.size + 511) // 512) * 512
+                payload = None
+                if member.issym():
+                    require(
+                        member.mode == 0o777
+                        and member.size == 0
+                        and member.name.startswith("open-brain-harness/_internal/")
+                    )
+                    self.content(loc, member.linkname.encode())
+                elif member.isdir():
+                    require(member.mode == 0o755 and member.size == 0)
+                else:
+                    require(member.isfile() and member.mode in {0o644, 0o755})
+                    require(0 <= member.size <= MAX_MEMBER)
+                    self.charge(member.size)
+                    stream = archive.extractfile(member)
+                    require(stream is not None)
+                    assert stream is not None
+                    payload = stream.read(member.size + 1)
+                    require(len(payload) == member.size)
+                members[member.name] = member, payload
+        require(last_end + 1024 <= len(data) and not any(data[last_end:]))
+        require(INVENTORY in members and EXECUTABLE in members and members.keys() >= ASSETS)
+        inventory_info, inventory = members[INVENTORY]
+        require(
+            inventory_info.mode == 0o644 and inventory is not None and len(inventory) <= MAX_HEADER
+        )
+        assert inventory is not None
+        self.content(INVENTORY, inventory)
+
+        def unique_object(pairs: list[tuple[str, object]]) -> dict[str, object]:
+            result: dict[str, object] = {}
+            for key, value in pairs:
+                require(key not in result)
+                result[key] = value
+            return result
+
+        manifest = json.loads(inventory, object_pairs_hook=unique_object)
+        require(
+            isinstance(manifest, dict)
+            and set(manifest) == {"schema_version", "version", "platform", "members"}
+        )
+        require(
+            manifest["schema_version"] == SCHEMA
+            and manifest["version"] == version
+            and manifest["platform"] == platform
+            and isinstance(manifest["members"], list)
+        )
+        records: dict[str, dict[str, object]] = {}
+        for row in manifest["members"]:
+            require(isinstance(row, dict) and isinstance(row.get("path"), str))
+            name = row["path"]
+            require(name not in records and name != INVENTORY and name in members)
+            records[name] = row
+            member, payload = members[name]
+            expected: dict[str, object] = {"path": name, "mode": member.mode}
+            if member.isdir():
+                expected["kind"] = "directory"
+            elif member.issym():
+                expected.update(kind="symlink", target=member.linkname)
+            else:
+                assert payload is not None
+                expected.update(kind="file", size=len(payload), sha256=sha256(payload).hexdigest())
+            require(row == expected)
+        require(set(records) == set(members) - {INVENTORY})
+        require(manifest["members"] == [records[name] for name in sorted(records)])
+        # Every parent is an explicit real directory: files cannot be redirected
+        # through a symlink during Homebrew staging/extraction.
+        for name in members:
+            for parent in PurePosixPath(name).parents:
+                if str(parent) != ".":
+                    require(str(parent) in members and members[str(parent)][0].isdir())
+        links = {name: member.linkname for name, (member, _) in members.items() if member.issym()}
+        for name, target in links.items():
+            require(
+                bool(target)
+                and "\\" not in target
+                and "\0" not in target
+                and not PurePosixPath(target).is_absolute()
+            )
+            joined = list(PurePosixPath(name).parent.parts)
+            for part in target.split("/"):
+                if part == "..":
+                    require(len(joined) > 2)
+                    joined.pop()
+                elif part not in {"", "."}:
+                    joined.append(part)
+            resolved = "/".join(joined)
+            require(resolved.startswith("open-brain-harness/_internal/"))
+            seen = {name}
+            for _ in range(MAX_ARCHIVE_DEPTH):
+                replacement = next(
+                    (link for link in links if resolved == link or resolved.startswith(link + "/")),
+                    None,
+                )
+                if replacement is None:
+                    require(resolved in members)
+                    break
+                require(replacement not in seen)
+                seen.add(replacement)
+                parts = list(PurePosixPath(replacement).parent.parts)
+                for part in links[replacement].split("/"):
+                    if part == "..":
+                        require(len(parts) > 2)
+                        parts.pop()
+                    elif part not in {"", "."}:
+                        parts.append(part)
+                resolved = "/".join(parts) + resolved[len(replacement) :]
+            else:
+                raise InvalidArtifact
+        for name, (member, payload) in members.items():
+            if payload is None or name == INVENTORY:
+                continue
+            loc = safe_name(name, self.terms, "runtime-member")
+            if name == EXECUTABLE:
+                require(member.mode == 0o755)
+                self.native(payload, platform, loc, 1)
+            elif name in ASSETS:
+                require(member.mode == 0o644 and 0 < len(payload) <= MAX_HEADER)
+                self.content(loc, payload)
+            elif name.endswith("/base_library.zip"):
+                self.zip(payload, loc, 1, library=True)
+            elif name.endswith(".pyz"):
+                self.pyz(payload, loc, 1)
+            elif name.endswith(".pyc"):
+                self.code(payload, loc, pyc=True)
+            else:
+                # Other nested archives have no supported runtime role. They
+                # cannot conceal unexamined compressed source or constants.
+                require(not payload.startswith((
+                    b"PK", b"\x1f\x8b", b"BZh", b"\xfd7zXZ\0", b"7z\xbc\xaf\x27\x1c",
+                    b"Rar!\x1a\x07", b"\x28\xb5\x2f\xfd", b"\x04\x22\x4d\x18",
+                )))
+                # Zlib has several valid headers, not a single fixed magic.
+                require(not (
+                    len(payload) >= 2 and payload[0] & 0x0F == 8
+                    and payload[0] >> 4 <= 7
+                    and (payload[0] * 256 + payload[1]) % 31 == 0
+                ))
+                binary = payload.startswith((b"\x7fELF", b"\xcf\xfa\xed\xfe"))
+                if binary:
+                    if platform == "linux-x86_64":
+                        require(
+                            len(payload) >= 20
+                            and payload[:6] == b"\x7fELF\x02\x01"
+                            and int.from_bytes(payload[18:20], "little") == 62
+                        )
+                    else:
+                        require(
+                            len(payload) >= 8
+                            and payload[:4] == b"\xcf\xfa\xed\xfe"
+                            and struct.unpack_from("<I", payload, 4)[0] == 0x100000C
+                        )
+                self.content(loc, payload, native=binary)
+
     def archive(self, data: bytes, filename: str) -> None:
         self.charge(len(data))
         self.content("archive", data, native=True)
+        harness = HARNESS_RELEASE_NAME.fullmatch(filename)
+        if harness is not None:
+            self.harness_archive(data, harness.group(1), harness.group(2))
+            return
         native = NATIVE_NAME.fullmatch(filename)
         proof_helper = GRAPHIFY_PROOF_NAME.fullmatch(filename) is not None
         release_helper = GRAPHIFY_RELEASE_NAME.fullmatch(filename) is not None
@@ -722,10 +914,7 @@ class Scanner:
         if native:
             if helper:
                 executable_name = "open-brain-graphify" if proof_helper else "open-brain"
-                require(
-                    names
-                    == {name.casefold() for name in helper_legal} | {executable_name}
-                )
+                require(names == {name.casefold() for name in helper_legal} | {executable_name})
             else:
                 require(names == {name.casefold() for name in BASE_RELEASE_MEMBERS})
 

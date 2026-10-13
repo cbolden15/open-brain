@@ -56,6 +56,7 @@ engine. Never migrate between products by copying or reinterpreting live SQLite 
 | `packages/engine/src/open_brain_engine` | Shared records, local tasks, SQLite storage, retrieval, and Portable Brain schemas |
 | `packages/app/src/open_brain` | Direct local bootstrap, CLI, MCP over stdio, and local operations |
 | `packages/app/src/open_brain/services/local_entrypoints.py` | Installed default `open-brain` callable |
+| `packages/app/src/open_brain/services/harness_native_entrypoint.py` | Optional fast foreground harness callable; same audited core dependency closure |
 | `packages/app/src/open_brain/services/plugin_bridge.py` | Bounded `open-brain-client` protocol version 1 server and plugin-session lifecycle |
 | `packages/app/src/open_brain/services/managed_providers.py` | Consent-gated, bounded OpenAI, Anthropic, and Gemini direct adapters |
 | `packages/obsidian-plugin` | Desktop-only Obsidian source, bounded stdio client, and compiled plugin checks |
@@ -65,7 +66,7 @@ engine. Never migrate between products by copying or reinterpreting live SQLite 
 | `archive/open-brain-secure-node` | Historical Secure Node implementation; excluded from builds and tests |
 | `archive/legacy` | Historical predecessor; excluded from the workspace, builds, imports, and tests |
 | `tools/open_brain_dev/base_native.py` | Paired native build, module audit, component manifest, and formula renderer |
-| `release/open-brain/open-brain.spec` | One-file PyInstaller specification |
+| `release/open-brain/open-brain.spec` | One-file core and optional onedir foreground harness specification |
 | `release/open-brain-graphify` | Pinned, patched, separately frozen Graphify structural helper |
 
 The engine cannot import the app, connectors, archives, or workspace modules. The app depends
@@ -77,9 +78,15 @@ families if they enter the executable.
 
 The supported end-user lifecycle is Homebrew. Each platform produces a base archive containing the
 app and plugin assets plus a separate Graphify helper archive. The component manifest binds one
-version to both platforms, both resource roles, archive and executable SHA-256 values, filenames,
+version to both platforms, matching resource roles, archive and executable SHA-256 values, filenames,
 and install destinations. The executable starts only when the user invokes it and exits when that
 foreground command, stdio MCP session, or desktop plugin session ends.
+
+New builds also produce an optional harness resource with the same audited Python
+closure and stable adapter assets. Existing two-resource manifests remain supported;
+manifests including the harness must include it consistently across platforms.
+The helper runs bounded foreground operations without a listener or recurring service.
+See `docs/harness-setup.md` for preview-bound optional integration setup and removal.
 
 Semantic refresh is the core's only active product network-egress path. It requires current owner consent,
 eligible note revisions, exclusions, redaction, and one explicit direct API-key provider. Never use
