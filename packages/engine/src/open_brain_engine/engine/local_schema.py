@@ -8,7 +8,7 @@ from collections.abc import Callable
 from contextlib import suppress
 from dataclasses import dataclass
 from datetime import datetime
-from functools import cache, lru_cache, partial
+from functools import lru_cache, partial
 from typing import TYPE_CHECKING
 
 from open_brain_engine.core.access_contracts import derive_brain_id
@@ -29,7 +29,6 @@ from open_brain_engine.storage.sqlite import (
 )
 
 from .contracts import LocalEngineContext
-from .facet_schema_migration import FACET_SCHEMA
 from .local_schema_catalog import (
     BASELINE,
     IDENTITY_AND_REPAIR_SCHEMA,
@@ -52,7 +51,7 @@ if TYPE_CHECKING:
     from .portable_v5_restore import ValidatedV5IssuerSeed
 
 PHASE1_STATE_DATABASE = ".open-brain/state/phase1.sqlite3"
-PHASE1_STATE_SCHEMA_VERSION = 11
+PHASE1_STATE_SCHEMA_VERSION = 14
 
 
 class LocalRecoveryRequiredError(SchemaError):
@@ -89,49 +88,47 @@ def _shape(connection: sqlite3.Connection) -> tuple[tuple[str, str, str], ...]:
     )
 
 
-@cache
 def _expected_shape(era: int, nullable: bool, ledger: bool) -> tuple[tuple[str, str, str], ...]:
+    statements = [
+        SEARCH_SCHEMA[0]
+        if "CREATE TABLE IF NOT EXISTS search_documents (" in statement and not nullable
+        else statement
+        for statement in BASELINE
+    ]
+    for minimum_era, schema in (
+        (3, LIVE_SEARCH_SCHEMA),
+        (4, IMPORT_SCHEMA),
+        (5, MANAGED_WORKSPACE_SCHEMA),
+        (6, RUNTIME_COMPATIBILITY_SCHEMA),
+        (7, REVIEW_SCHEMA),
+        (8, MANAGED_RECOVERY_SCHEMA),
+        (9, SOURCE_HISTORY_SCHEMA),
+        (10, PRIVACY_SCHEMA),
+        (11, IDENTITY_AND_REPAIR_SCHEMA),
+        (12, INGESTION_JOURNAL_SCHEMA),
+    ):
+        if era >= minimum_era:
+            statements.extend(schema)
+    if era >= 13 and len(LOCAL_MIGRATIONS) >= 11:
+        statements.extend(LOCAL_MIGRATIONS[10].statements)
+    if era >= 14 and len(LOCAL_MIGRATIONS) >= 12:
+        statements.extend(LOCAL_MIGRATIONS[11].statements)
+    if era >= 15 and len(LOCAL_MIGRATIONS) >= 13:
+        statements.extend(LOCAL_MIGRATIONS[12].statements)
+    if era >= 16 and len(LOCAL_MIGRATIONS) >= 14:
+        statements.extend(LOCAL_MIGRATIONS[13].statements)
+    if ledger:
+        statements.append(_SCHEMA_MIGRATIONS_SQL)
+    return _cached_shape(tuple(statements))
+
+
+@lru_cache(maxsize=32)
+def _cached_shape(statements: tuple[str, ...]) -> tuple[tuple[str, str, str], ...]:
+    # Key by exact DDL so historical catalogs and altered fixtures cannot share stale shapes.
     connection = sqlite3.connect(":memory:")
     try:
-        for statement in BASELINE:
-            if "CREATE TABLE IF NOT EXISTS search_documents (" in statement and not nullable:
-                statement = SEARCH_SCHEMA[0]
+        for statement in statements:
             connection.execute(statement)
-        if era >= 3:
-            for statement in LIVE_SEARCH_SCHEMA:
-                connection.execute(statement)
-        if era >= 4:
-            for statement in IMPORT_SCHEMA:
-                connection.execute(statement)
-        if era >= 5:
-            for statement in MANAGED_WORKSPACE_SCHEMA:
-                connection.execute(statement)
-        if era >= 6:
-            for statement in RUNTIME_COMPATIBILITY_SCHEMA:
-                connection.execute(statement)
-        if era >= 7:
-            for statement in REVIEW_SCHEMA:
-                connection.execute(statement)
-        if era >= 8:
-            for statement in MANAGED_RECOVERY_SCHEMA:
-                connection.execute(statement)
-        if era >= 9:
-            for statement in SOURCE_HISTORY_SCHEMA:
-                connection.execute(statement)
-        if era >= 10:
-            for statement in PRIVACY_SCHEMA:
-                connection.execute(statement)
-        if era >= 11:
-            for statement in IDENTITY_AND_REPAIR_SCHEMA:
-                connection.execute(statement)
-        if era >= 12:
-            for statement in INGESTION_JOURNAL_SCHEMA:
-                connection.execute(statement)
-        if era >= 13:
-            for statement in FACET_SCHEMA:
-                connection.execute(statement)
-        if ledger:
-            connection.execute(_SCHEMA_MIGRATIONS_SQL)
         return _shape(connection)
     finally:
         connection.close()
@@ -152,7 +149,10 @@ def classify_local_schema(connection: sqlite3.Connection) -> SchemaState:
             ).fetchall()
             if any(type(row[0]) is int and row[0] > PHASE1_STATE_SCHEMA_VERSION for row in rows):
                 return SchemaState("newer", version)
-            if version not in (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11) or len(rows) != version:
+            if (
+                version not in (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14)
+                or len(rows) != version
+            ):
                 return SchemaState("invalid", version)
             for row, migration in zip(rows, LOCAL_MIGRATIONS[:version], strict=True):
                 if tuple(row[:3]) != (migration.version, migration.name, migration.checksum):
@@ -160,19 +160,8 @@ def classify_local_schema(connection: sqlite3.Connection) -> SchemaState:
                 timestamp = datetime.strptime(row[3], "%Y-%m-%dT%H:%M:%S.%fZ")
                 if timestamp.strftime("%Y-%m-%dT%H:%M:%S.%fZ") != row[3]:
                     return SchemaState("invalid", version)
-            expected = {
-                1: _expected_shape(2, True, True),
-                2: _expected_shape(4, False, True),
-                3: _expected_shape(5, False, True),
-                4: _expected_shape(6, False, True),
-                5: _expected_shape(7, False, True),
-                6: _expected_shape(8, False, True),
-                7: _expected_shape(9, False, True),
-                8: _expected_shape(10, False, True),
-                9: _expected_shape(11, False, True),
-                10: _expected_shape(12, False, True),
-                11: _expected_shape(13, False, True),
-            }[version]
+            era = 2 if version == 1 else version + 2
+            expected = _expected_shape(era, version == 1, True)
             if shape == expected:
                 if version >= 4:
                     compatibility = connection.execute(
@@ -180,7 +169,11 @@ def classify_local_schema(connection: sqlite3.Connection) -> SchemaState:
                         "FROM runtime_compatibility"
                     ).fetchall()
                     if [tuple(row) for row in compatibility] != [
-                        (1, {7: 2, 8: 3, 9: 4, 10: 5, 11: 6}.get(version, 1), version)
+                        (
+                            1,
+                            {7: 2, 8: 3, 9: 4, 10: 5, 11: 6, 12: 7, 13: 8, 14: 9}.get(version, 1),
+                            version,
+                        )
                     ]:
                         return SchemaState("invalid", version)
                 return SchemaState(
@@ -289,9 +282,15 @@ def _validate_upgrade_data(connection: sqlite3.Connection) -> None:
             "FROM runtime_compatibility"
         ).fetchall()
         state_version = connection.execute("PRAGMA user_version").fetchone()[0]
-        compatibility_version = state_version if state_version in (5, 6, 7, 8, 9, 10, 11) else 4
+        compatibility_version = (
+            state_version if state_version in (5, 6, 7, 8, 9, 10, 11, 12, 13, 14) else 4
+        )
         if [tuple(row) for row in compatibility] != [
-            (1, {7: 2, 8: 3, 9: 4, 10: 5, 11: 6}.get(state_version, 1), compatibility_version)
+            (
+                1,
+                {7: 2, 8: 3, 9: 4, 10: 5, 11: 6, 12: 7, 13: 8, 14: 9}.get(state_version, 1),
+                compatibility_version,
+            )
         ]:
             raise SchemaError("local runtime compatibility floor is invalid")
     if (
@@ -385,6 +384,7 @@ def _prepare_local_schema(
     schema_version: int | None = None,
     tenant_id: str | None = None,
     issuer_seed: ValidatedV5IssuerSeed | None = None,
+    profile: LocalEngineContext | None = None,
 ) -> None:
     target_version = PHASE1_STATE_SCHEMA_VERSION if schema_version is None else schema_version
     try:
@@ -411,8 +411,6 @@ def _prepare_local_schema(
                 restore_busy_timeout(connection)
                 return
             _validate_upgrade_data(connection)
-            if target_version >= 11 and state.version == 10:
-                raise SchemaError("facet migration requires exclusive admission")
             if target_version >= 9 and state.version == 8:
                 raise SchemaError("issuer migration requires exclusive admission")
             if target_version >= 10 and state.version == 9:
@@ -447,6 +445,12 @@ def _prepare_local_schema(
                 ") VALUES (1, ?, ?, 1, NULL, ?)",
                 (tenant_id, derive_brain_id(tenant_id), _format_timestamp(clock())),
             )
+        if empty and target_version >= 13:
+            from .historical_migration import initialize_historical_state
+
+            if profile is None:
+                raise SchemaError("fresh historical authority requires root-bound profile")
+            initialize_historical_state(connection, profile)
         final_state = classify_local_schema(connection)
         _require_supported(final_state)
         if final_state.version != target_version:
@@ -515,6 +519,7 @@ def open_local_database(
                 schema_version=schema_version,
                 tenant_id=profile.tenant_id,
                 issuer_seed=issuer_seed,
+                profile=profile,
             ),
         )
     except Exception as error:

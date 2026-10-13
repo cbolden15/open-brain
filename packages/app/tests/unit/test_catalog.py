@@ -10,19 +10,16 @@ from types import SimpleNamespace
 from typing import Any, cast
 
 import pytest
-from open_brain_engine.engine import open_local_engine
 from open_brain_engine.engine.t03_contracts import EffectiveAuthority
 
 import open_brain.services.local_entrypoints as entrypoints
 import open_brain.services.plugin_bridge as bridge
 from open_brain.local_data import select_local_root
-from open_brain.profile import compile_single_user_local
 from open_brain.services.catalog import (
     CatalogRequestError,
     build_catalog,
     cli_registrations,
 )
-from open_brain.services.facets import FacetAppAdapter
 from open_brain.services.local_entrypoints import _parser, run_cli
 from open_brain.services.local_mcp import MCP_REGISTERED_TOOLS, LocalMcpAdapter
 from open_brain.services.mcp_protocol import McpCallError
@@ -84,7 +81,7 @@ def test_catalog_is_deterministic_json_safe_and_evidence_paths_exist() -> None:
         second, sort_keys=True, separators=(",", ":")
     )
     assert first["schema_version"] == 2
-    assert cast(dict[str, object], first["compatibility"])["portable_metadata"] == 6
+    assert cast(dict[str, object], first["compatibility"])["portable_metadata"] == 9
     assert cast(dict[str, object], first["acceptance"])["trusted_certifications"] == []
     root = Path(__file__).resolve().parents[4]
     evidence = cast(list[dict[str, str]], cast(dict[str, object], first["acceptance"])["evidence"])
@@ -105,6 +102,8 @@ def test_cli_catalog_uses_parser_registration_before_root_selection(
     assert commands == list(cli_registrations(_parser()))
     assert {tuple(item["command"]) for item in commands} >= {
         ("catalog",),
+        ("historical", "recover"),
+        ("restore",),
         ("obsidian-plugin", "install"),
         ("workspace", "recover"),
         ("graph", "refresh-structural"),
@@ -113,13 +112,23 @@ def test_cli_catalog_uses_parser_registration_before_root_selection(
         ("journal", "drain"),
         ("journal", "retry"),
         ("journal", "status"),
-        ("facet", "dimension", "create"),
-        ("facet", "query", "run"),
-        ("facet", "vault", "apply"),
+        ("consent", "grant"),
+        ("consent", "inspect"),
+        ("consent", "replace"),
+        ("consent", "revoke"),
+        ("harness", "enqueue"),
+        ("harness", "capture"),
+        ("harness", "drain"),
+        ("harness", "status"),
+        ("harness", "recall"),
+        ("harness", "search"),
+        ("harness", "source"),
+        ("harness", "setup"),
+        ("harness", "mcp"),
     }
     obsidian = next(item for item in commands if item["command"] == ["obsidian-plugin", "install"])
     assert obsidian["positional_choices"] == {"action": "install"}
-    assert len(commands) == 79
+    assert len(commands) == 73
     assert run_cli(("catalog", "--json", "--schema-version", "1")) == 2
     assert run_cli(("catalog", "--json", "--unknown")) == 2
 
@@ -135,7 +144,7 @@ def test_owner_privacy_repair_is_installed_but_excluded_from_every_catalog_conte
     assert parsed.command == "privacy"
     assert parsed.privacy_action == "repair"
     commands = cli_registrations(_parser())
-    assert len(commands) == 79
+    assert len(commands) == 73
     assert ("privacy", "repair") not in {
         tuple(cast(list[str], command["command"])) for command in commands
     }
@@ -208,21 +217,15 @@ def test_mcp_catalog_uses_actual_authorized_session_registry() -> None:
         adapter.call_tool("semantic_recall", {})
 
 
-def test_registered_mcp_catalog_matches_all_injected_tools(tmp_path: Path) -> None:
+def test_registered_mcp_catalog_matches_all_injected_tools() -> None:
     def operations(_arguments: object) -> dict[str, object]:
         return {"status": "ok"}
 
     def empty() -> dict[str, object]:
         return {"status": "ok"}
 
-    tasks = open_local_engine(compile_single_user_local(tmp_path / "brain"))
-    authority = _owner_authority()
-    facets = FacetAppAdapter(
-        tasks.facets, authority, publication=tasks.facet_publication
-    )
     adapter = LocalMcpAdapter(
-        authority=authority,
-        facets=facets,
+        authority=_owner_authority(),
         search=lambda _query, _limit: (),
         workspace_status=empty,
         graph_suggestions=empty,
@@ -246,11 +249,6 @@ def test_registered_mcp_catalog_matches_all_injected_tools(tmp_path: Path) -> No
         | {"brain_capture"}
         | {"brain_capture_submit"}
     )
-    assert {tool["name"] for tool in facets.tool_definitions()} <= actual
-    assert "brain_facet_dimension_create" in actual
-    assert "brain_review_propose_from_facet_query" in actual
-    assert "brain_facet_vault_preview" not in actual
-    assert "brain_facet_vault_apply" not in actual
     registered = {cast(str, tool["name"]) for tool in MCP_REGISTERED_TOOLS}
     contract = next(
         tool for tool in MCP_REGISTERED_TOOLS if tool["name"] == "brain_contract_describe"

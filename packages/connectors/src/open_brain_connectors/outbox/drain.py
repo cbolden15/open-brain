@@ -344,6 +344,7 @@ def run_drain_cycle(
     max_batch_bytes: int,
     stale_lease_after_seconds: int = DEFAULT_STALE_LEASE_SECONDS,
     clock: Clock | None = None,
+    require_independent_protection: bool = False,
 ) -> DrainSummary:
     """Run exactly one bounded foreground drain cycle over ``store``."""
     if not isinstance(store, OutboxStore):
@@ -356,6 +357,8 @@ def run_drain_cycle(
         raise OutboxDrainError("invalid drain byte bound")
     if type(stale_lease_after_seconds) is not int or stale_lease_after_seconds < 1:
         raise OutboxDrainError("invalid stale lease bound")
+    if type(require_independent_protection) is not bool:
+        raise OutboxDrainError("invalid protection requirement")
     tick = _default_clock if clock is None else clock
     now = _utc_now(tick)
     held, reclaimed = _acquire_lease(
@@ -371,6 +374,7 @@ def run_drain_cycle(
             max_batch_items=max_batch_items,
             max_batch_bytes=max_batch_bytes,
             reclaimed_stale=reclaimed,
+            require_independent_protection=require_independent_protection,
         )
     finally:
         _release_lease(store.directory)
@@ -384,6 +388,7 @@ def _run_cycle(
     max_batch_items: int,
     max_batch_bytes: int,
     reclaimed_stale: bool,
+    require_independent_protection: bool,
 ) -> DrainSummary:
     counters = _Counters()
     candidates = _ordered_queued_items(store)
@@ -431,6 +436,14 @@ def _run_cycle(
             except OutboxContractError:
                 store.quarantine(envelope.delivery_id, reason="receipt_mismatch")
                 counters.receipt_mismatch += 1
+                continue
+            if require_independent_protection and verified.protection_acknowledgement is None:
+                store.record_attempt(
+                    envelope.delivery_id,
+                    attempted_at=_format_timestamp(now),
+                    result="recovery_pending",
+                )
+                counters.retried += 1
                 continue
             store.mark_terminal(envelope.delivery_id, verified, terminal_at=_format_timestamp(now))
             if verified.status is TerminalReceiptStatus.DUPLICATE:

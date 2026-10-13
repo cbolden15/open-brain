@@ -23,6 +23,7 @@ from open_brain_engine.storage.locks import FileLease
 from open_brain_engine.storage.sqlite import SchemaError
 
 from .contracts import LocalEngineContext, ManagedWorkspaceFailure
+from .historical_recovery import require_historical_snapshot_settled
 from .local_schema import (
     LocalSchemaUpgradeCommittedError,
     classify_local_schema,
@@ -37,6 +38,7 @@ from .markdown_import_fs import (
     snapshot_directory,
 )
 from .normalization import _delivery_id, _portable_id, _utc_now
+from .sharing_contracts import SharingError
 
 _PENDING = {"prepared", "writing", "promoted"}
 _DECISION = "owner_abandon_unverifiable_legacy_write"
@@ -155,11 +157,23 @@ def _schema_version(connection: sqlite3.Connection) -> int:
         9,
         10,
         11,
+        12,
+        13,
+        14,
     }:
         raise ManagedRecoveryFailure("recovery_unavailable")
     if connection.execute("PRAGMA foreign_key_check").fetchone() is not None:
         raise ManagedRecoveryFailure("operation_replay_mismatch")
     return state.version
+
+
+def _require_settled_authority(
+    connection: sqlite3.Connection, profile: LocalEngineContext
+) -> None:
+    try:
+        require_historical_snapshot_settled(connection, profile)
+    except SharingError:
+        raise ManagedRecoveryFailure("recovery_unavailable") from None
 
 
 def _safe_path(value: object) -> str:
@@ -390,6 +404,7 @@ def inspect_managed_recovery(
         connection = open_local_database_read_only(profile, allow_old=True)
         try:
             version = _schema_version(connection)
+            _require_settled_authority(connection, profile)
             if operation_id is not None:
                 rows = [_operation(connection, operation_id)]
             else:
@@ -411,6 +426,7 @@ def inspect_managed_recovery(
     except (
         ManagedWorkspaceFailure,
         SchemaError,
+        SharingError,
         sqlite3.Error,
         RootConfinementError,
         OSError,
@@ -516,6 +532,7 @@ def _preflight(
     expected_digest: str,
 ) -> tuple[ManagedRecoveryReceipt | None, dict[str, object] | None]:
     version = _schema_version(connection)
+    _require_settled_authority(connection, profile)
     if version >= 6:
         previous = _existing_decision(
             connection,
@@ -634,6 +651,7 @@ def abandon_managed_write(
     except (
         ManagedWorkspaceFailure,
         SchemaError,
+        SharingError,
         sqlite3.Error,
         RootConfinementError,
         OSError,

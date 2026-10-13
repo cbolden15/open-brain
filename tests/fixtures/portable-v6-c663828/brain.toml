@@ -1,0 +1,7 @@
+layout_version = 1
+profile = "single-user-local"
+tenant_id = "tenant_1d5dab51-a820-461a-8021-f435109064c9"
+owner_actor_id = "actor_93bab5a6-60d4-4025-a41b-33a47707db70"
+owner_role_id = "role_8ed23bbc-025f-418b-8d9e-27b995e7d654"
+owner_role_claim_id = "role_claim_d92f8efa-6df3-4c0e-aeaf-0497f7f965b9"
+owner_capabilities = ["canonical.publish", "capture.accept", "space.write"]

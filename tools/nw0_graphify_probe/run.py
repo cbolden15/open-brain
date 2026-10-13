@@ -76,12 +76,34 @@ def run(
         except ProcessLookupError:
             pass
         except PermissionError:
-            # Cleanup is unverified, but still close the pipe and reap the child.
-            failed = True
+            # macOS reports EPERM when every remaining member is a zombie: the
+            # exited leader before reaping, or an orphan awaiting launchd. Reap,
+            # then require the group to disappear or accept the kill.
+            if not _settle_zombie_group(child):
+                failed = True
         child.stdout.close()
         child.wait(timeout=2)
     if failed or child.returncode:
         raise RuntimeError(f"{label} failed; inspect its build-directory log")
+
+
+def _settle_zombie_group(child: subprocess.Popen[bytes]) -> bool:
+    try:
+        child.wait(timeout=2)
+    except subprocess.TimeoutExpired:
+        return False
+    deadline = time.monotonic() + 2
+    while True:
+        try:
+            os.killpg(child.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            return True
+        except PermissionError:
+            if time.monotonic() >= deadline:
+                return False
+            time.sleep(0.05)
+        else:
+            return True
 
 
 def write_archive(helper: Path, archive: Path) -> None:

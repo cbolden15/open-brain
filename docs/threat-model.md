@@ -28,6 +28,20 @@ These controls do not make a filesystem immutable against another process with t
 Network, synchronized, FUSE, and other filesystems with weak identity or metadata semantics are not
 trusted snapshot sources for Markdown import.
 
+## Independent receipt protection
+
+Receipt protection is optional owner-selected deployment code. Open Brain passes it an exact replay
+envelope only after local custody is durable. The public adapter executes one absolute command
+without a shell, ambient environment, inherited working directory, listener, daemon, or background
+worker. Input, output, and elapsed time are bounded. The command configuration must be an owner-only
+regular file and cannot come from a capture request or MCP tool call.
+
+The acknowledgement proves that the configured protector accepted one exact replay commitment. It
+does not prove that a backend is encrypted, geographically independent, available, or correctly
+operated. A deployment that relies on those properties must verify them separately. Timeout,
+process failure, malformed output, and binding mismatch return `recovery_pending`; they do not
+release a protected client outbox body.
+
 ## Markdown import
 
 Import pins and rechecks the owner-selected absolute root. It skips symlinks, hardlinks, special

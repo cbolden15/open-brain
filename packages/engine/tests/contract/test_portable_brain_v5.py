@@ -637,7 +637,7 @@ def test_manifest_strictness(tmp_path: Path, mutation: Any) -> None:
         validated_portable_snapshot(tmp_path)
 
 
-@pytest.mark.parametrize("path", list(v5.V5_SIDECAR_PATHS))
+@pytest.mark.parametrize("path", sorted(v5.V5_SIDECAR_PATHS))
 def test_sidecars_are_required_canonical_and_closed(path: str) -> None:
     files = _fixture()
     original = files.pop(path)

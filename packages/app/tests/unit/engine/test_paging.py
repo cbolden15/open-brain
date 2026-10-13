@@ -8,13 +8,31 @@ from typing import Any, cast
 
 import pytest
 from open_brain_engine.core.access_contracts import derive_brain_id
-from open_brain_engine.core.models import PrivacyTier
-from open_brain_engine.engine import BrainEngine, TextPayload
+from open_brain_engine.core.models import (
+    Authority,
+    CaptureWhyOrigin,
+    ContentOrigin,
+    PrivacyDecision,
+    PrivacyReason,
+    PrivacyTier,
+    Provenance,
+)
+from open_brain_engine.engine import (
+    BrainEngine,
+    CaptureReceipt,
+    CaptureSubmission,
+    PublicJobCaptureContext,
+    SourceInspectRequest,
+    SourceWithdrawRequest,
+    TextPayload,
+)
 from open_brain_engine.engine.consent_contracts import EgressMode
 from open_brain_engine.engine.cursors import binding_digest
+from open_brain_engine.engine.local_schema import open_local_database_read_only
 from open_brain_engine.engine.paging import authority_binding
 from open_brain_engine.engine.t03_contracts import (
     EffectiveAuthority,
+    HistoryListRequest,
     RecordReadRequest,
     SearchPageRequest,
     T03Error,
@@ -41,6 +59,68 @@ def scoped_authority(
         None,
         allowed_read_tiers=frozenset(tiers),
     )
+
+
+def external_authority(engine: BrainEngine) -> EffectiveAuthority:
+    return EffectiveAuthority(
+        "synthetic-external-principal",
+        "synthetic-external-session",
+        frozenset({"search", "content-read"}),
+        None,
+        allowed_read_tiers=frozenset({PrivacyTier.WORK}),
+        egress_mode=EgressMode.EXTERNAL_PROVIDER,
+        provider_id="synthetic-provider",
+        consent_id="consent_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        brain_id=derive_brain_id(engine.profile.tenant_id),
+        issuer_epoch=1,
+    )
+
+
+def capture_work(
+    engine: BrainEngine,
+    *,
+    delivery_id: str,
+    text: str,
+    external_egress: bool,
+) -> str:
+    actor_id = "actor_00000000-0000-4000-8000-000000000701"
+    context = PublicJobCaptureContext.create(
+        profile=engine.profile,
+        actor_id=actor_id,
+        role_claim={
+            "actor_id": actor_id,
+            "capabilities": ["capture.accept"],
+            "role_claim_id": "role_claim_00000000-0000-4000-8000-000000000702",
+            "role_id": "role_00000000-0000-4000-8000-000000000703",
+            "tenant_id": engine.profile.tenant_id,
+        },
+    )
+    source_reference = f"https://example.test/{delivery_id}"
+    receipt = engine.capture.submit(
+        CaptureSubmission.for_public_job(
+            context=context,
+            payload=TextPayload(text),
+            delivery_id=delivery_id,
+            source_origin=ContentOrigin.THIRD_PARTY,
+            source_reference=source_reference,
+            provenance=Provenance.create(
+                source_ref=source_reference,
+                content_origin=ContentOrigin.THIRD_PARTY,
+                owner_context=CaptureWhyOrigin.AUTOMATION_ABSENT,
+            ),
+            privacy=PrivacyDecision.create(
+                tier=PrivacyTier.WORK,
+                reason=PrivacyReason.POLICY_WORK,
+                policy_version="privacy-v1",
+                authority=Authority(
+                    cloud=external_egress,
+                    external_egress=external_egress,
+                ),
+            ),
+        )
+    )
+    assert isinstance(receipt, CaptureReceipt)
+    return receipt.capture_id
 
 
 def test_cursor_authority_binding_names_and_binds_every_policy_dimension() -> None:
@@ -146,6 +226,204 @@ def test_paged_search_enforces_the_principal_tier_matrix_and_owner_access(
         row["record_id"]
         for row in wire(engine.retrieval.search_page(request, authority=owner))["results"]
     } == set(captured.values())
+
+
+def test_external_provider_intersects_stored_egress_for_search_read_and_cursors(
+    tmp_path: Path,
+) -> None:
+    engine = BrainEngine.open(compile_single_user_local(tmp_path / "brain"))
+    visible = {
+        capture_work(
+            engine,
+            delivery_id=f"egress.visible.{index}",
+            text="stored egress matrix nebula",
+            external_egress=True,
+        )
+        for index in range(2)
+    }
+    denied = capture_work(
+        engine,
+        delivery_id="egress.denied",
+        text="stored egress matrix nebula",
+        external_egress=False,
+    )
+    request = SearchPageRequest(query="stored egress matrix nebula", limit=10)
+    external = external_authority(engine)
+    local = scoped_authority(PrivacyTier.WORK)
+
+    assert {
+        row["record_id"]
+        for row in wire(engine.retrieval.search_page(request, authority=external))["results"]
+    } == visible
+    assert {
+        row["record_id"]
+        for row in wire(engine.retrieval.search_page(request, authority=local))["results"]
+    } == visible | {denied}
+    with pytest.raises(T03Error, match="not_found"):
+        engine.retrieval.read_record(
+            RecordReadRequest(record_id=denied, expected_revision_id=denied),
+            authority=external,
+        )
+    assert (
+        wire(
+            engine.retrieval.read_record(
+                RecordReadRequest(record_id=denied, expected_revision_id=denied),
+                authority=local,
+            )
+        )["record"]["record_id"]
+        == denied
+    )
+
+    paged = replace(request, limit=1)
+    first = wire(engine.retrieval.search_page(paged, authority=external))
+    expected_second = wire(
+        engine.retrieval.search_page(
+            replace(paged, cursor=first["next_cursor"]), authority=external
+        )
+    )
+    capture_work(
+        engine,
+        delivery_id="egress.hidden.cursor",
+        text="stored egress matrix nebula",
+        external_egress=False,
+    )
+    assert wire(
+        engine.retrieval.search_page(
+            replace(paged, cursor=first["next_cursor"]), authority=external
+        )
+    ) == expected_second
+
+    refreshed = wire(engine.retrieval.search_page(paged, authority=external))
+    capture_work(
+        engine,
+        delivery_id="egress.visible.cursor",
+        text="stored egress matrix nebula",
+        external_egress=True,
+    )
+    with pytest.raises(T03Error, match="cursor_stale"):
+        engine.retrieval.search_page(
+            replace(paged, cursor=refreshed["next_cursor"]), authority=external
+        )
+
+
+@pytest.mark.parametrize("caller_kind", ["external", "local_agent"])
+def test_withdrawal_removes_current_and_non_owner_history_visibility(
+    tmp_path: Path, caller_kind: str
+) -> None:
+    engine = BrainEngine.open(compile_single_user_local(tmp_path / "brain"))
+    texts = {
+        "target": "withdrawal visibility nebula target 漢字",
+        "control": "withdrawal visibility nebula unrelated control",
+    }
+    captures = {
+        name: capture_work(
+            engine,
+            delivery_id=f"withdrawal.visibility.{name}",
+            text=text,
+            external_egress=True,
+        )
+        for name, text in texts.items()
+    }
+    caller = replace(
+        external_authority(engine)
+        if caller_kind == "external"
+        else scoped_authority(PrivacyTier.WORK),
+        capabilities=frozenset({"search", "content-read", "history-read"}),
+    )
+    assert not caller.owner
+    owner = replace(authority(), owner=True)
+    search = SearchPageRequest(query="withdrawal visibility nebula", limit=10)
+    target = captures["target"]
+    current = RecordReadRequest(record_id=target, expected_revision_id=target)
+    history = HistoryListRequest(record_id=target)
+
+    for reader in (caller, owner):
+        assert (
+            wire(engine.retrieval.read_record(current, authority=reader))["content"]["text"]
+            == texts["target"]
+        )
+        assert [
+            entry["revision_id"]
+            for entry in wire(engine.history.list_history(history, authority=reader))["entries"]
+        ] == [target]
+        assert (
+            wire(engine.history.read_history(current, authority=reader))["content"]["text"]
+            == texts["target"]
+        )
+        assert {
+            row["record_id"]
+            for row in wire(engine.retrieval.search_page(search, authority=reader))["results"]
+        } == set(captures.values())
+    assert engine.retrieval.fetch(target) is not None
+    assert engine.retrieval.read_page(target) is not None
+    assert {row.result_id for row in engine.retrieval.search(search.query)} == set(
+        captures.values()
+    )
+
+    with open_local_database_read_only(engine.profile) as connection:
+        row = connection.execute(
+            "SELECT source_id FROM source_revisions WHERE capture_id=?", (target,)
+        ).fetchone()
+        assert row is not None
+        source_id = row["source_id"]
+    inspection = engine.sources.inspect(SourceInspectRequest(source_id=source_id), authority=owner)
+    receipt = engine.sources.withdraw(
+        SourceWithdrawRequest(
+            operation_id="withdraw.visibility",
+            source_id=source_id,
+            expected_head=target,
+            expected_lifecycle_version=inspection.lifecycle_version,
+            brain_id=inspection.destination_brain_id,
+            issuer_epoch=inspection.issuer_epoch,
+            reason_code="owner_choice",
+        ),
+        authority=owner,
+    )
+    assert receipt.lifecycle == "retired"
+
+    # Check legacy reads immediately, before any projection or recovery read.
+    assert engine.retrieval.fetch(target) is None
+    assert engine.retrieval.read_page(target) is None
+    assert {row.result_id for row in engine.retrieval.search(search.query)} == {captures["control"]}
+    for reader in (caller, owner):
+        with pytest.raises(T03Error, match="not_found"):
+            engine.retrieval.read_record(current, authority=reader)
+        assert {
+            row["record_id"]
+            for row in wire(engine.retrieval.search_page(search, authority=reader))["results"]
+        } == {captures["control"]}
+    with pytest.raises(T03Error, match="not_found"):
+        engine.history.list_history(history, authority=caller)
+    with pytest.raises(T03Error, match="not_found"):
+        engine.history.read_history(current, authority=caller)
+    assert [
+        entry["revision_id"]
+        for entry in wire(engine.history.list_history(history, authority=owner))["entries"]
+    ] == [target]
+    assert (
+        wire(engine.history.read_history(current, authority=owner))["content"]["text"]
+        == texts["target"]
+    )
+
+    control = RecordReadRequest(
+        record_id=captures["control"], expected_revision_id=captures["control"]
+    )
+    assert (
+        wire(engine.retrieval.read_record(control, authority=caller))["content"]["text"]
+        == texts["control"]
+    )
+    assert [
+        entry["revision_id"]
+        for entry in wire(
+            engine.history.list_history(
+                HistoryListRequest(record_id=control.record_id), authority=caller
+            )
+        )["entries"]
+    ] == [captures["control"]]
+    assert (
+        wire(engine.history.read_history(control, authority=caller))["content"]["text"]
+        == texts["control"]
+    )
 
 
 def test_hidden_tiers_do_not_change_visible_ranking_or_page_boundaries(tmp_path: Path) -> None:

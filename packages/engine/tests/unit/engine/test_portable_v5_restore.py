@@ -36,15 +36,21 @@ NOW = "2026-09-20T12:00:00Z"
 
 
 def _fixture(mutate: Callable[[BrainEngine], None] | None = None) -> dict[str, bytes]:
-    from open_brain_engine.engine import CaptureAction, TextPayload
+    from open_brain_engine.engine import CaptureAction, TextPayload, local_schema
     from open_brain_engine.engine.local import BrainEngine
+    from open_brain_engine.engine.local_schema_catalog import LOCAL_MIGRATIONS
     from open_brain_engine.engine.materializer import _profile
     from open_brain_engine.engine.portability_ports import LocalTenantStorage
     from open_brain_engine.engine.portable_v5_evidence import serialize_portable_v5_state
     from open_brain_engine.portable.v1 import PortableSnapshot
     from open_brain_engine.storage.filesystem import capture_root_identity
 
-    with TemporaryDirectory(prefix="v5-synthetic-") as directory:
+    with (
+        TemporaryDirectory(prefix="v5-synthetic-") as directory,
+        pytest.MonkeyPatch.context() as historical,
+    ):
+        historical.setattr(local_schema, "PHASE1_STATE_SCHEMA_VERSION", 9)
+        historical.setattr(local_schema, "LOCAL_MIGRATIONS", LOCAL_MIGRATIONS[:9])
         root = Path(directory).resolve()
         (root / ".open-brain").mkdir(mode=0o700)
         config = _contract_fixture()["brain.toml"]
@@ -75,6 +81,7 @@ def _fixture(mutate: Callable[[BrainEngine], None] | None = None) -> dict[str, b
             if path == "brain.toml" or path.startswith(("content/", "history/", "sources/"))
         }
         with engine._store.connect() as connection:
+            assert connection.execute("PRAGMA user_version").fetchone()[0] == 9
             evidence = serialize_portable_v5_state(
                 connection,
                 tenant_id=TENANT,
@@ -104,8 +111,11 @@ def _seed() -> ValidatedV5IssuerSeed:
 def test_imported_issuer_only_seeds_genuinely_empty_schema() -> None:
     connection = sqlite3.connect(":memory:", isolation_level=None)
     connection.row_factory = sqlite3.Row
-    _prepare_local_schema(connection, True, True, tenant_id=TENANT, issuer_seed=_seed())
-    assert classify_local_schema(connection).state == "current"
+    _prepare_local_schema(
+        connection, True, True, tenant_id=TENANT, issuer_seed=_seed(), schema_version=9
+    )
+    assert classify_local_schema(connection).state == "supported_old"
+    assert classify_local_schema(connection).version == 9
     assert tuple(connection.execute("SELECT * FROM brain_identity").fetchone()) == (
         1,
         TENANT,
@@ -118,7 +128,12 @@ def test_imported_issuer_only_seeds_genuinely_empty_schema() -> None:
     for setup_required in (True, False):
         with pytest.raises(SchemaError, match="empty"):
             _prepare_local_schema(
-                connection, False, setup_required, tenant_id=TENANT, issuer_seed=_seed()
+                connection,
+                False,
+                setup_required,
+                tenant_id=TENANT,
+                issuer_seed=_seed(),
+                schema_version=9,
             )
         assert list(connection.iterdump()) == before
     connection.close()
@@ -134,6 +149,7 @@ def test_invalid_issuer_seed_rolls_back_schema_creation() -> None:
             True,
             tenant_id="tenant_wrong",
             issuer_seed=_seed(),
+            schema_version=9,
         )
     assert connection.execute("PRAGMA user_version").fetchone()[0] == 0
     assert connection.execute("SELECT name FROM sqlite_master").fetchall() == []
@@ -292,7 +308,7 @@ def test_restore_fresh_snapshot_reopen_and_rederive(tmp_path: Path, relationship
     from open_brain_engine.engine.local import BrainEngine
     from open_brain_engine.engine.local_schema import open_local_database_read_only
     from open_brain_engine.engine.portable_index import rebuild_portable_index
-    from open_brain_engine.engine.portable_v5_evidence import serialize_portable_v5_state
+    from open_brain_engine.engine.portable_v5_restore import restored_portable_semantic_state
     from open_brain_engine.engine.reconciliation import rederive_live_search_projection
 
     files = _fixture()
@@ -316,10 +332,10 @@ def test_restore_fresh_snapshot_reopen_and_rederive(tmp_path: Path, relationship
             == (json.loads(files[v5.ISSUER_MIGRATION_PATH])["identity_recorded_at"])
         )
         assert connection.execute("SELECT count(*) FROM captures").fetchone()[0] == result.captures
-        before = serialize_portable_v5_state(
+        before = restored_portable_semantic_state(
             connection,
-            tenant_id=TENANT,
-            relationship_sidecar_present=relationships,
+            profile=result.profile,
+            snapshot=snapshot,
         ).semantic_state_sha256
     engine = BrainEngine.open(result.profile)
     rederive_live_search_projection(engine)
@@ -341,10 +357,10 @@ def test_restore_fresh_snapshot_reopen_and_rederive(tmp_path: Path, relationship
     rebuilt = rebuild_portable_index(result.profile)
     assert rebuilt.documents == build.documents
     with engine._store.connect() as connection:
-        after = serialize_portable_v5_state(
+        after = restored_portable_semantic_state(
             connection,
-            tenant_id=TENANT,
-            relationship_sidecar_present=relationships,
+            profile=result.profile,
+            snapshot=snapshot,
         ).semantic_state_sha256
     assert after == before
     with pytest.raises(SchemaError, match="empty"):
@@ -405,7 +421,8 @@ def test_schema9_numeric_privacy_affinity_and_atomic_refusal(
 
     connection = sqlite3.connect(":memory:", isolation_level=None)
     connection.row_factory = sqlite3.Row
-    _prepare_local_schema(connection, True, True, tenant_id=TENANT)
+    _prepare_local_schema(connection, True, True, tenant_id=TENANT, schema_version=9)
+    assert connection.execute("PRAGMA user_version").fetchone()[0] == 9
     # The exact canonical captures declaration determines the affinity.
     column = next(
         row for row in connection.execute("PRAGMA table_info(captures)") if row[1] == "privacy_json"

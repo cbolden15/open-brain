@@ -15,6 +15,7 @@ from typing import Protocol, cast
 from open_brain_engine.capture.redaction import has_redaction_finding
 from open_brain_engine.core.ids import portable_canonical_json_bytes
 from open_brain_engine.engine import ManagedProvider
+from open_brain_engine.engine.sharing import SEMANTIC_PROVIDER_IDS
 
 MAX_PROVIDER_INPUT_BYTES = 16 * 1024
 MAX_PROVIDER_OUTPUT_BYTES = 16 * 1024
@@ -195,7 +196,7 @@ class DirectApiAdapter:
             ManagedProvider.OPENAI_API,
             ManagedProvider.ANTHROPIC_API,
             ManagedProvider.GEMINI_API,
-        } or not _valid_model(model):
+        } or provider.value not in SEMANTIC_PROVIDER_IDS or not _valid_model(model):
             raise ValueError("invalid direct provider adapter")
         self.provider = provider
         self.model = model

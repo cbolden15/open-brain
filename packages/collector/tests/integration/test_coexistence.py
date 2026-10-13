@@ -61,7 +61,7 @@ def test_collector_coexists_with_desktop_cli_mcp_and_obsidian_bridge_surface(
 
     desktop_sync = FileLease(brain_root / ".open-brain", owner_identity_id="desktop")
     # The collector transfers custody before attempting the bounded writer
-    # wait, so writer contention is a successful queued result.
+    # wait. Queued engine custody remains pending until a canonical receipt.
     monkeypatch.setattr(capture_module, "_WRITER_WAIT_TIMEOUT_SECONDS", 0.05)
     with desktop_sync.acquire_shared_writer():
         queued = controller.sync_due(
@@ -69,8 +69,8 @@ def test_collector_coexists_with_desktop_cli_mcp_and_obsidian_bridge_surface(
             runtime=source,
             capture_sink=collector_capture,
         )
-        assert queued.outcome == "completed"
-        assert queued.captured_count == 1
+        assert queued.outcome == "deferred"
+        assert queued.captured_count == 0
         with sqlite3.connect(
             brain_root / ".open-brain/state/phase1.sqlite3"
         ) as connection:
@@ -78,6 +78,8 @@ def test_collector_coexists_with_desktop_cli_mcp_and_obsidian_bridge_surface(
                 "SELECT count(*) FROM capture_ingestion_items"
             ).fetchone() == (1,)
             assert connection.execute("SELECT count(*) FROM search_documents").fetchone() == (0,)
+    counts = cast(dict[str, int], controller.custody_status("github.fixture.coexist")["counts"])
+    assert counts["pending"] == 1
 
     # Opening the Brain after the contending writer exits drains the accepted
     # journal item without asking the collector to retain or resend its body.
@@ -148,7 +150,7 @@ def test_collector_rejects_changed_digest_custody_receipt(
         EngineCaptureSink(public_sink).submit(intake)
 
 
-@pytest.mark.parametrize("invalid_binding", ("request_digest", "protection"))
+@pytest.mark.parametrize("invalid_binding", ("destination", "request_digest", "protection"))
 def test_collector_custody_retains_body_after_invalid_custody_receipt(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -182,7 +184,10 @@ def test_collector_custody_retains_body_after_invalid_custody_receipt(
         final_admitted_tier=intake.privacy.tier,
         queued_at="2026-09-22T12:00:00Z",
     )
-    if invalid_binding == "request_digest":
+    if invalid_binding == "destination":
+        wrong_brain = identity[0][:-1] + ("a" if identity[0][-1] != "a" else "b")
+        object.__setattr__(receipt, "brain_id", wrong_brain)
+    elif invalid_binding == "request_digest":
         object.__setattr__(receipt, "request_sha256", "0" * 64)
     else:
         object.__setattr__(receipt, "protection_acknowledgement", "synthetic-unprotected")

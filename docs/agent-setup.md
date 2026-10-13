@@ -96,7 +96,7 @@ a capture when the user asks. Routing changes assignment and search metadata. It
 the capture, change its trust, or convert it into a canonical note. Generated instructions name only
 the explicitly granted tools and limit organization to the current user request.
 
-The candidate uses private schema version 7 and runtime session version 2. Stop older sessions before
+The candidate uses private schema version 10 and runtime session version 5. Stop older sessions before
 upgrading an existing Brain. Older runtimes reject the newer schema, so update other installed clients
 before using them on that Brain. After moving the app or upgrading a CLI whose versioned path changes, preview setup again.
 

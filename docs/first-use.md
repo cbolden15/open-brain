@@ -22,10 +22,10 @@ CATALOG="$("$OPEN_BRAIN" catalog --schema-version 2 --json)"
 test ! -e "$DATA_DIR"
 test "$(printf '%s' "$CATALOG" | jq -r '.schema_version')" = 2
 test "$(printf '%s' "$CATALOG" | jq -r '.product.public_acceptance')" = not_certified
-test "$(printf '%s' "$CATALOG" | jq -r '.compatibility.state_schema')" = 7
-test "$(printf '%s' "$CATALOG" | jq -r '.compatibility.runtime_session')" = 2
+test "$(printf '%s' "$CATALOG" | jq -r '.compatibility.state_schema')" = 10
+test "$(printf '%s' "$CATALOG" | jq -r '.compatibility.runtime_session')" = 5
 test "$(printf '%s' "$CATALOG" | jq -r '.compatibility.task_contract')" = t03.v1
-test "$(printf '%s' "$CATALOG" | jq -r '.compatibility.portable_metadata')" = 4
+test "$(printf '%s' "$CATALOG" | jq -r '.compatibility.portable_metadata')" = 5
 test "$(printf '%s' "$CATALOG" | jq -r '.acceptance.trusted_certifications | length')" = 0
 "$OPEN_BRAIN" --help | grep -q 'workspace'
 "$OPEN_BRAIN" mcp --help | grep -q -- '--allow-review-decide'

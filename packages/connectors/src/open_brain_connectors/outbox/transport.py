@@ -28,6 +28,7 @@ from dataclasses import dataclass
 from open_brain_engine.core.models import PrivacyTier
 from open_brain_engine.engine import (
     CaptureAdmissionError,
+    CaptureProtectionPendingError,
     CaptureSubmission,
     DeliveryConflict,
     EngineTaskSet,
@@ -38,6 +39,7 @@ from open_brain_engine.engine.t03_contracts import EffectiveAuthority
 from .contracts import DeliveryEnvelope, OutboxContractError, TerminalReceipt
 from .destination import (
     RECEIPT_MALFORMED,
+    RECOVERY_PENDING,
     delivery_conflict_failure,
     failure_from_admission_error,
     terminal_receipt_from_capture_receipt,
@@ -140,6 +142,8 @@ class SyntheticTransport:
             receipt = self._capture.submit(submission)
         except CaptureAdmissionError as error:
             return failure_from_admission_error(error)
+        except CaptureProtectionPendingError:
+            return DeliveryFailure(code=RECOVERY_PENDING, retryable=True)
         except DeliveryConflict:
             return delivery_conflict_failure()
         try:

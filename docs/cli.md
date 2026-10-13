@@ -14,15 +14,19 @@ opening a Brain. See the [feature/version matrix](core-v01-features.md).
 | Command family | Purpose / reference |
 |---|---|
 | `init`, `capture`, `import`, `status`, `export` | Local storage lifecycle; [first-use](first-use.md), [install](install.md) |
+| `restore` | Owner-local clean Portable recovery without opening a caller Brain; [Portable 8](portable-brain-v8.md) |
 | `capture-submit` | Destination-bound capture under a trusted startup policy; [capture contract](capture-contract.md) |
 | `journal status/drain/retry/discard` | Owner-only durable ingress inspection and recovery; [operations](operations.md) |
+| `consent grant/inspect/replace/revoke` | Owner-only durable external-provider consent for scoped sessions |
 | `catalog` | Versioned metadata; no grants or public certification |
 | `search`, `search-page`, `read` | Lexical retrieval and complete projected text; [records](records-and-history.md) |
 | `history list/show`, `relationship list/decide`, `decision history` | Retained evidence; owner relationship mutations |
-| `space create/list/rename`, `inbox list/route`, `source route` | Explicit organization; [spaces](spaces-inbox.md) |
+| `space create/list/rename`, `inbox list/route`, `source route/inspect/withdraw` | Explicit organization and owner source lifecycle; [spaces](spaces-inbox.md), [saved Markdown lifecycle](integrations/saved-markdown-lifecycle.md) |
+| `sharing preview/inspect/approve/reject/revoke` | Owner-approved exact saved-Markdown copy; [saved Markdown lifecycle](integrations/saved-markdown-lifecycle.md) |
 | `review propose/list/show/approve/reject/edit-and-approve` | Source-bound drafts and inspected decisions; [review](review-publication.md) |
 | `agent setup` | Preview/apply/remove client fragments with explicit grants; [agent setup](agent-setup.md) |
 | `workspace` | Setup/status/refresh, note lifecycle/conflicts and recovery; [workspace recovery](managed-workspace-recovery.md) |
+| `historical recover` | Owner-only forward completion of a retained historical-authority transition before ordinary startup |
 | `obsidian-plugin install/status/remove`, `plugin` | Packaged assets and foreground stdio bridge; [install](install.md) |
 | `graph` | Existing structural graph/consent/exclusion/suggestion operations; provider readiness remains unassessed |
 | `doctor --check NAME --json` | One bounded check; [doctor](doctor.md) |
@@ -32,15 +36,72 @@ Table slashes denote alternative actions, not literal shell syntax. Detailed pla
 are in the linked references; the first-use and doctor guides contain the executable examples.
 There is no `vault` command; the managed vault is the `Open Brain Vault` sibling of the Brain root.
 
+Sharing is owner-local. `preview`, `approve`, `reject`, and `revoke` require a
+closed version-1 JSON `--request-file`; `inspect` takes a preview or approval ID.
+The CLI prints a pending approval as pending and never treats a canonical review
+approval as external sharing. Sharing was introduced at schema/runtime/Portable
+12/7/7. The current historical-authority candidate reports 13/8/8. See
+[Portable 8](portable-brain-v8.md) for current export and import behavior;
+[Portable 7](portable-brain-v7.md) documents the frozen previous format.
+
 Commands that support machine output accept `--json`. The shared `--data-dir` option must be an
 absolute path. Without it, the CLI uses the platform data directory. `OPEN_BRAIN_ROOT` is ignored.
+
+The historical-authority implementation is an unreleased schema-13/runtime-8
+extension. `historical recover --data-dir /absolute/brain --json` opens an existing
+private Brain without starting ordinary engine tasks. It requires exclusive local
+owner admission and finishes only the exact retained pending intent. It accepts
+no replacement request, actor or provider arguments and does not migrate older
+state, capture content or approve publication. Its historical receipt does not
+prove current sharing eligibility or independently protected custody. A settled
+retry returns `status: settled` with no new receipt. Ordinary startup refuses
+pending or inconsistent historical state. Portable v8 acceptance is still required
+before this extension can be released.
+
+`restore /absolute/archive /absolute/absent-root --import-id import_UUID --json`
+restores an existing Brain before platform-root selection or ordinary bootstrap.
+Replace `import_UUID` with `import_` followed by a version-4 UUID and retain that
+same ID for retries. The source directory must be owned by the current OS user,
+mode 0700, and contain a valid Portable 5, 6, 7 or 8 archive. Formats 1–3 lack the
+explicit issuer evidence required by this recovery entry point; format 4 remains
+unsupported. Ordinary engine import compatibility is unchanged.
+
+The destination must be absent. An exact already-promoted retry returns
+`duplicate: true` only after fresh semantic and index audits; a different import
+ID or conflicting destination refuses. The command neither creates a tooling
+Brain nor overwrites a live root. It restores the archive's existing identity
+and installs no provider consent. Recovery paths remain owner-local and are not
+MCP or plugin operations. Storage encryption, independent backup freshness and
+all post-snapshot replay remain deployment responsibilities.
+
+An uncommitted historical-copy link also needs `--consent-state /absolute/state.json`
+pointing to the existing owner-only, Brain-bound provider-consent store. Recovery
+reloads current PUBLIC-tier consent before link commit. Missing, revoked, or
+wrong-destination consent leaves the exact intent pending. This option does not
+create consent or grant publication. Already committed receipt recovery and
+denial-only claim/revocation recovery do not require a new consent grant.
 
 `capture` accepts `--privacy-tier` with one of `public`, `work`, `personal`, `secret`, or `unknown`
 as an owner-only explicit privacy tier. `import` accepts the same `--privacy-tier` for the whole
 invocation plus `--privacy-manifest` pointing at a validated per-root privacy manifest JSON file;
 see [import design](import.md). `capture-submit` submits one destination-bound capture under a
 trusted startup policy and requires `--policy` with an absolute `launcher-policy.v1` JSON path; see
-[capture contract](capture-contract.md) for the tier rules and admission limits.
+[capture contract](capture-contract.md) for the tier rules and admission limits. The optional
+`--receipt-protection PATH` adds an owner-selected independent durability gate. The path must name
+an owner-only `receipt-protection-command.v1` file.
+
+```json
+{
+  "contract_version": "receipt-protection-command.v1",
+  "argv": ["/absolute/path/to/protector", "synthetic-profile"],
+  "timeout_seconds": 5
+}
+```
+
+The configuration must be a regular file owned by the current user with no group or other access.
+The command path must be absolute. The adapter does not use a shell and gives the protector an empty
+environment, a fresh temporary working directory, one request on stdin, bounded stdout and stderr,
+and the configured deadline. The protector returns one `receipt-protection-ack.v1` JSON object.
 
 `workspace setup` creates or reopens the dedicated `Open Brain Vault` sibling beside the private
 Brain directory. Explicit `workspace refresh` adds newly accepted canonical pages and advances
@@ -72,6 +133,30 @@ open-brain journal discard DELIVERY_ID --reason 'owner-confirmed discard' \
 durable tombstone before removing the retained payload. A writer-busy result is retryable; it does
 not mean that acknowledged custody was refused.
 
+## Provider consent
+
+Provider consent is deployment authority, not Brain content. Store it in an existing owner-only
+directory outside the Brain. The directory must have mode `0700`; Open Brain writes the canonical
+state file with mode `0600`. The file is bound to the durable Brain ID and issuer epoch and contains
+no credential or record content.
+
+```sh
+open-brain consent grant --state /absolute/private/provider-consent.json \
+  --provider-id synthetic-provider --allowed-tier public --allowed-tier work \
+  --operation-id grant-1 --data-dir /absolute/brain --json
+open-brain consent inspect --state /absolute/private/provider-consent.json \
+  --data-dir /absolute/brain --json
+open-brain consent replace --state /absolute/private/provider-consent.json \
+  --consent-id CONSENT_ID --provider-id synthetic-provider --allowed-tier public \
+  --operation-id replace-1 --data-dir /absolute/brain --json
+open-brain consent revoke --state /absolute/private/provider-consent.json \
+  --consent-id CONSENT_ID --operation-id revoke-1 --data-dir /absolute/brain --json
+```
+
+Grant, replace, and revoke are operation-ID idempotent. Replace and revoke advance the authorization
+generation once. A missing, malformed, foreign-Brain, wrong-epoch, or concurrently changed state
+file fails closed.
+
 ## Status and doctor
 
 Status reports profile `local`, storage `sqlite`, daemon false, and application encryption false.
@@ -90,15 +175,30 @@ a link, resolve a conflict, or mutate a note. Until a provider adapter is config
 
 Capture, search, content-read, history-read, inbox-read, organize, review-read, review-propose and
 review-decide are independent `--allow-...` flags; workspace-read and graph-refresh are additional
-manual MCP grants. `capture-submit` is a further manual grant: `--allow-capture-submit` exposes the
-destination-bound `brain_capture_submit` tool and requires `--capture-policy` with an absolute
-trusted `launcher-policy.v1` JSON path. Search alone does not grant full content or history. Review
+manual MCP grants. A scoped deployment passes `--session-policy` with one absolute trusted
+`launcher-policy.v1` path. The session receives only the intersection of policy capabilities,
+selected `--allow-...` flags, injected implementations, and the scoped-safe operation matrix.
+Owner operations remain unavailable even if a non-owner policy names their flags. An
+`external_provider` policy also requires `--consent-state` with the durable state described above.
+Open Brain rereads both trusted files before discovery and every tool call. A changed policy,
+generation advance, replacement, revocation, or malformed state terminates the process; a revoked
+mapping cannot restart.
+
+`capture-submit` is a further manual grant: `--allow-capture-submit` exposes the destination-bound
+`brain_capture_submit` tool. `--capture-policy` remains a compatibility alias for a capture-submit
+session policy and cannot be combined with `--session-policy`; it maps the legacy policy's capture
+tier authority to the one `capture-submit` capability. New whole-session policies must grant
+`capture-submit` explicitly. New launchers should use `--session-policy`. Search alone does not
+grant full content or history. Review
 decisions publish only after token-bound inspection. `tools/list` reflects session grants, while
 `brain_catalog` accepts `{"schema_version":2}` for metadata. Neither catalog discovery nor source
 text can widen permissions. CLI setup and the shared bridge support nine grants; capture-submit is a
 launch-time grant with no setup fragment. The desktop setup UI exposes
 capture/search; Obsidian has no agent-setup control. See [agent setup](agent-setup.md) for privacy
 and client activation.
+
+An MCP destination-bound session may also pass `--receipt-protection PATH`. The flag requires
+`--allow-capture-submit`; it is not an MCP tool argument and cannot be selected by the client.
 
 Per process, workspace reads are limited to 500 calls and 16 MiB of serialized results. Graph refresh
 is limited to 20 requests, 40 actual model attempts, and 1 MiB of selected note input. These limits are
@@ -110,6 +210,10 @@ terminal capture receipt or a `capture-custody.v1` receipt with `status: "queued
 queued variant as a successful tool result, not an error. A scoped client may verify only the
 receipt bindings and opaque `ingestion_id`; it cannot inspect journal sequence, queue depth,
 payload, or owner journal status.
+
+When receipt protection is configured, accepted, duplicate, and queued results contain a bound
+`protection_acknowledgement`. If protection cannot complete, `brain_capture_submit` returns a
+`capture-protection-pending.v1` result with `status: "recovery_pending"` and `retryable: true`.
 
 ```json
 {
@@ -135,9 +239,12 @@ references.
 Invalid usage returns 2. Temporary SQLite writer contention returns 75 for capture, capture-submit,
 search, import, or MCP work. A private-directory or operation failure returns 78 without exposing
 sensitive paths; a refused startup policy returns 78 with `destination_mismatch`, `issuer_mismatch`,
-or `stale_policy`. A refused `capture-submit` admission reports the stable result value with a
-`retryable` flag: retryable refusals exit 75 and terminal refusals exit 65. Interrupted Markdown
-import returns 130.
+`stale_policy`, or `consent_unavailable`. Consent-state write contention returns 75; invalid owner
+consent input returns 2; unavailable or unsafe consent state returns 78. A refused `capture-submit`
+admission reports the stable result value with a `retryable` flag: retryable refusals exit 75 and
+terminal refusals exit 65. Receipt-protection timeout, unavailability, or invalid acknowledgement
+also exits 75 with a `recovery_pending` result. The locally committed delivery remains replayable.
+Interrupted Markdown import returns 130.
 
 Secure Node and predecessor command families are historical source under `archive/`. They are not
 installed commands and are not supported through the Open Brain executable.
@@ -167,7 +274,9 @@ is generated when absent), `policy_ref`, `retry_age_limit_seconds` (default 8640
 `retry_attempt_limit` (default 8), and `enqueued_at`. The result prints `delivery_id`,
 `request_digest`, and `result`. A drain takes exactly one of `--transport-argv`, a JSON array of
 strings, or `--transport-command-file`, a path holding that array, plus `--max-batch-items`
-(default 16), `--max-batch-bytes` (default 1 MiB), and `--timeout-seconds` (default 60). The drain
+(default 16), `--max-batch-bytes` (default 1 MiB), and `--timeout-seconds` (default 60).
+`--require-independent-protection` keeps each body queued until its receipt carries a valid bound
+acknowledgement. The drain
 JSON summary carries `result`, `stale_lease_reclaimed`, `admitted_items`, `skipped_items`,
 `delivery_attempts`, `accepted`, `duplicate`, `quarantined_age_exhausted`,
 `quarantined_attempts_exhausted`, `quarantined_receipt_mismatch`, `quarantined_refused`, `retried`,

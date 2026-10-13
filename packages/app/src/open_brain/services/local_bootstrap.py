@@ -2,19 +2,28 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterator
+import inspect
+from collections.abc import Callable, Iterator
 from contextlib import contextmanager
+from contextvars import ContextVar
 from dataclasses import dataclass
+from pathlib import Path
 
 from open_brain_engine.engine import (
     PHASE1_STATE_SCHEMA_VERSION,
     EngineTaskSet,
     LocalEngineContext,
+    ReceiptProtectionPort,
     StateSchemaUnavailableError,
     coordinate_local_migration,
     inspect_phase1_state,
     open_local_engine,
 )
+from open_brain_engine.engine.runtime_admission import (
+    HeldRuntimeAdmission,
+    exclusive_runtime_admission,
+)
+from open_brain_engine.storage.locks import FileLease, HeldWriterLease
 
 from open_brain.local_data import (
     FilesystemTypeProbe,
@@ -22,7 +31,7 @@ from open_brain.local_data import (
     PreparedLocalRoot,
     prepare_local_root,
 )
-from open_brain.profile import compile_single_user_local
+from open_brain.profile import compile_single_user_local, open_existing_single_user_local
 from open_brain.services.local_runtime_session import (
     LocalRuntimeCompatibilityError,
     LocalRuntimeSession,
@@ -30,6 +39,101 @@ from open_brain.services.local_runtime_session import (
 )
 
 _STATE_DATABASE = ".open-brain/state/phase1.sqlite3"
+_ACTIVE_TRANSACTION: ContextVar[LocalBrainTransaction | None] = ContextVar(
+    "local_brain_transaction", default=None
+)
+
+
+class LocalBrainTransaction:
+    """One existing Brain's registry and writer held around synchronous SDK operations."""
+
+    def __init__(
+        self, profile: LocalEngineContext, admission: HeldRuntimeAdmission, writer: HeldWriterLease
+    ) -> None:
+        self.profile = profile
+        self._admission = admission
+        self._writer = writer
+        self._running = False
+
+    def validate(self) -> None:
+        """Reject expired ownership, another process/thread, or replaced controls."""
+        try:
+            self._admission.validate(self.profile)
+            self._writer.validate()
+        except Exception:
+            raise RuntimeError("local Brain transaction ownership is unavailable") from None
+
+    def run[T](self, operation: Callable[[], T]) -> T:
+        """Borrow the held barriers only during a single synchronous SDK callback."""
+        self.validate()
+        if self._running or _ACTIVE_TRANSACTION.get() is not None:
+            raise RuntimeError("local Brain transaction operation is already active")
+        self._running = True
+        token = _ACTIVE_TRANSACTION.set(self)
+        try:
+            with self._writer.borrow():
+                result = operation()
+                if inspect.isawaitable(result):
+                    if inspect.iscoroutine(result):
+                        result.close()
+                    raise RuntimeError("local Brain transaction requires a synchronous operation")
+                self.validate()
+                return result
+        finally:
+            _ACTIVE_TRANSACTION.reset(token)
+            self._running = False
+
+
+@contextmanager
+def hold_existing_local_brain_transaction(root: Path) -> Iterator[LocalBrainTransaction]:
+    """Hold canonical barriers before bootstrap, through caller-owned proof and release.
+
+    Requires an initialized existing root; does not create a Brain or initialize its
+    lock/registry control layout. Engine/session startup and cleanup occur in ``run``.
+    The caller owns protection and result-release authorization outside the callback.
+    """
+    if _ACTIVE_TRANSACTION.get() is not None:
+        raise RuntimeError("nested local Brain transaction")
+    profile = open_existing_single_user_local(root)
+    for relative in (
+        _STATE_DATABASE,
+        ".open-brain/runtime-sessions/registry.lock",
+        ".open-brain/runtime-sessions/registry-version",
+        ".open-brain/.open-brain-locks/lease.shared-writer",
+    ):
+        if not (profile.root / relative).is_file():
+            raise RuntimeError("existing local Brain transaction controls are unavailable")
+    with exclusive_runtime_admission(profile) as admission:
+        lease = FileLease(
+            profile.root / ".open-brain", "local-transaction",
+            parent_root_identity=profile.root_identity,
+        )
+        with lease.hold_writer_transaction() as writer:
+            transaction = LocalBrainTransaction(profile, admission, writer)
+            transaction.validate()
+            yield transaction
+
+
+def run_existing_local_brain_transaction[T](root: Path, operation: Callable[[], T]) -> T:
+    """Run under existing barriers, or borrow the active same-root callback.
+
+    Borrowing preserves the original transaction's PID/thread and inode checks
+    without nesting ``run`` or opening another writer lock descriptor.
+    """
+    transaction = _ACTIVE_TRANSACTION.get()
+    if transaction is None:
+        with hold_existing_local_brain_transaction(root) as transaction:
+            return transaction.run(operation)
+    transaction.validate()
+    if root.resolve() != transaction.profile.root:
+        raise RuntimeError("local Brain transaction root mismatch")
+    result = operation()
+    if inspect.isawaitable(result):
+        if inspect.iscoroutine(result):
+            result.close()
+        raise RuntimeError("local Brain transaction requires a synchronous operation")
+    transaction.validate()
+    return result
 
 
 @dataclass(frozen=True, slots=True)
@@ -69,8 +173,15 @@ def open_local_brain(
     selection: LocalRootSelection,
     *,
     filesystem_type_probe: FilesystemTypeProbe | None = None,
+    receipt_protection_port: ReceiptProtectionPort | None = None,
+    receipt_protection_timeout_seconds: float = 5.0,
 ) -> Iterator[LocalBrainSession]:
     """Bootstrap and hold one default Brain through a direct local operation."""
+    transaction = _ACTIVE_TRANSACTION.get()
+    if transaction is not None:
+        transaction.validate()
+        if selection.brain_root.resolve() != transaction.profile.root:
+            raise RuntimeError("local Brain transaction root mismatch")
     with prepare_local_root(selection, filesystem_type_probe=filesystem_type_probe) as prepared:
         identity_exists = prepared.private_file_exists("brain.toml")
         initialized_before = identity_exists and prepared.private_file_exists(_STATE_DATABASE)
@@ -80,6 +191,13 @@ def open_local_brain(
             validate_before_identity_write=prepared.revalidate,
         )
         initial_schema = inspect_phase1_state(profile)
+        if transaction is not None:
+            transaction.validate()
+            if (
+                transaction.profile.root != profile.root
+                or transaction.profile.root_identity != profile.root_identity
+            ):
+                raise RuntimeError("local Brain transaction root mismatch")
         from open_brain_engine.engine.source_migration import migration_pending
 
         if initial_schema.state in {"invalid", "newer"} and not migration_pending(profile):
@@ -100,11 +218,24 @@ def open_local_brain(
             # The owner product bootstrap owns the explicit chained migration;
             # hold_local_runtime_session's registry admission spans both phases.
             coordinate_local_migration(profile)
-            tasks = open_local_engine(
-                profile,
-                validate_before_write=validate_direct_write,
-                recover_abandoned_sessions=False,
-            )
+            from open_brain_engine.engine.historical_recovery import require_historical_settled
+
+            if inspect_phase1_state(profile).state != "absent":
+                require_historical_settled(profile)
+            if receipt_protection_port is None:
+                tasks = open_local_engine(
+                    profile,
+                    validate_before_write=validate_direct_write,
+                    recover_abandoned_sessions=False,
+                )
+            else:
+                tasks = open_local_engine(
+                    profile,
+                    validate_before_write=validate_direct_write,
+                    recover_abandoned_sessions=False,
+                    receipt_protection_port=receipt_protection_port,
+                    receipt_protection_timeout_seconds=receipt_protection_timeout_seconds,
+                )
             prepared.revalidate()
             _require_current_local_state(prepared, profile)
 
@@ -120,6 +251,7 @@ def open_local_brain(
             recover_abandoned_sessions=recover_abandoned_sessions,
             admit_session=admit,
             admission_profile=profile,
+            held_admission=None if transaction is None else transaction._admission,
         ):
             if tasks is None:
                 raise RuntimeError("local engine admission did not complete")
@@ -166,7 +298,10 @@ def _require_current_local_state(
 
 __all__ = [
     "LocalBrainSession",
+    "LocalBrainTransaction",
     "LocalInitReceipt",
     "initialize_local_brain",
+    "hold_existing_local_brain_transaction",
     "open_local_brain",
+    "run_existing_local_brain_transaction",
 ]

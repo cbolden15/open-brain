@@ -132,7 +132,9 @@ def test_scoped_mcp_operation_matrix_denies_admin_and_materialization_callbacks(
     authority = EffectiveAuthority(
         principal_id="scoped_fixture",
         session_id="scoped_session",
-        capabilities=frozenset({"search", "content-read", "history-read", "organize"}),
+        capabilities=frozenset(
+            {"search", "content-read", "history-read", "organize", "capture-submit"}
+        ),
         space_ids=None,
         allowed_read_tiers=frozenset({PrivacyTier.PUBLIC}),
         allowed_capture_tiers=frozenset({PrivacyTier.PUBLIC}),

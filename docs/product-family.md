@@ -74,8 +74,13 @@ owner's backups. It does not claim application-level encryption, compartment iso
 cryptographic erasure, certified purge, multi-user authorization, or protection from another
 process running as the same user.
 
-Search-only MCP sessions expose authority-scoped paged retrieval; their default non-owner authority
-cannot discover `secret` or `unknown` records. MCP capture writes durable, unverified content through
+Search-only MCP sessions expose authority-scoped paged retrieval. A deployment can bind the whole
+session to one trusted `launcher-policy.v1`; policy capabilities, selected flags, injected
+implementations, and the scoped-safe operation matrix are intersected before any tool is exposed.
+Owner-local policies may admit `public`, `work`, and `personal`; external-provider policies also
+require current durable provider-and-tier consent. No non-owner authority can discover `secret` or
+`unknown`. The process revalidates policy and consent before discovery and every call, so replacement
+or revocation terminates the active session. MCP capture writes durable, unverified content through
 a bounded non-owner sink. Inbox, organization, review, workspace, and graph flags are explicit
 owner-authority entrypoints for the entire process and are off by default. MCP cannot accept graph
 suggestions, resolve workspace conflicts, change provider consent, or edit exclusions. The current

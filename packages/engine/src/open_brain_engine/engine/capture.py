@@ -9,10 +9,11 @@ import threading
 from collections import deque
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager, nullcontext
+from dataclasses import replace
 from datetime import datetime, timedelta
 from hashlib import sha256
 from pathlib import Path
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING, Never, cast
 
 from open_brain_engine.capture.redaction import has_redaction_finding
 from open_brain_engine.core.ids import portable_canonical_json_bytes
@@ -27,13 +28,17 @@ from open_brain_engine.storage import watermarks
 from open_brain_engine.storage.locks import WriterQueueFullError
 from open_brain_engine.storage.markdown import render_markdown
 
+from .capture_recovery import CaptureRecoveryPlan, CaptureReservationIdentity
 from .contracts import (
     BoundaryClassifier,
     CaptureAction,
     CaptureAdmissionError,
     CaptureAdmissionResult,
+    CaptureCustodyReceipt,
     CaptureFault,
     CaptureOutcome,
+    CaptureProtectionPending,
+    CaptureProtectionPendingError,
     CaptureReceipt,
     CaptureSubmission,
     CaptureSubmissionPath,
@@ -46,10 +51,13 @@ from .contracts import (
     ProposalRecord,
     PublicJobCaptureContext,
     PublicJobCaptureSink,
+    ReceiptProtectionError,
+    ReceiptProtectionRequest,
     ReferencePayload,
     TextPayload,
     _LocalEngineOperations,
     project_public_capture_receipt,
+    verify_protection_acknowledgement,
 )
 from .markdown_import import capture_projection_is_active, capture_submission_is_reserved
 from .normalization import (
@@ -68,6 +76,7 @@ from .normalization import (
 )
 from .portability_ports import portable_write_port
 from .privacy_projection import narrow_retained_privacy_decision
+from .sharing import validate_reserved_copy_submission
 
 if TYPE_CHECKING:
     from .local import BrainEngine
@@ -313,6 +322,7 @@ class CaptureOperations(_LocalEngineOperations):
         # an arbitrary caller cannot reserve an importer delivery in the
         # journal and block the real import later.
         capture_submission_is_reserved(cast("BrainEngine", self), submission)
+        validate_reserved_copy_submission(cast("BrainEngine", self), submission)
         submission.validate_profile(self.profile)
         if submission.action is CaptureAction.CANONICAL_NOTE:
             if not isinstance(submission.payload, TextPayload):
@@ -343,9 +353,19 @@ class CaptureOperations(_LocalEngineOperations):
         submission: CaptureSubmission,
         *,
         admitted_privacy: PrivacyDecision,
+        recovery_plan: CaptureRecoveryPlan | None = None,
     ) -> CaptureReceipt:
         """Run the established capture stage machine under an already-held writer lease."""
+        if self._recovery_protection_guard is not None:
+            self._recovery_protection_guard.require_owner(cast("BrainEngine", self), submission)
+        if recovery_plan is not None and (
+            recovery_plan.envelope.submission != submission
+            or recovery_plan.envelope.admitted_privacy != admitted_privacy
+            or submission.submission_path is not CaptureSubmissionPath.OWNER
+        ):
+            raise ValueError("capture recovery plan does not match materialization")
         capture_submission_is_reserved(cast("BrainEngine", self), submission)
+        validate_reserved_copy_submission(cast("BrainEngine", self), submission)
         payload = submission.payload
         delivery_id = submission.delivery_id
         action = submission.action
@@ -366,6 +386,10 @@ class CaptureOperations(_LocalEngineOperations):
                 "SELECT * FROM captures WHERE delivery_id = ?", (delivery_id,)
             ).fetchone()
             if existing is not None:
+                if recovery_plan is not None:
+                    from .capture_replay import require_matching_capture
+
+                    require_matching_capture(existing, recovery_plan)
                 if cast(str, existing["request_sha256"]) != request_sha:
                     if connection.execute("PRAGMA user_version").fetchone()[
                         0
@@ -442,9 +466,17 @@ class CaptureOperations(_LocalEngineOperations):
                     raise ValueError("unknown space")
                 if action is CaptureAction.CANONICAL_NOTE and space_id is None:
                     raise ValueError("canonical note requires a space")
-                capture_id = _new_id("capture")
-                accepted_at = _timestamp(self._clock())
                 canonical = action is CaptureAction.CANONICAL_NOTE
+                identities = (
+                    recovery_plan.identities
+                    if recovery_plan is not None
+                    else CaptureReservationIdentity.allocate(
+                        canonical=canonical,
+                        accepted_at=_timestamp(self._clock()),
+                    )
+                )
+                capture_id = identities.capture_id
+                accepted_at = identities.accepted_at
                 connection.execute(
                     """
                     INSERT INTO captures (
@@ -464,7 +496,7 @@ class CaptureOperations(_LocalEngineOperations):
                         delivery_id,
                         request_sha,
                         capture_id,
-                        _new_id("receipt"),
+                        identities.accepted_receipt_id,
                         payload.family,
                         payload_bytes,
                         payload.search_text(),
@@ -477,12 +509,12 @@ class CaptureOperations(_LocalEngineOperations):
                         action.value,
                         title,
                         accepted_at,
-                        _new_id("proposal") if canonical else None,
-                        _new_id("receipt") if canonical else None,
-                        _new_id("decision") if canonical else None,
-                        _new_id("receipt") if canonical else None,
-                        _new_id("page") if canonical else None,
-                        _new_id("publication") if canonical else None,
+                        identities.auto_proposal_id,
+                        identities.auto_proposal_receipt_id,
+                        identities.auto_decision_id,
+                        identities.auto_decision_receipt_id,
+                        identities.page_id,
+                        identities.publication_id,
                         submission.actor_id,
                         portable_canonical_json_bytes(
                             {
@@ -505,6 +537,10 @@ class CaptureOperations(_LocalEngineOperations):
         if conflict is not None:
             self._quarantine(delivery_id, expected=conflict[0], actual=conflict[1])
             raise DeliveryConflict()
+        if self._recovery_protection_guard is not None:
+            self._recovery_protection_guard.protect_capture(
+                cast("BrainEngine", self), delivery_id
+            )
         if not duplicate:
             self._fault(CaptureFault.AFTER_CAPTURE_RESERVATION)
         row = self._capture_row(capture_id)
@@ -533,9 +569,7 @@ class CaptureOperations(_LocalEngineOperations):
                 connection.close()
             if identity is None and schema_version >= 9:
                 raise RuntimeError("brain identity unavailable")
-            destination_brain_id = (
-                None if identity is None else cast(str, identity["brain_id"])
-            )
+            destination_brain_id = None if identity is None else cast(str, identity["brain_id"])
             issuer_epoch = None if identity is None else cast(int, identity["issuer_epoch"])
         else:
             destination_brain_id = submission.destination_brain_id
@@ -556,16 +590,8 @@ class CaptureOperations(_LocalEngineOperations):
                 # the same exact Brain and request binding as the
                 # destination-bound receipt.  Owner display receipts retain
                 # their legacy unbound shape.
-                delivery_id=(
-                    delivery_id
-                    if receipt_bound
-                    else None
-                ),
-                request_sha256=(
-                    request_sha
-                    if receipt_bound
-                    else None
-                ),
+                delivery_id=(delivery_id if receipt_bound else None),
+                request_sha256=(request_sha if receipt_bound else None),
                 destination_brain_id=destination_brain_id,
                 issuer_epoch=issuer_epoch,
             )
@@ -586,6 +612,10 @@ class CaptureOperations(_LocalEngineOperations):
 
     def _process_capture(self, supplied_row: sqlite3.Row) -> None:
         row = self._capture_row(cast(str, supplied_row["capture_id"]))
+        if self._recovery_protection_guard is not None:
+            self._recovery_protection_guard.protect_capture(
+                cast("BrainEngine", self), cast(str, row["delivery_id"])
+            )
         connection = self._store.connect()
         try:
             if connection.execute("PRAGMA user_version").fetchone()[0] >= 7:
@@ -1075,7 +1105,7 @@ class CaptureTasks:
         with admission:
             outcome = engine.ingestion.enqueue(submission)
         if isinstance(outcome, CaptureReceipt):
-            return outcome
+            return self._protect_destination_receipt(submission, outcome)
         try:
             with engine._writer_lease_bounded():
                 engine._recover_captures_locked()
@@ -1083,14 +1113,80 @@ class CaptureTasks:
         except CaptureAdmissionError as error:
             if error.result is not CaptureAdmissionResult.WRITER_QUEUE_FULL:
                 raise
-            return outcome
+            return self._protect_destination_receipt(submission, outcome)
         expected = engine._receipt_for_delivery(submission.delivery_id)
         if expected is not None:
             for receipt in receipts:
                 if receipt.capture_id == expected.capture_id:
-                    return receipt
+                    return self._protect_destination_receipt(submission, receipt)
         replay = engine.ingestion.enqueue(submission)
-        return replay
+        return self._protect_destination_receipt(submission, replay)
+
+    def _protect_destination_receipt(
+        self,
+        submission: CaptureSubmission,
+        outcome: CaptureReceipt | CaptureCustodyReceipt,
+    ) -> CaptureOutcome:
+        engine = self._engine
+        port = engine._receipt_protection_port
+        if (
+            port is None
+            or submission.submission_path is not CaptureSubmissionPath.DESTINATION_BOUND
+        ):
+            return outcome
+        brain_id: str | None
+        issuer_epoch: int | None
+        if isinstance(outcome, CaptureCustodyReceipt):
+            brain_id = outcome.brain_id
+            issuer_epoch = outcome.issuer_epoch
+        else:
+            brain_id = outcome.destination_brain_id
+            issuer_epoch = outcome.issuer_epoch
+        if brain_id is None or issuer_epoch is None:
+            raise RuntimeError("destination receipt identity unavailable")
+        envelope = engine.ingestion.protection_envelope(submission)
+        request = ReceiptProtectionRequest(
+            brain_id=brain_id,
+            issuer_epoch=issuer_epoch,
+            delivery_id=submission.delivery_id,
+            request_sha256=submission.request_sha256(),
+            requested_tier=submission.requested_tier,
+            final_admitted_tier=envelope.admitted_privacy.tier,
+            replay_bytes=envelope.to_bytes(),
+        )
+        try:
+            acknowledgement = port.protect(
+                request,
+                timeout_seconds=engine._receipt_protection_timeout_seconds,
+            )
+        except ReceiptProtectionError as error:
+            return self._protection_pending(request, error.code)
+        except TimeoutError:
+            return self._protection_pending(request, "protection_timeout")
+        except Exception:
+            return self._protection_pending(request, "protection_unavailable")
+        try:
+            checked = verify_protection_acknowledgement(request, acknowledgement)
+        except TypeError, ValueError:
+            return self._protection_pending(request, "protection_invalid_acknowledgement")
+        return replace(outcome, protection_acknowledgement=checked)
+
+    @staticmethod
+    def _protection_pending(
+        request: ReceiptProtectionRequest,
+        reason_code: str,
+    ) -> Never:
+        raise CaptureProtectionPendingError(
+            CaptureProtectionPending(
+                brain_id=request.brain_id,
+                issuer_epoch=request.issuer_epoch,
+                delivery_id=request.delivery_id,
+                request_sha256=request.request_sha256,
+                requested_tier=request.requested_tier,
+                final_admitted_tier=request.final_admitted_tier,
+                reason_code=reason_code,
+            )
+        )
 
     def public_job_sink(self, context: PublicJobCaptureContext) -> PublicJobCaptureSink:
         context.validate_profile(self._engine.profile)

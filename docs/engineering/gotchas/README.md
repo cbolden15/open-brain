@@ -4,43 +4,831 @@ Non-obvious behaviors, sharp edges, and lessons learned belong here.
 
 ## Registry
 
-### FACETS-001: Wire history and Portable evidence share canonical values
+### BUILD-009: Desktop preparation must select its pair from the complete release manifest
 
-Symptom: A valid facet event fails public history validation, or a saved selector changes bytes
-between wire and evidence validators.
+Category: Build Pipeline.
 
-Cause: Copying the T03 timestamp rule loses the six fractional digits used by canonical engine
-events. Validating selector set membership alone also accepts unsorted response arrays.
+The optional harness added a valid third native resource. Desktop preparation
+collected every target resource and required exactly two, so both platform builds
+failed before packaging. Validate the complete native manifest contract, including
+optional resources and other platforms, then copy only base and Graphify into the
+desktop runtime. Reject malformed rows, duplicate roles, inconsistent resource
+sets and wrong executable digests. Generate fixtures with the native manifest
+writer so desktop tests exercise its actual contract.
 
-Fix: Preserve canonical event timestamps (`YYYY-MM-DDTHH:MM:SS.ffffffZ`) and sorted unique selector
-arrays across both contracts. Run `test_facet_contract_integration.py` against the shared fixtures
-when changing either schema. Empty optional selector filters still mean unrestricted.
+An earlier contributor-check failure skips the later NW0 probe. Its always-run
+artifact upload then reports missing proof output; that does not make the probe's
+output path stale. Preserve artifact identities and fix the first failed step.
 
-Discovered: 2026-10-13, C0 cross-contract review and independent boundary tests.
+Discovered: 2026-10-12, actual macOS and Linux contributor CI packaging failure.
 
-### FACETS-002: Type-check the concrete fake against each protocol
+### MEMORY-003: Revalidate durable restrictions before custody and sources after cleanup
+
+Category: Database/Migrations, Config/Environment.
+
+An unmarked Hermes event can inherit a session or origin restriction. Screening
+only the current payload allowed the rejected body into custody before the SDK
+refused it. Resolve durable restrictions before any request, replay or origin
+publication. Embedding callers with their own custody must apply the read-only
+capture guard before retaining bodies, and protect new metadata-only latches
+through their normal operation path.
+
+A retained origin reference proves its session already existed. Require its
+validated state even when it names the current session; a missing restriction
+file must fail closed instead of initializing an unrestricted session.
+
+Policy and consent equality do not prove a cached source is still readable.
+Canonical routing, lifecycle, privacy, head, historical authorization or retained
+bytes can change during runtime cleanup. Hold canonical exclusion through release
+and recheck the complete scoped source state after cleanup without another SDK
+startup. Check external policy, consent and restriction stores after the final
+source scan. Regressions must mutate actual canonical state at these boundaries.
+
+Discovered: 2026-10-12, independent harness and embedding-boundary review.
+
+### STORAGE-002: Reading a held POSIX lock file can release the lock
+
+Category: Database/Migrations, Config/Environment.
+
+POSIX record locks belong to a process. Closing any descriptor for the locked
+inode releases that process's lock, even when its original descriptor stays
+open. A complete same-process file inventory can therefore defeat a held writer.
+Identity and lifetime checks cannot prove continuous kernel ownership afterward.
+
+Keep borrowed SDK acquisitions from reopening the writer inode. Run complete
+external inventories in a separate foreground process and retain the parent
+lease. Verify contention from another process throughout the real inventory;
+mocked backup callbacks do not exercise this failure. Do not reacquire the lock
+to hide a gap or omit control files from a complete inventory.
+
+Discovered: 2026-10-12, existing local transaction integration review.
+
+### BUILD-008: Async refusal tests still need valid static return handling
 
 Category: Type Safety.
 
-Symptom: Fake-based tests pass, but strict mypy rejects a chained identity assertion between
-three distinct protocol types or a redundant generic-response cast.
+A negative test passed a coroutine-returning callback to a synchronous API and
+discarded its annotated return. Mypy rejected the unused coroutine even though
+the runtime correctly refused and closed it. Assign the return inside the
+expected-error context while preserving the runtime refusal assertion. Run the
+full typecheck and build; do not weaken the production API's return type.
 
-Action: Assign the concrete fake to each protocol separately and compare each assignment with
-the concrete instance. Let `isinstance` narrow the generic response. Run the combined repository
-type check after integrating independently typed workers, before the full test/build gate.
+Discovered: 2026-10-12, existing local transaction verification.
 
-Discovered: 2026-10-13, first integrated C0 type check; production exports were unaffected.
+### BUILD-007: Acceptance evidence helpers need explicit types and source bindings
 
-### TESTING-003: Contributor-guide rows are checked by product-boundary tests
+Category: Type Safety, Build Pipeline.
 
-Symptom: The full suite fails in `test_contributor_guide_describes_the_foreground_only_boundary`
-after the CLI and installed-entrypoint rows disappear from `CLAUDE.md`.
+The harness acceptance tooling initially failed targeted mypy on unannotated
+evidence collections and helper exports. Give JSON evidence, byte digests and
+filesystem references explicit contracts, then check the complete build and
+typecheck. A passing fixture matrix does not prove native inference. Bind every
+selected test parametrization to its retained JUnit result and keep unavailable
+native collection a failing outcome.
 
-Action: Keep those accurate quick-reference rows when shortening contributor instructions, and
-run `tests/security/test_open_brain_product_split.py` after changing the guide. C0 verification
-found this pre-existing drift and restored the rows without weakening the boundary assertions.
+Independent review also found that hashing selected tests without their active
+`conftest.py` missed behavior-changing fixture edits. Bind the complete Git source
+inventory, including uncommitted files, test configuration, imported fixtures
+and lockfiles; verify an in-memory conftest change invalidates that digest.
 
-Discovered: 2026-10-13.
+Follow-up, 2026-10-12: A Hermes assertion in `test_harness_bridge.py` indexed a
+nested JSON `counts` value typed as `object`. Cast the bounded mapping before
+indexing it. The repaired full typecheck passed all 571 source files.
+
+Follow-up, 2026-10-12: Starting the full gate while final tests or documentation
+are still being edited produces `source_changed_during_run`. Freeze the entire
+checkout before the source-bound acceptance fixture, including gotcha updates.
+Retain evidence outside the checkout. A passing focused test does not exempt its
+file from the acceptance source binding.
+
+Discovered: 2026-10-09, automatic-memory acceptance tooling verification.
+
+### BUILD-006: Public command changes must update every exact inventory
+
+Category: Build Pipeline.
+
+Adding the foreground harness entry point and source/setup/MCP commands passed
+focused integration checks but failed four full-suite assertions: two exact
+package script maps and two catalog command counts. Update those inventories
+with the explicitly supported additions while retaining exact equality,
+dependency restrictions and hidden-owner-command checks. Check the app and
+collector package boundaries together, then run the full verification gate.
+
+Follow-up, 2026-10-12: Hermes `harness capture` increased the exact catalog count
+from 72 to 73. Include that command explicitly and update both count assertions,
+preserving the hidden owner-command exclusions and exact inventory checks.
+
+Discovered: 2026-10-09, native harness integration verification.
+
+### MEMORY-002: Confinement status and enforcement are different host operations
+
+Category: Type Safety, Config/Environment.
+
+The native Pi enforcement assertion throws when a fresh session is unconfined.
+Using that assertion as a boolean probe prevented ordinary capture, recall and
+search from reaching the bridge. Supply a session-bound `isLocalOnly()` probe
+for durable restriction state; keep `assertLocalOnly()` strict before every
+private read and release. A probe never grants access. Poisoned state and a
+replaced or disposed session must still throw. Test the real native capability
+with the public extension, as separate passing suites missed this mismatch.
+
+Discovered: 2026-10-09, independent native integration review.
+
+### BUILD-005: Native hook setup must finish cold runtime validation first
+
+Category: Config/Environment, Build Pipeline, Type Safety.
+
+The optional native harness helper took 5.539 seconds on its first launch from
+a freshly extracted prefix. Later launches took about 0.3 seconds; synthetic
+enqueue and recall took 0.250 and 0.514 seconds. First-launch validation can
+therefore exceed the two-second capture and three-second retrieval deadlines.
+Apply setup only after the exact selected runtime completes side-effect-free
+`harness --help`. Refuse failed warm-up and recheck all preview preimages before
+activating hooks. Keep lifecycle deadlines unchanged.
+
+The shared setup exception exposes `code`, not `reason`. A CLI integration that
+read the wrong field failed typecheck and hid the intended refusal status.
+Trace the service's exception and environment contracts through its actual CLI
+caller; verify setup in a disposable HOME, then run the full build/typecheck.
+
+Discovered: 2026-10-09, native automatic-memory setup verification.
+
+### BUILD-004: Retained test fixtures can cross the storage admission watermark
+
+Category: Config/Environment, Build Pipeline.
+
+Symptom: A later full test run fails collector and connector capture cases with
+`storage_high`, although the same cases passed in the preceding run.
+
+Cause: Those test trees use the real storage probe. Each full run retained about
+four GiB of disposable fixtures; repeated runs reduced available storage below
+the engine's two-GiB watermark. App and engine fixtures use hermetic probes, so
+their passing results alone do not reveal this host condition.
+
+Fix: Check available bytes before a full run. Remove only completed synthetic
+fixtures created by the current task, retaining their logs. Rerun the failed
+cases after storage recovers, then the full gate. Keep production admission
+guards enabled. Leave space for package and native build artifacts as well.
+
+Follow-up, 2026-10-12: Pytest's `tmp_path_retention_policy=none` retains passing
+fixtures during the run and cleans them at session end. Use `failed` with
+`tmp_path_retention_count=0` for immediate passing-fixture cleanup, plus failfast
+and a bounded worker count. Create a short task-specific `TMPDIR` outside the
+checkout: acceptance evidence intentionally refuses paths under the source root.
+Retain sanitized logs outside build output so subsequent gates cannot unlink them.
+Host swap growth can still exhaust disk with tiny fixtures. An eight-worker run
+hit `storage_high` and a helper timeout; both cases passed serially after workers
+exited, and the full two-worker gate passed with Cargo limited to two jobs.
+Keep the real admission limits and helper deadlines intact.
+
+Discovered: 2026-10-09, repeated automatic harness bridge verification.
+
+### MEMORY-001: Harness boundaries can lose restrictions and cancellation
+
+Category: Config/Environment, Type Safety.
+
+Independent review of the foreground memory bridge reproduced four failures:
+
+- A Pi host's local-only state disappeared during message normalization. Keep
+  the restrictive boolean in immutable custody and source revisions. It may
+  narrow capture, but it never grants permission to read private memory.
+- Consent revoked during runtime cleanup missed the last read gate. Recheck
+  the retained authorization after cleanup and pending-source inspection,
+  immediately before releasing results.
+- A one-shot alarm raised `TimeoutError`, which ordinary error handlers caught.
+  Use distinct deadline cancellation that escapes those handlers; cleanup must
+  propagate it. Test the nested drain path, not only a bare sleep.
+- Hash-sorted retries repeatedly selected the same sixteen failures. Try new
+  requests first and oldest attempts next while retaining failed requests.
+
+Verification: Disposable engine tests and independent repros cover each repair,
+including consent revocation during the final guard, private replay, cancellation
+inside delivery and a seventeenth healthy request behind sixteen refusals.
+
+Discovered: 2026-10-09, independent automatic harness bridge review.
+
+### BUILD-003: Mixed literal branches need an explicit collection type
+
+Category: Type Safety.
+
+Symptom: Harness selection and subprocess fixture tests pass, but the full type
+check rejects a candidate kind as `str` and untyped JSON results as `Any`.
+
+Cause: A conditional list of literal tuples loses its narrow type without an
+annotation. `json.loads` also returns `Any`; a passing fixture does not establish
+the type of its return value or nested fields.
+
+Fix: Annotate the collection before assigning either branch. Give fixture JSON
+an explicit result type and check nested object shapes before indexing. Run the
+whole repository type check and build when changing the shared selector or CLI.
+
+Discovered: 2026-10-09, automatic harness bridge verification.
+
+### BUILD-002: Exception aliases still require a parenthesized type tuple
+
+Category: Type Safety.
+
+Symptom: Ruff cannot parse a Python 3.14 exception handler that catches several
+types and binds the exception with `as error`.
+
+Cause: Python 3.14 permits an unparenthesized exception list only when there is
+no `as` binding. `except FirstError, SecondError as error` remains invalid.
+
+Fix: Use `except (FirstError, SecondError) as error`. Run the full type check and
+build after changing a shared entry point, then exercise its actual CLI caller.
+The foreground harness adapter emits closed error metadata; parser exceptions
+must never print source data or configuration contents.
+
+Discovered: 2026-10-09, automatic harness bridge implementation.
+
+### RECOVERY-006: Historical checkpoints retain the original physical binding
+
+Category: Database/Migrations.
+
+Symptom: A historical Saved baseline refuses after a device number changes, even
+though the same approved content and logical Brain remain at the same path/inode.
+
+Cause: The serialized historical envelope includes its original root fingerprint.
+Source scan rebinding does not change that immutable destination coordinate.
+Constructing an ordinary collector revision sink also invokes engine startup
+recovery before baseline lookup, so a refused stage does not prove mutation absence.
+
+Fix: Keep the exact retained page, original history and genuine protection
+evidence. Use the separate owner-authorized historical checkpoint host with a
+trusted continuity validator and the currently admitted physical root. It opens
+state read-only, preserves original envelope coordinates, revalidates content,
+privacy and source CAS, and uses the existing writer fence for checkpointing.
+Do not substitute an old fingerprint into an ordinary capture sink, rewrite
+historical bindings, reset the cursor, or infer a completed AFTER from a refusal.
+
+Verification: Device-only continuity fixtures reconstruct exact V1/V2 history,
+preserve canonical SQL and immutable bytes, and refuse identity, content, privacy,
+CAS and admission changes. An existing writer prevents checkpoint persistence.
+
+Discovered: 2026-10-06, historical checkpoint recovery.
+
+### BUILD-001: Native packaging needs a writable PyInstaller cache
+
+Category: Config/Environment.
+
+Symptom: Python, desktop and Rust checks pass, then native packaging fails with
+`PermissionError` while creating PyInstaller's macOS cache under `~/Library`.
+
+Cause: A restricted build environment permits the checkout and temporary storage
+but cannot write the default user cache. `TMPDIR` alone does not redirect it.
+
+Fix: Set `PYINSTALLER_CONFIG_DIR` to a dedicated writable cache directory before
+running the complete native build, audit and Homebrew smoke gates. Retain failed
+logs and artifacts; keep the source and installed-runtime pins unchanged.
+
+Verification: PyInstaller's supported configuration reads this environment
+variable before choosing its platform cache directory. Re-run the full build
+and type check, then native audit and Homebrew smoke.
+
+If the compiled bootloader then fails with `semctl: Operation not permitted`,
+the execution environment denies its required semaphore. Verify the exact commit
+on an authorized test host with the matching architecture and Python version;
+the denied local smoke run remains failed evidence.
+
+Discovered: 2026-10-05, restricted macOS native packaging.
+
+### RECOVERY-003: Clean restore must bound immutable history decoding
+
+Category: Database/Migrations.
+
+Symptom: Clean restoration slows sharply as the historical authority chain grows.
+
+Cause: Reopening and decoding the entire prefix before and after every historical
+append repeats expensive validation of all earlier registry memberships.
+
+Fix: Only in the hidden Portable9 restore stage, derive the complete typed SQL
+projection once and check every exact SQL prefix and newly persisted intent.
+Keep durable pending/completion fences and registry checks. Reopen and audit the
+complete immutable history before promotion; interrupted stages never promote.
+
+Tests: Immutable-history read growth, SQL/intent tampering, interruption/retry
+fidelity and independent mixed V1/V2 chains with both revocation versions.
+
+Discovered: 2026-10-05, production-shaped Portable9 recovery rehearsal.
+
+### RECOVERY-004: Ordinary writes still audit history with startup recovery disabled
+
+Category: Database/Migrations.
+
+Symptom: A multi-operation canary exceeds its bound after historical adoption.
+Disabling abandoned-session recovery does not disable ordinary writer authority
+checks. Each write boundary rereads and strictly decodes the retained history.
+
+Fix: Reuse only successful decoding keyed by exact freshly confined bytes, with
+byte and entry limits and transitively immutable results. Continue checking
+current files, pending state, registry, identity and every SQL projection on each
+boundary. Never cache settled authorization, absence, paths or modification times.
+
+Provider candidate filtering also repeatedly derives identical expected SQL rows.
+Reuse one pure derivation only for exact registry bytes and identical immutable
+decoded input objects, bounded by complete canonical input bytes and record count.
+Keep strong input references and return fresh mutable containers. Every current
+confined-file read and every current SQL-row comparison still runs on every call.
+
+Tests: Same-size/mtime byte changes, removal and path replacement after a warm
+read, mutable-result isolation, bounded eviction, nested evidence immutability
+and SQL projection tampering. Measure the complete retained chain separately;
+small fixtures cannot establish a production-shaped canary deadline.
+
+Category: Type Safety. Test spies must import storage functions from their owning
+module; an internal import in a consumer is not a declared mypy re-export.
+
+Discovered: 2026-10-05, bounded isolated historical authority startup profile.
+
+### RECOVERY-005: Historical filtering needs a guarded query lifetime
+
+Category: Database/Migrations.
+
+Symptom: Startup is fast after immutable decoding is reused, but a provider
+query still rereads the complete retained history for each candidate.
+
+Fix: Own validated historical inputs inside one read-only SQL transaction and
+held reader lease. Read current registry and pending state for every candidate;
+freshly audit the entire versioned history and SQL projection before output.
+Recheck every distinct historical grant, including dependencies beyond the
+returned page, with current retained bytes and exact authority parameters.
+Keep initial denial sticky and latch late invalidity even when callbacks hide it.
+
+SQLite pragma names are case insensitive. Guard transaction control and all
+`query_only` setters, retain unchanged `total_changes`, and reject nested scopes
+on the same connection before they replace its authorizer. ContextVar values
+alone do not prove ownership: reject copied contexts, other threads and expired
+scopes. Restore the context and authorizer before owned transaction cleanup.
+
+Tests: Entry/terminal audit counts, same-metadata changes, initial and late
+registry/pending failures, namespace collisions, retained-body damage,
+transaction restart, context isolation, nesting and fresh-query projection loss.
+Unexposed cursor allocations remain retained if the terminal barrier fails.
+Caller consent revalidation remains at the boundary that owns that policy.
+
+Discovered: 2026-10-05, bounded isolated provider-query profile and source review.
+
+### SQLITE-002: Save the original directory inside the SQLite open lock
+
+Category: Config/Environment.
+
+Symptom: Later service tests fail in `Path.cwd()` after a concurrent SQLite test
+leaves the worker in a temporary Brain directory that fixture cleanup removes.
+
+Cause: Both SQLite openers saved the process directory before acquiring their
+shared lock. A second opener could save the first opener's temporary directory,
+wait for the lock, then restore that directory instead of the original one.
+
+Fix: Hold the same lock while saving the original directory, opening SQLite,
+restoring the original directory and closing its saved descriptor. Keep the
+existing confined parent descriptor, no-follow checks and read-only URI intact.
+This fixes restoration between SQLite openers; unrelated code must still avoid
+changing the process directory concurrently with storage operations.
+
+Tests: Deterministically block both actual SQLite openers behind a competing
+holder and require that neither snapshots the directory before acquiring the
+lock. Both cases fail before the fix and pass afterward; the service tests also
+pass with successful pytest fixture cleanup enabled.
+
+Discovered: 2026-10-05, full gate with concurrent SQLite clients.
+
+### SQLITE-001: Reinsert replacement parents after dropping the old table
+
+Symptom: A same-transaction historical table rebuild passes a final
+`foreign_key_check` but fails COMMIT with a deferred foreign-key violation.
+
+Cause: Copying parent rows into a differently named replacement before dropping
+the referenced old table leaves SQLite's deferred violation counter unresolved.
+Renaming the already-populated table does not reinsert the referenced keys.
+
+Fix: Keep foreign keys enabled. Retain exact rows in a transaction-local backup
+table, replace the old parent with the empty new definition, then insert those
+rows into the original parent name. Check foreign keys and the complete retained
+history before commit. Roll back the whole rebuild on interruption.
+
+Tests: Populated V1 relation-chain preservation, migration interruption/retry,
+old-runtime refusal and genuine escaped-max Portable5→V2→Portable9 restoration.
+
+Discovered: 2026-10-05, schema14 versioned historical bounds.
+
+### TYPE-001: A versioned runtime projection must not widen a frozen exporter
+
+Symptom: Adding V2 history to the shared projection verifier makes mypy reject
+Portable8's exporter: its closed V1 serializer receives a V1/V2 transition union.
+A runtime-only cast would hide the same transitive compatibility boundary.
+
+Cause: A shared consumer name represented both current runtime history and the
+frozen Portable8 format, which only admits V1 transitions.
+
+Fix: Keep `verify_historical_projection` closed over V1 and use the explicit
+`verify_versioned_historical_projection` for current runtime consumers. The V1
+wrapper verifies the full chain and refuses every V2 transition. Preserve the
+Portable8 serializer and validator bytes; put mixed history in Portable9.
+
+Tests: Static checking of engine/app source plus frozen V1 history regressions
+and the mixed V1/V2 Portable9 export/import fixture.
+
+Discovered: 2026-10-04, schema14 historical compatibility implementation.
+
+### TESTING-003: macOS killpg reports EPERM for a zombie-only process group
+
+Symptom: A required NW0 proof job on macOS fails in about 20 seconds with
+`phase=tests`, `RuntimeError` and an empty runner log, then passes on re-run.
+The probe code is unchanged and a successful run also leaves an empty log.
+
+Cause: The shared command runner kills the child's process group after the
+child exits. On macOS, `killpg` returns EPERM, not ESRCH, when every remaining
+member is a zombie: the leader before reaping, or an orphaned descendant that
+launchd has not reaped yet. The runner treated that EPERM as unverified cleanup
+and failed the passing proof. Measured: 5 of 5 unreaped single-member groups
+raised EPERM, and ESRCH after reaping.
+
+Fix: On EPERM, reap the leader, then retry the group kill for a bounded two
+seconds. The group disappearing or accepting the kill is verified cleanup; a
+persistent EPERM still fails. Do not re-run the job as the fix.
+
+Tests: `test_zombie_only_group_permission_denial_settles_after_reap` and the
+existing persistent-denial test in `tests/test_nw0_graphify_probe.py`.
+
+Discovered: 2026-10-04, PR62 CI run 37185252077.
+
+### RECOVERY-001: Every replay entrypoint needs the same completed-record checks
+
+Symptom: Mixed owner replay refuses a damaged completed source file, but the
+capture-only replay API accepts the same damaged closure and returns a duplicate
+receipt. Separately, a Portable8 capture metadata sidecar with a changed intent
+or capture reason validates and later replaces the restored capture row.
+
+Cause: The completed source and blob check lived in one replay module, and the
+capture-only path stopped after comparing database fields. The Portable8
+cross-record comparison listed fields one by one and omitted two that the
+retained capture record also carries.
+
+Fix: Keep completed-file validation in the shared capture replay module and
+call it from every entrypoint before any materialization. Bind every immutable
+field the retained capture record carries; routed fields such as `space_id`
+change legitimately and need their own receipts, not a record comparison. Add
+a negative case per entrypoint and per field.
+
+Tests: `test_repeated_capture_replay_refuses_damaged_completed_files_before_any_write`
+and `test_v8_rejects_owner_intent_or_reason_disagreeing_with_archived_capture`.
+
+Discovered: 2026-10-04, independent final-candidate review of the 13/8/8
+recovery extension.
+
+### RECOVERY-002: Protect every journal transition, not only the terminal one
+
+Symptom: Under a recovery guard, a queue item with any later event (a failed
+attempt, a quarantine, an owner retry) raised a pending-protection error on
+every drain and blocked every item behind it. A guard-protected closure holding
+an allocation without its terminal journal, or a journal without an allocation,
+could not be replayed by any entrypoint. Items queued before the guard existed
+could never compact because the port held no original cue for them.
+
+Cause: `protect_pending` only knew two shapes, initial custody or a reservation,
+and the only journal protector required a terminal history and the cue already
+present in the port. Failure, retry and discard commits never protected at all,
+and the replay classifier refused everything except initial queues and completed
+captures.
+
+Fix: One `protect_journal(compact)` rebuilds the original cue from the item's
+first queued event, protects the reservation when present, then protects the
+exact retained history. Every cue or allocation is compared with the
+authenticated closure before it is appended, so a changed local row refuses
+with the protected head unchanged instead of poisoning the append-only chain.
+Allocation protection ensures the cue first on every reservation path,
+including startup resume of a reservation that predates the guard. Failure and
+retry commits protect their non-terminal history immediately. A guarded discard commits the event and
+tombstone, protects the compacted journal, and only then deletes custody; an
+interrupted discard resumes at the protection step. Replay restores pending
+allocations (resume the bound stage machine, keep the queue item; the next drain
+writes the terminal event), exact non-terminal histories and tombstones.
+Quarantined or discarded originals skip destination re-admission on replay,
+since their destination may no longer exist, but keep the privacy check. A
+discarded journal that carries or is followed by an allocation is refused, and
+`discard` itself refuses an allocated item (`allocated`): recovery resumes every
+reservation, so a discarded allocation would still publish. With one permitted
+attempt that state is reachable inside a single drain. A quarantined allocation
+is deliberately completed on replay: the primary applies the same
+resume-before-ingress policy at its next drain, and the owner's later retry
+terminalizes the item as a duplicate. When only the allocation binding changed
+since the last protected journal, no new journal is emitted; an equal-length
+twin would fork the history. Every journal protection is checked as a
+progression of the latest protected journal before the port sees it: an
+identical history re-proves, a strict prefix is stale and skipped, a longer
+history must extend the protected one, equal length admits only a binding or
+compaction transition, and a compacted journal is final; anything else refuses
+with the protected head unchanged. A terminal snapshot is always protected as
+compacted so a resubmission racing a drain cannot leave an uncompacted twin. Owner retry and discard
+take the writer fence like drain, so a racing edit is refused as `writer_busy`
+instead of reordering protected journals.
+Existing pending-custody resubmissions also take that fence before reading,
+comparing and protecting their history. A lookup followed by append is not
+atomic: without the fence, owner retry can protect a longer history between
+those calls and the resubmission can append its stale prefix. Busy guarded
+resubmissions retain custody and return pending protection; already locked
+source and Markdown callers reuse their surrounding fence.
+Build Pipeline prevention: when adding an enqueue keyword, update monkeypatched
+callers to accept it and assert the expected lease ownership. The Markdown
+reservation-stop fixture otherwise fails before reaching its recovery fault.
+Source rows are validated for every
+replayed cue before any branch: an intake row never belongs to an owner
+delivery, and an alias must carry the request digest and name the logical
+source that holds a revision of exactly the matched capture. An interrupted replay (capture committed, queue
+item not yet restored) resumes on the next attempt. Terminal events and the
+tombstone are written before custody is deleted, because `BEFORE DELETE`
+guards refuse to drop items or payloads without them. Duplicate validation
+accepts several protected journals per delivery in authenticated record order,
+each bound to the one original cue and allocation, each strictly extending the
+previous, and only the latest the compacted terminal. Replay exempts a delivery
+from capture-row collision checks only when an explicit capture plan matched
+that row exactly; a row alone proves nothing.
+Deleting a queue item cascades its local events: the protected journal is the
+retained history, so tests must not expect local events after compaction.
+
+Tests: `test_pending_allocation_recovery.py`.
+
+Discovered: 2026-10-04, pending-allocation recovery milestone grounded on the
+reservation45 static map.
+
+### PORTABLE-010: Historical authority tests need genuine historical exports
+
+Symptom: A sharing forgery test fails on Portable inventory validation before
+reaching the intended authority refusal.
+
+Cause: The fixture exports the current format, removes one newer sidecar, then
+labels the result as Portable7. Other required current sidecars remain. This
+does not produce evidence from the historical catalog.
+
+Fix: Generate Portable7 from its actual schema12 catalog in a scoped test
+context. Assert the original schema and manifest version, then restore current
+runtime definitions before testing import. Preserve all forged receipt, job,
+provider, independent witness and no-promotion assertions. Keep Portable8
+coverage separate; do not weaken frozen inventory validators.
+
+Discovered: 2026-10-03, full verification and exact synthetic reproduction.
+
+### CUSTODY-002: Capture allocation evidence omits terminal journal history
+
+Symptom: Protection retains an original queue and capture allocation, but its
+mixed closure cannot restore an acknowledged capture through either homogeneous
+replay API. The original terminal event disappears during local compaction.
+
+Cause: Protecting the stage3 capture repeats the stage0 allocation commitment.
+It does not retain a separate operation containing original event sequences,
+receipt bytes, attempts or recorded times. Hash closure alone is not recovery.
+
+Fix: Protect the exact terminal journal transition before compaction, separately
+from its original custody and capture allocation. Validate the whole mixed chain
+before replay writes. Preserve capture rows, original receipts and journal
+high-water marks; retain unallocated queues and test interrupted/repeated replay.
+Same-process terminal retries must also require journal protection. After local
+compaction, a capture-only protected prefix cannot acknowledge a duplicate.
+Authenticate the append chain unchanged, but derive queue materialization order
+from original journal sequences: protection callbacks can finish out of order.
+Before repeated replay, check completed physical source and file-blob bytes;
+a matching stage3 database row does not prove that those files remain intact.
+The owner replay seam supports initial queues, protected completed captures,
+pending allocations, failed/quarantined/retried histories and discards (see
+RECOVERY-002). Source/control/non-owner recovery, mandatory all-writer
+configuration and real independent disaster recovery remain required before
+activation. Never filter or renumber an authenticated recovery chain.
+
+Discovered: 2026-10-03, actual synthetic guard closure clean-restore diagnostic.
+
+### PORTABLE-009: Fenced source receipts do not settle retained custody
+
+Symptom: Export of fenced source custody reaches the source-authority validator
+and fails there instead of refusing with `ingestion_pending` before staging.
+
+Cause: Portable8 permits ordinary queued journal custody. The schema13 bypass
+also admitted source-intake bodies retained after fencing, although their terminal
+quarantine receipts do not make that custody representable by the frozen source
+authority format.
+
+Fix: Refuse export when a pending journal delivery belongs to a source intake.
+Keep ordinary queued exports, including managed-workspace owner custody, enabled.
+Test reservation, source-write and blob-write faults, exact replay, absence of an
+export destination and unchanged journal bodies, receipts and quarantine records.
+This refusal preserves custody but does not provide fenced-history recovery;
+complete typed source/control recovery remains required before live cutover.
+
+Discovered: 2026-10-03, five synthetic source-task full-gate failures.
+
+### CUSTODY-001: Restart draining must protect the original queue too
+
+Symptom: A failed initial protection call retains the queued body, but a later
+startup drain protects only a newly allocated capture and omits the original
+custody identity from recovery evidence.
+
+Cause: Protection runs on foreground enqueue but startup enters the drain
+directly. Protecting a capture allocation does not preserve its earlier cue ID,
+queue order or recorded time.
+
+Fix: Read the exact initial plan from a consistent SQLite snapshot and require
+the configured protection guard before every drain, including startup. Protect
+the original allocation before materialization and require evidence again before
+terminal compaction. A protection failure is not an ingestion attempt failure.
+Test timeout, missing and mismatched evidence, restart, original cue/allocation
+identity and retained bodies. The optional owner guard is not a real independent
+backend, persisted all-writer policy or complete mutation recovery acceptance.
+
+Discovered: 2026-10-03, synthetic protection-guard restart regression.
+
+### PORTABLE-008: Managed titles require whole-envelope restore evidence
+
+Symptom: A managed source restores with its original body and receipt, but its
+owner-history title changes to a title inferred from redacted body text.
+
+Cause: The frozen capture record has no supplied-title field. Base materialization
+sets the capture title to null even when a managed delivery retains the exact
+admitted submission and its supplied title. Archive round-trip equality alone
+does not detect this loss because both exports retain the same envelope bytes.
+
+Fix: For the unreleased Portable8 format, recover managed titles from validated
+whole-envelope terminal evidence. Refuse conflicting titles for one capture.
+Preserve Portable1–7 materialization semantics. Test three managed revisions,
+withdrawal, exact history responses and terminal replay with original Brain,
+source files and sender caches unavailable. A local fixture is not independent
+encrypted protection or proof of post-snapshot write coverage.
+
+Discovered: 2026-10-03, synthetic managed-record recovery format rehearsal.
+
+### PORTABLE-005: Owner replay identity outlives derived capture keys
+
+Symptom: Retrying an original owner delivery after clean Portable restore creates
+new custody and an extra capture reservation instead of returning its old receipt.
+
+Cause: Restore regenerates capture-table delivery keys, but retains the original
+delivery and request digest in source aliases. Journal identity lookup ignores
+that retained evidence when the derived capture key differs.
+
+Fix: Resolve a missing ordinary replay identity through the retained alias and
+exactly one completed imported revision. Refuse missing or ambiguous evidence.
+Return an owner receipt without new custody, preserving admitted privacy because
+the legacy owner request digest does not include that decision. This path cannot
+authenticate public-job or destination-bound requests. Test clean restore and
+rebuild, changed payload, privacy widening, and damaged completion evidence.
+
+Discovered: 2026-10-03, synthetic historical-adoption recovery rehearsal.
+
+### COLLECTOR-002: Close revision admission read connections explicitly
+
+Symptom: A parent collector rejects a valid schema as invalid after a real
+foreground CLI sharing approval. A fresh process still reads the same database
+as current schema 12.
+
+Cause: Revision-head and terminal-receipt reads use a SQLite connection context
+manager, which ends the transaction but does not close the connection. Retained
+connections interfere with the subsequent cross-process WAL reads.
+
+Fix: Close revision-head, receipt verification and owner lifecycle inspection
+connections in `finally`. Close the synthetic receipt snapshot helper too.
+Exercise actual collector admission, CLI approval and external stdio together;
+do not add garbage collection or schema-repair retries to hide the failure.
+
+Discovered: 2026-10-03, Phase D synthetic trusted transport regression.
+
+### SEMANTIC-001: Retained link targets remain inference ancestry
+
+Symptom: Graph refresh dispatches an ordinary note whose accepted link targeted
+a now-revoked sharing copy, after an owner edit removes the visible link and the
+target file is absent from current selection.
+
+Cause: Release checks walk same-note parent provenance but omit separately
+retained managed-link target revisions. Current file selection is not the full
+ancestry of accepted transformations.
+
+Fix: Walk immutable parent and target revisions, requiring exact note/revision
+identity and failing closed on missing or cyclic ancestry. Apply the common
+current sharing and privacy predicate at prepare and release. Preserve the
+historical pre-sharing schema path. Test all three mapped backend boundaries
+with zero denied provider calls.
+
+Discovered: 2026-10-03, synthetic checkpoint C retained-suggestion regression.
+
+### SHARING-004: Inspection budgets include terminal receipts
+
+Symptom: An approved-and-revoked inspection exceeds its response budget even
+though the preview alone fits.
+
+Cause: The read path measures only the preview before attaching decision and
+revocation receipts.
+
+Fix: Measure the complete inspection before returning it. Test exact-budget
+success and one-byte-over-budget refusal with both receipts retained. Keep the
+separate transformed-text UTF-8 ceiling and never truncate an inspection.
+
+Discovered: 2026-10-03, synthetic checkpoint C inspection-budget regression.
+
+### SHARING-002: A damaged marker does not erase managed custody
+
+Symptom: A revoked copy becomes externally readable when its capture-row source
+reference loses the managed prefix.
+
+Cause: Eligibility identifies managed copies from one mutable projection and
+falls back to ordinary-public policy when that projection is damaged.
+
+Fix: Recognize independent delivery, link/decision membership, retained record
+and provenance markers. Require exact linked evidence before external release.
+Test individual projection damage after active approval and revocation.
+
+Discovered: 2026-10-03, synthetic checkpoint C corruption regressions.
+
+### SHARING-003: Local history authority is not retained-owner authority
+
+Symptom: A local non-owner history grant reads a canonical page after its managed
+source is withdrawn, although direct source reads refuse.
+
+Cause: The shared member projector selects owner-history mode from local egress
+alone. Canonical reads lack the direct source path's separate owner guard.
+
+Fix: Require the actual owner for the retained-owner exception. Local-agent
+history must check current managed state while preserving older ordinary source
+revisions. Test canonical history and ordinary historical policy together.
+
+Discovered: 2026-10-03, synthetic checkpoint C canonical withdrawal regression.
+
+### PORTABLE-004: Per-row restore columns must not mutate the base catalog
+
+Symptom: A valid sharing archive with two previews fails clean import at a
+strict zip length check; single-preview roundtrips pass.
+
+Cause: The first restored preview appends its local imported flag to a column
+list reused by subsequent rows.
+
+Fix: Keep base columns unchanged and derive each insertion's columns separately.
+Test multiple approved, rejected and undecided previews in one archive, duplicate
+import and exact non-manifest reexport.
+
+Discovered: 2026-10-03, synthetic checkpoint C Portable 7 restore regression.
+
+### SEARCH-003: Canonical page IDs are not retained revision IDs
+
+Symptom: Mutating a provider-ineligible canonical page makes an unrelated valid
+external search cursor stale.
+
+Cause: Candidate and generation filters join membership revision IDs against
+search page IDs, so secondary members never participate in the filter.
+
+Fix: Resolve the exact current publication using the projector's head precedence.
+Require full membership eligibility before ranking and digest generation, using
+the same predicate. Test a separately eligible nonempty cursor around a hidden
+canonical mutation.
+
+Discovered: 2026-10-03, synthetic checkpoint C hidden-member cursor regression.
+
+### MCP-003: Entry-time consent does not authorize callback output
+
+Symptom: A content callback revokes durable provider consent, but its result
+still reaches the stdio serializer.
+
+Cause: Trusted authority is revalidated before dispatch, not after callback work.
+
+Fix: Revalidate at the common tool-result boundary before serialization. Test
+durable consent revocation inside a real negotiated read callback and require
+zero protected output bytes, while keeping between-request revocation tests.
+
+Discovered: 2026-10-03, synthetic checkpoint C in-flight stdio consent regression.
+
+### SHARING-001: Close sharing read snapshots explicitly
+
+Symptom: A second foreground session can intermittently classify a valid local
+schema as invalid or turn a bounded contention response into a generic tool
+failure while owner sharing recovery reads are active.
+
+Cause: `with sqlite3.Connection` commits or rolls back a transaction but does
+not close the connection. A sharing read left its SQLite snapshot alive after
+returning.
+
+Fix: Close every sharing read connection in `finally`, including startup
+pending-copy scans. Test concurrent MCP review and capture through the real
+stdio session after the change.
+
+Discovered: 2026-10-02, checkpoint C synthetic MCP regression.
+
+### COLLECTOR-001: Check cancellation before reading pending custody
+
+Symptom: A collector run crashes with `collector_custody_not_found` when another
+controller pauses or disables the source after capture acknowledgement.
+
+Cause: Cancellation discards the active run's receipts. A pending-custody check
+outside the selection barrier can read those receipts after they are removed.
+
+Fix: Check the current generation, control epoch, and enabled state under the
+selection barrier before inspecting pending receipts. Keep the pending check and
+deferred-state update inside that barrier. Test cancellation after terminal
+acknowledgement and queued replay separately.
+
+A second window sits between a completed submit and its recorded outcome: the
+barrier covers only the submit, so a waiting pause can discard the still-pending
+receipt first. Widening the barrier changes deliberate control ordering; instead,
+tolerate `collector_custody_not_found` from outcome recording only when the
+source state confirms the cancel, which yields the same end state as a cancel
+after the outcome. A missing receipt without that confirmation still fails.
+Parallel test load exposed this one (2026-10-04).
+
+Discovered: 2026-10-01, full saved-Markdown integration verification.
 
 ### REVIEW-004: Restore causal identities, not incidental row order
 
@@ -180,6 +968,23 @@ unavailable known operations before any handler, credential lookup, Brain initia
 access. Exercise the complete stdio path, not only the downstream dispatcher.
 
 Discovered: 2026-09-21, independent session-authority review.
+
+### SECURITY-003: Synthetic authority tests do not prove the installed launcher mapping
+
+Symptom: Scoped adapter tests pass, but the installed MCP command still constructs its own default
+read tiers and has no durable provider-consent input. A deployment cannot distinguish a general
+route from a personal-capable or external-provider route.
+
+Cause: The immutable authority contract was tested below the real CLI composition boundary. The
+launcher policy was wired only to destination-bound capture, and provider consent existed only as
+an in-memory value.
+
+Fix: Load one trusted whole-session policy, persist Brain-bound owner consent outside Brain content,
+and reuse one narrowed `EffectiveAuthority` through every adapter. Revalidate policy and consent
+before discovery and dispatch so revocation terminates the foreground process. Test the installed
+stdio subprocess, not only synthetic adapter construction.
+
+Discovered: 2026-09-23, Mac Mini CUT-G3 launcher-readiness audit.
 
 ### MEDIA-001: Resource limits must be enforceable
 
@@ -344,20 +1149,6 @@ Fix: Stage and verify a complete generation off-path, hold an identity-bound exc
 
 Discovered: 2026-08-14.
 
-### PORTABLE-003: Historical format documentation is not the current import boundary
-
-Symptom: A feature assessment treats clean Portable import as missing because the v4 document
-states that v4 import is refused.
-
-Cause: Version-specific documents and package instructions retain older compatibility boundaries.
-The current implementation supports clean v5 import while still refusing standalone v4 import.
-
-Fix: Check the latest Portable document and `PortabilityTask.import_clean` before scoping format
-work. Extend the current supported round-trip path and derive schema/runtime requirements from
-current source; do not infer them from an older milestone document.
-
-Discovered: 2026-10-13, facet architecture assessment for issue #78.
-
 ### PORTABLE-001: UTC partitions come from persisted recording time
 
 Symptom: A record near a month boundary is written under different partitions on hosts with
@@ -436,6 +1227,56 @@ Fix: Validate duplicate flags, remove `--json` before recognizing help/version, 
 supported ordering without runtime configuration.
 
 Discovered: 2026-08-31.
+
+### CLI-004: Direct lifecycle tasks need typed error translation
+
+Symptom: Owner source inspection or withdrawal refuses an unknown source, stale binding, or
+altered retry, but the CLI reports a generic operation failure with exit 78.
+
+Cause: Direct lifecycle calls raise engine `T03Error`; the CLI's typed error handler catches
+app `T03AppError`. Unlike the negotiated task adapter, the direct path did not translate errors.
+
+Fix: Translate typed engine errors at the lifecycle CLI boundary. Test real command dispatch,
+exact error codes, replay, and unchanged lifecycle state after refused operations. Do not weaken
+engine authorization or expected-version checks to make the CLI succeed.
+
+Discovered: 2026-10-01, owner source inspect/withdraw acceptance tests.
+
+### LIFECYCLE-005: Late retirement checks can poison capture recovery
+
+Symptom: A changed saved item returns after owner withdrawal. Its source remains retired,
+but an extra unfinished capture is reserved and ordinary startup fails while completing it.
+
+Cause: Retirement was checked only during stage-three source linkage, after intake and journal
+admission. Managed delivery lifecycle validation also ran after capture acceptance. A separate
+response-loss case could accept a revision but never finish its managed receipt after withdrawal.
+
+Fix: Check current lifecycle/head expectations before new managed reservation and refuse retired
+sources before new source intake. Keep the stage-three guard as defense in depth. Pending managed
+receipts block withdrawal until exact recovery completes. Completed historical replay after
+withdrawal must not admit another capture or reactivate the source. Test changed returns, pending and lost-response
+retries, stale lifecycle requests, retained evidence, and ordinary restart after refusal.
+
+The shared source task must honor the managed namespace barrier too. Protecting only the collector
+sink still lets a direct competing source submission overtake it. Validate fresh order/head and
+already-pending intake before reservation, using the same order decision as source admission.
+
+Discovered: 2026-10-02, saved-Markdown checkpoint B return and recovery acceptance.
+
+### PORTABLE-003: Self-hashes do not prove linked admission evidence
+
+Symptom: A forged managed submission passes Portable validation after its envelope and manifest
+hashes are recomputed, while pointing at a different retained capture receipt.
+
+Cause: Validation checked each row's internal hash without comparing the whole managed submission
+against the independently validated source intake. Open binding/receipt shapes also admitted
+unknown fields and boolean or floating-point versions.
+
+Fix: Require exact intake bytes, namespace/destination/delivery linkage, closed typed binding and
+receipt values, and explicit observed-envelope privacy/payload commitments. Test semantic forgery
+with recomputed self-hashes; checksum failures alone do not exercise these invariants.
+
+Discovered: 2026-10-02, independent checkpoint B review and synthetic Portable tamper tests.
 
 ### PRIVACY-004: Case-insensitive values have many reversible digests
 
@@ -1657,6 +2498,21 @@ constant rather than repeating its number in tests.
 
 Discovered: 2026-09-12, NW1 managed-workspace migration verification.
 
+### SCHEMA-002: Cache expected shapes by DDL and build only the requested era
+
+Symptom: Full verification spends almost an hour below 20% completion while one pytest process
+uses a CPU core rebuilding SQLite schemas.
+
+Cause: Removing the expected-shape cache to handle historical catalogs leaves an eager dictionary
+that constructs every known schema on each classification. Caching only era/flags is also unsafe
+when a historical fixture substitutes a different migration catalog or schema definition.
+
+Fix: Select the requested era before building its shape. Cache the immutable shape by the exact
+ordered DDL tuple, including nullability and ledger statements. Keep actual database inspection
+uncached. Test definition changes, historical catalogs, and one-build classification deterministically.
+
+Discovered: 2026-10-01, saved-Markdown lifecycle verification after historical-cache repair.
+
 ### INTEGRATION-027: Homebrew can delete an untrusted local tap before smoke installation
 
 Symptom: A contributor smoke creates a temporary local tap, but `brew tap` rejects the tap as
@@ -2199,10 +3055,9 @@ Cause: those tests spawn a Python child and give it a fixed two-second deadline.
 development Mac while other suites run) child startup can miss the deadline before the child ever
 writes its malformed reply.
 
-Fix: rerun the desktop stage on a quiet machine before treating the failure as real; the branch
-is suspect only if the tests also fail alone. If the flake recurs in CI, loosen the deadline for
-the malformed-response tests or run the bridge tests with a single test thread, since neither test
-is measuring latency.
+Fix: the contributor check runs the Rust suite with one test thread. These tests exercise process
+lifecycle and protocol behavior, not latency, so resource contention between fixtures should not
+decide the result. A branch is suspect when the relevant test also fails alone.
 
 Discovered: 2026-09-21, twice during the OSS-G5 release gate while GLM workers ran pytest.
 
@@ -2248,6 +3103,34 @@ listener and timer on success, timeout, or plugin unload. Never bypass the vault
 
 Discovered: 2026-09-18, Obsidian 1.13.7 GUI publication acceptance and delayed Quick Switcher proof.
 
+### OBSIDIAN-006: Wait on the registration event, not a one-second polling window
+
+Symptom: the managed-file unload test reports that no vault listener was registered, while the same
+test passes immediately when run alone.
+
+Cause: the test waits up to one second for a real child bridge to start, handshake, validate the
+vault, and register the listener. Machine load can consume that window before the behavior under
+test starts.
+
+Fix: have the test harness expose a promise resolved by listener registration. Await that event and
+let the test runner's overall timeout catch a bridge that never reaches it.
+
+Discovered: 2026-09-23, CUT-G2 full release verification on the development Mac.
+
+### MCP-004: External adapter composition must omit local callbacks
+
+Symptom: External tool discovery and dispatch deny local administration, but the adapter still
+contains legacy capture, review, workspace and graph callbacks when every CLI flag is enabled.
+
+Cause: Callback attachment depended on feature flags rather than the trusted session egress mode.
+Unknown-tool responses alone did not prove that external composition was closed.
+
+Fix: Attach those callbacks only in owner-local mode. Preserve authority-bearing typed reads and
+destination-bound capture submit. Test the actual entrypoint object and a real external stdio
+process with all flags, including positive public search and negative administration calls.
+
+Discovered: 2026-10-02, Phase C external composition regression.
+
 ### TESTING-002: Fixed enqueue times can expire during later test runs
 
 Symptom: Outbox drain tests report `age_exhausted`, or a lease-holder test never reaches its
@@ -2263,116 +3146,158 @@ under test.
 Discovered: 2026-09-22, full durable-ingestion Phase 1 verification after the fixture's retry window
 expired.
 
-### FACETS-004: Portable-first imports must not initialize the engine
+### TESTING-004: Parallel test workers must collect identical test IDs
 
-Category: Dependencies.
+Symptom: `make test` under pytest-xdist stops at collection with "Different
+tests were collected between gw1 and gw5" before any test runs.
 
-Symptom: Focused tests pass, but full-suite collection fails while importing Portable v6.
+Cause: A test parametrized over a `frozenset`. Set iteration order depends on
+the per-process string hash seed, so each worker collected the same IDs in a
+different order. Serial runs never notice.
 
-Cause: A top-level import of an engine facet validator initializes engine/__init__.py, which
-loads local composition and imports the partially initialized Portable module again.
+Fix: Parametrize over `sorted(...)` or another deterministic sequence. Check by
+hashing `pytest --collect-only -q` output under several `PYTHONHASHSEED`
+values. A test that forks inside a worker should use the `spawn` start method:
+xdist workers are multi-threaded, and fork from a threaded process can
+deadlock the child. Positive liveness waits (`join`, `wait` on an event that
+must fire) need generous bounds because parallel load slows threads; keep
+negative "must not happen yet" windows short. Parallel runs also multiply
+temporary disk use: with little free space the engine's storage watermark
+refuses captures and many unrelated tests fail with `storage_high` below the
+configured 2 GiB high watermark, or `storage_critical` below the critical one.
+Check free disk and retained pytest storage before reading those failures as
+regressions. Leave headroom for the complete suite and subsequent native build;
+do not weaken admission watermarks to make tests pass. Preserve diagnostics and
+recovery inputs before clearing disposable stopped test fixtures.
 
-Fix: Defer engine validation imports until Portable validation executes. Keep subprocess tests
-for Portable-first, engine-first, and version-dispatch import order. Collection order is not a
-valid dependency boundary. Discovered during the first stage-one integrated full gate, 2026-10-13.
+Starting a pause thread does not establish that cancellation beat collector
+completion. The capture guard blocks pause during a sink submission. For the
+pause-before-completion interleaving, synchronize at the outcome boundary after
+submission releases the guard, wait for the actual pause acknowledgement, then
+record the outcome. Preserve the failed-run and durable paused-state assertions.
 
-### FACETS-005: MCP discovery applies two authorization filters
+Discovered: 2026-10-04, enabling pytest-xdist for the full suite.
 
-Symptom: The injected facet adapter advertises a granted write, but MCP discovery returns only
-brain_catalog and rejects the authorized call as unknown.
+### SHARING-005: Pre-query canonical eligibility must match the full projector
 
-Cause: LocalMcpAdapter applies its own scoped operation matrix after collecting adapter tools.
+Symptom: A valid externally eligible legacy unbound publication is directly
+readable but absent from search. A malformed retained member set can also be
+withheld from final output while its metadata still changes an eligible cursor.
 
-Fix: Route facet names through the injected adapter's capability intersection in both discovery
-and invocation. Keep real-engine grant tests alongside fake transport tests. The independent F15
-suite found this integration gap on 2026-10-13.
+Cause: SQL resolved only bound review/capture heads, omitting the supported
+unique retained-byte legacy fallback. Matching a current publication alone also
+does not prove that its indexed members match the retained publication bytes.
 
-### TESTING-004: Shared virtualenv subprocesses can load a different worktree
+Fix: Use the projector's current-publication resolver in the snapshot-bound SQL
+callback, then validate that exact current canonical projection before candidate
+ranking and authorized-generation hashing. Keep exact current member eligibility;
+do not remove the nonempty-membership guard or authorize all historical members.
 
-Symptom: Focused in-process tests pass, while managed-recovery subprocesses reject a schema
-checksum that belongs to the worker's current code.
+Tests: `test_imported_public_legacy_unbound_page_is_searchable_when_directly_readable`
+and `test_legacy_current_publication_damage_refuses_without_hidden_cursor_influence`
+in `packages/app/tests/integration/engine/test_sharing_surfaces.py` cover supported
+Portable1 import, nonempty continuations, reopen/rebuild, ambiguous or missing
+publication custody, denied secondary members and hidden-metadata stability.
 
-Cause: Pytest adds the worker's source roots, but a child Python launched through the coordinator's
-editable virtualenv resolves packages from the coordinator checkout.
+Discovered: 2026-10-03, synthetic checkpoint C legacy import/cursor regressions.
 
-Fix: Give worker subprocess checks explicit absolute source roots in `PYTHONPATH`, or use an
-isolated worker virtualenv. Keep full candidate verification in its own worktree and environment.
-Four V recovery cases failed with mixed imports and passed with the V source roots on 2026-10-13.
+### COLLECTOR-003: Owner-section removal needs real Markdown block boundaries
 
-### FACETS-006: Store reads already hold a snapshot transaction
+Symptom: A heading quoted inside a fenced block in `Why Saved` ends the owner
+section early, leaving later owner notes in the transformed source body.
 
-Symptom: Facet publication inspection fails with “cannot start a transaction within a transaction.”
+Cause: Heading and fence regular expressions did not implement Markdown block
+grammar. Thematic breaks after blank lines or list items looked like setext
+headings. Invalid fence openers and non-ASCII closing whitespace also changed
+the skip state incorrectly.
 
-Cause: The store connection starts its read transaction before the facet inspection path calls
-`BEGIN` again.
+Fix: Use the connector's pinned CommonMark parser to locate true top-level
+headings and remove source-line ranges, without rendering retained content.
+Parse inline syntax only for heading labels, not discarded body text.
+Pass the document reference environment to heading parsing; project image-alt
+children, text/code and breaks deliberately. Transparent attribute-free HTML
+wrappers/comments are recognized without rendering. Attribute-bearing,
+executable or unknown HTML refuses intake instead of hiding an owner heading.
+Classify declaration tokens before HTMLParser: its unknown declarations become
+bogus comments, bypassing declaration callbacks. Only genuine comment syntax
+may use the transparent comment projection.
+Continuous normalization version 2 records the changed transform contract;
+retain version-1 evidence unchanged. The parser dependency stays in the optional
+connector package, outside the foreground engine.
 
-Fix: Use the existing snapshot when it is active. Test inspection through the real store; an
-in-memory fixture connection does not reproduce this boundary. Independent F09–F14 checks
-found the publication path failure on 2026-10-13.
+Tests: Saved Markdown contract cases cover ATX/setext and marked-up headings,
+entities, multiline labels, thematic breaks, nested blocks, backtick/tilde
+fences and invalid fence markers, full/collapsed/shortcut references, image alt
+text, HTML wrappers/comments/breaks and unsupported-markup refusal.
+Actual collector publication/Portable recovery
+tests assert owner canaries are absent. A pending version-1 envelope survives
+restart unchanged; the same item's version-2 observation requires new approval
+and invalidates the old public copy. Historical fixtures remain unchanged.
 
-### FACETS-007: Wire limits include both MCP response representations
+Discovered: 2026-10-03, private source preflight and independent synthetic probe.
 
-Symptom: A Unicode-heavy facet page fits its DTO limit but the actual MCP response is more than
-twice that size. A large JSON-RPC request ID can also make a small mutation's receipt exceed its cap.
+### PORTABLE-006: Test Portable-first imports in an empty interpreter
 
-Cause: MCP encodes the result in both text content and structured content, with ASCII escaping.
-Counting only parsed arguments also omits request metadata, whitespace and the request ID.
+Symptom: Portable validation works in pytest but importing its version dispatcher
+in a clean process fails with a partially initialized module.
 
-Fix: Pass the real raw request size through stdio, reserve a bounded complete receipt before
-mutation, and give an immutable engine task clone the actual response encoder for pagination.
-Keep the requested limit in cursor binding. Independent wire tests found these cases on 2026-10-13.
+Cause: A format module imports engine reconciliation types at module scope. The
+engine package initializer imports the local runtime, which imports that format
+module again. Existing pytest imports can hide the cycle.
 
-### FACETS-008: Source routing follows proven revision lineage
+Fix: Keep runtime engine imports inside the format's validation/codec functions.
+Use TYPE_CHECKING for annotations. Do not weaken validation or alter package
+initialization to make the cycle disappear.
 
-Symptom: Publication from a routed source successor succeeds, but Portable export rejects its
-frozen source state because the successor's immutable capture has no route of its own.
+Test: `test_portable_first_import_in_clean_interpreter_has_no_engine_cycle` runs
+the version dispatcher and v8 imports in an actual fresh subprocess.
 
-Cause: Logical source space can be inherited from an ancestor. Route supersession chains are
-per capture, so the latest logical route also needs the proven source revision sequence.
+Discovered: 2026-10-03, historical-authority Portable8 export integration.
 
-Fix: Bind current publication evidence to the newest routed revision's chain tip. Validate
-historical bindings against retained source lineage, route order, destination and proposal time.
-Keep legacy binding validation unchanged. Real successor/export acceptance exposed this on 2026-10-13.
+### PORTABLE-007: Check CLI verification bookkeeping after a format bump
 
-### FACETS-009: A no-op receipt still needs reachable history
+Symptom: Engine export succeeds, but the same foreground CLI export with
+`--verify` exits78 and does not record verified-export status.
 
-Symptom: Rehashed Portable evidence can claim an impossible unchanged version or membership.
+Cause: Manifest validation supports the new format, but the CLI's separate
+verified-export evidence writer and status reader still reject its version.
+Package version0.1.0 does not detect this drift.
 
-Cause: A no-op has no event, but syntactic receipt validation alone cannot prove it was possible.
+Fix: Keep both bookkeeping version checks aligned with supported Portable
+formats and require integer versions rather than accepting booleans. Preserve
+the evidence record shape and old-format interpretation. Exercise the real CLI,
+not just engine export, before claiming the format works end to end.
 
-Fix: Require the unchanged request and receipt to match one reachable historical event boundary.
-Test the importer with a tampered, rehashed real export and assert rejection before writes.
-Independent stage-one review found this on 2026-10-13; contract revision v4 contains the correction.
+Tests: The source-executable review/publication acceptance journey and local
+CLI data journey prove verified export and subsequent status. Older restore
+tests must use actual older-format fixtures instead of passing a new archive
+to a frozen decoder or widening that decoder.
 
-### OBSIDIAN-001: Materialization does not establish retained file identity
+Discovered: 2026-10-03, full historical-authority compatibility diagnostics.
 
-Symptom: A freshly refreshed canonical note has no observation baseline for trusted resolution.
-An atomic editor save also replaces the inode even when content is unchanged.
+### COMPAT-001: Advance every current consumer with a schema floor
 
-Cause: Stage 1 managed materialization and explicit observation are separate operations. A
-path-to-note SQL lookup or editable frontmatter alone cannot prove custody.
+Symptom: Schema14 export breaks owner recovery protection, the desktop rejects
+its matching core, and schema13 pending history cannot settle before upgrade.
 
-Fix: Require explicit observation and compare retained device/inode/link identity with confined
-reads and accepted/current canonical bytes. Return unavailable when stale. Do not silently use
-reconcile to recover identity because it also accepts content. O0 real tests cover both cases.
+Cause: The historical extension updated export/bootstrap floors but left the
+complete recovery closure at Portable8, the desktop at13/8, and maintenance
+classification current-only while migration correctly requires settled history.
+The separately executed native smoke checker also retained13/8/8 catalog and
+Portable8 export expectations, so unit fixtures agreed with each other while the
+actual packaged current runtime correctly failed certification.
 
-### TESTING-005: JSON fixture producer boundaries need explicit types and paths
+Fix: Strictly dispatch complete recovery validation by canonical manifest8/9;
+update desktop/docs executable coordinates to14/9/9; permit only validated13/14
+restricted owner recovery before migration. Keep older formats and ordinary
+writer refusal intact. Trace all current consumers when advancing a floor.
+Require the current Portable9 mixed historical, capture-metadata and custody
+sidecars in native smoke and include the V2/Portable9 modules in the native
+archive audit. Keep exact integer coordinates and reject the previous13/8/8
+catalog; run the real native build and Homebrew journey before final acceptance.
 
-Category: Type Safety / Build Pipeline. O0 fixture authoring exposed a `no-any-return` error
-after JSON-normalizing a real dataclass response, plus an incorrect fixture root ancestor.
+Tests: Actual Portable9 owner protection/closure/replay suites, schema13 pending
+CLI recovery followed by schema14 migration, documentation matrix and desktop
+handshake acceptance with old/fractional/unknown versions refused.
 
-Fix: Give the normalized producer return an explicit checked contract type, resolve temporary
-roots before engine creation on macOS, and run the generated-fixture/hash test from each worktree.
-Full repository mypy and plugin build are the prevention checks. No production types were loosened.
-
-### OBSIDIAN-002: Inspection excerpt and source checksums describe different bytes
-
-Symptom: The closed plugin inspection parser accepts synthetic bindings but rejects a real
-publication inspection because its two SHA-256 values differ.
-
-Cause: `ReviewEvidence.sha256` hashes the displayed excerpt; the v5 binding's source state
-hashes the immutable source. Equality is not part of the engine contract.
-
-Fix: Preserve both checksums and validate their grammar independently. Match evidence to
-provenance by capture identity/order. Keep a fixture from the real inspection producer in the
-TypeScript suite; independent O0 tests exposed this on 2026-10-13.
+Discovered: 2026-10-05, exact full gate and independent final review.

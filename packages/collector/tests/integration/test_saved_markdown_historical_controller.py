@@ -1,0 +1,478 @@
+"""Historical receipt truth cannot bypass current collector page eligibility."""
+
+from contextlib import closing
+from pathlib import Path
+from typing import cast
+
+import pytest
+from open_brain_engine.engine import (
+    PublicJobRevisionSink,
+    SourceRevisionDelivery,
+    SourceRevisionDeliveryReceipt,
+)
+from open_brain_engine.engine.historical_recovery import _historical_transaction
+from open_brain_engine.engine.source_lifecycle_contracts import SourceWithdrawRequest
+from open_brain_engine.engine.t03_contracts import EffectiveAuthority, T03Error
+from open_brain_engine.storage.locks import FileLease, LockBusyError
+
+from open_brain_collector.lifecycle import (
+    CollectorController,
+    CollectorStateStore,
+    CollectorStorageError,
+)
+from open_brain_collector.saved_markdown import SavedMarkdownCollectorRuntime
+from open_brain_connectors.runtime.live_common import LiveSourceError
+from open_brain_connectors.runtime.live_storage import PrivateJsonStore
+from open_brain_connectors.runtime.saved_markdown import SavedMarkdownRootAdapter
+from open_brain_connectors.runtime.source_intake import SourceRecordIntake
+from packages.collector.tests.integration.test_saved_markdown import (
+    _adapter,
+    _intake,
+    _revision_sink,
+)
+from packages.collector.tests.integration.test_saved_markdown_historical import (
+    _adopt_saved,
+    _adopt_saved_intake,
+)
+
+
+@pytest.mark.parametrize("reason", ["pending", "valid_scan", "wrong_run"])
+def test_scan_restart_refuses_unsettled_or_unfailed_run_without_mutation(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    reason: str,
+) -> None:
+    engine, sink, _, _ = _adopt_saved(tmp_path)
+    selected = tmp_path / "selected"
+    adapter = _adapter(selected)
+    runtime = SavedMarkdownCollectorRuntime(adapter, store=PrivateJsonStore(tmp_path / "scan"))
+    store = CollectorStateStore(tmp_path / "state.json")
+    controller = CollectorController(store, clock=lambda: 100, brain_root=engine.profile.root)
+    controller.enable(source_id="synthetic", selection=adapter.selection, interval_seconds=60)
+    with monkeypatch.context() as patch:
+        if reason == "pending":
+            (selected / "saved.md").write_text("# genuinely admitted successor\nbody\n")
+            original = PublicJobRevisionSink.submit
+
+            def lose_terminal_response(
+                self: PublicJobRevisionSink,
+                delivery: SourceRevisionDelivery,
+            ) -> SourceRevisionDeliveryReceipt:
+                receipt = original(self, delivery)
+                return SourceRevisionDeliveryReceipt(
+                    receipt.delivery_id,
+                    receipt.envelope_sha256,
+                    receipt.destination_brain_id,
+                    receipt.issuer_epoch,
+                    None,
+                    "operation_pending",
+                )
+
+            patch.setattr(PublicJobRevisionSink, "submit", lose_terminal_response)
+            assert (
+                controller.sync_due(
+                    source_id="synthetic", runtime=runtime, capture_sink=sink
+                ).outcome.value
+                == "deferred"
+            )
+        else:
+
+            def stop_final_checkpoint() -> None:
+                raise LiveSourceError("synthetic_barrier_stop")
+
+            patch.setattr(runtime, "validate_page_checkpoint", stop_final_checkpoint)
+            with pytest.raises(LiveSourceError, match="synthetic_barrier_stop"):
+                controller.sync_due(source_id="synthetic", runtime=runtime, capture_sink=sink)
+    before, scan_before = store.load(), runtime._load()
+    entry = cast(dict[str, object], cast(dict[str, object], before["sources"])["synthetic"])
+    active = cast(dict[str, object], entry["active_run"])
+    receipts = {
+        item: controller._custody.receipt(item) for item in cast(list[str], active["custody_ids"])
+    }
+    code = {
+        "pending": "collector_incomplete_custody",
+        "valid_scan": "collector_scan_not_failed",
+        "wrong_run": "collector_recovery_stale",
+    }[reason]
+    with pytest.raises(LiveSourceError, match=code):
+        controller.restart_failed_scan(
+            source_id="synthetic",
+            runtime=runtime,
+            expected_run_id="different.failed.run"
+            if reason == "wrong_run"
+            else cast(str, active["run_id"]),
+        )
+    assert store.load() == before and runtime._load() == scan_before
+    assert {item: controller._custody.receipt(item) for item in receipts} == receipts
+
+
+@pytest.mark.parametrize("fault", ["none", "runtime_save", "controller_save"])
+def test_failed_scan_restart_preserves_partial_admission_and_historical_custody(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    fault: str,
+) -> None:
+    engine, sink, _, _ = _adopt_saved(tmp_path)
+    selected = tmp_path / "selected"
+    (selected / "fresh.md").write_text("# ordinary item\nretained first revision\n")
+    adapter = _adapter(selected)
+    scan_store = PrivateJsonStore(tmp_path / "scan")
+    runtime = SavedMarkdownCollectorRuntime(adapter, store=scan_store)
+    store = CollectorStateStore(tmp_path / "state.json")
+    controller = CollectorController(store, clock=lambda: 100, brain_root=engine.profile.root)
+    controller.enable(source_id="synthetic", selection=adapter.selection, interval_seconds=60)
+    candidate = SavedMarkdownRootAdapter._candidate
+
+    def change_after_read(
+        self: SavedMarkdownRootAdapter, root: Path, path: Path, relative: str
+    ) -> object:
+        result = candidate(self, root, path, relative)
+        if path.name == "saved.md":
+            path.write_text("# successor after failed inventory\nnew body\n")
+        return result
+
+    with monkeypatch.context() as patch:
+        patch.setattr(SavedMarkdownRootAdapter, "_candidate", change_after_read)
+        with pytest.raises(LiveSourceError, match="collector_scan_incomplete"):
+            controller.sync_due(source_id="synthetic", runtime=runtime, capture_sink=sink)
+    entry = cast(dict[str, object], cast(dict[str, object], store.load()["sources"])["synthetic"])
+    active = cast(dict[str, object], entry["active_run"])
+    run_id = cast(str, active["run_id"])
+    receipt_ids = cast(list[str], active["custody_ids"])
+    assert len(receipt_ids) == 2
+    retained = {receipt_id: controller._custody.receipt(receipt_id) for receipt_id in receipt_ids}
+    assert {item["outcome"] for item in retained.values()} == {"captured", "duplicate"}
+    assert entry["last_success_epoch"] is None
+    tasks, sink = _revision_sink(tmp_path)
+    restarted = CollectorController(store, clock=lambda: 160, brain_root=tasks.profile.root)
+    runtime = SavedMarkdownCollectorRuntime(adapter, store=scan_store)
+    before = store.load()
+    scan_before = runtime._load()
+    if fault != "none":
+
+        def fail_save(value: object) -> None:
+            raise CollectorStorageError("collector_storage_unavailable")
+
+        with monkeypatch.context() as patch:
+            patch.setattr(
+                runtime if fault == "runtime_save" else store,
+                "_save" if fault == "runtime_save" else "save",
+                fail_save,
+            )
+            with pytest.raises(CollectorStorageError, match="collector_storage_unavailable"):
+                restarted.restart_failed_scan(
+                    source_id="synthetic",
+                    runtime=runtime,
+                    expected_run_id=run_id,
+                )
+        assert store.load() == before
+        assert {item: restarted._custody.receipt(item) for item in receipt_ids} == retained
+        if fault == "runtime_save":
+            assert runtime._load() == scan_before
+        else:
+            assert runtime._load()["epoch"] is None and runtime._load()["page"] is None
+            assert runtime._load()["recovery"] is not None
+        restarted = CollectorController(store, clock=lambda: 160, brain_root=tasks.profile.root)
+        runtime = SavedMarkdownCollectorRuntime(adapter, store=scan_store)
+    result = restarted.restart_failed_scan(
+        source_id="synthetic",
+        runtime=runtime,
+        expected_run_id=run_id,
+    )
+    assert result.outcome.value == "failed" and result.failure_code == "collector_scan_incomplete"
+    assert runtime._load()["epoch"] is None and runtime._load()["page"] is None
+    assert {
+        receipt_id: restarted._custody.receipt(receipt_id) for receipt_id in receipt_ids
+    } == retained
+    entry = cast(dict[str, object], cast(dict[str, object], store.load()["sources"])["synthetic"])
+    assert entry["active_run"] is None and entry["next_cursor"] is None
+    assert entry["last_success_epoch"] is None
+    resumed = restarted.sync_due(source_id="synthetic", runtime=runtime, capture_sink=sink)
+    assert (resumed.captured_count, resumed.duplicate_count) == (1, 1)
+    assert {
+        receipt_id: restarted._custody.receipt(receipt_id) for receipt_id in receipt_ids
+    } == retained
+    settled = store.load()
+    scan_settled = runtime._load()
+    with pytest.raises(LiveSourceError, match="collector_recovery_stale"):
+        restarted.restart_failed_scan(
+            source_id="synthetic",
+            runtime=runtime,
+            expected_run_id=run_id,
+        )
+    assert store.load() == settled and runtime._load() == scan_settled
+    with closing(engine._store.connect()) as connection:
+        assert connection.execute("SELECT count(*) FROM captures").fetchone()[0] == 3
+        assert (
+            connection.execute(
+                "SELECT count(*) FROM source_revisions WHERE revision_key IS NULL"
+            ).fetchone()[0]
+            == 1
+        )
+        assert connection.execute("SELECT count(*) FROM sharing_decisions").fetchone()[0] == 0
+
+
+def test_incomplete_saved_scan_cannot_record_success_or_acknowledge_page(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    engine, sink, _, _ = _adopt_saved(tmp_path)
+    adapter = _adapter(tmp_path / "selected")
+    runtime = SavedMarkdownCollectorRuntime(adapter, store=PrivateJsonStore(tmp_path / "scan"))
+    begin = adapter.begin_epoch
+
+    def change_root_after_begin(*, generation: str) -> object:
+        epoch = begin(generation=generation)
+        (tmp_path / "selected").rename(tmp_path / "selected.retained")
+        return epoch
+
+    monkeypatch.setattr(adapter, "begin_epoch", change_root_after_begin)
+    store = CollectorStateStore(tmp_path / "state.json")
+    controller = CollectorController(store, clock=lambda: 100, brain_root=engine.profile.root)
+    controller.enable(source_id="synthetic", selection=adapter.selection, interval_seconds=60)
+    with pytest.raises(LiveSourceError, match="collector_scan_incomplete"):
+        controller.sync_due(source_id="synthetic", runtime=runtime, capture_sink=sink)
+    entry = cast(dict[str, object], cast(dict[str, object], store.load()["sources"])["synthetic"])
+    assert entry["last_success_epoch"] is None
+    assert entry["active_run"] is not None
+    assert runtime._load()["page"] is not None
+    assert runtime.absence_candidates == ()
+    # Restoring the filesystem does not turn the persisted failed inventory
+    # into a valid checkpoint. A restarted controller must retain the refusal.
+    (tmp_path / "selected.retained").rename(tmp_path / "selected")
+    runtime = SavedMarkdownCollectorRuntime(adapter, store=PrivateJsonStore(tmp_path / "scan"))
+    restarted = CollectorController(
+        CollectorStateStore(tmp_path / "state.json"),
+        clock=lambda: 160,
+        brain_root=engine.profile.root,
+    )
+    with pytest.raises(LiveSourceError, match="collector_scan_incomplete"):
+        restarted.sync_due(source_id="synthetic", runtime=runtime, capture_sink=sink)
+    entry = cast(dict[str, object], cast(dict[str, object], store.load()["sources"])["synthetic"])
+    assert entry["last_success_epoch"] is None
+    assert entry["active_run"] is not None
+    assert runtime._load()["page"] is not None
+    assert runtime.absence_candidates == ()
+
+
+def test_two_mixed_pages_continue_across_restart_without_historical_recapture(
+    tmp_path: Path,
+) -> None:
+    engine, sink, _, _ = _adopt_saved(tmp_path)
+    selected = tmp_path / "selected"
+    for index in range(1, 32):
+        (selected / f"item-{index:03}.md").write_text(
+            f"# Synthetic saved item {index}\nbody {index}\n\n# Why Saved\nprivate {index}\n"
+        )
+    for index in range(1, 25):
+        _adopt_saved_intake(engine, sink, _intake(selected, name=f"item-{index:03}.md"), slot=index)
+    adapter = _adapter(selected)
+    now = [100]
+    store = CollectorStateStore(tmp_path / "state.json")
+    controller = CollectorController(store, clock=lambda: now[0], brain_root=engine.profile.root)
+    controller.enable(source_id="synthetic", selection=adapter.selection, interval_seconds=60)
+    runtime = SavedMarkdownCollectorRuntime(adapter, store=PrivateJsonStore(tmp_path / "scan"))
+    first = controller.sync_due(source_id="synthetic", runtime=runtime, capture_sink=sink)
+    assert (first.captured_count, first.duplicate_count) == (1, 24)
+    assert first.next_cursor is not None
+    assert controller.custody_status("synthetic")["retained_items"] == 25
+    tasks, sink = _revision_sink(tmp_path)
+    restarted = CollectorController(
+        CollectorStateStore(tmp_path / "state.json"),
+        clock=lambda: 160,
+        brain_root=tasks.profile.root,
+    )
+    runtime = SavedMarkdownCollectorRuntime(adapter, store=PrivateJsonStore(tmp_path / "scan"))
+    second = restarted.sync_due(source_id="synthetic", runtime=runtime, capture_sink=sink)
+    assert (second.captured_count, second.duplicate_count) == (6, 1)
+    assert second.next_cursor is None
+    assert restarted.custody_status("synthetic")["retained_items"] == 32
+    entry = cast(dict[str, object], cast(dict[str, object], store.load()["sources"])["synthetic"])
+    assert len(cast(dict[str, str], entry["committed_capture_ids"])) == 32
+    assert entry["active_run"] is None and entry["next_cursor"] is None
+    known = cast(dict[str, dict[str, object]], runtime._load()["known"])
+    assert len(known) == 32
+    assert runtime.absence_candidates == ()
+    with closing(engine._store.connect()) as connection:
+        assert connection.execute("SELECT count(*) FROM captures").fetchone()[0] == 32
+        assert (
+            connection.execute("SELECT count(*) FROM managed_source_deliveries").fetchone()[0] == 7
+        )
+        assert (
+            connection.execute(
+                "SELECT count(*) FROM source_revisions WHERE revision_key IS NULL"
+            ).fetchone()[0]
+            == 25
+        )
+
+
+def test_genuine_file_reversion_creates_new_revision_not_old_baseline(tmp_path: Path) -> None:
+    engine, sink, _, baseline = _adopt_saved(tmp_path)
+    path = tmp_path / "selected/saved.md"
+    original = path.read_bytes()
+    adapter = _adapter(path.parent)
+    now = [100]
+    store = CollectorStateStore(tmp_path / "state.json")
+    controller = CollectorController(store, clock=lambda: now[0], brain_root=engine.profile.root)
+    controller.enable(source_id="synthetic", selection=adapter.selection, interval_seconds=60)
+    runtime = SavedMarkdownCollectorRuntime(adapter, store=PrivateJsonStore(tmp_path / "scan"))
+    path.write_text("# genuine successor\nnew body\n")
+    assert (
+        controller.sync_due(
+            source_id="synthetic", runtime=runtime, capture_sink=sink
+        ).captured_count
+        == 1
+    )
+    path.write_bytes(original)
+    now[0] = 160
+    result = controller.sync_due(source_id="synthetic", runtime=runtime, capture_sink=sink)
+    assert result.captured_count == 1 and result.duplicate_count == 0
+    with closing(engine._store.connect()) as connection:
+        assert connection.execute("SELECT count(*) FROM captures").fetchone()[0] == 3
+        assert connection.execute("SELECT count(*) FROM logical_sources").fetchone()[0] == 1
+        assert (
+            connection.execute(
+                "SELECT revision_key FROM source_revisions WHERE capture_id=?",
+                (baseline.submission.expected_head,),
+            ).fetchone()[0]
+            is None
+        )
+        assert connection.execute("SELECT count(*) FROM sharing_decisions").fetchone()[0] == 0
+    with pytest.raises(T03Error, match="revision_changed"):
+        sink.lookup_baseline(_intake(path.parent), selection_generation="selected.v1")
+
+
+def test_reverted_file_cannot_revive_withdrawn_successor(tmp_path: Path) -> None:
+    engine, sink, _, _ = _adopt_saved(tmp_path)
+    path = tmp_path / "selected/saved.md"
+    original = path.read_bytes()
+    path.write_text("# successor\nnew body\n")
+    accepted = sink.submit(_intake(path.parent))
+    assert accepted.source_receipt is not None
+    binding, revision_sink = sink._revision_capability(_intake(path.parent))
+    head = revision_sink.inspect_head()
+    assert head.source_id is not None and head.capture_id is not None
+    owner = EffectiveAuthority(
+        engine.profile.owner_actor_id, "session", frozenset(), None, owner=True
+    )
+    engine.sources.withdraw(
+        SourceWithdrawRequest(
+            operation_id="withdraw.synthetic.revert",
+            source_id=head.source_id,
+            expected_head=head.capture_id,
+            expected_lifecycle_version=head.lifecycle_version,
+            brain_id=binding.destination_brain_id,
+            issuer_epoch=binding.issuer_epoch,
+            reason_code="owner_choice",
+        ),
+        authority=owner,
+    )
+    path.write_bytes(original)
+    with pytest.raises(T03Error, match="revision_changed"):
+        sink.lookup_baseline(
+            _intake(path.parent), selection_generation="selected.v1", allow_successor=True
+        )
+    with closing(engine._store.connect()) as connection:
+        assert connection.execute("SELECT count(*) FROM captures").fetchone()[0] == 2
+
+
+def test_baseline_controller_checkpoints_without_new_capture_and_retains_custody(
+    tmp_path: Path,
+) -> None:
+    engine, sink, _, baseline = _adopt_saved(tmp_path)
+    adapter = _adapter(tmp_path / "selected")
+    runtime = SavedMarkdownCollectorRuntime(adapter, store=PrivateJsonStore(tmp_path / "scan"))
+    store = CollectorStateStore(tmp_path / "state.json")
+    controller = CollectorController(store, clock=lambda: 100, brain_root=engine.profile.root)
+    controller.enable(source_id="synthetic", selection=adapter.selection, interval_seconds=60)
+    result = controller.sync_due(source_id="synthetic", runtime=runtime, capture_sink=sink)
+    assert result.duplicate_count == 1 and result.captured_count == 0
+    assert controller.custody_status("synthetic")["retained_items"] == 1
+    entry = cast(dict[str, object], cast(dict[str, object], store.load()["sources"])["synthetic"])
+    assert entry["active_run"] is None and entry["last_success_epoch"] == 100
+    known = cast(dict[str, dict[str, object]], runtime._load()["known"])
+    assert len(known) == 1
+    assert next(iter(known.values()))["head"] == baseline.submission.expected_head
+    with closing(engine._store.connect()) as connection:
+        assert connection.execute("SELECT count(*) FROM captures").fetchone()[0] == 1
+        assert (
+            connection.execute("SELECT count(*) FROM managed_source_deliveries").fetchone()[0] == 0
+        )
+    # Cancellation after acceptance cannot drop this unprotected baseline body.
+    controller.disable("synthetic")
+    assert controller.custody_status("synthetic")["retained_items"] == 1
+
+
+def test_stale_baseline_between_item_lookup_and_page_commit_refuses_checkpoint(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    engine, sink, _, _ = _adopt_saved(tmp_path)
+    adapter = _adapter(tmp_path / "selected")
+    runtime = SavedMarkdownCollectorRuntime(adapter, store=PrivateJsonStore(tmp_path / "scan"))
+    store = CollectorStateStore(tmp_path / "state.json")
+    controller = CollectorController(store, clock=lambda: 100, brain_root=engine.profile.root)
+    controller.enable(source_id="synthetic", selection=adapter.selection, interval_seconds=60)
+    lookup = sink.lookup_baseline
+    calls = 0
+
+    def lookup_and_advance(
+        intake: SourceRecordIntake,
+        *,
+        selection_generation: str,
+        allow_successor: bool = False,
+        expected_capture_id: str | None = None,
+    ) -> object:
+        nonlocal calls
+        result = lookup(
+            intake,
+            selection_generation=selection_generation,
+            allow_successor=allow_successor,
+            expected_capture_id=expected_capture_id,
+        )
+        calls += 1
+        if calls == 1:
+            with _historical_transaction(engine.profile, lambda: None) as connection:
+                connection.execute("UPDATE logical_sources SET route_version=route_version+1")
+        return result
+
+    monkeypatch.setattr(sink, "lookup_baseline", lookup_and_advance)
+    with pytest.raises(T03Error, match="revision_changed"):
+        controller.sync_due(source_id="synthetic", runtime=runtime, capture_sink=sink)
+    entry = cast(dict[str, object], cast(dict[str, object], store.load()["sources"])["synthetic"])
+    assert entry["active_run"] is not None and entry["last_success_epoch"] is None
+    assert runtime._load()["page"] is not None
+    assert controller.custody_status("synthetic")["retained_items"] == 1
+
+
+def test_runtime_acknowledgement_holds_canonical_writer_fence(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    engine, sink, _, _ = _adopt_saved(tmp_path)
+    adapter = _adapter(tmp_path / "selected")
+    runtime = SavedMarkdownCollectorRuntime(adapter)
+    controller = CollectorController(
+        CollectorStateStore(tmp_path / "state.json"),
+        clock=lambda: 100,
+        brain_root=engine.profile.root,
+    )
+    controller.enable(source_id="synthetic", selection=adapter.selection, interval_seconds=60)
+    contender = FileLease(
+        engine.profile.root / ".open-brain",
+        "synthetic-ack-contender",
+        parent_root_identity=engine.profile.root_identity,
+    )
+    acknowledge = runtime.acknowledge_page
+    reached = False
+
+    def assert_fenced_ack() -> None:
+        nonlocal reached
+        reached = True
+        with pytest.raises(LockBusyError), contender.acquire_shared_writer():
+            pytest.fail("writer admitted during runtime acknowledgement")
+        acknowledge()
+
+    monkeypatch.setattr(runtime, "acknowledge_page", assert_fenced_ack)
+    controller.sync_due(source_id="synthetic", runtime=runtime, capture_sink=sink)
+    assert reached

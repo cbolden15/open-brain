@@ -537,7 +537,8 @@ def test_pending_reservation_binds_complete_request_and_recovers(
     original_enqueue = engine.ingestion.enqueue
     captured: list[CaptureSubmission] = []
 
-    def stop_before_capture(submission: CaptureSubmission) -> None:
+    def stop_before_capture(submission: CaptureSubmission, *, writer_locked: bool = False) -> None:
+        assert writer_locked
         captured.append(submission)
         raise RuntimeError("synthetic reservation stop")
 

@@ -54,9 +54,9 @@ def _catalog() -> dict[str, object]:
         "compatibility": {
             "bridge_protocol": 1,
             "catalog_schema": 2,
-            "portable_metadata": 5,
-            "runtime_session": 5,
-            "state_schema": 10,
+            "portable_metadata": 9,
+            "runtime_session": 9,
+            "state_schema": 14,
             "task_contract": "t03.v1",
         },
         "packages": [
@@ -71,6 +71,33 @@ def _catalog() -> dict[str, object]:
 
 def test_native_audit_requires_catalog_implementation() -> None:
     assert "open_brain.services.catalog" in base_native._REQUIRED_MODULES
+    assert {
+        "open_brain_engine.engine.portable_v8_authority",
+        "open_brain_engine.engine.portable_v8_restore",
+        "open_brain_engine.engine.portable_v9_authority",
+        "open_brain_engine.engine.portable_v9_restore",
+        "open_brain_engine.engine.historical_contracts_v2",
+        "open_brain_engine.engine.historical_observation_v2",
+        "open_brain_engine.engine.historical_admission_v2",
+        "open_brain_engine.engine.historical_transition_v2",
+        "open_brain_engine.engine.historical_checkpoint",
+        "open_brain_engine.portable.v8",
+        "open_brain_engine.portable.v9",
+    } <= base_native._REQUIRED_MODULES
+
+
+def test_native_portable_smoke_requires_sharing_and_all_retained_sidecars() -> None:
+    assert base_native._PORTABLE_V9_SIDECARS == (
+        "history/issuer/legacy-bindings-v1.json",
+        "history/issuer/migration-v1.json",
+        "history/privacy/effective-privacy-v1.json",
+        "history/sources/lifecycle-v1.json",
+        "history/sources/admission-v1.json",
+        "history/sharing/approvals-v1.json",
+        "history/historical-authority/reconciliation-v2.json",
+        "history/capture-metadata/original-v2.json",
+        "history/capture-custody/journal-v1.json",
+    )
 
 
 def test_native_mcp_inventory_requires_catalog_and_exact_grant_set() -> None:
@@ -149,14 +176,30 @@ def test_grantless_catalog_probe_requires_core_coordinates_and_no_optional_claim
 
     compatibility = catalog["compatibility"]
     assert isinstance(compatibility, dict)
+    current = dict(compatibility)
+    for key in (
+        "bridge_protocol", "catalog_schema", "portable_metadata", "runtime_session", "state_schema",
+    ):
+        compatibility[key] = float(current[key])
+        with pytest.raises(BaseNativeError, match="native catalog discovery failed"):
+            base_native._smoke_catalog(tmp_path / "open-brain", environment)
+        compatibility.update(current)
+    compatibility.update(portable_metadata=8, runtime_session=8, state_schema=13)
+    with pytest.raises(BaseNativeError, match="native catalog discovery failed"):
+        base_native._smoke_catalog(tmp_path / "open-brain", environment)
+    compatibility.update(current)
+    compatibility.update(portable_metadata=5, runtime_session=5, state_schema=10)
+    with pytest.raises(BaseNativeError, match="native catalog discovery failed"):
+        base_native._smoke_catalog(tmp_path / "open-brain", environment)
+    compatibility.update(current)
     compatibility["runtime_session"] = 2
     with pytest.raises(BaseNativeError, match="native catalog discovery failed"):
         base_native._smoke_catalog(tmp_path / "open-brain", environment)
-    compatibility["runtime_session"] = 5
+    compatibility["runtime_session"] = 6
     compatibility["state_schema"] = 7
     with pytest.raises(BaseNativeError, match="native catalog discovery failed"):
         base_native._smoke_catalog(tmp_path / "open-brain", environment)
-    compatibility["state_schema"] = 10
+    compatibility["state_schema"] = 11
 
     packages = catalog["packages"]
     assert isinstance(packages, list)

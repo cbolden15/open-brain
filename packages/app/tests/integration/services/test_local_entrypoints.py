@@ -904,7 +904,7 @@ def test_local_init_creates_exact_default_once_without_daemon_or_environment_roo
         "brain_count": 1,
         "daemon_running": False,
         "profile": "local",
-        "state_schema_version": 11,
+        "state_schema_version": 14,
         "status": "initialized",
         "storage": "sqlite",
     }
@@ -1182,7 +1182,7 @@ def test_exact_local_data_journey_bootstraps_without_init_or_background_runtime(
     exported = cast(dict[str, object], json.loads(capsys.readouterr().out))
     assert exported["status"] == "exported"
     assert exported["verification"] == "verified"
-    assert exported["schema_version"] == 6
+    assert exported["schema_version"] == 9
     assert (destination / "portable-manifest.json").is_file()
     assert all((destination / relative).is_file() for relative in V5_SIDECAR_PATHS)
     assert any(
@@ -2046,6 +2046,95 @@ def test_cli_capture_submit_uses_a_valid_startup_policy(tmp_path: Path) -> None:
     assert privacy["tier"] == "work"
 
 
+def _receipt_protection_file(
+    tmp_path: Path,
+    *,
+    protector_body: str,
+) -> tuple[Path, Path]:
+    replay = tmp_path / "protected-journal.v1"
+    script = tmp_path / "receipt-protector.py"
+    script.write_text(protector_body, encoding="utf-8")
+    configuration = tmp_path / "receipt-protection.json"
+    configuration.write_text(
+        json.dumps(
+            {
+                "contract_version": "receipt-protection-command.v1",
+                "argv": [sys.executable, str(script), str(replay)],
+                "timeout_seconds": 2,
+            }
+        ),
+        encoding="utf-8",
+    )
+    configuration.chmod(0o600)
+    return configuration, replay
+
+
+def test_cli_capture_submit_releases_a_protected_receipt(tmp_path: Path) -> None:
+    root = tmp_path / "brain"
+    assert _subprocess_cli(root, "status")["profile"] == "local"
+    policy = _destination_policy_file(root)
+    configuration, replay = _receipt_protection_file(
+        tmp_path,
+        protector_body=(
+            "import json,sys\n"
+            "from pathlib import Path\n"
+            "from open_brain_engine.engine import ("
+            "ReceiptProtectionRequest,ProtectionAcknowledgement)\n"
+            "request=ReceiptProtectionRequest.from_dict(json.load(sys.stdin))\n"
+            "Path(sys.argv[1]).write_bytes(request.replay_bytes)\n"
+            "ack=ProtectionAcknowledgement.for_request(request,protection_reference='test:durable',protected_at='2026-09-24T12:00:00Z')\n"
+            "json.dump(ack.to_dict(),sys.stdout,sort_keys=True)\n"
+        ),
+    )
+
+    submitted = _subprocess_cli(
+        root,
+        "capture-submit",
+        "synthetic protected destination text",
+        "--policy",
+        str(policy),
+        "--privacy-tier",
+        "work",
+        "--receipt-protection",
+        str(configuration),
+    )
+
+    acknowledgement = submitted["protection_acknowledgement"]
+    assert isinstance(acknowledgement, dict)
+    assert acknowledgement["status"] == "protected"
+    assert replay.read_bytes().startswith(b'{"admitted_privacy"')
+    assert _capture_count(root) == 1
+
+
+def test_cli_capture_submit_keeps_recovery_pending_retryable(tmp_path: Path) -> None:
+    root = tmp_path / "brain"
+    assert _subprocess_cli(root, "status")["profile"] == "local"
+    policy = _destination_policy_file(root)
+    configuration, _replay = _receipt_protection_file(
+        tmp_path,
+        protector_body="raise SystemExit(1)\n",
+    )
+
+    result = _failing_cli(
+        root,
+        "capture-submit",
+        "synthetic pending destination text",
+        "--policy",
+        str(policy),
+        "--privacy-tier",
+        "work",
+        "--receipt-protection",
+        str(configuration),
+    )
+
+    assert result.returncode == 75
+    payload = json.loads(result.stdout)
+    assert payload["status"] == "recovery_pending"
+    assert payload["retryable"] is True
+    assert payload["reason_code"] == "protection_unavailable"
+    assert _capture_count(root) == 1
+
+
 def _failing_cli(root: Path, *arguments: str) -> subprocess.CompletedProcess[str]:
     program = (
         "from open_brain.services.local_entrypoints import run_cli;raise SystemExit(run_cli())"
@@ -2138,3 +2227,89 @@ def test_cli_capture_submit_reports_a_retryable_admission_result(
 
 def test_mcp_capture_submit_requires_a_policy_path() -> None:
     assert run_cli(("mcp", "--allow-capture-submit"), environment={}) == 2
+
+
+def test_owner_consent_cli_persists_complete_lifecycle_across_restarts(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "brain"
+    assert _subprocess_cli(root, "status")["profile"] == "local"
+    authority_root = tmp_path / "authority"
+    authority_root.mkdir(mode=0o700)
+    state = authority_root / "provider-consent.json"
+
+    granted = _subprocess_cli(
+        root,
+        "consent",
+        "grant",
+        "--state",
+        str(state),
+        "--provider-id",
+        "synthetic-provider",
+        "--allowed-tier",
+        "public",
+        "--allowed-tier",
+        "work",
+        "--operation-id",
+        "grant-1",
+    )
+    assert granted["status"] == "granted"
+    assert granted["authorization_generation"] == 1
+    consent_id = cast(str, granted["consent_id"])
+
+    inspected = _subprocess_cli(root, "consent", "inspect", "--state", str(state))
+    assert inspected["status"] == "shown"
+    assert inspected["authorization_generation"] == 1
+    assert cast(list[dict[str, object]], inspected["records"])[0]["allowed_tiers"] == [
+        "public",
+        "work",
+    ]
+
+    duplicate = _subprocess_cli(
+        root,
+        "consent",
+        "grant",
+        "--state",
+        str(state),
+        "--provider-id",
+        "synthetic-provider",
+        "--allowed-tier",
+        "public",
+        "--allowed-tier",
+        "work",
+        "--operation-id",
+        "grant-1",
+    )
+    assert duplicate == granted
+
+    replaced = _subprocess_cli(
+        root,
+        "consent",
+        "replace",
+        "--state",
+        str(state),
+        "--consent-id",
+        consent_id,
+        "--provider-id",
+        "synthetic-provider",
+        "--allowed-tier",
+        "public",
+        "--operation-id",
+        "replace-1",
+    )
+    assert replaced["status"] == "replaced"
+    assert replaced["authorization_generation"] == 2
+
+    revoked = _subprocess_cli(
+        root,
+        "consent",
+        "revoke",
+        "--state",
+        str(state),
+        "--consent-id",
+        cast(str, replaced["consent_id"]),
+        "--operation-id",
+        "revoke-1",
+    )
+    assert revoked["status"] == "revoked"
+    assert revoked["authorization_generation"] == 3

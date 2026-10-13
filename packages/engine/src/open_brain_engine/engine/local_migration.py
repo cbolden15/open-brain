@@ -40,7 +40,7 @@ def coordinate_local_migration(
     clock: Callable[[], datetime] | None = None,
     checkpoint: Callable[[str], None] = lambda _stage: None,
 ) -> None:
-    """Resume ordered cutovers, re-inspecting state between each phase.
+    """Resume the source, privacy, issuer, and ingestion cutovers in order, re-inspecting between.
 
     The whole chain runs under one exclusive runtime admission and ends only at the
     current state schema. The ordinary opener never performs any of these phases.
@@ -68,8 +68,22 @@ def coordinate_local_migration(
     ingestion_phase = (
         schema.state == "supported_old" and _needs_ingestion_phase(schema.version) and target >= 10
     )
-    facet_phase = schema.state == "supported_old" and schema.version == 10 and target >= 11
-    if not any((source_phase, privacy_phase, issuer_phase, ingestion_phase, facet_phase)):
+    lifecycle_phase = schema.state == "supported_old" and schema.version == 10 and target >= 11
+    sharing_phase = schema.state == "supported_old" and schema.version == 11 and target >= 12
+    historical_phase = schema.state == "supported_old" and schema.version == 12 and target >= 13
+    compatibility_phase = schema.state == "supported_old" and schema.version == 13 and target >= 14
+    if not any(
+        (
+            source_phase,
+            privacy_phase,
+            issuer_phase,
+            ingestion_phase,
+            lifecycle_phase,
+            sharing_phase,
+            historical_phase,
+            compatibility_phase,
+        )
+    ):
         return
 
     with exclusive_runtime_admission(profile) as admission:
@@ -114,10 +128,34 @@ def coordinate_local_migration(
                 profile, admission=admission, clock=resolved_clock, checkpoint=checkpoint
             )
             schema = inspect_phase1_state(profile)
-        if schema.state == "supported_old" and schema.version == 10 and target >= 11:
-            from .facet_schema_migration import migrate_facets
+        lifecycle_phase = schema.state == "supported_old" and schema.version == 10 and target >= 11
+        if lifecycle_phase:
+            from .lifecycle_migration import migrate_saved_lifecycle
 
-            migrate_facets(
+            migrate_saved_lifecycle(
+                profile, admission=admission, clock=resolved_clock, checkpoint=checkpoint
+            )
+            schema = inspect_phase1_state(profile)
+        sharing_phase = schema.state == "supported_old" and schema.version == 11 and target >= 12
+        if sharing_phase:
+            from .sharing_migration import migrate_sharing
+
+            migrate_sharing(
+                profile, admission=admission, clock=resolved_clock, checkpoint=checkpoint
+            )
+            schema = inspect_phase1_state(profile)
+        historical_phase = schema.state == "supported_old" and schema.version == 12 and target >= 13
+        if historical_phase:
+            from .historical_migration import migrate_historical
+
+            migrate_historical(
+                profile, admission=admission, clock=resolved_clock, checkpoint=checkpoint
+            )
+            schema = inspect_phase1_state(profile)
+        if schema.state == "supported_old" and schema.version == 13 and target >= 14:
+            from .historical_compatibility_migration import migrate_historical_compatibility
+
+            migrate_historical_compatibility(
                 profile, admission=admission, clock=resolved_clock, checkpoint=checkpoint
             )
             schema = inspect_phase1_state(profile)

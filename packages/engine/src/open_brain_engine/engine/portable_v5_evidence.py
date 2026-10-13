@@ -46,7 +46,7 @@ from .relationship_store import relationship_metadata
 from .source_store import source_metadata
 from .t03_contracts import T03Error
 
-_SUPPORTED_STATE_SCHEMA_VERSIONS = frozenset({9, 10, 11})
+_SUPPORTED_STATE_SCHEMA_VERSIONS = frozenset({9, 10, 11, 12})
 _EVIDENCE_SCHEMA_VERSION = 1
 _VALID_INVALID_REASONS = frozenset({"missing", "malformed", "inconsistent"})
 
@@ -658,6 +658,27 @@ def serialize_portable_v5_state(
     if type(relationship_sidecar_present) is not bool:
         _fail("relationship sidecar presence must be a bool")
     _validate_snapshot_boundary(connection)
+    source_authority = None
+    if connection.execute("PRAGMA user_version").fetchone()[0] >= 11:
+        from .portable_v6_authority import source_authority_metadata
+
+        source_authority = source_authority_metadata(connection)
+    return _serialize_portable_state(
+        connection,
+        tenant_id=tenant_id,
+        relationship_sidecar_present=relationship_sidecar_present,
+        source_authority=source_authority,
+    )
+
+
+def _serialize_portable_state(
+    connection: sqlite3.Connection,
+    *,
+    tenant_id: str,
+    relationship_sidecar_present: bool,
+    source_authority: dict[str, Any] | None,
+) -> PortableV5StateEvidence:
+    """Shared evidence derivation after the format-specific snapshot boundary."""
     bindings, issuer = _issuer_sidecars(connection, tenant_id=tenant_id)
     retained_rows, base_rows, _retained, bases = _retained_and_bases(connection)
     captures = normalized_capture_rows(connection)
@@ -693,6 +714,8 @@ def serialize_portable_v5_state(
         "issuer_migration": issuer,
         "effective_privacy": privacy,
     }
+    if source_authority is not None:
+        semantic_state["source_authority"] = source_authority
     digest = sha256(portable_canonical_json_bytes(semantic_state)).hexdigest()
     return PortableV5StateEvidence(
         sidecars=MappingProxyType(sidecars),

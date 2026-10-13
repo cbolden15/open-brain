@@ -34,9 +34,11 @@ from open_brain_collector.lifecycle import (
     CollectorStateStore,
     CredentialStatusProvider,
     EngineCaptureSink,
+    EngineRevisionSink,
 )
 from open_brain_connectors.runtime.connectors import ConnectorContractError
 from open_brain_connectors.runtime.github import GitHubSourceAdapter, GitHubUserTokenStore
+from open_brain_connectors.runtime.live_storage import PrivateJsonStore
 from open_brain_connectors.runtime.source_intake import SourceRecordIntake, SourceRecordKey
 from open_brain_connectors.runtime.source_registry import SourceResourceSelection
 
@@ -46,6 +48,7 @@ __all__ = [
     "FixtureSourceRuntime",
     "LocalSourceRuntime",
     "collector_capture_sink",
+    "collector_revision_sink",
 ]
 
 
@@ -206,7 +209,11 @@ class CollectorProcessRunner:
             controller.sync_due(
                 source_id=selected_id,
                 runtime=self.runtime,
-                capture_sink=capture_sink,
+                capture_sink=(collector_revision_sink(
+                    self.brain_root, self.state_path.parent / "revisions"
+                ) if isinstance(sources[selected_id], dict) and
+                    cast(dict[str, object], sources[selected_id]).get("connector_name")
+                    == "saved_markdown" else capture_sink),
                 credential_status=credential_status,
             ).to_dict()
             for selected_id in source_ids
@@ -451,6 +458,15 @@ def collector_capture_sink(brain_root: Path) -> PublicJobCaptureSink:
         },
     )
     return tasks.capture.public_job_sink(context)
+
+
+def collector_revision_sink(brain_root: Path, state_root: Path) -> EngineRevisionSink:
+    """Inject per-item revision capabilities without exposing owner tasks."""
+    capture = collector_capture_sink(brain_root)
+    tasks = open_local_engine(_open_existing_collector_profile(brain_root))
+    assert tasks.sources is not None
+    return EngineRevisionSink(tasks.sources.public_revision_sink, capture,
+                              store=PrivateJsonStore(state_root))
 
 
 @contextmanager

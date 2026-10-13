@@ -167,16 +167,16 @@ def _require_private_directory(directory_fd: int) -> None:
 def _connect_from_parent(parent_fd: int, name: str) -> sqlite3.Connection:
     if not hasattr(os, "fchdir"):
         raise StorageUnsupportedPlatformError("storage platform unsupported")
-    original_directory_fd = os.open(".", os.O_RDONLY | os.O_DIRECTORY)
-    try:
-        with _SQLITE_OPEN_LOCK:
+    with _SQLITE_OPEN_LOCK:
+        original_directory_fd = os.open(".", os.O_RDONLY | os.O_DIRECTORY)
+        try:
             os.fchdir(parent_fd)
             try:
                 return sqlite3.connect(name, timeout=5.0, isolation_level=None)
             finally:
                 os.fchdir(original_directory_fd)
-    finally:
-        os.close(original_directory_fd)
+        finally:
+            os.close(original_directory_fd)
 
 
 def connect_database(
@@ -291,9 +291,9 @@ def connect_database_read_only(
         metadata = os.fstat(database_fd)
         if not stat.S_ISREG(metadata.st_mode):
             raise RootConfinementError("unsafe database path")
-        original_directory_fd = os.open(".", os.O_RDONLY | os.O_DIRECTORY)
-        try:
-            with _SQLITE_OPEN_LOCK:
+        with _SQLITE_OPEN_LOCK:
+            original_directory_fd = os.open(".", os.O_RDONLY | os.O_DIRECTORY)
+            try:
                 os.fchdir(parent_fd)
                 try:
                     uri = f"file:{quote(parts[-1], safe='')}?mode=ro"
@@ -305,8 +305,8 @@ def connect_database_read_only(
                     )
                 finally:
                     os.fchdir(original_directory_fd)
-        finally:
-            os.close(original_directory_fd)
+            finally:
+                os.close(original_directory_fd)
         connection.row_factory = sqlite3.Row
         connection.execute("PRAGMA query_only = ON")
         if type(busy_timeout_ms) is not int or busy_timeout_ms < 0:

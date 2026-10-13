@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+import json
 import re
 import secrets
 from collections.abc import Callable
 from dataclasses import dataclass, replace
 from enum import StrEnum
 from hashlib import sha256
+from typing import Any, cast
 
 from open_brain_engine.core.access_contracts import validate_authorization_generation
 from open_brain_engine.core.ids import portable_canonical_json_bytes
@@ -21,6 +23,8 @@ __all__ = [
     "EgressMode",
     "ProviderConsentRecord",
     "ProviderConsentState",
+    "provider_consent_state_from_bytes",
+    "provider_consent_state_to_bytes",
 ]
 
 _CONSENT_ID = re.compile(r"consent_[0-9a-f]{32}")
@@ -28,6 +32,34 @@ _PROVIDER_ID = re.compile(r"[a-z][a-z0-9._-]{0,63}")
 _OPERATION_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:-]{0,255}")
 _EXTERNAL_TIERS = frozenset(
     {PrivacyTier.PUBLIC, PrivacyTier.WORK, PrivacyTier.PERSONAL}
+)
+_STATE_VERSION = "provider-consent-state.v1"
+_MAX_STATE_BYTES = 16 * 1024 * 1024
+_STATE_FIELDS = frozenset(
+    {"state_version", "authorization_generation", "records", "operations"}
+)
+_RECORD_FIELDS = frozenset(
+    {
+        "consent_id",
+        "provider_id",
+        "egress_mode",
+        "allowed_tiers",
+        "active",
+        "granted_generation",
+        "granted_at",
+        "revoked_generation",
+        "revoked_at",
+    }
+)
+_OPERATION_FIELDS = frozenset({"operation_id", "request_sha256", "receipt"})
+_RECEIPT_FIELDS = frozenset(
+    {
+        "operation",
+        "consent_id",
+        "authorization_generation",
+        "duplicate",
+        "previous_consent_id",
+    }
 )
 
 
@@ -413,6 +445,148 @@ class ProviderConsentState:
                 for operation in self.operations
             )
         )
+
+
+def provider_consent_state_to_bytes(state: ProviderConsentState) -> bytes:
+    """Encode one exact, canonical provider-consent state projection."""
+    if not isinstance(state, ProviderConsentState) or not state._projection_is_well_formed():
+        raise ConsentContractError("invalid_consent")
+    consent_ids = {record.consent_id for record in state.records}
+    if any(
+        operation.receipt.consent_id not in consent_ids
+        or operation.receipt.previous_consent_id is not None
+        and operation.receipt.previous_consent_id not in consent_ids
+        for operation in state.operations
+    ):
+        raise ConsentContractError("invalid_consent")
+    return portable_canonical_json_bytes(
+        {
+            "state_version": _STATE_VERSION,
+            "authorization_generation": state.authorization_generation,
+            "records": [
+                {
+                    "consent_id": record.consent_id,
+                    "provider_id": record.provider_id,
+                    "egress_mode": record.egress_mode.value,
+                    "allowed_tiers": sorted(tier.value for tier in record.allowed_tiers),
+                    "active": record.active,
+                    "granted_generation": record.granted_generation,
+                    "granted_at": record.granted_at,
+                    "revoked_generation": record.revoked_generation,
+                    "revoked_at": record.revoked_at,
+                }
+                for record in state.records
+            ],
+            "operations": [
+                {
+                    "operation_id": operation.operation_id,
+                    "request_sha256": operation.request_sha256,
+                    "receipt": {
+                        "operation": operation.receipt.operation,
+                        "consent_id": operation.receipt.consent_id,
+                        "authorization_generation": (
+                            operation.receipt.authorization_generation
+                        ),
+                        "duplicate": operation.receipt.duplicate,
+                        "previous_consent_id": operation.receipt.previous_consent_id,
+                    },
+                }
+                for operation in state.operations
+            ],
+        }
+    )
+
+
+def provider_consent_state_from_bytes(payload: bytes) -> ProviderConsentState:
+    """Parse only the exact canonical provider-consent state representation."""
+    try:
+        if type(payload) is not bytes or not payload or len(payload) > _MAX_STATE_BYTES:
+            raise ValueError
+        value = json.loads(
+            payload.decode("utf-8"),
+            object_pairs_hook=_unique_object,
+            parse_constant=_reject_json_constant,
+        )
+        if type(value) is not dict or frozenset(value) != _STATE_FIELDS:
+            raise ValueError
+        if value["state_version"] != _STATE_VERSION:
+            raise ValueError
+        raw_records = value["records"]
+        raw_operations = value["operations"]
+        if type(raw_records) is not list or type(raw_operations) is not list:
+            raise ValueError
+        records = tuple(_record_from_mapping(record) for record in raw_records)
+        operations = tuple(_operation_from_mapping(operation) for operation in raw_operations)
+        state = ProviderConsentState(
+            authorization_generation=cast(int, value["authorization_generation"]),
+            records=records,
+            operations=operations,
+        )
+        if provider_consent_state_to_bytes(state) != payload:
+            raise ValueError
+        return state
+    except ConsentContractError:
+        raise
+    except (KeyError, TypeError, ValueError, UnicodeError, json.JSONDecodeError):
+        raise ConsentContractError("invalid_consent") from None
+
+
+def _record_from_mapping(value: object) -> ProviderConsentRecord:
+    if type(value) is not dict or frozenset(value) != _RECORD_FIELDS:
+        raise ValueError
+    mapping = cast(dict[str, object], value)
+    tiers = mapping["allowed_tiers"]
+    if (
+        type(tiers) is not list
+        or len(tiers) != len(set(map(str, tiers)))
+        or any(type(tier) is not str for tier in tiers)
+    ):
+        raise ValueError
+    return ProviderConsentRecord(
+        consent_id=cast(str, mapping["consent_id"]),
+        provider_id=cast(str, mapping["provider_id"]),
+        egress_mode=EgressMode(cast(str, mapping["egress_mode"])),
+        allowed_tiers=frozenset(PrivacyTier(cast(str, tier)) for tier in tiers),
+        active=cast(bool, mapping["active"]),
+        granted_generation=cast(int, mapping["granted_generation"]),
+        granted_at=cast(str, mapping["granted_at"]),
+        revoked_generation=cast(int | None, mapping["revoked_generation"]),
+        revoked_at=cast(str | None, mapping["revoked_at"]),
+    )
+
+
+def _operation_from_mapping(value: object) -> _AppliedOperation:
+    if type(value) is not dict or frozenset(value) != _OPERATION_FIELDS:
+        raise ValueError
+    mapping = cast(dict[str, object], value)
+    raw_receipt = mapping["receipt"]
+    if type(raw_receipt) is not dict or frozenset(raw_receipt) != _RECEIPT_FIELDS:
+        raise ValueError
+    receipt = cast(dict[str, object], raw_receipt)
+    return _AppliedOperation(
+        operation_id=cast(str, mapping["operation_id"]),
+        request_sha256=cast(str, mapping["request_sha256"]),
+        receipt=ConsentReceipt(
+            operation=cast(str, receipt["operation"]),
+            consent_id=cast(str, receipt["consent_id"]),
+            authorization_generation=cast(int, receipt["authorization_generation"]),
+            duplicate=cast(bool, receipt["duplicate"]),
+            previous_consent_id=cast(str | None, receipt["previous_consent_id"]),
+        ),
+    )
+
+
+def _unique_object(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+    result: dict[str, Any] = {}
+    for key, value in pairs:
+        if key in result:
+            raise ValueError
+        result[key] = value
+    return result
+
+
+def _reject_json_constant(_value: str) -> None:
+    raise ValueError
 
 
 def _require_owner(owner: bool) -> None:

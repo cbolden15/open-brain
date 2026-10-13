@@ -15,10 +15,19 @@ from open_brain_engine.portable.v4 import canonical_revision_id
 from open_brain_engine.storage.filesystem import StorageError, read_confined
 from open_brain_engine.storage.markdown import parse_markdown, render_markdown
 
+from .consent_contracts import EgressMode
 from .contracts import FilePayload, LocalEngineContext
+from .harness_memory import is_harness_source_reference
 from .materializer import _payload_search_text
 from .normalization import _privacy, _role_claim
-from .search_projection import public_search_text, public_source_origin, source_search_title
+from .privacy_projection import parse_effective_privacy_json
+from .search_projection import (
+    public_harness_record_text,
+    public_search_text,
+    public_source_origin,
+    source_search_title,
+)
+from .sharing import require_capture_eligibility
 from .t03_contracts import EffectiveAuthority, T03Error, validate_wire
 
 
@@ -45,20 +54,21 @@ class RecordProjector:
             if not isinstance(value, str):
                 raise ValueError
             tier = PrivacyTier(value)
-        except (TypeError, ValueError):
+        except TypeError, ValueError:
             tier = PrivacyTier.UNKNOWN
         if not self.authority.permits_read_tier(tier):
             raise T03Error("not_found")
 
     def _require_effective_privacy(self, raw: object) -> None:
         try:
-            value = json.loads(raw) if isinstance(raw, str) else None
-            if not isinstance(value, dict):
-                raise ValueError
-            tier = value["tier"]
-        except (json.JSONDecodeError, KeyError, TypeError, ValueError):
-            tier = PrivacyTier.UNKNOWN
-        self._require_tier(tier)
+            evidence = parse_effective_privacy_json(raw)
+        except ValueError:
+            evidence = None
+        self._require_tier(PrivacyTier.UNKNOWN if evidence is None else evidence.tier)
+        if self.authority.egress_mode is EgressMode.EXTERNAL_PROVIDER and (
+            evidence is None or not evidence.authority.external_egress
+        ):
+            raise T03Error("not_found")
 
     def _require_source_revision_privacy(self, capture_id: str) -> None:
         row = self.connection.execute(
@@ -115,8 +125,8 @@ class RecordProjector:
             or not self.authority.permits_space(source["space_id"])
             or source["historical_only"]
             and not history
-            or source["lifecycle"] != "active"
-            or source["availability"] != "available"
+            or (source["lifecycle"] != "active" or source["availability"] != "available")
+            and not (history and self.authority.owner)
         ):
             raise T03Error("not_found")
         head = source["head_capture_id"]
@@ -130,6 +140,9 @@ class RecordProjector:
             head = expected
         elif expected is not None and expected != head:
             raise T03Error("revision_changed")
+        require_capture_eligibility(
+            self.connection, head, self.authority, history=history, profile=self.profile
+        )
         self._require_source_revision_privacy(head)
         _revision, record = self._capture(head)
         reference = record["source"]["reference"]
@@ -145,14 +158,15 @@ class RecordProjector:
             if blob is None or sha256(blob).hexdigest() != digest:
                 raise T03Error("not_found")
             text = FilePayload(payload["file_name"], payload["media_type"], blob).search_text()
-        body = public_search_text(text, protected_source_reference=reference)
+        body, indexed_body = public_harness_record_text(text, source_reference=reference)
         row = self.connection.execute(
             "SELECT title FROM captures WHERE capture_id=?", (head,)
         ).fetchone()
         title = (
             row["title"]
             if row is not None and row["title"] is not None
-            else source_search_title(payload_family=record["payload"]["family"], body=body)
+            and not is_harness_source_reference(reference)
+            else source_search_title(payload_family=record["payload"]["family"], body=indexed_body)
         )
         origin = self._origin(record)
         summary = {
@@ -163,7 +177,7 @@ class RecordProjector:
             "payload_family": record["payload"]["family"],
             "space_id": source["space_id"],
             "title": public_search_text(title, protected_source_reference=reference),
-            "excerpt": " ".join(body.split())[:500],
+            "excerpt": " ".join(indexed_body.split())[:500],
             "trust": "owner"
             if origin == "owner_authored"
             else "third_party"
@@ -177,7 +191,7 @@ class RecordProjector:
             "source_update_available": False,
         }
         validate_wire("summary", summary)
-        return ProjectedRecord(summary, body)
+        return ProjectedRecord(summary, body, indexed_text=indexed_body)
 
     @staticmethod
     def _origin(record: dict[str, Any]) -> str:
@@ -189,9 +203,8 @@ class RecordProjector:
             }
         )
 
-    def canonical(
-        self, page_id: str, *, expected: str | None = None, history: bool = False
-    ) -> ProjectedRecord:
+    def current_publication(self, page_id: str) -> str:
+        """Resolve exactly the current publication, including supported unbound imports."""
         document = self.connection.execute(
             "SELECT * FROM search_documents WHERE result_id=? AND record_type='canonical'",
             (page_id,),
@@ -220,9 +233,19 @@ class RecordProjector:
             matching = [row[0] for row in candidates if self._publication(row[0])[1] == current]
             if len(matching) != 1:
                 raise T03Error("not_found")
-            publication_id = matching[0]
-        else:
-            publication_id = head["publication_id"]
+            return str(matching[0])
+        return str(head["publication_id"])
+
+    def canonical(
+        self, page_id: str, *, expected: str | None = None, history: bool = False
+    ) -> ProjectedRecord:
+        publication_id = self.current_publication(page_id)
+        document = self.connection.execute(
+            "SELECT * FROM search_documents WHERE result_id=? AND record_type='canonical'",
+            (page_id,),
+        ).fetchone()
+        if document is None:
+            raise T03Error("not_found")
         revision_id = canonical_revision_id(publication_id)
         current_revision = revision_id
         if history and expected is not None:
@@ -236,6 +259,21 @@ class RecordProjector:
             revision_id, publication_id = expected, retained[0]
         elif expected is not None and revision_id != expected:
             raise T03Error("revision_changed")
+        retained_members = self.connection.execute(
+            "SELECT capture_id FROM canonical_revision_members WHERE revision_id=? "
+            "ORDER BY ordinal",
+            (revision_id,),
+        ).fetchall()
+        if not retained_members:
+            raise T03Error("not_found")
+        for member in retained_members:
+            require_capture_eligibility(
+                self.connection,
+                member["capture_id"],
+                self.authority,
+                history=history,
+                profile=self.profile,
+            )
         publication, raw = self._publication(publication_id)
         current = read_confined(
             root=self.profile.root,

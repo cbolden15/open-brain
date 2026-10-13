@@ -22,6 +22,7 @@ from open_brain_collector.runner import (
     DispatchingSourceRuntime,
     FixtureSourceRuntime,
     collector_capture_sink,
+    collector_revision_sink,
 )
 from open_brain_collector.service import CollectorLaunchdServiceManager, CollectorServiceError
 from open_brain_connectors.runtime.connectors import ConnectorContractError
@@ -160,9 +161,21 @@ def main(argv: Sequence[str] | None = None) -> int:
             elif command == "custody-retry":
                 if args.brain_root is None:
                     raise LiveSourceError("source_brain_unavailable")
+                receipt_id = cast(str, args.receipt_id)
+                try:
+                    saved_revision = cast(str, controller.custody_inspect(receipt_id)["item_id"]
+                                          ).startswith("connector.saved_markdown.")
+                except LiveSourceError:
+                    # The retry operation owns missing-receipt refusal.
+                    saved_revision = False
                 result = controller.retry(
-                    cast(str, args.receipt_id),
-                    EngineCaptureSink(collector_capture_sink(Path(cast(str, args.brain_root)))),
+                    receipt_id,
+                    (collector_revision_sink(
+                        Path(cast(str, args.brain_root)),
+                        Path(cast(str, args.state)).parent / "revisions",
+                    ) if saved_revision
+                     else EngineCaptureSink(collector_capture_sink(
+                         Path(cast(str, args.brain_root))))),
                 )
                 print(json.dumps(result, sort_keys=True))
                 return 0

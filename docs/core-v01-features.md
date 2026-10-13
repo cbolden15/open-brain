@@ -11,15 +11,17 @@ Local documentation checks do not promote catalog acceptance.
 | Coordinate | Candidate value | Meaning |
 |---|---|---|
 | Core / engine package | `0.1.0` / exactly `0.1.0` | Core requires the matching engine |
-| Local state schema | `7` | Older incompatible writers must refuse |
-| Runtime session | `2` | Stop old sessions and upgrade clients together |
+| Local state schema | `14` | Older incompatible writers must refuse |
+| Runtime session | `9` | Stop old sessions and upgrade clients together |
 | Task contract | `t03.v1` | Negotiated search/read/history/source-route DTOs |
 | Catalog schema | `2` | Joined implementation, package, authorization and acceptance metadata |
 | Plugin bridge | `1` | Existing bounded inherited-stdio envelope |
-| Portable metadata | `4` | Versioned evidence; distinct from live database schema |
+| Portable metadata | `9` | Versioned evidence; distinct from live database schema |
 
-Supported Portable 1–3 imports remain implementation compatibility; Portable 4 restore is outside
-this scope. A catalog version is not a protocol or database upgrade instruction.
+Supported Portable 1–3 imports remain implementation compatibility; standalone Portable 4 import
+is refused. Portable 7 clean restore preserves current identity, privacy, issuer, managed source and sharing
+evidence. [Portable 9](portable-brain-v9.md) adds explicitly versioned retained import evidence
+and mixed historical operations. A catalog version is not a protocol or database upgrade instruction.
 
 ## Surface and claim boundaries
 
@@ -30,7 +32,7 @@ this scope. A catalog version is not a protocol or database upgrade instruction.
 | Retrieval | Lexical search, paged filters, complete projected reads, retained history and explicit relationships | Independent content/history grants for MCP; cursors can become stale |
 | Managed vault | `workspace setup`, `status`, `refresh`; approved canonical pages | Sibling `Open Brain Vault`; routing alone does not publish; no `vault` CLI |
 | Agent memory | Claude Code and Codex preview/apply/remove through `agent setup` | Nine independent grants, off by default; synthetic setup proof is not live client/provider acceptance |
-| MCP | Foreground stdio; `tools/list`, `brain_catalog`, grant-filtered callable tools | No-grant startup refused; metadata does not grant operations |
+| MCP | Foreground stdio; `tools/list`, `brain_catalog`, grant-filtered callable tools; optional whole-session launcher policy and durable external-provider consent | No-grant startup refused; authority is the intersection of policy, selected flags, injected implementations, and the scoped-safe matrix; live revocation terminates the process |
 | Obsidian | Packaged desktop plugin, explicit staging/activation, existing capture/routing/review/read workflow | Assets and bridge registration do not prove UI use; exact-candidate GUI gate remains open |
 | Graphify | Separately packaged structural helper | Paired resource; rebuildable graph is not source evidence |
 | Direct-provider graph refresh | Existing consent-gated adapters | Authorization/readiness unassessed; distinct from deferred semantic recall; no provider readiness claim |

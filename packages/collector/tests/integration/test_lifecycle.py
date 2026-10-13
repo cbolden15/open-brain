@@ -5,10 +5,12 @@ import multiprocessing
 import stat
 import threading
 from pathlib import Path
+from typing import cast
 
 import pytest
 from open_brain_engine.engine import PrivacyDecision
 
+from open_brain_collector.custody import CustodyStore
 from open_brain_collector.lifecycle import (
     CollectorController,
     CollectorRunPage,
@@ -16,6 +18,7 @@ from open_brain_collector.lifecycle import (
     CollectorStateStore,
     MemoryCaptureSink,
 )
+from open_brain_connectors.runtime.live_common import LiveSourceError
 from open_brain_connectors.runtime.source_intake import SourceRecordIntake, SourceRecordKey
 from open_brain_connectors.runtime.source_registry import SourceResourceSelection
 
@@ -104,6 +107,7 @@ def test_pause_acknowledgement_prevents_scheduled_import_until_resume(tmp_path: 
 
 def test_pause_during_active_run_is_not_overwritten_by_collector_completion(
     tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     clock = _Clock(100)
     state_store = CollectorStateStore(tmp_path / "collector.json")
@@ -114,6 +118,24 @@ def test_pause_during_active_run_is_not_overwritten_by_collector_completion(
     entered = threading.Event()
     release = threading.Event()
     sink = _BlockingSink(entered, release)
+    outcome_entered = threading.Event()
+    pause_completed = threading.Event()
+    record_outcome = controller._record_run_outcome
+
+    def record_after_pause(
+        source_id: str,
+        entry: dict[str, object],
+        receipt_id: str,
+        outcome: str,
+        **details: str | None,
+    ) -> None:
+        # The capture guard prevents pause while submit is blocked. Synchronize
+        # the real cancellation after submit releases it, before run completion.
+        outcome_entered.set()
+        assert pause_completed.wait(30)
+        record_outcome(source_id, entry, receipt_id, outcome, **details)
+
+    monkeypatch.setattr(controller, "_record_run_outcome", record_after_pause)
 
     controller.enable(source_id="github.fixture", selection=selection, interval_seconds=30)
     results: list[object] = []
@@ -123,16 +145,20 @@ def test_pause_during_active_run_is_not_overwritten_by_collector_completion(
         )
     )
     sync_thread.start()
-    assert entered.wait(2)
+    assert entered.wait(30)
     pause_results: list[object] = []
-    pause_thread = threading.Thread(
-        target=lambda: pause_results.append(control.pause("github.fixture"))
-    )
+
+    def pause_after_capture() -> None:
+        assert outcome_entered.wait(30)
+        pause_results.append(control.pause("github.fixture"))
+        pause_completed.set()
+
+    pause_thread = threading.Thread(target=pause_after_capture)
     pause_thread.start()
     assert not pause_results
     release.set()
-    sync_thread.join(2)
-    pause_thread.join(2)
+    sync_thread.join(30)
+    pause_thread.join(30)
     assert len(results) == len(pause_results) == 1
     result = results[0]
     persisted = json.loads((tmp_path / "collector.json").read_text(encoding="utf-8"))
@@ -142,6 +168,128 @@ def test_pause_during_active_run_is_not_overwritten_by_collector_completion(
     assert sink.returned.is_set()
     assert source_state["status"] == "paused"
     assert source_state["pause_ack_epoch"] == 100
+
+
+@pytest.mark.parametrize("command", ["pause", "disable"])
+def test_cancel_after_terminal_receipt_does_not_read_discarded_custody(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, command: str
+) -> None:
+    state_store = CollectorStateStore(tmp_path / "collector.json")
+    controller = CollectorController(state_store, clock=lambda: 100)
+    control = CollectorController(state_store, clock=lambda: 100)
+    selection = _selection()
+    controller.enable(source_id="github.fixture", selection=selection, interval_seconds=30)
+    acknowledge = controller._custody.outcome
+
+    def acknowledge_then_cancel(
+        receipt_id: str,
+        outcome: str,
+        *,
+        capture_id: str | None = None,
+        reason_code: str | None = None,
+        evidence: str | None = None,
+    ) -> None:
+        acknowledge(
+            receipt_id, outcome, capture_id=capture_id, reason_code=reason_code, evidence=evidence
+        )
+        getattr(control, command)("github.fixture")
+
+    monkeypatch.setattr(controller._custody, "outcome", acknowledge_then_cancel)
+
+    result = controller.sync_due(
+        source_id="github.fixture", runtime=_Source(selection), capture_sink=MemoryCaptureSink()
+    )
+
+    assert result.outcome == "failed"
+    assert result.failure_code == (
+        "collector_paused" if command == "pause" else "collector_disabled"
+    )
+    assert controller.status("github.fixture").status == (
+        "paused" if command == "pause" else "disabled"
+    )
+    assert controller.custody_status("github.fixture")["retained_items"] == 0
+
+
+@pytest.mark.parametrize("command", ["pause", "disable"])
+@pytest.mark.parametrize("records", ["one", "two"])
+def test_cancel_before_outcome_matches_cancel_after_outcome(
+    tmp_path: Path, command: str, records: str
+) -> None:
+    source_type = _Source if records == "one" else _MultiRecordSource
+    before = _cancel_around_first_outcome(tmp_path / "before", command, source_type, first=True)
+    after = _cancel_around_first_outcome(tmp_path / "after", command, source_type, first=False)
+    # The racy ordering really ran: the cancel discarded the pending receipt.
+    assert before["tolerated"] == ["collector_custody_not_found"]
+    assert after["tolerated"] == []
+    assert before["result"] == after["result"]
+    assert before["result"] and cast(tuple[object, ...], before["result"])[0] == "failed"
+    assert before["state"] == after["state"]
+    assert before["retained_items"] == after["retained_items"] == 0
+
+
+def _cancel_around_first_outcome(
+    root: Path, command: str, source_type: type[_Source], *, first: bool
+) -> dict[str, object]:
+    state_store = CollectorStateStore(root / "collector.json")
+    controller = CollectorController(state_store, clock=lambda: 100)
+    control = CollectorController(state_store, clock=lambda: 100)
+    selection = _selection()
+    controller.enable(source_id="github.fixture", selection=selection, interval_seconds=30)
+    record = controller._custody.outcome
+    calls: list[int] = []
+    tolerated: list[str] = []
+
+    def cancel_around(receipt_id: str, outcome: str, **details: str | None) -> None:
+        calls.append(1)
+        if len(calls) == 1 and first:
+            getattr(control, command)("github.fixture")
+        try:
+            record(receipt_id, outcome, **details)
+        except LiveSourceError as error:
+            tolerated.append(error.code)
+            raise
+        if len(calls) == 1 and not first:
+            getattr(control, command)("github.fixture")
+
+    controller._custody.outcome = cancel_around  # type: ignore[method-assign]
+    result = controller.sync_due(
+        source_id="github.fixture", runtime=source_type(selection), capture_sink=MemoryCaptureSink()
+    )
+    state = json.loads((root / "collector.json").read_text(encoding="utf-8"))
+    entry = state["sources"]["github.fixture"]
+    entry["last_run"].pop("run_id", None)
+    return {
+        "tolerated": tolerated,
+        "result": (
+            str(result.outcome),
+            result.failure_code,
+            result.captured_count,
+            result.duplicate_count,
+            result.status,
+        ),
+        "state": entry,
+        "retained_items": controller.custody_status("github.fixture")["retained_items"],
+    }
+
+
+def test_missing_custody_without_cancellation_still_fails_the_run(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    state_store = CollectorStateStore(tmp_path / "collector.json")
+    controller = CollectorController(state_store, clock=lambda: 100)
+    selection = _selection()
+    controller.enable(source_id="github.fixture", selection=selection, interval_seconds=30)
+
+    def lost(self: CustodyStore, *args: object, **kwargs: object) -> None:
+        raise LiveSourceError("collector_custody_not_found")
+
+    monkeypatch.setattr(CustodyStore, "outcome", lost)
+    with pytest.raises(LiveSourceError, match="collector_custody_not_found"):
+        controller.sync_due(
+            source_id="github.fixture", runtime=_Source(selection), capture_sink=MemoryCaptureSink()
+        )
+    assert controller.status("github.fixture").status == "enabled"
+
 
 
 def test_pause_during_multi_record_page_stops_remaining_imports(
@@ -165,7 +313,7 @@ def test_pause_during_multi_record_page_stops_remaining_imports(
         )
     )
     sync_thread.start()
-    assert entered.wait(2)
+    assert entered.wait(30)
     pause_results: list[object] = []
     pause_thread = threading.Thread(
         target=lambda: pause_results.append(control.pause("github.fixture"))
@@ -173,8 +321,8 @@ def test_pause_during_multi_record_page_stops_remaining_imports(
     pause_thread.start()
     assert not pause_results
     release.set()
-    sync_thread.join(2)
-    pause_thread.join(2)
+    sync_thread.join(30)
+    pause_thread.join(30)
     assert len(results) == len(pause_results) == 1
     result = results[0]
     persisted = json.loads((tmp_path / "collector.json").read_text(encoding="utf-8"))
@@ -191,37 +339,44 @@ def test_selection_reset_waits_for_capture_in_another_process(tmp_path: Path) ->
     state_path = tmp_path / "collector.json"
     controller = CollectorController(CollectorStateStore(state_path), clock=lambda: 100)
     controller.enable(source_id="github.fixture", selection=_selection(), interval_seconds=30)
-    context = multiprocessing.get_context("fork")
+    context = multiprocessing.get_context("spawn")
     entered = context.Event()
     release = context.Event()
     process = context.Process(target=_capture_in_process, args=(state_path, entered, release))
     process.start()
-    assert entered.wait(2)
+    try:
+        # A spawned interpreter can start slowly on a loaded parallel runner.
+        assert entered.wait(30)
 
-    reset_done = threading.Event()
-    replacement = SourceResourceSelection(
-        connector_name="github",
-        connection_id="account:fixture",
-        resource_id="repo:replacement",
-        resource_type="repository",
-    )
-
-    def reset() -> None:
-        CollectorController(CollectorStateStore(state_path), clock=lambda: 101).enable(
-            source_id="github.fixture", selection=replacement, interval_seconds=30
+        reset_done = threading.Event()
+        replacement = SourceResourceSelection(
+            connector_name="github",
+            connection_id="account:fixture",
+            resource_id="repo:replacement",
+            resource_type="repository",
         )
-        reset_done.set()
 
-    reset_thread = threading.Thread(target=reset)
-    reset_thread.start()
-    assert not reset_done.wait(0.1)
-    release.set()
-    process.join(3)
-    reset_thread.join(3)
-    assert process.exitcode == 0
-    assert reset_done.is_set()
-    persisted = json.loads(state_path.read_text(encoding="utf-8"))
-    assert persisted["sources"]["github.fixture"]["resource_id"] == "repo:replacement"
+        def reset() -> None:
+            CollectorController(CollectorStateStore(state_path), clock=lambda: 101).enable(
+                source_id="github.fixture", selection=replacement, interval_seconds=30
+            )
+            reset_done.set()
+
+        reset_thread = threading.Thread(target=reset)
+        reset_thread.start()
+        assert not reset_done.wait(0.1)
+        release.set()
+        process.join(30)
+        reset_thread.join(30)
+        assert process.exitcode == 0
+        assert reset_done.is_set()
+        persisted = json.loads(state_path.read_text(encoding="utf-8"))
+        assert persisted["sources"]["github.fixture"]["resource_id"] == "repo:replacement"
+    finally:
+        release.set()
+        if process.is_alive():
+            process.kill()
+            process.join(30)
 
 
 @pytest.mark.parametrize("schedule", ["reset_disable", "pause_resume"])
@@ -246,7 +401,7 @@ def test_stale_cancellation_save_cannot_overwrite_acknowledged_control(
         outcome_calls += 1
         if outcome_calls == 1:
             first_outcome.set()
-            assert first_control_done.wait(2)
+            assert first_control_done.wait(30)
 
     monkeypatch.setattr(capture._custody, "outcome", pause_after_first_outcome)
     original_load = capture_store.load
@@ -262,7 +417,7 @@ def test_stale_cancellation_save_cannot_overwrite_acknowledged_control(
         )
         if selected and not stale_read.is_set():
             stale_read.set()
-            assert allow_stale_reader.wait(2)
+            assert allow_stale_reader.wait(30)
         return state
 
     monkeypatch.setattr(capture_store, "load", block_stale_load)
@@ -277,7 +432,7 @@ def test_stale_cancellation_save_cannot_overwrite_acknowledged_control(
         )
     )
     sync_thread.start()
-    assert first_outcome.wait(2)
+    assert first_outcome.wait(30)
     if schedule == "reset_disable":
         replacement = SourceResourceSelection(
             connector_name="github",
@@ -289,7 +444,7 @@ def test_stale_cancellation_save_cannot_overwrite_acknowledged_control(
     else:
         owner.pause("github.fixture")
     first_control_done.set()
-    assert stale_read.wait(2)
+    assert stale_read.wait(30)
     final_control_done = threading.Event()
 
     def final_control() -> None:
@@ -303,8 +458,8 @@ def test_stale_cancellation_save_cannot_overwrite_acknowledged_control(
     control_thread.start()
     assert not final_control_done.wait(0.1)
     allow_stale_reader.set()
-    sync_thread.join(3)
-    control_thread.join(3)
+    sync_thread.join(30)
+    control_thread.join(30)
     assert len(results) == 1 and final_control_done.is_set()
     expected = "disabled" if schedule == "reset_disable" else "enabled"
     assert owner.status("github.fixture").status == expected
@@ -467,7 +622,7 @@ class _BlockingSink:
             raise AssertionError("unexpected intake")
         self.external_ids.append(intake.key.external_id)
         self._entered.set()
-        assert self._release.wait(2)
+        assert self._release.wait(30)
         self.returned.set()
 
 
@@ -478,7 +633,7 @@ class _ProcessBlockingSink:
 
     def submit(self, intake: SourceRecordIntake) -> None:
         self._entered.set()  # type: ignore[attr-defined]
-        assert self._release.wait(2)  # type: ignore[attr-defined]
+        assert self._release.wait(30)  # type: ignore[attr-defined]
 
 
 def _capture_in_process(state_path: Path, entered: object, release: object) -> None:

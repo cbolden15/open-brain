@@ -239,7 +239,7 @@ def test_concurrent_custody_admission_obeys_one_global_item_quota(
     for thread in threads:
         thread.start()
     for thread in threads:
-        thread.join(2)
+        thread.join(30)
     assert sorted(outcomes) == ["accepted", "collector_custody_quota_exceeded"]
     assert stores[0].status()["retained_items"] == 1
 

@@ -12,6 +12,7 @@ import threading
 import time
 from collections.abc import Callable, Iterator
 from contextlib import ExitStack, contextmanager, suppress
+from contextvars import ContextVar
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -72,6 +73,10 @@ _LOCK_FILE_NAMES = frozenset(
 )
 _PROCESS_HELD_LOCKS: set[tuple[int, int, str]] = set()
 _PROCESS_HELD_LOCKS_GUARD = threading.Lock()
+_TRANSACTION_WRITERS: dict[tuple[int, int, str], HeldWriterLease] = {}
+_BORROWED_WRITER: ContextVar[HeldWriterLease | None] = ContextVar(
+    "borrowed_canonical_writer", default=None
+)
 
 
 @dataclass(slots=True)
@@ -229,6 +234,71 @@ class LockStateSnapshot:
             )
 
 
+class HeldWriterLease:
+    """Lifetime-bound writer ownership; borrowing never opens its lock inode."""
+
+    def __init__(
+        self, lease: FileLease, key: tuple[int, int, str], directory: int, descriptor: int
+    ) -> None:
+        self._lease = lease
+        self._key = key
+        self._directory = directory
+        self._descriptor = descriptor
+        self._pid = os.getpid()
+        self._thread = threading.get_ident()
+        self._active = True
+
+    def validate(self) -> None:
+        if (
+            not self._active
+            or self._pid != os.getpid()
+            or self._thread != threading.get_ident()
+        ):
+            raise LeaseFormatError("invalid held writer ownership")
+        with _PROCESS_HELD_LOCKS_GUARD:
+            if (
+                _TRANSACTION_WRITERS.get(self._key) is not self
+                or self._key not in _PROCESS_HELD_LOCKS
+            ):
+                raise LeaseFormatError("invalid held writer ownership")
+        root = self._lease._open_lease_root()
+        try:
+            metadata = os.fstat(root)
+            held = os.fstat(self._descriptor)
+            observed = os.stat(
+                "lease.shared-writer", dir_fd=self._directory, follow_symlinks=False
+            )
+            directory = os.stat(".open-brain-locks", dir_fd=root, follow_symlinks=False)
+            original_directory = os.fstat(self._directory)
+            if (
+                (metadata.st_dev, metadata.st_ino) != self._key[:2]
+                or (observed.st_dev, observed.st_ino) != (held.st_dev, held.st_ino)
+                or (directory.st_dev, directory.st_ino)
+                != (original_directory.st_dev, original_directory.st_ino)
+                or not stat.S_ISREG(observed.st_mode)
+                or stat.S_IMODE(observed.st_mode) != 0o600
+                or observed.st_nlink != 1
+            ):
+                raise LeaseFormatError("held writer identity changed")
+        except OSError:
+            raise LeaseFormatError("held writer is unavailable") from None
+        finally:
+            os.close(root)
+
+    @contextmanager
+    def borrow(self) -> Iterator[None]:
+        """Opt into same-thread, same-root borrowing for one synchronous operation."""
+        self.validate()
+        if _BORROWED_WRITER.get() is not None:
+            raise LeaseFormatError("writer borrowing is already active")
+        token = _BORROWED_WRITER.set(self)
+        try:
+            yield
+            self.validate()
+        finally:
+            _BORROWED_WRITER.reset(token)
+
+
 class FileLease:
     """Root-confined POSIX record lock with observational descriptor metadata."""
 
@@ -283,6 +353,12 @@ class FileLease:
         """Share the Brain fence with readers while excluding every writer."""
         if self._validate_acquire is not None:
             self._validate_acquire()
+        if self._borrow_writer(LockScope.SHARED_WRITER):
+            yield
+            if self._validate_acquire is not None:
+                self._validate_acquire()
+            self._borrow_writer(LockScope.SHARED_WRITER)
+            return
         _require_record_lock_support()
         root_fd = self._open_lease_root()
         lock_directory_fd = -1
@@ -477,9 +553,48 @@ class FileLease:
 
     @contextmanager
     def acquire(self, scope: LockScope) -> Iterator[None]:
+        with self._acquire(scope):
+            yield
+
+    @contextmanager
+    def hold_writer_transaction(self) -> Iterator[HeldWriterLease]:
+        """Own one exclusive writer while explicitly borrowed SDK calls run inside it."""
+        if _BORROWED_WRITER.get() is not None:
+            raise LeaseFormatError("nested writer transaction")
+        with self._acquire(LockScope.SHARED_WRITER, transaction=True) as held:
+            assert held is not None
+            yield held
+
+    def _borrow_writer(self, scope: LockScope) -> bool:
+        held = _BORROWED_WRITER.get()
+        if held is None or scope is not LockScope.SHARED_WRITER:
+            return False
+        held.validate()
+        root = self._open_lease_root()
+        try:
+            metadata = os.fstat(root)
+            if (
+                self._required_root_mode is not None
+                and stat.S_IMODE(metadata.st_mode) != self._required_root_mode
+            ):
+                raise RootConfinementError("unsafe lease root mode")
+            return (metadata.st_dev, metadata.st_ino) == held._key[:2]
+        finally:
+            os.close(root)
+
+    @contextmanager
+    def _acquire(
+        self, scope: LockScope, *, transaction: bool = False
+    ) -> Iterator[HeldWriterLease | None]:
         discriminator = self._discriminator(scope)
         if self._validate_acquire is not None:
             self._validate_acquire()
+        if not transaction and self._borrow_writer(scope):
+            yield None
+            if self._validate_acquire is not None:
+                self._validate_acquire()
+            self._borrow_writer(scope)
+            return
         _require_record_lock_support()
         root_fd = self._open_lease_root()
         lock_directory_fd = -1
@@ -487,6 +602,7 @@ class FileLease:
         held_key: tuple[int, int, str] | None = None
         kernel_lock_acquired = False
         process_lock_registered = False
+        held_writer: HeldWriterLease | None = None
         try:
             root_metadata = os.fstat(root_fd)
             if (
@@ -536,13 +652,21 @@ class FileLease:
                 os.fsync(lock_directory_fd)
             if self._validate_acquire is not None:
                 self._validate_acquire()
-            yield
+            if transaction:
+                assert held_key is not None
+                held_writer = HeldWriterLease(self, held_key, lock_directory_fd, lock_fd)
+                with _PROCESS_HELD_LOCKS_GUARD:
+                    _TRANSACTION_WRITERS[held_key] = held_writer
+            yield held_writer
         except LeaseError, StorageError:
             raise
         except OSError:
             raise DurabilityError("lease operation failed") from None
         finally:
             with _PROCESS_HELD_LOCKS_GUARD:
+                if held_writer is not None:
+                    held_writer._active = False
+                    _TRANSACTION_WRITERS.pop(held_writer._key, None)
                 if kernel_lock_acquired and lock_fd >= 0:
                     with suppress(OSError):
                         fcntl.lockf(lock_fd, fcntl.LOCK_UN)

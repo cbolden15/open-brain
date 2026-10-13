@@ -14,11 +14,12 @@ from open_brain_engine.engine import (
     TextPayload,
     open_local_engine,
 )
+from open_brain_engine.engine.local_schema import open_local_database_read_only
 from open_brain_engine.engine.materializer import materialize_portable_root
 from open_brain_engine.portable import validate_portable_root
 from open_brain_engine.portable.versioned import validated_portable_snapshot
 
-from open_brain.profile import compile_single_user_local
+from open_brain.profile import compile_single_user_local, open_existing_single_user_local
 from open_brain.services.review_publication import ReviewPublicationError, ReviewPublicationService
 
 
@@ -147,6 +148,15 @@ def test_patch_edit_uses_explicit_replacement_body_and_export_retains_binding(
         }
     )
     assert "Owner-edited replacement" in path.read_text()
+    with open_local_database_read_only(open_existing_single_user_local(root)) as connection:
+        expected_sources = [tuple(row) for row in connection.execute(
+            "SELECT capture_id,ordinal FROM review_sources WHERE proposal_id=? ORDER BY ordinal",
+            (proposed["proposal_id"],),
+        )]
+        expected_heads = [tuple(row) for row in connection.execute(
+            "SELECT * FROM review_page_heads ORDER BY page_id"
+        )]
+    assert source_id in {row[0] for row in expected_sources}
     exported = tmp_path / "exported"
     tasks.portability.export(exported, export_id="export_2b5f2d12-59ee-4f04-9a8b-7f6bbd9c1bd4")
     assert cast(int, validate_portable_root(exported)["schema_version"]) >= 3
@@ -155,4 +165,13 @@ def test_patch_edit_uses_explicit_replacement_body_and_export_retains_binding(
     materialized = materialize_portable_root(
         exported, snapshot=snapshot, expected_root_identity=snapshot.root_identity
     )
+    with open_local_database_read_only(materialized.profile) as connection:
+        assert connection.execute("PRAGMA foreign_key_check").fetchall() == []
+        assert [tuple(row) for row in connection.execute(
+            "SELECT capture_id,ordinal FROM review_sources WHERE proposal_id=? ORDER BY ordinal",
+            (proposed["proposal_id"],),
+        )] == expected_sources
+        assert [tuple(row) for row in connection.execute(
+            "SELECT * FROM review_page_heads ORDER BY page_id"
+        )] == expected_heads
     assert materialized.profile.root == exported

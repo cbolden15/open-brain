@@ -219,6 +219,30 @@ def _write_all(file_fd: int, data: bytes) -> None:
         remaining = remaining[written:]
 
 
+def _storage_write_lock(root_fd: int, parts: tuple[str, ...]) -> int:
+    """Keep operational writes and their lock outside Portable inventories.
+
+    All atomic operations on the same path select the same lock domain. Data
+    paths retain their historical root lock; operational paths use the confined
+    operational directory. Both domains remain bound to the original root fd.
+    """
+    operational = -1
+    try:
+        if parts[0] == ".open-brain":
+            operational = _open_child_directory(root_fd, ".open-brain", create=True)
+        directory = root_fd if operational < 0 else operational
+        try:
+            return os.open(".write.lock", _FILE_CREATE_FLAGS, 0o600, dir_fd=directory)
+        except FileExistsError:
+            try:
+                return os.open(".write.lock", os.O_RDWR | os.O_NOFOLLOW, dir_fd=directory)
+            except OSError:
+                raise RootConfinementError("unsafe storage lock") from None
+    finally:
+        if operational >= 0:
+            os.close(operational)
+
+
 def atomic_write_new(
     *,
     root: Path,
@@ -234,13 +258,7 @@ def atomic_write_new(
     parent_fd = -1
     temp_name: str | None = None
     try:
-        try:
-            lock_fd = os.open(".write.lock", _FILE_CREATE_FLAGS, 0o600, dir_fd=root_fd)
-        except FileExistsError:
-            try:
-                lock_fd = os.open(".write.lock", os.O_RDWR | os.O_NOFOLLOW, dir_fd=root_fd)
-            except OSError:
-                raise RootConfinementError("unsafe storage lock") from None
+        lock_fd = _storage_write_lock(root_fd, parts)
         fcntl.flock(lock_fd, fcntl.LOCK_EX)
         parent_fd = _open_parent(root_fd, parts[:-1], create=True)
         existing = _existing_bytes(parent_fd, parts[-1])
@@ -304,13 +322,7 @@ def atomic_replace(
     parent_fd = -1
     temp_name: str | None = None
     try:
-        try:
-            lock_fd = os.open(".write.lock", _FILE_CREATE_FLAGS, 0o600, dir_fd=root_fd)
-        except FileExistsError:
-            try:
-                lock_fd = os.open(".write.lock", os.O_RDWR | os.O_NOFOLLOW, dir_fd=root_fd)
-            except OSError:
-                raise RootConfinementError("unsafe storage lock") from None
+        lock_fd = _storage_write_lock(root_fd, parts)
         fcntl.flock(lock_fd, fcntl.LOCK_EX)
         parent_fd = _open_parent(root_fd, parts[:-1], create=True)
         existing = _existing_bytes(parent_fd, parts[-1])
@@ -526,13 +538,7 @@ def confined_unlink(
     lock_fd = -1
     parent_fd = -1
     try:
-        try:
-            lock_fd = os.open(".write.lock", _FILE_CREATE_FLAGS, 0o600, dir_fd=root_fd)
-        except FileExistsError:
-            try:
-                lock_fd = os.open(".write.lock", os.O_RDWR | os.O_NOFOLLOW, dir_fd=root_fd)
-            except OSError:
-                raise RootConfinementError("unsafe storage lock") from None
+        lock_fd = _storage_write_lock(root_fd, parts)
         fcntl.flock(lock_fd, fcntl.LOCK_EX)
         try:
             parent_fd = _open_parent(root_fd, parts[:-1], create=False)

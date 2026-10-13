@@ -17,21 +17,58 @@ const platformByTarget = {
 const platform = platformByTarget[target];
 if (platform === undefined) throw new Error(`unsupported desktop target: ${target}`);
 
-const lines = (await readFile(releaseManifest, "ascii")).trimEnd().split("\n");
+const manifestText = await readFile(releaseManifest, "utf8");
+if (/[^\x00-\x7f]/.test(manifestText)) {
+  throw new Error("invalid Open Brain component manifest encoding");
+}
+const lines = manifestText.split(/\r\n|\n|\r/);
+if (lines.at(-1) === "") lines.pop();
 if (lines[0] !== "open-brain-component-manifest-v1") {
   throw new Error("invalid Open Brain component manifest");
 }
 const versionFields = lines[1]?.split(" ");
-if (versionFields?.length !== 2 || versionFields[0] !== "version") {
+if (versionFields?.length !== 2 || versionFields[0] !== "version"
+    || !/^[0-9A-Za-z][0-9A-Za-z._-]*$/.test(versionFields[1])) {
   throw new Error("invalid Open Brain component version");
 }
-const components = new Map();
+const destinations = new Map([
+  ["base", "bin/open-brain"],
+  ["graphify", "libexec/open-brain-graphify"],
+  ["harness", "libexec/open-brain-harness/open-brain-harness"],
+]);
+const roles = ["base", "graphify", "harness"];
+const resources = new Map();
+let previousKey = "";
 for (const line of lines.slice(2)) {
   const fields = line.split(" ");
-  if (fields.length !== 7 || fields[0] !== "resource" || fields[2] !== platform) continue;
-  components.set(fields[1], { executableSha256: fields[4] });
+  const [record, role, resourcePlatform, archiveSha256, executableSha256, filename, destination] = fields;
+  const archive = filename?.match(
+    /^open-brain-(?:(graphify|harness)-)?([0-9A-Za-z][0-9A-Za-z._-]*)-(linux-x86_64|macos-arm64)\.tar\.gz$/,
+  );
+  if (fields.length !== 7 || record !== "resource" || !destinations.has(role)
+      || !Object.values(platformByTarget).includes(resourcePlatform)
+      || !/^[0-9a-f]{64}$/.test(archiveSha256)
+      || !/^[0-9a-f]{64}$/.test(executableSha256)
+      || destination !== destinations.get(role) || archive === null || archive === undefined
+      || (archive[1] ?? "base") !== role || archive[2] !== versionFields[1]
+      || archive[3] !== resourcePlatform) {
+    throw new Error("invalid Open Brain component resource");
+  }
+  const key = `${resourcePlatform}:${roles.indexOf(role)}`;
+  if (key <= previousKey) {
+    throw new Error("duplicate or noncanonical Open Brain component resource");
+  }
+  previousKey = key;
+  if (!resources.has(resourcePlatform)) resources.set(resourcePlatform, new Map());
+  resources.get(resourcePlatform).set(role, { executableSha256 });
 }
-if (!components.has("base") || !components.has("graphify") || components.size !== 2) {
+const resourceSets = new Set([...resources.values()].map((items) => [...items.keys()].join(",")));
+if (resourceSets.size !== 1
+    || !["base,graphify", "base,graphify,harness"].includes([...resourceSets][0])) {
+  throw new Error("invalid Open Brain component resource sets");
+}
+const components = resources.get(platform);
+if (!components?.has("base") || !components.has("graphify")) {
   throw new Error("the desktop runtime requires one matched base and Graphify pair");
 }
 
