@@ -150,10 +150,13 @@ class FacetAppAdapter:
     # An additional MCP restriction, including when legacy setup supplies owner authority.
     # None preserves existing construction; CLI dispatch uses trusted authority directly.
     granted_capabilities: frozenset[str] | None = None
+    revalidate_authority: Callable[[], EffectiveAuthority] | None = None
 
     def __post_init__(self) -> None:
         if not isinstance(self.authority, EffectiveAuthority):
             raise ValueError("invalid facet authority")
+        if self.revalidate_authority is not None and not callable(self.revalidate_authority):
+            raise ValueError("invalid facet authority revalidator")
         if self.granted_capabilities is not None and (
             type(self.granted_capabilities) is not frozenset
             or any(type(grant) is not str for grant in self.granted_capabilities)
@@ -167,6 +170,7 @@ class FacetAppAdapter:
         return candidate if callable(candidate) else None
 
     def available_operations(self, *, transport: str = "mcp") -> tuple[str, ...]:
+        self._revalidate()
         if transport not in {"mcp", "cli"}:
             raise fc.FacetError("invalid_arguments")
         return tuple(
@@ -182,6 +186,13 @@ class FacetAppAdapter:
             and (not operation.startswith("facet.vault.") or self.authority.owner)
             and self._method(operation) is not None
         )
+
+    def _revalidate(self) -> None:
+        if (
+            self.revalidate_authority is not None
+            and self.revalidate_authority() is not self.authority
+        ):
+            raise ValueError("facet session authority changed")
 
     def tool_definitions(self) -> tuple[dict[str, object], ...]:
         """Return only MCP tools with both grants and an implementation callable."""
@@ -282,6 +293,9 @@ class FacetAppAdapter:
         if bare_size > cap or wrapped_size > maximum_response_bytes:
             raise fc.FacetError("response_too_large")
         self.budget.commit(bucket, wrapped_size)
+        # Consent and launcher policy can change while the task runs. Recheck
+        # at the output boundary before any result leaves this adapter.
+        self._revalidate()
         return result
 
 

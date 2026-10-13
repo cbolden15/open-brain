@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import cast
 
@@ -23,6 +23,7 @@ from open_brain.services.facets import (
     facet_grants_from_namespace,
     facet_mcp_operation,
 )
+from open_brain.services.launcher_policy import LauncherPolicyError
 from open_brain.services.mcp_protocol import encoded_tool_response_size
 from open_brain.services.t03_adapters import T03SessionBudget
 from packages.app.tests.facet_fake import FakeFacetEngine
@@ -63,6 +64,55 @@ def authority(*grants: str, owner: bool = False) -> EffectiveAuthority:
 
 def adapter(fake: FakeFacetEngine, auth: EffectiveAuthority) -> FacetAppAdapter:
     return FacetAppAdapter(fake, auth, publication=fake, vault=fake)
+
+
+def test_stale_policy_blocks_discovery_and_dispatch_before_parsing_or_effects() -> None:
+    fake = FakeFacetEngine()
+    auth = authority("facet-catalog-write")
+
+    def stale() -> EffectiveAuthority:
+        raise LauncherPolicyError("stale_policy")
+
+    app = FacetAppAdapter(fake, auth, revalidate_authority=stale)
+    with pytest.raises(LauncherPolicyError, match="stale_policy"):
+        app.tool_definitions()
+    with pytest.raises(LauncherPolicyError, match="stale_policy"):
+        app.invoke("facet.dimension.create", {"owner": True})
+    assert not fake.calls
+    assert not app.budget.calls
+
+
+def test_policy_revoked_during_handler_cannot_release_result() -> None:
+    fake = FakeFacetEngine()
+    case = ACCEPTED["facet.dimension.create"]
+    fake.configure(case["operation"], case["response"])
+    auth = authority("facet-catalog-write")
+
+    def current() -> EffectiveAuthority:
+        if fake.calls:
+            raise LauncherPolicyError("stale_policy")
+        return auth
+
+    app = FacetAppAdapter(fake, auth, revalidate_authority=current)
+    with pytest.raises(LauncherPolicyError, match="stale_policy"):
+        app.invoke(case["operation"], case["request"])
+    assert len(fake.calls) == 1
+    assert fake.calls[0].authority is auth
+    fake.assert_exhausted()
+
+
+def test_revalidator_must_return_original_authority_identity() -> None:
+    fake = FakeFacetEngine()
+    auth = authority("facet-read")
+    app = FacetAppAdapter(fake, auth, revalidate_authority=lambda: replace(auth))
+    with pytest.raises(ValueError, match="facet session authority changed"):
+        app.tool_definitions()
+    assert not fake.calls
+
+
+def test_invalid_revalidator_is_rejected() -> None:
+    with pytest.raises(ValueError, match="invalid facet authority revalidator"):
+        FacetAppAdapter(FakeFacetEngine(), authority(), revalidate_authority=True)  # type: ignore[arg-type]
 
 
 @pytest.mark.parametrize("operation", tuple(ACCEPTED))
