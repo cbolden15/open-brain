@@ -2262,3 +2262,27 @@ under test.
 
 Discovered: 2026-09-22, full durable-ingestion Phase 1 verification after the fixture's retry window
 expired.
+
+### FACETS-004: Portable-first imports must not initialize the engine
+
+Category: Dependencies.
+
+Symptom: Focused tests pass, but full-suite collection fails while importing Portable v6.
+
+Cause: A top-level import of an engine facet validator initializes engine/__init__.py, which
+loads local composition and imports the partially initialized Portable module again.
+
+Fix: Defer engine validation imports until Portable validation executes. Keep subprocess tests
+for Portable-first, engine-first, and version-dispatch import order. Collection order is not a
+valid dependency boundary. Discovered during the first stage-one integrated full gate, 2026-10-13.
+
+### FACETS-005: MCP discovery applies two authorization filters
+
+Symptom: The injected facet adapter advertises a granted write, but MCP discovery returns only
+brain_catalog and rejects the authorized call as unknown.
+
+Cause: LocalMcpAdapter applies its own scoped operation matrix after collecting adapter tools.
+
+Fix: Route facet names through the injected adapter's capability intersection in both discovery
+and invocation. Keep real-engine grant tests alongside fake transport tests. The independent F15
+suite found this integration gap on 2026-10-13.

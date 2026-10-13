@@ -369,7 +369,8 @@
         "packages/engine/src/open_brain_engine/engine/portable_v6_evidence.py",
         "packages/engine/src/open_brain_engine/engine/portable_v6_restore.py",
         "packages/engine/src/open_brain_engine/portable/facets_v6.py",
-        "packages/engine/tests/contract/test_portable_brain_v6.py"
+        "packages/engine/tests/contract/test_portable_brain_v6.py",
+        "packages/engine/src/open_brain_engine/portable/v6.py"
       ],
       "acceptance_cases": [
         "F17",
@@ -529,7 +530,19 @@
         "packages/engine/src/open_brain_engine/engine/local_schema_catalog.py",
         "packages/app/src/open_brain/services/local_runtime_session.py",
         "packages/app/src/open_brain/services/plugin_bridge.py",
-        "packages/app/src/open_brain/services/t03_adapters.py"
+        "packages/app/src/open_brain/services/t03_adapters.py",
+        "packages/engine/src/open_brain_engine/engine/local_migration.py",
+        "packages/engine/src/open_brain_engine/engine/ingestion_migration.py",
+        "packages/engine/src/open_brain_engine/engine/portable_v5_evidence.py",
+        "packages/engine/src/open_brain_engine/portable/versioned.py",
+        "packages/engine/src/open_brain_engine/portable/v3.py",
+        "packages/engine/src/open_brain_engine/portable/v5.py",
+        "packages/engine/src/open_brain_engine/portable/v6_catalog.py",
+        "packages/engine/src/open_brain_engine/portable/v4.py",
+        "packages/app/tests/integration/services/test_local_entrypoints.py",
+        "docs/engineering/gotchas/README.md",
+        "packages/app/tests/integration/services/test_local_mcp.py",
+        "packages/engine/src/open_brain_engine/engine/markdown_import.py"
       ],
       "acceptance_cases": [
         "F01",
@@ -666,5 +679,10 @@
     "docs/design/facet-task-manifest.json",
     "docs/design/owner-defined-facets-stage-one.md",
     "docs/ai/workstreams/**"
-  ]
+  ],
+  "current_contract_pin": {
+    "commit": "1c14378dc4dc40026c3d2a592b85ae03a43521c1",
+    "contract_revision": "facets-c0-v3",
+    "fixture_manifest_sha256": "781a6b886baf6a904b974eb071ea30a36d2d8ff6d2f10f98fbd6da06de8653ba"
+  }
 }

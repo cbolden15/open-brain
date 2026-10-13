@@ -8,7 +8,7 @@ import re
 import sqlite3
 import unicodedata
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from hashlib import sha256
 from pathlib import Path
 from typing import TYPE_CHECKING, cast
@@ -51,6 +51,7 @@ from .markdown_import_fs import (
     ScanInventory,
     ScanLimitExceeded,
     ScanLimits,
+    ScanOutcome,
     enumerate_markdown,
     pin_import_root,
     read_markdown_candidate,
@@ -212,7 +213,7 @@ class MarkdownImportTasks:
         interrupted: Callable[[], bool],
         progress: Callable[[MarkdownImportProgress], None] | None,
     ) -> ScanInventory:
-        return enumerate_markdown(
+        inventory = enumerate_markdown(
             pinned.descriptor,
             limits=self._scan_limits,
             allow_large_vault=allow_large_vault,
@@ -227,6 +228,50 @@ class MarkdownImportTasks:
                     )
                 )
             ),
+        )
+
+        connection = self._engine._store.connect()
+        try:
+            if connection.execute("PRAGMA user_version").fetchone()[0] < 11:
+                return inventory
+            workspace_roots = [
+                Path(row[0])
+                for row in connection.execute(
+                    "SELECT root_path FROM managed_workspaces WHERE root_path IS NOT NULL"
+                )
+            ]
+            projection_paths = {
+                Path(row[0]) / row[1]
+                for row in connection.execute(
+                    "SELECT w.root_path, p.relative_path FROM facet_projection_state p "
+                    "JOIN managed_workspaces w USING(workspace_id) WHERE w.root_path IS NOT NULL"
+                )
+            }
+        finally:
+            connection.close()
+        kept = []
+        excluded = []
+        for candidate in inventory.candidates:
+            absolute = pinned.snapshot.canonical_path / candidate.relative_path
+            if absolute in projection_paths or any(
+                absolute.is_relative_to(root / "Facets") for root in workspace_roots
+            ):
+                excluded.append(
+                    ScanOutcome(
+                        candidate.relative_path,
+                        "managed_projection",
+                        b"/".join(candidate.raw_parts),
+                        False,
+                    )
+                )
+            else:
+                kept.append(candidate)
+        return replace(
+            inventory,
+            candidates=tuple(kept),
+            outcomes=inventory.outcomes + tuple(excluded),
+            selected_files=len(kept),
+            aggregate_bytes=sum(item.observed.size for item in kept),
         )
 
     def _classify_root(

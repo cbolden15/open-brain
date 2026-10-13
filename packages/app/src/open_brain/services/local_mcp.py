@@ -629,6 +629,9 @@ class LocalMcpAdapter:
 
     def _tool_authorized(self, name: str) -> bool:
         """Intersect trusted authority with the injected, scoped-safe operation matrix."""
+        facet_operation = facet_mcp_operation(name)
+        if facet_operation is not None:
+            return self.facets is not None and facet_operation in self.facets.available_operations()
         if self.authority.owner:
             return True
         if name == "brain_catalog":

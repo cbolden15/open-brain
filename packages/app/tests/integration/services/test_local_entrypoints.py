@@ -1182,7 +1182,7 @@ def test_exact_local_data_journey_bootstraps_without_init_or_background_runtime(
     exported = cast(dict[str, object], json.loads(capsys.readouterr().out))
     assert exported["status"] == "exported"
     assert exported["verification"] == "verified"
-    assert exported["schema_version"] == 5
+    assert exported["schema_version"] == 6
     assert (destination / "portable-manifest.json").is_file()
     assert all((destination / relative).is_file() for relative in V5_SIDECAR_PATHS)
     assert any(

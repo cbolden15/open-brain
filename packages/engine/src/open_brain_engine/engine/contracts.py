@@ -1325,6 +1325,7 @@ class MarkdownImportEntry:
             raise ValueError("invalid Markdown import path")
         if self.reason is not None and self.reason not in {
             "dot_directory",
+            "managed_projection",
             "file_changed",
             "file_too_large",
             "hardlink",
