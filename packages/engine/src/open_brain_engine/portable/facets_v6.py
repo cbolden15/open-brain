@@ -15,12 +15,6 @@ from types import MappingProxyType
 from typing import Any, cast
 
 from open_brain_engine.core.ids import portable_canonical_json_bytes as canonical
-from open_brain_engine.engine.facet_evidence import (
-    FacetEvidenceError,
-    validate_evidence,
-    validate_portable_facet_sidecars,
-)
-from open_brain_engine.engine.facet_validation import parse
 from open_brain_engine.storage.markdown import parse_markdown
 
 from .review_binding import review_binding_digest
@@ -69,6 +63,8 @@ def references_from_portable_files(
     principal_actors: Mapping[str, str] | None = None,
 ) -> FacetPortableReferences:
     """Index already validated retained source/page identities from pinned bytes."""
+    from open_brain_engine.engine.facet_evidence import validate_evidence
+
     try:
         metadata = _portable_record(files[SOURCE_METADATA_PATH], "source metadata")
         sources = cast(list[dict[str, Any]], metadata["sources"])
@@ -106,6 +102,9 @@ def references_from_portable_files(
 
 
 def _canonical_record(payload: bytes, definition: str) -> dict[str, Any]:
+    from open_brain_engine.engine.facet_evidence import validate_evidence
+    from open_brain_engine.engine.facet_validation import parse
+
     try:
         value = parse(payload)
         validate_evidence(definition, value)
@@ -236,6 +235,8 @@ class PortableFacetBundle:
 
     def document(self, path: str) -> dict[str, Any]:
         # Return detached values so an importer cannot mutate a validated bundle.
+        from open_brain_engine.engine.facet_validation import parse
+
         value = parse(self.sidecars[path])
         return value  # type: ignore[no-any-return]
 
@@ -247,6 +248,11 @@ def decode_portable_facets(
     references: FacetPortableReferences,
 ) -> PortableFacetBundle:
     """Validate all required sidecars, their replay, identity and principal bindings."""
+    from open_brain_engine.engine.facet_evidence import (
+        FacetEvidenceError,
+        validate_portable_facet_sidecars,
+    )
+
     _require(files.keys() >= FACET_SIDECAR_PATHS, "Portable v6 facet sidecar is missing")
     _require(
         not any(
@@ -299,6 +305,8 @@ def validate_facet_binding_record(
     A pending proposal may already be stale. Import preserves that evidence;
     approval must separately revalidate current heads, memberships and authority.
     """
+    from open_brain_engine.engine.facet_evidence import FacetEvidenceError, validate_evidence
+
     try:
         value = validate_evidence("review_binding_v5", binding)
     except FacetEvidenceError as error:

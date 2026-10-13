@@ -4,7 +4,10 @@ from __future__ import annotations
 
 import base64
 import json
+import os
 import sqlite3
+import subprocess
+import sys
 from copy import deepcopy
 from dataclasses import replace
 from hashlib import sha256
@@ -577,3 +580,31 @@ def test_full_v6_restore_fault_preserves_transaction_boundary(tmp_path: Path) ->
             connection.execute(f"SELECT count(*) FROM {table}").fetchone()[0] == 0
             for table in FACET_TABLES
         )
+
+
+@pytest.mark.parametrize(
+    "modules",
+    [
+        ["open_brain_engine.portable.versioned", "open_brain_engine.engine.local"],
+        ["open_brain_engine.portable.v6", "open_brain_engine.engine.portability"],
+        ["open_brain_engine.engine.local", "open_brain_engine.portable.versioned"],
+    ],
+)
+def test_portable_and_engine_import_orders_in_fresh_process(modules: list[str]) -> None:
+    repo = Path(__file__).resolve().parents[4]
+    environment = {**os.environ, "PYTHONPATH": str(repo / "packages/engine/src")}
+    statements = ["import importlib, sys", f"importlib.import_module({modules[0]!r})"]
+    if modules[0].startswith("open_brain_engine.portable."):
+        statements.append("assert 'open_brain_engine.engine' not in sys.modules")
+    statements.extend(f"importlib.import_module({module!r})" for module in modules[1:])
+    code = "; ".join(statements)
+    result = subprocess.run(
+        [sys.executable, "-c", code],
+        cwd=repo,
+        env=environment,
+        capture_output=True,
+        text=True,
+        timeout=30,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
