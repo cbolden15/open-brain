@@ -1044,3 +1044,72 @@ def test_real_import_preserves_stale_pending_facet_proposal_and_refuses_approval
         )
     with restored._store.connect() as connection:
         assert connection.execute("SELECT count(*) FROM facet_page_queries").fetchone()[0] == 0
+
+
+def test_real_export_impossible_noop_is_refused_after_request_and_manifest_rehash(
+    tmp_path: Path,
+) -> None:
+    from open_brain_engine.engine import facet_contracts as fc
+    from open_brain_engine.portable.facets_v6 import references_from_portable_files
+    from open_brain_engine.portable.v6 import manifest_v6, validated_portable_snapshot_v6
+
+    engine, owner, _query, value, captures, _destination = _real_publication_brain(tmp_path)
+    noop_id = "x-impossible-noop"
+    request = fc.AssignmentsPatchRequest(
+        operation_id=noop_id,
+        expected_version=1,
+        record_id=captures[0],
+        expected_revision_id=captures[0],
+        add_value_ids=[value],
+        remove_value_ids=[],
+    )
+    receipt = engine.facets.assignments_patch(request, authority=owner).to_wire()
+    assert receipt["status"] == "unchanged" and receipt["version"] == 1
+    assert receipt["event_id"] is None
+    exported = tmp_path / "noop-original"
+    engine.portability.export(exported, export_id="export_00000000-0000-4000-8000-000000000061")
+    original = validated_portable_snapshot_v6(exported)
+    files = {
+        path: data for path, data in original.files.items() if path != "portable-manifest.json"
+    }
+    operations = json.loads(files[FACET_OPERATIONS_PATH])
+    operation = next(row for row in operations["operations"] if row["operation_id"] == noop_id)
+    operation["request_json"]["arguments"]["expected_version"] = 999
+    operation["receipt_json"]["version"] = 999
+    operation["request_sha256"] = fc.semantic_request_sha256(
+        operation["request_json"]["method"],
+        fc.request_from_wire(
+            operation["request_json"]["method"],
+            operation["request_json"]["arguments"],
+        ),
+    )
+    files[FACET_OPERATIONS_PATH] = canonical(operations)
+    # Both hashes are valid: only the invented historical no-op state is false.
+    assert operation["request_sha256"] == sha256(canonical(operation["request_json"])).hexdigest()
+    tampered = tmp_path / "noop-tampered"
+    tampered.mkdir()
+    for path, payload in files.items():
+        target = tampered / path
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(payload)
+    manifest = manifest_v6(
+        files,
+        tenant_id=cast(str, original.manifest["tenant_id"]),
+        export_id=cast(str, original.manifest["export_id"]),
+        created_at=cast(str, original.manifest["created_at"]),
+    )
+    (tampered / "portable-manifest.json").write_bytes(canonical(manifest))
+    brain_id = json.loads(files[FACET_STATE_PATH])["brain_id"]
+    with pytest.raises(PortableValidationError):
+        decode_portable_facets(
+            files, brain_id=brain_id, references=references_from_portable_files(files)
+        )
+    destination = tmp_path / "noop-refused-target"
+    with pytest.raises(PortableValidationError):
+        engine.portability.import_clean(
+            tampered, destination, import_id="import_00000000-0000-4000-8000-000000000062"
+        )
+    assert not destination.exists()
+    assert not list(tmp_path.glob(".noop-refused-target*"))
+    # Refusal has no effects on the admitted source Brain or its original receipt.
+    assert engine.facets.assignments_patch(request, authority=owner).to_wire() == receipt
