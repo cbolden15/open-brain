@@ -34,7 +34,7 @@ from open_brain_engine.portable.facets_v6 import (
 )
 from open_brain_engine.portable.review_binding import review_binding_digest
 from open_brain_engine.portable.v1 import PortableValidationError
-from open_brain_engine.storage.markdown import render_markdown
+from open_brain_engine.storage.markdown import parse_markdown, render_markdown
 
 if TYPE_CHECKING:
     from open_brain_engine.engine.local import BrainEngine
@@ -1113,3 +1113,211 @@ def test_real_export_impossible_noop_is_refused_after_request_and_manifest_rehas
     assert not list(tmp_path.glob(".noop-refused-target*"))
     # Refusal has no effects on the admitted source Brain or its original receipt.
     assert engine.facets.assignments_patch(request, authority=owner).to_wire() == receipt
+
+
+def _real_projected_workspace(
+    tmp_path: Path,
+) -> tuple[BrainEngine, EffectiveAuthority, str, str, str, str, Path, bytes, dict[str, Any]]:
+    from open_brain_engine.engine import facet_contracts as fc
+    from open_brain_engine.engine.contracts import CaptureAction, TextPayload
+    from open_brain_engine.engine.local import BrainEngine
+    from open_brain_engine.engine.t03_contracts import EffectiveAuthority
+
+    from open_brain.profile import compile_single_user_local
+
+    engine = BrainEngine.open(
+        compile_single_user_local(tmp_path / "managed-brain", starter_spaces=("Notes",))
+    )
+    engine.capture.accept(
+        TextPayload("Portable managed evidence"),
+        delivery_id="x-managed-capture",
+        action=CaptureAction.CANONICAL_NOTE,
+        space_id=engine.inbox.spaces()[0].space_id,
+    )
+    page_id = engine.retrieval.search("Portable managed evidence", record_type="canonical")[
+        0
+    ].result_id
+    owner = EffectiveAuthority(
+        "x-managed-local-owner", "x-managed-session", frozenset(), None, owner=True
+    )
+    vault_root = tmp_path / "managed-vault"
+    vault_root.mkdir()
+    workspace = engine.managed_workspace.setup(str(vault_root), operation_id="x-managed-setup")
+    path = next(vault_root.rglob(f"{page_id}.md"))
+    original = path.read_bytes()
+    dimension_result = engine.facets.dimension_create(
+        fc.DimensionCreateRequest(
+            operation_id="x-managed-dimension", expected_version=0, name="Area"
+        ),
+        authority=owner,
+    ).to_wire()["subject_id"]
+    dimension = cast(str, dimension_result)
+    value_result = engine.facets.value_create(
+        fc.ValueCreateRequest(
+            operation_id="x-managed-value",
+            expected_version=0,
+            dimension_id=dimension,
+            expected_dimension_version=1,
+            name="Work",
+        ),
+        authority=owner,
+    ).to_wire()["subject_id"]
+    value = cast(str, value_result)
+    engine.facet_vault.register_record(workspace.workspace_id, page_id, authority=owner)
+    path.write_bytes(path.read_bytes().replace(b"facets: {}", b'facets: {"Area":["Work"]}'))
+    preview_result = engine.facet_vault.vault_preview(
+        fc.VaultPreviewRequest(workspace_id=workspace.workspace_id, record_id=page_id),
+        authority=owner,
+    ).to_wire()
+    preview = cast(dict[str, Any], preview_result)
+    assert preview["conflicts"] == [] and preview["add_value_ids"] == [value]
+    result = engine.facet_vault.vault_apply(
+        fc.VaultApplyRequest(preview_id=preview["preview_id"], operation_id="x-managed-apply"),
+        authority=owner,
+    ).to_wire()
+    assert result["projection_status"] == "current"
+    state_result = engine.facets.assignments_get(
+        fc.AssignmentsGetRequest(record_id=page_id), authority=owner
+    ).to_wire()["item"]
+    state = cast(dict[str, Any], state_result)
+    query_result = engine.facets.query_create(
+        fc.QueryCreateRequest(
+            operation_id="x-managed-query",
+            expected_version=0,
+            name="Managed work",
+            selector={"all_value_ids": [value], "record_types": ["canonical"]},
+        ),
+        authority=owner,
+    ).to_wire()["subject_id"]
+    query = cast(str, query_result)
+    engine.facets.query_attach(
+        fc.QueryAttachRequest(
+            operation_id="x-managed-attach",
+            expected_version=0,
+            page_id=page_id,
+            expected_revision_id=state["revision_id"],
+            query_id=query,
+            expected_query_version=1,
+        ),
+        authority=owner,
+    )
+    engine.facet_vault.register_record(workspace.workspace_id, page_id, authority=owner)
+    engine.facet_vault.refresh_indexes(workspace.workspace_id, authority=owner)
+    return engine, owner, workspace.workspace_id, page_id, dimension, value, path, original, preview
+
+
+def test_real_managed_projection_export_restore_excludes_views_and_rebuilds_clean_vault(
+    tmp_path: Path,
+) -> None:
+    from open_brain_engine.engine import facet_contracts as fc
+    from open_brain_engine.engine.facet_vault import facet_index_relative_path
+    from open_brain_engine.engine.local import BrainEngine
+    from open_brain_engine.portable.versioned import validated_portable_snapshot
+
+    from open_brain.profile import open_existing_single_user_local
+
+    engine, owner, workspace, page_id, dimension, value, path, original, preview = (
+        _real_projected_workspace(tmp_path)
+    )
+    assert b"facets:" in path.read_bytes() and b"facet-navigation" in path.read_bytes()
+    index_path = tmp_path / "managed-vault" / facet_index_relative_path(dimension, value)
+    assert index_path.exists()
+    exported = tmp_path / "managed-portable"
+    engine.portability.export(exported, export_id="export_00000000-0000-4000-8000-000000000051")
+    before = validated_portable_snapshot(exported)
+    managed_path = next(
+        name for name in before.files if name.startswith("history/managed-workspace/")
+    )
+    managed = json.loads(before.files[managed_path])
+    assert len(managed["notes"]) == 1
+    assert all(
+        base64.b64decode(row["body_base64"]) == original for row in managed["notes"][0]["revisions"]
+    )
+    assert b"facet-navigation" not in before.files[managed_path]
+    assert preview["preview_id"].encode() not in b"".join(before.files.values())
+    assert not any("/Facets/" in name for name in before.files)
+    restored_root = tmp_path / "managed-restored"
+    engine.portability.import_clean(
+        exported, restored_root, import_id="import_00000000-0000-4000-8000-000000000052"
+    )
+    restored = BrainEngine.open(open_existing_single_user_local(restored_root))
+    with restored._store.connect() as connection:
+        assert (
+            connection.execute("SELECT count(*) FROM facet_assignments WHERE present=1").fetchone()[
+                0
+            ]
+            == 1
+        )
+        assert connection.execute("SELECT count(*) FROM facet_page_queries").fetchone()[0] == 1
+        for table in (
+            "facet_projection_state",
+            "facet_vault_previews",
+            "facet_vault_apply_operations",
+            "facet_projection_writes",
+            "facet_projection_conflict_files",
+            "facet_content_preimages",
+        ):
+            assert connection.execute(f"SELECT count(*) FROM {table}").fetchone()[0] == 0
+    with pytest.raises(fc.FacetError, match="preview_stale"):
+        restored.facet_vault.vault_apply(
+            fc.VaultApplyRequest(preview_id=preview["preview_id"], operation_id="x-managed-apply"),
+            authority=owner,
+        )
+    semantic = next(
+        operation
+        for operation in json.loads(before.files[FACET_OPERATIONS_PATH])["operations"]
+        if operation["request_json"]["method"] == "facet.assignment.patch"
+        and operation["request_json"]["arguments"]["record_id"] == page_id
+    )
+    typed_request = cast(
+        fc.AssignmentsPatchRequest,
+        fc.request_from_wire(
+            semantic["request_json"]["method"], semantic["request_json"]["arguments"]
+        ),
+    )
+    assert (
+        restored.facets.assignments_patch(typed_request, authority=owner).to_wire()
+        == semantic["receipt_json"]
+    )
+    reexported = tmp_path / "managed-reexported"
+    restored.portability.export(reexported, export_id="export_00000000-0000-4000-8000-000000000053")
+    after = validated_portable_snapshot(reexported)
+    assert {
+        name: data for name, data in after.files.items() if name != "portable-manifest.json"
+    } == {name: data for name, data in before.files.items() if name != "portable-manifest.json"}
+    new_vault = tmp_path / "restored-vault"
+    new_vault.mkdir()
+    attached = restored.managed_workspace.setup(str(new_vault), operation_id="x-managed-reattach")
+    assert attached.workspace_id == workspace
+    restored.facet_vault.register_record(workspace, page_id, authority=owner)
+    restored.facet_vault.refresh_indexes(workspace, authority=owner)
+    rebuilt = next(new_vault.rglob(f"{page_id}.md"))
+    assert parse_markdown(rebuilt.read_bytes()).fields["facets"] == {"Area": ["Work"]}
+    assert b"facet-navigation" in rebuilt.read_bytes()
+    assert (new_vault / facet_index_relative_path(dimension, value)).exists()
+    assert not restored.managed_workspace.observe(workspace).notes[0].changed
+
+
+@pytest.mark.parametrize("view", ["record", "index"])
+def test_real_public_export_refuses_owner_modified_generated_views(
+    tmp_path: Path, view: str
+) -> None:
+    from open_brain_engine.engine.facet_vault import facet_index_relative_path
+
+    engine, _owner, _workspace, _page_id, dimension, value, path, _original, _preview = (
+        _real_projected_workspace(tmp_path)
+    )
+    target = (
+        path
+        if view == "record"
+        else tmp_path / "managed-vault" / facet_index_relative_path(dimension, value)
+    )
+    owner_edit = target.read_bytes() + b"Owner preserved generated-view edit\n"
+    target.write_bytes(owner_edit)
+    destination = tmp_path / "conflicting-export"
+    with pytest.raises(ValueError, match="projection edit"):
+        engine.portability.export(
+            destination, export_id="export_00000000-0000-4000-8000-000000000054"
+        )
+    assert target.read_bytes() == owner_edit
+    assert not destination.exists()
