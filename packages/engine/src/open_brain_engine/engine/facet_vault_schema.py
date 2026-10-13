@@ -13,6 +13,7 @@ CREATE TABLE IF NOT EXISTS facet_projection_state (
     subject_kind TEXT CHECK (subject_kind IN ('source', 'canonical')),
     subject_id TEXT,
     content_revision_id TEXT,
+    managed_revision_id TEXT,
     emitted_facets_json TEXT,
     id_name_mapping_json TEXT,
     materialized_sha256 TEXT NOT NULL CHECK (length(materialized_sha256) = 64),
@@ -21,11 +22,13 @@ CREATE TABLE IF NOT EXISTS facet_projection_state (
     UNIQUE (workspace_id, relative_path),
     CHECK (
         (file_kind = 'record' AND subject_kind IS NOT NULL AND subject_id IS NOT NULL
-         AND content_revision_id IS NOT NULL AND emitted_facets_json IS NOT NULL
+         AND content_revision_id IS NOT NULL AND managed_revision_id IS NOT NULL
+         AND emitted_facets_json IS NOT NULL
          AND id_name_mapping_json IS NOT NULL)
         OR
         (file_kind = 'index' AND subject_kind IS NULL AND subject_id IS NULL
-         AND content_revision_id IS NULL AND emitted_facets_json IS NULL
+         AND content_revision_id IS NULL AND managed_revision_id IS NULL
+         AND emitted_facets_json IS NULL
          AND id_name_mapping_json IS NULL)
     )
 )
@@ -41,7 +44,9 @@ CREATE TABLE IF NOT EXISTS facet_vault_previews (
     subject_kind TEXT NOT NULL CHECK (subject_kind IN ('source', 'canonical')),
     subject_id TEXT NOT NULL,
     content_revision_id TEXT NOT NULL,
+    managed_revision_id TEXT NOT NULL,
     file_sha256 TEXT NOT NULL CHECK (length(file_sha256) = 64),
+    file_fingerprint_json TEXT NOT NULL,
     previous_facets_json TEXT NOT NULL,
     previous_mapping_json TEXT NOT NULL,
     expected_version INTEGER NOT NULL CHECK (expected_version >= 0),
@@ -68,5 +73,35 @@ CREATE TABLE IF NOT EXISTS facet_vault_apply_operations (
     """
 CREATE INDEX IF NOT EXISTS facet_vault_previews_expiry
 ON facet_vault_previews(expires_at)
+    """.strip(),
+    """
+CREATE TABLE IF NOT EXISTS facet_projection_writes (
+    operation_id TEXT PRIMARY KEY,
+    workspace_id TEXT NOT NULL REFERENCES managed_workspaces(workspace_id),
+    file_kind TEXT NOT NULL CHECK (file_kind IN ('record', 'index')),
+    file_id TEXT NOT NULL,
+    relative_path TEXT NOT NULL,
+    root_device TEXT NOT NULL,
+    root_inode TEXT NOT NULL,
+    expected_sha256 TEXT CHECK (expected_sha256 IS NULL OR length(expected_sha256) = 64),
+    expected_fingerprint_json TEXT,
+    policy_generation INTEGER NOT NULL CHECK (policy_generation >= 0),
+    payload BLOB NOT NULL,
+    payload_sha256 TEXT NOT NULL CHECK (length(payload_sha256) = 64),
+    projection_json TEXT NOT NULL,
+    status TEXT NOT NULL CHECK (status IN ('prepared', 'completed', 'conflict')),
+    created_at TEXT NOT NULL,
+    completed_at TEXT
+)
+    """.strip(),
+    """
+CREATE UNIQUE INDEX IF NOT EXISTS facet_projection_pending_file
+ON facet_projection_writes(workspace_id, relative_path) WHERE status = 'prepared'
+    """.strip(),
+    """
+CREATE TABLE IF NOT EXISTS facet_projection_conflict_files (
+    conflict_id TEXT PRIMARY KEY REFERENCES managed_conflicts(conflict_id),
+    file_sha256 TEXT NOT NULL CHECK (length(file_sha256) = 64)
+)
     """.strip(),
 )

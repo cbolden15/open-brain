@@ -192,6 +192,8 @@ def test_additive_local_custody_schema_is_valid_sql() -> None:
         }
         assert names == {
             "facet_projection_state",
+            "facet_projection_writes",
+            "facet_projection_conflict_files",
             "facet_vault_previews",
             "facet_vault_apply_operations",
         }

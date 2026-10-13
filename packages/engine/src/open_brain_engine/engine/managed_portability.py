@@ -20,6 +20,7 @@ from open_brain_engine.storage.filesystem import (
 )
 
 from .contracts import ManagedWorkspaceFailure
+from .facet_vault import projection_schema_available, registered_content
 from .managed_workspace import _digest, _timestamp
 from .markdown_import_fs import MAX_FILE_BYTES
 
@@ -44,14 +45,20 @@ def export_managed_workspace_state(
             raise ValueError("Portable export requires exactly one managed workspace")
         workspace = cast(sqlite3.Row, workspaces[0])
         workspace_id = cast(str, workspace["workspace_id"])
-        if connection.execute(
-            "SELECT 1 FROM managed_conflicts WHERE status = 'open' LIMIT 1"
-        ).fetchone() is not None:
+        if (
+            connection.execute(
+                "SELECT 1 FROM managed_conflicts WHERE status = 'open' LIMIT 1"
+            ).fetchone()
+            is not None
+        ):
             raise ValueError("Portable export requires all managed conflicts to be resolved")
-        if connection.execute(
-            """SELECT 1 FROM managed_inference_requests
+        if (
+            connection.execute(
+                """SELECT 1 FROM managed_inference_requests
             WHERE status IN ('reserved', 'dispatching') LIMIT 1"""
-        ).fetchone() is not None:
+            ).fetchone()
+            is not None
+        ):
             raise ValueError("Portable export requires all inference requests to be settled")
         notes = tuple(
             connection.execute(
@@ -59,12 +66,43 @@ def export_managed_workspace_state(
                 (workspace_id,),
             )
         )
+        projections: dict[str, sqlite3.Row] = {}
+        if projection_schema_available(connection):
+            if (
+                connection.execute(
+                    "SELECT 1 FROM facet_projection_writes WHERE status!='completed' LIMIT 1"
+                ).fetchone()
+                is not None
+            ):
+                raise ValueError("Portable export requires settled facet projections")
+            projections = {
+                row["relative_path"]: row
+                for row in connection.execute(
+                    "SELECT * FROM facet_projection_state WHERE workspace_id=?",
+                    (workspace_id,),
+                )
+            }
+            if any(
+                note["relative_path"] in projections
+                and projections[note["relative_path"]]["file_kind"] == "index"
+                for note in notes
+            ):
+                raise ValueError("Generated facet indexes cannot enter managed evidence")
         if workspace["root_path"] is not None:
             managed = engine.managed_workspace._workspace_value(workspace)
             try:
                 assert_root_identity(managed.root, managed.root_identity)
-            except (RootConfinementError, ValueError, OSError):
+            except RootConfinementError, ValueError, OSError:
                 raise ManagedWorkspaceFailure("unsafe_workspace") from None
+            for projection in projections.values():
+                projected = read_confined(
+                    root=managed.root,
+                    relative=projection["relative_path"],
+                    expected_root_identity=managed.root_identity,
+                    maximum_bytes=MAX_FILE_BYTES,
+                )
+                if projected is None or _digest(projected) != projection["materialized_sha256"]:
+                    raise ValueError("Portable export found an unresolved facet projection edit")
             for note in notes:
                 if not bool(note["active"]):
                     continue
@@ -78,7 +116,19 @@ def export_managed_workspace_state(
                     expected_root_identity=managed.root_identity,
                     maximum_bytes=MAX_FILE_BYTES,
                 )
-                if payload is None or _digest(payload) != write_base:
+                if payload is None:
+                    raise ValueError("Portable export found an unaccepted managed edit")
+                if relative in projections:
+                    content = registered_content(
+                        connection, workspace_id, note["note_id"], relative, payload
+                    )
+                    accepted = connection.execute(
+                        "SELECT body_bytes FROM managed_note_revisions WHERE revision_id=?",
+                        (note["accepted_revision_id"],),
+                    ).fetchone()
+                    if accepted is None or content != accepted[0]:
+                        raise ValueError("Portable export found an unaccepted managed edit")
+                elif _digest(payload) != write_base:
                     raise ValueError("Portable export found an unaccepted managed edit")
         page_ids = {cast(str, note["note_id"]) for note in notes}
         record: dict[str, object] = {
