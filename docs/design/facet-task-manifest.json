@@ -115,7 +115,7 @@
         "contract_revision": "facets-c0-v3",
         "fixture_manifest_sha256": "781a6b886baf6a904b974eb071ea30a36d2d8ff6d2f10f98fbd6da06de8653ba"
       },
-      "execution_status": "real engine focused gate passed; final DDL migration recheck pending"
+      "execution_status": "wrapper-aware page admission repair active"
     },
     "A": {
       "requires_verified": [
@@ -133,7 +133,6 @@
         "packages/app/tests/facet_fake.py"
       ],
       "exclusive_write_scope": [
-        "packages/app/tests/unit/test_facets_adapters.py",
         "packages/app/tests/integration/services/test_facets_cli_mcp.py",
         "packages/app/tests/unit/engine/test_ingestion_journal.py",
         "packages/app/tests/unit/engine/test_local_migration.py",
@@ -197,7 +196,7 @@
         "contract_revision": "facets-c0-v3",
         "fixture_manifest_sha256": "781a6b886baf6a904b974eb071ea30a36d2d8ff6d2f10f98fbd6da06de8653ba"
       },
-      "execution_status": "compatibility repair integrated; reserved accepted CLI grammar correction"
+      "execution_status": "227 focused checks passed; adapter service and unit admission tests transferred to I"
     },
     "T": {
       "requires_verified": [
@@ -296,7 +295,7 @@
         "contract_revision": "facets-c0-v3",
         "fixture_manifest_sha256": "781a6b886baf6a904b974eb071ea30a36d2d8ff6d2f10f98fbd6da06de8653ba"
       },
-      "execution_status": "independent engine/fault/MCP gate passed; P/V acceptance pending"
+      "execution_status": "independent MCP wire limits regression tests active"
     },
     "P": {
       "requires_verified": [
@@ -385,7 +384,7 @@
         "contract_revision": "facets-c0-v3",
         "fixture_manifest_sha256": "781a6b886baf6a904b974eb071ea30a36d2d8ff6d2f10f98fbd6da06de8653ba"
       },
-      "execution_status": "reserved successor-lineage route binding repair after verifiedP"
+      "execution_status": "lineage route repair integrated; 106 focused real and legacy checks passed"
     },
     "X": {
       "requires_verified": [
@@ -468,7 +467,7 @@
         "contract_revision": "facets-c0-v3",
         "fixture_manifest_sha256": "781a6b886baf6a904b974eb071ea30a36d2d8ff6d2f10f98fbd6da06de8653ba"
       },
-      "execution_status": "real populated v6 roundtrip passed; P/V evidence gates pending"
+      "execution_status": "lineage-aware restore validation active; managed restore checks integrated"
     },
     "V": {
       "requires_verified": [
@@ -546,7 +545,7 @@
         "contract_revision": "facets-c0-v3",
         "fixture_manifest_sha256": "781a6b886baf6a904b974eb071ea30a36d2d8ff6d2f10f98fbd6da06de8653ba"
       },
-      "execution_status": "real reconciliation/recovery implementation in progress"
+      "execution_status": "runtime implementation integrated; focused real reconciliation/recovery checks passed"
     },
     "I": {
       "requires_verified": [
@@ -599,7 +598,9 @@
         "packages/app/src/open_brain/services/catalog.py",
         "packages/engine/src/open_brain_engine/engine/managed_recovery.py",
         "packages/engine/src/open_brain_engine/engine/issuer_state.py",
-        "packages/app/src/open_brain/services/facets.py"
+        "packages/app/src/open_brain/services/facets.py",
+        "packages/app/src/open_brain/services/mcp_protocol.py",
+        "packages/app/tests/unit/test_facets_adapters.py"
       ],
       "acceptance_cases": [
         "F01",
@@ -688,7 +689,7 @@
         "make verify",
         "applicable native/package/release acceptance on exact candidate"
       ],
-      "execution_status": "reserved independent read-only audit; interim core review then final integrated candidate",
+      "execution_status": "interim review found two remaining integration gaps; final review pending",
       "executor": "native strong-model session",
       "worktree": "/Users/calebbolden/Projects/oss/open-brain-facets-stage-one-r",
       "current_contract_pin": {

@@ -221,11 +221,12 @@ class FacetAppAdapter:
         if type(maximum_response_bytes) is not int or maximum_response_bytes < 1:
             raise fc.FacetError("response_too_large")
         _component, _grants, bucket, cap = _OPERATIONS[operation]
+        maximum_response_bytes = min(maximum_response_bytes, cap)
         try:
             raw = (
                 arguments
                 if isinstance(arguments, (str, bytes))
-                else json.dumps(arguments, ensure_ascii=True, separators=(",", ":"))
+                else json.dumps(arguments, ensure_ascii=False, separators=(",", ":"))
             )
         except TypeError, ValueError, UnicodeError:
             raise fc.FacetError("invalid_arguments") from None
@@ -248,15 +249,20 @@ class FacetAppAdapter:
             raise fc.FacetError("limit_exceeded")
         size = encoded_size or _json_size
         if bucket in {"write", "review"}:
-            # A full 4 KiB receipt plus transport wrapping and JSON escaping.
+            # Reserve the complete bounded receipt, including the caller's wrapper.
             reservation = max(
                 fc.MAX_RECEIPT_RESPONSE_BYTES,
-                size({"reserved": "\\" * 2040}),
+                size(_receipt_bound(operation, parsed["operation_id"])),
             )
             if reservation > maximum_response_bytes:
                 raise fc.FacetError("response_too_large")
             self.budget.reserve(bucket, reservation)
         method = self._method(operation)
+        if operation.endswith(".list") or operation == "facet.query.page":
+            admit = getattr(self.facets, "with_page_admission", None)
+            if callable(admit):
+                task = admit(maximum_response_bytes, size)
+                method = getattr(task, fc.OPERATION_METHODS[operation])
         assert method is not None
         try:
             response = method(request, authority=self.authority)
@@ -277,6 +283,28 @@ class FacetAppAdapter:
             raise fc.FacetError("response_too_large")
         self.budget.commit(bucket, wrapped_size)
         return result
+
+
+def _receipt_bound(operation: str, operation_id: str) -> dict[str, object]:
+    """Largest receipt fields permitted by the closed receipt shapes and ID grammar."""
+    suffix = "00000000-0000-4000-8000-000000000000"
+    if operation == fc.PUBLICATION_OPERATION:
+        return {
+            "status": "proposed", "dto_version": 1,
+            "effective_idempotency_key": operation_id,
+            "proposal_id": "proposal_" + suffix, "page_id": "page_" + suffix,
+            "space_id": "space_" + suffix, "target_page_id": "page_" + suffix,
+            "operation": "create", "proposal_status": "rejected",
+        }
+    receipt: dict[str, object] = {
+        "dto_version": 1, "status": "unchanged", "operation_id": operation_id,
+        "subject_id": "facetquery_" + suffix, "version": 9_007_199_254_740_991,
+        "event_id": "facetevent_" + suffix,
+    }
+    if operation == "facet.vault.apply":
+        return {"status": "ok", "dto_version": 1, "receipt": receipt,
+                "projection_status": "refresh_required"}
+    return receipt
 
 
 def _json_size(result: Mapping[str, object]) -> int:

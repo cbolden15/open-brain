@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import uuid
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
@@ -858,12 +859,15 @@ class LocalMcpAdapter:
         *,
         request_id: object = 0,
         maximum_response_bytes: int = MAX_MESSAGE_BYTES,
+        encoded_request_size: int | None = None,
     ) -> dict[str, object]:
         try:
             if name not in {tool["name"] for tool in self.list_tools()}:
                 raise McpCallError("unknown tool")
             if self.facets is not None and facet_mcp_operation(name) is not None:
-                return self._facet_call(name, arguments, request_id, maximum_response_bytes)
+                return self._facet_call(
+                    name, arguments, request_id, maximum_response_bytes, encoded_request_size
+                )
             if name == "brain_catalog":
                 try:
                     from open_brain.services.catalog import build_catalog, cli_registrations
@@ -1010,6 +1014,7 @@ class LocalMcpAdapter:
         arguments: Mapping[str, object],
         request_id: object,
         maximum_response_bytes: int,
+        encoded_request_size: int | None,
     ) -> dict[str, object]:
         assert self.facets is not None
         is_proposal = facet_mcp_operation(name) == "review.propose_from_facet_query"
@@ -1031,6 +1036,15 @@ class LocalMcpAdapter:
                 arguments,
                 maximum_response_bytes=maximum_response_bytes,
                 encoded_size=lambda value: encoded_tool_response_size(request_id, value),
+                encoded_request_size=(
+                    encoded_request_size if encoded_request_size is not None else len(
+                        json.dumps(
+                            {"jsonrpc": "2.0", "id": request_id, "method": "tools/call",
+                             "params": {"name": name, "arguments": arguments}},
+                            ensure_ascii=False, separators=(",", ":"),
+                        ).encode("utf-8")
+                    )
+                ),
             )
         except FacetError as error:
             raise McpCallError(error.code) from None

@@ -361,7 +361,7 @@ def test_shared_review_call_limit_stops_facet_proposal_before_effects() -> None:
 
 def test_shared_review_reservation_uses_wrapped_capacity_before_effects() -> None:
     fake = FakeFacetEngine()
-    shared = _SharedReviewLedger(response_bytes=16 * 1024 * 1024 - 4096)
+    shared = _SharedReviewLedger(response_bytes=16 * 1024 * 1024 - 4095)
     app = FacetAppAdapter(
         fake,
         authority(owner=True),
@@ -376,9 +376,9 @@ def test_shared_review_reservation_uses_wrapped_capacity_before_effects() -> Non
             encoded_size=lambda result: encoded_tool_response_size(11, result),
         )
     assert not fake.calls
-    assert shared.reservations[0] > 4096
+    assert shared.reservations[0] == 4096
     assert shared.proposals == app.budget.calls["review"] == 1
-    assert shared.response_bytes == 16 * 1024 * 1024 - 4096
+    assert shared.response_bytes == 16 * 1024 * 1024 - 4095
 
 
 def test_shared_review_counts_failures_and_retries_and_charges_actual_bytes() -> None:
