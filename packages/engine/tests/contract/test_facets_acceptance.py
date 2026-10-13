@@ -7,6 +7,7 @@ missing producer. The coordinator integrates these tests after the matching gate
 from __future__ import annotations
 
 import json
+import os
 import sqlite3
 from copy import deepcopy
 from dataclasses import replace
@@ -80,13 +81,16 @@ class FacetHarness:
             provider_mode=ProviderMode.NONE,
             starter_spaces=("Synthetic notes",),
         )
-        (self.root / "brain.toml").write_text(
+        profile_text = (
             'layout_version = 1\nprofile = "single-user-local"\n'
             f'tenant_id = "{TENANT}"\nowner_actor_id = "{ACTOR}"\n'
             'owner_role_id = "role_00000000-0000-4000-8000-000000000004"\n'
             'owner_role_claim_id = "role_claim_00000000-0000-4000-8000-000000000003"\n'
             'owner_capabilities = ["canonical.publish", "capture.accept", "space.write"]\n'
         )
+        descriptor = os.open(self.root / "brain.toml", os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
+        with os.fdopen(descriptor, "w", encoding="utf-8") as sink:
+            sink.write(profile_text)
         if initialize:
             self.engine = BrainEngine.open(
                 self.profile,
