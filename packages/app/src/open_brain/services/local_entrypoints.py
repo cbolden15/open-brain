@@ -48,6 +48,7 @@ from open_brain_engine.engine import (
     live_search_is_healthy,
     read_maintenance_snapshot,
 )
+from open_brain_engine.engine import facet_contracts as fc
 from open_brain_engine.engine.consent_contracts import ConsentContractError, EgressMode
 from open_brain_engine.engine.contracts import CaptureAdmissionError, ManagedWorkspaceFailure
 from open_brain_engine.engine.portability import restore_portable_clean
@@ -72,6 +73,18 @@ from open_brain.services.agent_setup import (
     apply_agent_setup,
     preview_agent_setup,
     resolve_agent_runtime,
+)
+from open_brain.services.facets import (
+    FacetAppAdapter,
+    FacetSessionBudget,
+    add_facet_grant_flags,
+    add_facet_parsers,
+    add_review_facet_arguments,
+    facet_cli_exit_code,
+    facet_cli_from_namespace,
+    facet_cli_request,
+    facet_grants_from_namespace,
+    read_facet_selector_file,
 )
 from open_brain.services.historical_recovery import run_historical_recovery
 from open_brain.services.launcher_policy import LauncherPolicyError
@@ -222,6 +235,7 @@ def run_cli(
             or parsed.allow_review_read
             or parsed.allow_review_propose
             or parsed.allow_review_decide
+            or facet_grants_from_namespace(parsed)
         )
         or json_output
     ):
@@ -277,7 +291,7 @@ def run_cli(
         except SpaceInboxError:
             _write_usage_failure(json_output=json_output)
             return 2
-    if parsed.command == "review":
+    if parsed.command == "review" and getattr(parsed, "facet_query_id", None) is None:
         try:
             review_operation, review_arguments = _review_arguments(parsed)
             validate_review_arguments(review_operation, review_arguments)
@@ -712,6 +726,8 @@ def _parser() -> argparse.ArgumentParser:
     _add_t03_parsers(subparsers)
     _add_space_inbox_parsers(subparsers)
     _add_review_parsers(subparsers)
+    facet_parser = add_facet_parsers(subparsers)
+    _add_facet_local_options(facet_parser)
     privacy_parser = subparsers.add_parser(
         "privacy", help="Perform owner-local privacy maintenance."
     )
@@ -889,6 +905,8 @@ def _parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Allow digest-bound approve, reject, and edit-and-approve decisions.",
     )
+    add_facet_grant_flags(mcp_parser)
+
     plugin_parser = subparsers.add_parser(
         "plugin",
         help=argparse.SUPPRESS,
@@ -911,6 +929,7 @@ def _parser() -> argparse.ArgumentParser:
     agent_setup_parser.add_argument("--allow-capture", action="store_true")
     agent_setup_parser.add_argument("--allow-search", action="store_true")
     agent_setup_parser.add_argument("--allow-content-read", action="store_true")
+    add_facet_grant_flags(agent_setup_parser)
     agent_setup_parser.add_argument("--allow-history-read", action="store_true")
     agent_setup_parser.add_argument("--allow-inbox-read", action="store_true")
     agent_setup_parser.add_argument("--allow-organize", action="store_true")
@@ -1035,6 +1054,20 @@ def _parser() -> argparse.ArgumentParser:
     _add_local_options(doctor_parser)
     doctor_parser.add_argument("--check", required=True, choices=_DOCTOR_CHECKS)
     return parser
+
+
+def _add_facet_local_options(parser: argparse.ArgumentParser) -> None:
+    options = parser._option_string_actions
+    if "--json" not in options:
+        parser.add_argument("--json", action="store_true", default=argparse.SUPPRESS)
+    else:
+        options["--json"].default = argparse.SUPPRESS
+    if "--data-dir" not in options:
+        parser.add_argument("--data-dir", default=argparse.SUPPRESS)
+    for action in parser._actions:
+        if isinstance(action, argparse._SubParsersAction):
+            for child in action.choices.values():
+                _add_facet_local_options(child)
 
 
 def _add_local_options(parser: argparse.ArgumentParser) -> None:
@@ -1273,10 +1306,13 @@ def _add_review_parsers(
 
     propose = children.add_parser("propose", help="Create a review-bound draft.")
     _add_local_options(propose)
+    add_review_facet_arguments(propose)
+    propose.add_argument("--destination-space-id")
+    propose.add_argument("--expected-page-revision-id")
     propose.add_argument(
         "--capture-id",
         action="append",
-        required=True,
+        required=False,
         dest="capture_ids",
         help="Repeat for each explicitly selected source; 1 to 32 unique IDs.",
     )
@@ -1649,6 +1685,10 @@ def _run_agent_setup(
         "allow_search": parsed.allow_search,
         "allow_content_read": parsed.allow_content_read,
         "allow_history_read": parsed.allow_history_read,
+        "allow_facet_read": parsed.allow_facet_read,
+        "allow_facet_catalog_write": parsed.allow_facet_catalog_write,
+        "allow_facet_assign": parsed.allow_facet_assign,
+        "allow_facet_query_write": parsed.allow_facet_query_write,
         "allow_inbox_read": parsed.allow_inbox_read,
         "allow_organize": parsed.allow_organize,
         "allow_review_read": parsed.allow_review_read,
@@ -2034,6 +2074,46 @@ def _write_consent_failure(code: str, *, json_output: bool) -> int:
     return 78
 
 
+def _run_facet_cli(parsed: argparse.Namespace, tasks: EngineTaskSet) -> int:
+    try:
+        if parsed.command == "facet":
+            selector_path = getattr(parsed, "selector_file", None)
+            selector = read_facet_selector_file(selector_path) if selector_path else None
+            operation, arguments = facet_cli_from_namespace(parsed, selector_text=selector)
+        else:
+            if parsed.capture_ids or parsed.patch_file is not None:
+                raise fc.FacetError("invalid_arguments")
+            operation = fc.PUBLICATION_OPERATION
+            arguments = facet_cli_request(
+                operation,
+                {
+                    "query_id": parsed.facet_query_id,
+                    "expected_query_version": parsed.expected_query_version,
+                    "destination_space_id": parsed.destination_space_id,
+                    "target_page_id": parsed.target_page_id,
+                    "expected_page_revision_id": parsed.expected_page_revision_id,
+                    "title": parsed.title,
+                    "markdown": _read_review_markdown(parsed.markdown_file),
+                    **({"operation_id": parsed.idempotency_key} if parsed.idempotency_key else {}),
+                },
+            )
+        adapter = FacetAppAdapter(
+            facets=tasks.facets,
+            publication=tasks.facet_publication,
+            vault=tasks.facet_vault,
+            authority=owner_authority(tasks, session_id="owner-cli"),
+        )
+        _write_json(adapter.invoke(operation, arguments, transport="cli"))
+        return 0
+    except fc.FacetError as error:
+        _write_json(error.to_wire())
+        return facet_cli_exit_code(error, grammar=error.code == "invalid_arguments")
+    except OSError, UnicodeError, ReviewPublicationError:
+        invalid = fc.FacetError("invalid_arguments")
+        _write_json(invalid.to_wire())
+        return 2
+
+
 def _run_local_command(
     parsed: argparse.Namespace,
     session: LocalBrainSession,
@@ -2051,6 +2131,10 @@ def _run_local_command(
             json_output=json_output,
         )
     tasks = session.tasks
+    if parsed.command == "facet" or (
+        parsed.command == "review" and getattr(parsed, "facet_query_id", None)
+    ):
+        return _run_facet_cli(parsed, tasks)
     if parsed.command == "journal":
         return _run_journal(parsed, tasks, json_output=json_output)
     if parsed.command == "privacy":
@@ -2147,7 +2231,6 @@ def _run_local_command(
             return search_brain(retrieval, reconciliation, query, limit=limit)
 
         organization = SpaceInboxService(tasks.spaces)
-        review = ReviewPublicationService(tasks.review)
         selected_grants = frozenset(
             grant
             for enabled, grant in (
@@ -2166,6 +2249,7 @@ def _run_local_command(
             )
             if enabled
         )
+        selected_grants |= facet_grants_from_namespace(parsed)
         session_authority = agent_authority(
             principal_id="open-brain-mcp-local",
             session_id="mcp-" + str(uuid.uuid4()),
@@ -2220,6 +2304,10 @@ def _run_local_command(
             session_authority_revalidator = revalidate_session_authority
         if parsed.allow_capture_submit:
             capture_submit_capability = destination_bound_capture_submit(tasks, session_authority)
+        review = ReviewPublicationService(
+            tasks.review,
+            authority=session_authority if tasks.facet_publication is not None else None,
+        )
         history = tasks.history
         sources = tasks.sources
         negotiated_tasks = SimpleNamespace(
@@ -2286,6 +2374,14 @@ def _run_local_command(
                 review.edit_and_approve if local_callbacks and parsed.allow_review_decide else None
             ),
             negotiated=negotiated,
+            facets=FacetAppAdapter(
+                facets=tasks.facets,
+                publication=tasks.facet_publication,
+                authority=session_authority,
+                granted_capabilities=selected_grants,
+                revalidate_authority=session_authority_revalidator,
+                budget=FacetSessionBudget(negotiated=negotiated.budget if negotiated else None),
+            ),
             workspace_status=(
                 (lambda: workspace_status_result(tasks))
                 if local_callbacks and parsed.allow_workspace_read
@@ -2985,7 +3081,7 @@ def _record_verified_export(
         manifest_version = cast(dict[str, object], manifest_value)["schema_version"]
     except UnicodeDecodeError, json.JSONDecodeError, KeyError, TypeError:
         raise ValueError("Portable export manifest is unavailable") from None
-    if type(manifest_version) is not int or manifest_version not in {1, 2, 3, 4, 5, 6, 7, 8, 9}:
+    if type(manifest_version) is not int or manifest_version not in {1, 2, 3, 4, 5, 6, 7, 8, 9, 10}:
         raise ValueError("Portable export manifest is unavailable")
     session.prepared.revalidate()
     atomic_replace(
@@ -3025,7 +3121,7 @@ def _verified_export_state(session: LocalBrainSession) -> str:
                 "schema_version",
             }
             or type(value["schema_version"]) is not int
-            or value["schema_version"] not in {1, 2, 3, 4, 5, 6, 7, 8, 9}
+            or value["schema_version"] not in {1, 2, 3, 4, 5, 6, 7, 8, 9, 10}
             or canonical_json_bytes(value) != payload
             or not isinstance(value["created_at"], str)
             or not isinstance(value["export_id"], str)
