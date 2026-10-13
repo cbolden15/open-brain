@@ -220,6 +220,15 @@ describe("frozen C0 v4 codec parity (no server authority proof)", () => {
 describe("complete plugin frames and operation limits", () => {
   const pageOperations = new Set(["facet.dimension.list", "facet.value.list", "facet.query.list", "facet.query.page", "facet.history.list"]);
   const reads = new Set(["facet.assignment.get", "facet.query.get", "facet.query.attachment.get", "facet.history.state", "facet.vault.preview"]);
+  it.each(["facet.dimension.list", "review.propose_from_facet_query"] as const)("bounds the actual raw request bytes for %s", (operation) => {
+    const request = fixture(operation).request;
+    const raw = JSON.stringify(request);
+    const maximum = operation === "review.propose_from_facet_query" ? 1048576 : 65536;
+    const padded = raw + " ".repeat(maximum - encoder.encode(raw).byteLength);
+    expect(encoder.encode(padded).byteLength).toBe(maximum);
+    expect(parseFacetRequest(operation, encoder.encode(padded))).toEqual(request);
+    expectCode(() => parseFacetRequest(operation, padded + " "), "invalid_arguments");
+  });
   for (const entry of positive) {
     const expectedResponse = pageOperations.has(entry.operation) ? 250000 : reads.has(entry.operation) ? 1048576 : 4096;
     it(`${entry.operation}: has explicit request/response caps and includes final LF`, () => {
@@ -275,6 +284,22 @@ describe("complete plugin frames and operation limits", () => {
     expect(encoded.byteLength).toBeGreaterThan(decoder.decode(encoded).length);
     request.markdown = "é".repeat(32769);
     expectCode(() => encodeFacetRequest("review.propose_from_facet_query", request, requestId), "invalid_arguments");
+  });
+
+  it("encodes and correlates the additive managed resolver without advertising it", () => {
+    const request = { dto_version: 1, workspace_id: id("workspace"), relative_path: "Notes/研究.md" };
+    const response = {
+      status: "ok", dto_version: 1, workspace_id: id("workspace"), record_id: id("page"),
+      revision_id: "revision_00000000-0000-5000-8000-000000000001", subject: { kind: "canonical", id: id("page") },
+    };
+    const encoded = encodeFacetRequest("workspace.record.resolve", request, requestId);
+    expect(JSON.parse(decoder.decode(encoded))).toEqual({
+      protocol: "open-brain-client", protocol_version: 1, request_id: requestId,
+      operation: "workspace.record.resolve", arguments: request,
+    });
+    expect(facetLimits("workspace.record.resolve")).toEqual({ request_bytes: 65536, response_bytes: 1048576 });
+    expect(parseFacetResponseFrame("workspace.record.resolve", frame(response), requestId)).toEqual(response);
+    expect(() => parseFacetResponseFrame("workspace.record.resolve", frame(response, { request_id: id("plugin", 2) }), requestId)).toThrow(FacetWireError);
   });
 
   it.each([
