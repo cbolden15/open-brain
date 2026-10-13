@@ -34,6 +34,20 @@ const corpus = JSON.parse(readFileSync(new URL("wire-cases.json", fixtureRoot), 
   cases: WireCase[];
 };
 const positive = corpus.cases.filter((entry) => entry.outcome === "accept");
+const sharedRoot = new URL("fixtures/facets/", import.meta.url);
+const shared = JSON.parse(readFileSync(new URL("o0-cases.json", sharedRoot), "utf8")) as {
+  contract_revision: string;
+  handshake: {
+    operations: string[];
+    facet_capabilities: {
+      version: number;
+      operations: { operation: string; dto_versions: number[]; request_bytes: number; response_bytes: number }[];
+    };
+  };
+  managed_request: ObjectValue;
+  publication_inspections: ObjectValue[];
+  frames: { operation: FacetOperation; result: ObjectValue; frame: string }[];
+};
 const requestId = "plugin_00000000-0000-4000-8000-000000000001";
 const encoder = new TextEncoder();
 const decoder = new TextDecoder("utf-8", { fatal: true });
@@ -59,6 +73,71 @@ const expectCode = (run: () => unknown, code: string) => {
     expect((error as FacetWireError).code).toBe(code);
   }
 };
+
+describe("shared Python frames and captured Stage1 inspection (codec consumption)", () => {
+  it("pins the O0 manifest and every schema/corpus fixture input", () => {
+    const raw = readFileSync(new URL("manifest.json", sharedRoot));
+    expect(createHash("sha256").update(raw).digest("hex")).toBe("bee455084d682e8e717f5f40e1a5cfad82ada7546fdf6412552a8e4844a50d9f");
+    const manifest = JSON.parse(raw.toString("utf8")) as {
+      contract_revision: string;
+      stage_one_pin: { contract_revision: string; fixture_manifest_sha256: string };
+      files: Record<string, string>;
+    };
+    expect(manifest.contract_revision).toBe("obsidian-o0-v1");
+    expect(shared.contract_revision).toBe(manifest.contract_revision);
+    expect(manifest.stage_one_pin.contract_revision).toBe("facets-c0-v4");
+    expect(manifest.stage_one_pin.fixture_manifest_sha256).toBe("95e85b535eeb4263a6e430970ecf1d49de8d0b72de7425e41be703897d93dbc5");
+    for (const [path, expected] of Object.entries(manifest.files)) {
+      const bytes = readFileSync(new URL(path, new URL("../../../", import.meta.url)));
+      expect(createHash("sha256").update(bytes).digest("hex"), path).toBe(expected);
+    }
+    expect(shared.frames).toHaveLength(23);
+    expect(shared.frames.map((entry) => entry.operation).sort()).toEqual([...FACET_OPERATIONS].sort());
+  });
+
+  for (const entry of shared.frames) {
+    it(`${entry.operation}: decodes the exact Python UTF-8 response frame`, () => {
+      const bytes = encoder.encode(entry.frame);
+      expect(bytes[bytes.length - 1]).toBe(10);
+      expect(bytes.byteLength).toBeLessThanOrEqual(facetLimits(entry.operation).response_bytes);
+      expect(JSON.parse(entry.frame)).toEqual({
+        protocol: "open-brain-client", protocol_version: 1, request_id: requestId,
+        ok: true, result: entry.result,
+      });
+      expect(parseFacetResponseFrame(entry.operation, bytes, requestId)).toEqual(entry.result);
+    });
+  }
+
+  it("negotiates the exact Python descriptor for all facets and the resolver", () => {
+    expect(parseHandshake(shared.handshake)).toEqual(shared.handshake);
+    const result = negotiateFacets(shared.handshake);
+    expect(result.status).toBe("available");
+    if (result.status !== "available") throw new Error("expected shared contract");
+    expect([...result.operations].sort()).toEqual([...FACET_OPERATIONS, "workspace.record.resolve"].sort());
+    for (const entry of shared.handshake.facet_capabilities.operations) {
+      expect(entry.dto_versions).toEqual([1]);
+      expect(result.limits[entry.operation as keyof typeof result.limits]).toEqual({
+        request_bytes: entry.request_bytes, response_bytes: entry.response_bytes,
+      });
+    }
+    expect(parseManagedRecordRequest(shared.managed_request)).toEqual(shared.managed_request);
+    const bytes = encodeFacetRequest("workspace.record.resolve", shared.managed_request, requestId);
+    expect(object(JSON.parse(decoder.decode(bytes))).arguments).toEqual(shared.managed_request);
+  });
+
+  it("accepts the real producer inspection with distinct excerpt and immutable-source digests", () => {
+    expect(shared.publication_inspections).toHaveLength(1);
+    const value = shared.publication_inspections[0]!;
+    const evidence = object(array(value.evidence)[0]);
+    const binding = object(value.facet_selection);
+    const source = object(array(binding.source_states)[0]);
+    expect(evidence.sha256).toMatch(/^[a-f0-9]{64}$/);
+    expect(source.sha256).toMatch(/^[a-f0-9]{64}$/);
+    expect(evidence.sha256).not.toBe(source.sha256);
+    expect(evidence.sha256).toBe(createHash("sha256").update(evidence.excerpt as string).digest("hex"));
+    expect(parseFacetPublicationInspection(value)).toEqual(value);
+  });
+});
 
 describe("frozen C0 v4 codec parity (no server authority proof)", () => {
   it("uses the pinned fixture manifest and exactly all 23 public operations", () => {
@@ -479,7 +558,7 @@ describe("full facet publication inspection (pure frozen binding codec)", () => 
     if (change === "selection-version") binding.query_selection_version = 4;
     if (change === "attachment") binding.attachment_version = 1;
     if (change === "source-state") object(array(binding.source_states)[0]).capture_id = id("capture", 99);
-    if (change === "evidence") value.evidence[0]!.sha256 = "e".repeat(64);
+    if (change === "evidence") value.evidence[0]!.sha256 = "not-a-digest";
     expect(() => parseFacetPublicationInspection(value)).toThrow();
   });
 });
