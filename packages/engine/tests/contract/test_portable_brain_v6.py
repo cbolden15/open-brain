@@ -356,6 +356,16 @@ def test_pending_binding_preserves_cross_space_routes_and_independent_destinatio
             state["capture_id"]: state["source_id"] for state in binding["facet_source_states"]
         },
     )
+    from open_brain_engine.portable.v4 import SOURCE_METADATA_PATH
+
+    files[SOURCE_METADATA_PATH] = canonical(
+        {
+            "revisions": [
+                {"capture_id": state["capture_id"], "source_id": state["source_id"], "sequence": 1}
+                for state in binding["facet_source_states"]
+            ]
+        }
+    )
     actual = validate_facet_binding_record(
         binding, proposal=proposal, files=files, references=refs, tenant_id=binding["tenant_id"]
     )
@@ -1321,3 +1331,246 @@ def test_real_public_export_refuses_owner_modified_generated_views(
         )
     assert target.read_bytes() == owner_edit
     assert not destination.exists()
+
+
+@pytest.mark.parametrize("status", ["pending", "approved", "rerouted_pending"])
+def test_real_facet_binding_routes_follow_proven_successors_and_preserve_frozen_history(
+    tmp_path: Path,
+    status: str,
+) -> None:
+    from datetime import UTC, datetime, timedelta
+
+    from open_brain_engine.engine import facet_contracts as fc
+    from open_brain_engine.engine.contracts import DecisionOutcome
+    from open_brain_engine.engine.local import BrainEngine
+    from open_brain_engine.engine.t03_contracts import EffectiveAuthority, SourceRouteRequest
+    from open_brain_engine.portable.versioned import validated_portable_snapshot
+
+    from open_brain.profile import compile_single_user_local, open_existing_single_user_local
+    from packages.engine.tests.contract.test_facets_acceptance import public_revision
+
+    clock = [datetime(2026, 10, 13, 12, tzinfo=UTC)]
+    engine = BrainEngine.open(
+        compile_single_user_local(
+            tmp_path / "lineage-brain", starter_spaces=("First", "Second", "Destination")
+        ),
+        clock=lambda: clock[0],
+    )
+    spaces = {space.name: space.space_id for space in engine.inbox.spaces()}
+    owner = EffectiveAuthority(
+        engine.profile.owner_actor_id, "x-lineage-owner", frozenset(), None, owner=True
+    )
+    first = public_revision(engine, 1, None)
+    assert first.capture_id is not None and first.source_id is not None
+    clock[0] += timedelta(seconds=10)
+    engine.sources.route(
+        SourceRouteRequest(
+            source_id=first.source_id,
+            expected_head=first.capture_id,
+            expected_route_version=0,
+            space_id=spaces["First"],
+            operation_id="operation_00000000-0000-4000-8000-000000000041",
+        ),
+        authority=owner,
+    )
+    clock[0] += timedelta(seconds=10)
+    successor = public_revision(engine, 2, first.capture_id)
+    assert successor.capture_id is not None and successor.source_id == first.source_id
+    dimension = cast(
+        str,
+        engine.facets.dimension_create(
+            fc.DimensionCreateRequest(
+                operation_id="x-lineage-dimension", expected_version=0, name="Project"
+            ),
+            authority=owner,
+        ).to_wire()["subject_id"],
+    )
+    value = cast(
+        str,
+        engine.facets.value_create(
+            fc.ValueCreateRequest(
+                operation_id="x-lineage-value",
+                expected_version=0,
+                dimension_id=dimension,
+                expected_dimension_version=1,
+                name="Apollo",
+            ),
+            authority=owner,
+        ).to_wire()["subject_id"],
+    )
+    engine.facets.assignments_patch(
+        fc.AssignmentsPatchRequest(
+            operation_id="x-lineage-assign",
+            expected_version=0,
+            record_id=successor.capture_id,
+            expected_revision_id=successor.capture_id,
+            add_value_ids=[value],
+            remove_value_ids=[],
+        ),
+        authority=owner,
+    )
+    query = cast(
+        str,
+        engine.facets.query_create(
+            fc.QueryCreateRequest(
+                operation_id="x-lineage-query",
+                expected_version=0,
+                name="Lineage query",
+                selector={"all_value_ids": [value], "record_types": ["source"]},
+            ),
+            authority=owner,
+        ).to_wire()["subject_id"],
+    )
+    clock[0] += timedelta(seconds=10)
+    proposal = _real_facet_proposal(engine, owner, query, spaces["Destination"])
+    if status == "approved":
+        inspected = engine.review.show(proposal["proposal_id"])
+        engine.review.decide(
+            inspected.proposal_id,
+            DecisionOutcome.APPROVED,
+            delivery_id="x-lineage-approve",
+            expected_review_digest=inspected.review_digest,
+        )
+    elif status == "rerouted_pending":
+        clock[0] += timedelta(seconds=10)
+        engine.sources.route(
+            SourceRouteRequest(
+                source_id=first.source_id,
+                expected_head=successor.capture_id,
+                expected_route_version=1,
+                space_id=spaces["Second"],
+                operation_id="operation_00000000-0000-4000-8000-000000000042",
+            ),
+            authority=owner,
+        )
+    exported = tmp_path / "lineage-portable"
+    engine.portability.export(exported, export_id="export_00000000-0000-4000-8000-000000000043")
+    snapshot = validated_portable_snapshot(exported)
+    binding_path = next(
+        path
+        for path in snapshot.files
+        if path.startswith("history/review-bindings/")
+        and path.endswith(f"/{proposal['proposal_id']}.json")
+    )
+    binding = json.loads(snapshot.files[binding_path])
+    source_state = binding["source_states"][0]
+    assert source_state["capture_id"] == successor.capture_id
+    assert source_state["space_id"] == spaces["First"]
+    assert source_state["route_id"] is not None
+    chosen_route = next(
+        json.loads(data)
+        for path, data in snapshot.files.items()
+        if path.startswith("history/routes/")
+        and json.loads(data)["route_id"] == source_state["route_id"]
+    )
+    assert chosen_route["capture_id"] == first.capture_id
+    successor_record = next(
+        json.loads(data)
+        for path, data in snapshot.files.items()
+        if path.startswith("sources/captures/")
+        and json.loads(data)["capture_id"] == successor.capture_id
+    )
+    assert successor_record["space_id"] is None
+    restored_root = tmp_path / "lineage-restored"
+    engine.portability.import_clean(
+        exported, restored_root, import_id="import_00000000-0000-4000-8000-000000000044"
+    )
+    restored = BrainEngine.open(open_existing_single_user_local(restored_root))
+    assert (restored_root / binding_path).read_bytes() == snapshot.files[binding_path]
+    if status != "approved":
+        inspected = restored.review.show(proposal["proposal_id"])
+        if status == "rerouted_pending":
+            with pytest.raises(ValueError, match="conflict"):
+                restored.review.decide(
+                    inspected.proposal_id,
+                    DecisionOutcome.APPROVED,
+                    delivery_id="x-lineage-imported-approve",
+                    expected_review_digest=inspected.review_digest,
+                )
+        else:
+            decision = restored.review.decide(
+                inspected.proposal_id,
+                DecisionOutcome.APPROVED,
+                delivery_id="x-lineage-imported-approve",
+                expected_review_digest=inspected.review_digest,
+            )
+            assert decision.publication_id is not None
+
+
+@pytest.mark.parametrize(
+    "case,accepted",
+    [
+        ("later_after", True),
+        ("later_before", False),
+        ("foreign_chosen", False),
+        ("future_chosen", False),
+        ("no_route_initial", True),
+        ("no_route_earlier", False),
+    ],
+)
+def test_frozen_lineage_route_cutoff_is_independent_of_current_space(
+    case: str, accepted: bool
+) -> None:
+    from open_brain_engine.portable.facets_v6 import _facet_route_matches_frozen_state
+
+    source = "source_00000000-0000-4000-8000-000000000001"
+    foreign = "source_00000000-0000-4000-8000-000000000002"
+    first = "capture_00000000-0000-4000-8000-000000000003"
+    successor = "capture_00000000-0000-4000-8000-000000000004"
+    other = "capture_00000000-0000-4000-8000-000000000005"
+    space_a = "space_00000000-0000-4000-8000-000000000006"
+    space_b = "space_00000000-0000-4000-8000-000000000007"
+    route_a = "route_00000000-0000-4000-8000-000000000008"
+    route_b = "route_00000000-0000-4000-8000-000000000009"
+    refs = FacetPortableReferences(
+        frozenset({source, foreign}),
+        frozenset(),
+        {first: source, successor: source, other: foreign},
+        {},
+        frozenset({space_a, space_b}),
+        frozenset(),
+        {},
+    )
+    revisions = {first: {"sequence": 1}, successor: {"sequence": 2}, other: {"sequence": 1}}
+    captures: dict[str, dict[str, object]] = {
+        first: {"space_id": space_a},
+        successor: {"space_id": None},
+        other: {"space_id": space_b},
+    }
+    routes: dict[str, dict[str, object]] = {
+        route_a: {
+            "capture_id": first,
+            "space_id": space_a,
+            "recorded_at": "2026-10-13T12:00:10Z",
+            "supersedes": None,
+        },
+        route_b: {
+            "capture_id": successor,
+            "space_id": space_b,
+            "recorded_at": "2026-10-13T12:00:40Z",
+            "supersedes": None,
+        },
+    }
+    state: dict[str, Any] = {"capture_id": successor, "space_id": space_a, "route_id": route_a}
+    if case == "later_before":
+        routes[route_b]["recorded_at"] = "2026-10-13T12:00:20Z"
+    elif case == "foreign_chosen":
+        routes[route_a]["capture_id"] = other
+    elif case == "future_chosen":
+        routes[route_a]["recorded_at"] = "2026-10-13T12:00:40Z"
+    elif case == "no_route_initial":
+        routes.pop(route_a)
+        state["route_id"] = None
+    elif case == "no_route_earlier":
+        state["route_id"] = None
+    assert (
+        _facet_route_matches_frozen_state(
+            routes,
+            captures=captures,
+            revisions=revisions,
+            references=refs,
+            state=state,
+            proposed_at="2026-10-13T12:00:30Z",
+        )
+        == accepted
+    )

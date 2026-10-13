@@ -19,7 +19,7 @@ from open_brain_engine.storage.markdown import parse_markdown
 
 from .review_binding import review_binding_digest
 from .v1 import PortableValidationError, _portable_record
-from .v3 import _published_bytes, _records, _route_matches_frozen_state
+from .v3 import _published_bytes, _recorded_before, _records
 from .v4 import SOURCE_METADATA_PATH
 
 FACET_EVENTS_PATH = "history/facets/events-v1.json"
@@ -292,6 +292,67 @@ def decode_portable_facets(
     )
 
 
+def _facet_route_matches_frozen_state(
+    routes: Mapping[str, dict[str, object]],
+    *,
+    captures: Mapping[str, dict[str, object]],
+    revisions: Mapping[str, dict[str, Any]],
+    references: FacetPortableReferences,
+    state: Mapping[str, Any],
+    proposed_at: object,
+) -> bool:
+    """Resolve frozen logical routing through proven revisions, independent of current state."""
+    source_id = references.capture_sources.get(state["capture_id"])
+    source_revisions = {
+        capture_id: row
+        for capture_id, row in revisions.items()
+        if references.capture_sources.get(capture_id) == source_id
+    }
+    if source_id is None or not source_revisions:
+        return False
+    applicable = {
+        route_id: route
+        for route_id, route in routes.items()
+        if route["capture_id"] in source_revisions
+    }
+    chosen_id = state["route_id"]
+    if chosen_id is None:
+        initial_id = min(
+            source_revisions, key=lambda identity: source_revisions[identity]["sequence"]
+        )
+        return captures[initial_id].get("space_id") == state["space_id"] and not any(
+            _recorded_before(route["recorded_at"], proposed_at) for route in applicable.values()
+        )
+    chosen = applicable.get(chosen_id)
+    if (
+        chosen is None
+        or chosen["space_id"] != state["space_id"]
+        or _recorded_before(proposed_at, chosen["recorded_at"])
+    ):
+        return False
+    chosen_sequence = source_revisions[cast(str, chosen["capture_id"])]["sequence"]
+    children = {
+        route["supersedes"]: route_id
+        for route_id, route in applicable.items()
+        if route["supersedes"] is not None
+    }
+    successors: set[str] = set()
+    successor = children.get(chosen_id)
+    while successor is not None:
+        if successor in successors:
+            return False
+        successors.add(successor)
+        successor = children.get(successor)
+    return not any(
+        (
+            route_id in successors
+            or source_revisions[cast(str, route["capture_id"])]["sequence"] > chosen_sequence
+        )
+        and _recorded_before(route["recorded_at"], proposed_at)
+        for route_id, route in applicable.items()
+    )
+
+
 def validate_facet_binding_record(
     binding: object,
     *,
@@ -358,6 +419,10 @@ def validate_facet_binding_record(
     )
     captures = _records(files, "sources/captures/", "capture")
     routes = _records(files, "history/routes/", "routing")
+    metadata = _portable_record(files[SOURCE_METADATA_PATH], "source metadata")
+    revisions = {
+        row["capture_id"]: row for row in cast(list[dict[str, Any]], metadata["revisions"])
+    }
     for capture_id, source_state in zip(provenance, value["source_states"], strict=True):
         paths = [
             path
@@ -367,9 +432,11 @@ def validate_facet_binding_record(
         _require(len(paths) == 1 and capture_id in captures, "facet review source is missing")
         _require(
             source_state["sha256"] == sha256(files[paths[0]]).hexdigest()
-            and _route_matches_frozen_state(
+            and _facet_route_matches_frozen_state(
                 routes,
-                capture=captures[capture_id],
+                captures=captures,
+                revisions=revisions,
+                references=references,
                 state=source_state,
                 proposed_at=value["recorded_at"],
             ),
