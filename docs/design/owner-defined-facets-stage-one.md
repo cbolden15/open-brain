@@ -655,11 +655,174 @@ maps to a contract here and all source seams, errors, versions, and delivery gat
 | F21 | Facet-only and combined vault edits preserve content identity; modified index notes survive refresh; generated views stay out of evidence |
 | F22 | End-to-end synthetic scenario covers classify, revise, query, publish, archive, reconcile, export, import, and fresh query |
 
-Stage two implements engine/schema/query/Portable contracts and F01–F08, F16–F19 foundations.
-Stage three adds CLI and publication with F09–F14 and pending-proposal restore coverage.
-Stage four adds MCP authority and budgets with F15. Stage five adds vault projection and F20–F22.
-Stage-two Portable schemas include the full v6 vocabulary, including publication evidence; later
-stages must not redefine a frozen catalog. Unimplemented operations stay unadvertised.
+## Delivery graph
+
+Execute the accepted behavior through dependency gates. The ADR's five delivery stages remain
+coverage milestones, not a requirement to complete each entire stage before starting the next.
+C0 is the first implementation task. No implementation task below is complete merely because
+this specification or its fixture examples exist.
+
+```mermaid
+flowchart TD
+    C0["C0: Executable contracts and fixtures"]
+    C0 --> E["E: Engine storage, mutations, queries"]
+    C0 --> A["A: CLI and MCP adapters"]
+    C0 --> T["T: Independent contract and fault tests"]
+    E --> P["P: Query-backed publication"]
+    E --> X["X: Portable v6"]
+    E --> V["V: Vault reconciliation"]
+    P -.->|"pending proposal evidence"| X
+    V -.->|"managed export evidence"| X
+    A --> I["I: Integrated acceptance"]
+    T --> I
+    P --> I
+    X --> I
+    V --> I
+    I --> R["R: Independent review and release checks"]
+```
+
+Solid arrows identify real-engine integration prerequisites; dashed arrows are evidence required
+for X's final acceptance, not prerequisites for its preparatory codec work. C0 also supplies the
+shared contracts to P, X, and V. After C0, those consumers may prepare isolated codecs, renderers, and tests against
+its fixtures before E passes; they cannot claim real-engine completion until E's gate passes.
+The coordinator schedules a ready task as soon as a worker slot opens. There is no whole-wave
+barrier. Prefer tasks that shorten the engine-to-publication/Portable-to-integration path.
+
+### C0: Executable contract kit
+
+C0 turns this specification into importable protocols, strict parsers, and reusable synthetic
+evidence before independent workers implement its consumers. It does not build a generic
+orchestration framework or claim working storage, publication, or restore.
+
+| C0 artifact | Required content and ownership |
+|---|---|
+| Engine contract values and protocols | Implement the proposed `facet_contracts.py` and `facet_schema.json`, with exact method signatures, closed request/response shapes, enums, errors, normalization, defaults, and authority inputs. Define typed publication and vault boundaries as well as basic facet operations. |
+| Draft evidence schemas | Cover events, semantic operation receipts, replay state, version-5 review bindings, and every v6 facet sidecar. Retain existing historical schema definitions. The wire schema governs serialization; protocol/type conformance tests detect drift from it. |
+| Shared golden fixtures | Add `packages/engine/tests/fixtures/facets/` with fixed synthetic IDs, canonical bytes, and positive/negative cases for rename, archive, retry/no-op, membership remove/restore, query selection versions, publication bindings, and portable replay assertions. |
+| Test-only engine fake | Add a protocol-conforming fake under `packages/app/tests/` with explicit configured responses/errors and call recording. It must reject unsupported calls and never report default mutation success. Production code must not import or install it. |
+| Contract suite and task manifest | Add `packages/engine/tests/contract/test_facet_contracts.py` and `packages/app/tests/unit/test_facet_adapter_contracts.py`; map F01–F22 to producer and independent test owners, exact task inputs, declared outputs, and verification commands. |
+
+The shared fixture manifest records a contract revision, SHA-256 hashes of its schemas and
+fixtures, and expected parse/validation outcomes. Keep it in the fixture directory and record
+its exact commit in the workstream ledger. Use deterministic bytes and explicit IDs rather than
+regenerating different examples per worker. The fake shares the real request/response types;
+tests must exercise the production parser and serializer rather than a second fake wire parser.
+
+C0 passes when both named contract suites execute, positive fixtures parse and round-trip to
+their canonical bytes, negative fixtures fail with their specified errors, protocols type-check,
+and the fake can drive adapter contract tests without an initialized Brain. Document how each
+example maps to an acceptance case. These checks prove interfaces, not real persistence or access
+control. Complete the coordinator's required repository checks before declaring the integrated
+C0 milestone verified.
+
+C0 output is one verified commit plus its fixture-manifest hash, explicit file-ownership manifest,
+and consumer input list. Initial workers branch from that commit; later workers use a verified
+integration descendant containing their required inputs. Unimplemented production operations
+remain unadvertised and unavailable; no registration may substitute the fake for a missing engine.
+
+### Task inputs and completion gates
+
+Each worker prompt names its input commits, contract revision, absolute worktree path, exclusive
+write scope, required acceptance cases, exact verification commands, and output report path.
+Module names in this table refer to the source roots established above. The coordinator resolves
+them into absolute paths before dispatch.
+
+| Task | Required inputs | Implementation scope and completion evidence |
+|---|---|---|
+| E: engine | Verified C0 | Own facet storage/tasks, local schema migration, runtime admission, and focused engine tests. Prove F01–F08 and F16 against the real engine; expose tested mutation/query/snapshot seams for consumers. One owner assigns schema 11/runtime 6 changes. |
+| A: adapters | Verified C0; E/P for final wiring | Own facet service adapters, CLI argument handling, grant setup, and adapter tests. Develop against the test fake first. Cover DTO/limit/grant cases from F15; final authority and review behavior must pass against real E/P handlers. |
+| T: independent tests | Verified C0; real producers as they land | Own separately assigned acceptance/fault test files covering F01–F22. Derive expectations from the ADR and contract fixtures, not implementation details. Deliver the test suite and passing results for available producers; I executes the combined F22 scenario. Missing producers remain tests-ready or blocked, never passed. |
+| P: publication | C0 binding fixtures; verified E for integration | Own facet publication logic, `engine/review_bound.py`, applicable `engine/review.py` changes, and `portable/review_binding.py`. Prove F09–F14 and supply real pending/approved/rejected evidence for X's F18 tests. |
+| X: portability | C0 evidence fixtures; verified E for integration; P/V evidence for final gate | Own v6 codecs, validation, export, restore, and their tests. Prove F17–F19, including imported pending proposals from P and generated-view exclusion/conflicts from V. Preparatory codec tests do not complete this gate. |
+| V: vault | C0 projection contracts; verified E for integration | Own facet projection/reconciliation, `engine/managed_workspace.py`, `engine/managed_portability.py`, and their tests. Prove F20–F21 and give X a tested managed-evidence export seam. |
+| I: integration | E/A/T/P/X/V verified outputs at a compatible contract revision | Coordinator composes the real tasks and adapters, executes the complete F01–F22 matrix, and runs the required combined-tree checks. F22 must use the real CLI/engine/export/import path. |
+| R: review and release gate | Verified I on the combined candidate | Independent review of replay/durability, authority, publication evidence, and import recovery. Resolve findings, finalize the release catalog, and verify the exact resulting candidate through applicable release checks. |
+
+P and V do not depend on X to produce their native evidence. X consumes those outputs for its
+final round-trip checks, so preparation can overlap without a dependency cycle. A may finish
+parser/fake-based tests early; its real-handler gate waits for E/P. T can author regression tests
+early and hand them to the relevant producer. Keep intentionally failing tests in their assigned
+worktree until the matching implementation is integrated; do not skip them or count them as
+acceptance. The gate table is authoritative where the compact graph omits an evidence handoff.
+
+### Scheduling and file ownership
+
+Start with one coordinator and at most three concurrent workers, each in an isolated Git worktree.
+The initial allocation after C0 is E, A, and T. Refill completed slots with ready P/X/V tasks;
+reuse workers with a fresh bounded task contract where appropriate. Independent reviewers use
+the same worker pool. Extra terminal windows do not create extra owners or separate ledgers.
+When A or T reaches a fixture-only checkpoint and awaits a real producer, record that partial
+state and release its worker slot. Resume the task after its input arrives; do not keep an idle
+worker allocated or mark the whole task passed. This allows P, X, and V to run concurrently once
+E passes, even while A's final real-handler checks remain pending.
+
+Reserve one writer per file before dispatch. Worktrees prevent incidental filesystem interference;
+they do not resolve competing edits to the same source file. E owns local schema/runtime admission
+files; P owns review-binding production/validation; V owns managed-workspace and managed-export
+integration. X consumes P/V interfaces and must not edit those files concurrently. T owns separate
+test files rather than modifying a producer's focused tests. C0 fixtures and shared contracts
+remain coordinator-owned after the initial contract commit.
+
+The coordinator owns shared task composition and final registration, including
+`engine/contracts.py`, `engine/local.py`, app `services/local_entrypoints.py`,
+`services/local_mcp.py`, and final Portable manifest/catalog registration. Adapter workers deliver
+their service callables and contract tests; the coordinator wires them through existing registries.
+Do not add runtime abstraction layers solely to avoid scheduling shared-file edits. An ownership
+transfer is explicit in the ledger and occurs only after the previous writer has stopped.
+
+The workstream ledger records task/dependency status, active and total worker counts, worktree,
+base commit, contract revision/hash, reserved files, checkpoints, output commits, verification,
+and unresolved findings. Use the workflow-governance limits across all workers and terminals:
+at most three active workers for this execution and twelve total dispatch attempts unless a
+specific override is recorded. A running process, an empty report, or a worker's unsupported
+success assertion is not completion evidence. Verify commits and reports before consuming them.
+
+### Implementation, repair, and integration loop
+
+1. Assign one bounded slice against a verified input commit and contract revision. Use a
+   45-minute checkpoint to return a tested slice or a precise blocker; it is a planning bound,
+   not permission to discard unfinished edits or kill a worker during a write.
+2. The worker implements and runs its focused tests and applicable static checks. It reports
+   status, commit, changed files, contract hash, F-case coverage, exact commands/results, and
+   concerns. Reports distinguish fake-based, real-engine, and packaged verification.
+3. The coordinator checks the evidence and integrates scoped commits as they pass. Re-run
+   affected cross-component tests on the combined commit. A green isolated worktree does not
+   prove that the integrated tree passes.
+4. Route failures back with the failing command, evidence, and bounded repair scope. After two
+   unsuccessful repairs of the same failure, change the hypothesis or reviewer and let the
+   coordinator resolve any contract issue. Do not run an unchanged repair loop indefinitely.
+5. Run the full repository gate at integrated milestones and final acceptance. Mark dependent
+   gates stale when an input contract or relevant source changes; re-run affected checks before
+   reporting completion. Integrate local commits only; publishing and pushing require their
+   separately authorized delivery step.
+
+Focused worker checks avoid repeated full builds. The coordinator remains responsible for
+`make verify` at the C0 and integrated engine milestones and on the final combined candidate.
+If another intermediate milestone is reported as verified, run its required repository checks
+too. Run expensive native/package checks once per relevant candidate, repeating them when
+subsequent changes invalidate that evidence. Never substitute fake-based tests for the real
+dispatch, durable state, migration, or restore requirements in F01–F22.
+
+### Contract changes and Portable catalog freeze
+
+A worker discovering a shared-contract gap reports the proposed change and affected consumers
+without unilaterally editing the shared contract. The coordinator resolves routine implementation
+details within this accepted design, updates the types/schema/examples together, advances the
+internal contract revision, and records which tasks must synchronize and revalidate. Existing
+accepted behavior is not reopened through a worker's local shortcut.
+
+Draft the complete v6 vocabulary during C0, including publication and managed-evidence boundaries.
+Version its internal schemas and fixtures so workers can collaborate against exact bytes. This
+development contract revision is distinct from the public Portable version and release catalog.
+Do not freeze the release catalog merely because E or X's initial codec work is done.
+
+Freeze the new v6 release catalog only after integrated producers, validators, and restore paths
+pass F17–F22 and independent review findings are resolved. Record the final catalog digest and
+fixture commit; rerun affected conformance and required candidate checks on those exact bytes.
+Pre-release contract changes invalidate affected workstream evidence. They never authorize edits
+to historical v1–v5 schemas, catalog digests, or retained archive bytes. After v6 is released,
+incompatible evidence requires the established versioning process rather than rewriting its
+frozen catalog.
 
 After runtime changes run `make verify`, `git diff --check`, and
 `actionlint .github/workflows/ci.yml`. Packaging/native changes additionally require the existing

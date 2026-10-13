@@ -178,6 +178,11 @@ changes from the actual current implementation rather than historical documentat
 
 ## Delivery and acceptance
 
+The stages below define coverage and acceptance. Their implementation follows the
+[specification's delivery graph](../../design/owner-defined-facets-stage-one.md#delivery-graph),
+beginning with C0, the executable contract kit. Independent work may overlap after its dependency
+gates pass; acceptance still requires the complete behavior and evidence below.
+
 1. Translate the accepted behavior above into engine and interface specifications: record and
    classification identities, transaction schemas, ordering and cursor bindings, publication
    evidence, Portable schemas, CLI/MCP envelopes, and vault reconciliation previews. These
