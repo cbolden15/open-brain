@@ -487,19 +487,19 @@ each source route. Old binding versions retain their exact validation. Do not lo
 globally or derive a facet page's destination from the first capture. Proposal serialization,
 publication validation, provenance projection, and index reconstruction must all agree on this.
 
-## Portable v6 and migration
+## Portable v10 and migration
 
-Schema 11 adds the facet tables, projection bookkeeping, and version-5 binding support without
+Schema 15 adds the facet tables, projection bookkeeping, and version-5 binding support without
 editing retained source/canonical/history bytes. Perform the migration under exclusive runtime
 admission. New tables start empty; no dimensions, values, or assignments are inferred from spaces.
-Supported older local states follow their existing guarded migration chain to schema 10 before
+Supported older local states follow their existing guarded migration chain to schema 14 before
 the facet transition; invalid or unknown states are never admitted by skipping earlier checks.
 Set compatibility to schema 15/runtime 10 in the same committed schema transition. Validate ledger
 checksums and expected shape. Older sessions block migration, and older binaries refuse schema 15.
-There is no automatic downgrade; a failed pre-commit migration leaves schema 10 intact. A failure
+There is no automatic downgrade; a failed pre-commit migration leaves schema 14 intact. A failure
 after commit is reported as committed-upgrade recovery, never as a successful rollback.
 
-Portable v6 keeps the existing evidence formats and adds three required canonical JSON sidecars:
+Portable v10 keeps the existing evidence formats and adds three required canonical JSON sidecars:
 
 | Path | Content |
 |---|---|
@@ -515,23 +515,23 @@ referenced source/page existence, and query references. IDs and sequences surviv
 Set the next event sequence above the greatest retained sequence. Catalogue vocabulary and facet
 history obey the existing owner-authorized full Portable export boundary.
 
-Add version-5 proposal bindings and pending page attachments to the v6 catalog. Keep their exact
+Add version-5 proposal bindings and pending page attachments to the v10 catalog. Keep their exact
 bytes through import, including rejected and pending proposals. Pending attachment intent belongs
 to proposal evidence, not `page_queries` until publication. Reconstruction preserves many-to-many
 source provenance and each page's independent destination. Import followed by approval must work
 for a valid pending proposal and reject evidence that was already stale in the archive.
 
-V6 manifests use schema/layout version 6 and contract version `"6"`, with a new frozen catalog
-digest and compatibility `{minimum_contract_version:"1",maximum_contract_version:"6"}`.
+V10 manifests use schema/layout version 10 and contract version `"10"`, with a new frozen catalog
+digest and compatibility `{minimum_contract_version:"1",maximum_contract_version:"10"}`.
 This retains the current manifest convention; it does not assert that an older reader can accept
-v6 evidence. Dispatch by actual schema/layout/catalog support. V6 support does not enable standalone
-v4 restore. A v6 archive is never passed to a v5 parser or exported as v5 by dropping facets.
-Preserve existing v1–v3/v5 imports, migrating the restored Brain through current guarded admission.
-An imported legacy archive has an empty facet ledger. Use local ready-record version 3 for v6, with
+v10 evidence. Dispatch by actual schema/layout/catalog support. V10 support does not enable standalone
+v4 restore. A v10 archive is never passed to a v5 parser or exported as v5 by dropping facets.
+Preserve existing v1–v3/v5–v9 imports, migrating the restored Brain through current guarded admission.
+An imported legacy archive has an empty facet ledger. Use local ready-record version 4 for v10, with
 facet semantic-state and operation-receipt coverage, without altering v5 retry verification.
 
-Export holds the existing canonical fence and a single SQLite read snapshot. Pending/quarantined
-ingress still blocks export. Restore validates a pinned snapshot, creates a hidden sibling stage,
+Export holds the existing canonical fence and a single SQLite read snapshot. Unsettled source/managed/sharing delivery still blocks export. Ordinary durable
+ingress custody follows the current lossless Portable9 behavior and survives Portable10 restore. Restore validates a pinned snapshot, creates a hidden sibling stage,
 restores durable evidence, replays facets, derives queries/search state, checks semantic equality,
 reopens, rechecks, and only then promotes. Repeated import verifies the complete promoted state
 before returning a duplicate receipt. Faults before promotion leave no destination; after promotion
@@ -648,9 +648,9 @@ maps to a contract here and all source seams, errors, versions, and delivery gat
 | F14 | A query attachment does not assign facets, and a page assignment does not edit its selector |
 | F15 | Direct unauthorized MCP calls fail before effects; each grant combination, quota, retry charge, and receipt reservation is exercised |
 | F16 | Migration fault injection, old live peers, unknown/newer schemas, bad checksums, and pre/post-commit recovery preserve boundaries |
-| F17 | V6 export/import/reopen/query/re-export preserves exact evidence and semantic state; altered events/projections/receipts are rejected |
+| F17 | V10 export/import/reopen/query/re-export preserves exact evidence and semantic state; altered events/projections/receipts are rejected |
 | F18 | Imported pending facet proposals approve only when still valid; destinations, cumulative members, and shared evidence restore correctly |
-| F19 | Existing v1–v3/v5 import paths remain valid; v4 and unsupported future formats remain refused; ingress gate remains enforced |
+| F19 | Existing v1–v3/v5–v9 import paths remain valid; v4 and unsupported future formats remain refused; ordinary ingress custody is retained and pending source/managed/sharing delivery gates remain enforced |
 | F20 | Preview/apply handles rename races, stale files/versions, expiry, missing mappings, archive additions, and missing subtree removals |
 | F21 | Facet-only and combined vault edits preserve content identity; modified index notes survive refresh; generated views stay out of evidence |
 | F22 | End-to-end synthetic scenario covers classify, revise, query, publish, archive, reconcile, export, import, and fresh query |
@@ -669,7 +669,7 @@ flowchart TD
     C0 --> A["A: CLI and MCP adapters"]
     C0 --> T["T: Independent contract and fault tests"]
     E --> P["P: Query-backed publication"]
-    E --> X["X: Portable v6"]
+    E --> X["X: Portable v10"]
     E --> V["V: Vault reconciliation"]
     P -.->|"pending proposal evidence"| X
     V -.->|"managed export evidence"| X
@@ -702,7 +702,7 @@ orchestration framework or claim working storage, publication, or restore.
 | C0 artifact | Required content and ownership |
 |---|---|
 | Engine contract values and protocols | Implement the proposed `facet_contracts.py` and `facet_schema.json`, with exact method signatures, closed request/response shapes, enums, errors, normalization, defaults, and authority inputs. Define typed publication and vault boundaries as well as basic facet operations. |
-| Draft evidence schemas | Cover events, semantic operation receipts, replay state, version-5 review bindings, and every v6 facet sidecar. Retain existing historical schema definitions. The wire schema governs serialization; protocol/type conformance tests detect drift from it. |
+| Draft evidence schemas | Cover events, semantic operation receipts, replay state, version-5 review bindings, and every v10 facet sidecar. Retain existing historical schema definitions. The wire schema governs serialization; protocol/type conformance tests detect drift from it. |
 | Shared golden fixtures | Add `packages/engine/tests/fixtures/facets/` with fixed synthetic IDs, canonical bytes, and positive/negative cases for rename, archive, retry/no-op, membership remove/restore, query selection versions, publication bindings, and portable replay assertions. |
 | Test-only engine fake | Add a protocol-conforming fake under `packages/app/tests/` with explicit configured responses/errors and call recording. It must reject unsupported calls and never report default mutation success. Production code must not import or install it. |
 | Contract suite and task manifest | Add `packages/engine/tests/contract/test_facet_contracts.py` and `packages/app/tests/unit/test_facet_adapter_contracts.py`; map F01–F22 to producer and independent test owners, exact task inputs, declared outputs, and verification commands. |
@@ -738,7 +738,7 @@ them into absolute paths before dispatch.
 | A: adapters | Verified C0; E/P for final wiring | Own facet service adapters, CLI argument handling, grant setup, and adapter tests. Develop against the test fake first. Cover DTO/limit/grant cases from F15; final authority and review behavior must pass against real E/P handlers. |
 | T: independent tests | Verified C0; real producers as they land | Own separately assigned acceptance/fault test files covering F01–F22. Derive expectations from the ADR and contract fixtures, not implementation details. Deliver the test suite and passing results for available producers; I executes the combined F22 scenario. Missing producers remain tests-ready or blocked, never passed. |
 | P: publication | C0 binding fixtures; verified E for integration | Own facet publication logic, `engine/review_bound.py`, applicable `engine/review.py` changes, and `portable/review_binding.py`. Prove F09–F14 and supply real pending/approved/rejected evidence for X's F18 tests. |
-| X: portability | C0 evidence fixtures; verified E for integration; P/V evidence for final gate | Own v6 codecs, validation, export, restore, and their tests. Prove F17–F19, including imported pending proposals from P and generated-view exclusion/conflicts from V. Preparatory codec tests do not complete this gate. |
+| X: portability | C0 evidence fixtures; verified E for integration; P/V evidence for final gate | Own v10 codecs, validation, export, restore, and their tests. Prove F17–F19, including imported pending proposals from P and generated-view exclusion/conflicts from V. Preparatory codec tests do not complete this gate. |
 | V: vault | C0 projection contracts; verified E for integration | Own facet projection/reconciliation, `engine/managed_workspace.py`, `engine/managed_portability.py`, and their tests. Prove F20–F21 and give X a tested managed-evidence export seam. |
 | I: integration | E/A/T/P/X/V verified outputs at a compatible contract revision | Coordinator composes the real tasks and adapters, executes the complete F01–F22 matrix, and runs the required combined-tree checks. F22 must use the real CLI/engine/export/import path. |
 | R: review and release gate | Verified I on the combined candidate | Independent review of replay/durability, authority, publication evidence, and import recovery. Resolve findings, finalize the release catalog, and verify the exact resulting candidate through applicable release checks. |
@@ -826,16 +826,16 @@ details within this accepted design, updates the types/schema/examples together,
 internal contract revision, and records which tasks must synchronize and revalidate. Existing
 accepted behavior is not reopened through a worker's local shortcut.
 
-Draft the complete v6 vocabulary during C0, including publication and managed-evidence boundaries.
+Draft the complete v10 vocabulary during C0, including publication and managed-evidence boundaries.
 Version its internal schemas and fixtures so workers can collaborate against exact bytes. This
 development contract revision is distinct from the public Portable version and release catalog.
 Do not freeze the release catalog merely because E or X's initial codec work is done.
 
-Freeze the new v6 release catalog only after integrated producers, validators, and restore paths
+Freeze the new v10 release catalog only after integrated producers, validators, and restore paths
 pass F17–F22 and independent review findings are resolved. Record the final catalog digest and
 fixture commit; rerun affected conformance and required candidate checks on those exact bytes.
 Pre-release contract changes invalidate affected workstream evidence. They never authorize edits
-to historical v1–v5 schemas, catalog digests, or retained archive bytes. After v6 is released,
+to historical v1–v9 schemas, catalog digests, or retained archive bytes. After v10 is released,
 incompatible evidence requires the established versioning process rather than rewriting its
 frozen catalog.
 
@@ -853,6 +853,11 @@ override the source baseline above. Apply the existing gotchas for
 [review evidence, dispatch, and exact-snapshot restore](../engineering/gotchas/README.md).
 
 ## Verified implementation and catalog freeze
+
+The following receipt is historical. Its schema11/Portable6 numbers belong to the original
+unmerged facet branch. Current integration uses15/10/10 and preserves main1–14/Portable1–9;
+see `facets-main-reconciliation.json` for the new candidate and verification.
+
 
 Stage 1 passed `make verify` on `abeab52136a668fd851a6d4a7c72aa8fa67baedb`. Independent review marked all F01–F22 requirements
 complete and closed its five findings. The report is in

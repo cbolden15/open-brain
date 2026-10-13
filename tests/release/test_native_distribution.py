@@ -67,6 +67,9 @@ def test_native_specs_keep_base_and_graphify_in_separate_executables() -> None:
     assert "local_native_entrypoint.py" in spec
     assert "analysis.binaries" in spec
     assert "analysis.datas" in spec
+    for schema in ("t03_schema.json", "facet_schema.json", "facet_evidence_schema.json"):
+        assert f'"engine/{schema}"' in spec
+        assert (ROOT / "packages/engine/src/open_brain_engine/engine" / schema).is_file()
     core_spec = spec.split("# Optional integration commands")[0]
     assert "COLLECT(" not in core_spec
     assert "exclude_binaries=True" not in core_spec

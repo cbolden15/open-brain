@@ -45,6 +45,7 @@ from open_brain_engine.engine.t03_contracts import (
     SearchPageRequest,
     T03Error,
 )
+from open_brain_engine.portable.facets_v10 import FACET_SIDECAR_PATHS
 from open_brain_engine.portable.v1 import PortableValidationError
 from open_brain_engine.portable.v4 import SOURCE_METADATA_PATH
 from open_brain_engine.portable.v5 import validate_portable_file_set_v5
@@ -266,13 +267,13 @@ def test_withdrawn_source_history_and_visibility_survive_recovery(
         export, restored = tmp_path / "export", tmp_path / "restored"
         assert (
             engine.portability.export(export, export_id="export_" + str(uuid4())).schema_version
-            == 9
+            == 10
         )
         assert (
             engine.portability.import_clean(
                 export, restored, import_id="import_" + str(uuid4())
             ).schema_version
-            == 9
+            == 10
         )
         engine = BrainEngine.open(_profile(restored, validated_portable_snapshot(restored)))
 
@@ -346,15 +347,15 @@ def test_schema11_runtime6_portable6_lifecycle_admission_roundtrip(tmp_path: Pat
     )
     receipt = tasks.sources.withdraw(withdrawal, authority=owner)
     export, restored, again = (tmp_path / name for name in ("export", "restored", "again"))
-    assert tasks.portability.export(export, export_id="export_" + str(uuid4())).schema_version == 9
+    assert tasks.portability.export(export, export_id="export_" + str(uuid4())).schema_version == 10
     snapshot = validated_portable_snapshot(export)
-    assert snapshot.manifest["schema_version"] == 9
+    assert snapshot.manifest["schema_version"] == 10
     assert snapshot.files.keys() >= V6_SIDECAR_PATHS
     assert (
         tasks.portability.import_clean(
             export, restored, import_id="import_" + str(uuid4())
         ).schema_version
-        == 9
+        == 10
     )
     engine = BrainEngine.open(_profile(restored, validated_portable_snapshot(restored)))
     assert engine.sources.withdraw(withdrawal, authority=owner) == receipt
@@ -415,7 +416,8 @@ def test_portable6_closed_authority_refuses_semantic_tampering(
             {
                 path: data
                 for path, data in files.items()
-                if path not in V7_SIDECAR_PATHS | V8_SIDECAR_PATHS | V9_SIDECAR_PATHS
+                if path
+                not in V7_SIDECAR_PATHS | V8_SIDECAR_PATHS | V9_SIDECAR_PATHS | FACET_SIDECAR_PATHS
             },
             tenant_id=tasks.profile.tenant_id,
         )
@@ -549,7 +551,8 @@ def test_portable6_managed_envelope_requires_exact_validated_intake_linkage(
         {
             path: data
             for path, data in files.items()
-            if path not in V7_SIDECAR_PATHS | V8_SIDECAR_PATHS | V9_SIDECAR_PATHS
+            if path
+            not in V7_SIDECAR_PATHS | V8_SIDECAR_PATHS | V9_SIDECAR_PATHS | FACET_SIDECAR_PATHS
         },
         tenant_id=engine.profile.tenant_id,
     )
@@ -629,7 +632,8 @@ def test_portable6_managed_envelope_requires_exact_validated_intake_linkage(
             {
                 path: data
                 for path, data in files.items()
-                if path not in V7_SIDECAR_PATHS | V8_SIDECAR_PATHS | V9_SIDECAR_PATHS
+                if path
+                not in V7_SIDECAR_PATHS | V8_SIDECAR_PATHS | V9_SIDECAR_PATHS | FACET_SIDECAR_PATHS
             },
             tenant_id=engine.profile.tenant_id,
         )
@@ -790,7 +794,8 @@ def test_portable6_observed_envelope_rejects_invalid_attestation_and_linkage(
             {
                 path: data
                 for path, data in files.items()
-                if path not in V7_SIDECAR_PATHS | V8_SIDECAR_PATHS | V9_SIDECAR_PATHS
+                if path
+                not in V7_SIDECAR_PATHS | V8_SIDECAR_PATHS | V9_SIDECAR_PATHS | FACET_SIDECAR_PATHS
             },
             tenant_id=engine.profile.tenant_id,
         )
@@ -955,7 +960,8 @@ def test_portable6_coordinated_admission_forgery_contradicts_retained_capture_an
             {
                 path: data
                 for path, data in files.items()
-                if path not in V7_SIDECAR_PATHS | V8_SIDECAR_PATHS | V9_SIDECAR_PATHS
+                if path
+                not in V7_SIDECAR_PATHS | V8_SIDECAR_PATHS | V9_SIDECAR_PATHS | FACET_SIDECAR_PATHS
             },
             tenant_id=engine.profile.tenant_id,
         )
@@ -1092,7 +1098,8 @@ def test_portable6_coordinated_history_only_revision_cannot_be_expected_head(
             {
                 path: data
                 for path, data in files.items()
-                if path not in V7_SIDECAR_PATHS | V8_SIDECAR_PATHS | V9_SIDECAR_PATHS
+                if path
+                not in V7_SIDECAR_PATHS | V8_SIDECAR_PATHS | V9_SIDECAR_PATHS | FACET_SIDECAR_PATHS
             },
             tenant_id=engine.profile.tenant_id,
         )
@@ -1231,8 +1238,7 @@ def test_portable6_restore_crash_rolls_back_authority(
         submission = _revision(tasks)
         accepted = tasks.sources.submit_revision(submission)
         assert (
-            tasks.portability.export(export, export_id="export_" + str(uuid4())).schema_version
-            == 6
+            tasks.portability.export(export, export_id="export_" + str(uuid4())).schema_version == 6
         )
     shutil.copytree(export, restore)
     snapshot = validated_portable_snapshot(restore)

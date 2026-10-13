@@ -6,7 +6,7 @@ import json
 import sqlite3
 from dataclasses import replace
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import pytest
 from open_brain_engine.core.models import PrivacyTier
@@ -252,7 +252,9 @@ def test_external_facet_query_assignment_and_history_intersect_stored_egress(
     adapter = _mcp(brain.engine, external)
     selector = {"dto_version": 1, "selector": {"all_value_ids": [value]}}
     result = adapter.call_tool("brain_facet_query_page", selector)
-    assert [item["record"]["record_id"] for item in result["items"]] == [visible]
+    assert [
+        item["record"]["record_id"] for item in cast(list[dict[str, Any]], result["items"])
+    ] == [visible]
     before = _rows(brain.engine)
     with pytest.raises(McpCallError, match="not_found"):
         adapter.call_tool("brain_facet_assignment_get", {"dto_version": 1, "record_id": denied})
@@ -278,7 +280,9 @@ def test_external_facet_query_assignment_and_history_intersect_stored_egress(
     )
     assert {
         item["record"]["record_id"]
-        for item in local.call_tool("brain_facet_query_page", selector)["items"]
+        for item in cast(
+            list[dict[str, Any]], local.call_tool("brain_facet_query_page", selector)["items"]
+        )
     } == {visible, denied}
     assert _rows(brain.engine) == before
 
@@ -295,7 +299,9 @@ def test_pending_historical_fence_denies_facet_candidates_assignment_and_history
     authority = EffectiveAuthority("synthetic-agent", "session", READ_GRANTS, None)
     adapter = _mcp(brain.engine, authority)
     selector = {"dto_version": 1, "selector": {"all_value_ids": [value]}}
-    assert len(adapter.call_tool("brain_facet_query_page", selector)["items"]) == 1
+    assert (
+        len(cast(list[object], adapter.call_tool("brain_facet_query_page", selector)["items"])) == 1
+    )
     before = _rows(brain.engine)
     HistoricalPendingFence(brain.root, brain.profile.root_identity).prepare(transition)
     assert adapter.call_tool("brain_facet_query_page", selector)["items"] == []

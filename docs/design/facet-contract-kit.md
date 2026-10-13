@@ -7,7 +7,7 @@ C0/O0 wire revisions and fixture bytes remain pinned; integrated verification is
 
 The kit defines the stage-one interfaces before facet storage and adapters are implemented.
 It is an internal development contract. It does not enable facet commands, grant new capabilities,
-or register Portable v6. The accepted behavior remains in
+or register Portable v10. The accepted behavior remains in
 [the stage-one specification](owner-defined-facets-stage-one.md).
 
 ## Consumer inputs

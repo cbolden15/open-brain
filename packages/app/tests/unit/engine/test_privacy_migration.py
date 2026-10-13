@@ -193,22 +193,22 @@ def test_privacy_migration_is_cataloged() -> None:
         "historical_retained_compatibility",
     ]
     assert local_schema_catalog.LOCAL_MIGRATIONS[10].version == 11
-    assert len(local_schema_catalog.LOCAL_MIGRATIONS) == 14
+    assert len(local_schema_catalog.LOCAL_MIGRATIONS) == 15
 
 
 def test_fresh_brain_is_schema_fourteen_current(tmp_path: Path) -> None:
     profile = compile_single_user_local(tmp_path / "brain")
     BrainEngine.open(profile)
-    assert inspect_phase1_state(profile) == local_schema.SchemaState("current", 14)
+    assert inspect_phase1_state(profile) == local_schema.SchemaState("current", 15)
     with _read_only(profile) as connection:
-        assert connection.execute("PRAGMA user_version").fetchone()[0] == 14
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 15
         assert [
             tuple(row)
             for row in connection.execute(
                 "SELECT singleton, minimum_runtime_session_version, state_schema_version "
                 "FROM runtime_compatibility"
             )
-        ] == [(1, 9, 14)]
+        ] == [(1, 10, 15)]
         # Fresh post-cutover state provisions identity atomically with the schema:
         # current epoch one, no legacy epoch, no bindings, and no migration marker.
         assert [

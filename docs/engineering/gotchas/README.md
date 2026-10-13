@@ -3482,3 +3482,29 @@ Use real mixed-history restore and policy tests; adapter fakes cannot prove thes
 Keep earlier verification pins as historical evidence and reverify the integrated candidate.
 
 Discovered: 2026-10-13, PR79 reconciliation.
+
+### FACETS-013: Frozen executables need engine schema resources
+
+Category: Build Pipeline.
+
+Symptom: Source tests pass while the frozen core cannot import facet validation.
+
+Action: Include both facet_schema.json and facet_evidence_schema.json in the native
+spec. Native core and optional harness share that data closure. Run the actual native
+audit and Homebrew smoke after adding import-time JSON resources; source builds do
+not prove frozen resource availability. Independent PR79 review reproduced the omission.
+
+Discovered: 2026-10-13.
+
+### FACETS-014: Reconcile current policy before retaining old feature expectations
+
+Category: Type Safety.
+
+Action: Preserve main eligibility and custody semantics when combining facet work: current
+canonical targets with withdrawn or superseded provenance stay hidden, owner historical
+inspection remains separate, and ordinary pending ingress is retained in Portable custody.
+Use concrete typed request DTOs in tests and the full shared MCP signature for harness
+adapters. Run full typecheck after integration and verify on a fixed commit; harness
+acceptance fingerprints intentionally reject source edits during a test run.
+
+Discovered: 2026-10-13, integrated PR79 tests and typecheck.
