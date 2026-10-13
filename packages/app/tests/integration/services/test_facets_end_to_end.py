@@ -149,6 +149,18 @@ def test_f22_real_cli_revision_query_publish_archive_reconcile_export_import_and
         "pipeline-proposal",
     )
     inspected = cli(root, "review", "show", proposal["proposal_id"])
+    binding = inspected["facet_selection"]
+    assert binding["schema_version"] == 5
+    assert {
+        "query_id",
+        "query_version",
+        "query_selection_version",
+        "selector",
+        "facet_source_states",
+        "destination_space_id",
+        "attachment_version",
+    } <= set(binding)
+    assert binding["destination_space_id"] == destination.space_id
     published = cli(
         root,
         "review",
@@ -222,12 +234,12 @@ def test_f22_real_cli_revision_query_publish_archive_reconcile_export_import_and
     archive = tmp_path / "portable"
     cli(root, "export", str(archive), "--verify")
     manifest = json.loads((archive / "portable-manifest.json").read_bytes())
-    assert manifest["schema_version"] == 6
+    assert manifest["schema_version"] == 10
     restored_root = tmp_path / "restored"
     receipt = engine.portability.import_clean(
         archive, restored_root, import_id="import_00000000-0000-4000-8000-000000000001"
     )
-    assert receipt.schema_version == 6
+    assert receipt.schema_version == 10
     reopened = BrainEngine.open(open_existing_single_user_local(restored_root))
     assert getattr(reopened, "facets", None) is not None
     fresh = cli(restored_root, "facet", "query", "run", query, "--expected-query-version", "1")
@@ -446,31 +458,37 @@ def _launch_scoped_review_mcp(
     exercise: Callable[[Any, EffectiveAuthority], None],
 ) -> None:
     """Exercise production CLI MCP composition with a trusted scoped session fixture."""
-    from open_brain.services import local_entrypoints, mcp_protocol
+    from open_brain.services import mcp_protocol
+    from open_brain.services.local_operations import current_brain_identity
 
-    established: list[EffectiveAuthority] = []
     exercise_errors: list[Exception] = []
-
-    def trusted_scope(
-        *, principal_id: str, session_id: str, grants: frozenset[str]
-    ) -> EffectiveAuthority:
-        authority = EffectiveAuthority(
-            principal_id,
-            session_id,
-            grants,
-            spaces,
-            owner=False,
-            allowed_read_tiers=frozenset({PrivacyTier.WORK}),
-        )
-        established.append(authority)
-        return authority
+    authority_root = brain.root.parent / "review-authority"
+    authority_root.mkdir(mode=0o700)
+    policy_path = authority_root / "session.json"
+    brain_id, issuer_epoch = current_brain_identity(brain.engine.tasks)
+    policy_path.write_text(json.dumps({
+        "policy_version": "launcher-policy.v1",
+        "principal_id": "synthetic-review-agent",
+        "session_id": "synthetic-review-session",
+        "capabilities": ["review-read", "review-decide"],
+        "space_ids": sorted(spaces),
+        "allowed_read_tiers": ["work"],
+        "allowed_capture_tiers": [],
+        "egress_mode": "owner_local",
+        "provider_id": None,
+        "consent_id": None,
+        "authorization_generation": 0,
+        "brain_id": brain_id,
+        "issuer_epoch": issuer_epoch,
+    }))
 
     def serve(adapter: Any, **_transport: Any) -> None:
         try:
-            assert len(established) == 1
-            trusted = established[0]
+            trusted = adapter.authority
             assert adapter.facets.authority is trusted
             assert trusted.owner is False
+            assert trusted.space_ids == spaces
+            assert trusted.allowed_read_tiers == frozenset({PrivacyTier.WORK})
             assert "review-propose" not in trusted.capabilities
             exercise(adapter, trusted)
         except Exception as error:
@@ -478,12 +496,12 @@ def _launch_scoped_review_mcp(
             # error wrapper, after its real runtime-session cleanup completes.
             exercise_errors.append(error)
 
-    monkeypatch.setattr(local_entrypoints, "agent_authority", trusted_scope)
     # Only the local byte transport is replaced. Dispatcher, adapters, authority
     # construction, review service and engine handlers are the real producers.
     monkeypatch.setattr(mcp_protocol, "serve_stdio_mcp", serve)
     result = run_cli(
-        ("mcp", "--allow-review-read", "--allow-review-decide", "--data-dir", str(brain.root)),
+        ("mcp", "--allow-review-read", "--allow-review-decide", "--session-policy",
+         str(policy_path), "--data-dir", str(brain.root)),
         filesystem_type_probe=_filesystem,
     )
     if exercise_errors:
@@ -491,7 +509,7 @@ def _launch_scoped_review_mcp(
     assert result == 0
 
 
-def test_f15_granted_nonowner_mcp_inspects_complete_facet_evidence_and_approves(
+def test_f15_nonowner_review_grants_do_not_admit_owner_review_tools(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -499,30 +517,13 @@ def test_f15_granted_nonowner_mcp_inspects_complete_facet_evidence_and_approves(
 
     def exercise(adapter: Any, _trusted: EffectiveAuthority) -> None:
         tools = {tool["name"] for tool in adapter.list_tools()}
-        assert {"brain_review_show", "brain_review_approve"} <= tools
+        assert not {"brain_review_show", "brain_review_approve"} & tools
         assert "brain_review_propose_from_facet_query" not in tools
-        shown = adapter.call_tool("brain_review_show", {"proposal_id": proposal["proposal_id"]})
-        binding = shown["facet_selection"]
-        assert binding["schema_version"] == 5
-        assert {
-            "query_id",
-            "query_version",
-            "query_selection_version",
-            "selector",
-            "facet_source_states",
-            "destination_space_id",
-            "attachment_version",
-        } <= set(binding)
-        assert binding["destination_space_id"] == destination
-        approved = adapter.call_tool(
-            "brain_review_approve",
-            {
-                "proposal_id": proposal["proposal_id"],
-                "review_token": shown["review_token"],
-                "idempotency_key": "granted-nonowner-approve",
-            },
-        )
-        assert approved["status"] == "approved" and approved["page_id"] == proposal["page_id"]
+        with pytest.raises(McpCallError, match="unknown tool"):
+            adapter.call_tool("brain_review_show", {"proposal_id": proposal["proposal_id"]})
+        with sqlite3.connect(brain.root / ".open-brain/state/phase1.sqlite3") as connection:
+            assert connection.execute("SELECT count(*) FROM decisions").fetchone()[0] == 0
+            assert connection.execute("SELECT count(*) FROM facet_page_queries").fetchone()[0] == 0
 
     _launch_scoped_review_mcp(
         brain, monkeypatch, spaces=frozenset({source_space, destination}), exercise=exercise
@@ -548,7 +549,7 @@ def test_f15_granted_mcp_review_cannot_use_owner_bypass_for_denied_evidence(
     )
 
     def exercise(adapter: Any, _trusted: EffectiveAuthority) -> None:
-        assert {"brain_review_show", "brain_review_approve"} <= {
+        assert not {"brain_review_show", "brain_review_approve"} & {
             tool["name"] for tool in adapter.list_tools()
         }
         for tool, arguments in (
@@ -562,7 +563,7 @@ def test_f15_granted_mcp_review_cannot_use_owner_bypass_for_denied_evidence(
                 },
             ),
         ):
-            with pytest.raises(McpCallError, match="not_found") as error:
+            with pytest.raises(McpCallError, match="unknown tool") as error:
                 adapter.call_tool(tool, arguments)
             assert "SYNTHETIC_PRIVATE_REVIEW" not in str(error.value)
             assert proposal["page_id"] not in str(error.value)
