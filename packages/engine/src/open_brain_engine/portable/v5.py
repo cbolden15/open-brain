@@ -552,13 +552,19 @@ def _privacy(files: Mapping[str, bytes], identity: dict[str, Any]) -> None:
         raise PortableValidationError("resolved search privacy mismatch")
     for row in expected_search:
         effective = row["effective_privacy"]
-        if effective["invalid_reason"] is not None and markers.get(
-            ("search_document", row["result_id"], effective["invalid_evidence_sha256"])
-        ) != effective["invalid_reason"]:
+        if (
+            effective["invalid_reason"] is not None
+            and markers.get(
+                ("search_document", row["result_id"], effective["invalid_evidence_sha256"])
+            )
+            != effective["invalid_reason"]
+        ):
             raise PortableValidationError("current search invalid evidence marker mismatch")
 
 
-def validate_portable_file_set_v5(files: Mapping[str, bytes], *, tenant_id: str) -> None:
+def validate_portable_file_set_v5(
+    files: Mapping[str, bytes], *, tenant_id: str, allow_facet_bindings: bool = False
+) -> None:
     """Validate all v5 evidence without reading a Brain, database, or root path."""
     try:
         snapshot = dict(files)
@@ -567,6 +573,7 @@ def validate_portable_file_set_v5(files: Mapping[str, bytes], *, tenant_id: str)
         validate_portable_file_set_v4(
             {path: payload for path, payload in snapshot.items() if path not in V5_SIDECAR_PATHS},
             tenant_id=tenant_id,
+            allow_facet_bindings=allow_facet_bindings,
         )
         identity = _issuer(snapshot, tenant_id)
         _privacy(snapshot, identity)
