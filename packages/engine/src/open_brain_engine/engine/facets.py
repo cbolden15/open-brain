@@ -413,17 +413,24 @@ class FacetTasks:
         candidates = [(key, item) for key, item in items if last is None or key > last]
         selected: list[dict[str, Any]] = []
         selected_key = last
-        for key, item in candidates:
+        for index, (key, item) in enumerate(candidates):
             if len(selected) >= args["limit"]:
                 break
+            final_item = index == len(candidates) - 1
             trial = {
                 "status": "ok",
                 "dto_version": 1,
                 "items": [*selected, item],
-                "next_cursor": "x" * 98,
-                "complete": False,
+                "next_cursor": None if final_item else "x" * 98,
+                "complete": final_item,
             }
-            if len(portable_canonical_json_bytes(trial)) > MAX_LIST_BYTES:
+            # Responses normalize to canonical JSON before the app serializes the
+            # complete envelope as compact ASCII JSON, including Unicode escapes.
+            wire = json.loads(portable_canonical_json_bytes(trial))
+            encoded_size = len(
+                json.dumps(wire, ensure_ascii=True, separators=(",", ":")).encode("utf-8")
+            )
+            if encoded_size > MAX_LIST_BYTES:
                 if not selected:
                     raise fc.FacetError("response_too_large")
                 break

@@ -687,3 +687,62 @@ def test_query_name_collisions_resolve_foreign_scope_before_conflict(
     with pytest.raises(fc.FacetError, match="^name_conflict$"):
         brain.call(f"facet.query.{operation}", arguments, visible)
     assert brain.counters() == counters
+
+
+def test_unicode_history_pages_fit_ascii_adapter_and_preserve_complete_events(brain: Brain) -> None:
+    import json
+
+    from open_brain.services.facets import FacetAppAdapter
+    from open_brain.services.mcp_protocol import encoded_tool_response_size
+
+    name = "😀" * 115
+    dimension = brain.write(
+        "facet.dimension.create",
+        {
+            "expected_version": 0,
+            "name": name + "0",
+        },
+    )["subject_id"]
+    for version in range(1, 100):
+        brain.write(
+            "facet.dimension.rename",
+            {
+                "dimension_id": dimension,
+                "expected_version": version,
+                "name": str(version) + name,
+            },
+        )
+    adapter = FacetAppAdapter(facets=brain.tasks, authority=brain.owner)
+    arguments: dict[str, Any] = {
+        "dto_version": 1,
+        "subject": {"kind": "dimension", "id": dimension},
+        "limit": 100,
+    }
+    pages: list[dict[str, Any]] = []
+    while True:
+        page = adapter.invoke(
+            "facet.history.list",
+            arguments,
+            encoded_size=lambda value: encoded_tool_response_size("unicode-history", value),
+        )
+        encoded_size = len(
+            json.dumps(page, ensure_ascii=True, separators=(",", ":")).encode("utf-8")
+        )
+        assert encoded_size <= fc.MAX_LIST_RESPONSE_BYTES
+        assert encoded_tool_response_size("unicode-history", page) <= fc.MAX_READ_RESPONSE_BYTES
+        assert page["items"]
+        repeated = adapter.invoke("facet.history.list", arguments)
+        assert repeated["items"] == page["items"]
+        assert repeated["complete"] == page["complete"]
+        pages.append(page)
+        if page["complete"]:
+            assert page["next_cursor"] is None
+            break
+        assert page["next_cursor"] is not None
+        arguments = {**arguments, "cursor": page["next_cursor"]}
+    assert len(pages) > 1
+    entries = [item for page in pages for item in page["items"]]
+    assert [item["sequence"] for item in entries] == list(range(1, 101))
+    assert len({item["event_id"] for item in entries}) == 100
+    assert all(item["changes"][0]["entity"]["id"] == dimension for item in entries)
+    assert entries[-1]["changes"][0]["after"]["name"] == "99" + name
