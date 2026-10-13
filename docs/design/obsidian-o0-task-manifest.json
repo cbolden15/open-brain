@@ -51,7 +51,8 @@
       "packages/app/src/open_brain/services/plugin_facet_contracts.py",
       "packages/app/tests/unit/test_obsidian_facet_contract_kit.py",
       "docs/engineering/gotchas/README.md",
-      "docs/audits/2026-10-13-obsidian-o0-review.md"
+      "docs/audits/2026-10-13-obsidian-o0-review.md",
+      "tests/security/test_architecture_boundaries.py"
     ],
     "spec_review": {
       "write_scope": [],
@@ -139,5 +140,10 @@
     }
   ],
   "contract_revision": "obsidian-o0-v1",
-  "fixture_manifest_sha256": "bee455084d682e8e717f5f40e1a5cfad82ada7546fdf6412552a8e4844a50d9f"
+  "fixture_manifest_sha256": "bee455084d682e8e717f5f40e1a5cfad82ada7546fdf6412552a8e4844a50d9f",
+  "verification": {
+    "candidate": "f7dd38d",
+    "status": "invalidated: real-inspection parser fix; new pure app codec needs explicit architecture allowlist entry",
+    "next": "focused fixes then full gate on repaired candidate"
+  }
 }
