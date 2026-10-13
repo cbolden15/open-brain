@@ -1,7 +1,7 @@
 {
   "manifest_version": 1,
   "milestone": "O0 Obsidian plugin contract kit",
-  "status": "specification review; implementation not dispatched",
+  "status": "O0 implemented; focused verification and independent review in progress",
   "scope": "Obsidian plugin only; B/U/P/V/T/I Stage2 runtime tasks not started; standalone desktop feature work excluded",
   "stage_one_pin": {
     "verified_commit": "abeab52136a668fd851a6d4a7c72aa8fa67baedb",
@@ -16,7 +16,7 @@
     "max_concurrent_workers": 6,
     "coordinators": 1,
     "max_total_attempts": 12,
-    "review_reserved_attempts": 6,
+    "review_reserved_attempts": 1,
     "review_lenses": [
       "feasibility",
       "security"
@@ -26,7 +26,8 @@
     "user_authorization": "2026-10-13: finishStage1 then reviewStage2 and implementO0; localcommitsonly; do not push/publish/deploy or changecontrols",
     "continuity": "User explicitly requested the next milestone in this thread; Stage1 handoff committed before O0 begins",
     "review_actual_attempts": 2,
-    "review_result": "ready, both lenses complete;0 actionable;1 unsupported finding removed by deterministic evidence checks"
+    "review_result": "ready, both lenses complete;0 actionable;1 unsupported finding removed by deterministic evidence checks",
+    "used_attempts": 5
   },
   "ownership": {
     "coordinator": [
@@ -48,7 +49,9 @@
       "packages/obsidian-plugin/tsconfig.json",
       "tools/generate_obsidian_facet_types.py",
       "packages/app/src/open_brain/services/plugin_facet_contracts.py",
-      "packages/app/tests/unit/test_obsidian_facet_contract_kit.py"
+      "packages/app/tests/unit/test_obsidian_facet_contract_kit.py",
+      "docs/engineering/gotchas/README.md",
+      "docs/audits/2026-10-13-obsidian-o0-review.md"
     ],
     "spec_review": {
       "write_scope": [],
@@ -98,20 +101,43 @@
         "npm --prefix packages/obsidian-plugin test -- tests/facet-wire.test.ts",
         "npm --prefix packages/obsidian-plugin run typecheck"
       ]
+    },
+    "independent_review": {
+      "write_scope": [],
+      "worktree": "/Users/calebbolden/Projects/oss/open-brain-obsidian-o0-review",
+      "private_output": "/tmp/obsidian-o0/review-report.md",
+      "input_pin": {
+        "verified_commit": "abeab52136a668fd851a6d4a7c72aa8fa67baedb",
+        "handoff_commit": "490bd05609e1cf3046946da1b935096de987d024",
+        "contract_commit": "ed74327f34ec2526fd36b1737e36b05bcd2cdc62",
+        "contract_revision": "facets-c0-v4",
+        "fixture_manifest_sha256": "95e85b535eeb4263a6e430970ecf1d49de8d0b72de7425e41be703897d93dbc5",
+        "portable_v6_catalog_sha256": "f482302bc9e7d163b9758cb1fd4de90f870a04c58e7cab384640c7314f124c28",
+        "schema11_catalog_sha256": "a4668f65694aeb50d5d9af283faa088ce66d3a298840ddc3c530ea341c5806c4"
+      },
+      "completion": "Read-only independent review of O0 diff against Stage2 spec and Stage1; verify findings and exact focused checks; do not claim remainingStage2"
     }
   },
   "dispatches": [
     {
       "task": "identity_probe",
       "executor": "native reused /root/evidence",
-      "status": "reserved",
+      "status": "integrated,27 real tests passed",
       "budget_minutes": 30
     },
     {
       "task": "independent_contract_tests",
       "executor": "native reused /root/check",
+      "status": "tests integrated, producer verification pending",
+      "budget_minutes": 30
+    },
+    {
+      "task": "independent_review",
+      "executor": "native reused /root/review",
       "status": "reserved",
       "budget_minutes": 30
     }
-  ]
+  ],
+  "contract_revision": "obsidian-o0-v1",
+  "fixture_manifest_sha256": "bee455084d682e8e717f5f40e1a5cfad82ada7546fdf6412552a8e4844a50d9f"
 }

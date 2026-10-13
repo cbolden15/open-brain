@@ -1,6 +1,7 @@
 # Owner-defined facets, Stage 2: Obsidian interface
 
-Status: implementation specification; implementation has not started.
+Status: reviewed against verified Stage 1; O0 contract kit implemented, verification in progress.
+Remaining Stage 2 tasks have not started.
 
 Date: 2026-10-13.
 
@@ -39,11 +40,12 @@ new network paths, and changes to Portable formats. No default vocabulary is ins
 
 ## Baseline and dependency gate
 
-Repository inspection used commit `abeab52136a668fd851a6d4a7c72aa8fa67baedb`. At drafting time,
-Stage 1's final integrated verification and independent review were still pending. This document
-does not certify their completion. Implementation must pin the subsequently verified Stage 1
-commit, contract revision, fixture-manifest SHA-256 and final schema/catalog digests before work.
-If that candidate differs from this baseline, inspect the relevant interfaces again.
+Stage 1 passed full repository verification at `abeab52136a668fd851a6d4a7c72aa8fa67baedb`
+and independent review of F01–F22. Handoff commit `490bd05609e1cf3046946da1b935096de987d024`
+adds the verification receipts and a catalog docstring correction without changing behavior.
+See [the Stage 1 audit](../audits/2026-10-13-owner-defined-facets-stage-one-audit.md).
+O0 pins that implementation and all schema/catalog digests in
+[its task manifest](obsidian-o0-task-manifest.json). Recheck relevant interfaces if those inputs change.
 
 The inspected development contract is `facets-c0-v4`, verified contract commit
 `ed74327f34ec2526fd36b1737e36b05bcd2cdc62`, with fixture-manifest SHA-256
@@ -196,6 +198,14 @@ operation limits, and prove old/new client-runtime combinations. Do not use a de
 hash as a runtime compatibility decision. Absent or incompatible support disables facet actions
 with an upgrade explanation while existing capture/search flows continue.
 
+O0 freezes protocol 1 plus `facet_capabilities: {version: 1, operations: [...]}`. Each closed
+entry has `operation`, `dto_versions`, `request_bytes` and `response_bytes`. Negotiate the
+intersection of known client operations, ordinary handshake operations and compatible descriptor
+entries. Unknown future operations are ignored; an unsupported DTO disables that operation.
+Malformed descriptors disable facets. Smaller advertised limits are binding: B must pass the
+negotiated limit to outbound admission and inbound buffering, in addition to O0's hard maximum.
+The exact codec and descriptor rules are in [the O0 kit](obsidian-plugin-contract-kit.md).
+
 ### Managed record resolution
 
 Do not trust editable frontmatter IDs, titles, or generated index filenames to identify records.
@@ -221,6 +231,20 @@ lookup extension. A code inspection and real managed-file test are prerequisites
 For browsing results, use returned record identities directly; Open note requires a separately
 verified managed mapping. A missing path does not prevent classification or record reading.
 
+The verified implementation materializes canonical pages in `managed_notes`; it does not have
+a trusted source-note mapping. O0 therefore proves canonical resolution and source-file refusal.
+The response union preserves source identity for a future proven mapping, but does not advertise
+that mapping. Sources remain classifiable through engine record IDs returned by queries.
+
+O0's read-only engine helper requires an explicit managed-workspace observation after the most
+recent materialization or atomic file replacement. Setup/refresh alone does not retain the new
+inode baseline. Missing or stale observation returns `not_found`; resolution never observes,
+accepts content, refreshes or registers metadata. B must expose an explicit safe observation
+action or explain the existing `open-brain workspace observe` recovery. Do not silently call
+`workspace.reconcile` for this purpose: it also accepts body edits. Protected bytes must match
+both accepted managed content and the current eligible canonical revision; only registered facet
+metadata may differ. Root, relative path, device/inode/link custody and eligibility are checked.
+
 ### Serialization, bounds and retry state
 
 Use the Stage 1 closed schemas and positive/negative examples for TypeScript parsers. Validate
@@ -240,6 +264,12 @@ receipts within 4 KiB, and single facet reads within 1 MiB. Use the shared adapt
 receipt reservation and immutable engine page-admission hook with the plugin response encoder.
 Retain Stage 1 session quotas and shared search/history/review accounting. Test escaped Unicode
 and boundary-sized frames. A client-side rejection alone is not proof of server enforcement.
+
+O0 uses UTF-8 JSON plus one LF, including the full protocol envelope and request ID, for every
+byte count. Python uses `ensure_ascii=False`; TypeScript uses `JSON.stringify`. B must retain
+the engine's existing conservative Portable/ASCII DTO cap as well as the plugin envelope cap
+when admitting a page, so non-ASCII data cannot pass page admission and fail serialization.
+The pure O0 codecs do not establish bounded live stream reads, quotas or pre-effect reservations.
 
 Generate one operation ID per confirmed mutation. Keep its exact request for an explicit retry
 while the plugin session remains loaded. Disable duplicate submissions while pending. A timeout,
@@ -272,7 +302,8 @@ refresh through the existing recovery mechanism. Ordinary refresh must continue 
 
 ## Delivery graph and ownership
 
-This is a future implementation plan. No workers are dispatched by writing this specification.
+O0 is the first implementation milestone. Its ownership and worker pins are recorded in
+`obsidian-o0-task-manifest.json`. Remaining tasks require verified O0 before dispatch.
 The main implementation coordinator owns registration, shared contracts, integration and the
 execution ledger. Reserve exact files and input pins before future dispatch; do not reuse the
 Stage 1 worker manifest as if it authorized Stage 2 edits.
@@ -319,7 +350,7 @@ they never prove persistence, authority, publication recovery, reconciliation cu
 | ID | Required evidence |
 |---|---|
 | O01 | Older runtime disables only facet features; partial capabilities are reflected in UI and enforced by direct server calls. |
-| O02 | Real managed source/page resolution succeeds; edited IDs, unknown notes, generated indexes, wrong workspace and escaped paths fail before mutation. |
+| O02 | Real observed managed canonical pages resolve; source-file mapping is unavailable. Edited IDs, unknown notes, generated indexes, wrong workspace, stale observation, file/root replacement and escaped paths fail before mutation. Record IDs still support classification without a managed file. |
 | O03 | Create, rename and archive vocabulary through plugin → stdio → engine; IDs and assignments survive rename and archived additions are refused. |
 | O04 | Classify a record with and without a managed file; cancel writes nothing; stale Save preserves the draft and cannot overwrite newer state. |
 | O05 | Same-ID retry after a lost mutation response produces one durable change; double-click, child restart and uncertain-result UI preserve retry identity. |

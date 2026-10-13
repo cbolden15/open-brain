@@ -2343,3 +2343,24 @@ Cause: A no-op has no event, but syntactic receipt validation alone cannot prove
 Fix: Require the unchanged request and receipt to match one reachable historical event boundary.
 Test the importer with a tampered, rehashed real export and assert rejection before writes.
 Independent stage-one review found this on 2026-10-13; contract revision v4 contains the correction.
+
+### OBSIDIAN-001: Materialization does not establish retained file identity
+
+Symptom: A freshly refreshed canonical note has no observation baseline for trusted resolution.
+An atomic editor save also replaces the inode even when content is unchanged.
+
+Cause: Stage 1 managed materialization and explicit observation are separate operations. A
+path-to-note SQL lookup or editable frontmatter alone cannot prove custody.
+
+Fix: Require explicit observation and compare retained device/inode/link identity with confined
+reads and accepted/current canonical bytes. Return unavailable when stale. Do not silently use
+reconcile to recover identity because it also accepts content. O0 real tests cover both cases.
+
+### TESTING-005: JSON fixture producer boundaries need explicit types and paths
+
+Category: Type Safety / Build Pipeline. O0 fixture authoring exposed a `no-any-return` error
+after JSON-normalizing a real dataclass response, plus an incorrect fixture root ancestor.
+
+Fix: Give the normalized producer return an explicit checked contract type, resolve temporary
+roots before engine creation on macOS, and run the generated-fixture/hash test from each worktree.
+Full repository mypy and plugin build are the prevention checks. No production types were loosened.

@@ -1,0 +1,18 @@
+{
+  "contract_revision": "obsidian-o0-v1",
+  "stage_one_pin": {
+    "verified_commit": "abeab52136a668fd851a6d4a7c72aa8fa67baedb",
+    "handoff_commit": "490bd05609e1cf3046946da1b935096de987d024",
+    "contract_commit": "ed74327f34ec2526fd36b1737e36b05bcd2cdc62",
+    "contract_revision": "facets-c0-v4",
+    "fixture_manifest_sha256": "95e85b535eeb4263a6e430970ecf1d49de8d0b72de7425e41be703897d93dbc5",
+    "portable_v6_catalog_sha256": "f482302bc9e7d163b9758cb1fd4de90f870a04c58e7cab384640c7314f124c28",
+    "schema11_catalog_sha256": "a4668f65694aeb50d5d9af283faa088ce66d3a298840ddc3c530ea341c5806c4"
+  },
+  "files": {
+    "packages/obsidian-plugin/tests/fixtures/facets/o0-cases.json": "9c4ed2aa990246df08aa5887eb6dc4850f2432e2b3b3f6fb4ebf6f51d56548b3",
+    "packages/engine/src/open_brain_engine/engine/facet_schema.json": "63d45f5c1d621a115f59be86735785f0384521bac37de9bdce6da6d0db6d96bf",
+    "packages/engine/tests/fixtures/facets/wire-cases.json": "c0a7c65e16ed38957312eb165c11284179d4f587f1baac868870cd3ba3a5fbca"
+  },
+  "proof": "Pure codecs except publication_inspections[0], captured from real Stage1 engine/service with synthetic data. No live bridge, recovery, restore or UI proof."
+}
