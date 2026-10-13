@@ -693,7 +693,7 @@ barrier. Prefer tasks that shorten the engine-to-publication/Portable-to-integra
 The implementation is documented in [the C0 consumer guide](facet-contract-kit.md), with explicit
 file reservations and task inputs in [the task manifest](facet-task-manifest.json). The contract
 revision is `facets-c0-v4`; the manifest records the verified revision commit and fixture hash. C0 checks prove interface and synthetic evidence conformance; the
-real-engine acceptance gates below remain pending.
+real-engine acceptance gates below passed on the integrated candidate recorded below.
 
 C0 turns this specification into importable protocols, strict parsers, and reusable synthetic
 evidence before independent workers implement its consumers. It does not build a generic
@@ -851,3 +851,22 @@ The baseline contracts are described in [Portable Brain v5](../portable-brain-v5
 [T03 contracts](new-user-t03-contracts.md). Historical version numbers in those documents do not
 override the source baseline above. Apply the existing gotchas for
 [review evidence, dispatch, and exact-snapshot restore](../engineering/gotchas/README.md).
+
+## Verified implementation and catalog freeze
+
+Stage 1 passed `make verify` on `abeab52136a668fd851a6d4a7c72aa8fa67baedb`. Independent review marked all F01–F22 requirements
+complete and closed its five findings. The report is in
+[the Stage 1 audit](../audits/2026-10-13-owner-defined-facets-stage-one-audit.md).
+
+make verify passed: Ruff, mypy (431 files), 3975 Python tests with 5 filesystem skips, four package builds, 291 plugin tests, 259 desktop frontend tests, 1 desktop packaging test and 26 Rust tests.
+`actionlint .github/workflows/ci.yml` and the complete branch whitespace check also passed.
+The filesystem skips cover unsupported non-UTF-8 and distinct NFC/NFD filenames.
+
+Portable v6 catalog SHA-256 is frozen at `f482302bc9e7d163b9758cb1fd4de90f870a04c58e7cab384640c7314f124c28`.
+The fixture commit is `ed74327f34ec2526fd36b1737e36b05bcd2cdc62`, revision `facets-c0-v4`;
+manifest SHA-256 is `95e85b535eeb4263a6e430970ecf1d49de8d0b72de7425e41be703897d93dbc5`.
+The freeze annotation changes no catalog values or runtime behavior. Historical catalogs remain unchanged.
+
+Query pages currently materialize all eligible matches before applying cursor limits. Correctness
+and continuation are verified; reducing that work is a separate performance improvement. No push,
+publish or deploy is included in this implementation receipt.

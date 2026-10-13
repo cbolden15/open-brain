@@ -10,23 +10,27 @@
 
 ## Current checkpoint
 
-C0 v4 is verified at `ed74327f34ec2526fd36b1737e36b05bcd2cdc62`.
-Fixture manifest SHA-256: `95e85b535eeb4263a6e430970ecf1d49de8d0b72de7425e41be703897d93dbc5`.
-All six implementation streams are integrated. Three bounded native continuations remain active:
-E (transport-aware page admission), T (independent wire-limit regressions), and X (source-lineage
-archive validation). A, P and V terminal sessions are idle after scoped verification. The coordinator
-owns transport composition, shared inputs, registration, integration and this ledger.
+Status: complete. Verified integrated candidate: `abeab52136a668fd851a6d4a7c72aa8fa67baedb`.
+make verify passed: Ruff, mypy (431 files), 3975 Python tests with 5 filesystem skips, four package builds, 291 plugin tests, 259 desktop frontend tests, 1 desktop packaging test and 26 Rust tests.
+Independent review: READY, F01–F22 complete, R1–R5 closed. Audit:
+`/Users/calebbolden/Projects/oss/open-brain-public/docs/audits/2026-10-13-owner-defined-facets-stage-one-audit.md`.
 
-P's source-lineage publication repair `646f575` is integrated as `ca6c72b`; 106 focused checks pass.
-Coordinator adapter/transport changes are at `51c5fff`; 98 adapter/legacy Portable checks pass.
-X managed export/restore evidence `172185b` is integrated as `108cd89`.
-The combined acceptance run previously passed 64 cases with one successor-route export failure;
-P/X/coordinator changes address that failure. Final full verification and independent review are pending.
+C0 revision `facets-c0-v4`, verified commit `ed74327f34ec2526fd36b1737e36b05bcd2cdc62`;
+fixture hash `95e85b535eeb4263a6e430970ecf1d49de8d0b72de7425e41be703897d93dbc5`.
+Portable v6 catalog frozen at `f482302bc9e7d163b9758cb1fd4de90f870a04c58e7cab384640c7314f124c28`; historical catalog values unchanged.
+All six worker streams and independent review are complete. Zero active workers; seven worker lineages
+were used within the cap of six concurrent workers plus the coordinator. Native and CLI workers used
+isolated worktrees; no approval or sandbox controls were changed. Commits remain local.
 
-The earlier full candidate `6a3ee76` completed lint/typecheck, then pytest returned 3790 passed,
-73 failed and 5 skipped. Its failures are recorded in the private run log and require the final
-combined rerun; that candidate lacked final publication/vault composition and compatibility repairs.
-No older full or fake-based result substitutes for final real-engine verification.
+Final scoped worker repairs integrated: E `dc148db` as `3cc6fb5`; A `9058225` as `e3689ec`;
+T `45ba179`/`f002054` as `a0d9047`/`e692e90`; P `646f575` as `ca6c72b`;
+X `00477de` as `8ec412b`; V `9f6de61` as `f96dbcc` plus coordinator composition.
+Fake, pure-fixture and injected-error proof remains separate from real persistence, authority,
+publication-recovery and restore proof. The final full gate supersedes all invalidated earlier gates.
+
+Known nonblocking limitation: facet query pages rescan matching records before pagination.
+Next authorized phase: review the Obsidian Stage 2 specification and implement O0 only, pinned to this
+verified Stage 1 candidate. Standalone desktop feature work is out of scope.
 
 ## Historical execution checkpoints
 

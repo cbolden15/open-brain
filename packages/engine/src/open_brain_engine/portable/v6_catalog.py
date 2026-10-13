@@ -1,4 +1,4 @@
-"""Draft Portable v6 catalog; release freeze requires integrated acceptance and review."""
+"""Portable v6 catalog, frozen by stage-one integrated acceptance and review."""
 
 from hashlib import sha256
 

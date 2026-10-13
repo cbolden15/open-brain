@@ -1,6 +1,6 @@
 {
   "manifest_version": 1,
-  "status": "six-worker stage-one execution authorized; C0 verified; runtime gates pending",
+  "status": "Stage 1 implemented and verified; independent review READY, F01-F22 complete",
   "path_base": "repository root of each isolated worktree",
   "baseline": "bd368ec",
   "input_pin_rule": "Every consumer records verified C0 commit (or verified integration descendant), contract revision and exact fixture manifest SHA-256 before edits. Resolve paths against its absolute worktree path.",
@@ -115,7 +115,8 @@
         "contract_revision": "facets-c0-v4",
         "fixture_manifest_sha256": "95e85b535eeb4263a6e430970ecf1d49de8d0b72de7425e41be703897d93dbc5"
       },
-      "execution_status": "wrapper admission integrated3cc6fb5;30 focused checks pass"
+      "execution_status": "complete; integrated candidate and independent review passed",
+      "verified_integrated_candidate": "abeab52136a668fd851a6d4a7c72aa8fa67baedb"
     },
     "A": {
       "requires_verified": [
@@ -196,7 +197,8 @@
         "contract_revision": "facets-c0-v4",
         "fixture_manifest_sha256": "95e85b535eeb4263a6e430970ecf1d49de8d0b72de7425e41be703897d93dbc5"
       },
-      "execution_status": "227 focused checks passed; adapter service and unit admission tests transferred to I"
+      "execution_status": "complete; integrated candidate and independent review passed",
+      "verified_integrated_candidate": "abeab52136a668fd851a6d4a7c72aa8fa67baedb"
     },
     "T": {
       "requires_verified": [
@@ -295,7 +297,8 @@
         "contract_revision": "facets-c0-v4",
         "fixture_manifest_sha256": "95e85b535eeb4263a6e430970ecf1d49de8d0b72de7425e41be703897d93dbc5"
       },
-      "execution_status": "independent MCP wire limits regression tests active"
+      "execution_status": "complete; integrated candidate and independent review passed",
+      "verified_integrated_candidate": "abeab52136a668fd851a6d4a7c72aa8fa67baedb"
     },
     "P": {
       "requires_verified": [
@@ -384,7 +387,8 @@
         "contract_revision": "facets-c0-v4",
         "fixture_manifest_sha256": "95e85b535eeb4263a6e430970ecf1d49de8d0b72de7425e41be703897d93dbc5"
       },
-      "execution_status": "lineage route repair integrated; 106 focused real and legacy checks passed"
+      "execution_status": "complete; integrated candidate and independent review passed",
+      "verified_integrated_candidate": "abeab52136a668fd851a6d4a7c72aa8fa67baedb"
     },
     "X": {
       "requires_verified": [
@@ -467,7 +471,8 @@
         "contract_revision": "facets-c0-v4",
         "fixture_manifest_sha256": "95e85b535eeb4263a6e430970ecf1d49de8d0b72de7425e41be703897d93dbc5"
       },
-      "execution_status": "lineage validation integrated8ec412b;189 focused real/legacy checks pass"
+      "execution_status": "complete; integrated candidate and independent review passed",
+      "verified_integrated_candidate": "abeab52136a668fd851a6d4a7c72aa8fa67baedb"
     },
     "V": {
       "requires_verified": [
@@ -545,7 +550,8 @@
         "contract_revision": "facets-c0-v4",
         "fixture_manifest_sha256": "95e85b535eeb4263a6e430970ecf1d49de8d0b72de7425e41be703897d93dbc5"
       },
-      "execution_status": "runtime implementation integrated; focused real reconciliation/recovery checks passed"
+      "execution_status": "complete; integrated candidate and independent review passed",
+      "verified_integrated_candidate": "abeab52136a668fd851a6d4a7c72aa8fa67baedb"
     },
     "I": {
       "requires_verified": [
@@ -642,7 +648,9 @@
         "commit": "ed74327f34ec2526fd36b1737e36b05bcd2cdc62",
         "contract_revision": "facets-c0-v4",
         "fixture_manifest_sha256": "95e85b535eeb4263a6e430970ecf1d49de8d0b72de7425e41be703897d93dbc5"
-      }
+      },
+      "execution_status": "complete; integrated candidate and independent review passed",
+      "verified_integrated_candidate": "abeab52136a668fd851a6d4a7c72aa8fa67baedb"
     },
     "R": {
       "requires_verified": [
@@ -694,14 +702,15 @@
         "make verify",
         "applicable native/package/release acceptance on exact candidate"
       ],
-      "execution_status": "final independent review active on8ec412b; final full gate pending",
+      "execution_status": "complete; integrated candidate and independent review passed",
       "executor": "native strong-model session",
       "worktree": "/Users/calebbolden/Projects/oss/open-brain-facets-stage-one-r",
       "current_contract_pin": {
         "commit": "ed74327f34ec2526fd36b1737e36b05bcd2cdc62",
         "contract_revision": "facets-c0-v4",
         "fixture_manifest_sha256": "95e85b535eeb4263a6e430970ecf1d49de8d0b72de7425e41be703897d93dbc5"
-      }
+      },
+      "verified_integrated_candidate": "abeab52136a668fd851a6d4a7c72aa8fa67baedb"
     }
   },
   "c0_pin": {
@@ -756,10 +765,7 @@
     "contract_revision": "facets-c0-v4",
     "fixture_manifest_sha256": "95e85b535eeb4263a6e430970ecf1d49de8d0b72de7425e41be703897d93dbc5"
   },
-  "invalidated_checks": [
-    "v3 semantic replay/restore checks; rerun all consumer focused gates and final combined gate against v4",
-    "schema11 checksum pending final V custody DDL; rerun migration/runtime admission and freeze catalog on final combined candidate"
-  ],
+  "invalidated_checks": [],
   "ownership_transfers": [
     {
       "file": "packages/app/src/open_brain/services/facets.py",
@@ -773,5 +779,29 @@
       "to": "I",
       "reason": "A complete; coordinator updates receipt reservation assertion for the complete transport cap"
     }
-  ]
+  ],
+  "resolved_invalidations": [
+    "v3 semantic replay/restore checks; rerun all consumer focused gates and final combined gate against v4",
+    "schema11 checksum pending final V custody DDL; rerun migration/runtime admission and freeze catalog on final combined candidate"
+  ],
+  "verification_receipt": {
+    "candidate": "abeab52136a668fd851a6d4a7c72aa8fa67baedb",
+    "command": "make verify",
+    "result": "make verify passed: Ruff, mypy (431 files), 3975 Python tests with 5 filesystem skips, four package builds, 291 plugin tests, 259 desktop frontend tests, 1 desktop packaging test and 26 Rust tests.",
+    "independent_review": "READY;22/22 complete;R1-R5 closed",
+    "audit": "docs/audits/2026-10-13-owner-defined-facets-stage-one-audit.md",
+    "additional_checks": [
+      "git diff --check bd368ec..HEAD",
+      "actionlint .github/workflows/ci.yml"
+    ],
+    "skips": "One non-UTF-8 filename case and four distinct NFC/NFD filename cases unsupported by this filesystem"
+  },
+  "portable_v6_freeze": {
+    "status": "frozen",
+    "date": "2026-10-13",
+    "schema_catalog_sha256": "f482302bc9e7d163b9758cb1fd4de90f870a04c58e7cab384640c7314f124c28",
+    "verified_candidate": "abeab52136a668fd851a6d4a7c72aa8fa67baedb",
+    "fixture_commit": "ed74327f34ec2526fd36b1737e36b05bcd2cdc62",
+    "fixture_manifest_sha256": "95e85b535eeb4263a6e430970ecf1d49de8d0b72de7425e41be703897d93dbc5"
+  }
 }
