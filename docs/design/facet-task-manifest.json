@@ -109,7 +109,13 @@
         "unresolved_findings",
         "next_dependency"
       ],
-      "coordination": "Deliver additive DDL/shape helpers; coordinator owns schema11/session6 registration and shared EngineTaskSet composition. Engine gate includes those integrated registrations."
+      "coordination": "Deliver additive DDL/shape helpers; coordinator owns schema11/session6 registration and shared EngineTaskSet composition. Engine gate includes those integrated registrations.",
+      "current_contract_pin": {
+        "commit": "1c14378dc4dc40026c3d2a592b85ae03a43521c1",
+        "contract_revision": "facets-c0-v3",
+        "fixture_manifest_sha256": "781a6b886baf6a904b974eb071ea30a36d2d8ff6d2f10f98fbd6da06de8653ba"
+      },
+      "execution_status": "real engine focused gate passed; final DDL migration recheck pending"
     },
     "A": {
       "requires_verified": [
@@ -129,7 +135,14 @@
       "exclusive_write_scope": [
         "packages/app/src/open_brain/services/facets.py",
         "packages/app/tests/unit/test_facets_adapters.py",
-        "packages/app/tests/integration/services/test_facets_cli_mcp.py"
+        "packages/app/tests/integration/services/test_facets_cli_mcp.py",
+        "packages/app/tests/unit/engine/test_ingestion_journal.py",
+        "packages/app/tests/unit/engine/test_local_migration.py",
+        "packages/app/tests/unit/engine/test_privacy_migration.py",
+        "packages/app/tests/unit/engine/test_relationships.py",
+        "packages/app/tests/unit/engine/test_source_tasks.py",
+        "packages/app/tests/unit/test_catalog.py",
+        "packages/app/tests/unit/test_plugin_bridge.py"
       ],
       "acceptance_cases": [
         "F15"
@@ -179,7 +192,13 @@
         "unresolved_findings",
         "next_dependency"
       ],
-      "preparation_completion": "Adapter tests against explicit fake pass; real-handler authority and publication proofs pending."
+      "preparation_completion": "Adapter tests against explicit fake pass; real-handler authority and publication proofs pending.",
+      "current_contract_pin": {
+        "commit": "1c14378dc4dc40026c3d2a592b85ae03a43521c1",
+        "contract_revision": "facets-c0-v3",
+        "fixture_manifest_sha256": "781a6b886baf6a904b974eb071ea30a36d2d8ff6d2f10f98fbd6da06de8653ba"
+      },
+      "execution_status": "reserved compatibility expectation repair; final real P interface checks pending"
     },
     "T": {
       "requires_verified": [
@@ -272,7 +291,13 @@
         "unresolved_findings",
         "next_dependency"
       ],
-      "preparation_completion": "Independent acceptance/fault tests authored; missing producer cases remain tests-ready, not passed or skipped to fake completion."
+      "preparation_completion": "Independent acceptance/fault tests authored; missing producer cases remain tests-ready, not passed or skipped to fake completion.",
+      "current_contract_pin": {
+        "commit": "1c14378dc4dc40026c3d2a592b85ae03a43521c1",
+        "contract_revision": "facets-c0-v3",
+        "fixture_manifest_sha256": "781a6b886baf6a904b974eb071ea30a36d2d8ff6d2f10f98fbd6da06de8653ba"
+      },
+      "execution_status": "independent engine/fault/MCP gate passed; P/V acceptance pending"
     },
     "P": {
       "requires_verified": [
@@ -355,7 +380,13 @@
         "contract_revision": "facets-c0-v3",
         "fixture_manifest_sha256": "781a6b886baf6a904b974eb071ea30a36d2d8ff6d2f10f98fbd6da06de8653ba",
         "stage": "real publication and recovery verification; shared registration composed"
-      }
+      },
+      "current_contract_pin": {
+        "commit": "1c14378dc4dc40026c3d2a592b85ae03a43521c1",
+        "contract_revision": "facets-c0-v3",
+        "fixture_manifest_sha256": "781a6b886baf6a904b974eb071ea30a36d2d8ff6d2f10f98fbd6da06de8653ba"
+      },
+      "execution_status": "real implementation integrated; recovery and authority validation in progress"
     },
     "X": {
       "requires_verified": [
@@ -432,7 +463,13 @@
       "preparation_completion": "Pure binding/codec/rendering/reconciliation logic and focused fixture tests pass; final real-engine integration pending.",
       "integration_requires_verified": [
         "E"
-      ]
+      ],
+      "current_contract_pin": {
+        "commit": "1c14378dc4dc40026c3d2a592b85ae03a43521c1",
+        "contract_revision": "facets-c0-v3",
+        "fixture_manifest_sha256": "781a6b886baf6a904b974eb071ea30a36d2d8ff6d2f10f98fbd6da06de8653ba"
+      },
+      "execution_status": "real populated v6 roundtrip passed; P/V evidence gates pending"
     },
     "V": {
       "requires_verified": [
@@ -504,7 +541,13 @@
       "preparation_completion": "Pure binding/codec/rendering/reconciliation logic and focused fixture tests pass; final real-engine integration pending.",
       "integration_requires_verified": [
         "E"
-      ]
+      ],
+      "current_contract_pin": {
+        "commit": "1c14378dc4dc40026c3d2a592b85ae03a43521c1",
+        "contract_revision": "facets-c0-v3",
+        "fixture_manifest_sha256": "781a6b886baf6a904b974eb071ea30a36d2d8ff6d2f10f98fbd6da06de8653ba"
+      },
+      "execution_status": "real reconciliation/recovery implementation in progress"
     },
     "I": {
       "requires_verified": [
@@ -549,7 +592,11 @@
         "packages/app/tests/integration/services/test_local_entrypoints.py",
         "docs/engineering/gotchas/README.md",
         "packages/app/tests/integration/services/test_local_mcp.py",
-        "packages/engine/src/open_brain_engine/engine/markdown_import.py"
+        "packages/engine/src/open_brain_engine/engine/markdown_import.py",
+        "tests/release/test_review_publish_acceptance.py",
+        "tests/security/test_architecture_boundaries.py",
+        "packages/app/tests/integration/engine/test_portability_v5.py",
+        "tests/fixtures/local-schema/catalog-checksums.json"
       ],
       "acceptance_cases": [
         "F01",
