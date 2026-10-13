@@ -16,6 +16,7 @@ from open_brain_engine.engine.contracts import CaptureReceipt, TextPayload
 from open_brain_engine.engine.facet_contracts import (
     DimensionCreateRequest,
     DimensionRenameRequest,
+    FacetError,
 )
 from open_brain_engine.engine.local import BrainEngine
 from open_brain_engine.engine.t03_contracts import EffectiveAuthority, SourceRouteRequest
@@ -763,3 +764,56 @@ def test_f15_unicode_history_pages_fit_full_encoded_stdio_envelope_without_lost_
         assert cursor is not None
     assert page_count > 1, "The full ASCII-escaped double representation requires pagination"
     assert sequences == list(range(1, 101))
+
+
+@pytest.mark.parametrize(
+    "code",
+    [
+        "name_conflict",
+        "version_conflict",
+        "facet_archived",
+        "query_archived",
+        "limit_exceeded",
+        "projection_conflict",
+    ],
+)
+def test_f15_stdio_preserves_closed_facet_error_codes_from_adapter(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    code: str,
+) -> None:
+    """Transport fault-injection proof; does not claim real domain-error production."""
+    root = tmp_path / "brain"
+    engine = BrainEngine.open(compile_single_user_local(root))
+    adapter = _mcp(engine, frozenset({"facet-catalog-write"}))
+
+    def fail_at_adapter(_self: Any, *_arguments: Any, **_context: Any) -> dict[str, object]:
+        raise FacetError(code)
+
+    # Inject only a closed engine failure at the adapter boundary. In particular,
+    # projection_conflict has no public vault MCP operation in this increment.
+    monkeypatch.setattr(type(adapter.facets), "invoke_mcp", fail_at_adapter)
+    raw = (
+        json.dumps(
+            {
+                "jsonrpc": "2.0",
+                "id": 2,
+                "method": "tools/call",
+                "params": {
+                    "name": "brain_facet_dimension_create",
+                    "arguments": {
+                        "dto_version": 1,
+                        "name": "Synthetic injected failure",
+                        "expected_version": 0,
+                        "operation_id": "error-code-preservation",
+                    },
+                },
+            },
+            separators=(",", ":"),
+        ).encode("utf-8")
+        + b"\n"
+    )
+    response, _ = _stdio_facet_request(adapter, raw)
+    assert response["result"]["isError"] is True
+    assert response["result"]["content"][0]["text"] == code
+    assert _facet_row_counts(root) == (0, 0, 0)
