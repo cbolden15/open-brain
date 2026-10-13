@@ -5,6 +5,17 @@ These tables are operational state. They must not enter Portable facet evidence.
 
 FACET_VAULT_SCHEMA = (
     """
+CREATE TABLE IF NOT EXISTS facet_content_preimages (
+    workspace_id TEXT NOT NULL REFERENCES managed_workspaces(workspace_id),
+    note_id TEXT NOT NULL REFERENCES managed_notes(note_id),
+    file_sha256 TEXT NOT NULL CHECK(length(file_sha256)=64),
+    file_payload BLOB NOT NULL,
+    generated_block BLOB NOT NULL,
+    content_sha256 TEXT NOT NULL CHECK(length(content_sha256)=64),
+    PRIMARY KEY(workspace_id,note_id,file_sha256)
+)
+    """.strip(),
+    """
 CREATE TABLE IF NOT EXISTS facet_projection_state (
     workspace_id TEXT NOT NULL REFERENCES managed_workspaces(workspace_id),
     file_kind TEXT NOT NULL CHECK (file_kind IN ('record', 'index')),
@@ -14,6 +25,7 @@ CREATE TABLE IF NOT EXISTS facet_projection_state (
     subject_id TEXT,
     content_revision_id TEXT,
     managed_revision_id TEXT,
+    generated_block BLOB NOT NULL DEFAULT X'',
     emitted_facets_json TEXT,
     id_name_mapping_json TEXT,
     materialized_sha256 TEXT NOT NULL CHECK (length(materialized_sha256) = 64),
@@ -89,7 +101,7 @@ CREATE TABLE IF NOT EXISTS facet_projection_writes (
     payload BLOB NOT NULL,
     payload_sha256 TEXT NOT NULL CHECK (length(payload_sha256) = 64),
     projection_json TEXT NOT NULL,
-    status TEXT NOT NULL CHECK (status IN ('prepared', 'completed', 'conflict')),
+    status TEXT NOT NULL CHECK (status IN ('prepared', 'completed', 'conflict', 'superseded')),
     created_at TEXT NOT NULL,
     completed_at TEXT
 )

@@ -70,7 +70,8 @@ def export_managed_workspace_state(
         if projection_schema_available(connection):
             if (
                 connection.execute(
-                    "SELECT 1 FROM facet_projection_writes WHERE status!='completed' LIMIT 1"
+                    "SELECT 1 FROM facet_projection_writes "
+                    "WHERE status IN ('prepared','conflict') LIMIT 1"
                 ).fetchone()
                 is not None
             ):

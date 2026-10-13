@@ -1,7 +1,4 @@
-"""Pure, owner-safe pieces of managed facet projection.
-
-Filesystem custody and semantic assignment remain with the engine integration.
-"""
+"""Owner-local facet rendering, reconciliation, preview custody, and recovery."""
 
 from __future__ import annotations
 
@@ -11,10 +8,11 @@ import sqlite3
 import unicodedata
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import asdict, dataclass
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from functools import wraps
 from hashlib import sha256
 from pathlib import PurePosixPath
+from posixpath import relpath
 from typing import TYPE_CHECKING, Any, cast
 from urllib.parse import quote
 from uuid import uuid4
@@ -41,6 +39,7 @@ from .paging import authority_binding
 from .t03_contracts import EffectiveAuthority
 
 if TYPE_CHECKING:
+    from .facet_queries import AuthorizedSubject
     from .local import BrainEngine
     from .managed_workspace import _Workspace
 
@@ -201,7 +200,7 @@ def reconcile_facets(
     return Reconciliation(
         tuple(sorted(additions & current_by_id.keys())),
         tuple(sorted((prior_ids & current_memberships) - desired)),
-        tuple(conflicts),
+        tuple(dict.fromkeys(conflicts)),
     )
 
 
@@ -286,7 +285,72 @@ def registered_content(
         return payload
     if row["file_kind"] != "record" or row["file_id"] != note_id:
         raise FacetProjectionConflict("generated index is not managed content")
+    return _projection_content(payload, row["generated_block"])
+
+
+_BLOCK_START = b"<!-- open-brain:facet-navigation -->"
+_BLOCK_END = b"<!-- /open-brain:facet-navigation -->"
+
+
+def _projection_content(payload: bytes, block: bytes) -> bytes:
+    if block and payload.count(block) == 1:
+        payload = payload.replace(block, b"", 1)
+    if block and (_BLOCK_START in payload or _BLOCK_END in payload):
+        raise FacetProjectionConflict("owner modified generated navigation")
     return content_without_registered_facets(payload, registered=True)
+
+
+def retain_content_preimage(
+    connection: sqlite3.Connection,
+    workspace_id: str,
+    note_id: str,
+    relative_path: str,
+    payload: bytes,
+) -> None:
+    if not projection_schema_available(connection):
+        return
+    row = connection.execute(
+        "SELECT generated_block FROM facet_projection_state WHERE workspace_id=? "
+        "AND file_kind='record' AND file_id=? AND relative_path=?",
+        (workspace_id, note_id, relative_path),
+    ).fetchone()
+    if row is not None:
+        content = _projection_content(payload, row[0])
+        connection.execute(
+            "INSERT OR IGNORE INTO facet_content_preimages VALUES(?,?,?,?,?,?)",
+            (
+                workspace_id,
+                note_id,
+                sha256(payload).hexdigest(),
+                payload,
+                row[0],
+                sha256(content).hexdigest(),
+            ),
+        )
+
+
+def content_preimage_digest(
+    connection: sqlite3.Connection,
+    workspace_id: str,
+    note_id: str,
+    digest: str | None,
+) -> str | None:
+    """Resolve a full-file preimage only from verified durable local custody."""
+    if digest is None or not projection_schema_available(connection):
+        return digest
+    row = connection.execute(
+        "SELECT * FROM facet_content_preimages WHERE workspace_id=? AND note_id=? "
+        "AND file_sha256=?",
+        (workspace_id, note_id, digest),
+    ).fetchone()
+    if row is None:
+        return digest
+    content = _projection_content(row["file_payload"], row["generated_block"])
+    if sha256(row["file_payload"]).hexdigest() != digest or (
+        sha256(content).hexdigest() != row["content_sha256"]
+    ):
+        raise FacetProjectionConflict("invalid retained projection preimage")
+    return cast(str, row["content_sha256"])
 
 
 def _json(value: object) -> str:
@@ -323,7 +387,6 @@ class FacetVaultTasks:
         if (
             not isinstance(authority, EffectiveAuthority)
             or not authority.owner
-            or authority.principal_id != self._engine.profile.owner_actor_id
             or authority.egress_mode.value != "owner_local"
             or authority.space_ids is not None
         ):
@@ -365,7 +428,9 @@ class FacetVaultTasks:
                 list(row)
                 for row in connection.execute(
                     "SELECT dimension_id,version FROM facet_dimensions UNION ALL "
-                    "SELECT value_id,version FROM facet_values ORDER BY 1"
+                    "SELECT value_id,version FROM facet_values UNION ALL "
+                    "SELECT query_id,version FROM facet_queries UNION ALL "
+                    "SELECT page_id,version FROM facet_page_queries ORDER BY 1"
                 )
             ]
         )
@@ -383,7 +448,9 @@ class FacetVaultTasks:
             ).fetchone(),
         )
 
-    def _note(self, connection: sqlite3.Connection, workspace_id: str, subject: Any) -> sqlite3.Row:
+    def _note(
+        self, connection: sqlite3.Connection, workspace_id: str, subject: AuthorizedSubject
+    ) -> sqlite3.Row:
         note = connection.execute(
             "SELECT n.* FROM managed_notes n WHERE n.workspace_id=? AND n.active=1 "
             "AND (n.note_id=? OR n.note_id IN (SELECT file_id FROM facet_projection_state "
@@ -477,11 +544,15 @@ class FacetVaultTasks:
                     current_memberships=memberships,
                 )
                 conflicts.extend(asdict(item) for item in patch.conflicts)
-                if content_without_registered_facets(
-                    payload, registered=True
+                if registered_content(
+                    connection,
+                    workspace.workspace_id,
+                    note["note_id"],
+                    note["relative_path"],
+                    payload,
                 ) != self._accepted_content(connection, note):
                     conflicts.append({"code": "content_changed", "value_id": None})
-            except MarkdownFormatError:
+            except MarkdownFormatError, FacetProjectionConflict:
                 patch = Reconciliation((), (), ())
                 conflicts.append({"code": "invalid_frontmatter", "value_id": None})
             if (
@@ -494,7 +565,12 @@ class FacetVaultTasks:
             if len((memberships | set(patch.add_value_ids)) - set(patch.remove_value_ids)) > 128:
                 raise fc.FacetError("limit_exceeded")
             now = self._engine._clock()
-            expires = _timestamp(now + timedelta(minutes=15))
+            expires = (
+                (now + timedelta(minutes=15))
+                .astimezone(UTC)
+                .isoformat(timespec="microseconds")
+                .replace("+00:00", "Z")
+            )
             preview_id = "facetpreview_" + str(uuid4())
             version = subject_version(connection, subject)
             fields = {
@@ -542,14 +618,76 @@ class FacetVaultTasks:
             )
         )
 
+    def prepare_content_refresh(
+        self,
+        connection: sqlite3.Connection,
+        workspace: _Workspace,
+        note_id: str,
+        payload: bytes,
+        operation_id: str,
+    ) -> str | None:
+        """Journal reprojection alongside an authorized managed-content completion."""
+        from .facet_queries import authorize_subject
+
+        if not projection_schema_available(connection):
+            return None
+        projection = self._projection(connection, workspace.workspace_id, note_id)
+        if projection is None:
+            return None
+        authority = EffectiveAuthority(
+            principal_id=self._engine.profile.owner_actor_id,
+            session_id="managed-facet-refresh",
+            capabilities=frozenset(),
+            space_ids=None,
+            owner=True,
+        )
+        subject = authorize_subject(
+            connection,
+            self._engine.profile,
+            {"kind": projection["subject_kind"], "id": projection["subject_id"]},
+            authority,
+        )
+        note = self._note(connection, workspace.workspace_id, subject)
+        projection_id = "facetrefresh_" + sha256(operation_id.encode()).hexdigest()
+        self._prepare_record(connection, workspace, note, subject, payload, projection_id)
+        return projection_id
+
+    def _navigation(
+        self, connection: sqlite3.Connection, subject: AuthorizedSubject, path: str
+    ) -> bytes:
+        if subject.kind != "canonical":
+            return b""
+        row = connection.execute(
+            "SELECT q.selector_json FROM facet_page_queries AS p JOIN facet_queries AS q "
+            "USING(query_id) WHERE p.page_id=?",
+            (subject.id,),
+        ).fetchone()
+        if row is None:
+            return b""
+        selected = set(json.loads(row[0])["all_value_ids"])
+        lines = []
+        for value in self._vocabulary(connection):
+            if value.value_id in selected:
+                target = relpath(
+                    facet_index_relative_path(value.dimension_id, value.value_id),
+                    str(PurePosixPath(path).parent),
+                )
+                label = _markdown_text(f"{value.dimension_name}: {value.value_name}")
+                lines.append(f"- [{label}]({quote(target, safe='/')})\n")
+        if not lines:
+            return b""
+        return b"\n\n" + _BLOCK_START + b"\n" + "".join(lines).encode("utf-8") + _BLOCK_END + b"\n"
+
     def _prepare_record(
         self,
         connection: sqlite3.Connection,
         workspace: _Workspace,
         note: sqlite3.Row,
-        subject: Any,
+        subject: AuthorizedSubject,
         payload: bytes,
         operation_id: str,
+        *,
+        expected_fingerprint: str | None = None,
     ) -> None:
         from .facet_queries import membership_rows
 
@@ -558,7 +696,17 @@ class FacetVaultTasks:
             item["value_id"] for item in membership_rows(connection, subject.kind, subject.id)
         }
         values = tuple(item for item in self._vocabulary(connection) if item.value_id in assigned)
-        output = replace_registered_facets(payload, values, registered=projection is not None)
+        content = (
+            payload
+            if projection is None
+            else _projection_content(payload, projection["generated_block"])
+        )
+        block = self._navigation(connection, subject, note["relative_path"])
+        if projection is None and (_BLOCK_START in payload or _BLOCK_END in payload):
+            raise FacetProjectionConflict("unregistered owner navigation")
+        output = (
+            replace_registered_facets(content, values, registered=projection is not None) + block
+        )
         state = {
             "workspace_id": workspace.workspace_id,
             "file_kind": "record",
@@ -568,13 +716,16 @@ class FacetVaultTasks:
             "subject_id": subject.id,
             "content_revision_id": subject.revision_id,
             "managed_revision_id": note["accepted_revision_id"],
+            "generated_block": block.decode("utf-8"),
             "emitted_facets_json": _json(rendered_facet_map(values)),
             "id_name_mapping_json": _json([asdict(item) for item in values]),
             "materialized_sha256": sha256(output).hexdigest(),
             "updated_at": _timestamp(self._engine._clock()),
         }
         latest, fingerprint = self._read_file(workspace, note["relative_path"])
-        if latest != payload:
+        if latest != payload or (
+            expected_fingerprint is not None and fingerprint != expected_fingerprint
+        ):
             raise fc.FacetError("preview_stale")
         self._prepare_write(
             connection, workspace, operation_id, payload, output, state, fingerprint
@@ -618,10 +769,11 @@ class FacetVaultTasks:
             ),
         )
 
+    @_public_errors
     def register_record(
         self, workspace_id: str, record_id: str, *, authority: EffectiveAuthority
     ) -> None:
-        from .facet_queries import resolve_subject
+        from .facet_queries import membership_rows, resolve_subject
 
         self._admit(authority)
         workspace = self._engine.managed_workspace._workspace(workspace_id)
@@ -636,7 +788,19 @@ class FacetVaultTasks:
                     projection is not None
                     and sha256(payload).hexdigest() != projection["materialized_sha256"]
                 ):
-                    raise fc.FacetError("projection_conflict")
+                    assigned = {
+                        item["value_id"]
+                        for item in membership_rows(connection, subject.kind, subject.id)
+                    }
+                    values = tuple(
+                        item for item in self._vocabulary(connection) if item.value_id in assigned
+                    )
+                    # An explicit content acceptance may establish a new full-file base.
+                    # Pending facet edits still require preview/apply.
+                    if sha256(payload).hexdigest() != note["write_base_sha256"] or parse_markdown(
+                        payload
+                    ).fields.get("facets") != rendered_facet_map(values):
+                        raise fc.FacetError("projection_conflict")
                 if registered_content(
                     connection, workspace_id, note["note_id"], note["relative_path"], payload
                 ) != self._accepted_content(connection, note):
@@ -653,8 +817,7 @@ class FacetVaultTasks:
     def vault_apply(
         self, request: fc.VaultApplyRequest, *, authority: EffectiveAuthority
     ) -> fc.VaultApplyResponse:
-        from .facet_queries import authorize_subject
-        from .facet_store import commit_mutation, replay_receipt
+        from .facet_queries import authorize_subject, subject_version
         from .facets import FacetTasks
 
         args = fc.request_from_wire("facet.vault.apply", request).to_wire()
@@ -700,6 +863,7 @@ class FacetVaultTasks:
                         or note["relative_path"] != preview["relative_path"]
                         or note["accepted_revision_id"] != preview["managed_revision_id"]
                         or subject.revision_id != preview["content_revision_id"]
+                        or subject_version(connection, subject) != preview["expected_version"]
                         or fingerprint != preview["file_fingerprint_json"]
                         or sha256(payload).hexdigest() != preview["file_sha256"]
                         or self._authority_digest(authority, workspace)
@@ -718,46 +882,15 @@ class FacetVaultTasks:
                         add_value_ids=json.loads(preview["add_value_ids_json"]),
                         remove_value_ids=json.loads(preview["remove_value_ids_json"]),
                     )
-                    # Use E's existing assignment logic in this same transaction. Replace
-                    # this adapter with E's public caller-transaction seam when verified.
-                    tasks = FacetTasks(self._engine)
-                    method = "facet.assignment.patch"
-                    semantic_args = tasks._admit(semantic_request, method, authority)
-                    before, admitted_subject = tasks._scope_write(
-                        connection, method, semantic_args, authority
+                    semantic_response = FacetTasks(self._engine).run_mutation(
+                        connection, semantic_request, authority=authority
                     )
-                    receipt = replay_receipt(
-                        connection,
-                        method=method,
-                        arguments=semantic_args,
-                        principal_id=authority.principal_id,
-                    )
-                    if receipt is None:
-                        tasks._expect(semantic_args["expected_version"], before)
-                        recorded = _timestamp(self._engine._clock())
-                        changes, subject_id, version = tasks._changes(
-                            connection,
-                            method,
-                            semantic_args,
-                            before,
-                            admitted_subject,
-                            authority,
-                            recorded,
-                        )
-                        brain_id = connection.execute(
-                            "SELECT brain_id FROM brain_identity WHERE singleton=1"
-                        ).fetchone()[0]
-                        receipt = commit_mutation(
-                            connection,
-                            brain_id=brain_id,
-                            method=method,
-                            arguments=semantic_args,
-                            authority=authority,
-                            recorded_at=recorded,
-                            changes=changes,
-                            subject_id=subject_id,
-                            version=version,
-                        )
+                    receipt = {
+                        key: value
+                        for key, value in semantic_response.items()
+                        if key != "dto_version"
+                    }
+                    fc.validate_wire("receipt", receipt)
                     connection.execute(
                         "INSERT INTO facet_vault_apply_operations VALUES(?,?,?,?,?,?,?)",
                         (
@@ -771,7 +904,13 @@ class FacetVaultTasks:
                         ),
                     )
                     self._prepare_record(
-                        connection, workspace, note, subject, payload, projection_operation
+                        connection,
+                        workspace,
+                        note,
+                        subject,
+                        payload,
+                        projection_operation,
+                        expected_fingerprint=preview["file_fingerprint_json"],
                     )
             status = "current"
             try:
@@ -784,6 +923,58 @@ class FacetVaultTasks:
             )
         )
 
+    def refresh_workspace(self, workspace_id: str) -> None:
+        """Managed owner's foreground refresh of existing files and navigation."""
+        authority = self._owner_authority()
+        connection = self._engine._store.connect()
+        try:
+            if not projection_schema_available(connection) or not self._vocabulary(connection):
+                return
+            record_ids = [
+                row[0]
+                for row in connection.execute(
+                    "SELECT note_id FROM managed_notes WHERE workspace_id=? "
+                    "AND active=1 ORDER BY note_id",
+                    (workspace_id,),
+                )
+            ]
+        finally:
+            connection.close()
+        conflict = False
+        for record_id in record_ids:
+            try:
+                self.register_record(workspace_id, record_id, authority=authority)
+            except fc.FacetError as error:
+                if error.code == "not_found":
+                    continue
+                if error.code != "projection_conflict":
+                    raise
+                conflict = True
+        after = None
+        while True:
+            try:
+                after = self.refresh_indexes(
+                    workspace_id, authority=authority, after_value_id=after
+                )
+            except fc.FacetError as error:
+                if error.code != "projection_conflict":
+                    raise
+                conflict = True
+                break
+            if after is None:
+                break
+        if conflict:
+            raise fc.FacetError("projection_conflict")
+
+    def _owner_authority(self) -> EffectiveAuthority:
+        return EffectiveAuthority(
+            principal_id=self._engine.profile.owner_actor_id,
+            session_id="managed-facet-refresh",
+            capabilities=frozenset(),
+            space_ids=None,
+            owner=True,
+        )
+
     def refresh_indexes(
         self,
         workspace_id: str,
@@ -793,8 +984,6 @@ class FacetVaultTasks:
         limit: int = 32,
     ) -> str | None:
         """Materialize a bounded owner-local batch; return the next stable ID boundary."""
-        from .facet_queries import authorize_subject, resolve_query, select_records
-
         self._admit(authority)
         if type(limit) is not int or not 1 <= limit <= 100:
             raise fc.FacetError("invalid_arguments")
@@ -810,55 +999,6 @@ class FacetVaultTasks:
                 ]
                 batch = remaining[:limit]
                 for value in batch:
-                    subjects = {
-                        (item.subject.kind, item.subject.id): item.subject
-                        for item in select_records(
-                            connection,
-                            self._engine.profile,
-                            {
-                                "all_value_ids": [value.value_id],
-                                "space_ids": [],
-                                "payload_families": [],
-                                "record_types": ["source", "canonical"],
-                            },
-                            authority,
-                        )
-                    }
-                    for attached in connection.execute(
-                        "SELECT page_id,query_id FROM facet_page_queries ORDER BY page_id"
-                    ):
-                        try:
-                            query = resolve_query(connection, attached["query_id"], authority)
-                            if value.value_id not in query["selector"]["all_value_ids"]:
-                                continue
-                            subject = authorize_subject(
-                                connection,
-                                self._engine.profile,
-                                {"kind": "canonical", "id": attached["page_id"]},
-                                authority,
-                            )
-                            subjects[(subject.kind, subject.id)] = subject
-                        except fc.FacetError as error:
-                            if error.code != "not_found":
-                                raise
-                    links: list[IndexLink] = []
-                    for subject in subjects.values():
-                        try:
-                            note = self._note(connection, workspace_id, subject)
-                        except fc.FacetError as error:
-                            if error.code == "not_found":
-                                continue
-                            raise
-                        if (
-                            read_confined(
-                                root=workspace.root,
-                                relative=note["relative_path"],
-                                expected_root_identity=workspace.root_identity,
-                                maximum_bytes=MAX_FILE_BYTES,
-                            )
-                            is not None
-                        ):
-                            links.append(IndexLink(subject.summary["title"], note["relative_path"]))
                     relative = facet_index_relative_path(value.dimension_id, value.value_id)
                     existing = read_confined(
                         root=workspace.root,
@@ -871,11 +1011,7 @@ class FacetVaultTasks:
                         "WHERE workspace_id=? AND file_kind='index' AND file_id=?",
                         (workspace_id, value.value_id),
                     ).fetchone()
-                    output = render_facet_index(
-                        title=f"{value.dimension_name}: {value.value_name}",
-                        effectively_archived=value.effectively_archived,
-                        links=links,
-                    )
+                    output = self._index_payload(connection, workspace, value, authority)
                     status = index_write_status(
                         previous_digest=None if previous is None else previous[0],
                         existing=existing,
@@ -908,6 +1044,123 @@ class FacetVaultTasks:
                 self._materialize(operation_id)
         return batch[-1].value_id if len(remaining) > limit else None
 
+    def _index_payload(
+        self,
+        connection: sqlite3.Connection,
+        workspace: _Workspace,
+        value: ProjectedValue,
+        authority: EffectiveAuthority,
+    ) -> bytes:
+        from .facet_queries import authorize_subject, resolve_query, select_records
+
+        subjects = {
+            (item.subject.kind, item.subject.id): item.subject
+            for item in select_records(
+                connection,
+                self._engine.profile,
+                {
+                    "all_value_ids": [value.value_id],
+                    "space_ids": [],
+                    "payload_families": [],
+                    "record_types": ["canonical", "source"],
+                },
+                authority,
+            )
+        }
+        for attached in connection.execute(
+            "SELECT page_id,query_id FROM facet_page_queries ORDER BY page_id"
+        ):
+            try:
+                query = resolve_query(connection, attached["query_id"], authority)
+                if value.value_id not in query["selector"]["all_value_ids"]:
+                    continue
+                subject = authorize_subject(
+                    connection,
+                    self._engine.profile,
+                    {"kind": "canonical", "id": attached["page_id"]},
+                    authority,
+                )
+                subjects[(subject.kind, subject.id)] = subject
+            except fc.FacetError as error:
+                if error.code != "not_found":
+                    raise
+        links: list[IndexLink] = []
+        for subject in subjects.values():
+            try:
+                note = self._note(connection, workspace.workspace_id, subject)
+            except fc.FacetError as error:
+                if error.code == "not_found":
+                    continue
+                raise
+            if (
+                read_confined(
+                    root=workspace.root,
+                    relative=note["relative_path"],
+                    expected_root_identity=workspace.root_identity,
+                    maximum_bytes=MAX_FILE_BYTES,
+                )
+                is not None
+            ):
+                links.append(IndexLink(subject.summary["title"], note["relative_path"]))
+        return render_facet_index(
+            title=f"{value.dimension_name}: {value.value_name}",
+            effectively_archived=value.effectively_archived,
+            links=links,
+        )
+
+    def _state_current(
+        self,
+        connection: sqlite3.Connection,
+        workspace: _Workspace,
+        state: dict[str, Any],
+        payload: bytes,
+    ) -> bool:
+        from .facet_queries import authorize_subject, membership_rows
+
+        if state["file_kind"] == "index":
+            value = next(
+                (
+                    item
+                    for item in self._vocabulary(connection)
+                    if item.value_id == state["file_id"]
+                ),
+                None,
+            )
+            return (
+                value is not None
+                and state["relative_path"]
+                == facet_index_relative_path(value.dimension_id, value.value_id)
+                and self._index_payload(connection, workspace, value, self._owner_authority())
+                == payload
+            )
+        try:
+            subject = authorize_subject(
+                connection,
+                self._engine.profile,
+                {"kind": state["subject_kind"], "id": state["subject_id"]},
+                self._owner_authority(),
+            )
+            note = self._note(connection, workspace.workspace_id, subject)
+            assigned = {
+                item["value_id"] for item in membership_rows(connection, subject.kind, subject.id)
+            }
+            values = tuple(
+                item for item in self._vocabulary(connection) if item.value_id in assigned
+            )
+            return (
+                note["note_id"] == state["file_id"]
+                and note["relative_path"] == state["relative_path"]
+                and note["accepted_revision_id"] == state["managed_revision_id"]
+                and subject.revision_id == state["content_revision_id"]
+                and _json([asdict(item) for item in values]) == state["id_name_mapping_json"]
+                and self._navigation(connection, subject, state["relative_path"])
+                == state["generated_block"]
+                and _projection_content(payload, state["generated_block"])
+                == self._accepted_content(connection, note)
+            )
+        except fc.FacetError, FacetProjectionConflict:
+            return False
+
     def _materialize(self, operation_id: str) -> None:
         with self._engine._store.transaction() as connection:
             row = connection.execute(
@@ -921,6 +1174,27 @@ class FacetVaultTasks:
                 row["root_inode"],
             ):
                 raise fc.FacetError("projection_conflict")
+            if row["status"] in {"completed", "superseded"}:
+                latest = connection.execute(
+                    "SELECT * FROM facet_projection_state "
+                    "WHERE workspace_id=? AND file_kind=? AND file_id=?",
+                    (row["workspace_id"], row["file_kind"], row["file_id"]),
+                ).fetchone()
+                if latest is None:
+                    raise fc.FacetError("projection_conflict")
+                current = read_confined(
+                    root=workspace.root,
+                    relative=latest["relative_path"],
+                    expected_root_identity=workspace.root_identity,
+                    maximum_bytes=MAX_FILE_BYTES,
+                )
+                if (
+                    current is None
+                    or sha256(current).hexdigest() != latest["materialized_sha256"]
+                    or not self._state_current(connection, workspace, dict(latest), current)
+                ):
+                    raise fc.FacetError("projection_conflict")
+                return
             current = read_confined(
                 root=workspace.root,
                 relative=row["relative_path"],
@@ -928,16 +1202,8 @@ class FacetVaultTasks:
                 maximum_bytes=MAX_FILE_BYTES,
             )
             digest = None if current is None else sha256(current).hexdigest()
-            if row["status"] == "completed":
-                latest = connection.execute(
-                    "SELECT materialized_sha256 FROM facet_projection_state "
-                    "WHERE workspace_id=? AND file_kind=? AND file_id=?",
-                    (row["workspace_id"], row["file_kind"], row["file_id"]),
-                ).fetchone()
-                if latest is None or digest != latest[0]:
-                    raise fc.FacetError("projection_conflict")
-                return
             state = json.loads(row["projection_json"])
+            state["generated_block"] = state.get("generated_block", "").encode("utf-8")
             if (
                 sha256(row["payload"]).hexdigest() != row["payload_sha256"]
                 or state["materialized_sha256"] != row["payload_sha256"]
@@ -968,9 +1234,17 @@ class FacetVaultTasks:
                         )
                     )
                 )
+                if eligible:
+                    eligible = _projection_content(
+                        row["payload"], state["generated_block"]
+                    ) == self._accepted_content(connection, note)
                 if eligible and digest != row["payload_sha256"]:
                     _, fingerprint = self._read_file(workspace, row["relative_path"])
                     eligible = fingerprint == row["expected_fingerprint_json"]
+            semantic_current = self._state_current(connection, workspace, state, row["payload"])
+            # A completed filesystem promotion proves custody even if classification
+            # changed before recovery. Record those actual bytes, then require refresh.
+            eligible = eligible and (semantic_current or digest == row["payload_sha256"])
             if not eligible or digest not in {row["expected_sha256"], row["payload_sha256"]}:
                 connection.execute(
                     "UPDATE facet_projection_writes SET status='conflict' WHERE operation_id=?",
@@ -1000,12 +1274,29 @@ class FacetVaultTasks:
                     ),
                     tuple(state.values()),
                 )
+                if row["file_kind"] == "record":
+                    retain_content_preimage(
+                        connection,
+                        workspace.workspace_id,
+                        row["file_id"],
+                        row["relative_path"],
+                        row["payload"],
+                    )
+                    connection.execute(
+                        "UPDATE managed_notes SET write_base_sha256=? WHERE note_id=?",
+                        (row["payload_sha256"], row["file_id"]),
+                    )
+                connection.execute(
+                    "UPDATE facet_projection_writes SET status='superseded' "
+                    "WHERE workspace_id=? AND file_kind=? AND file_id=? AND status='conflict'",
+                    (row["workspace_id"], row["file_kind"], row["file_id"]),
+                )
                 connection.execute(
                     "UPDATE facet_projection_writes SET status='completed',completed_at=? "
                     "WHERE operation_id=?",
                     (_timestamp(self._engine._clock()), operation_id),
                 )
-        if conflict:
+        if conflict or not semantic_current:
             raise fc.FacetError("projection_conflict")
 
     def recover(self) -> int:
