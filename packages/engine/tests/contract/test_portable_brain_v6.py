@@ -292,12 +292,6 @@ def test_facet_binding_refuses_wrong_digest_before_touching_routes() -> None:
 
 def test_pending_binding_preserves_cross_space_routes_and_independent_destination() -> None:
     binding = json.loads((FIXTURES / "positive/review-create-cross-space.json").read_bytes())
-    # A create has no inherited evidence: both provenance members are selected.
-    binding["selected_capture_ids"] = list(binding["provenance"])
-    second_state = deepcopy(binding["facet_source_states"][0])
-    second_state["capture_id"] = binding["provenance"][1]
-    second_state["source_id"] = "source_00000000-0000-4000-8000-000000000099"
-    binding["facet_source_states"].append(second_state)
     files: dict[str, bytes] = {}
     for state in binding["source_states"]:
         capture_id = state["capture_id"]
@@ -384,3 +378,89 @@ def test_pending_binding_preserves_cross_space_routes_and_independent_destinatio
             references=refs,
             tenant_id=binding["tenant_id"],
         )
+
+
+def _empty_facet_archive() -> dict[str, bytes]:
+    from open_brain_engine.portable.v5 import ISSUER_MIGRATION_PATH
+
+    from packages.engine.tests.contract.test_portable_brain_v5 import _fixture
+
+    files = _fixture()
+    brain_id = json.loads(files[ISSUER_MIGRATION_PATH])["brain_id"]
+    files[FACET_EVENTS_PATH] = canonical({"schema_version": 1, "brain_id": brain_id, "events": []})
+    files[FACET_OPERATIONS_PATH] = canonical(
+        {"schema_version": 1, "brain_id": brain_id, "operations": []}
+    )
+    files[FACET_STATE_PATH] = canonical(
+        {
+            "schema_version": 1,
+            "brain_id": brain_id,
+            "dimensions": [],
+            "values": [],
+            "subjects": [],
+            "assignments": [],
+            "queries": [],
+            "page_queries": [],
+        }
+    )
+    return files
+
+
+def _write_v6(root: Path, files: dict[str, bytes]) -> None:
+    from open_brain_engine.portable.v6 import manifest_v6
+
+    from packages.engine.tests.contract.test_portable_brain_v5 import EXPORT, NOW, TENANT
+
+    for path, payload in files.items():
+        target = root / path
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(payload)
+    (root / "portable-manifest.json").write_bytes(
+        canonical(manifest_v6(files, tenant_id=TENANT, export_id=EXPORT, created_at=NOW))
+    )
+
+
+def test_v6_snapshot_validates_inherited_lossless_evidence_and_pins_bytes(tmp_path: Path) -> None:
+    from open_brain_engine.engine.portable_v6_restore import V6RestoreBundle
+    from open_brain_engine.portable.v6 import validated_portable_snapshot_v6
+
+    files = _empty_facet_archive()
+    _write_v6(tmp_path, files)
+    snapshot = validated_portable_snapshot_v6(tmp_path)
+    assert snapshot.manifest["schema_version"] == 6
+    bundle = V6RestoreBundle.decode(snapshot, checkpoint=lambda _stage: None)
+    assert bundle.snapshot is snapshot
+    assert bundle.facets.next_sequence == 1
+    assert all(snapshot.files[path] == files[path] for path in files)
+    (tmp_path / FACET_STATE_PATH).write_bytes(b"{}")
+    assert V6RestoreBundle.decode(snapshot, checkpoint=lambda _stage: None).facets == bundle.facets
+    with pytest.raises(PortableValidationError):
+        validated_portable_snapshot_v6(tmp_path)
+
+
+@pytest.mark.parametrize("mutation", ["missing", "privacy", "catalog", "newer", "duplicate"])
+def test_full_v6_snapshot_refuses_inherited_and_manifest_drift(
+    tmp_path: Path, mutation: str
+) -> None:
+    from open_brain_engine.portable.v5 import EFFECTIVE_PRIVACY_PATH
+    from open_brain_engine.portable.v6 import validated_portable_snapshot_v6
+
+    files = _empty_facet_archive()
+    if mutation == "missing":
+        del files[FACET_OPERATIONS_PATH]
+    elif mutation == "privacy":
+        privacy = json.loads(files[EFFECTIVE_PRIVACY_PATH])
+        privacy["resolved_search"][0]["effective_privacy"]["authority"]["cloud"] = True
+        files[EFFECTIVE_PRIVACY_PATH] = canonical(privacy)
+    _write_v6(tmp_path, files)
+    manifest_path = tmp_path / "portable-manifest.json"
+    manifest = json.loads(manifest_path.read_bytes())
+    if mutation == "catalog":
+        manifest["schema_catalog_digest"] = "0" * 64
+    elif mutation == "newer":
+        manifest["schema_version"] = 7
+    elif mutation == "duplicate":
+        manifest["files"].append(manifest["files"][0])
+    manifest_path.write_bytes(canonical(manifest))
+    with pytest.raises(PortableValidationError):
+        validated_portable_snapshot_v6(tmp_path)

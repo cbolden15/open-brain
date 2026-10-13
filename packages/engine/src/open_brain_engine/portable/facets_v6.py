@@ -23,8 +23,9 @@ from open_brain_engine.engine.facet_validation import parse
 from open_brain_engine.storage.markdown import parse_markdown
 
 from .review_binding import review_binding_digest
-from .v1 import PortableValidationError
+from .v1 import PortableValidationError, _portable_record
 from .v3 import _published_bytes, _records, _route_matches_frozen_state
+from .v4 import SOURCE_METADATA_PATH
 
 FACET_EVENTS_PATH = "history/facets/events-v1.json"
 FACET_OPERATIONS_PATH = "history/facets/operations-v1.json"
@@ -59,6 +60,46 @@ class FacetPortableReferences:
         object.__setattr__(self, "capture_sources", MappingProxyType(dict(self.capture_sources)))
         object.__setattr__(self, "revision_pages", MappingProxyType(dict(self.revision_pages)))
         object.__setattr__(self, "principal_actors", MappingProxyType(dict(self.principal_actors)))
+
+
+def references_from_portable_files(
+    files: Mapping[str, bytes],
+    *,
+    principal_actors: Mapping[str, str] | None = None,
+) -> FacetPortableReferences:
+    """Index already validated retained source/page identities from pinned bytes."""
+    try:
+        metadata = _portable_record(files[SOURCE_METADATA_PATH], "source metadata")
+        sources = cast(list[dict[str, Any]], metadata["sources"])
+        revisions = cast(list[dict[str, Any]], metadata["revisions"])
+        members = cast(list[dict[str, Any]], metadata["canonical_members"])
+        capture_sources = {row["capture_id"]: row["source_id"] for row in revisions}
+        revision_pages = {row["revision_id"]: row["page_id"] for row in members}
+        pages = {row["page_id"] for row in members}
+        spaces: set[str] = set()
+        for path, payload in files.items():
+            if path.startswith("content/spaces/") and path.endswith("/_space.md"):
+                spaces.add(cast(str, parse_markdown(payload).fields["space_id"]))
+            elif path.startswith("content/spaces/") and "/notes/" in path and path.endswith(".md"):
+                pages.add(cast(str, parse_markdown(payload).fields["page_id"]))
+        publications = _records(files, "history/publications/", "publication")
+        pages.update(cast(str, row["page_id"]) for row in publications.values())
+        if principal_actors is None:
+            operations = _canonical_record(files[FACET_OPERATIONS_PATH], "operations_sidecar")
+            principal_actors = {
+                row["principal_id"]: row["principal_id"] for row in operations["operations"]
+            }
+        return FacetPortableReferences(
+            frozenset(row["source_id"] for row in sources),
+            frozenset(pages),
+            capture_sources,
+            revision_pages,
+            frozenset(spaces),
+            frozenset(publications),
+            principal_actors,
+        )
+    except (KeyError, TypeError, ValueError) as error:
+        raise PortableValidationError("Portable v6 retained identity index is invalid") from error
 
 
 def _canonical_record(payload: bytes, definition: str) -> dict[str, Any]:
@@ -359,5 +400,6 @@ __all__ = [
     "FacetPortableReferences",
     "PortableFacetBundle",
     "decode_portable_facets",
+    "references_from_portable_files",
     "validate_facet_binding_record",
 ]

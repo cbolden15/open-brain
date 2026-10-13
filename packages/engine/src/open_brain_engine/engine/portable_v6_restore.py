@@ -7,9 +7,14 @@ savepoint inside the caller transaction; it never commits or copies live SQLite.
 
 from __future__ import annotations
 
+import json
 import sqlite3
 import unicodedata
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
+from dataclasses import dataclass
+from hashlib import sha256
+from pathlib import Path
+from typing import TYPE_CHECKING, cast
 
 from open_brain_engine.core.ids import portable_canonical_json_bytes as canonical
 from open_brain_engine.portable.facets_v6 import (
@@ -18,15 +23,22 @@ from open_brain_engine.portable.facets_v6 import (
     FACET_STATE_PATH,
     PortableFacetBundle,
     decode_portable_facets,
+    references_from_portable_files,
 )
-from open_brain_engine.portable.v1 import PortableValidationError
+from open_brain_engine.portable.v1 import PortableSnapshot, PortableValidationError
+from open_brain_engine.storage.filesystem import RootIdentity
 
+from .contracts import LocalEngineContext
+from .portable_v5_restore import V5RestoreBundle, ValidatedV5IssuerSeed, audit_restored_v5
 from .portable_v6_evidence import (
     FACET_TABLES,
     facet_references_from_connection,
     require_facet_snapshot,
     verify_portable_v6_facets,
 )
+
+if TYPE_CHECKING:
+    from .materializer import Materialization
 
 
 def install_portable_v6_facets(
@@ -166,4 +178,123 @@ def install_portable_v6_facets(
         raise
 
 
-__all__ = ["install_portable_v6_facets"]
+@dataclass(frozen=True, slots=True)
+class V6RestoreBundle(V5RestoreBundle):
+    """Actual v6 snapshot with the unchanged inherited lossless restore machinery."""
+
+    facets: PortableFacetBundle
+
+    @classmethod
+    def decode(
+        cls,
+        snapshot: PortableSnapshot,
+        *,
+        checkpoint: Callable[[str], None],
+    ) -> V6RestoreBundle:
+        from open_brain_engine.portable.v5 import (
+            EFFECTIVE_PRIVACY_PATH,
+            ISSUER_MIGRATION_PATH,
+            LEGACY_BINDINGS_PATH,
+            decode_retained_privacy_value,
+        )
+        from open_brain_engine.portable.v6 import validate_portable_file_set_v6
+
+        manifest = snapshot.manifest
+        if (
+            type(manifest.get("schema_version")) is not int
+            or manifest["schema_version"] != 6
+            or manifest.get("layout_version") != 6
+            or manifest.get("contract_version") != "6"
+        ):
+            raise PortableValidationError("v6 restore requires a validated v6 snapshot")
+        from open_brain_engine.portable.v5 import _manifest
+        from open_brain_engine.portable.v6_catalog import PORTABLE_V6_SCHEMA_CATALOG_DIGEST
+
+        payloads = {
+            path: data for path, data in snapshot.files.items() if path != "portable-manifest.json"
+        }
+        inventory = _manifest(manifest, version=6, catalog=PORTABLE_V6_SCHEMA_CATALOG_DIGEST)
+        if canonical(manifest) != snapshot.files.get("portable-manifest.json") or inventory != {
+            path: sha256(data).hexdigest() for path, data in payloads.items()
+        }:
+            raise PortableValidationError("v6 restore snapshot commitment mismatch")
+        validate_portable_file_set_v6(payloads, tenant_id=cast(str, manifest["tenant_id"]))
+        issuer = json.loads(snapshot.files[ISSUER_MIGRATION_PATH])
+        for row in json.loads(snapshot.files[EFFECTIVE_PRIVACY_PATH])["retained_privacy"]:
+            retained = decode_retained_privacy_value(row["privacy_json"])
+            if type(retained) in (int, float):
+                raise PortableValidationError("v6 numeric retained privacy is not restorable")
+        facets = decode_portable_facets(
+            payloads,
+            brain_id=issuer["brain_id"],
+            references=references_from_portable_files(payloads),
+        )
+        return cls(
+            snapshot,
+            ValidatedV5IssuerSeed(
+                snapshot.files[ISSUER_MIGRATION_PATH], snapshot.files[LEGACY_BINDINGS_PATH]
+            ),
+            checkpoint,
+            facets,
+        )
+
+    def install(self, connection: sqlite3.Connection, *, profile: LocalEngineContext) -> None:
+        # Preserve the real v6 snapshot; only the inherited evidence algorithm is reused.
+        V5RestoreBundle.install(self, connection, profile=profile)
+        install_portable_v6_facets(connection, bundle=self.facets)
+        self.checkpoint("facets_restored")
+        verify_portable_v6_facets(connection, bundle=self.facets)
+        self.checkpoint("facet_semantics_verified")
+
+
+def audit_restored_v6(
+    profile: LocalEngineContext,
+    *,
+    snapshot: PortableSnapshot,
+) -> PortableFacetBundle:
+    """Audit inherited content/privacy and facets through fresh read connections."""
+    from .local_schema import open_local_database_read_only
+
+    bundle = V6RestoreBundle.decode(snapshot, checkpoint=lambda _stage: None)
+    audit_restored_v5(profile, snapshot=snapshot)
+    connection = open_local_database_read_only(profile)
+    try:
+        if not connection.in_transaction:
+            connection.execute("BEGIN")
+        return verify_portable_v6_facets(connection, bundle=bundle.facets)
+    finally:
+        connection.close()
+
+
+def restore_portable_v6_root(
+    root: Path,
+    *,
+    snapshot: PortableSnapshot,
+    expected_root_identity: RootIdentity,
+    checkpoint: Callable[[str], None] = lambda _stage: None,
+) -> Materialization:
+    """Materialize a copied v6 archive into the caller's hidden current-schema stage.
+
+    The outer portability operation retains its writer fence and promotes only
+    after this function returns, index rebuild and ready-record verification.
+    """
+    from .materializer import materialize_portable_root
+
+    bundle = V6RestoreBundle.decode(snapshot, checkpoint=checkpoint)
+    materialization = materialize_portable_root(
+        root,
+        snapshot=snapshot,
+        expected_root_identity=expected_root_identity,
+        _v5_restore=bundle,
+    )
+    audit_restored_v6(materialization.profile, snapshot=snapshot)
+    checkpoint("facet_semantics_reopened")
+    return materialization
+
+
+__all__ = [
+    "V6RestoreBundle",
+    "audit_restored_v6",
+    "install_portable_v6_facets",
+    "restore_portable_v6_root",
+]
