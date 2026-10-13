@@ -78,3 +78,5 @@ internal contract revision when accepted contract bytes change after a verified 
 affected consumers, and rerun their checks. A changed manifest hash invalidates previous fixture
 verification. Historical Portable v1–v5 schemas remain unchanged. V6 catalog freeze waits for
 integrated F17–F22 evidence and independent review.
+
+Contract revision `facets-c0-v2` admits retained canonical revision UUIDs, including the UUIDv5 IDs produced by historical Portable restore. New facet IDs remain UUIDv4. This correction invalidates evidence-schema and fixture-manifest checks from revision v1; consumers must rerun them on the new pin.

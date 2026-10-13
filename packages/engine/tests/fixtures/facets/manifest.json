@@ -1,9 +1,9 @@
 {
-  "contract_revision": "facets-c0-v1",
+  "contract_revision": "facets-c0-v2",
   "status": "draft-unregistered",
   "schemas": {
-    "packages/engine/src/open_brain_engine/engine/facet_evidence_schema.json": "233d877ac8b13c43fa8b76b3fb591c7601e062547d796be54492ef14454fd035",
-    "packages/engine/src/open_brain_engine/engine/facet_schema.json": "590c42e696e78fe5fe17281e62b93aa64f702e9e097b74f142c4ffc460dfbb4a"
+    "packages/engine/src/open_brain_engine/engine/facet_evidence_schema.json": "48deca4cff8145cf3699767aa5cb33beede54382dbc00fbf68fb5c11fada2ecb",
+    "packages/engine/src/open_brain_engine/engine/facet_schema.json": "9805321fbbb9374c1dc3ce560379eaaca44b6a9a880f41e2f9c364767d1e030a"
   },
   "fixtures": [
     {

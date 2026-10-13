@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "urn:open-brain:draft:facets:c0:evidence-v1",
   "title": "C0 draft facet evidence; not a registered Portable catalog",
-  "x-contract-revision": "facets-c0-v1",
+  "x-contract-revision": "facets-c0-v2",
   "x-sidecar-paths": {
     "events_sidecar": "history/facets/events-v1.json",
     "operations_sidecar": "history/facets/operations-v1.json",
@@ -91,7 +91,7 @@
     },
     "revision_id": {
       "type": "string",
-      "pattern": "^revision_[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+      "pattern": "^revision_[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
     },
     "facetdim_id": {
       "type": "string",

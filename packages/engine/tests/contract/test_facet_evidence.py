@@ -158,3 +158,14 @@ def test_primitive_boundaries_and_empty_ledger() -> None:
     assert projected == empty_state
     with pytest.raises(FacetEvidenceError, match="unknown_evidence_schema"):
         validate_evidence("unknown", {})
+
+
+def test_retained_canonical_revision_ids_accept_portable_uuid5() -> None:
+    from open_brain_engine.portable.v4 import canonical_revision_id
+
+    revision = canonical_revision_id("publication_00000000-0000-4000-8000-000000000001")
+    validate_evidence("revision_id", revision)
+    with pytest.raises(FacetEvidenceError):
+        validate_evidence("revision_id", "revision_not-a-uuid")
+    with pytest.raises(FacetEvidenceError):
+        validate_evidence("facetquery_id", revision.replace("revision_", "facetquery_"))
