@@ -752,25 +752,33 @@ acceptance. The gate table is authoritative where the compact graph omits an evi
 
 ### Scheduling and file ownership
 
-Start with one coordinator and at most three concurrent workers, each in an isolated Git worktree.
-The initial allocation after C0 is E, A, and T. Refill completed slots with ready P/X/V tasks;
-reuse workers with a fresh bounded task contract where appropriate. Independent reviewers use
-the same worker pool. Extra terminal windows do not create extra owners or separate ledgers.
-When A or T reaches a fixture-only checkpoint and awaits a real producer, record that partial
-state and release its worker slot. Resume the task after its input arrives; do not keep an idle
-worker allocated or mark the whole task passed. This allows P, X, and V to run concurrently once
-E passes, even while A's final real-handler checks remain pending.
+Start with one coordinator and at most six concurrent workers, each in an isolated Git worktree.
+The owner authorized this increase from three workers on 2026-10-13, after requiring verified C0
+as the dispatch gate. Start E, A, T, P, X, and V together. E implements the engine; A develops
+adapters against the fake; T authors independent tests. P prepares publication bindings, X prepares
+Portable codecs/validation, and V prepares vault rendering/reconciliation concurrently. Their
+preparation does not require finished engine storage; their final integration still requires verified
+E, and X also requires P/V evidence. A's final wiring requires E/P. The graph's engine arrows are
+integration gates, not a prohibition on this preparation.
+
+Use supported separate terminal/session executors when native subagent slots cannot hold all six.
+Keep their existing approval and sandbox controls. A terminal session is a worker in the same cap
+and ledger, with a recorded session/process identity, worktree, and report path. Reuse sessions with
+fresh bounded contracts for dependent stages. At a preparation checkpoint, record tests-ready or
+blocked-on-input and release the active slot; resume when the verified input arrives. Independent
+review uses a freed slot. Empty reports and running processes never count as successful work.
 
 Reserve one writer per file before dispatch. Worktrees prevent incidental filesystem interference;
-they do not resolve competing edits to the same source file. E owns local schema/runtime admission
-files; P owns review-binding production/validation; V owns managed-workspace and managed-export
+they do not resolve competing edits to the same source file. E owns facet engine and migration
+helpers; P owns review-binding production/validation; V owns managed-workspace and managed-export
 integration. X consumes P/V interfaces and must not edit those files concurrently. T owns separate
 test files rather than modifying a producer's focused tests. C0 fixtures and shared contracts
 remain coordinator-owned after the initial contract commit.
 
 The coordinator owns shared task composition and final registration, including
 `engine/contracts.py`, `engine/local.py`, app `services/local_entrypoints.py`,
-`services/local_mcp.py`, and final Portable manifest/catalog registration. Adapter workers deliver
+`services/local_mcp.py`, local schema/catalog and runtime-session registration, and final Portable
+manifest/catalog registration. Adapter workers deliver
 their service callables and contract tests; the coordinator wires them through existing registries.
 Do not add runtime abstraction layers solely to avoid scheduling shared-file edits. An ownership
 transfer is explicit in the ledger and occurs only after the previous writer has stopped.
@@ -778,8 +786,10 @@ transfer is explicit in the ledger and occurs only after the previous writer has
 The workstream ledger records task/dependency status, active and total worker counts, worktree,
 base commit, contract revision/hash, reserved files, checkpoints, output commits, verification,
 and unresolved findings. Use the workflow-governance limits across all workers and terminals:
-at most three active workers for this execution and twelve total dispatch attempts unless a
-specific override is recorded. A running process, an empty report, or a worker's unsupported
+at most six active workers plus the coordinator and twelve total dispatch attempts unless a
+specific override is recorded. Pin every initial worker to the verified C0 commit, `facets-c0-v1`,
+and the exact fixture-manifest hash in the task manifest. Later dependency updates identify a
+verified integration descendant and invalidate affected checks. A worker's unsupported
 success assertion is not completion evidence. Verify commits and reports before consuming them.
 
 ### Implementation, repair, and integration loop

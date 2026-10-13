@@ -1,6 +1,6 @@
 {
   "manifest_version": 1,
-  "status": "C0 task contracts; future implementation files are reserved, not implemented",
+  "status": "six-worker stage-one execution authorized; C0 verified; runtime gates pending",
   "path_base": "repository root of each isolated worktree",
   "baseline": "bd368ec",
   "input_pin_rule": "Every consumer records verified C0 commit (or verified integration descendant), contract revision and exact fixture manifest SHA-256 before edits. Resolve paths against its absolute worktree path.",
@@ -52,9 +52,8 @@
       "exclusive_write_scope": [
         "packages/engine/src/open_brain_engine/engine/facets.py",
         "packages/engine/src/open_brain_engine/engine/facet_store.py",
-        "packages/engine/src/open_brain_engine/engine/local_schema.py",
-        "packages/engine/src/open_brain_engine/engine/local_schema_catalog.py",
-        "packages/app/src/open_brain/services/local_runtime_session.py",
+        "packages/engine/src/open_brain_engine/engine/facet_queries.py",
+        "packages/engine/src/open_brain_engine/engine/facet_schema_migration.py",
         "packages/engine/tests/integration/test_facets_engine.py",
         "packages/engine/tests/integration/test_facets_migration.py"
       ],
@@ -75,11 +74,42 @@
         "handoff with contract revision and fixture manifest hash"
       ],
       "focused_verification": [
-        "uv run --frozen pytest -q packages/engine/tests/integration/test_facets_engine.py packages/engine/tests/integration/test_facets_migration.py",
-        "uv run --frozen ruff check .",
-        "uv run --frozen mypy"
+        "/Users/calebbolden/Projects/oss/open-brain-public/.venv/bin/python -m pytest -q packages/engine/tests/integration/test_facets_engine.py packages/engine/tests/integration/test_facets_migration.py",
+        "/Users/calebbolden/Projects/oss/open-brain-public/.venv/bin/ruff check .",
+        "/Users/calebbolden/Projects/oss/open-brain-public/.venv/bin/mypy"
       ],
-      "completion_gate": "real-producer acceptance plus coordinator repository checks; fake results alone do not complete task"
+      "completion_gate": "real-producer acceptance plus coordinator repository checks; fake results alone do not complete task",
+      "initial_worktree": "/Users/calebbolden/Projects/oss/open-brain-facets-stage-one-e",
+      "initial_branch": "feat/facets-stage-one-e",
+      "initial_input_pin": {
+        "commit": "4a29944b4fead146c6f9bf5c535d0a1595799870",
+        "contract_revision": "facets-c0-v1",
+        "fixture_manifest_sha256": "eceaa89f146eeb133f780916fb006da211e5ab479ea8231b63c705f3bde000ca"
+      },
+      "start_requires_verified": [
+        "C0"
+      ],
+      "required_environment": "Read shared main .venv binaries; do not run uv sync or mutate a shared environment. Use explicit worktree cwd/source paths.",
+      "checkpoint_statuses": [
+        "implemented-focused",
+        "preparation-ready",
+        "tests-ready",
+        "blocked-on-input",
+        "needs-coordinator"
+      ],
+      "report_required_fields": [
+        "status",
+        "commit",
+        "changed_files",
+        "contract_revision",
+        "fixture_manifest_sha256",
+        "acceptance_cases",
+        "verification_commands_results",
+        "proof_kind",
+        "unresolved_findings",
+        "next_dependency"
+      ],
+      "coordination": "Deliver additive DDL/shape helpers; coordinator owns schema11/session6 registration and shared EngineTaskSet composition. Engine gate includes those integrated registrations."
     },
     "A": {
       "requires_verified": [
@@ -98,7 +128,6 @@
       ],
       "exclusive_write_scope": [
         "packages/app/src/open_brain/services/facets.py",
-        "packages/app/tests/facet_fake.py",
         "packages/app/tests/unit/test_facets_adapters.py",
         "packages/app/tests/integration/services/test_facets_cli_mcp.py"
       ],
@@ -111,15 +140,46 @@
         "handoff with contract revision and fixture manifest hash"
       ],
       "focused_verification": [
-        "uv run --frozen pytest -q packages/app/tests/unit/test_facets_adapters.py packages/app/tests/integration/services/test_facets_cli_mcp.py",
-        "uv run --frozen ruff check .",
-        "uv run --frozen mypy"
+        "/Users/calebbolden/Projects/oss/open-brain-public/.venv/bin/python -m pytest -q packages/app/tests/unit/test_facets_adapters.py packages/app/tests/integration/services/test_facets_cli_mcp.py",
+        "/Users/calebbolden/Projects/oss/open-brain-public/.venv/bin/ruff check .",
+        "/Users/calebbolden/Projects/oss/open-brain-public/.venv/bin/mypy"
       ],
       "completion_gate": "real-producer acceptance plus coordinator repository checks; fake results alone do not complete task",
       "final_integration_requires": [
         "E",
         "P"
-      ]
+      ],
+      "initial_worktree": "/Users/calebbolden/Projects/oss/open-brain-facets-stage-one-a",
+      "initial_branch": "feat/facets-stage-one-a",
+      "initial_input_pin": {
+        "commit": "4a29944b4fead146c6f9bf5c535d0a1595799870",
+        "contract_revision": "facets-c0-v1",
+        "fixture_manifest_sha256": "eceaa89f146eeb133f780916fb006da211e5ab479ea8231b63c705f3bde000ca"
+      },
+      "start_requires_verified": [
+        "C0"
+      ],
+      "required_environment": "Read shared main .venv binaries; do not run uv sync or mutate a shared environment. Use explicit worktree cwd/source paths.",
+      "checkpoint_statuses": [
+        "implemented-focused",
+        "preparation-ready",
+        "tests-ready",
+        "blocked-on-input",
+        "needs-coordinator"
+      ],
+      "report_required_fields": [
+        "status",
+        "commit",
+        "changed_files",
+        "contract_revision",
+        "fixture_manifest_sha256",
+        "acceptance_cases",
+        "verification_commands_results",
+        "proof_kind",
+        "unresolved_findings",
+        "next_dependency"
+      ],
+      "preparation_completion": "Adapter tests against explicit fake pass; real-handler authority and publication proofs pending."
     },
     "T": {
       "requires_verified": [
@@ -170,9 +230,9 @@
         "handoff with contract revision and fixture manifest hash"
       ],
       "focused_verification": [
-        "uv run --frozen pytest -q packages/engine/tests/contract/test_facets_acceptance.py packages/engine/tests/integration/test_facets_faults.py packages/app/tests/integration/services/test_facets_end_to_end.py",
-        "uv run --frozen ruff check .",
-        "uv run --frozen mypy"
+        "/Users/calebbolden/Projects/oss/open-brain-public/.venv/bin/python -m pytest -q packages/engine/tests/contract/test_facets_acceptance.py packages/engine/tests/integration/test_facets_faults.py packages/app/tests/integration/services/test_facets_end_to_end.py",
+        "/Users/calebbolden/Projects/oss/open-brain-public/.venv/bin/ruff check .",
+        "/Users/calebbolden/Projects/oss/open-brain-public/.venv/bin/mypy"
       ],
       "completion_gate": "real-producer acceptance plus coordinator repository checks; fake results alone do not complete task",
       "final_integration_requires": [
@@ -181,7 +241,38 @@
         "P",
         "X",
         "V"
-      ]
+      ],
+      "initial_worktree": "/Users/calebbolden/Projects/oss/open-brain-facets-stage-one-t",
+      "initial_branch": "feat/facets-stage-one-t",
+      "initial_input_pin": {
+        "commit": "4a29944b4fead146c6f9bf5c535d0a1595799870",
+        "contract_revision": "facets-c0-v1",
+        "fixture_manifest_sha256": "eceaa89f146eeb133f780916fb006da211e5ab479ea8231b63c705f3bde000ca"
+      },
+      "start_requires_verified": [
+        "C0"
+      ],
+      "required_environment": "Read shared main .venv binaries; do not run uv sync or mutate a shared environment. Use explicit worktree cwd/source paths.",
+      "checkpoint_statuses": [
+        "implemented-focused",
+        "preparation-ready",
+        "tests-ready",
+        "blocked-on-input",
+        "needs-coordinator"
+      ],
+      "report_required_fields": [
+        "status",
+        "commit",
+        "changed_files",
+        "contract_revision",
+        "fixture_manifest_sha256",
+        "acceptance_cases",
+        "verification_commands_results",
+        "proof_kind",
+        "unresolved_findings",
+        "next_dependency"
+      ],
+      "preparation_completion": "Independent acceptance/fault tests authored; missing producer cases remain tests-ready, not passed or skipped to fake completion."
     },
     "P": {
       "requires_verified": [
@@ -219,11 +310,45 @@
         "handoff with contract revision and fixture manifest hash"
       ],
       "focused_verification": [
-        "uv run --frozen pytest -q packages/engine/tests/integration/test_facet_publication.py",
-        "uv run --frozen ruff check .",
-        "uv run --frozen mypy"
+        "/Users/calebbolden/Projects/oss/open-brain-public/.venv/bin/python -m pytest -q packages/engine/tests/integration/test_facet_publication.py",
+        "/Users/calebbolden/Projects/oss/open-brain-public/.venv/bin/ruff check .",
+        "/Users/calebbolden/Projects/oss/open-brain-public/.venv/bin/mypy"
       ],
-      "completion_gate": "real-producer acceptance plus coordinator repository checks; fake results alone do not complete task"
+      "completion_gate": "real-producer acceptance plus coordinator repository checks; fake results alone do not complete task",
+      "initial_worktree": "/Users/calebbolden/Projects/oss/open-brain-facets-stage-one-p",
+      "initial_branch": "feat/facets-stage-one-p",
+      "initial_input_pin": {
+        "commit": "4a29944b4fead146c6f9bf5c535d0a1595799870",
+        "contract_revision": "facets-c0-v1",
+        "fixture_manifest_sha256": "eceaa89f146eeb133f780916fb006da211e5ab479ea8231b63c705f3bde000ca"
+      },
+      "start_requires_verified": [
+        "C0"
+      ],
+      "required_environment": "Read shared main .venv binaries; do not run uv sync or mutate a shared environment. Use explicit worktree cwd/source paths.",
+      "checkpoint_statuses": [
+        "implemented-focused",
+        "preparation-ready",
+        "tests-ready",
+        "blocked-on-input",
+        "needs-coordinator"
+      ],
+      "report_required_fields": [
+        "status",
+        "commit",
+        "changed_files",
+        "contract_revision",
+        "fixture_manifest_sha256",
+        "acceptance_cases",
+        "verification_commands_results",
+        "proof_kind",
+        "unresolved_findings",
+        "next_dependency"
+      ],
+      "preparation_completion": "Pure binding/codec/rendering/reconciliation logic and focused fixture tests pass; final real-engine integration pending.",
+      "integration_requires_verified": [
+        "E"
+      ]
     },
     "X": {
       "requires_verified": [
@@ -257,14 +382,48 @@
         "handoff with contract revision and fixture manifest hash"
       ],
       "focused_verification": [
-        "uv run --frozen pytest -q packages/engine/tests/contract/test_portable_brain_v6.py",
-        "uv run --frozen ruff check .",
-        "uv run --frozen mypy"
+        "/Users/calebbolden/Projects/oss/open-brain-public/.venv/bin/python -m pytest -q packages/engine/tests/contract/test_portable_brain_v6.py",
+        "/Users/calebbolden/Projects/oss/open-brain-public/.venv/bin/ruff check .",
+        "/Users/calebbolden/Projects/oss/open-brain-public/.venv/bin/mypy"
       ],
       "completion_gate": "real-producer acceptance plus coordinator repository checks; fake results alone do not complete task",
       "final_integration_requires": [
         "P pending proposal evidence",
         "V managed export evidence"
+      ],
+      "initial_worktree": "/Users/calebbolden/Projects/oss/open-brain-facets-stage-one-x",
+      "initial_branch": "feat/facets-stage-one-x",
+      "initial_input_pin": {
+        "commit": "4a29944b4fead146c6f9bf5c535d0a1595799870",
+        "contract_revision": "facets-c0-v1",
+        "fixture_manifest_sha256": "eceaa89f146eeb133f780916fb006da211e5ab479ea8231b63c705f3bde000ca"
+      },
+      "start_requires_verified": [
+        "C0"
+      ],
+      "required_environment": "Read shared main .venv binaries; do not run uv sync or mutate a shared environment. Use explicit worktree cwd/source paths.",
+      "checkpoint_statuses": [
+        "implemented-focused",
+        "preparation-ready",
+        "tests-ready",
+        "blocked-on-input",
+        "needs-coordinator"
+      ],
+      "report_required_fields": [
+        "status",
+        "commit",
+        "changed_files",
+        "contract_revision",
+        "fixture_manifest_sha256",
+        "acceptance_cases",
+        "verification_commands_results",
+        "proof_kind",
+        "unresolved_findings",
+        "next_dependency"
+      ],
+      "preparation_completion": "Pure binding/codec/rendering/reconciliation logic and focused fixture tests pass; final real-engine integration pending.",
+      "integration_requires_verified": [
+        "E"
       ]
     },
     "V": {
@@ -284,6 +443,7 @@
       ],
       "exclusive_write_scope": [
         "packages/engine/src/open_brain_engine/engine/facet_vault.py",
+        "packages/engine/src/open_brain_engine/engine/facet_vault_schema.py",
         "packages/engine/src/open_brain_engine/engine/managed_workspace.py",
         "packages/engine/src/open_brain_engine/engine/managed_portability.py",
         "packages/engine/tests/integration/test_facet_vault.py"
@@ -298,11 +458,45 @@
         "handoff with contract revision and fixture manifest hash"
       ],
       "focused_verification": [
-        "uv run --frozen pytest -q packages/engine/tests/integration/test_facet_vault.py",
-        "uv run --frozen ruff check .",
-        "uv run --frozen mypy"
+        "/Users/calebbolden/Projects/oss/open-brain-public/.venv/bin/python -m pytest -q packages/engine/tests/integration/test_facet_vault.py",
+        "/Users/calebbolden/Projects/oss/open-brain-public/.venv/bin/ruff check .",
+        "/Users/calebbolden/Projects/oss/open-brain-public/.venv/bin/mypy"
       ],
-      "completion_gate": "real-producer acceptance plus coordinator repository checks; fake results alone do not complete task"
+      "completion_gate": "real-producer acceptance plus coordinator repository checks; fake results alone do not complete task",
+      "initial_worktree": "/Users/calebbolden/Projects/oss/open-brain-facets-stage-one-v",
+      "initial_branch": "feat/facets-stage-one-v",
+      "initial_input_pin": {
+        "commit": "4a29944b4fead146c6f9bf5c535d0a1595799870",
+        "contract_revision": "facets-c0-v1",
+        "fixture_manifest_sha256": "eceaa89f146eeb133f780916fb006da211e5ab479ea8231b63c705f3bde000ca"
+      },
+      "start_requires_verified": [
+        "C0"
+      ],
+      "required_environment": "Read shared main .venv binaries; do not run uv sync or mutate a shared environment. Use explicit worktree cwd/source paths.",
+      "checkpoint_statuses": [
+        "implemented-focused",
+        "preparation-ready",
+        "tests-ready",
+        "blocked-on-input",
+        "needs-coordinator"
+      ],
+      "report_required_fields": [
+        "status",
+        "commit",
+        "changed_files",
+        "contract_revision",
+        "fixture_manifest_sha256",
+        "acceptance_cases",
+        "verification_commands_results",
+        "proof_kind",
+        "unresolved_findings",
+        "next_dependency"
+      ],
+      "preparation_completion": "Pure binding/codec/rendering/reconciliation logic and focused fixture tests pass; final real-engine integration pending.",
+      "integration_requires_verified": [
+        "E"
+      ]
     },
     "I": {
       "requires_verified": [
@@ -330,7 +524,12 @@
         "packages/app/src/open_brain/services/local_entrypoints.py",
         "packages/app/src/open_brain/services/local_mcp.py",
         "packages/app/src/open_brain/services/review_publication.py",
-        "packages/app/src/open_brain/services/agent_setup.py"
+        "packages/app/src/open_brain/services/agent_setup.py",
+        "packages/engine/src/open_brain_engine/engine/local_schema.py",
+        "packages/engine/src/open_brain_engine/engine/local_schema_catalog.py",
+        "packages/app/src/open_brain/services/local_runtime_session.py",
+        "packages/app/src/open_brain/services/plugin_bridge.py",
+        "packages/app/src/open_brain/services/t03_adapters.py"
       ],
       "acceptance_cases": [
         "F01",
@@ -420,5 +619,52 @@
         "applicable native/package/release acceptance on exact candidate"
       ]
     }
-  }
+  },
+  "c0_pin": {
+    "commit": "4a29944b4fead146c6f9bf5c535d0a1595799870",
+    "contract_revision": "facets-c0-v1",
+    "fixture_manifest_sha256": "eceaa89f146eeb133f780916fb006da211e5ab479ea8231b63c705f3bde000ca"
+  },
+  "execution": {
+    "max_concurrent_workers": 6,
+    "coordinators": 1,
+    "total_dispatch_limit": 12,
+    "authorization": "Owner instruction 2026-10-13 increases cap from3 to6; extra sessions/worktrees authorized within existing permissions; no push/publish/deploy or sandbox bypass.",
+    "initial_tasks": [
+      "E",
+      "A",
+      "T",
+      "P",
+      "X",
+      "V"
+    ],
+    "native_tasks": [
+      "E",
+      "X",
+      "T"
+    ],
+    "terminal_tasks": [
+      "A",
+      "P",
+      "V"
+    ],
+    "native_model": "gpt-6.1-sol",
+    "terminal_model": "gpt-6-sol",
+    "checkpoint_minutes": 45,
+    "session_reuse": "Resume original worker sessions for dependency integration; record each stage and exact new inputs.",
+    "integration": "Continuously integrate verified scoped commits; invalidate affected gates when shared inputs change; full checks on integrated candidates.",
+    "proof_boundary": "Fake or fixture preparation never proves real persistence, authority, publication recovery or restore."
+  },
+  "coordinator_owned_contracts": [
+    "packages/engine/src/open_brain_engine/engine/facet_contracts.py",
+    "packages/engine/src/open_brain_engine/engine/facet_validation.py",
+    "packages/engine/src/open_brain_engine/engine/facet_schema.json",
+    "packages/engine/src/open_brain_engine/engine/facet_evidence.py",
+    "packages/engine/src/open_brain_engine/engine/facet_evidence_schema.json",
+    "packages/engine/tests/fixtures/facets/**",
+    "packages/app/tests/facet_fake.py",
+    "docs/design/facet-task-manifest.json",
+    "docs/design/owner-defined-facets-stage-one.md",
+    "docs/ai/workstreams/**"
+  ]
 }
