@@ -16,13 +16,13 @@ from typing import TYPE_CHECKING, Any, cast
 
 import pytest
 from open_brain_engine.core.ids import portable_canonical_json_bytes as canonical
-from open_brain_engine.engine.portable_v6_evidence import (
+from open_brain_engine.engine.portable_v10_evidence import (
     FACET_TABLES,
-    serialize_portable_v6_facets,
-    verify_portable_v6_facets,
+    serialize_portable_v10_facets,
+    verify_portable_v10_facets,
 )
-from open_brain_engine.engine.portable_v6_restore import install_portable_v6_facets
-from open_brain_engine.portable.facets_v6 import (
+from open_brain_engine.engine.portable_v10_restore import install_portable_v10_facets
+from open_brain_engine.portable.facets_v10 import (
     FACET_EVENTS_PATH,
     FACET_OPERATIONS_PATH,
     FACET_SIDECAR_PATHS,
@@ -97,7 +97,7 @@ def _connection(path: Path | str = ":memory:") -> sqlite3.Connection:
     connection = sqlite3.connect(path)
     connection.executescript("""
     PRAGMA foreign_keys=ON;
-    PRAGMA user_version=11;
+    PRAGMA user_version=15;
     CREATE TABLE brain_identity(singleton INTEGER PRIMARY KEY,brain_id TEXT);
     CREATE TABLE logical_sources(source_id TEXT PRIMARY KEY);
     CREATE TABLE source_revisions(capture_id TEXT PRIMARY KEY,source_id TEXT);
@@ -205,10 +205,10 @@ def test_restore_commit_reopen_and_reexport_preserve_exact_facets(tmp_path: Path
     path = tmp_path / "synthetic.sqlite"
     connection = _connection(path)
     bundle = _bundle()
-    install_portable_v6_facets(connection, bundle=bundle, principal_actors=PRINCIPAL_ACTORS)
+    install_portable_v10_facets(connection, bundle=bundle, principal_actors=PRINCIPAL_ACTORS)
     assert connection.in_transaction
     assert (
-        serialize_portable_v6_facets(
+        serialize_portable_v10_facets(
             connection, brain_id=BRAIN_ID, principal_actors=PRINCIPAL_ACTORS
         ).sidecars
         == bundle.sidecars
@@ -217,12 +217,12 @@ def test_restore_commit_reopen_and_reexport_preserve_exact_facets(tmp_path: Path
         "SELECT membership_version FROM facet_assignments ORDER BY value_id"
     ).fetchall() == [(3,), (1,)]
     with pytest.raises(PortableValidationError, match="empty destination"):
-        install_portable_v6_facets(connection, bundle=bundle, principal_actors=PRINCIPAL_ACTORS)
+        install_portable_v10_facets(connection, bundle=bundle, principal_actors=PRINCIPAL_ACTORS)
     connection.commit()
     connection.close()
     with sqlite3.connect(path) as reopened:
         reopened.execute("BEGIN")
-        actual = verify_portable_v6_facets(
+        actual = verify_portable_v10_facets(
             reopened, bundle=bundle, principal_actors=PRINCIPAL_ACTORS
         )
         assert actual.evidence_sha256 == bundle.evidence_sha256
@@ -236,7 +236,7 @@ def test_restore_fault_rolls_back_only_its_savepoint() -> None:
         "BEGIN SELECT RAISE(ABORT,'synthetic late fault'); END"
     )
     with pytest.raises(sqlite3.IntegrityError, match="synthetic late fault"):
-        install_portable_v6_facets(connection, bundle=_bundle(), principal_actors=PRINCIPAL_ACTORS)
+        install_portable_v10_facets(connection, bundle=_bundle(), principal_actors=PRINCIPAL_ACTORS)
     assert connection.in_transaction
     assert all(
         connection.execute(f"SELECT count(*) FROM {table}").fetchone()[0] == 0
@@ -244,7 +244,7 @@ def test_restore_fault_rolls_back_only_its_savepoint() -> None:
     )
     assert connection.execute("SELECT count(*) FROM logical_sources").fetchone()[0] == 1
     connection.execute("DROP TRIGGER fixture_fault")
-    install_portable_v6_facets(connection, bundle=_bundle(), principal_actors=PRINCIPAL_ACTORS)
+    install_portable_v10_facets(connection, bundle=_bundle(), principal_actors=PRINCIPAL_ACTORS)
 
 
 @pytest.mark.parametrize("mutation", ["transaction", "schema", "brain", "commitment"])
@@ -260,14 +260,14 @@ def test_destination_boundary_and_constructed_bundle_are_revalidated(mutation: s
     else:
         bundle = replace(bundle, state_sha256="0" * 64)
     with pytest.raises(PortableValidationError):
-        install_portable_v6_facets(connection, bundle=bundle, principal_actors=PRINCIPAL_ACTORS)
+        install_portable_v10_facets(connection, bundle=bundle, principal_actors=PRINCIPAL_ACTORS)
 
 
 @pytest.mark.parametrize("mutation", ["name_key", "event_columns", "receipt", "projection"])
 def test_export_detects_store_drift(mutation: str) -> None:
     connection = _connection()
     bundle = _bundle()
-    install_portable_v6_facets(connection, bundle=bundle, principal_actors=PRINCIPAL_ACTORS)
+    install_portable_v10_facets(connection, bundle=bundle, principal_actors=PRINCIPAL_ACTORS)
     sql = {
         "name_key": "UPDATE facet_dimensions SET name_key='drift'",
         "event_columns": "UPDATE facet_events SET kind='query.archive' WHERE sequence=1",
@@ -276,7 +276,7 @@ def test_export_detects_store_drift(mutation: str) -> None:
     }
     connection.execute(sql[mutation])
     with pytest.raises(PortableValidationError):
-        serialize_portable_v6_facets(
+        serialize_portable_v10_facets(
             connection, brain_id=BRAIN_ID, principal_actors=PRINCIPAL_ACTORS
         )
 
@@ -398,69 +398,70 @@ def test_pending_binding_preserves_cross_space_routes_and_independent_destinatio
 
 
 def _empty_facet_archive() -> dict[str, bytes]:
-    from open_brain_engine.portable.v5 import ISSUER_MIGRATION_PATH
+    from tempfile import TemporaryDirectory
 
-    from packages.engine.tests.contract.test_portable_brain_v5 import _fixture
+    from open_brain_engine.engine.contracts import TextPayload
+    from open_brain_engine.engine.local import BrainEngine
+    from open_brain_engine.portable.versioned import validated_portable_snapshot
 
-    files = _fixture()
-    brain_id = json.loads(files[ISSUER_MIGRATION_PATH])["brain_id"]
-    files[FACET_EVENTS_PATH] = canonical({"schema_version": 1, "brain_id": brain_id, "events": []})
-    files[FACET_OPERATIONS_PATH] = canonical(
-        {"schema_version": 1, "brain_id": brain_id, "operations": []}
-    )
-    files[FACET_STATE_PATH] = canonical(
-        {
-            "schema_version": 1,
-            "brain_id": brain_id,
-            "dimensions": [],
-            "values": [],
-            "subjects": [],
-            "assignments": [],
-            "queries": [],
-            "page_queries": [],
+    from open_brain.profile import compile_single_user_local
+
+    # Cut all inherited evidence from a real schema15 Brain. Portable10 requires
+    # source/sharing/history/custody sidecars, including their explicit empty states.
+    with TemporaryDirectory() as temporary:
+        root = Path(temporary)
+        engine = BrainEngine.open(compile_single_user_local(root / "brain"))
+        engine.capture.accept(TextPayload("Synthetic inherited evidence"), delivery_id="x-empty")
+        archive = root / "archive"
+        engine.portability.export(archive, export_id="export_00000000-0000-4000-8000-000000000001")
+        return {
+            path: raw
+            for path, raw in validated_portable_snapshot(archive).files.items()
+            if path != "portable-manifest.json"
         }
-    )
-    return files
 
 
-def _write_v6(root: Path, files: dict[str, bytes]) -> None:
-    from open_brain_engine.portable.v6 import manifest_v6
+def _write_v10(root: Path, files: dict[str, bytes]) -> None:
+    from open_brain_engine.portable.v5 import ISSUER_MIGRATION_PATH
+    from open_brain_engine.portable.v10 import manifest_v10
 
-    from packages.engine.tests.contract.test_portable_brain_v5 import EXPORT, NOW, TENANT
+    from packages.engine.tests.contract.test_portable_brain_v5 import EXPORT, NOW
+
+    tenant_id = json.loads(files[ISSUER_MIGRATION_PATH])["tenant_id"]
 
     for path, payload in files.items():
         target = root / path
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_bytes(payload)
     (root / "portable-manifest.json").write_bytes(
-        canonical(manifest_v6(files, tenant_id=TENANT, export_id=EXPORT, created_at=NOW))
+        canonical(manifest_v10(files, tenant_id=tenant_id, export_id=EXPORT, created_at=NOW))
     )
 
 
-def test_v6_snapshot_validates_inherited_lossless_evidence_and_pins_bytes(tmp_path: Path) -> None:
-    from open_brain_engine.engine.portable_v6_restore import V6RestoreBundle
-    from open_brain_engine.portable.v6 import validated_portable_snapshot_v6
+def test_v10_snapshot_validates_inherited_lossless_evidence_and_pins_bytes(tmp_path: Path) -> None:
+    from open_brain_engine.engine.portable_v10_restore import V10RestoreBundle
+    from open_brain_engine.portable.v10 import validated_portable_snapshot_v10
 
     files = _empty_facet_archive()
-    _write_v6(tmp_path, files)
-    snapshot = validated_portable_snapshot_v6(tmp_path)
-    assert snapshot.manifest["schema_version"] == 6
-    bundle = V6RestoreBundle.decode(snapshot, checkpoint=lambda _stage: None)
+    _write_v10(tmp_path, files)
+    snapshot = validated_portable_snapshot_v10(tmp_path)
+    assert snapshot.manifest["schema_version"] == 10
+    bundle = V10RestoreBundle.decode(snapshot, checkpoint=lambda _stage: None)
     assert bundle.snapshot is snapshot
     assert bundle.facets.next_sequence == 1
     assert all(snapshot.files[path] == files[path] for path in files)
     (tmp_path / FACET_STATE_PATH).write_bytes(b"{}")
-    assert V6RestoreBundle.decode(snapshot, checkpoint=lambda _stage: None).facets == bundle.facets
+    assert V10RestoreBundle.decode(snapshot, checkpoint=lambda _stage: None).facets == bundle.facets
     with pytest.raises(PortableValidationError):
-        validated_portable_snapshot_v6(tmp_path)
+        validated_portable_snapshot_v10(tmp_path)
 
 
 @pytest.mark.parametrize("mutation", ["missing", "privacy", "catalog", "newer", "duplicate"])
-def test_full_v6_snapshot_refuses_inherited_and_manifest_drift(
+def test_full_v10_snapshot_refuses_inherited_and_manifest_drift(
     tmp_path: Path, mutation: str
 ) -> None:
     from open_brain_engine.portable.v5 import EFFECTIVE_PRIVACY_PATH
-    from open_brain_engine.portable.v6 import validated_portable_snapshot_v6
+    from open_brain_engine.portable.v10 import validated_portable_snapshot_v10
 
     files = _empty_facet_archive()
     if mutation == "missing":
@@ -469,7 +470,7 @@ def test_full_v6_snapshot_refuses_inherited_and_manifest_drift(
         privacy = json.loads(files[EFFECTIVE_PRIVACY_PATH])
         privacy["resolved_search"][0]["effective_privacy"]["authority"]["cloud"] = True
         files[EFFECTIVE_PRIVACY_PATH] = canonical(privacy)
-    _write_v6(tmp_path, files)
+    _write_v10(tmp_path, files)
     manifest_path = tmp_path / "portable-manifest.json"
     manifest = json.loads(manifest_path.read_bytes())
     if mutation == "catalog":
@@ -480,25 +481,25 @@ def test_full_v6_snapshot_refuses_inherited_and_manifest_drift(
         manifest["files"].append(manifest["files"][0])
     manifest_path.write_bytes(canonical(manifest))
     with pytest.raises(PortableValidationError):
-        validated_portable_snapshot_v6(tmp_path)
+        validated_portable_snapshot_v10(tmp_path)
 
 
-def test_real_schema11_empty_facet_restore_reopens_and_preserves_inherited_bytes(
+def test_real_schema15_empty_facet_restore_reopens_and_preserves_inherited_bytes(
     tmp_path: Path,
 ) -> None:
     from open_brain_engine.engine.local import BrainEngine
     from open_brain_engine.engine.local_schema import open_local_database_read_only
-    from open_brain_engine.engine.portable_v6_restore import (
-        audit_restored_v6,
-        restore_portable_v6_root,
+    from open_brain_engine.engine.portable_v10_restore import (
+        audit_restored_v10,
+        restore_portable_v10_root,
     )
-    from open_brain_engine.portable.v6 import validated_portable_snapshot_v6
+    from open_brain_engine.portable.v10 import validated_portable_snapshot_v10
 
     files = _empty_facet_archive()
-    _write_v6(tmp_path, files)
-    snapshot = validated_portable_snapshot_v6(tmp_path)
+    _write_v10(tmp_path, files)
+    snapshot = validated_portable_snapshot_v10(tmp_path)
     stages: list[str] = []
-    materialized = restore_portable_v6_root(
+    materialized = restore_portable_v10_root(
         tmp_path,
         snapshot=snapshot,
         expected_root_identity=snapshot.root_identity,
@@ -507,10 +508,10 @@ def test_real_schema11_empty_facet_restore_reopens_and_preserves_inherited_bytes
     assert "facets_restored" in stages and "facet_semantics_reopened" in stages
     engine = BrainEngine.open(materialized.profile)
     assert engine.profile.tenant_id == snapshot.manifest["tenant_id"]
-    bundle = audit_restored_v6(materialized.profile, snapshot=snapshot)
+    bundle = audit_restored_v10(materialized.profile, snapshot=snapshot)
     assert bundle.next_sequence == 1
     with open_local_database_read_only(materialized.profile) as connection:
-        assert connection.execute("PRAGMA user_version").fetchone()[0] == 11
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 15
         assert all(
             connection.execute(f"SELECT count(*) FROM {table}").fetchone()[0] == 0
             for table in FACET_TABLES
@@ -529,60 +530,60 @@ def test_opaque_principals_use_explicit_owner_actor_mapping() -> None:
         references=_references(principal_actors={"open-brain-mcp-local": owner_actor_id}),
     )
     connection = _connection()
-    install_portable_v6_facets(connection, bundle=bundle, owner_actor_id=owner_actor_id)
-    restored = verify_portable_v6_facets(connection, bundle=bundle, owner_actor_id=owner_actor_id)
+    install_portable_v10_facets(connection, bundle=bundle, owner_actor_id=owner_actor_id)
+    restored = verify_portable_v10_facets(connection, bundle=bundle, owner_actor_id=owner_actor_id)
     assert restored.sidecars == bundle.sidecars
     assert connection.execute("SELECT DISTINCT principal_id FROM facet_operations").fetchall() == [
         ("open-brain-mcp-local",)
     ]
     with pytest.raises(PortableValidationError, match="actor binding"):
-        serialize_portable_v6_facets(
+        serialize_portable_v10_facets(
             connection,
             brain_id=BRAIN_ID,
             owner_actor_id="actor_00000000-0000-4000-8000-000000000099",
         )
 
 
-def test_legacy_v5_restore_keeps_empty_facets_and_is_not_reinterpreted_as_v6(
+def test_legacy_v5_restore_keeps_empty_facets_and_is_not_reinterpreted_as_v10(
     tmp_path: Path,
 ) -> None:
     from open_brain_engine.engine.local_schema import open_local_database_read_only
     from open_brain_engine.engine.portable_v5_restore import restore_portable_v5_root
-    from open_brain_engine.engine.portable_v6_restore import V6RestoreBundle
+    from open_brain_engine.engine.portable_v10_restore import V10RestoreBundle
     from open_brain_engine.portable.v5 import validated_portable_snapshot_v5
 
     from packages.engine.tests.contract.test_portable_brain_v5 import _fixture, _write
 
     _write(tmp_path, _fixture())
     snapshot = validated_portable_snapshot_v5(tmp_path)
-    with pytest.raises(PortableValidationError, match="validated v6 snapshot"):
-        V6RestoreBundle.decode(snapshot, checkpoint=lambda _stage: None)
+    with pytest.raises(PortableValidationError, match="validated v10 snapshot"):
+        V10RestoreBundle.decode(snapshot, checkpoint=lambda _stage: None)
     materialized = restore_portable_v5_root(
         tmp_path, snapshot=snapshot, expected_root_identity=snapshot.root_identity
     )
     with open_local_database_read_only(materialized.profile) as connection:
-        assert connection.execute("PRAGMA user_version").fetchone()[0] == 11
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 15
         assert all(
             connection.execute(f"SELECT count(*) FROM {table}").fetchone()[0] == 0
             for table in FACET_TABLES
         )
 
 
-def test_full_v6_restore_fault_preserves_transaction_boundary(tmp_path: Path) -> None:
+def test_full_v10_restore_fault_preserves_transaction_boundary(tmp_path: Path) -> None:
     from open_brain_engine.engine.local_schema import open_local_database_read_only
     from open_brain_engine.engine.materializer import _profile
-    from open_brain_engine.engine.portable_v6_restore import restore_portable_v6_root
-    from open_brain_engine.portable.v6 import validated_portable_snapshot_v6
+    from open_brain_engine.engine.portable_v10_restore import restore_portable_v10_root
+    from open_brain_engine.portable.v10 import validated_portable_snapshot_v10
 
-    _write_v6(tmp_path, _empty_facet_archive())
-    snapshot = validated_portable_snapshot_v6(tmp_path)
+    _write_v10(tmp_path, _empty_facet_archive())
+    snapshot = validated_portable_snapshot_v10(tmp_path)
 
     def fail(stage: str) -> None:
         if stage == "facets_restored":
             raise RuntimeError("synthetic whole-restore fault")
 
     with pytest.raises(RuntimeError, match="whole-restore fault"):
-        restore_portable_v6_root(
+        restore_portable_v10_root(
             tmp_path,
             snapshot=snapshot,
             expected_root_identity=snapshot.root_identity,
@@ -600,7 +601,7 @@ def test_full_v6_restore_fault_preserves_transaction_boundary(tmp_path: Path) ->
     "modules",
     [
         ["open_brain_engine.portable.versioned", "open_brain_engine.engine.local"],
-        ["open_brain_engine.portable.v6", "open_brain_engine.engine.portability"],
+        ["open_brain_engine.portable.v10", "open_brain_engine.engine.portability"],
         ["open_brain_engine.engine.local", "open_brain_engine.portable.versioned"],
     ],
 )
@@ -745,7 +746,7 @@ def test_real_populated_facets_export_import_reopen_query_retry_and_reexport(
     exported = tmp_path / "portable"
     engine.portability.export(exported, export_id="export_00000000-0000-4000-8000-000000000091")
     before = validated_portable_snapshot(exported)
-    assert before.manifest["schema_version"] == 6
+    assert before.manifest["schema_version"] == 10
     operations = json.loads(before.files[FACET_OPERATIONS_PATH])["operations"]
     assert {row["principal_id"] for row in operations} == {authority.principal_id}
     events = json.loads(before.files[FACET_EVENTS_PATH])["events"]
@@ -763,7 +764,7 @@ def test_real_populated_facets_export_import_reopen_query_retry_and_reexport(
     assert [item["record"]["record_id"] for item in queried["items"]] == [capture.capture_id]
     assert call(restored, "facet.assignment.patch", **patch) == first_receipt
     ready = json.loads((restored_root / ".open-brain/state/portability-ready.json").read_bytes())
-    assert ready["schema_version"] == 3
+    assert ready["schema_version"] == 4
     assert ready["facets"]["next_sequence"] == max(event["sequence"] for event in events) + 1
     reexported = tmp_path / "reexported"
     restored.portability.export(reexported, export_id="export_00000000-0000-4000-8000-000000000093")
@@ -1060,8 +1061,8 @@ def test_real_export_impossible_noop_is_refused_after_request_and_manifest_rehas
     tmp_path: Path,
 ) -> None:
     from open_brain_engine.engine import facet_contracts as fc
-    from open_brain_engine.portable.facets_v6 import references_from_portable_files
-    from open_brain_engine.portable.v6 import manifest_v6, validated_portable_snapshot_v6
+    from open_brain_engine.portable.facets_v10 import references_from_portable_files
+    from open_brain_engine.portable.v10 import manifest_v10, validated_portable_snapshot_v10
 
     engine, owner, _query, value, captures, _destination = _real_publication_brain(tmp_path)
     noop_id = "x-impossible-noop"
@@ -1078,7 +1079,7 @@ def test_real_export_impossible_noop_is_refused_after_request_and_manifest_rehas
     assert receipt["event_id"] is None
     exported = tmp_path / "noop-original"
     engine.portability.export(exported, export_id="export_00000000-0000-4000-8000-000000000061")
-    original = validated_portable_snapshot_v6(exported)
+    original = validated_portable_snapshot_v10(exported)
     files = {
         path: data for path, data in original.files.items() if path != "portable-manifest.json"
     }
@@ -1102,7 +1103,7 @@ def test_real_export_impossible_noop_is_refused_after_request_and_manifest_rehas
         target = tampered / path
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_bytes(payload)
-    manifest = manifest_v6(
+    manifest = manifest_v10(
         files,
         tenant_id=cast(str, original.manifest["tenant_id"]),
         export_id=cast(str, original.manifest["export_id"]),
@@ -1511,7 +1512,7 @@ def test_real_facet_binding_routes_follow_proven_successors_and_preserve_frozen_
 def test_frozen_lineage_route_cutoff_is_independent_of_current_space(
     case: str, accepted: bool
 ) -> None:
-    from open_brain_engine.portable.facets_v6 import _facet_route_matches_frozen_state
+    from open_brain_engine.portable.facets_v10 import _facet_route_matches_frozen_state
 
     source = "source_00000000-0000-4000-8000-000000000001"
     foreign = "source_00000000-0000-4000-8000-000000000002"

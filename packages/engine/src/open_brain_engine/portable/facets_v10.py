@@ -1,4 +1,4 @@
-"""Portable v6 facet sidecar codecs; catalog registration is coordinator-owned.
+"""Portable v10 facet sidecar codecs; catalog registration is coordinator-owned.
 
 A decoded bundle contains the exact canonical bytes and a validated replay
 assertion. Base Portable lineage/provenance validation must precede this codec.
@@ -98,7 +98,7 @@ def references_from_portable_files(
             principal_actors,
         )
     except (KeyError, TypeError, ValueError) as error:
-        raise PortableValidationError("Portable v6 retained identity index is invalid") from error
+        raise PortableValidationError("Portable v10 retained identity index is invalid") from error
 
 
 def _canonical_record(payload: bytes, definition: str) -> dict[str, Any]:
@@ -253,14 +253,14 @@ def decode_portable_facets(
         validate_portable_facet_sidecars,
     )
 
-    _require(files.keys() >= FACET_SIDECAR_PATHS, "Portable v6 facet sidecar is missing")
+    _require(files.keys() >= FACET_SIDECAR_PATHS, "Portable v10 facet sidecar is missing")
     _require(
         not any(
             path.startswith(("history/facets/", "content/facets/"))
             and path not in FACET_SIDECAR_PATHS
             for path in files
         ),
-        "unknown Portable v6 facet evidence path",
+        "unknown Portable v10 facet evidence path",
     )
     definitions = {
         FACET_EVENTS_PATH: "events_sidecar",
@@ -275,12 +275,12 @@ def decode_portable_facets(
     )
     _require(
         all(doc["brain_id"] == brain_id for doc in docs.values()),
-        "Portable v6 facet Brain binding mismatch",
+        "Portable v10 facet Brain binding mismatch",
     )
     try:
         validate_portable_facet_sidecars(events, operations, state)
     except FacetEvidenceError as error:
-        raise PortableValidationError(f"Portable v6 facet replay failed: {error.code}") from error
+        raise PortableValidationError(f"Portable v10 facet replay failed: {error.code}") from error
     _references(events, operations, state, references)
     return PortableFacetBundle(
         brain_id,

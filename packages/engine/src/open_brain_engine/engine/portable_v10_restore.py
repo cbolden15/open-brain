@@ -1,4 +1,4 @@
-"""Install validated facet evidence into an empty hidden schema-11 stage.
+"""Install validated facet evidence into an empty hidden schema-15 stage.
 
 The caller owns writer fencing, stage lifetime, base evidence restoration,
 search regeneration, reopen verification and promotion. This installer uses a
@@ -17,7 +17,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, cast
 
 from open_brain_engine.core.ids import portable_canonical_json_bytes as canonical
-from open_brain_engine.portable.facets_v6 import (
+from open_brain_engine.portable.facets_v10 import (
     FACET_EVENTS_PATH,
     FACET_OPERATIONS_PATH,
     FACET_STATE_PATH,
@@ -30,18 +30,18 @@ from open_brain_engine.storage.filesystem import RootIdentity
 
 from .contracts import LocalEngineContext
 from .portable_v5_restore import V5RestoreBundle, ValidatedV5IssuerSeed, audit_restored_v5
-from .portable_v6_evidence import (
+from .portable_v10_evidence import (
     FACET_TABLES,
     facet_references_from_connection,
     require_facet_snapshot,
-    verify_portable_v6_facets,
+    verify_portable_v10_facets,
 )
 
 if TYPE_CHECKING:
     from .materializer import Materialization
 
 
-def install_portable_v6_facets(
+def install_portable_v10_facets(
     connection: sqlite3.Connection,
     *,
     bundle: PortableFacetBundle,
@@ -72,7 +72,7 @@ def install_portable_v6_facets(
     )
     if validated != bundle:
         raise PortableValidationError("facet restore bundle commitment is invalid")
-    connection.execute("SAVEPOINT portable_v6_facets")
+    connection.execute("SAVEPOINT portable_v10_facets")
     try:
         state = bundle.document(FACET_STATE_PATH)
         for row in state["dimensions"]:
@@ -177,17 +177,17 @@ def install_portable_v6_facets(
                     operation["event_id"],
                 ),
             )
-        verify_portable_v6_facets(connection, bundle=bundle, principal_actors=principal_actors)
-        connection.execute("RELEASE SAVEPOINT portable_v6_facets")
+        verify_portable_v10_facets(connection, bundle=bundle, principal_actors=principal_actors)
+        connection.execute("RELEASE SAVEPOINT portable_v10_facets")
     except BaseException:
-        connection.execute("ROLLBACK TO SAVEPOINT portable_v6_facets")
-        connection.execute("RELEASE SAVEPOINT portable_v6_facets")
+        connection.execute("ROLLBACK TO SAVEPOINT portable_v10_facets")
+        connection.execute("RELEASE SAVEPOINT portable_v10_facets")
         raise
 
 
 @dataclass(frozen=True, slots=True)
-class V6RestoreBundle(V5RestoreBundle):
-    """Actual v6 snapshot with the unchanged inherited lossless restore machinery."""
+class V10RestoreBundle(V5RestoreBundle):
+    """Actual v10 snapshot composing inherited evidence and facet ledger restoration."""
 
     facets: PortableFacetBundle
 
@@ -197,40 +197,40 @@ class V6RestoreBundle(V5RestoreBundle):
         snapshot: PortableSnapshot,
         *,
         checkpoint: Callable[[str], None],
-    ) -> V6RestoreBundle:
+    ) -> V10RestoreBundle:
         from open_brain_engine.portable.v5 import (
             EFFECTIVE_PRIVACY_PATH,
             ISSUER_MIGRATION_PATH,
             LEGACY_BINDINGS_PATH,
             decode_retained_privacy_value,
         )
-        from open_brain_engine.portable.v6 import validate_portable_file_set_v6
+        from open_brain_engine.portable.v10 import validate_portable_file_set_v10
 
         manifest = snapshot.manifest
         if (
             type(manifest.get("schema_version")) is not int
-            or manifest["schema_version"] != 6
-            or manifest.get("layout_version") != 6
-            or manifest.get("contract_version") != "6"
+            or manifest["schema_version"] != 10
+            or manifest.get("layout_version") != 10
+            or manifest.get("contract_version") != "10"
         ):
-            raise PortableValidationError("v6 restore requires a validated v6 snapshot")
+            raise PortableValidationError("v10 restore requires a validated v10 snapshot")
         from open_brain_engine.portable.v5 import _manifest
-        from open_brain_engine.portable.v6_catalog import PORTABLE_V6_SCHEMA_CATALOG_DIGEST
+        from open_brain_engine.portable.v10_catalog import PORTABLE_V10_SCHEMA_CATALOG_DIGEST
 
         payloads = {
             path: data for path, data in snapshot.files.items() if path != "portable-manifest.json"
         }
-        inventory = _manifest(manifest, version=6, catalog=PORTABLE_V6_SCHEMA_CATALOG_DIGEST)
+        inventory = _manifest(manifest, version=10, catalog=PORTABLE_V10_SCHEMA_CATALOG_DIGEST)
         if canonical(manifest) != snapshot.files.get("portable-manifest.json") or inventory != {
             path: sha256(data).hexdigest() for path, data in payloads.items()
         }:
-            raise PortableValidationError("v6 restore snapshot commitment mismatch")
-        validate_portable_file_set_v6(payloads, tenant_id=cast(str, manifest["tenant_id"]))
+            raise PortableValidationError("v10 restore snapshot commitment mismatch")
+        validate_portable_file_set_v10(payloads, tenant_id=cast(str, manifest["tenant_id"]))
         issuer = json.loads(snapshot.files[ISSUER_MIGRATION_PATH])
         for row in json.loads(snapshot.files[EFFECTIVE_PRIVACY_PATH])["retained_privacy"]:
             retained = decode_retained_privacy_value(row["privacy_json"])
             if type(retained) in (int, float):
-                raise PortableValidationError("v6 numeric retained privacy is not restorable")
+                raise PortableValidationError("v10 numeric retained privacy is not restorable")
         facets = decode_portable_facets(
             payloads,
             brain_id=issuer["brain_id"],
@@ -246,15 +246,15 @@ class V6RestoreBundle(V5RestoreBundle):
         )
 
     def install(self, connection: sqlite3.Connection, *, profile: LocalEngineContext) -> None:
-        # Preserve the real v6 snapshot; only the inherited evidence algorithm is reused.
+        # Preserve the real v10 snapshot; only the inherited evidence algorithm is reused.
         V5RestoreBundle.install(self, connection, profile=profile)
-        install_portable_v6_facets(
+        install_portable_v10_facets(
             connection,
             bundle=self.facets,
             owner_actor_id=profile.owner_actor_id,
         )
         self.checkpoint("facets_restored")
-        verify_portable_v6_facets(
+        verify_portable_v10_facets(
             connection,
             bundle=self.facets,
             owner_actor_id=profile.owner_actor_id,
@@ -262,7 +262,7 @@ class V6RestoreBundle(V5RestoreBundle):
         self.checkpoint("facet_semantics_verified")
 
 
-def audit_restored_v6(
+def audit_restored_v10(
     profile: LocalEngineContext,
     *,
     snapshot: PortableSnapshot,
@@ -270,13 +270,13 @@ def audit_restored_v6(
     """Audit inherited content/privacy and facets through fresh read connections."""
     from .local_schema import open_local_database_read_only
 
-    bundle = V6RestoreBundle.decode(snapshot, checkpoint=lambda _stage: None)
+    bundle = V10RestoreBundle.decode(snapshot, checkpoint=lambda _stage: None)
     audit_restored_v5(profile, snapshot=snapshot)
     connection = open_local_database_read_only(profile)
     try:
         if not connection.in_transaction:
             connection.execute("BEGIN")
-        return verify_portable_v6_facets(
+        return verify_portable_v10_facets(
             connection,
             bundle=bundle.facets,
             owner_actor_id=profile.owner_actor_id,
@@ -285,35 +285,45 @@ def audit_restored_v6(
         connection.close()
 
 
-def restore_portable_v6_root(
+def restore_portable_v10_root(
     root: Path,
     *,
     snapshot: PortableSnapshot,
     expected_root_identity: RootIdentity,
     checkpoint: Callable[[str], None] = lambda _stage: None,
 ) -> Materialization:
-    """Materialize a copied v6 archive into the caller's hidden current-schema stage.
+    """Materialize a copied v10 archive into the caller's hidden current-schema stage.
 
     The outer portability operation retains its writer fence and promotes only
     after this function returns, index rebuild and ready-record verification.
     """
     from .materializer import materialize_portable_root
 
-    bundle = V6RestoreBundle.decode(snapshot, checkpoint=checkpoint)
+    bundle = V10RestoreBundle.decode(snapshot, checkpoint=checkpoint)
     materialization = materialize_portable_root(
         root,
         snapshot=snapshot,
         expected_root_identity=expected_root_identity,
         _v5_restore=bundle,
     )
-    audit_restored_v6(materialization.profile, snapshot=snapshot)
+    from open_brain_engine.portable.v9 import validate_historical_authority
+
+    from .portable_v9_restore import restore_historical_authority
+
+    restore_historical_authority(
+        materialization,
+        authority=validate_historical_authority(snapshot.files),
+        checkpoint=checkpoint,
+    )
+    audit_restored_v10(materialization.profile, snapshot=snapshot)
+    checkpoint("historical_audited")
     checkpoint("facet_semantics_reopened")
     return materialization
 
 
 __all__ = [
-    "V6RestoreBundle",
-    "audit_restored_v6",
-    "install_portable_v6_facets",
-    "restore_portable_v6_root",
+    "V10RestoreBundle",
+    "audit_restored_v10",
+    "install_portable_v10_facets",
+    "restore_portable_v10_root",
 ]

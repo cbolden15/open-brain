@@ -1,18 +1,21 @@
-"""Facet evidence cut from one caller-owned schema-11 read transaction.
+"""Facet evidence cut from one caller-owned schema-15 read transaction.
 
-The export coordinator owns the canonical fence, ingress gate, base v5 evidence,
+The export coordinator owns the canonical fence, ingress gate, base v9 evidence,
 managed projection checks and manifest/catalog composition.
 """
 
 from __future__ import annotations
 
+import json
 import sqlite3
 import unicodedata
 from collections.abc import Mapping
+from hashlib import sha256
+from types import MappingProxyType
 from typing import Any
 
 from open_brain_engine.core.ids import portable_canonical_json_bytes as canonical
-from open_brain_engine.portable.facets_v6 import (
+from open_brain_engine.portable.facets_v10 import (
     FACET_EVENTS_PATH,
     FACET_OPERATIONS_PATH,
     FACET_STATE_PATH,
@@ -22,7 +25,9 @@ from open_brain_engine.portable.facets_v6 import (
 )
 from open_brain_engine.portable.v1 import PortableValidationError
 
+from .contracts import LocalEngineContext
 from .facet_validation import parse
+from .portable_v5_evidence import PortableV5StateEvidence
 
 FACET_TABLES = (
     "facet_dimensions",
@@ -38,12 +43,12 @@ FACET_TABLES = (
 
 def require_facet_snapshot(connection: sqlite3.Connection, *, brain_id: str) -> None:
     if not connection.in_transaction:
-        raise PortableValidationError("Portable v6 facets require an active transaction")
-    if connection.execute("PRAGMA user_version").fetchone()[0] != 11:
-        raise PortableValidationError("Portable v6 facets require schema 11")
+        raise PortableValidationError("Portable v10 facets require an active transaction")
+    if connection.execute("PRAGMA user_version").fetchone()[0] != 15:
+        raise PortableValidationError("Portable v10 facets require schema 15")
     row = connection.execute("SELECT brain_id FROM brain_identity WHERE singleton=1").fetchone()
     if row is None or row[0] != brain_id:
-        raise PortableValidationError("Portable v6 facets require the admitted Brain identity")
+        raise PortableValidationError("Portable v10 facets require the admitted Brain identity")
 
 
 def facet_references_from_connection(
@@ -115,7 +120,7 @@ def _canonical_stored(value: object, label: str) -> dict[str, Any]:
         raise PortableValidationError(f"facet {label} is not canonical") from error
 
 
-def serialize_portable_v6_facets(
+def serialize_portable_v10_facets(
     connection: sqlite3.Connection,
     *,
     brain_id: str,
@@ -223,7 +228,7 @@ def serialize_portable_v6_facets(
     return decode_portable_facets(files, brain_id=brain_id, references=references)
 
 
-def verify_portable_v6_facets(
+def verify_portable_v10_facets(
     connection: sqlite3.Connection,
     *,
     bundle: PortableFacetBundle,
@@ -231,14 +236,14 @@ def verify_portable_v6_facets(
     owner_actor_id: str | None = None,
 ) -> PortableFacetBundle:
     """Audit replay/projection/receipts after staged restore or reopen."""
-    actual = serialize_portable_v6_facets(
+    actual = serialize_portable_v10_facets(
         connection,
         brain_id=bundle.brain_id,
         principal_actors=principal_actors,
         owner_actor_id=owner_actor_id,
     )
     if actual.sidecars != bundle.sidecars:
-        raise PortableValidationError("Portable v6 facet restored evidence mismatch")
+        raise PortableValidationError("Portable v10 facet restored evidence mismatch")
     return actual
 
 
@@ -246,6 +251,43 @@ __all__ = [
     "FACET_TABLES",
     "facet_references_from_connection",
     "require_facet_snapshot",
-    "serialize_portable_v6_facets",
-    "verify_portable_v6_facets",
+    "serialize_portable_v10_facets",
+    "serialize_portable_v10_state",
+    "verify_portable_v10_facets",
 ]
+
+
+def serialize_portable_v10_state(
+    connection: sqlite3.Connection,
+    profile: LocalEngineContext,
+    *,
+    relationship_sidecar_present: bool,
+) -> PortableV5StateEvidence:
+    """Cut inherited historical/custody evidence and facets from one schema15 snapshot."""
+    from .portable_v9_authority import _serialize_historical_state
+
+    identity = connection.execute(
+        "SELECT brain_id FROM brain_identity WHERE singleton=1"
+    ).fetchone()
+    if identity is None:
+        raise PortableValidationError("Portable v10 requires the admitted Brain identity")
+    require_facet_snapshot(connection, brain_id=identity[0])
+    base = _serialize_historical_state(
+        connection,
+        profile,
+        relationship_sidecar_present=relationship_sidecar_present,
+        portable_version=9,
+        expected_schema=15,
+    )
+    facets = serialize_portable_v10_facets(
+        connection, brain_id=identity[0], owner_actor_id=profile.owner_actor_id
+    )
+    sidecars = dict(base.sidecars)
+    sidecars.update(facets.sidecars)
+    semantic = dict(base.semantic_state)
+    semantic["facets"] = {path: json.loads(raw) for path, raw in facets.sidecars.items()}
+    return PortableV5StateEvidence(
+        sidecars=MappingProxyType(sidecars),
+        semantic_state=MappingProxyType(semantic),
+        semantic_state_sha256=sha256(canonical(semantic)).hexdigest(),
+    )
