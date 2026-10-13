@@ -746,8 +746,12 @@
     "docs/ai/workstreams/**"
   ],
   "current_contract_pin": {
-    "commit": "1c14378dc4dc40026c3d2a592b85ae03a43521c1",
-    "contract_revision": "facets-c0-v3",
-    "fixture_manifest_sha256": "781a6b886baf6a904b974eb071ea30a36d2d8ff6d2f10f98fbd6da06de8653ba"
-  }
+    "commit": "ed74327f34ec2526fd36b1737e36b05bcd2cdc62",
+    "contract_revision": "facets-c0-v4",
+    "fixture_manifest_sha256": "95e85b535eeb4263a6e430970ecf1d49de8d0b72de7425e41be703897d93dbc5"
+  },
+  "invalidated_checks": [
+    "v3 semantic replay/restore checks; rerun all consumer focused gates and final combined gate against v4",
+    "schema11 checksum pending final V custody DDL; rerun migration/runtime admission and freeze catalog on final combined candidate"
+  ]
 }

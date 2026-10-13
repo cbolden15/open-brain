@@ -20,7 +20,8 @@ from open_brain_engine.engine import (
     ReviewProposal,
     ReviewTask,
 )
-from open_brain_engine.engine.t03_contracts import EffectiveAuthority
+from open_brain_engine.engine.facet_contracts import FacetError
+from open_brain_engine.engine.t03_contracts import EffectiveAuthority, T03Error
 
 DEFAULT_REVIEW_PAGE_LIMIT = 50
 MAX_REVIEW_PAGE_LIMIT = 100
@@ -333,6 +334,8 @@ def _page_result(
 
 
 def _public_error(error: ValueError) -> ReviewPublicationError:
+    if isinstance(error, (FacetError, T03Error)):
+        return ReviewPublicationError(error.code)
     code = {
         "conflicting delivery": "idempotency_conflict",
         "unknown proposal": "unknown_proposal",

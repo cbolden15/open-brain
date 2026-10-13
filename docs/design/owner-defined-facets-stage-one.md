@@ -692,7 +692,7 @@ barrier. Prefer tasks that shorten the engine-to-publication/Portable-to-integra
 
 The implementation is documented in [the C0 consumer guide](facet-contract-kit.md), with explicit
 file reservations and task inputs in [the task manifest](facet-task-manifest.json). The contract
-revision is `facets-c0-v3`; the manifest records the verified revision commit and fixture hash. C0 checks prove interface and synthetic evidence conformance; the
+revision is `facets-c0-v4`; the manifest records the verified revision commit and fixture hash. C0 checks prove interface and synthetic evidence conformance; the
 real-engine acceptance gates below remain pending.
 
 C0 turns this specification into importable protocols, strict parsers, and reusable synthetic
@@ -788,7 +788,7 @@ base commit, contract revision/hash, reserved files, checkpoints, output commits
 and unresolved findings. Use the workflow-governance limits across all workers and terminals:
 at most six active workers plus the coordinator and twelve total dispatch attempts unless a
 specific override is recorded. Initial workers were pinned to the verified C0 commit and `facets-c0-v1`.
-Current consumers use `facets-c0-v3` and the exact fixture-manifest hash in the task manifest. Later dependency updates identify a
+Current consumers use `facets-c0-v4` and the exact fixture-manifest hash in the task manifest. Later dependency updates identify a
 verified integration descendant and invalidate affected checks. A worker's unsupported
 success assertion is not completion evidence. Verify commits and reports before consuming them.
 

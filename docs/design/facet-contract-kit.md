@@ -82,3 +82,10 @@ integrated F17–F22 evidence and independent review.
 Contract revision `facets-c0-v2` admits retained canonical revision UUIDs, including the UUIDv5 IDs produced by historical Portable restore. New facet IDs remain UUIDv4. This correction invalidates evidence-schema and fixture-manifest checks from revision v1; consumers must rerun them on the new pin.
 
 Revision `facets-c0-v3` also requires a new publication to select every provenance capture. Only updates may inherit prior provenance. The cross-space create fixtures now select both sources; dependent binding checks must rerun.
+
+C0 revision `facets-c0-v4` rejects no-op receipts unless their complete requested effect and
+expected version match one reachable historical event boundary. The original receipt remains
+valid after later changes. Positive no-op cases include removal from unclassified subjects and
+existing archived memberships; impossible versions and membership effects are negative fixtures.
+Verified revision commit: `ed74327f34ec2526fd36b1737e36b05bcd2cdc62`. Fixture-manifest SHA-256:
+`95e85b535eeb4263a6e430970ecf1d49de8d0b72de7425e41be703897d93dbc5`.
