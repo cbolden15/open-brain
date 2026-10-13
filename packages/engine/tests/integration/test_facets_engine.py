@@ -8,7 +8,7 @@ cases use the real admitted store unchanged on the integrated schema-11 tree.
 from __future__ import annotations
 
 import sqlite3
-from collections.abc import Iterator
+from collections.abc import Iterator, Mapping
 from contextlib import contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
@@ -712,26 +712,38 @@ def test_unicode_history_pages_fit_ascii_adapter_and_preserve_complete_events(br
                 "name": str(version) + name,
             },
         )
-    adapter = FacetAppAdapter(facets=brain.tasks, authority=brain.owner)
+
+    def encoded_size(value: Mapping[str, object]) -> int:
+        return encoded_tool_response_size("unicode-history", value)
+
+    scoped = brain.tasks.with_page_admission(fc.MAX_LIST_RESPONSE_BYTES, encoded_size)
+    assert scoped is not brain.tasks
+    adapter = FacetAppAdapter(facets=scoped, authority=brain.owner)
     arguments: dict[str, Any] = {
         "dto_version": 1,
         "subject": {"kind": "dimension", "id": dimension},
         "limit": 100,
     }
+    direct = brain.call("facet.history.list", arguments)
+    assert encoded_size(direct) > fc.MAX_LIST_RESPONSE_BYTES
     pages: list[dict[str, Any]] = []
     while True:
         page = adapter.invoke(
             "facet.history.list",
             arguments,
-            encoded_size=lambda value: encoded_tool_response_size("unicode-history", value),
+            maximum_response_bytes=fc.MAX_LIST_RESPONSE_BYTES,
+            encoded_size=encoded_size,
         )
-        encoded_size = len(
-            json.dumps(page, ensure_ascii=True, separators=(",", ":")).encode("utf-8")
-        )
-        assert encoded_size <= fc.MAX_LIST_RESPONSE_BYTES
-        assert encoded_tool_response_size("unicode-history", page) <= fc.MAX_READ_RESPONSE_BYTES
+        bare_size = len(json.dumps(page, ensure_ascii=True, separators=(",", ":")).encode("utf-8"))
+        assert bare_size <= fc.MAX_LIST_RESPONSE_BYTES
+        assert encoded_size(page) <= fc.MAX_LIST_RESPONSE_BYTES
         assert page["items"]
-        repeated = adapter.invoke("facet.history.list", arguments)
+        repeated = adapter.invoke(
+            "facet.history.list",
+            arguments,
+            maximum_response_bytes=fc.MAX_LIST_RESPONSE_BYTES,
+            encoded_size=encoded_size,
+        )
         assert repeated["items"] == page["items"]
         assert repeated["complete"] == page["complete"]
         pages.append(page)
@@ -746,3 +758,62 @@ def test_unicode_history_pages_fit_ascii_adapter_and_preserve_complete_events(br
     assert len({item["event_id"] for item in entries}) == 100
     assert all(item["changes"][0]["entity"]["id"] == dimension for item in entries)
     assert entries[-1]["changes"][0]["after"]["name"] == "99" + name
+    unchanged = brain.call("facet.history.list", {**arguments, "cursor": None})
+    assert unchanged["items"] == direct["items"]
+    assert encoded_size(unchanged) > fc.MAX_LIST_RESPONSE_BYTES
+
+
+def test_scoped_page_admission_accepts_one_whole_item_at_exact_wrapped_cap(brain: Brain) -> None:
+    from open_brain.services.mcp_protocol import encoded_tool_response_size
+
+    dimension = brain.write(
+        "facet.dimension.create",
+        {
+            "expected_version": 0,
+            "name": "😀" * 120,
+        },
+    )["subject_id"]
+    request = fc.HistoryListRequest(subject={"kind": "dimension", "id": dimension}, limit=100)
+    complete = brain.tasks.history_list(request, authority=brain.owner).to_wire()
+    assert complete["complete"] is True
+    size = encoded_tool_response_size("one-item-budget", complete)
+
+    def encoder(value: Mapping[str, object]) -> int:
+        return encoded_tool_response_size("one-item-budget", value)
+
+    scoped = brain.tasks.with_page_admission(size, encoder)
+    assert scoped.history_list(request, authority=brain.owner).to_wire() == complete
+    insufficient = brain.tasks.with_page_admission(size - 1, encoder)
+    with pytest.raises(fc.FacetError, match="^response_too_large$"):
+        insufficient.history_list(request, authority=brain.owner)
+    assert brain.tasks.history_list(request, authority=brain.owner).to_wire() == complete
+
+
+def test_scoped_page_admission_checks_empty_envelope_and_preserves_checkpoint(brain: Brain) -> None:
+    from open_brain.services.mcp_protocol import encoded_tool_response_size
+
+    stages: list[str] = []
+    original = FacetTasks(brain.engine, checkpoint=stages.append)
+
+    def encoder(value: Mapping[str, object]) -> int:
+        return encoded_tool_response_size("empty-budget", value)
+
+    complete = original.dimensions_list(fc.DimensionsListRequest(), authority=brain.owner).to_wire()
+    size = encoder(complete)
+    scoped = original.with_page_admission(size, encoder)
+    assert (
+        scoped.dimensions_list(fc.DimensionsListRequest(), authority=brain.owner).to_wire()
+        == complete
+    )
+    with pytest.raises(fc.FacetError, match="^response_too_large$"):
+        original.with_page_admission(size - 1, encoder).dimensions_list(
+            fc.DimensionsListRequest(),
+            authority=brain.owner,
+        )
+    scoped.dimension_create(
+        fc.DimensionCreateRequest(
+            operation_id="scoped-checkpoint", expected_version=0, name="Created"
+        ),
+        authority=brain.owner,
+    )
+    assert stages == ["before_semantic_commit", "after_semantic_commit"]

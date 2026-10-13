@@ -4,8 +4,9 @@ from __future__ import annotations
 
 import json
 import sqlite3
-from collections.abc import Callable, Iterator, Sequence
+from collections.abc import Callable, Iterator, Mapping, Sequence
 from contextlib import contextmanager
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, cast
 from uuid import uuid4
 
@@ -47,12 +48,49 @@ MAX_LIST_BYTES = 250_000
 ORDERING_VERSION = "facet-stable-subject-acceptance-v1"
 
 
+def _ascii_page_size(value: Mapping[str, object]) -> int:
+    return len(json.dumps(value, ensure_ascii=True, separators=(",", ":")).encode("utf-8"))
+
+
+@dataclass(frozen=True, slots=True)
+class _PageAdmission:
+    maximum_bytes: int
+    encoded_size: Callable[[Mapping[str, object]], int]
+
+
+@dataclass(frozen=True, slots=True, init=False, eq=False)
 class FacetTasks:
+    _engine: BrainEngine
+    _checkpoint: Callable[[str], None]
+    _page_admission: _PageAdmission
+
     def __init__(
         self, engine: BrainEngine, *, checkpoint: Callable[[str], None] = lambda _stage: None
     ) -> None:
-        self._engine = engine
-        self._checkpoint = checkpoint
+        object.__setattr__(self, "_engine", engine)
+        object.__setattr__(self, "_checkpoint", checkpoint)
+        object.__setattr__(
+            self, "_page_admission", _PageAdmission(MAX_LIST_BYTES, _ascii_page_size)
+        )
+
+    def with_page_admission(
+        self,
+        maximum_bytes: int,
+        encoded_size: Callable[[Mapping[str, object]], int],
+    ) -> FacetTasks:
+        """Return an immutable per-call view using the trusted transport encoder."""
+        if type(maximum_bytes) is not int or maximum_bytes < 1 or not callable(encoded_size):
+            raise fc.FacetError("invalid_arguments")
+        clone = FacetTasks(self._engine, checkpoint=self._checkpoint)
+        object.__setattr__(clone, "_page_admission", _PageAdmission(maximum_bytes, encoded_size))
+        return clone
+
+    def _page_fits(self, value: Mapping[str, object]) -> bool:
+        wire = json.loads(portable_canonical_json_bytes(value))
+        encoded_size = self._page_admission.encoded_size(wire)
+        if type(encoded_size) is not int or encoded_size < 0:
+            raise fc.FacetError("invalid_arguments")
+        return encoded_size <= min(MAX_LIST_BYTES, self._page_admission.maximum_bytes)
 
     def _admit(
         self, request: fc.FacetRequest, operation: str, authority: EffectiveAuthority
@@ -424,13 +462,7 @@ class FacetTasks:
                 "next_cursor": None if final_item else "x" * 98,
                 "complete": final_item,
             }
-            # Responses normalize to canonical JSON before the app serializes the
-            # complete envelope as compact ASCII JSON, including Unicode escapes.
-            wire = json.loads(portable_canonical_json_bytes(trial))
-            encoded_size = len(
-                json.dumps(wire, ensure_ascii=True, separators=(",", ":")).encode("utf-8")
-            )
-            if encoded_size > MAX_LIST_BYTES:
+            if not self._page_fits(trial):
                 if not selected:
                     raise fc.FacetError("response_too_large")
                 break
@@ -450,16 +482,16 @@ class FacetTasks:
                 now=now,
             )
         )
-        return fc.response_from_wire(
-            request.operation,
-            {
-                "status": "ok",
-                "dto_version": 1,
-                "items": selected,
-                "next_cursor": next_cursor,
-                "complete": complete,
-            },
-        )
+        envelope = {
+            "status": "ok",
+            "dto_version": 1,
+            "items": selected,
+            "next_cursor": next_cursor,
+            "complete": complete,
+        }
+        if not self._page_fits(envelope):
+            raise fc.FacetError("response_too_large")
+        return fc.response_from_wire(request.operation, envelope)
 
     @staticmethod
     def _public_entity(
