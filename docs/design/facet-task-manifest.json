@@ -115,7 +115,7 @@
         "contract_revision": "facets-c0-v4",
         "fixture_manifest_sha256": "95e85b535eeb4263a6e430970ecf1d49de8d0b72de7425e41be703897d93dbc5"
       },
-      "execution_status": "wrapper-aware page admission repair active"
+      "execution_status": "wrapper admission integrated3cc6fb5;30 focused checks pass"
     },
     "A": {
       "requires_verified": [
@@ -467,7 +467,7 @@
         "contract_revision": "facets-c0-v4",
         "fixture_manifest_sha256": "95e85b535eeb4263a6e430970ecf1d49de8d0b72de7425e41be703897d93dbc5"
       },
-      "execution_status": "lineage-aware restore validation active; managed restore checks integrated"
+      "execution_status": "lineage validation integrated8ec412b;189 focused real/legacy checks pass"
     },
     "V": {
       "requires_verified": [
@@ -694,7 +694,7 @@
         "make verify",
         "applicable native/package/release acceptance on exact candidate"
       ],
-      "execution_status": "interim review found two remaining integration gaps; final review pending",
+      "execution_status": "final independent review active on8ec412b; final full gate pending",
       "executor": "native strong-model session",
       "worktree": "/Users/calebbolden/Projects/oss/open-brain-facets-stage-one-r",
       "current_contract_pin": {

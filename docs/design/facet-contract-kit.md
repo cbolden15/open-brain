@@ -7,9 +7,10 @@ or register Portable v6. The accepted behavior remains in
 
 ## Consumer inputs
 
-Start E, A, and T from the verified C0 commit recorded in the workstream handoff. Pin both that
-commit and the fixture manifest SHA-256 in each task. Later P, X, and V workers use the same
-contract revision and a verified integration descendant that contains their prerequisites.
+Start E, A, T, P, X, and V from the verified C0 commit recorded in the workstream handoff. Pin
+that commit, the contract revision and the fixture manifest SHA-256 in each task. P, X, and V
+can prepare concurrently; their final integration requires verified engine outputs and the
+producer evidence assigned in the task manifest. Repin every continuation to its exact inputs.
 
 | Input | Purpose |
 |---|---|
