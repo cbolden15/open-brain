@@ -185,3 +185,30 @@ def _publication_request(
         destination_space_id=brain.spaces[0].space_id,
         title="Synthetic facet page", markdown="Frozen synthetic synthesis.",
     )
+
+
+def test_withdrawn_provenance_hides_canonical_facet_and_blocks_target_update(
+    tmp_path: Path,
+) -> None:
+    brain = LiveFacetBrain(tmp_path)
+    proposal = brain.propose("synthetic-canonical-before-withdrawal")
+    brain.approve(proposal)
+    assignment = brain.call("facet.assignment.get", {"record_id": proposal["page_id"]})["item"]
+    brain.write("facet.assignment.patch", {
+        "record_id": proposal["page_id"],
+        "expected_revision_id": assignment["revision_id"],
+        "expected_version": 0, "add_value_ids": [brain.value], "remove_value_ids": [],
+    })
+    selector = {"all_value_ids": [brain.value], "record_types": ["canonical"]}
+    assert brain.call("facet.query.page", {"selector": selector})["items"][0]["subject"] == {
+        "kind": "canonical", "id": proposal["page_id"],
+    }
+    _withdraw(brain.engine, brain.captures[0].capture_id, brain.owner)
+    assert brain.call("facet.query.page", {"selector": selector})["items"] == []
+    with pytest.raises(FacetError, match="^not_found$"):
+        brain.call("facet.assignment.get", {"record_id": proposal["page_id"]})
+    with pytest.raises(FacetError, match="^not_found$"):
+        brain.propose(
+            "synthetic-withdrawn-target", target_page_id=proposal["page_id"],
+            expected_page_revision_id=assignment["revision_id"], destination_space_id=None,
+        )
