@@ -6,6 +6,8 @@
 
 | Action | Command or authority |
 |---|---|
+| Local CLI | `uv run open-brain status --json` |
+| `packages/app/src/open_brain/services/local_entrypoints.py` | Installed default `open-brain` callable |
 | Product authority | `docs/product-family.md` |
 | Acceptance | `docs/acceptance/five-minute-install.md` |
 

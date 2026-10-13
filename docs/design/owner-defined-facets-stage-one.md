@@ -1,6 +1,6 @@
 # Owner-defined facets: engine and interface specification
 
-Status: stage-one specification of the accepted behavior in ADR 0020; runtime implementation pending
+Status: C0 executable contract kit implemented; stage-one runtime implementation pending
 
 Date: 2026-10-13
 
@@ -689,6 +689,11 @@ The coordinator schedules a ready task as soon as a worker slot opens. There is 
 barrier. Prefer tasks that shorten the engine-to-publication/Portable-to-integration path.
 
 ### C0: Executable contract kit
+
+The implementation is documented in [the C0 consumer guide](facet-contract-kit.md), with explicit
+file reservations and task inputs in [the task manifest](facet-task-manifest.json). The contract
+revision is `facets-c0-v1`. C0 checks prove interface and synthetic evidence conformance; the
+real-engine acceptance gates below remain pending.
 
 C0 turns this specification into importable protocols, strict parsers, and reusable synthetic
 evidence before independent workers implement its consumers. It does not build a generic

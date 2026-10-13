@@ -4,6 +4,44 @@ Non-obvious behaviors, sharp edges, and lessons learned belong here.
 
 ## Registry
 
+### FACETS-001: Wire history and Portable evidence share canonical values
+
+Symptom: A valid facet event fails public history validation, or a saved selector changes bytes
+between wire and evidence validators.
+
+Cause: Copying the T03 timestamp rule loses the six fractional digits used by canonical engine
+events. Validating selector set membership alone also accepts unsorted response arrays.
+
+Fix: Preserve canonical event timestamps (`YYYY-MM-DDTHH:MM:SS.ffffffZ`) and sorted unique selector
+arrays across both contracts. Run `test_facet_contract_integration.py` against the shared fixtures
+when changing either schema. Empty optional selector filters still mean unrestricted.
+
+Discovered: 2026-10-13, C0 cross-contract review and independent boundary tests.
+
+### FACETS-002: Type-check the concrete fake against each protocol
+
+Category: Type Safety.
+
+Symptom: Fake-based tests pass, but strict mypy rejects a chained identity assertion between
+three distinct protocol types or a redundant generic-response cast.
+
+Action: Assign the concrete fake to each protocol separately and compare each assignment with
+the concrete instance. Let `isinstance` narrow the generic response. Run the combined repository
+type check after integrating independently typed workers, before the full test/build gate.
+
+Discovered: 2026-10-13, first integrated C0 type check; production exports were unaffected.
+
+### TESTING-003: Contributor-guide rows are checked by product-boundary tests
+
+Symptom: The full suite fails in `test_contributor_guide_describes_the_foreground_only_boundary`
+after the CLI and installed-entrypoint rows disappear from `CLAUDE.md`.
+
+Action: Keep those accurate quick-reference rows when shortening contributor instructions, and
+run `tests/security/test_open_brain_product_split.py` after changing the guide. C0 verification
+found this pre-existing drift and restored the rows without weakening the boundary assertions.
+
+Discovered: 2026-10-13.
+
 ### REVIEW-004: Restore causal identities, not incidental row order
 
 Symptom: An imported pending review rejects a valid route, accepts a stale route, or finishes a

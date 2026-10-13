@@ -1,0 +1,3338 @@
+{
+  "format": "facet-closed-schema-v1",
+  "contract_revision": "facets-c0-v1",
+  "description": "Draft C0 only. Publication response preserves existing narrow review receipt plus dto_version; effective_idempotency_key is the effective operation ID. No runtime registration.",
+  "definitions": {
+    "cursor": {
+      "anyOf": [
+        {
+          "type": "null"
+        },
+        {
+          "type": "string",
+          "min": 1,
+          "max": 128
+        }
+      ]
+    },
+    "selector": {
+      "type": "object",
+      "properties": {
+        "all_value_ids": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "min": 1,
+            "max": 256,
+            "id_prefixes": [
+              "facetval"
+            ]
+          },
+          "min": 1,
+          "max": 32,
+          "unique": true,
+          "sorted": true
+        },
+        "space_ids": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "min": 1,
+            "max": 256,
+            "id_prefixes": [
+              "space"
+            ]
+          },
+          "min": 0,
+          "max": 256,
+          "unique": true,
+          "sorted": true
+        },
+        "payload_families": {
+          "type": "array",
+          "items": {
+            "enum": [
+              "text",
+              "event",
+              "measurement",
+              "reference_or_file"
+            ]
+          },
+          "min": 0,
+          "max": 4,
+          "unique": true,
+          "sorted": true
+        },
+        "record_types": {
+          "type": "array",
+          "items": {
+            "enum": [
+              "source",
+              "canonical"
+            ]
+          },
+          "min": 0,
+          "max": 2,
+          "unique": true,
+          "sorted": true
+        }
+      },
+      "optional": []
+    },
+    "selector.input": {
+      "type": "object",
+      "properties": {
+        "all_value_ids": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "min": 1,
+            "max": 256,
+            "id_prefixes": [
+              "facetval"
+            ]
+          },
+          "min": 1,
+          "max": 32,
+          "unique": true,
+          "normalize_set": true,
+          "sorted": true
+        },
+        "space_ids": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "min": 1,
+            "max": 256,
+            "id_prefixes": [
+              "space"
+            ]
+          },
+          "min": 0,
+          "max": 256,
+          "unique": true,
+          "normalize_set": true,
+          "sorted": true
+        },
+        "payload_families": {
+          "type": "array",
+          "items": {
+            "enum": [
+              "text",
+              "event",
+              "measurement",
+              "reference_or_file"
+            ]
+          },
+          "min": 0,
+          "max": 4,
+          "unique": true,
+          "normalize_set": true,
+          "sorted": true
+        },
+        "record_types": {
+          "type": "array",
+          "items": {
+            "enum": [
+              "source",
+              "canonical"
+            ]
+          },
+          "min": 0,
+          "max": 2,
+          "unique": true,
+          "normalize_set": true,
+          "sorted": true
+        }
+      },
+      "optional": [
+        "space_ids",
+        "payload_families",
+        "record_types"
+      ],
+      "defaults": {
+        "space_ids": [],
+        "payload_families": [],
+        "record_types": [
+          "source",
+          "canonical"
+        ]
+      }
+    },
+    "subject": {
+      "anyOf": [
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "enum": [
+                "source"
+              ]
+            },
+            "id": {
+              "type": "string",
+              "min": 1,
+              "max": 256,
+              "id_prefixes": [
+                "source"
+              ]
+            }
+          },
+          "optional": []
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "enum": [
+                "canonical"
+              ]
+            },
+            "id": {
+              "type": "string",
+              "min": 1,
+              "max": 256,
+              "id_prefixes": [
+                "page"
+              ]
+            }
+          },
+          "optional": []
+        }
+      ]
+    },
+    "history_subject": {
+      "anyOf": [
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "enum": [
+                "source"
+              ]
+            },
+            "id": {
+              "type": "string",
+              "min": 1,
+              "max": 256,
+              "id_prefixes": [
+                "source"
+              ]
+            }
+          },
+          "optional": []
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "enum": [
+                "canonical"
+              ]
+            },
+            "id": {
+              "type": "string",
+              "min": 1,
+              "max": 256,
+              "id_prefixes": [
+                "page"
+              ]
+            }
+          },
+          "optional": []
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "enum": [
+                "dimension"
+              ]
+            },
+            "id": {
+              "type": "string",
+              "min": 1,
+              "max": 256,
+              "id_prefixes": [
+                "facetdim"
+              ]
+            }
+          },
+          "optional": []
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "enum": [
+                "value"
+              ]
+            },
+            "id": {
+              "type": "string",
+              "min": 1,
+              "max": 256,
+              "id_prefixes": [
+                "facetval"
+              ]
+            }
+          },
+          "optional": []
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "enum": [
+                "query"
+              ]
+            },
+            "id": {
+              "type": "string",
+              "min": 1,
+              "max": 256,
+              "id_prefixes": [
+                "facetquery"
+              ]
+            }
+          },
+          "optional": []
+        }
+      ]
+    },
+    "dimension": {
+      "type": "object",
+      "properties": {
+        "dimension_id": {
+          "type": "string",
+          "min": 1,
+          "max": 256,
+          "id_prefixes": [
+            "facetdim"
+          ]
+        },
+        "name": {
+          "type": "string",
+          "min": 1,
+          "max": 120,
+          "format": "name"
+        },
+        "archived": {
+          "type": "boolean"
+        },
+        "version": {
+          "type": "integer",
+          "min": 1,
+          "max": 9007199254740991
+        }
+      },
+      "optional": []
+    },
+    "value": {
+      "type": "object",
+      "properties": {
+        "value_id": {
+          "type": "string",
+          "min": 1,
+          "max": 256,
+          "id_prefixes": [
+            "facetval"
+          ]
+        },
+        "dimension_id": {
+          "type": "string",
+          "min": 1,
+          "max": 256,
+          "id_prefixes": [
+            "facetdim"
+          ]
+        },
+        "name": {
+          "type": "string",
+          "min": 1,
+          "max": 120,
+          "format": "name"
+        },
+        "archived": {
+          "type": "boolean"
+        },
+        "effective_archived": {
+          "type": "boolean"
+        },
+        "version": {
+          "type": "integer",
+          "min": 1,
+          "max": 9007199254740991
+        }
+      },
+      "optional": []
+    },
+    "saved_query": {
+      "type": "object",
+      "properties": {
+        "query_id": {
+          "type": "string",
+          "min": 1,
+          "max": 256,
+          "id_prefixes": [
+            "facetquery"
+          ]
+        },
+        "name": {
+          "type": "string",
+          "min": 1,
+          "max": 120,
+          "format": "name"
+        },
+        "selector": {
+          "ref": "selector"
+        },
+        "archived": {
+          "type": "boolean"
+        },
+        "version": {
+          "type": "integer",
+          "min": 1,
+          "max": 9007199254740991
+        },
+        "selection_version": {
+          "type": "integer",
+          "min": 1,
+          "max": 9007199254740991
+        }
+      },
+      "optional": []
+    },
+    "membership": {
+      "type": "object",
+      "properties": {
+        "value_id": {
+          "type": "string",
+          "min": 1,
+          "max": 256,
+          "id_prefixes": [
+            "facetval"
+          ]
+        },
+        "membership_version": {
+          "type": "integer",
+          "min": 1,
+          "max": 9007199254740991
+        }
+      },
+      "optional": []
+    },
+    "attachment": {
+      "type": "object",
+      "properties": {
+        "page_id": {
+          "type": "string",
+          "min": 1,
+          "max": 256,
+          "id_prefixes": [
+            "page"
+          ]
+        },
+        "query_id": {
+          "type": "string",
+          "min": 1,
+          "max": 256,
+          "id_prefixes": [
+            "facetquery"
+          ]
+        },
+        "version": {
+          "type": "integer",
+          "min": 1,
+          "max": 9007199254740991
+        }
+      },
+      "optional": []
+    },
+    "assignment_state": {
+      "type": "object",
+      "properties": {
+        "subject": {
+          "ref": "subject"
+        },
+        "record_id": {
+          "type": "string",
+          "min": 1,
+          "max": 256,
+          "id_prefixes": [
+            "capture",
+            "page"
+          ]
+        },
+        "revision_id": {
+          "type": "string",
+          "min": 1,
+          "max": 256,
+          "id_prefixes": [
+            "capture",
+            "revision"
+          ]
+        },
+        "version": {
+          "type": "integer",
+          "min": 0,
+          "max": 9007199254740991
+        },
+        "memberships": {
+          "type": "array",
+          "items": {
+            "ref": "membership"
+          },
+          "min": 0,
+          "max": 128,
+          "unique": true
+        }
+      },
+      "optional": []
+    },
+    "historical_record_state": {
+      "type": "object",
+      "properties": {
+        "subject": {
+          "ref": "subject"
+        },
+        "version": {
+          "type": "integer",
+          "min": 0,
+          "max": 9007199254740991
+        },
+        "memberships": {
+          "type": "array",
+          "items": {
+            "ref": "membership"
+          },
+          "min": 0,
+          "max": 128,
+          "unique": true
+        },
+        "attachment": {
+          "anyOf": [
+            {
+              "type": "null"
+            },
+            {
+              "ref": "attachment"
+            }
+          ]
+        }
+      },
+      "optional": []
+    },
+    "summary": {
+      "type": "object",
+      "properties": {
+        "record_id": {
+          "type": "string",
+          "id_prefixes": [
+            "capture",
+            "page"
+          ]
+        },
+        "record_type": {
+          "enum": [
+            "source",
+            "canonical"
+          ]
+        },
+        "revision_id": {
+          "type": "string",
+          "id_prefixes": [
+            "capture",
+            "revision"
+          ]
+        },
+        "source_id": {
+          "anyOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "string",
+              "id_prefixes": [
+                "source"
+              ]
+            }
+          ]
+        },
+        "payload_family": {
+          "enum": [
+            "text",
+            "event",
+            "measurement",
+            "reference_or_file"
+          ]
+        },
+        "space_id": {
+          "anyOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "string",
+              "id_prefixes": [
+                "space"
+              ]
+            }
+          ]
+        },
+        "title": {
+          "type": "string"
+        },
+        "excerpt": {
+          "type": "string"
+        },
+        "trust": {
+          "enum": [
+            "owner",
+            "third_party",
+            "reviewed",
+            "unverified"
+          ]
+        },
+        "provenance": {
+          "ref": "provenance"
+        },
+        "source_update_available": {
+          "type": "boolean"
+        }
+      },
+      "optional": []
+    },
+    "provenance": {
+      "type": "object",
+      "properties": {
+        "representative_capture_id": {
+          "type": "string",
+          "id_prefixes": [
+            "capture"
+          ]
+        },
+        "capture_ids": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "id_prefixes": [
+              "capture"
+            ]
+          },
+          "min": 1,
+          "max": 32,
+          "unique": true
+        },
+        "source_origin": {
+          "enum": [
+            "owner_authored",
+            "third_party",
+            "mixed",
+            "unknown"
+          ]
+        }
+      },
+      "optional": []
+    },
+    "facet_result": {
+      "type": "object",
+      "properties": {
+        "subject": {
+          "ref": "subject"
+        },
+        "record": {
+          "ref": "summary"
+        },
+        "classification_version": {
+          "type": "integer",
+          "min": 0,
+          "max": 9007199254740991
+        }
+      },
+      "optional": []
+    },
+    "receipt": {
+      "type": "object",
+      "properties": {
+        "status": {
+          "enum": [
+            "applied",
+            "unchanged"
+          ]
+        },
+        "operation_id": {
+          "type": "string",
+          "min": 1,
+          "max": 128,
+          "format": "operation_id"
+        },
+        "subject_id": {
+          "type": "string",
+          "min": 1,
+          "max": 256,
+          "id_prefixes": [
+            "facetdim",
+            "facetval",
+            "facetquery",
+            "source",
+            "page"
+          ]
+        },
+        "version": {
+          "type": "integer",
+          "min": 0,
+          "max": 9007199254740991
+        },
+        "event_id": {
+          "anyOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "string",
+              "min": 1,
+              "max": 256,
+              "id_prefixes": [
+                "facetevent"
+              ]
+            }
+          ]
+        }
+      },
+      "optional": []
+    },
+    "error": {
+      "type": "object",
+      "properties": {
+        "status": {
+          "enum": [
+            "error"
+          ]
+        },
+        "dto_version": {
+          "enum": [
+            1
+          ]
+        },
+        "code": {
+          "enum": [
+            "invalid_arguments",
+            "name_conflict",
+            "not_found",
+            "unsupported_capability",
+            "version_conflict",
+            "revision_changed",
+            "idempotency_conflict",
+            "facet_archived",
+            "query_archived",
+            "cursor_stale",
+            "cursor_invalid",
+            "limit_exceeded",
+            "response_too_large",
+            "review_conflict",
+            "preview_stale",
+            "projection_conflict",
+            "operation_pending"
+          ]
+        }
+      },
+      "optional": []
+    },
+    "dimension.row": {
+      "type": "object",
+      "properties": {
+        "dimension_id": {
+          "type": "string",
+          "min": 1,
+          "max": 256,
+          "id_prefixes": [
+            "facetdim"
+          ]
+        },
+        "name": {
+          "type": "string",
+          "min": 1,
+          "max": 120,
+          "format": "name"
+        },
+        "archived": {
+          "type": "boolean"
+        },
+        "version": {
+          "type": "integer",
+          "min": 1,
+          "max": 9007199254740991
+        },
+        "created_at": {
+          "type": "string",
+          "min": 1,
+          "max": 256,
+          "format": "timestamp"
+        },
+        "updated_at": {
+          "type": "string",
+          "min": 1,
+          "max": 256,
+          "format": "timestamp"
+        }
+      },
+      "optional": []
+    },
+    "value.row": {
+      "type": "object",
+      "properties": {
+        "value_id": {
+          "type": "string",
+          "min": 1,
+          "max": 256,
+          "id_prefixes": [
+            "facetval"
+          ]
+        },
+        "dimension_id": {
+          "type": "string",
+          "min": 1,
+          "max": 256,
+          "id_prefixes": [
+            "facetdim"
+          ]
+        },
+        "name": {
+          "type": "string",
+          "min": 1,
+          "max": 120,
+          "format": "name"
+        },
+        "archived": {
+          "type": "boolean"
+        },
+        "version": {
+          "type": "integer",
+          "min": 1,
+          "max": 9007199254740991
+        },
+        "created_at": {
+          "type": "string",
+          "min": 1,
+          "max": 256,
+          "format": "timestamp"
+        },
+        "updated_at": {
+          "type": "string",
+          "min": 1,
+          "max": 256,
+          "format": "timestamp"
+        }
+      },
+      "optional": []
+    },
+    "subject.row": {
+      "type": "object",
+      "properties": {
+        "subject_kind": {
+          "enum": [
+            "source",
+            "canonical"
+          ]
+        },
+        "subject_id": {
+          "type": "string",
+          "min": 1,
+          "max": 256,
+          "id_prefixes": [
+            "source",
+            "page"
+          ]
+        },
+        "version": {
+          "type": "integer",
+          "min": 0,
+          "max": 9007199254740991
+        }
+      },
+      "optional": []
+    },
+    "assignment.key": {
+      "type": "object",
+      "properties": {
+        "subject_kind": {
+          "enum": [
+            "source",
+            "canonical"
+          ]
+        },
+        "subject_id": {
+          "type": "string",
+          "min": 1,
+          "max": 256,
+          "id_prefixes": [
+            "source",
+            "page"
+          ]
+        },
+        "value_id": {
+          "type": "string",
+          "min": 1,
+          "max": 256,
+          "id_prefixes": [
+            "facetval"
+          ]
+        }
+      },
+      "optional": []
+    },
+    "assignment.row": {
+      "type": "object",
+      "properties": {
+        "subject_kind": {
+          "enum": [
+            "source",
+            "canonical"
+          ]
+        },
+        "subject_id": {
+          "type": "string",
+          "min": 1,
+          "max": 256,
+          "id_prefixes": [
+            "source",
+            "page"
+          ]
+        },
+        "value_id": {
+          "type": "string",
+          "min": 1,
+          "max": 256,
+          "id_prefixes": [
+            "facetval"
+          ]
+        },
+        "present": {
+          "type": "boolean"
+        },
+        "membership_version": {
+          "type": "integer",
+          "min": 1,
+          "max": 9007199254740991
+        },
+        "last_event_sequence": {
+          "type": "integer",
+          "min": 1,
+          "max": 9007199254740991
+        }
+      },
+      "optional": []
+    },
+    "query.row": {
+      "type": "object",
+      "properties": {
+        "query_id": {
+          "type": "string",
+          "min": 1,
+          "max": 256,
+          "id_prefixes": [
+            "facetquery"
+          ]
+        },
+        "name": {
+          "type": "string",
+          "min": 1,
+          "max": 120,
+          "format": "name"
+        },
+        "selector": {
+          "ref": "selector"
+        },
+        "archived": {
+          "type": "boolean"
+        },
+        "version": {
+          "type": "integer",
+          "min": 1,
+          "max": 9007199254740991
+        },
+        "selection_version": {
+          "type": "integer",
+          "min": 1,
+          "max": 9007199254740991
+        },
+        "created_at": {
+          "type": "string",
+          "min": 1,
+          "max": 256,
+          "format": "timestamp"
+        },
+        "updated_at": {
+          "type": "string",
+          "min": 1,
+          "max": 256,
+          "format": "timestamp"
+        }
+      },
+      "optional": []
+    },
+    "attachment.row": {
+      "type": "object",
+      "properties": {
+        "page_id": {
+          "type": "string",
+          "min": 1,
+          "max": 256,
+          "id_prefixes": [
+            "page"
+          ]
+        },
+        "query_id": {
+          "type": "string",
+          "min": 1,
+          "max": 256,
+          "id_prefixes": [
+            "facetquery"
+          ]
+        },
+        "version": {
+          "type": "integer",
+          "min": 1,
+          "max": 9007199254740991
+        }
+      },
+      "optional": []
+    },
+    "change": {
+      "anyOf": [
+        {
+          "type": "object",
+          "properties": {
+            "entity": {
+              "type": "object",
+              "properties": {
+                "kind": {
+                  "enum": [
+                    "dimension"
+                  ]
+                },
+                "id": {
+                  "type": "string",
+                  "min": 1,
+                  "max": 256,
+                  "id_prefixes": [
+                    "facetdim"
+                  ]
+                }
+              },
+              "optional": []
+            },
+            "before": {
+              "anyOf": [
+                {
+                  "type": "null"
+                },
+                {
+                  "ref": "dimension.row"
+                }
+              ]
+            },
+            "after": {
+              "ref": "dimension.row"
+            }
+          },
+          "optional": []
+        },
+        {
+          "type": "object",
+          "properties": {
+            "entity": {
+              "type": "object",
+              "properties": {
+                "kind": {
+                  "enum": [
+                    "value"
+                  ]
+                },
+                "id": {
+                  "type": "string",
+                  "min": 1,
+                  "max": 256,
+                  "id_prefixes": [
+                    "facetval"
+                  ]
+                }
+              },
+              "optional": []
+            },
+            "before": {
+              "anyOf": [
+                {
+                  "type": "null"
+                },
+                {
+                  "ref": "value.row"
+                }
+              ]
+            },
+            "after": {
+              "ref": "value.row"
+            }
+          },
+          "optional": []
+        },
+        {
+          "type": "object",
+          "properties": {
+            "entity": {
+              "type": "object",
+              "properties": {
+                "kind": {
+                  "enum": [
+                    "subject"
+                  ]
+                },
+                "id": {
+                  "ref": "subject"
+                }
+              },
+              "optional": []
+            },
+            "before": {
+              "anyOf": [
+                {
+                  "type": "null"
+                },
+                {
+                  "ref": "subject.row"
+                }
+              ]
+            },
+            "after": {
+              "ref": "subject.row"
+            }
+          },
+          "optional": []
+        },
+        {
+          "type": "object",
+          "properties": {
+            "entity": {
+              "type": "object",
+              "properties": {
+                "kind": {
+                  "enum": [
+                    "assignment"
+                  ]
+                },
+                "id": {
+                  "ref": "assignment.key"
+                }
+              },
+              "optional": []
+            },
+            "before": {
+              "anyOf": [
+                {
+                  "type": "null"
+                },
+                {
+                  "ref": "assignment.row"
+                }
+              ]
+            },
+            "after": {
+              "ref": "assignment.row"
+            }
+          },
+          "optional": []
+        },
+        {
+          "type": "object",
+          "properties": {
+            "entity": {
+              "type": "object",
+              "properties": {
+                "kind": {
+                  "enum": [
+                    "query"
+                  ]
+                },
+                "id": {
+                  "type": "string",
+                  "min": 1,
+                  "max": 256,
+                  "id_prefixes": [
+                    "facetquery"
+                  ]
+                }
+              },
+              "optional": []
+            },
+            "before": {
+              "anyOf": [
+                {
+                  "type": "null"
+                },
+                {
+                  "ref": "query.row"
+                }
+              ]
+            },
+            "after": {
+              "ref": "query.row"
+            }
+          },
+          "optional": []
+        },
+        {
+          "type": "object",
+          "properties": {
+            "entity": {
+              "type": "object",
+              "properties": {
+                "kind": {
+                  "enum": [
+                    "attachment"
+                  ]
+                },
+                "id": {
+                  "type": "string",
+                  "min": 1,
+                  "max": 256,
+                  "id_prefixes": [
+                    "page"
+                  ]
+                }
+              },
+              "optional": []
+            },
+            "before": {
+              "anyOf": [
+                {
+                  "type": "null"
+                },
+                {
+                  "ref": "attachment.row"
+                }
+              ]
+            },
+            "after": {
+              "ref": "attachment.row"
+            }
+          },
+          "optional": []
+        }
+      ]
+    },
+    "history_entry": {
+      "type": "object",
+      "properties": {
+        "event_id": {
+          "type": "string",
+          "min": 1,
+          "max": 256,
+          "id_prefixes": [
+            "facetevent"
+          ]
+        },
+        "sequence": {
+          "type": "integer",
+          "min": 1,
+          "max": 9007199254740991
+        },
+        "recorded_at": {
+          "type": "string",
+          "min": 1,
+          "max": 256,
+          "format": "timestamp"
+        },
+        "actor_id": {
+          "type": "string",
+          "min": 1,
+          "max": 256
+        },
+        "kind": {
+          "enum": [
+            "dimension.create",
+            "dimension.rename",
+            "dimension.archive",
+            "value.create",
+            "value.rename",
+            "value.archive",
+            "assignment.patch",
+            "query.create",
+            "query.update",
+            "query.archive",
+            "query.attach"
+          ]
+        },
+        "changes": {
+          "type": "array",
+          "items": {
+            "ref": "change"
+          },
+          "min": 1,
+          "max": 129,
+          "unique": false
+        }
+      },
+      "optional": []
+    },
+    "vault_conflict": {
+      "type": "object",
+      "properties": {
+        "code": {
+          "enum": [
+            "unknown_name",
+            "ambiguous_name",
+            "archived_addition",
+            "content_changed",
+            "projection_changed",
+            "invalid_frontmatter"
+          ]
+        },
+        "value_id": {
+          "anyOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "string",
+              "min": 1,
+              "max": 256,
+              "id_prefixes": [
+                "facetval"
+              ]
+            }
+          ]
+        }
+      },
+      "optional": []
+    },
+    "facet.dimension.list.request": {
+      "type": "object",
+      "properties": {
+        "dto_version": {
+          "enum": [
+            1
+          ]
+        },
+        "limit": {
+          "type": "integer",
+          "min": 1,
+          "max": 100
+        },
+        "cursor": {
+          "ref": "cursor"
+        },
+        "include_archived": {
+          "type": "boolean"
+        }
+      },
+      "optional": [
+        "limit",
+        "cursor",
+        "include_archived"
+      ],
+      "defaults": {
+        "limit": 50,
+        "cursor": null,
+        "include_archived": false
+      }
+    },
+    "facet.dimension.list.response": {
+      "type": "object",
+      "properties": {
+        "status": {
+          "enum": [
+            "ok"
+          ]
+        },
+        "dto_version": {
+          "enum": [
+            1
+          ]
+        },
+        "items": {
+          "type": "array",
+          "items": {
+            "ref": "dimension"
+          },
+          "min": 0,
+          "max": 100,
+          "unique": true
+        },
+        "next_cursor": {
+          "ref": "cursor"
+        },
+        "complete": {
+          "type": "boolean"
+        }
+      },
+      "optional": []
+    },
+    "facet.dimension.create.request": {
+      "type": "object",
+      "properties": {
+        "dto_version": {
+          "enum": [
+            1
+          ]
+        },
+        "operation_id": {
+          "type": "string",
+          "min": 1,
+          "max": 128,
+          "format": "operation_id"
+        },
+        "expected_version": {
+          "enum": [
+            0
+          ]
+        },
+        "name": {
+          "type": "string",
+          "min": 1,
+          "max": 120,
+          "format": "name"
+        }
+      },
+      "optional": []
+    },
+    "facet.dimension.create.response": {
+      "type": "object",
+      "properties": {
+        "dto_version": {
+          "enum": [
+            1
+          ]
+        },
+        "status": {
+          "enum": [
+            "applied",
+            "unchanged"
+          ]
+        },
+        "operation_id": {
+          "type": "string",
+          "min": 1,
+          "max": 128,
+          "format": "operation_id"
+        },
+        "subject_id": {
+          "type": "string",
+          "min": 1,
+          "max": 256,
+          "id_prefixes": [
+            "facetdim"
+          ]
+        },
+        "version": {
+          "type": "integer",
+          "min": 1,
+          "max": 9007199254740991
+        },
+        "event_id": {
+          "anyOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "string",
+              "min": 1,
+              "max": 256,
+              "id_prefixes": [
+                "facetevent"
+              ]
+            }
+          ]
+        }
+      },
+      "optional": []
+    },
+    "facet.dimension.rename.request": {
+      "type": "object",
+      "properties": {
+        "dto_version": {
+          "enum": [
+            1
+          ]
+        },
+        "operation_id": {
+          "type": "string",
+          "min": 1,
+          "max": 128,
+          "format": "operation_id"
+        },
+        "expected_version": {
+          "type": "integer",
+          "min": 1,
+          "max": 9007199254740991
+        },
+        "dimension_id": {
+          "type": "string",
+          "min": 1,
+          "max": 256,
+          "id_prefixes": [
+            "facetdim"
+          ]
+        },
+        "name": {
+          "type": "string",
+          "min": 1,
+          "max": 120,
+          "format": "name"
+        }
+      },
+      "optional": []
+    },
+    "facet.dimension.rename.response": {
+      "type": "object",
+      "properties": {
+        "dto_version": {
+          "enum": [
+            1
+          ]
+        },
+        "status": {
+          "enum": [
+            "applied",
+            "unchanged"
+          ]
+        },
+        "operation_id": {
+          "type": "string",
+          "min": 1,
+          "max": 128,
+          "format": "operation_id"
+        },
+        "subject_id": {
+          "type": "string",
+          "min": 1,
+          "max": 256,
+          "id_prefixes": [
+            "facetdim"
+          ]
+        },
+        "version": {
+          "type": "integer",
+          "min": 1,
+          "max": 9007199254740991
+        },
+        "event_id": {
+          "anyOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "string",
+              "min": 1,
+              "max": 256,
+              "id_prefixes": [
+                "facetevent"
+              ]
+            }
+          ]
+        }
+      },
+      "optional": []
+    },
+    "facet.dimension.archive.request": {
+      "type": "object",
+      "properties": {
+        "dto_version": {
+          "enum": [
+            1
+          ]
+        },
+        "operation_id": {
+          "type": "string",
+          "min": 1,
+          "max": 128,
+          "format": "operation_id"
+        },
+        "expected_version": {
+          "type": "integer",
+          "min": 1,
+          "max": 9007199254740991
+        },
+        "dimension_id": {
+          "type": "string",
+          "min": 1,
+          "max": 256,
+          "id_prefixes": [
+            "facetdim"
+          ]
+        }
+      },
+      "optional": []
+    },
+    "facet.dimension.archive.response": {
+      "type": "object",
+      "properties": {
+        "dto_version": {
+          "enum": [
+            1
+          ]
+        },
+        "status": {
+          "enum": [
+            "applied",
+            "unchanged"
+          ]
+        },
+        "operation_id": {
+          "type": "string",
+          "min": 1,
+          "max": 128,
+          "format": "operation_id"
+        },
+        "subject_id": {
+          "type": "string",
+          "min": 1,
+          "max": 256,
+          "id_prefixes": [
+            "facetdim"
+          ]
+        },
+        "version": {
+          "type": "integer",
+          "min": 1,
+          "max": 9007199254740991
+        },
+        "event_id": {
+          "anyOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "string",
+              "min": 1,
+              "max": 256,
+              "id_prefixes": [
+                "facetevent"
+              ]
+            }
+          ]
+        }
+      },
+      "optional": []
+    },
+    "facet.value.list.request": {
+      "type": "object",
+      "properties": {
+        "dto_version": {
+          "enum": [
+            1
+          ]
+        },
+        "limit": {
+          "type": "integer",
+          "min": 1,
+          "max": 100
+        },
+        "cursor": {
+          "ref": "cursor"
+        },
+        "include_archived": {
+          "type": "boolean"
+        },
+        "dimension_id": {
+          "type": "string",
+          "min": 1,
+          "max": 256,
+          "id_prefixes": [
+            "facetdim"
+          ]
+        }
+      },
+      "optional": [
+        "limit",
+        "cursor",
+        "include_archived"
+      ],
+      "defaults": {
+        "limit": 50,
+        "cursor": null,
+        "include_archived": false
+      }
+    },
+    "facet.value.list.response": {
+      "type": "object",
+      "properties": {
+        "status": {
+          "enum": [
+            "ok"
+          ]
+        },
+        "dto_version": {
+          "enum": [
+            1
+          ]
+        },
+        "items": {
+          "type": "array",
+          "items": {
+            "ref": "value"
+          },
+          "min": 0,
+          "max": 100,
+          "unique": true
+        },
+        "next_cursor": {
+          "ref": "cursor"
+        },
+        "complete": {
+          "type": "boolean"
+        }
+      },
+      "optional": []
+    },
+    "facet.value.create.request": {
+      "type": "object",
+      "properties": {
+        "dto_version": {
+          "enum": [
+            1
+          ]
+        },
+        "operation_id": {
+          "type": "string",
+          "min": 1,
+          "max": 128,
+          "format": "operation_id"
+        },
+        "expected_version": {
+          "enum": [
+            0
+          ]
+        },
+        "dimension_id": {
+          "type": "string",
+          "min": 1,
+          "max": 256,
+          "id_prefixes": [
+            "facetdim"
+          ]
+        },
+        "expected_dimension_version": {
+          "type": "integer",
+          "min": 1,
+          "max": 9007199254740991
+        },
+        "name": {
+          "type": "string",
+          "min": 1,
+          "max": 120,
+          "format": "name"
+        }
+      },
+      "optional": []
+    },
+    "facet.value.create.response": {
+      "type": "object",
+      "properties": {
+        "dto_version": {
+          "enum": [
+            1
+          ]
+        },
+        "status": {
+          "enum": [
+            "applied",
+            "unchanged"
+          ]
+        },
+        "operation_id": {
+          "type": "string",
+          "min": 1,
+          "max": 128,
+          "format": "operation_id"
+        },
+        "subject_id": {
+          "type": "string",
+          "min": 1,
+          "max": 256,
+          "id_prefixes": [
+            "facetval"
+          ]
+        },
+        "version": {
+          "type": "integer",
+          "min": 1,
+          "max": 9007199254740991
+        },
+        "event_id": {
+          "anyOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "string",
+              "min": 1,
+              "max": 256,
+              "id_prefixes": [
+                "facetevent"
+              ]
+            }
+          ]
+        }
+      },
+      "optional": []
+    },
+    "facet.value.rename.request": {
+      "type": "object",
+      "properties": {
+        "dto_version": {
+          "enum": [
+            1
+          ]
+        },
+        "operation_id": {
+          "type": "string",
+          "min": 1,
+          "max": 128,
+          "format": "operation_id"
+        },
+        "expected_version": {
+          "type": "integer",
+          "min": 1,
+          "max": 9007199254740991
+        },
+        "value_id": {
+          "type": "string",
+          "min": 1,
+          "max": 256,
+          "id_prefixes": [
+            "facetval"
+          ]
+        },
+        "name": {
+          "type": "string",
+          "min": 1,
+          "max": 120,
+          "format": "name"
+        }
+      },
+      "optional": []
+    },
+    "facet.value.rename.response": {
+      "type": "object",
+      "properties": {
+        "dto_version": {
+          "enum": [
+            1
+          ]
+        },
+        "status": {
+          "enum": [
+            "applied",
+            "unchanged"
+          ]
+        },
+        "operation_id": {
+          "type": "string",
+          "min": 1,
+          "max": 128,
+          "format": "operation_id"
+        },
+        "subject_id": {
+          "type": "string",
+          "min": 1,
+          "max": 256,
+          "id_prefixes": [
+            "facetval"
+          ]
+        },
+        "version": {
+          "type": "integer",
+          "min": 1,
+          "max": 9007199254740991
+        },
+        "event_id": {
+          "anyOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "string",
+              "min": 1,
+              "max": 256,
+              "id_prefixes": [
+                "facetevent"
+              ]
+            }
+          ]
+        }
+      },
+      "optional": []
+    },
+    "facet.value.archive.request": {
+      "type": "object",
+      "properties": {
+        "dto_version": {
+          "enum": [
+            1
+          ]
+        },
+        "operation_id": {
+          "type": "string",
+          "min": 1,
+          "max": 128,
+          "format": "operation_id"
+        },
+        "expected_version": {
+          "type": "integer",
+          "min": 1,
+          "max": 9007199254740991
+        },
+        "value_id": {
+          "type": "string",
+          "min": 1,
+          "max": 256,
+          "id_prefixes": [
+            "facetval"
+          ]
+        }
+      },
+      "optional": []
+    },
+    "facet.value.archive.response": {
+      "type": "object",
+      "properties": {
+        "dto_version": {
+          "enum": [
+            1
+          ]
+        },
+        "status": {
+          "enum": [
+            "applied",
+            "unchanged"
+          ]
+        },
+        "operation_id": {
+          "type": "string",
+          "min": 1,
+          "max": 128,
+          "format": "operation_id"
+        },
+        "subject_id": {
+          "type": "string",
+          "min": 1,
+          "max": 256,
+          "id_prefixes": [
+            "facetval"
+          ]
+        },
+        "version": {
+          "type": "integer",
+          "min": 1,
+          "max": 9007199254740991
+        },
+        "event_id": {
+          "anyOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "string",
+              "min": 1,
+              "max": 256,
+              "id_prefixes": [
+                "facetevent"
+              ]
+            }
+          ]
+        }
+      },
+      "optional": []
+    },
+    "facet.assignment.get.request": {
+      "type": "object",
+      "properties": {
+        "dto_version": {
+          "enum": [
+            1
+          ]
+        },
+        "record_id": {
+          "type": "string",
+          "min": 1,
+          "max": 256,
+          "id_prefixes": [
+            "capture",
+            "page"
+          ]
+        }
+      },
+      "optional": []
+    },
+    "facet.assignment.get.response": {
+      "type": "object",
+      "properties": {
+        "status": {
+          "enum": [
+            "ok"
+          ]
+        },
+        "dto_version": {
+          "enum": [
+            1
+          ]
+        },
+        "item": {
+          "ref": "assignment_state"
+        }
+      },
+      "optional": []
+    },
+    "facet.assignment.patch.request": {
+      "type": "object",
+      "properties": {
+        "dto_version": {
+          "enum": [
+            1
+          ]
+        },
+        "operation_id": {
+          "type": "string",
+          "min": 1,
+          "max": 128,
+          "format": "operation_id"
+        },
+        "expected_version": {
+          "type": "integer",
+          "min": 0,
+          "max": 9007199254740991
+        },
+        "record_id": {
+          "type": "string",
+          "min": 1,
+          "max": 256,
+          "id_prefixes": [
+            "capture",
+            "page"
+          ]
+        },
+        "expected_revision_id": {
+          "type": "string",
+          "min": 1,
+          "max": 256,
+          "id_prefixes": [
+            "capture",
+            "revision"
+          ]
+        },
+        "add_value_ids": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "min": 1,
+            "max": 256,
+            "id_prefixes": [
+              "facetval"
+            ]
+          },
+          "min": 0,
+          "max": 128,
+          "unique": true,
+          "normalize_set": true
+        },
+        "remove_value_ids": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "min": 1,
+            "max": 256,
+            "id_prefixes": [
+              "facetval"
+            ]
+          },
+          "min": 0,
+          "max": 128,
+          "unique": true,
+          "normalize_set": true
+        }
+      },
+      "optional": [
+        "add_value_ids",
+        "remove_value_ids"
+      ],
+      "defaults": {
+        "add_value_ids": [],
+        "remove_value_ids": []
+      },
+      "semantic": "assignment_patch"
+    },
+    "facet.assignment.patch.response": {
+      "type": "object",
+      "properties": {
+        "dto_version": {
+          "enum": [
+            1
+          ]
+        },
+        "status": {
+          "enum": [
+            "applied",
+            "unchanged"
+          ]
+        },
+        "operation_id": {
+          "type": "string",
+          "min": 1,
+          "max": 128,
+          "format": "operation_id"
+        },
+        "subject_id": {
+          "type": "string",
+          "min": 1,
+          "max": 256,
+          "id_prefixes": [
+            "source",
+            "page"
+          ]
+        },
+        "version": {
+          "type": "integer",
+          "min": 0,
+          "max": 9007199254740991
+        },
+        "event_id": {
+          "anyOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "string",
+              "min": 1,
+              "max": 256,
+              "id_prefixes": [
+                "facetevent"
+              ]
+            }
+          ]
+        }
+      },
+      "optional": []
+    },
+    "facet.query.list.request": {
+      "type": "object",
+      "properties": {
+        "dto_version": {
+          "enum": [
+            1
+          ]
+        },
+        "limit": {
+          "type": "integer",
+          "min": 1,
+          "max": 100
+        },
+        "cursor": {
+          "ref": "cursor"
+        },
+        "include_archived": {
+          "type": "boolean"
+        }
+      },
+      "optional": [
+        "limit",
+        "cursor",
+        "include_archived"
+      ],
+      "defaults": {
+        "limit": 50,
+        "cursor": null,
+        "include_archived": false
+      }
+    },
+    "facet.query.list.response": {
+      "type": "object",
+      "properties": {
+        "status": {
+          "enum": [
+            "ok"
+          ]
+        },
+        "dto_version": {
+          "enum": [
+            1
+          ]
+        },
+        "items": {
+          "type": "array",
+          "items": {
+            "ref": "saved_query"
+          },
+          "min": 0,
+          "max": 100,
+          "unique": true
+        },
+        "next_cursor": {
+          "ref": "cursor"
+        },
+        "complete": {
+          "type": "boolean"
+        }
+      },
+      "optional": []
+    },
+    "facet.query.get.request": {
+      "type": "object",
+      "properties": {
+        "dto_version": {
+          "enum": [
+            1
+          ]
+        },
+        "query_id": {
+          "type": "string",
+          "min": 1,
+          "max": 256,
+          "id_prefixes": [
+            "facetquery"
+          ]
+        }
+      },
+      "optional": []
+    },
+    "facet.query.get.response": {
+      "type": "object",
+      "properties": {
+        "status": {
+          "enum": [
+            "ok"
+          ]
+        },
+        "dto_version": {
+          "enum": [
+            1
+          ]
+        },
+        "item": {
+          "ref": "saved_query"
+        }
+      },
+      "optional": []
+    },
+    "facet.query.create.request": {
+      "type": "object",
+      "properties": {
+        "dto_version": {
+          "enum": [
+            1
+          ]
+        },
+        "operation_id": {
+          "type": "string",
+          "min": 1,
+          "max": 128,
+          "format": "operation_id"
+        },
+        "expected_version": {
+          "enum": [
+            0
+          ]
+        },
+        "name": {
+          "type": "string",
+          "min": 1,
+          "max": 120,
+          "format": "name"
+        },
+        "selector": {
+          "ref": "selector.input"
+        }
+      },
+      "optional": []
+    },
+    "facet.query.create.response": {
+      "type": "object",
+      "properties": {
+        "dto_version": {
+          "enum": [
+            1
+          ]
+        },
+        "status": {
+          "enum": [
+            "applied",
+            "unchanged"
+          ]
+        },
+        "operation_id": {
+          "type": "string",
+          "min": 1,
+          "max": 128,
+          "format": "operation_id"
+        },
+        "subject_id": {
+          "type": "string",
+          "min": 1,
+          "max": 256,
+          "id_prefixes": [
+            "facetquery"
+          ]
+        },
+        "version": {
+          "type": "integer",
+          "min": 1,
+          "max": 9007199254740991
+        },
+        "event_id": {
+          "anyOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "string",
+              "min": 1,
+              "max": 256,
+              "id_prefixes": [
+                "facetevent"
+              ]
+            }
+          ]
+        }
+      },
+      "optional": []
+    },
+    "facet.query.update.request": {
+      "type": "object",
+      "properties": {
+        "dto_version": {
+          "enum": [
+            1
+          ]
+        },
+        "operation_id": {
+          "type": "string",
+          "min": 1,
+          "max": 128,
+          "format": "operation_id"
+        },
+        "expected_version": {
+          "type": "integer",
+          "min": 1,
+          "max": 9007199254740991
+        },
+        "query_id": {
+          "type": "string",
+          "min": 1,
+          "max": 256,
+          "id_prefixes": [
+            "facetquery"
+          ]
+        },
+        "name": {
+          "type": "string",
+          "min": 1,
+          "max": 120,
+          "format": "name"
+        },
+        "selector": {
+          "ref": "selector.input"
+        }
+      },
+      "optional": []
+    },
+    "facet.query.update.response": {
+      "type": "object",
+      "properties": {
+        "dto_version": {
+          "enum": [
+            1
+          ]
+        },
+        "status": {
+          "enum": [
+            "applied",
+            "unchanged"
+          ]
+        },
+        "operation_id": {
+          "type": "string",
+          "min": 1,
+          "max": 128,
+          "format": "operation_id"
+        },
+        "subject_id": {
+          "type": "string",
+          "min": 1,
+          "max": 256,
+          "id_prefixes": [
+            "facetquery"
+          ]
+        },
+        "version": {
+          "type": "integer",
+          "min": 1,
+          "max": 9007199254740991
+        },
+        "event_id": {
+          "anyOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "string",
+              "min": 1,
+              "max": 256,
+              "id_prefixes": [
+                "facetevent"
+              ]
+            }
+          ]
+        }
+      },
+      "optional": []
+    },
+    "facet.query.archive.request": {
+      "type": "object",
+      "properties": {
+        "dto_version": {
+          "enum": [
+            1
+          ]
+        },
+        "operation_id": {
+          "type": "string",
+          "min": 1,
+          "max": 128,
+          "format": "operation_id"
+        },
+        "expected_version": {
+          "type": "integer",
+          "min": 1,
+          "max": 9007199254740991
+        },
+        "query_id": {
+          "type": "string",
+          "min": 1,
+          "max": 256,
+          "id_prefixes": [
+            "facetquery"
+          ]
+        }
+      },
+      "optional": []
+    },
+    "facet.query.archive.response": {
+      "type": "object",
+      "properties": {
+        "dto_version": {
+          "enum": [
+            1
+          ]
+        },
+        "status": {
+          "enum": [
+            "applied",
+            "unchanged"
+          ]
+        },
+        "operation_id": {
+          "type": "string",
+          "min": 1,
+          "max": 128,
+          "format": "operation_id"
+        },
+        "subject_id": {
+          "type": "string",
+          "min": 1,
+          "max": 256,
+          "id_prefixes": [
+            "facetquery"
+          ]
+        },
+        "version": {
+          "type": "integer",
+          "min": 1,
+          "max": 9007199254740991
+        },
+        "event_id": {
+          "anyOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "string",
+              "min": 1,
+              "max": 256,
+              "id_prefixes": [
+                "facetevent"
+              ]
+            }
+          ]
+        }
+      },
+      "optional": []
+    },
+    "facet.query.attach.request": {
+      "type": "object",
+      "properties": {
+        "dto_version": {
+          "enum": [
+            1
+          ]
+        },
+        "operation_id": {
+          "type": "string",
+          "min": 1,
+          "max": 128,
+          "format": "operation_id"
+        },
+        "expected_version": {
+          "type": "integer",
+          "min": 0,
+          "max": 9007199254740991
+        },
+        "page_id": {
+          "type": "string",
+          "min": 1,
+          "max": 256,
+          "id_prefixes": [
+            "page"
+          ]
+        },
+        "expected_revision_id": {
+          "type": "string",
+          "min": 1,
+          "max": 256,
+          "id_prefixes": [
+            "revision"
+          ]
+        },
+        "query_id": {
+          "type": "string",
+          "min": 1,
+          "max": 256,
+          "id_prefixes": [
+            "facetquery"
+          ]
+        },
+        "expected_query_version": {
+          "type": "integer",
+          "min": 1,
+          "max": 9007199254740991
+        }
+      },
+      "optional": []
+    },
+    "facet.query.attach.response": {
+      "type": "object",
+      "properties": {
+        "dto_version": {
+          "enum": [
+            1
+          ]
+        },
+        "status": {
+          "enum": [
+            "applied",
+            "unchanged"
+          ]
+        },
+        "operation_id": {
+          "type": "string",
+          "min": 1,
+          "max": 128,
+          "format": "operation_id"
+        },
+        "subject_id": {
+          "type": "string",
+          "min": 1,
+          "max": 256,
+          "id_prefixes": [
+            "page"
+          ]
+        },
+        "version": {
+          "type": "integer",
+          "min": 1,
+          "max": 9007199254740991
+        },
+        "event_id": {
+          "anyOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "string",
+              "min": 1,
+              "max": 256,
+              "id_prefixes": [
+                "facetevent"
+              ]
+            }
+          ]
+        }
+      },
+      "optional": []
+    },
+    "facet.query.attachment.get.request": {
+      "type": "object",
+      "properties": {
+        "dto_version": {
+          "enum": [
+            1
+          ]
+        },
+        "page_id": {
+          "type": "string",
+          "min": 1,
+          "max": 256,
+          "id_prefixes": [
+            "page"
+          ]
+        }
+      },
+      "optional": []
+    },
+    "facet.query.attachment.get.response": {
+      "type": "object",
+      "properties": {
+        "status": {
+          "enum": [
+            "ok"
+          ]
+        },
+        "dto_version": {
+          "enum": [
+            1
+          ]
+        },
+        "item": {
+          "anyOf": [
+            {
+              "type": "null"
+            },
+            {
+              "ref": "attachment"
+            }
+          ]
+        }
+      },
+      "optional": []
+    },
+    "facet.query.page.request": {
+      "type": "object",
+      "properties": {
+        "dto_version": {
+          "enum": [
+            1
+          ]
+        },
+        "limit": {
+          "type": "integer",
+          "min": 1,
+          "max": 100
+        },
+        "cursor": {
+          "ref": "cursor"
+        },
+        "selector": {
+          "ref": "selector.input"
+        },
+        "query_id": {
+          "type": "string",
+          "min": 1,
+          "max": 256,
+          "id_prefixes": [
+            "facetquery"
+          ]
+        },
+        "expected_query_version": {
+          "type": "integer",
+          "min": 1,
+          "max": 9007199254740991
+        }
+      },
+      "optional": [
+        "limit",
+        "cursor",
+        "selector",
+        "query_id",
+        "expected_query_version"
+      ],
+      "defaults": {
+        "limit": 50,
+        "cursor": null
+      },
+      "semantic": "query_page"
+    },
+    "facet.query.page.response": {
+      "type": "object",
+      "properties": {
+        "status": {
+          "enum": [
+            "ok"
+          ]
+        },
+        "dto_version": {
+          "enum": [
+            1
+          ]
+        },
+        "items": {
+          "type": "array",
+          "items": {
+            "ref": "facet_result"
+          },
+          "min": 0,
+          "max": 100,
+          "unique": true
+        },
+        "next_cursor": {
+          "ref": "cursor"
+        },
+        "complete": {
+          "type": "boolean"
+        }
+      },
+      "optional": []
+    },
+    "facet.history.list.request": {
+      "type": "object",
+      "properties": {
+        "dto_version": {
+          "enum": [
+            1
+          ]
+        },
+        "limit": {
+          "type": "integer",
+          "min": 1,
+          "max": 100
+        },
+        "cursor": {
+          "ref": "cursor"
+        },
+        "subject": {
+          "ref": "history_subject"
+        },
+        "as_of_sequence": {
+          "anyOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "integer",
+              "min": 0,
+              "max": 9007199254740991
+            }
+          ]
+        }
+      },
+      "optional": [
+        "limit",
+        "cursor",
+        "as_of_sequence"
+      ],
+      "defaults": {
+        "limit": 50,
+        "cursor": null,
+        "as_of_sequence": null
+      }
+    },
+    "facet.history.list.response": {
+      "type": "object",
+      "properties": {
+        "status": {
+          "enum": [
+            "ok"
+          ]
+        },
+        "dto_version": {
+          "enum": [
+            1
+          ]
+        },
+        "items": {
+          "type": "array",
+          "items": {
+            "ref": "history_entry"
+          },
+          "min": 0,
+          "max": 100,
+          "unique": true
+        },
+        "next_cursor": {
+          "ref": "cursor"
+        },
+        "complete": {
+          "type": "boolean"
+        }
+      },
+      "optional": []
+    },
+    "facet.history.state.request": {
+      "type": "object",
+      "properties": {
+        "dto_version": {
+          "enum": [
+            1
+          ]
+        },
+        "subject": {
+          "ref": "history_subject"
+        },
+        "as_of_sequence": {
+          "type": "integer",
+          "min": 0,
+          "max": 9007199254740991
+        }
+      },
+      "optional": []
+    },
+    "facet.history.state.response": {
+      "type": "object",
+      "properties": {
+        "status": {
+          "enum": [
+            "ok"
+          ]
+        },
+        "dto_version": {
+          "enum": [
+            1
+          ]
+        },
+        "as_of_sequence": {
+          "type": "integer",
+          "min": 0,
+          "max": 9007199254740991
+        },
+        "item": {
+          "anyOf": [
+            {
+              "type": "null"
+            },
+            {
+              "ref": "dimension"
+            },
+            {
+              "ref": "value"
+            },
+            {
+              "ref": "saved_query"
+            },
+            {
+              "ref": "historical_record_state"
+            }
+          ]
+        }
+      },
+      "optional": []
+    },
+    "review.propose_from_facet_query.request": {
+      "type": "object",
+      "properties": {
+        "dto_version": {
+          "enum": [
+            1
+          ]
+        },
+        "operation_id": {
+          "type": "string",
+          "min": 1,
+          "max": 128,
+          "format": "operation_id"
+        },
+        "query_id": {
+          "type": "string",
+          "min": 1,
+          "max": 256,
+          "id_prefixes": [
+            "facetquery"
+          ]
+        },
+        "expected_query_version": {
+          "type": "integer",
+          "min": 1,
+          "max": 9007199254740991
+        },
+        "target_page_id": {
+          "anyOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "string",
+              "min": 1,
+              "max": 256,
+              "id_prefixes": [
+                "page"
+              ]
+            }
+          ]
+        },
+        "expected_page_revision_id": {
+          "anyOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "string",
+              "min": 1,
+              "max": 256,
+              "id_prefixes": [
+                "revision"
+              ]
+            }
+          ]
+        },
+        "destination_space_id": {
+          "anyOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "string",
+              "min": 1,
+              "max": 256,
+              "id_prefixes": [
+                "space"
+              ]
+            }
+          ]
+        },
+        "title": {
+          "type": "string",
+          "min": 1,
+          "max": 200,
+          "format": "title"
+        },
+        "markdown": {
+          "type": "string",
+          "min": 0,
+          "max": 65536,
+          "max_bytes": 65536
+        }
+      },
+      "optional": [],
+      "semantic": "publication"
+    },
+    "review.propose_from_facet_query.response": {
+      "type": "object",
+      "properties": {
+        "status": {
+          "enum": [
+            "proposed"
+          ]
+        },
+        "dto_version": {
+          "enum": [
+            1
+          ]
+        },
+        "effective_idempotency_key": {
+          "type": "string",
+          "min": 1,
+          "max": 128,
+          "format": "operation_id"
+        },
+        "proposal_id": {
+          "type": "string",
+          "min": 1,
+          "max": 256,
+          "id_prefixes": [
+            "proposal"
+          ]
+        },
+        "page_id": {
+          "type": "string",
+          "min": 1,
+          "max": 256,
+          "id_prefixes": [
+            "page"
+          ]
+        },
+        "space_id": {
+          "type": "string",
+          "min": 1,
+          "max": 256,
+          "id_prefixes": [
+            "space"
+          ]
+        },
+        "target_page_id": {
+          "anyOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "string",
+              "min": 1,
+              "max": 256,
+              "id_prefixes": [
+                "page"
+              ]
+            }
+          ]
+        },
+        "operation": {
+          "enum": [
+            "create",
+            "update"
+          ]
+        },
+        "proposal_status": {
+          "enum": [
+            "pending",
+            "approved",
+            "rejected",
+            "edited"
+          ]
+        }
+      },
+      "optional": []
+    },
+    "facet.vault.preview.request": {
+      "type": "object",
+      "properties": {
+        "dto_version": {
+          "enum": [
+            1
+          ]
+        },
+        "workspace_id": {
+          "type": "string",
+          "min": 1,
+          "max": 256,
+          "id_prefixes": [
+            "workspace"
+          ]
+        },
+        "record_id": {
+          "type": "string",
+          "min": 1,
+          "max": 256,
+          "id_prefixes": [
+            "capture",
+            "page"
+          ]
+        }
+      },
+      "optional": []
+    },
+    "facet.vault.preview.response": {
+      "type": "object",
+      "properties": {
+        "status": {
+          "enum": [
+            "ok"
+          ]
+        },
+        "dto_version": {
+          "enum": [
+            1
+          ]
+        },
+        "preview_id": {
+          "type": "string",
+          "min": 1,
+          "max": 128,
+          "format": "operation_id"
+        },
+        "subject": {
+          "ref": "subject"
+        },
+        "expected_version": {
+          "type": "integer",
+          "min": 0,
+          "max": 9007199254740991
+        },
+        "add_value_ids": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "min": 1,
+            "max": 256,
+            "id_prefixes": [
+              "facetval"
+            ]
+          },
+          "min": 0,
+          "max": 128,
+          "unique": true
+        },
+        "remove_value_ids": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "min": 1,
+            "max": 256,
+            "id_prefixes": [
+              "facetval"
+            ]
+          },
+          "min": 0,
+          "max": 128,
+          "unique": true
+        },
+        "conflicts": {
+          "type": "array",
+          "items": {
+            "ref": "vault_conflict"
+          },
+          "min": 0,
+          "max": 256,
+          "unique": true
+        },
+        "expires_at": {
+          "type": "string",
+          "min": 1,
+          "max": 256,
+          "format": "timestamp"
+        }
+      },
+      "optional": []
+    },
+    "facet.vault.apply.request": {
+      "type": "object",
+      "properties": {
+        "dto_version": {
+          "enum": [
+            1
+          ]
+        },
+        "preview_id": {
+          "type": "string",
+          "min": 1,
+          "max": 128,
+          "format": "operation_id"
+        },
+        "operation_id": {
+          "type": "string",
+          "min": 1,
+          "max": 128,
+          "format": "operation_id"
+        }
+      },
+      "optional": []
+    },
+    "facet.vault.apply.response": {
+      "type": "object",
+      "properties": {
+        "status": {
+          "enum": [
+            "ok"
+          ]
+        },
+        "dto_version": {
+          "enum": [
+            1
+          ]
+        },
+        "receipt": {
+          "ref": "receipt"
+        },
+        "projection_status": {
+          "enum": [
+            "current",
+            "refresh_required"
+          ]
+        }
+      },
+      "optional": []
+    }
+  },
+  "operations": {
+    "facet.dimension.list": {
+      "method": "dimensions_list",
+      "request": "DimensionsListRequest",
+      "response": "DimensionsListResponse"
+    },
+    "facet.dimension.create": {
+      "method": "dimension_create",
+      "request": "DimensionCreateRequest",
+      "response": "DimensionCreateResponse"
+    },
+    "facet.dimension.rename": {
+      "method": "dimension_rename",
+      "request": "DimensionRenameRequest",
+      "response": "DimensionRenameResponse"
+    },
+    "facet.dimension.archive": {
+      "method": "dimension_archive",
+      "request": "DimensionArchiveRequest",
+      "response": "DimensionArchiveResponse"
+    },
+    "facet.value.list": {
+      "method": "values_list",
+      "request": "ValuesListRequest",
+      "response": "ValuesListResponse"
+    },
+    "facet.value.create": {
+      "method": "value_create",
+      "request": "ValueCreateRequest",
+      "response": "ValueCreateResponse"
+    },
+    "facet.value.rename": {
+      "method": "value_rename",
+      "request": "ValueRenameRequest",
+      "response": "ValueRenameResponse"
+    },
+    "facet.value.archive": {
+      "method": "value_archive",
+      "request": "ValueArchiveRequest",
+      "response": "ValueArchiveResponse"
+    },
+    "facet.assignment.get": {
+      "method": "assignments_get",
+      "request": "AssignmentsGetRequest",
+      "response": "AssignmentsGetResponse"
+    },
+    "facet.assignment.patch": {
+      "method": "assignments_patch",
+      "request": "AssignmentsPatchRequest",
+      "response": "AssignmentsPatchResponse"
+    },
+    "facet.query.list": {
+      "method": "queries_list",
+      "request": "QueriesListRequest",
+      "response": "QueriesListResponse"
+    },
+    "facet.query.get": {
+      "method": "query_get",
+      "request": "QueryGetRequest",
+      "response": "QueryGetResponse"
+    },
+    "facet.query.create": {
+      "method": "query_create",
+      "request": "QueryCreateRequest",
+      "response": "QueryCreateResponse"
+    },
+    "facet.query.update": {
+      "method": "query_update",
+      "request": "QueryUpdateRequest",
+      "response": "QueryUpdateResponse"
+    },
+    "facet.query.archive": {
+      "method": "query_archive",
+      "request": "QueryArchiveRequest",
+      "response": "QueryArchiveResponse"
+    },
+    "facet.query.attach": {
+      "method": "query_attach",
+      "request": "QueryAttachRequest",
+      "response": "QueryAttachResponse"
+    },
+    "facet.query.attachment.get": {
+      "method": "query_attachment_get",
+      "request": "QueryAttachmentGetRequest",
+      "response": "QueryAttachmentGetResponse"
+    },
+    "facet.query.page": {
+      "method": "query_page",
+      "request": "QueryPageRequest",
+      "response": "QueryPageResponse"
+    },
+    "facet.history.list": {
+      "method": "history_list",
+      "request": "HistoryListRequest",
+      "response": "HistoryListResponse"
+    },
+    "facet.history.state": {
+      "method": "history_state",
+      "request": "HistoryStateRequest",
+      "response": "HistoryStateResponse"
+    },
+    "review.propose_from_facet_query": {
+      "method": "propose_from_facet_query",
+      "request": "ProposeFromFacetQueryRequest",
+      "response": "ProposeFromFacetQueryResponse"
+    },
+    "facet.vault.preview": {
+      "method": "vault_preview",
+      "request": "VaultPreviewRequest",
+      "response": "VaultPreviewResponse"
+    },
+    "facet.vault.apply": {
+      "method": "vault_apply",
+      "request": "VaultApplyRequest",
+      "response": "VaultApplyResponse"
+    }
+  },
+  "grants": {
+    "facet.dimension.list": [
+      "facet-read"
+    ],
+    "facet.value.list": [
+      "facet-read"
+    ],
+    "facet.assignment.get": [
+      "facet-read"
+    ],
+    "facet.query.list": [
+      "facet-read"
+    ],
+    "facet.query.get": [
+      "facet-read"
+    ],
+    "facet.query.attachment.get": [
+      "facet-read"
+    ],
+    "facet.query.page": [
+      "facet-read",
+      "search"
+    ],
+    "facet.history.list": [
+      "facet-read",
+      "history-read"
+    ],
+    "facet.history.state": [
+      "facet-read",
+      "history-read"
+    ],
+    "facet.dimension.create": [
+      "facet-catalog-write"
+    ],
+    "facet.dimension.rename": [
+      "facet-catalog-write"
+    ],
+    "facet.dimension.archive": [
+      "facet-catalog-write"
+    ],
+    "facet.value.create": [
+      "facet-catalog-write"
+    ],
+    "facet.value.rename": [
+      "facet-catalog-write"
+    ],
+    "facet.value.archive": [
+      "facet-catalog-write"
+    ],
+    "facet.query.create": [
+      "facet-query-write"
+    ],
+    "facet.query.update": [
+      "facet-query-write"
+    ],
+    "facet.query.archive": [
+      "facet-query-write"
+    ],
+    "facet.query.attach": [
+      "facet-query-write"
+    ],
+    "facet.assignment.patch": [
+      "facet-assign"
+    ],
+    "review.propose_from_facet_query": [
+      "facet-read",
+      "search",
+      "review-propose"
+    ],
+    "facet.vault.preview": [],
+    "facet.vault.apply": []
+  },
+  "owner_only_operations": [
+    "facet.vault.preview",
+    "facet.vault.apply"
+  ],
+  "conditional_capabilities": {
+    "review.propose_from_facet_query": [
+      "facet-query-write when creating an attachment"
+    ]
+  }
+}

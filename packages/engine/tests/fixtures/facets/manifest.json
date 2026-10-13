@@ -1,0 +1,706 @@
+{
+  "contract_revision": "facets-c0-v1",
+  "status": "draft-unregistered",
+  "schemas": {
+    "packages/engine/src/open_brain_engine/engine/facet_evidence_schema.json": "233d877ac8b13c43fa8b76b3fb591c7601e062547d796be54492ef14454fd035",
+    "packages/engine/src/open_brain_engine/engine/facet_schema.json": "590c42e696e78fe5fe17281e62b93aa64f702e9e097b74f142c4ffc460dfbb4a"
+  },
+  "fixtures": [
+    {
+      "path": "positive/dimension-rename.json",
+      "schema": "event",
+      "outcome": "accept",
+      "error_code": null,
+      "acceptance_cases": [
+        "F01",
+        "F12"
+      ],
+      "purpose": "Rename retains IDs, membership and selector evidence.",
+      "sha256": "c1df6eaef72c83684fa5aa806b6fe60cfc497356e4ab053ad79dd747a74704d8"
+    },
+    {
+      "path": "positive/value-rename.json",
+      "schema": "event",
+      "outcome": "accept",
+      "error_code": null,
+      "acceptance_cases": [
+        "F01",
+        "F12"
+      ],
+      "purpose": "Rename retains IDs, membership and selector evidence.",
+      "sha256": "e64d2860ccd9a85c6f16983a3d3dffbd031e12a0229f9c9e2205448d520738ed"
+    },
+    {
+      "path": "positive/query-display-rename.json",
+      "schema": "event",
+      "outcome": "accept",
+      "error_code": null,
+      "acceptance_cases": [
+        "F12"
+      ],
+      "purpose": "Display rename advances edit version only.",
+      "sha256": "10435675aa82409f589b6829075713a886d13304fe5bfbd2428fdcea0d8965ee"
+    },
+    {
+      "path": "positive/membership-remove.json",
+      "schema": "event",
+      "outcome": "accept",
+      "error_code": null,
+      "acceptance_cases": [
+        "F11"
+      ],
+      "purpose": "Removed row retains membership version 2.",
+      "sha256": "9c6e7250fa348d76e6143c8f867616024ee371046e6d56d5d88ff51898124959"
+    },
+    {
+      "path": "positive/membership-restore.json",
+      "schema": "event",
+      "outcome": "accept",
+      "error_code": null,
+      "acceptance_cases": [
+        "F11"
+      ],
+      "purpose": "Restored membership advances to 3; old membership binding is stale.",
+      "sha256": "33b40c5548e0e9d94874cf3cf880e49dbeeb3b6d1a009b700779d23de0cde1d3"
+    },
+    {
+      "path": "positive/query-selector-update.json",
+      "schema": "event",
+      "outcome": "accept",
+      "error_code": null,
+      "acceptance_cases": [
+        "F11",
+        "F12"
+      ],
+      "purpose": "Selector change advances edit and selection versions.",
+      "sha256": "42a9abede94051b2223b3461e2cfd1397c9a990644e0ae33b9d6e6edb9646d01"
+    },
+    {
+      "path": "positive/value-archive.json",
+      "schema": "event",
+      "outcome": "accept",
+      "error_code": null,
+      "acceptance_cases": [
+        "F04",
+        "F12"
+      ],
+      "purpose": "Archive changes catalogue only, preserving memberships and selector.",
+      "sha256": "def10d79d19cad22ecb97f246003c061af9c3ed8ad0c21a8c4d911f119ba192e"
+    },
+    {
+      "path": "positive/dimension-archive.json",
+      "schema": "event",
+      "outcome": "accept",
+      "error_code": null,
+      "acceptance_cases": [
+        "F04",
+        "F12"
+      ],
+      "purpose": "Archive changes catalogue only, preserving memberships and selector.",
+      "sha256": "c9774bb7cdbb0fd13f68fecf42b1c3b27b2e00c8fd291345dec0558f6a131f86"
+    },
+    {
+      "path": "positive/archived-existing-membership-noop.json",
+      "schema": "operation",
+      "outcome": "accept",
+      "error_code": null,
+      "acceptance_cases": [
+        "F04",
+        "F05"
+      ],
+      "purpose": "Fresh no-op keeps event_id null and does not advance versions.",
+      "sha256": "8cd7ad2a06b28d69afe559a75956453c1712aa2f87f532c15d2124ba067b5006"
+    },
+    {
+      "path": "positive/retry-original-receipt.json",
+      "schema": "operation",
+      "outcome": "accept",
+      "error_code": null,
+      "acceptance_cases": [
+        "F05"
+      ],
+      "purpose": "Original assignment operation remains exact after rename, remove/restore and archive.",
+      "sha256": "1021011338d8adb689333c8d54f6cbb0f3284378eaaef57494e68fcfcdaff489"
+    },
+    {
+      "path": "history/facets/events-v1.json",
+      "schema": "events_sidecar",
+      "outcome": "accept",
+      "error_code": null,
+      "acceptance_cases": [
+        "F17",
+        "F22"
+      ],
+      "purpose": "Synthetic durable evidence assertion; does not prove runtime export/import.",
+      "sha256": "96b1a646a411c2f50b178e15d2e464eea03d348c5b84630f7fcc2b999992940a"
+    },
+    {
+      "path": "history/facets/operations-v1.json",
+      "schema": "operations_sidecar",
+      "outcome": "accept",
+      "error_code": null,
+      "acceptance_cases": [
+        "F17",
+        "F22"
+      ],
+      "purpose": "Synthetic durable evidence assertion; does not prove runtime export/import.",
+      "sha256": "2d01cdef349c5618780e8d3c4d5a08c481b927bd4a6333ac2b17f705a060b354"
+    },
+    {
+      "path": "content/facets/state-v1.json",
+      "schema": "state_sidecar",
+      "outcome": "accept",
+      "error_code": null,
+      "acceptance_cases": [
+        "F17",
+        "F22"
+      ],
+      "purpose": "Synthetic durable evidence assertion; does not prove runtime export/import.",
+      "sha256": "e74a16227ceba18d887aefba6a07469d50b64af99bd2cc5bcac14e8a4cb5d633"
+    },
+    {
+      "path": "positive/portable-replay.json",
+      "schema": "portable_assertion",
+      "outcome": "accept",
+      "error_code": null,
+      "acceptance_cases": [
+        "F17",
+        "F22"
+      ],
+      "purpose": "Synthetic durable evidence assertion; does not prove runtime export/import.",
+      "sha256": "fcfacaecbc4504ddec62c53f585af492276617d7e3cb405a38321166b69dc641"
+    },
+    {
+      "path": "positive/review-create-cross-space.json",
+      "schema": "review_binding_v5",
+      "outcome": "accept",
+      "error_code": null,
+      "acceptance_cases": [
+        "F09",
+        "F11",
+        "F12",
+        "F13",
+        "F18"
+      ],
+      "purpose": "Selected unassigned source and retained provenance in another space; explicit independent destination.",
+      "sha256": "a0a1ce9d9f0d5512e329e1503f7032d7e93468219946d44161577a6bd014971d"
+    },
+    {
+      "path": "positive/review-unrestricted-record-types.json",
+      "schema": "review_binding_v5",
+      "outcome": "accept",
+      "error_code": null,
+      "acceptance_cases": [
+        "F09",
+        "F18"
+      ],
+      "purpose": "Empty optional record-type filter admits source evidence.",
+      "sha256": "d7bda854922df7d7cefdd4cf3127eef90491051875bf54aad48bdb175ac45fbc"
+    },
+    {
+      "path": "positive/review-update.json",
+      "schema": "review_binding_v5",
+      "outcome": "accept",
+      "error_code": null,
+      "acceptance_cases": [
+        "F09",
+        "F14",
+        "F18"
+      ],
+      "purpose": "Bound retained attachment and explicit destination.",
+      "sha256": "fd14a43381b616f60eecb00e6be0fd1552e2c51c7bdfbb7fe62c3f0b2ddf521b"
+    },
+    {
+      "path": "negative/request-digest.json",
+      "schema": "operation",
+      "outcome": "reject",
+      "error_code": "request_digest_mismatch",
+      "acceptance_cases": [
+        "F05",
+        "F17"
+      ],
+      "purpose": "",
+      "sha256": "b30ac4899751027605cf52f1a65756750bee0f3829aa1a45ddbb0159c7032ba2"
+    },
+    {
+      "path": "negative/noop-with-event.json",
+      "schema": "operation",
+      "outcome": "reject",
+      "error_code": "invalid_evidence",
+      "acceptance_cases": [
+        "F05",
+        "F17"
+      ],
+      "purpose": "",
+      "sha256": "a25d7b5cff9cf999a47fcfcea0029232571eaa59b67b559ff140b744d6d106db"
+    },
+    {
+      "path": "negative/rename-identity.json",
+      "schema": "event",
+      "outcome": "reject",
+      "error_code": "invalid_evidence",
+      "acceptance_cases": [
+        "F01",
+        "F17"
+      ],
+      "purpose": "",
+      "sha256": "8a7dee2264f7991def7bc999a0b058fc579be5b8b2cb26a574c1d0bae122e36f"
+    },
+    {
+      "path": "negative/restore-old-membership-version.json",
+      "schema": "event",
+      "outcome": "reject",
+      "error_code": "invalid_evidence",
+      "acceptance_cases": [
+        "F11",
+        "F17"
+      ],
+      "purpose": "",
+      "sha256": "374fa87dcdd22d3b135e2ef22be6df7bcfafeec14d7004278282631e5fc4b2aa"
+    },
+    {
+      "path": "negative/rename-selection-version.json",
+      "schema": "event",
+      "outcome": "reject",
+      "error_code": "invalid_evidence",
+      "acceptance_cases": [
+        "F12",
+        "F17"
+      ],
+      "purpose": "",
+      "sha256": "4213ae63ed046adebf23b11bfbb7d3074605f0fc67e6c5e58e6131795fba9780"
+    },
+    {
+      "path": "negative/v5-patch.json",
+      "schema": "review_binding_v5",
+      "outcome": "reject",
+      "error_code": "invalid_evidence",
+      "acceptance_cases": [
+        "F13",
+        "F18"
+      ],
+      "purpose": "",
+      "sha256": "83209b2d6ca4fa734074e7f57b235efdf4bce7c1b823cbd6cf13bf3cafe52e26"
+    },
+    {
+      "path": "negative/unsorted-binding-memberships.json",
+      "schema": "review_binding_v5",
+      "outcome": "reject",
+      "error_code": "invalid_evidence",
+      "acceptance_cases": [
+        "F11",
+        "F18"
+      ],
+      "purpose": "",
+      "sha256": "b55c94b54a7da990c0c3219fb76aa43602d62f1dd4e9c789ddbba672973881e7"
+    },
+    {
+      "path": "negative/create-attachment-version.json",
+      "schema": "review_binding_v5",
+      "outcome": "reject",
+      "error_code": "invalid_evidence",
+      "acceptance_cases": [
+        "F14",
+        "F18"
+      ],
+      "purpose": "",
+      "sha256": "c081d49813d3721f8fc58a7a043e0b268b9ae19d35daccfe538b36109c4a12e1"
+    },
+    {
+      "path": "negative/missing-dimension.json",
+      "schema": "state_sidecar",
+      "outcome": "reject",
+      "error_code": "invalid_evidence",
+      "acceptance_cases": [
+        "F17"
+      ],
+      "purpose": "",
+      "sha256": "a62f67cbce70888a6b63bfb4bf5151c75ae0f71fd82e5b03104dd25304826256"
+    },
+    {
+      "path": "negative/replay-state-drift.json",
+      "schema": "portable_assertion",
+      "outcome": "reject",
+      "error_code": "replay_state_mismatch",
+      "acceptance_cases": [
+        "F17"
+      ],
+      "purpose": "",
+      "sha256": "b24eadd7810d04e2bcc32c1a1a725ddf49cb519e314eb5bd913f8c6ddbc233c7"
+    },
+    {
+      "path": "negative/replay-before-drift.json",
+      "schema": "portable_assertion",
+      "outcome": "reject",
+      "error_code": "replay_before_mismatch",
+      "acceptance_cases": [
+        "F17"
+      ],
+      "purpose": "",
+      "sha256": "9205496958b48a06d3a0396dd2f02b7d781295c86fa17cb3db2341b68435f119"
+    },
+    {
+      "path": "negative/event-operation-link.json",
+      "schema": "portable_assertion",
+      "outcome": "reject",
+      "error_code": "operation_event_mismatch",
+      "acceptance_cases": [
+        "F17"
+      ],
+      "purpose": "",
+      "sha256": "643ee3fec001bab6988d44ef92a9c4df0516272a1c737b9dc35338f7a1e6f065"
+    },
+    {
+      "path": "negative/divergent-operation-reuse.json",
+      "schema": "operations_sidecar",
+      "outcome": "reject",
+      "error_code": "invalid_evidence",
+      "acceptance_cases": [
+        "F05",
+        "F17"
+      ],
+      "purpose": "One operation ID cannot retain divergent requests; runtime admission returns idempotency_conflict.",
+      "sha256": "54253626861bf25bab75046b4fefba637749fdc79af1743cefaabd9f49947ae7"
+    },
+    {
+      "path": "negative/boolean-sequence.json",
+      "schema": "event",
+      "outcome": "reject",
+      "error_code": "invalid_evidence",
+      "acceptance_cases": [
+        "F17"
+      ],
+      "purpose": "",
+      "sha256": "2e84c09639dcaaa2b9602249fe1da7debc2e9167149fd641a4529d5053549d48"
+    },
+    {
+      "path": "negative/local-path-in-event.json",
+      "schema": "event",
+      "outcome": "reject",
+      "error_code": "invalid_evidence",
+      "acceptance_cases": [
+        "F17",
+        "F21"
+      ],
+      "purpose": "",
+      "sha256": "845e810d3bbec006b885c7c3bc5f32d289aea87bfcf21271734e07bcb99d89a9"
+    }
+  ],
+  "acceptance_ownership": {
+    "F01": {
+      "producer": "E",
+      "independent_test_owner": "T",
+      "inputs": [
+        "verified C0 fixture manifest",
+        "E production seams"
+      ],
+      "declared_outputs": [
+        "F01 real producer acceptance evidence",
+        "F01 independent assertions"
+      ],
+      "verification_command": "make verify",
+      "c0_completion": "fixtures/interfaces only; runtime acceptance pending"
+    },
+    "F02": {
+      "producer": "E",
+      "independent_test_owner": "T",
+      "inputs": [
+        "verified C0 fixture manifest",
+        "E production seams"
+      ],
+      "declared_outputs": [
+        "F02 real producer acceptance evidence",
+        "F02 independent assertions"
+      ],
+      "verification_command": "make verify",
+      "c0_completion": "fixtures/interfaces only; runtime acceptance pending"
+    },
+    "F03": {
+      "producer": "E",
+      "independent_test_owner": "T",
+      "inputs": [
+        "verified C0 fixture manifest",
+        "E production seams"
+      ],
+      "declared_outputs": [
+        "F03 real producer acceptance evidence",
+        "F03 independent assertions"
+      ],
+      "verification_command": "make verify",
+      "c0_completion": "fixtures/interfaces only; runtime acceptance pending"
+    },
+    "F04": {
+      "producer": "E",
+      "independent_test_owner": "T",
+      "inputs": [
+        "verified C0 fixture manifest",
+        "E production seams"
+      ],
+      "declared_outputs": [
+        "F04 real producer acceptance evidence",
+        "F04 independent assertions"
+      ],
+      "verification_command": "make verify",
+      "c0_completion": "fixtures/interfaces only; runtime acceptance pending"
+    },
+    "F05": {
+      "producer": "E",
+      "independent_test_owner": "T",
+      "inputs": [
+        "verified C0 fixture manifest",
+        "E production seams"
+      ],
+      "declared_outputs": [
+        "F05 real producer acceptance evidence",
+        "F05 independent assertions"
+      ],
+      "verification_command": "make verify",
+      "c0_completion": "fixtures/interfaces only; runtime acceptance pending"
+    },
+    "F06": {
+      "producer": "E",
+      "independent_test_owner": "T",
+      "inputs": [
+        "verified C0 fixture manifest",
+        "E production seams"
+      ],
+      "declared_outputs": [
+        "F06 real producer acceptance evidence",
+        "F06 independent assertions"
+      ],
+      "verification_command": "make verify",
+      "c0_completion": "fixtures/interfaces only; runtime acceptance pending"
+    },
+    "F07": {
+      "producer": "E",
+      "independent_test_owner": "T",
+      "inputs": [
+        "verified C0 fixture manifest",
+        "E production seams"
+      ],
+      "declared_outputs": [
+        "F07 real producer acceptance evidence",
+        "F07 independent assertions"
+      ],
+      "verification_command": "make verify",
+      "c0_completion": "fixtures/interfaces only; runtime acceptance pending"
+    },
+    "F08": {
+      "producer": "E",
+      "independent_test_owner": "T",
+      "inputs": [
+        "verified C0 fixture manifest",
+        "E production seams"
+      ],
+      "declared_outputs": [
+        "F08 real producer acceptance evidence",
+        "F08 independent assertions"
+      ],
+      "verification_command": "make verify",
+      "c0_completion": "fixtures/interfaces only; runtime acceptance pending"
+    },
+    "F09": {
+      "producer": "P",
+      "independent_test_owner": "T",
+      "inputs": [
+        "verified C0 fixture manifest",
+        "P production seams"
+      ],
+      "declared_outputs": [
+        "F09 real producer acceptance evidence",
+        "F09 independent assertions"
+      ],
+      "verification_command": "make verify",
+      "c0_completion": "fixtures/interfaces only; runtime acceptance pending"
+    },
+    "F10": {
+      "producer": "P",
+      "independent_test_owner": "T",
+      "inputs": [
+        "verified C0 fixture manifest",
+        "P production seams"
+      ],
+      "declared_outputs": [
+        "F10 real producer acceptance evidence",
+        "F10 independent assertions"
+      ],
+      "verification_command": "make verify",
+      "c0_completion": "fixtures/interfaces only; runtime acceptance pending"
+    },
+    "F11": {
+      "producer": "P",
+      "independent_test_owner": "T",
+      "inputs": [
+        "verified C0 fixture manifest",
+        "P production seams"
+      ],
+      "declared_outputs": [
+        "F11 real producer acceptance evidence",
+        "F11 independent assertions"
+      ],
+      "verification_command": "make verify",
+      "c0_completion": "fixtures/interfaces only; runtime acceptance pending"
+    },
+    "F12": {
+      "producer": "P",
+      "independent_test_owner": "T",
+      "inputs": [
+        "verified C0 fixture manifest",
+        "P production seams"
+      ],
+      "declared_outputs": [
+        "F12 real producer acceptance evidence",
+        "F12 independent assertions"
+      ],
+      "verification_command": "make verify",
+      "c0_completion": "fixtures/interfaces only; runtime acceptance pending"
+    },
+    "F13": {
+      "producer": "P",
+      "independent_test_owner": "T",
+      "inputs": [
+        "verified C0 fixture manifest",
+        "P production seams"
+      ],
+      "declared_outputs": [
+        "F13 real producer acceptance evidence",
+        "F13 independent assertions"
+      ],
+      "verification_command": "make verify",
+      "c0_completion": "fixtures/interfaces only; runtime acceptance pending"
+    },
+    "F14": {
+      "producer": "P",
+      "independent_test_owner": "T",
+      "inputs": [
+        "verified C0 fixture manifest",
+        "P production seams"
+      ],
+      "declared_outputs": [
+        "F14 real producer acceptance evidence",
+        "F14 independent assertions"
+      ],
+      "verification_command": "make verify",
+      "c0_completion": "fixtures/interfaces only; runtime acceptance pending"
+    },
+    "F15": {
+      "producer": "A",
+      "independent_test_owner": "T",
+      "inputs": [
+        "verified C0 fixture manifest",
+        "A production seams"
+      ],
+      "declared_outputs": [
+        "F15 real producer acceptance evidence",
+        "F15 independent assertions"
+      ],
+      "verification_command": "make verify",
+      "c0_completion": "fixtures/interfaces only; runtime acceptance pending"
+    },
+    "F16": {
+      "producer": "E",
+      "independent_test_owner": "T",
+      "inputs": [
+        "verified C0 fixture manifest",
+        "E production seams"
+      ],
+      "declared_outputs": [
+        "F16 real producer acceptance evidence",
+        "F16 independent assertions"
+      ],
+      "verification_command": "make verify",
+      "c0_completion": "fixtures/interfaces only; runtime acceptance pending"
+    },
+    "F17": {
+      "producer": "X",
+      "independent_test_owner": "T",
+      "inputs": [
+        "verified C0 fixture manifest",
+        "X production seams"
+      ],
+      "declared_outputs": [
+        "F17 real producer acceptance evidence",
+        "F17 independent assertions"
+      ],
+      "verification_command": "make verify",
+      "c0_completion": "fixtures/interfaces only; runtime acceptance pending"
+    },
+    "F18": {
+      "producer": "X",
+      "independent_test_owner": "T",
+      "inputs": [
+        "verified C0 fixture manifest",
+        "X production seams"
+      ],
+      "declared_outputs": [
+        "F18 real producer acceptance evidence",
+        "F18 independent assertions"
+      ],
+      "verification_command": "make verify",
+      "c0_completion": "fixtures/interfaces only; runtime acceptance pending"
+    },
+    "F19": {
+      "producer": "X",
+      "independent_test_owner": "T",
+      "inputs": [
+        "verified C0 fixture manifest",
+        "X production seams"
+      ],
+      "declared_outputs": [
+        "F19 real producer acceptance evidence",
+        "F19 independent assertions"
+      ],
+      "verification_command": "make verify",
+      "c0_completion": "fixtures/interfaces only; runtime acceptance pending"
+    },
+    "F20": {
+      "producer": "V",
+      "independent_test_owner": "T",
+      "inputs": [
+        "verified C0 fixture manifest",
+        "V production seams"
+      ],
+      "declared_outputs": [
+        "F20 real producer acceptance evidence",
+        "F20 independent assertions"
+      ],
+      "verification_command": "make verify",
+      "c0_completion": "fixtures/interfaces only; runtime acceptance pending"
+    },
+    "F21": {
+      "producer": "V",
+      "independent_test_owner": "T",
+      "inputs": [
+        "verified C0 fixture manifest",
+        "V production seams"
+      ],
+      "declared_outputs": [
+        "F21 real producer acceptance evidence",
+        "F21 independent assertions"
+      ],
+      "verification_command": "make verify",
+      "c0_completion": "fixtures/interfaces only; runtime acceptance pending"
+    },
+    "F22": {
+      "producer": "I",
+      "independent_test_owner": "T",
+      "inputs": [
+        "verified C0 fixture manifest",
+        "I production seams"
+      ],
+      "declared_outputs": [
+        "F22 real producer acceptance evidence",
+        "F22 independent assertions"
+      ],
+      "verification_command": "make verify",
+      "c0_completion": "fixtures/interfaces only; runtime acceptance pending"
+    }
+  },
+  "wire_fixtures": [
+    {
+      "path": "wire-cases.json",
+      "sha256": "c0a7c65e16ed38957312eb165c11284179d4f587f1baac868870cd3ba3a5fbca",
+      "purpose": "All23 normalized wire requests/responses plus malformed raw admission cases; every case declares its outcome and acceptance mapping."
+    }
+  ]
+}

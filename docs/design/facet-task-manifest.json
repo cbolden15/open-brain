@@ -1,0 +1,424 @@
+{
+  "manifest_version": 1,
+  "status": "C0 task contracts; future implementation files are reserved, not implemented",
+  "path_base": "repository root of each isolated worktree",
+  "baseline": "bd368ec",
+  "input_pin_rule": "Every consumer records verified C0 commit (or verified integration descendant), contract revision and exact fixture manifest SHA-256 before edits. Resolve paths against its absolute worktree path.",
+  "contract_change_owner": "coordinator; update types/schema/fixtures together and invalidate affected gates",
+  "c0_ownership": {
+    "wire": [
+      "packages/engine/src/open_brain_engine/engine/facet_contracts.py",
+      "packages/engine/src/open_brain_engine/engine/facet_validation.py",
+      "packages/engine/src/open_brain_engine/engine/facet_schema.json",
+      "packages/engine/tests/contract/test_facet_contracts.py"
+    ],
+    "evidence": [
+      "packages/engine/src/open_brain_engine/engine/facet_evidence.py",
+      "packages/engine/src/open_brain_engine/engine/facet_evidence_schema.json",
+      "packages/engine/tests/fixtures/facets/**",
+      "packages/engine/tests/contract/test_facet_evidence.py"
+    ],
+    "independent_check": [
+      "packages/engine/tests/contract/test_facet_boundary_adversarial.py"
+    ],
+    "coordinator": [
+      "packages/app/tests/facet_fake.py",
+      "packages/app/tests/unit/test_facet_adapter_contracts.py",
+      "docs/design/facet-contract-kit.md",
+      "docs/design/facet-task-manifest.json",
+      "docs/design/owner-defined-facets-stage-one.md",
+      "docs/ai/workstreams/20261013-open-brain-public-implement-and-verify-c0-executable-facet-contract-kit-b55f67/**",
+      "packages/engine/tests/contract/test_facet_contract_integration.py",
+      "CLAUDE.md",
+      "docs/engineering/gotchas/README.md"
+    ]
+  },
+  "shared_file_rule": "No worker changes shared registration, dispatch or catalog files outside its reservation. Report additional existing-file needs before edits; coordinator serializes ownership. Historical schema catalogs are immutable. Final v6 catalog registration/freeze is coordinator-owned after I/R.",
+  "tasks": {
+    "E": {
+      "requires_verified": [
+        "C0"
+      ],
+      "input_files": [
+        "packages/engine/src/open_brain_engine/engine/facet_contracts.py",
+        "packages/engine/src/open_brain_engine/engine/facet_validation.py",
+        "packages/engine/src/open_brain_engine/engine/facet_schema.json",
+        "packages/engine/src/open_brain_engine/engine/facet_evidence.py",
+        "packages/engine/src/open_brain_engine/engine/facet_evidence_schema.json",
+        "packages/engine/tests/fixtures/facets/manifest.json",
+        "docs/design/owner-defined-facets-stage-one.md",
+        "docs/architecture/decisions/0020-independent-owner-defined-facets.md"
+      ],
+      "exclusive_write_scope": [
+        "packages/engine/src/open_brain_engine/engine/facets.py",
+        "packages/engine/src/open_brain_engine/engine/facet_store.py",
+        "packages/engine/src/open_brain_engine/engine/local_schema.py",
+        "packages/engine/src/open_brain_engine/engine/local_schema_catalog.py",
+        "packages/app/src/open_brain/services/local_runtime_session.py",
+        "packages/engine/tests/integration/test_facets_engine.py",
+        "packages/engine/tests/integration/test_facets_migration.py"
+      ],
+      "acceptance_cases": [
+        "F01",
+        "F02",
+        "F03",
+        "F04",
+        "F05",
+        "F06",
+        "F07",
+        "F08",
+        "F16"
+      ],
+      "declared_outputs": [
+        "local implementation commit",
+        "focused verification evidence",
+        "handoff with contract revision and fixture manifest hash"
+      ],
+      "focused_verification": [
+        "uv run --frozen pytest -q packages/engine/tests/integration/test_facets_engine.py packages/engine/tests/integration/test_facets_migration.py",
+        "uv run --frozen ruff check .",
+        "uv run --frozen mypy"
+      ],
+      "completion_gate": "real-producer acceptance plus coordinator repository checks; fake results alone do not complete task"
+    },
+    "A": {
+      "requires_verified": [
+        "C0"
+      ],
+      "input_files": [
+        "packages/engine/src/open_brain_engine/engine/facet_contracts.py",
+        "packages/engine/src/open_brain_engine/engine/facet_validation.py",
+        "packages/engine/src/open_brain_engine/engine/facet_schema.json",
+        "packages/engine/src/open_brain_engine/engine/facet_evidence.py",
+        "packages/engine/src/open_brain_engine/engine/facet_evidence_schema.json",
+        "packages/engine/tests/fixtures/facets/manifest.json",
+        "docs/design/owner-defined-facets-stage-one.md",
+        "docs/architecture/decisions/0020-independent-owner-defined-facets.md",
+        "packages/app/tests/facet_fake.py"
+      ],
+      "exclusive_write_scope": [
+        "packages/app/src/open_brain/services/facets.py",
+        "packages/app/tests/facet_fake.py",
+        "packages/app/tests/unit/test_facets_adapters.py",
+        "packages/app/tests/integration/services/test_facets_cli_mcp.py"
+      ],
+      "acceptance_cases": [
+        "F15"
+      ],
+      "declared_outputs": [
+        "local implementation commit",
+        "focused verification evidence",
+        "handoff with contract revision and fixture manifest hash"
+      ],
+      "focused_verification": [
+        "uv run --frozen pytest -q packages/app/tests/unit/test_facets_adapters.py packages/app/tests/integration/services/test_facets_cli_mcp.py",
+        "uv run --frozen ruff check .",
+        "uv run --frozen mypy"
+      ],
+      "completion_gate": "real-producer acceptance plus coordinator repository checks; fake results alone do not complete task",
+      "final_integration_requires": [
+        "E",
+        "P"
+      ]
+    },
+    "T": {
+      "requires_verified": [
+        "C0"
+      ],
+      "input_files": [
+        "packages/engine/src/open_brain_engine/engine/facet_contracts.py",
+        "packages/engine/src/open_brain_engine/engine/facet_validation.py",
+        "packages/engine/src/open_brain_engine/engine/facet_schema.json",
+        "packages/engine/src/open_brain_engine/engine/facet_evidence.py",
+        "packages/engine/src/open_brain_engine/engine/facet_evidence_schema.json",
+        "packages/engine/tests/fixtures/facets/manifest.json",
+        "docs/design/owner-defined-facets-stage-one.md",
+        "docs/architecture/decisions/0020-independent-owner-defined-facets.md"
+      ],
+      "exclusive_write_scope": [
+        "packages/engine/tests/contract/test_facets_acceptance.py",
+        "packages/engine/tests/integration/test_facets_faults.py",
+        "packages/app/tests/integration/services/test_facets_end_to_end.py"
+      ],
+      "acceptance_cases": [
+        "F01",
+        "F02",
+        "F03",
+        "F04",
+        "F05",
+        "F06",
+        "F07",
+        "F08",
+        "F09",
+        "F10",
+        "F11",
+        "F12",
+        "F13",
+        "F14",
+        "F15",
+        "F16",
+        "F17",
+        "F18",
+        "F19",
+        "F20",
+        "F21",
+        "F22"
+      ],
+      "declared_outputs": [
+        "local implementation commit",
+        "focused verification evidence",
+        "handoff with contract revision and fixture manifest hash"
+      ],
+      "focused_verification": [
+        "uv run --frozen pytest -q packages/engine/tests/contract/test_facets_acceptance.py packages/engine/tests/integration/test_facets_faults.py packages/app/tests/integration/services/test_facets_end_to_end.py",
+        "uv run --frozen ruff check .",
+        "uv run --frozen mypy"
+      ],
+      "completion_gate": "real-producer acceptance plus coordinator repository checks; fake results alone do not complete task",
+      "final_integration_requires": [
+        "E",
+        "A",
+        "P",
+        "X",
+        "V"
+      ]
+    },
+    "P": {
+      "requires_verified": [
+        "C0",
+        "E"
+      ],
+      "input_files": [
+        "packages/engine/src/open_brain_engine/engine/facet_contracts.py",
+        "packages/engine/src/open_brain_engine/engine/facet_validation.py",
+        "packages/engine/src/open_brain_engine/engine/facet_schema.json",
+        "packages/engine/src/open_brain_engine/engine/facet_evidence.py",
+        "packages/engine/src/open_brain_engine/engine/facet_evidence_schema.json",
+        "packages/engine/tests/fixtures/facets/manifest.json",
+        "docs/design/owner-defined-facets-stage-one.md",
+        "docs/architecture/decisions/0020-independent-owner-defined-facets.md"
+      ],
+      "exclusive_write_scope": [
+        "packages/engine/src/open_brain_engine/engine/facet_publication.py",
+        "packages/engine/src/open_brain_engine/engine/review_bound.py",
+        "packages/engine/src/open_brain_engine/engine/review.py",
+        "packages/engine/src/open_brain_engine/portable/review_binding.py",
+        "packages/engine/tests/integration/test_facet_publication.py"
+      ],
+      "acceptance_cases": [
+        "F09",
+        "F10",
+        "F11",
+        "F12",
+        "F13",
+        "F14"
+      ],
+      "declared_outputs": [
+        "local implementation commit",
+        "focused verification evidence",
+        "handoff with contract revision and fixture manifest hash"
+      ],
+      "focused_verification": [
+        "uv run --frozen pytest -q packages/engine/tests/integration/test_facet_publication.py",
+        "uv run --frozen ruff check .",
+        "uv run --frozen mypy"
+      ],
+      "completion_gate": "real-producer acceptance plus coordinator repository checks; fake results alone do not complete task"
+    },
+    "X": {
+      "requires_verified": [
+        "C0",
+        "E"
+      ],
+      "input_files": [
+        "packages/engine/src/open_brain_engine/engine/facet_contracts.py",
+        "packages/engine/src/open_brain_engine/engine/facet_validation.py",
+        "packages/engine/src/open_brain_engine/engine/facet_schema.json",
+        "packages/engine/src/open_brain_engine/engine/facet_evidence.py",
+        "packages/engine/src/open_brain_engine/engine/facet_evidence_schema.json",
+        "packages/engine/tests/fixtures/facets/manifest.json",
+        "docs/design/owner-defined-facets-stage-one.md",
+        "docs/architecture/decisions/0020-independent-owner-defined-facets.md"
+      ],
+      "exclusive_write_scope": [
+        "packages/engine/src/open_brain_engine/engine/portable_v6_evidence.py",
+        "packages/engine/src/open_brain_engine/engine/portable_v6_restore.py",
+        "packages/engine/src/open_brain_engine/portable/facets_v6.py",
+        "packages/engine/tests/contract/test_portable_brain_v6.py"
+      ],
+      "acceptance_cases": [
+        "F17",
+        "F18",
+        "F19"
+      ],
+      "declared_outputs": [
+        "local implementation commit",
+        "focused verification evidence",
+        "handoff with contract revision and fixture manifest hash"
+      ],
+      "focused_verification": [
+        "uv run --frozen pytest -q packages/engine/tests/contract/test_portable_brain_v6.py",
+        "uv run --frozen ruff check .",
+        "uv run --frozen mypy"
+      ],
+      "completion_gate": "real-producer acceptance plus coordinator repository checks; fake results alone do not complete task",
+      "final_integration_requires": [
+        "P pending proposal evidence",
+        "V managed export evidence"
+      ]
+    },
+    "V": {
+      "requires_verified": [
+        "C0",
+        "E"
+      ],
+      "input_files": [
+        "packages/engine/src/open_brain_engine/engine/facet_contracts.py",
+        "packages/engine/src/open_brain_engine/engine/facet_validation.py",
+        "packages/engine/src/open_brain_engine/engine/facet_schema.json",
+        "packages/engine/src/open_brain_engine/engine/facet_evidence.py",
+        "packages/engine/src/open_brain_engine/engine/facet_evidence_schema.json",
+        "packages/engine/tests/fixtures/facets/manifest.json",
+        "docs/design/owner-defined-facets-stage-one.md",
+        "docs/architecture/decisions/0020-independent-owner-defined-facets.md"
+      ],
+      "exclusive_write_scope": [
+        "packages/engine/src/open_brain_engine/engine/facet_vault.py",
+        "packages/engine/src/open_brain_engine/engine/managed_workspace.py",
+        "packages/engine/src/open_brain_engine/engine/managed_portability.py",
+        "packages/engine/tests/integration/test_facet_vault.py"
+      ],
+      "acceptance_cases": [
+        "F20",
+        "F21"
+      ],
+      "declared_outputs": [
+        "local implementation commit",
+        "focused verification evidence",
+        "handoff with contract revision and fixture manifest hash"
+      ],
+      "focused_verification": [
+        "uv run --frozen pytest -q packages/engine/tests/integration/test_facet_vault.py",
+        "uv run --frozen ruff check .",
+        "uv run --frozen mypy"
+      ],
+      "completion_gate": "real-producer acceptance plus coordinator repository checks; fake results alone do not complete task"
+    },
+    "I": {
+      "requires_verified": [
+        "E",
+        "A",
+        "T",
+        "P",
+        "X",
+        "V"
+      ],
+      "input_files": [
+        "packages/engine/src/open_brain_engine/engine/facet_contracts.py",
+        "packages/engine/src/open_brain_engine/engine/facet_validation.py",
+        "packages/engine/src/open_brain_engine/engine/facet_schema.json",
+        "packages/engine/src/open_brain_engine/engine/facet_evidence.py",
+        "packages/engine/src/open_brain_engine/engine/facet_evidence_schema.json",
+        "packages/engine/tests/fixtures/facets/manifest.json",
+        "docs/design/owner-defined-facets-stage-one.md",
+        "docs/architecture/decisions/0020-independent-owner-defined-facets.md"
+      ],
+      "exclusive_write_scope": [
+        "packages/engine/src/open_brain_engine/engine/contracts.py",
+        "packages/engine/src/open_brain_engine/engine/local.py",
+        "packages/engine/src/open_brain_engine/engine/portability.py",
+        "packages/app/src/open_brain/services/local_entrypoints.py",
+        "packages/app/src/open_brain/services/local_mcp.py",
+        "packages/app/src/open_brain/services/review_publication.py",
+        "packages/app/src/open_brain/services/agent_setup.py"
+      ],
+      "acceptance_cases": [
+        "F01",
+        "F02",
+        "F03",
+        "F04",
+        "F05",
+        "F06",
+        "F07",
+        "F08",
+        "F09",
+        "F10",
+        "F11",
+        "F12",
+        "F13",
+        "F14",
+        "F15",
+        "F16",
+        "F17",
+        "F18",
+        "F19",
+        "F20",
+        "F21",
+        "F22"
+      ],
+      "declared_outputs": [
+        "local implementation commit",
+        "focused verification evidence",
+        "handoff with contract revision and fixture manifest hash"
+      ],
+      "focused_verification": [
+        "uv run --frozen pytest -q packages/engine/tests/contract/test_facet_contracts.py packages/engine/tests/contract/test_facet_evidence.py packages/engine/tests/contract/test_facet_boundary_adversarial.py packages/engine/tests/contract/test_facet_contract_integration.py packages/app/tests/unit/test_facet_adapter_contracts.py",
+        "make verify",
+        "git diff --check",
+        "actionlint .github/workflows/ci.yml"
+      ],
+      "completion_gate": "real-producer acceptance plus coordinator repository checks; fake results alone do not complete task"
+    },
+    "R": {
+      "requires_verified": [
+        "I"
+      ],
+      "input_files": [
+        "packages/engine/src/open_brain_engine/engine/facet_contracts.py",
+        "packages/engine/src/open_brain_engine/engine/facet_validation.py",
+        "packages/engine/src/open_brain_engine/engine/facet_schema.json",
+        "packages/engine/src/open_brain_engine/engine/facet_evidence.py",
+        "packages/engine/src/open_brain_engine/engine/facet_evidence_schema.json",
+        "packages/engine/tests/fixtures/facets/manifest.json",
+        "docs/design/owner-defined-facets-stage-one.md",
+        "docs/architecture/decisions/0020-independent-owner-defined-facets.md",
+        "docs/design/facet-task-manifest.json"
+      ],
+      "exclusive_write_scope": [],
+      "read_only": true,
+      "acceptance_cases": [
+        "F01",
+        "F02",
+        "F03",
+        "F04",
+        "F05",
+        "F06",
+        "F07",
+        "F08",
+        "F09",
+        "F10",
+        "F11",
+        "F12",
+        "F13",
+        "F14",
+        "F15",
+        "F16",
+        "F17",
+        "F18",
+        "F19",
+        "F20",
+        "F21",
+        "F22"
+      ],
+      "declared_outputs": [
+        "independent findings with file and test evidence",
+        "release catalog freeze recommendation"
+      ],
+      "completion_gate": "findings resolved on exact verified candidate; applicable release checks remain coordinator-owned",
+      "verification": [
+        "make verify",
+        "applicable native/package/release acceptance on exact candidate"
+      ]
+    }
+  }
+}
