@@ -561,3 +561,68 @@ def _protocol_conformance(tasks: FacetTasks) -> fc.FacetTasks:
 def test_real_task_signatures_conform_to_the_shared_protocol(brain: Brain) -> None:
     assert _protocol_conformance(brain.tasks) is brain.tasks
     assert not brain.migration_pending
+
+
+@pytest.mark.parametrize("parent_change", ["rename", "archive"])
+@pytest.mark.parametrize("name", ["Apollo", "New value"])
+def test_value_create_checks_stale_parent_before_name_conflict(
+    brain: Brain, parent_change: str, name: str
+) -> None:
+    dimension, _value, _other = brain.vocabulary()
+    arguments: dict[str, Any] = {"dimension_id": dimension, "expected_version": 1}
+    if parent_change == "rename":
+        arguments["name"] = "Projects"
+    brain.write(f"facet.dimension.{parent_change}", arguments)
+    counters = brain.counters()
+    with pytest.raises(fc.FacetError, match="^version_conflict$"):
+        brain.write(
+            "facet.value.create",
+            {
+                "dimension_id": dimension,
+                "expected_dimension_version": 1,
+                "expected_version": 0,
+                "name": name,
+            },
+        )
+    assert brain.counters() == counters
+
+
+@pytest.mark.parametrize("name", ["Apollo", "New value"])
+def test_value_create_checks_current_parent_archive_before_name_conflict(
+    brain: Brain, name: str
+) -> None:
+    dimension, _value, _other = brain.vocabulary()
+    brain.write("facet.dimension.archive", {"dimension_id": dimension, "expected_version": 1})
+    counters = brain.counters()
+    with pytest.raises(fc.FacetError, match="^facet_archived$"):
+        brain.write(
+            "facet.value.create",
+            {
+                "dimension_id": dimension,
+                "expected_dimension_version": 2,
+                "expected_version": 0,
+                "name": name,
+            },
+        )
+    assert brain.counters() == counters
+
+
+def test_value_create_retry_precedes_changed_parent_admission(brain: Brain) -> None:
+    dimension, value, _other = brain.vocabulary()
+    original = {
+        "operation_id": "fixture.operation.2",
+        "dimension_id": dimension,
+        "expected_dimension_version": 1,
+        "expected_version": 0,
+        "name": "Apollo",
+    }
+    receipt = brain.call("facet.value.create", original)
+    assert receipt["subject_id"] == value
+    brain.write(
+        "facet.dimension.rename",
+        {"dimension_id": dimension, "expected_version": 1, "name": "Projects"},
+    )
+    brain.write("facet.dimension.archive", {"dimension_id": dimension, "expected_version": 2})
+    counters = brain.counters()
+    assert brain.call("facet.value.create", original) == receipt
+    assert brain.counters() == counters

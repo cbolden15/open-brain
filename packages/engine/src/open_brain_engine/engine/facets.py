@@ -316,6 +316,11 @@ class FacetTasks:
             return [change("attachment", before, after)], args["page_id"], version + 1
         key = {"dimension": "dimension_id", "value": "value_id", "query": "query_id"}[kind]
         if action == "create":
+            if kind == "value":
+                parent = self._entity(connection, "dimension", args["dimension_id"])
+                self._expect(args["expected_dimension_version"], parent)
+                if parent["archived"]:
+                    raise fc.FacetError("facet_archived")
             self._unique_name(connection, kind, args["name"], dimension_id=args.get("dimension_id"))
             identity = {"dimension": "facetdim_", "value": "facetval_", "query": "facetquery_"}[
                 kind
@@ -329,10 +334,6 @@ class FacetTasks:
                 "updated_at": recorded,
             }
             if kind == "value":
-                parent = self._entity(connection, "dimension", args["dimension_id"])
-                self._expect(args["expected_dimension_version"], parent)
-                if parent["archived"]:
-                    raise fc.FacetError("facet_archived")
                 after["dimension_id"] = args["dimension_id"]
             if kind == "query":
                 after.update(selector=args["selector"], selection_version=1)
