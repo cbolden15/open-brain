@@ -1,0 +1,122 @@
+{
+  "milestone": "PR79 main reconciliation",
+  "status": "reserved before dispatch",
+  "pins": {
+    "feature": "7e161c2336c126c59c68b00b294e3823d5707491",
+    "main": "621161ad48bc8fcfa64966c7a618c18cc72b660a",
+    "base": "1012a5148bd7b6f7d6f07036a0e353985c2cfb90",
+    "c0_revision": "facets-c0-v4",
+    "c0_fixture_manifest_sha256": "95e85b535eeb4263a6e430970ecf1d49de8d0b72de7425e41be703897d93dbc5",
+    "o0_revision": "obsidian-o0-v1",
+    "o0_fixture_manifest_sha256": "bee455084d682e8e717f5f40e1a5cfad82ada7546fdf6412552a8e4844a50d9f"
+  },
+  "target": {
+    "schema": 15,
+    "runtime_session": 10,
+    "portable": 10,
+    "rule": "Preserve main schemas1-14 and Portable1-9 bytes/semantics; append facet support. Old unpublished branch schema11/Portable6 retain historical verification pins only, never reinterpret as current main formats."
+  },
+  "execution": {
+    "max_active_workers": 6,
+    "max_total_attempts": 12,
+    "used_attempts": 3,
+    "reserved_active": 3,
+    "authority": "User requested reconcile PR79 before merging. Update PR branch after verification; no merge or deployment.",
+    "continuity": "New user-requested milestone after completed O0 handoff."
+  },
+  "ownership": {
+    "E": [
+      "packages/engine/src/open_brain_engine/engine/facet_schema_migration.py",
+      "packages/engine/src/open_brain_engine/engine/facet_store.py",
+      "packages/engine/src/open_brain_engine/engine/facets.py",
+      "packages/engine/src/open_brain_engine/engine/facet_queries.py",
+      "packages/engine/src/open_brain_engine/engine/facet_publication.py",
+      "packages/engine/tests/integration/test_facets_migration.py",
+      "packages/engine/tests/integration/test_facets_faults.py",
+      "packages/engine/tests/integration/test_facets_engine.py",
+      "packages/engine/tests/integration/test_facet_publication.py",
+      "packages/engine/tests/integration/test_facets_main_compatibility.py",
+      "packages/engine/tests/contract/test_facets_acceptance.py",
+      "packages/engine/tests/contract/test_facet_boundary_adversarial.py"
+    ],
+    "X": [
+      "packages/engine/src/open_brain_engine/portable/v10.py",
+      "packages/engine/src/open_brain_engine/portable/v10_catalog.py",
+      "packages/engine/src/open_brain_engine/portable/facets_v10.py",
+      "packages/engine/src/open_brain_engine/portable/facets_v6.py",
+      "packages/engine/src/open_brain_engine/portable/v6_catalog.py",
+      "packages/engine/src/open_brain_engine/engine/portable_v10_evidence.py",
+      "packages/engine/src/open_brain_engine/engine/portable_v10_restore.py",
+      "packages/engine/src/open_brain_engine/engine/portable_v6_evidence.py",
+      "packages/engine/src/open_brain_engine/engine/portable_v6_restore.py",
+      "packages/engine/tests/contract/test_portable_brain_v6.py",
+      "packages/engine/tests/contract/test_portable_brain_v10.py",
+      "packages/engine/tests/integration/test_facets_portable_main_compatibility.py"
+    ],
+    "A": [
+      "packages/app/src/open_brain/services/facets.py",
+      "packages/app/tests/facet_fake.py",
+      "packages/app/tests/unit/test_facet_adapter_contracts.py",
+      "packages/app/tests/unit/test_facets_adapters.py",
+      "packages/app/tests/integration/services/test_facets_cli_mcp.py",
+      "packages/app/tests/integration/services/test_facets_end_to_end.py",
+      "packages/app/tests/integration/services/test_facets_current_policy.py"
+    ],
+    "coordinator": [
+      "All shared contracts and schemas, registration/composition files, upstream conflict resolutions, docs/design/facets-main-reconciliation.json, workstream state, audit, integration and tests outside worker scopes. Workers propose shared changes privately; coordinator applies them."
+    ]
+  },
+  "workers": [
+    {
+      "role": "E",
+      "status": "reserved",
+      "worktree": "/Users/calebbolden/Projects/oss/open-brain-reconcile-e",
+      "budget_minutes": 60,
+      "input_pin": {
+        "feature": "7e161c2336c126c59c68b00b294e3823d5707491",
+        "main": "621161ad48bc8fcfa64966c7a618c18cc72b660a",
+        "base": "1012a5148bd7b6f7d6f07036a0e353985c2cfb90",
+        "c0_revision": "facets-c0-v4",
+        "c0_fixture_manifest_sha256": "95e85b535eeb4263a6e430970ecf1d49de8d0b72de7425e41be703897d93dbc5",
+        "o0_revision": "obsidian-o0-v1",
+        "o0_fixture_manifest_sha256": "bee455084d682e8e717f5f40e1a5cfad82ada7546fdf6412552a8e4844a50d9f"
+      },
+      "verification": "Focused owned tests plus scoped Ruff/mypy; real temporary Brains only. Report missing coordinator seams rather than fake proof.",
+      "completion": "Scoped committed implementation and tests; report exact commands, results, shared registration patch guidance and remaining gaps. No push or children."
+    },
+    {
+      "role": "X",
+      "status": "reserved",
+      "worktree": "/Users/calebbolden/Projects/oss/open-brain-reconcile-x",
+      "budget_minutes": 60,
+      "input_pin": {
+        "feature": "7e161c2336c126c59c68b00b294e3823d5707491",
+        "main": "621161ad48bc8fcfa64966c7a618c18cc72b660a",
+        "base": "1012a5148bd7b6f7d6f07036a0e353985c2cfb90",
+        "c0_revision": "facets-c0-v4",
+        "c0_fixture_manifest_sha256": "95e85b535eeb4263a6e430970ecf1d49de8d0b72de7425e41be703897d93dbc5",
+        "o0_revision": "obsidian-o0-v1",
+        "o0_fixture_manifest_sha256": "bee455084d682e8e717f5f40e1a5cfad82ada7546fdf6412552a8e4844a50d9f"
+      },
+      "verification": "Focused owned tests plus scoped Ruff/mypy; real temporary Brains only. Report missing coordinator seams rather than fake proof.",
+      "completion": "Scoped committed implementation and tests; report exact commands, results, shared registration patch guidance and remaining gaps. No push or children."
+    },
+    {
+      "role": "A",
+      "status": "reserved",
+      "worktree": "/Users/calebbolden/Projects/oss/open-brain-reconcile-a",
+      "budget_minutes": 60,
+      "input_pin": {
+        "feature": "7e161c2336c126c59c68b00b294e3823d5707491",
+        "main": "621161ad48bc8fcfa64966c7a618c18cc72b660a",
+        "base": "1012a5148bd7b6f7d6f07036a0e353985c2cfb90",
+        "c0_revision": "facets-c0-v4",
+        "c0_fixture_manifest_sha256": "95e85b535eeb4263a6e430970ecf1d49de8d0b72de7425e41be703897d93dbc5",
+        "o0_revision": "obsidian-o0-v1",
+        "o0_fixture_manifest_sha256": "bee455084d682e8e717f5f40e1a5cfad82ada7546fdf6412552a8e4844a50d9f"
+      },
+      "verification": "Focused owned tests plus scoped Ruff/mypy; real temporary Brains only. Report missing coordinator seams rather than fake proof.",
+      "completion": "Scoped committed implementation and tests; report exact commands, results, shared registration patch guidance and remaining gaps. No push or children."
+    }
+  ]
+}
