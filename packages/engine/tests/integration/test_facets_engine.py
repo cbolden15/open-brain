@@ -626,3 +626,64 @@ def test_value_create_retry_precedes_changed_parent_admission(brain: Brain) -> N
     counters = brain.counters()
     assert brain.call("facet.value.create", original) == receipt
     assert brain.counters() == counters
+
+
+@pytest.mark.parametrize("operation", ["create", "update"])
+@pytest.mark.parametrize("archived", [False, True])
+def test_query_name_collisions_resolve_foreign_scope_before_conflict(
+    brain: Brain, operation: str, archived: bool
+) -> None:
+    _dimension, value, _other = brain.vocabulary()
+    hidden = brain.write(
+        "facet.query.create",
+        {
+            "expected_version": 0,
+            "name": "Private vocabulary",
+            "selector": {"all_value_ids": [value], "space_ids": [brain.spaces[1].space_id]},
+        },
+    )["subject_id"]
+    if archived:
+        brain.write("facet.query.archive", {"query_id": hidden, "expected_version": 1})
+    allowed_selector = {"all_value_ids": [value], "space_ids": [brain.spaces[0].space_id]}
+    own = brain.write(
+        "facet.query.create",
+        {
+            "expected_version": 0,
+            "name": "Visible vocabulary",
+            "selector": allowed_selector,
+        },
+    )["subject_id"]
+    limited = EffectiveAuthority(
+        principal_id="scoped-query-writer",
+        session_id="scoped-query-writer",
+        capabilities=frozenset({"facet-read", "facet-query-write"}),
+        space_ids=frozenset({brain.spaces[0].space_id}),
+    )
+    with pytest.raises(fc.FacetError, match="^not_found$"):
+        brain.call("facet.query.get", {"query_id": hidden}, limited)
+    arguments = {
+        "operation_id": f"scoped-collision-{operation}-{archived}",
+        "expected_version": 0 if operation == "create" else 1,
+        "name": "Private vocabulary",
+        "selector": allowed_selector,
+    }
+    if operation == "update":
+        arguments["query_id"] = own
+    counters = brain.counters()
+    with pytest.raises(fc.FacetError, match="^not_found$") as error:
+        brain.call(f"facet.query.{operation}", arguments, limited)
+    assert error.value.to_wire() == {"status": "error", "dto_version": 1, "code": "not_found"}
+    assert brain.counters() == counters
+    assert (
+        brain.call("facet.query.get", {"query_id": own}, limited)["item"]["name"]
+        == "Visible vocabulary"
+    )
+    visible = EffectiveAuthority(
+        principal_id="permitted-query-writer",
+        session_id="permitted-query-writer",
+        capabilities=limited.capabilities,
+        space_ids=frozenset(space.space_id for space in brain.spaces),
+    )
+    with pytest.raises(fc.FacetError, match="^name_conflict$"):
+        brain.call(f"facet.query.{operation}", arguments, visible)
+    assert brain.counters() == counters

@@ -119,6 +119,7 @@ class FacetTasks:
         connection: sqlite3.Connection,
         kind: str,
         name: str,
+        authority: EffectiveAuthority,
         *,
         dimension_id: str | None = None,
         own_id: str | None = None,
@@ -136,6 +137,8 @@ class FacetTasks:
             parameters += (dimension_id,)
         row = connection.execute(sql, parameters).fetchone()
         if row is not None and row[0] != own_id:
+            if kind == "query":
+                resolve_query(connection, row[0], authority)
             raise fc.FacetError("name_conflict")
 
     def _scope_write(
@@ -321,7 +324,9 @@ class FacetTasks:
                 self._expect(args["expected_dimension_version"], parent)
                 if parent["archived"]:
                     raise fc.FacetError("facet_archived")
-            self._unique_name(connection, kind, args["name"], dimension_id=args.get("dimension_id"))
+            self._unique_name(
+                connection, kind, args["name"], authority, dimension_id=args.get("dimension_id")
+            )
             identity = {"dimension": "facetdim_", "value": "facetval_", "query": "facetquery_"}[
                 kind
             ] + str(uuid4())
@@ -348,6 +353,7 @@ class FacetTasks:
                 connection,
                 kind,
                 args["name"],
+                authority,
                 dimension_id=before.get("dimension_id"),
                 own_id=identity,
             )
