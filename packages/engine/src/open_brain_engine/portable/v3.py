@@ -277,11 +277,13 @@ def _validate_binding_semantics(
             )
             if (
                 state.get("sha256") != sha256(files[capture_path]).hexdigest()
-                or not _route_matches_frozen_state(
-                    routes,
-                    capture=capture,
-                    state=state,
-                    proposed_at=binding["recorded_at"],
+                or (
+                    # v5 binds logical-source lineage; the v6 validator checks
+                    # its retained cross-revision routing evidence below.
+                    binding.get("schema_version") != 5
+                    and not _route_matches_frozen_state(
+                        routes, capture=capture, state=state, proposed_at=binding["recorded_at"],
+                    )
                 )
                 or (
                     binding.get("schema_version") != 5
