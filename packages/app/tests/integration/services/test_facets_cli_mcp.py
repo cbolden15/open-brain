@@ -1,4 +1,4 @@
-"""CLI/MCP helper preparation checks; real handler wiring waits for E and P."""
+"""Closed helper/fake checks and documented CLI commands through real handlers."""
 
 from __future__ import annotations
 
@@ -18,6 +18,7 @@ from open_brain.services.facets import (
     facet_cli_from_namespace,
     read_facet_selector_file,
 )
+from open_brain.services.local_entrypoints import run_cli
 from open_brain.services.mcp_protocol import encoded_tool_response_size
 from packages.app.tests.facet_fake import FakeFacetEngine
 
@@ -118,3 +119,177 @@ def test_owner_vault_is_cli_only() -> None:
         app.invoke_mcp("brain_facet_vault_preview", case["request"])
     assert not fake.calls
     assert app.invoke(case["operation"], case["request"], transport="cli") == case["response"]
+
+
+def _filesystem(_path: Path, platform_name: str) -> str:
+    return "apfs" if platform_name == "darwin" else "ext4"
+
+
+def _real_cli(
+    root: Path, capsys: pytest.CaptureFixture[str], *arguments: str, expected: int = 0
+) -> dict[str, Any]:
+    result = run_cli(
+        ("facet", *arguments, "--data-dir", str(root), "--json"),
+        filesystem_type_probe=_filesystem,
+    )
+    captured = capsys.readouterr()
+    assert result == expected, (captured.out, captured.err)
+    assert not captured.err
+    return cast(dict[str, Any], json.loads(captured.out))
+
+
+@pytest.mark.parametrize("kind", ["dimension", "value"])
+def test_documented_rename_cli_persists_and_preserves_cas(
+    kind: str, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    root = tmp_path / "synthetic-brain"
+    dimension = _real_cli(root, capsys, "dimension", "create", "Project", "--expected-version", "0")
+    dimension_id = dimension["subject_id"]
+    subject_id = dimension_id
+    list_options: tuple[str, ...] = ()
+    if kind == "value":
+        value = _real_cli(
+            root,
+            capsys,
+            "value",
+            "create",
+            "Apollo",
+            "--dimension",
+            dimension_id,
+            "--expected-dimension-version",
+            "1",
+            "--expected-version",
+            "0",
+        )
+        subject_id = value["subject_id"]
+        list_options = ("--dimension", dimension_id)
+    receipt = _real_cli(
+        root,
+        capsys,
+        kind,
+        "rename",
+        subject_id,
+        "Renamed",
+        "--expected-version",
+        "1",
+        "--operation-id",
+        "synthetic-rename",
+    )
+    assert receipt["subject_id"] == subject_id
+    assert receipt["version"] == 2
+    assert receipt["operation_id"] == "synthetic-rename"
+    rejected = _real_cli(
+        root,
+        capsys,
+        kind,
+        "rename",
+        subject_id,
+        "Stale",
+        "--expected-version",
+        "1",
+        "--operation-id",
+        "synthetic-stale-rename",
+        expected=1,
+    )
+    assert rejected["code"] == "version_conflict"
+    listed = _real_cli(root, capsys, kind, "list", *list_options)
+    assert listed["items"][0]["name"] == "Renamed"
+    assert listed["items"][0]["version"] == 2
+
+
+def test_documented_query_update_cli_persists_selector_and_preserves_cas(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    root = tmp_path / "synthetic-brain"
+    dimension = _real_cli(root, capsys, "dimension", "create", "Project", "--expected-version", "0")
+    value_ids = []
+    for name in ("Apollo", "Gemini"):
+        value = _real_cli(
+            root,
+            capsys,
+            "value",
+            "create",
+            name,
+            "--dimension",
+            dimension["subject_id"],
+            "--expected-dimension-version",
+            "1",
+            "--expected-version",
+            "0",
+        )
+        value_ids.append(value["subject_id"])
+    selector = tmp_path / "synthetic-selector.json"
+    selector.write_text(json.dumps({"all_value_ids": [value_ids[0]]}))
+    created = _real_cli(
+        root,
+        capsys,
+        "query",
+        "create",
+        "Apollo query",
+        "--selector-file",
+        str(selector),
+        "--expected-version",
+        "0",
+    )
+    query_id = created["subject_id"]
+    selector.write_text(json.dumps({"all_value_ids": [value_ids[1]]}))
+    receipt = _real_cli(
+        root,
+        capsys,
+        "query",
+        "update",
+        query_id,
+        "--name",
+        "Gemini query",
+        "--selector-file",
+        str(selector),
+        "--expected-version",
+        "1",
+        "--operation-id",
+        "synthetic-query-update",
+    )
+    assert receipt["version"] == 2
+    assert receipt["operation_id"] == "synthetic-query-update"
+    rejected = _real_cli(
+        root,
+        capsys,
+        "query",
+        "update",
+        query_id,
+        "--name",
+        "Stale query",
+        "--selector-file",
+        str(selector),
+        "--expected-version",
+        "1",
+        expected=1,
+    )
+    assert rejected["code"] == "version_conflict"
+    shown = _real_cli(root, capsys, "query", "show", query_id)["item"]
+    assert shown["name"] == "Gemini query"
+    assert shown["version"] == 2
+    assert shown["selector"]["all_value_ids"] == [value_ids[1]]
+
+
+@pytest.mark.parametrize(
+    "arguments",
+    [
+        ["Legacy positional name", "--selector-file", "-"],
+        ["--selector-file", "-"],
+        ["--name", "Incomplete query"],
+    ],
+)
+def test_query_update_requires_documented_full_replacement(arguments: list[str]) -> None:
+    with pytest.raises(SystemExit) as error:
+        _parser().parse_args(
+            [
+                "facet",
+                "query",
+                "update",
+                "facetquery_synthetic",
+                "--expected-version",
+                "1",
+                *arguments,
+            ]
+        )
+    assert error.value.code == 2

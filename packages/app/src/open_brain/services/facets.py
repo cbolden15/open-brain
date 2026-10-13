@@ -438,17 +438,17 @@ def add_facet_parsers(subparsers: Any) -> argparse.ArgumentParser:
             if group in {"dimension", "value", "query"} and action == "list":
                 parser.add_argument("--include-archived", action="store_true")
             if group == "dimension":
-                if action in {"create", "rename"}:
-                    parser.add_argument("name")
                 if action in {"rename", "archive"}:
                     parser.add_argument("dimension_id")
+                if action in {"create", "rename"}:
+                    parser.add_argument("name")
             elif group == "value":
                 if action in {"list", "create"}:
                     parser.add_argument("--dimension", dest="dimension_id", required=True)
-                if action in {"create", "rename"}:
-                    parser.add_argument("name")
                 if action in {"rename", "archive"}:
                     parser.add_argument("value_id")
+                if action in {"create", "rename"}:
+                    parser.add_argument("name")
                 if action == "create":
                     parser.add_argument("--expected-dimension-version", type=int, required=True)
             elif group == "assignment":
@@ -462,10 +462,12 @@ def add_facet_parsers(subparsers: Any) -> argparse.ArgumentParser:
             elif group == "query":
                 if action in {"show", "update", "archive", "attach", "run"}:
                     parser.add_argument("query_id", nargs="?" if action == "run" else None)
-                if action in {"create", "update"}:
+                if action == "create":
                     parser.add_argument("name")
+                if action == "update":
+                    parser.add_argument("--name", required=True)
                 if action in {"create", "update", "run"}:
-                    parser.add_argument("--selector-file")
+                    parser.add_argument("--selector-file", required=action != "run")
                 if action == "attach":
                     parser.add_argument("--page-id", required=True)
                     parser.add_argument("--expected-revision-id", required=True)
