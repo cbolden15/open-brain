@@ -524,3 +524,56 @@ def test_opaque_principals_use_explicit_owner_actor_mapping() -> None:
             brain_id=BRAIN_ID,
             owner_actor_id="actor_00000000-0000-4000-8000-000000000099",
         )
+
+
+def test_legacy_v5_restore_keeps_empty_facets_and_is_not_reinterpreted_as_v6(
+    tmp_path: Path,
+) -> None:
+    from open_brain_engine.engine.local_schema import open_local_database_read_only
+    from open_brain_engine.engine.portable_v5_restore import restore_portable_v5_root
+    from open_brain_engine.engine.portable_v6_restore import V6RestoreBundle
+    from open_brain_engine.portable.v5 import validated_portable_snapshot_v5
+
+    from packages.engine.tests.contract.test_portable_brain_v5 import _fixture, _write
+
+    _write(tmp_path, _fixture())
+    snapshot = validated_portable_snapshot_v5(tmp_path)
+    with pytest.raises(PortableValidationError, match="validated v6 snapshot"):
+        V6RestoreBundle.decode(snapshot, checkpoint=lambda _stage: None)
+    materialized = restore_portable_v5_root(
+        tmp_path, snapshot=snapshot, expected_root_identity=snapshot.root_identity
+    )
+    with open_local_database_read_only(materialized.profile) as connection:
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 11
+        assert all(
+            connection.execute(f"SELECT count(*) FROM {table}").fetchone()[0] == 0
+            for table in FACET_TABLES
+        )
+
+
+def test_full_v6_restore_fault_preserves_transaction_boundary(tmp_path: Path) -> None:
+    from open_brain_engine.engine.local_schema import open_local_database_read_only
+    from open_brain_engine.engine.materializer import _profile
+    from open_brain_engine.engine.portable_v6_restore import restore_portable_v6_root
+    from open_brain_engine.portable.v6 import validated_portable_snapshot_v6
+
+    _write_v6(tmp_path, _empty_facet_archive())
+    snapshot = validated_portable_snapshot_v6(tmp_path)
+
+    def fail(stage: str) -> None:
+        if stage == "facets_restored":
+            raise RuntimeError("synthetic whole-restore fault")
+
+    with pytest.raises(RuntimeError, match="whole-restore fault"):
+        restore_portable_v6_root(
+            tmp_path,
+            snapshot=snapshot,
+            expected_root_identity=snapshot.root_identity,
+            checkpoint=fail,
+        )
+    with open_local_database_read_only(_profile(tmp_path, snapshot)) as connection:
+        assert connection.execute("SELECT count(*) FROM captures").fetchone()[0] == 0
+        assert all(
+            connection.execute(f"SELECT count(*) FROM {table}").fetchone()[0] == 0
+            for table in FACET_TABLES
+        )
