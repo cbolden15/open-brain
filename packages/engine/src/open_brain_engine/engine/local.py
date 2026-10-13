@@ -54,6 +54,7 @@ from .contracts import (
     SpaceRecord,
     TextPayload,
 )
+from .facets import FacetTasks
 from .ingestion import IngestionJournal
 from .journal_ops import JournalTasks
 from .local_schema import open_local_database_read_only
@@ -288,6 +289,7 @@ class BrainEngine(CaptureOperations, SpaceOperations, ReviewOperations, Retrieva
         self.managed_inference = ManagedInferenceTasks(self, self.managed_workspace)
         self.privacy_repair = PrivacyRepairTasks(self)
         self.journal = JournalTasks(self)
+        self.facets = FacetTasks(self)
         self._task_set = EngineTaskSet(
             profile=profile,
             capture=self.capture,
@@ -305,6 +307,7 @@ class BrainEngine(CaptureOperations, SpaceOperations, ReviewOperations, Retrieva
             relationships=self.relationships,
             privacy_repair=self.privacy_repair,
             journal=self.journal,
+            facets=self.facets,
         )
 
     @classmethod
