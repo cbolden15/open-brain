@@ -14,10 +14,11 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from open_brain_engine.engine.facet_contracts import request_from_wire, response_to_wire
+from open_brain_engine.engine.facet_contracts import FacetError, request_from_wire, response_to_wire
 from open_brain_engine.engine.local import BrainEngine, StateSchemaUnavailableError
 from open_brain_engine.engine.local_migration import coordinate_local_migration
 from open_brain_engine.engine.local_schema import (
+    LocalSchemaUpgradeCommittedError,
     _prepare_local_schema,
     inspect_phase1_state,
 )
@@ -106,17 +107,28 @@ def test_f06_transaction_boundary_fault_preserves_none_or_one_complete_mutation(
 def test_f06_concurrent_identical_retry_has_one_event_and_exact_receipt(tmp_path: Path) -> None:
     brain = FacetHarness(tmp_path)
 
-    def mutate(_: int) -> dict[str, Any]:
-        return brain.call(
-            "facet.dimension.create",
-            name="Concurrent",
-            expected_version=0,
-            operation_id="concurrent-identical",
-        )
+    def mutate(_: int) -> dict[str, Any] | FacetError:
+        try:
+            return brain.call(
+                "facet.dimension.create",
+                name="Concurrent",
+                expected_version=0,
+                operation_id="concurrent-identical",
+            )
+        except FacetError as error:
+            assert error.code == "operation_pending"
+            return error
 
     with ThreadPoolExecutor(max_workers=2) as executor:
-        first, second = executor.map(mutate, (1, 2))
-    assert first == second
+        results = list(executor.map(mutate, (1, 2)))
+    successes = [result for result in results if isinstance(result, dict)]
+    assert successes, "At least one uncontended mutation must commit successfully"
+    original = successes[0]
+    for result in results:
+        recovered = mutate(0) if isinstance(result, FacetError) else result
+        assert recovered == original, (
+            "Contention must recover the exact receipt through the same operation"
+        )
     assert len(brain.rows("facet_events")) == 1
     assert len(brain.rows("facet_operations")) == 1
 
@@ -198,9 +210,13 @@ def test_f16_postcommit_migration_fault_reports_committed_upgrade(tmp_path: Path
         if stage == "facet_complete":
             raise BoundaryFault("committed facet migration")
 
-    with pytest.raises((BoundaryFault, StateSchemaUnavailableError, T03Error)):
+    with pytest.raises(
+        LocalSchemaUpgradeCommittedError, match="facet schema upgrade committed"
+    ) as error:
         coordinate_local_migration(brain.profile, checkpoint=checkpoint)
+    assert isinstance(error.value.__cause__, BoundaryFault)
     assert _schema_evidence(brain)[0] == 11
+    assert _schema_evidence(brain)[2] == [(1, 6, 11)]
     assert inspect_phase1_state(brain.profile).state == "current"
     coordinate_local_migration(brain.profile)
     brain.engine = BrainEngine.open(brain.profile)
