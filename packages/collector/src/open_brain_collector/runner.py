@@ -109,6 +109,182 @@ class CollectorProcessRunner:
             return {"outcome": "failed", "failure_code": "collector_already_owned", "results": []}
         return {"outcome": "completed", "failure_code": None, "results": results}
 
+    def run_until_caught_up(
+        self,
+        *,
+        max_iterations: int = 500,
+        max_seconds: int = 900,
+    ) -> dict[str, object]:
+        """Drain acknowledged continuations under one lease, retaining work at bounds."""
+        if (
+            type(max_iterations) is not int
+            or not 1 <= max_iterations <= 10_000
+            or type(max_seconds) is not int
+            or not 1 <= max_seconds <= 86_400
+        ):
+            raise ConnectorContractError("invalid collector catch-up bounds")
+        controller = CollectorController(
+            CollectorStateStore(self.state_path), clock=self.clock, brain_root=self.brain_root
+        )
+        health = CaptureHealthStore(self.state_path.parent / "capture-health", clock=self.clock)
+        latest: dict[str, dict[str, object]] = {}
+        totals: dict[str, dict[str, int]] = {}
+        usage_totals: dict[str, int] = {}
+        unknown_usage: set[str] = set()
+        usage_fields = ("input_tokens", "output_tokens", "cost_microusd")
+        iterations = 0
+        outcome, reason = "completed", "caught_up"
+
+        def accumulate(results: list[dict[str, object]]) -> None:
+            if not results:
+                return
+            receipt = health.record(results, persist=False)
+            for index, result in enumerate(results):
+                key = str(result.get("source_id", index))
+                latest[key] = result
+                counts = totals.setdefault(key, {"captured_count": 0, "duplicate_count": 0})
+                counts["captured_count"] += cast(
+                    int, result.get("captured_count", result.get("captures", 0))
+                )
+                counts["duplicate_count"] += cast(int, result.get("duplicate_count", 0))
+            measured = cast(dict[str, int], receipt["metrics"])
+            for field in usage_fields:
+                for result in results:
+                    usage = result.get("usage", {})
+                    if (
+                        result.get(field, usage.get(field) if isinstance(usage, dict) else None)
+                        is None
+                    ):
+                        unknown_usage.add(field)
+                        break
+                if field in measured:
+                    usage_totals[field] = usage_totals.get(field, 0) + measured[field]
+
+        def summary() -> list[dict[str, object]]:
+            return [
+                {
+                    **{
+                        key: value
+                        for key, value in result.items()
+                        if key not in {*usage_fields, "usage"}
+                    },
+                    **totals[source],
+                }
+                for source, result in latest.items()
+            ]
+
+        def measured_usage() -> dict[str, int]:
+            return {
+                field: value for field, value in usage_totals.items() if field not in unknown_usage
+            }
+
+        try:
+            with (
+                _collector_stop_signal() as stop,
+                CollectorLease(self.lease_path).acquire(owner=self.owner),
+            ):
+                deadline = time.monotonic() + max_seconds
+                try:
+                    while True:
+                        results = self._sync_sources(
+                            controller=controller,
+                            source_id=None,
+                            force=False,
+                            process_developments=False,
+                        )
+                        iterations += 1
+                        accumulate(results)
+                        if any(result.get("budget_exhausted") is True for result in results):
+                            outcome, reason = "deferred", "processing_budget"
+                            break
+                        due = [
+                            epoch
+                            for result in latest.values()
+                            if (epoch := self._continuation_epoch(result)) is not None
+                        ]
+                        if not due:
+                            if any(
+                                result.get("outcome") in {"failed", "partial", "deferred"}
+                                or result.get("held", 0)
+                                or result.get("failed", 0)
+                                for result in latest.values()
+                            ):
+                                outcome, reason = "deferred", "attention_required"
+                            break
+                        if iterations >= max_iterations:
+                            outcome, reason = "deferred", "iteration_budget"
+                            break
+                        delay = max(0, min(due) - self.clock())
+                        if time.monotonic() + delay >= deadline:
+                            outcome, reason = "deferred", "deadline_budget"
+                            break
+                        while delay > 0 and not stop():
+                            time.sleep(min(delay, 1))
+                            delay = max(0, min(due) - self.clock())
+                            if time.monotonic() >= deadline:
+                                break
+                        if stop() or time.monotonic() >= deadline:
+                            outcome, reason = "deferred", "signal" if stop() else "deadline_budget"
+                            break
+                    if reason == "caught_up":
+                        if stop() or time.monotonic() >= deadline:
+                            outcome, reason = "deferred", "signal" if stop() else "deadline_budget"
+                        else:
+                            processing = self._process_live()
+                            accumulate(processing)
+                            if any(result.get("budget_exhausted") is True for result in processing):
+                                outcome, reason = "deferred", "processing_budget"
+                            elif any(
+                                result.get("outcome") in {"failed", "partial", "deferred"}
+                                for result in processing
+                            ):
+                                outcome, reason = "deferred", "attention_required"
+                except Exception:
+                    health.record(
+                        summary(), failure_code="collector_run_failed", metrics=measured_usage()
+                    )
+                    raise
+                health.record(
+                    summary(), metrics=measured_usage(),
+                    execution_outcome="deferred" if outcome == "deferred" else None,
+                )
+        except CollectorLeaseError:
+            return {
+                "outcome": "failed",
+                "failure_code": "collector_already_owned",
+                "iterations": iterations,
+                "stop_reason": "owned",
+                "results": [],
+            }
+        final = summary()
+        return {
+            "outcome": outcome,
+            "failure_code": None,
+            "iterations": iterations,
+            "stop_reason": reason,
+            "results": final,
+            "captured_count": sum(cast(int, result["captured_count"]) for result in final),
+            "duplicate_count": sum(cast(int, result["duplicate_count"]) for result in final),
+            "usage": measured_usage(),
+        }
+
+    def _continuation_epoch(self, result: dict[str, object]) -> int | None:
+        retry = result.get("retry_at")
+        if type(retry) is int:
+            return retry
+        more = result.get("has_more") is True or result.get("next_cursor") is not None
+        if more:
+            due = result.get("next_run_epoch")
+            return due if type(due) is int else self.clock() + 1
+        if result.get("failure_code") in {
+            "rate_limited",
+            "provider_unavailable",
+            "provider_failed",
+        }:
+            due = result.get("next_run_epoch")
+            return due if type(due) is int else None
+        return None
+
     def run_loop(
         self,
         *,
@@ -199,6 +375,7 @@ class CollectorProcessRunner:
         controller: CollectorController,
         source_id: str | None,
         force: bool,
+        process_developments: bool = True,
     ) -> list[dict[str, object]]:
         store = CollectorStateStore(self.state_path)
         state = store.load()
@@ -213,7 +390,11 @@ class CollectorProcessRunner:
                     entry["next_run_epoch"] = self.clock()
             store.save(state)
         if not source_ids:
-            return self._sync_live() if source_id is None else []
+            return (
+                self._sync_live(process_developments=process_developments)
+                if source_id is None
+                else []
+            )
         capture_sink = EngineCaptureSink(collector_capture_sink(self.brain_root))
         credential_status = (
             self.runtime if isinstance(self.runtime, CredentialStatusProvider) else None
@@ -231,9 +412,11 @@ class CollectorProcessRunner:
             ).to_dict()
             for selected_id in source_ids
         ]
-        return results + (self._sync_live() if source_id is None else [])
+        return results + (
+            self._sync_live(process_developments=process_developments) if source_id is None else []
+        )
 
-    def _sync_live(self) -> list[dict[str, object]]:
+    def _sync_live(self, *, process_developments: bool = True) -> list[dict[str, object]]:
         root = self.state_path.parent / "live"
         if not (root / "capture" / "brain.json").exists():
             return []
@@ -241,7 +424,18 @@ class CollectorProcessRunner:
 
         manager = LiveSourceManager(root, self.brain_root, background=self.background)
         manager.capture._clock = self.clock
-        return manager.sync_due()
+        return manager.sync_due(process_developments=process_developments)
+
+    def _process_live(self) -> list[dict[str, object]]:
+        root = self.state_path.parent / "live"
+        if not (root / "capture" / "brain.json").exists():
+            return []
+        from open_brain_collector.live_manager import LiveSourceManager
+
+        manager = LiveSourceManager(root, self.brain_root, background=self.background)
+        if manager.workflow.configuration()["enabled"] is not True:
+            return []
+        return [{"source_id": "slack-development", **manager.workflow.process()}]
 
 
 class FixtureSourceRuntime(CollectorSourceRuntime):

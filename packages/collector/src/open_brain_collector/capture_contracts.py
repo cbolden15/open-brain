@@ -118,3 +118,13 @@ class Development:
             return cls(**data)
         except (TypeError, KeyError, ValueError):
             raise LiveSourceError("processing_invalid_contract") from None
+
+
+def development_identity(development: Development, observation: SourceObservation) -> str:
+    """Semantic source identity, independent of the immutable supporting revision."""
+    material = development.to_dict()
+    material.pop("supporting_capture_ids")
+    material.pop("supporting_revision_ids")
+    return "development:" + digest([
+        observation.workspace_id, observation.conversation_id, observation.message_ts, material,
+    ])

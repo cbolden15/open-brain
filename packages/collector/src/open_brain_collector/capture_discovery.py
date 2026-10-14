@@ -50,7 +50,7 @@ class CaptureDiscoveryCoordinator:
         value = self.store.read(self._name(account))
         if value is None:
             return {
-                "schema_version": 1,
+                "schema_version": 2,
                 "generation": None,
                 "oldest": None,
                 "completed_at": None,
@@ -58,6 +58,9 @@ class CaptureDiscoveryCoordinator:
                 "has_more": True,
                 "candidates": [],
                 "sources": [],
+                "covered_until": None,
+                "latest": None,
+                "retry_at": None,
             }
         required = {
             "schema_version",
@@ -69,11 +72,25 @@ class CaptureDiscoveryCoordinator:
             "candidates",
             "sources",
         }
+        if isinstance(value, dict) and value.get("schema_version") == 1 and set(value) == required:
+            # V1 had no frozen upper bound. Replay its retained interval rather than
+            # treating completion time as proof of coverage; keep all durable hints.
+            value = {
+                **value,
+                "schema_version": 2,
+                "covered_until": value["oldest"],
+                "latest": None,
+                "retry_at": None,
+                "completed_at": None,
+                "checkpoint": None,
+                "has_more": True,
+            }
+        required.update({"covered_until", "latest", "retry_at"})
         if (
             not isinstance(value, dict)
             or set(value) != required
             or type(value["schema_version"]) is not int
-            or value["schema_version"] != 1
+            or value["schema_version"] != 2
             or type(value["has_more"]) is not bool
             or not isinstance(value["candidates"], list)
             or len(value["candidates"]) > 500
@@ -117,6 +134,13 @@ class CaptureDiscoveryCoordinator:
             _timestamp(source["root_ts"])
         if value["oldest"] is not None:
             _timestamp(value["oldest"])
+        for key in ("covered_until", "latest"):
+            if value[key] is not None:
+                _timestamp(value[key])
+        if value["retry_at"] is not None and (
+            type(value["retry_at"]) is not int or value["retry_at"] < 0
+        ):
+            raise LiveSourceError("capture_discovery_invalid_state")
         if value["completed_at"] is not None and type(value["completed_at"]) is not int:
             raise LiveSourceError("capture_discovery_invalid_state")
         return cast(dict[str, object], value)
@@ -149,6 +173,16 @@ class CaptureDiscoveryCoordinator:
                     "notices": ["discovery_disabled_or_exclusions_unverified"],
                 }
             generation = hashlib.sha256(bounded_json(config)).hexdigest()
+            if not set(cast(list[str], config["permitted_conversations"])) - set(
+                cast(list[str], config["excluded_conversations"])
+            ):
+                return {
+                    "outcome": "skipped",
+                    "has_more": False,
+                    "configured_sources": 0,
+                    "source_ids": [],
+                    "notices": ["source_policy_excluded"],
+                }
             state = self._load(account)
             if state["generation"] != generation:
                 # Retain source registry for root reconciliation, abandon old hints only.
@@ -159,30 +193,57 @@ class CaptureDiscoveryCoordinator:
                     checkpoint=None,
                     has_more=True,
                     candidates=[],
+                    latest=None,
+                    retry_at=None,
                 )
             now = self.clock()
             if type(now) is not int or now < 259200:
                 raise LiveSourceError("capture_discovery_invalid_clock")
+            if state["retry_at"] is not None and now < cast(int, state["retry_at"]):
+                return {
+                    "outcome": "deferred",
+                    "has_more": True,
+                    "retry_at": state["retry_at"],
+                    "notices": ["discovery_retry_pending"],
+                }
+            state["retry_at"] = None
             if state["completed_at"] is not None and now - cast(int, state["completed_at"]) < 86400:
                 return {"outcome": "skipped", "has_more": False, "notices": ["discovery_not_due"]}
             if state["completed_at"] is not None:
                 state.update(
-                    oldest=None, completed_at=None, checkpoint=None, has_more=True, candidates=[]
+                    oldest=None,
+                    latest=None,
+                    completed_at=None,
+                    checkpoint=None,
+                    has_more=True,
+                    candidates=[],
                 )
             if state["oldest"] is None:
-                state["oldest"] = f"{now - 259200:.6f}"
+                covered = (
+                    float(cast(str, state["covered_until"])) if state["covered_until"] else now
+                )
+                state["oldest"] = f"{max(0, min(now, covered) - 259200):.6f}"
+            if state["latest"] is None:
+                state["latest"] = f"{now:.6f}"
+            self.store.write(name, state)  # Freeze the interval even when the first fetch fails.
             pending = cast(list[dict[str, object]], state["candidates"])
             notices = ["incomplete_search_coverage", "untracked_older_threads_unsupported"]
             if not any(item["state"] == "pending" for item in pending) and state["has_more"]:
-                batch = self.discover.discover(
-                    account,
-                    owner_id=cast(str, config["owner_id"]),
-                    capabilities=tuple(cast(list[str], config["capabilities"])),
-                    excluded_conversations=tuple(cast(list[str], config["excluded_conversations"])),
-                    ai_exclusions_verified=True,
-                    oldest=cast(str, state["oldest"]),
-                    checkpoint=cast(dict[str, object] | None, state["checkpoint"]),
-                )
+                try:
+                    batch = self.discover.discover(
+                        account,
+                        owner_id=cast(str, config["owner_id"]),
+                        capabilities=tuple(cast(list[str], config["capabilities"])),
+                        excluded_conversations=tuple(
+                            cast(list[str], config["excluded_conversations"])
+                        ),
+                        ai_exclusions_verified=True,
+                        oldest=cast(str, state["oldest"]),
+                        latest=cast(str, state["latest"]),
+                        checkpoint=cast(dict[str, object] | None, state["checkpoint"]),
+                    )
+                except LiveSourceError as error:
+                    return self._defer(name, state, error, now)
                 notices = list(batch.notices)
                 known = {
                     tuple(item[key] for key in ("conversation_id", "message_ts", "thread_ts"))
@@ -225,7 +286,7 @@ class CaptureDiscoveryCoordinator:
                     )
                 except LiveSourceError as error:
                     if error.code != "source_candidate_identity_unsupported":
-                        raise
+                        return self._defer(name, state, error, now)
                     item["state"] = "unsupported"
                     notices.append("source_candidate_identity_unsupported")
                     continue
@@ -281,6 +342,9 @@ class CaptureDiscoveryCoordinator:
             more = state["has_more"] or remaining
             if not more:
                 state["completed_at"] = now
+                state["covered_until"] = state["latest"]
+            if any(item["state"] == "unsupported" for item in pending):
+                notices.append("source_candidate_identity_unsupported")
             self.store.write(name, state)
             return {
                 "outcome": "completed",
@@ -288,4 +352,28 @@ class CaptureDiscoveryCoordinator:
                 "candidate_count": len(pending),
                 "has_more": more,
                 "notices": sorted(set(notices)),
+                "source_ids": [
+                    item["source_id"]
+                    for item in sources
+                    if item["generation"] == generation and item["configured"]
+                ],
             }
+
+    def _defer(
+        self,
+        name: str,
+        state: dict[str, object],
+        error: LiveSourceError,
+        now: int,
+    ) -> dict[str, object]:
+        if error.code not in {"rate_limited", "provider_unavailable", "provider_failed"}:
+            raise error
+        state["retry_at"] = now + (error.retry_after_seconds or 60)
+        self.store.write(name, state)
+        return {
+            "outcome": "deferred",
+            "failure_code": error.code,
+            "has_more": True,
+            "retry_at": state["retry_at"],
+            "notices": ["discovery_retry_pending"],
+        }

@@ -5,10 +5,12 @@
 <plist version="1.0"><dict>
   <key>Label</key><string>io.openbrain.slack-capture.example</string>
   <key>ProgramArguments</key><array>
-    <string>/absolute/path/to/open-brain-collector</string><string>run-once</string>
+    <string>/absolute/path/to/open-brain-collector</string><string>run-until-caught-up</string>
     <string>--state</string><string>/absolute/path/to/private/collector/state.json</string>
     <string>--brain-root</string><string>/absolute/path/to/private/brain</string>
     <string>--lease</string><string>/absolute/path/to/private/collector/collector.lease</string>
+    <string>--max-iterations</string><string>500</string>
+    <string>--max-seconds</string><string>900</string>
   </array>
   <key>StartCalendarInterval</key><dict><key>Hour</key><integer>9</integer><key>Minute</key><integer>0</integer></dict>
   <key>Umask</key><integer>63</integer>

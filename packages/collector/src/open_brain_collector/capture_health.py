@@ -23,6 +23,63 @@ _METRICS = {
     "cost_microusd",
 }
 _OUTCOMES = {"completed", "empty", "failed", "partial", "skipped", "deferred"}
+_COVERAGE_CODES = {
+    "partial_thread_coverage",
+    "incomplete_search_coverage",
+    "untracked_older_threads_unsupported",
+    "unsupported_ai_exclusions",
+    "source_candidate_identity_unsupported",
+    "discovery_disabled",
+    "discovery_disabled_or_exclusions_unverified",
+    "discovery_retry_pending",
+    "source_policy_excluded",
+    "source_permission_revoked",
+    "auth_required",
+    "not_allowed",
+    "rate_limited",
+    "provider_unavailable",
+    "provider_failed",
+}
+_COVERAGE_STATES = {"complete", "partial", "unsupported", "excluded", "unknown"}
+
+
+def _coverage_status(codes: list[str], outcome: str) -> str:
+    if outcome in {"failed", "partial", "deferred"} or any(
+        code
+        in {
+            "partial_thread_coverage",
+            "incomplete_search_coverage",
+            "auth_required",
+            "not_allowed",
+            "rate_limited",
+            "provider_unavailable",
+            "provider_failed",
+            "discovery_retry_pending",
+        }
+        for code in codes
+    ):
+        return "partial"
+    if any("unsupported" in code for code in codes):
+        return "unsupported"
+    if any(
+        code
+        in {
+            "source_policy_excluded",
+            "source_permission_revoked",
+            "discovery_disabled",
+            "discovery_disabled_or_exclusions_unverified",
+        }
+        for code in codes
+    ):
+        return "excluded"
+    return "unknown" if outcome == "skipped" else "complete"
+
+
+def _overall_coverage(coverage: list[dict[str, object]]) -> str:
+    states = {item["coverage_status"] for item in coverage}
+    if not states or "unknown" in states:
+        return "unknown" if "partial" not in states else "partial"
+    return cast(str, next(iter(states))) if len(states) == 1 else "partial"
 
 
 def _metrics(value: Mapping[str, object] | None) -> dict[str, int]:
@@ -48,12 +105,34 @@ class CaptureHealthStore:
         if (
             not isinstance(value, dict)
             or set(value) != {"schema_version", "receipts"}
-            or value["schema_version"] != 1
+            or value["schema_version"] not in {1, 2}
             or not isinstance(value["receipts"], list)
             or len(value["receipts"]) > _MAX_RECEIPTS
         ):
             raise LiveSourceError("invalid_health_state")
         receipts = value["receipts"]
+        if value["schema_version"] == 1:
+            # Old receipts cannot establish coverage they never retained.
+            if any(
+                not isinstance(receipt, dict)
+                or not isinstance(receipt.get("coverage"), list)
+                or any(not isinstance(item, dict) for item in receipt["coverage"])
+                for receipt in receipts
+            ):
+                raise LiveSourceError("invalid_health_state")
+            receipts = [
+                {
+                    **receipt,
+                    "coverage_status": "unknown",
+                    "coverage": [
+                        {**item, "coverage_status": "unknown", "coverage_codes": []}
+                        for item in receipt["coverage"]
+                    ],
+                }
+                if isinstance(receipt, dict)
+                else receipt
+                for receipt in receipts
+            ]
         fields = {
             "completed_epoch",
             "outcome",
@@ -64,13 +143,16 @@ class CaptureHealthStore:
             "duplicate_count",
             "coverage",
             "metrics",
+            "coverage_status",
         }
         for receipt in receipts:
             if not isinstance(receipt, dict) or set(receipt) != fields:
                 raise LiveSourceError("invalid_health_state")
             if receipt["outcome"] not in _OUTCOMES:
                 raise LiveSourceError("invalid_health_state")
-            for key in fields - {"outcome", "coverage", "metrics"}:
+            if receipt["coverage_status"] not in _COVERAGE_STATES:
+                raise LiveSourceError("invalid_health_state")
+            for key in fields - {"outcome", "coverage", "metrics", "coverage_status"}:
                 if type(receipt[key]) is not int or not 0 <= receipt[key] <= 10**15:
                     raise LiveSourceError("invalid_health_state")
             if not isinstance(receipt["coverage"], list) or len(receipt["coverage"]) > _MAX_SOURCES:
@@ -78,10 +160,18 @@ class CaptureHealthStore:
             for item in receipt["coverage"]:
                 if (
                     not isinstance(item, dict)
-                    or set(item) != {"source_digest", "outcome"}
+                    or set(item)
+                    != {"source_digest", "outcome", "coverage_status", "coverage_codes"}
                     or item["outcome"] not in _OUTCOMES
                     or type(item["source_digest"]) is not str
                     or len(item["source_digest"]) != 64
+                    or item["coverage_status"] not in _COVERAGE_STATES
+                    or not isinstance(item["coverage_codes"], list)
+                    or len(item["coverage_codes"]) > len(_COVERAGE_CODES)
+                    or any(
+                        type(code) is not str or code not in _COVERAGE_CODES
+                        for code in item["coverage_codes"]
+                    )
                 ):
                     raise LiveSourceError("invalid_health_state")
             if not isinstance(receipt["metrics"], dict):
@@ -95,13 +185,15 @@ class CaptureHealthStore:
         *,
         failure_code: str | None = None,
         metrics: Mapping[str, object] | None = None,
+        persist: bool = True,
+        execution_outcome: str | None = None,
     ) -> dict[str, object]:
         if type(results) is not list or len(results) > _MAX_SOURCES:
             raise LiveSourceError("health_source_limit")
         now = self._clock()
         if type(now) is not int or now < 0:
             raise LiveSourceError("invalid_health_clock")
-        coverage: list[dict[str, str]] = []
+        coverage: list[dict[str, object]] = []
         captured = duplicates = failed = partial = 0
         reported_usage: dict[str, int] = {}
         for result in results:
@@ -113,7 +205,9 @@ class CaptureHealthStore:
             if result.get("has_more") is True or result.get("next_cursor") is not None:
                 outcome = "partial" if outcome != "failed" else "failed"
             for field in ("captured_count", "duplicate_count"):
-                number = result.get(field, 0)
+                number = result.get(
+                    field, result.get("captures", 0) if field == "captured_count" else 0
+                )
                 if type(number) is not int or not 0 <= number <= 10**12:
                     raise LiveSourceError("invalid_health_metrics")
                 if field == "captured_count":
@@ -132,7 +226,24 @@ class CaptureHealthStore:
             digest = hashlib.sha256(
                 str(source if type(source) is str else "unknown").encode()
             ).hexdigest()
-            coverage.append({"source_digest": digest, "outcome": outcome})
+            notices = result.get("notices", ())
+            codes = (
+                {code for code in notices if type(code) is str and code in _COVERAGE_CODES}
+                if isinstance(notices, (list, tuple))
+                else set()
+            )
+            failure = result.get("failure_code")
+            if type(failure) is str and failure in _COVERAGE_CODES:
+                codes.add(failure)
+            public_codes = sorted(codes)
+            coverage.append(
+                {
+                    "source_digest": digest,
+                    "outcome": outcome,
+                    "coverage_status": _coverage_status(public_codes, outcome),
+                    "coverage_codes": public_codes,
+                }
+            )
             failed += int(outcome == "failed")
             partial += int(outcome in {"partial", "deferred"})
         overall = (
@@ -146,6 +257,10 @@ class CaptureHealthStore:
                 overall = "empty"
             elif outcomes == {"skipped"}:
                 overall = "skipped"
+        if execution_outcome is not None:
+            if execution_outcome not in _OUTCOMES:
+                raise LiveSourceError("invalid_health_outcome")
+            overall = execution_outcome
         receipt: dict[str, object] = {
             "completed_epoch": now,
             "outcome": overall,
@@ -155,13 +270,16 @@ class CaptureHealthStore:
             "captured_count": captured,
             "duplicate_count": duplicates,
             "coverage": coverage,
+            "coverage_status": _overall_coverage(coverage),
             "metrics": {**reported_usage, **_metrics(metrics)},
         }
+        if not persist:
+            return receipt
         with self._store.lock("runs.json"):
             receipts = self._read()
             receipts.append(receipt)
             self._store.write(
-                "runs.json", {"schema_version": 1, "receipts": receipts[-_MAX_RECEIPTS:]}
+                "runs.json", {"schema_version": 2, "receipts": receipts[-_MAX_RECEIPTS:]}
             )
         return receipt
 
@@ -202,4 +320,5 @@ class CaptureHealthStore:
             "backlog_age_seconds": max(0, now - pending) if pending is not None else None,
             "checkpoint_lag_seconds": max(0, now - checkpoint) if checkpoint is not None else None,
             "metrics": measured,
+            "coverage_status": last["coverage_status"] if last else "unknown",
         }

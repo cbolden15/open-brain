@@ -45,7 +45,8 @@ def test_two_developments_dual_discovery_and_changed_revision(tmp_path: Path) ->
     assert queue.process(ProcessingPolicy(), capture)["captures"] == 2
     assert queue.process(ProcessingPolicy(), capture)["captures"] == 0
     queue.admit(observation(revision_id="same-material", capture_id="capture_repeat"))
-    assert queue.process(ProcessingPolicy(), capture)["captures"] == 0
+    # Equal semantics still require a new immutable evidence revision.
+    assert queue.process(ProcessingPolicy(), capture)["captures"] == 2
     queue.admit(
         observation(
             revision_id="revision2", capture_id="capture_raw2", text="Correction: use remote"
@@ -68,8 +69,9 @@ def test_lost_capture_ack_and_postprocess_restart(tmp_path: Path) -> None:
             raise RuntimeError("synthetic lost acknowledgement")
         return result
 
-    with pytest.raises(RuntimeError):
-        queue.process(ProcessingPolicy(), capture)
+    failed = queue.process(ProcessingPolicy(), capture)
+    assert failed["failed"] == 1
+    assert failed["failure_codes"] == ["processing_item_failed"]
     completed = []
     restarted = CaptureProcessingStore(store)
     assert (
@@ -114,3 +116,28 @@ def test_capacity_budget_and_revision_conflict(tmp_path: Path) -> None:
         is True
     )
     assert queue.process(ProcessingPolicy(), lambda d, o, k: "capture")["captures"] == 2
+
+
+def test_postprocess_capacity_keeps_receipts_and_continues_independent_work(tmp_path: Path) -> None:
+    queue = CaptureProcessingStore(PrivateJsonStore(tmp_path / "queue"))
+    queue.admit(observation(text="Decision: blocked"))
+    queue.admit(observation(message_ts="2", text="Decision: independent"))
+    calls: list[str] = []
+    blocked = True
+
+    def capture(development: Development, source: SourceObservation, operation: str) -> str:
+        calls.append(operation)
+        return "capture_" + operation
+
+    def postprocess(development: Development, capture_id: str, operation: str) -> None:
+        if blocked and development.claim == "blocked":
+            raise LiveSourceError("attention_weekly_limit")
+
+    result = queue.process(ProcessingPolicy(), capture, postprocess=postprocess)
+    assert result["captures"] == 2
+    assert result["processed"] == 1
+    assert result["outcome"] == "partial"
+    assert result["failure_codes"] == ["attention_weekly_limit"]
+    blocked = False
+    assert queue.process(ProcessingPolicy(), capture, postprocess=postprocess)["processed"] == 1
+    assert len(calls) == 2

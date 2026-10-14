@@ -720,3 +720,60 @@ def test_candidate_resolution_rejects_oversized_provider_page(tmp_path: Path) ->
             selection.resource_id.removeprefix("channel:"),
             "1760000001.000001",
         )
+
+
+def test_optional_search_freezes_upper_bound_and_refuses_changed_interval(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from open_brain_connectors.runtime.live_common import LiveAccount
+    from open_brain_connectors.runtime.slack_auth import slack_user_scopes
+    from open_brain_connectors.runtime.slack_discovery import SlackMessageDiscoveryClient
+
+    selection, auth = _selection_and_auth(tmp_path)
+    monkeypatch.setattr(
+        auth,
+        "accounts",
+        lambda: (
+            LiveAccount(
+                "slack",
+                selection.connection_id,
+                "Synthetic",
+                slack_user_scopes(("mentions",)),
+                None,
+            ),
+        ),
+    )
+    transport = _Transport(
+        [
+            _Response(
+                200,
+                {
+                    "ok": True,
+                    "messages": {
+                        "matches": [
+                            {"channel": {"id": "CONE"}, "ts": "1760000001.000001"},
+                            {"channel": {"id": "CONE"}, "ts": "1760000003.000001"},
+                        ],
+                        "paging": {"pages": 2},
+                    },
+                },
+            )
+        ]
+    )
+    client = SlackMessageDiscoveryClient(auth, http=cast(LiveHttpTransport, transport))
+    options: dict[str, Any] = {
+        "owner_id": "UOWNER",
+        "capabilities": ("mentions",),
+        "excluded_conversations": (),
+        "ai_exclusions_verified": True,
+        "oldest": "1760000000.000001",
+        "latest": "1760000002.000001",
+    }
+    batch = client.discover(selection.connection_id, **options)
+    assert [item.message_ts for item in batch.candidates] == ["1760000001.000001"]
+    assert "before%3A" in transport.urls[0]
+    options["latest"] = "1760000004.000001"
+    with pytest.raises(LiveSourceError, match="invalid_checkpoint"):
+        client.discover(selection.connection_id, checkpoint=batch.checkpoint, **options)
+    assert len(transport.urls) == 1

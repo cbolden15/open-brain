@@ -4,14 +4,29 @@ from __future__ import annotations
 import re
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import cast
+from typing import Any, cast
 
-from open_brain_collector.capture_contracts import Development, SourceObservation, digest
+from open_brain_collector.capture_contracts import (
+    Development,
+    SourceObservation,
+    development_identity,
+    digest,
+)
 from open_brain_connectors.runtime.live_common import LiveSourceError, bounded_json
 from open_brain_connectors.runtime.live_storage import PrivateJsonStore
 
 Extractor = Callable[[SourceObservation], tuple[Development, ...]]
 DerivedCapture = Callable[[Development, SourceObservation, str], str]
+Postprocess = Callable[[Development, str, str], tuple[str, ...] | None]
+
+_FAILURE_CODES = frozenset({
+    "processing_evidence_superseded", "processing_invalid_extraction",
+    "processing_invalid_evidence",
+    "processing_invalid_receipt", "capture_processing_excluded", "capture_development_pending",
+    "candidate_queue_full", "attention_weekly_limit", "attention_queue_full",
+    "capture_assignment_conflict", "source_revision_pending",
+    "processing_legacy_adoption_conflict", "processing_evidence_changed_pending_recovery",
+})
 
 
 @dataclass(frozen=True, slots=True)
@@ -100,7 +115,8 @@ class CaptureProcessingStore:
 
     def process(self, policy: ProcessingPolicy, capture: DerivedCapture, *,
                 extractor: Extractor | None = None,
-                postprocess: Callable[[Development, str, str], None] | None = None
+                postprocess: Postprocess | None = None,
+                preflight: Callable[[SourceObservation], None] | None = None,
                 ) -> dict[str, object]:
         if not isinstance(policy, ProcessingPolicy) or not callable(capture):
             raise LiveSourceError("processing_invalid_policy")
@@ -109,7 +125,12 @@ class CaptureProcessingStore:
         if policy.provider != "local" and extractor is None:
             raise LiveSourceError("processing_provider_unavailable")
         extract = local_extract if extractor is None else extractor
-        counts = {"processed": 0, "captures": 0, "held": 0, "budget_exhausted": False}
+        counts: dict[str, Any] = {
+            "processed": 0, "captures": 0, "held": 0, "budget_exhausted": False,
+            "failed": 0, "superseded": 0,
+        }
+        failure_codes: set[str] = set()
+        notices: set[str] = set()
         calls = 0
         input_bytes = 0
         with self.store.lock("capture-processing", timeout_seconds=0):
@@ -118,7 +139,16 @@ class CaptureProcessingStore:
             operations = cast(dict[str, dict[str, object]], state["operations"])
             for key, entry in observations.items():
                 observation = SourceObservation.from_dict(entry["observation"])
+                # Older queues reused a completed operation across raw revisions.
+                # Reopen those entries without altering the frozen original request.
+                if any(operations[identity]["observation_id"] != key
+                       for identity in cast(list[str], entry["operation_ids"])):
+                    entry.update(state="pending", operation_ids=[])
                 if entry["state"] == "complete":
+                    continue
+                if entry["state"] == "superseded":
+                    counts["superseded"] += 1
+                    failure_codes.add("processing_evidence_superseded")
                     continue
                 if (observation.ai_excluded or observation.privacy.tier.value not in
                     policy.allowed_tiers or (policy.external_processing and not
@@ -126,58 +156,96 @@ class CaptureProcessingStore:
                      observation.privacy.authority.external_egress))):
                     counts["held"] += 1
                     continue
-                if entry["state"] == "pending":
-                    size = len((observation.text + observation.thread_context).encode())
-                    if calls >= policy.max_calls or input_bytes + size > policy.max_input_bytes:
-                        counts["budget_exhausted"] = True
-                        break
-                    calls += 1
-                    input_bytes += size
-                    developments = extract(observation)
-                    if (type(developments) is not tuple or
-                        len(developments) > policy.max_developments
-                        or any(type(d) is not Development for d in developments)):
-                        raise LiveSourceError("processing_invalid_extraction")
-                    ids = []
-                    for development in developments:
-                        if (development.quote not in observation.text or
-                            development.supporting_capture_ids != (observation.capture_id,) or
-                            development.supporting_revision_ids != (observation.revision_id,)):
-                            raise LiveSourceError("processing_invalid_evidence")
-                        material = development.to_dict()
-                        material.pop("supporting_capture_ids")
-                        material.pop("supporting_revision_ids")
-                        operation_id = "development:" + digest([
-                            observation.workspace_id, observation.conversation_id,
-                            observation.message_ts, material,
-                        ])
-                        ids.append(operation_id)
-                        operations.setdefault(operation_id, {
-                            "observation_id": key, "development": development.to_dict(),
-                            "capture_id": None, "postprocessed": False,
-                        })
-                    entry["operation_ids"] = ids
-                    entry["state"] = "prepared"
-                    self._save(state)  # Reserve immutable operations before external acceptance.
-                for operation_id in cast(list[str], entry["operation_ids"]):
-                    operation = operations[operation_id]
-                    if operation["capture_id"] is None:
-                        development = Development.from_dict(operation["development"])
-                        bound_observation = SourceObservation.from_dict(
-                            observations[cast(str, operation["observation_id"])]["observation"]
-                        )
-                        capture_id = capture(development, bound_observation, operation_id)
-                        if type(capture_id) is not str or not capture_id or len(capture_id) > 512:
-                            raise LiveSourceError("processing_invalid_receipt")
-                        operation["capture_id"] = capture_id
-                        self._save(state)
-                        counts["captures"] += 1
-                    if postprocess is not None and not operation["postprocessed"]:
-                        postprocess(Development.from_dict(operation["development"]),
-                                    cast(str, operation["capture_id"]), operation_id)
-                        operation["postprocessed"] = True
-                        self._save(state)
-                entry["state"] = "complete"
-                self._save(state)
-                counts["processed"] += 1
-        return cast(dict[str, object], counts)
+                try:
+                    if preflight is not None:
+                        preflight(observation)
+                    if entry["state"] == "pending":
+                        size = len((observation.text + observation.thread_context).encode())
+                        if calls >= policy.max_calls or input_bytes + size > policy.max_input_bytes:
+                            counts["budget_exhausted"] = True
+                            break
+                        calls += 1
+                        input_bytes += size
+                        developments = extract(observation)
+                        if (type(developments) is not tuple or
+                            len(developments) > policy.max_developments
+                            or any(type(d) is not Development for d in developments)):
+                            raise LiveSourceError("processing_invalid_extraction")
+                        ids = []
+                        for development in developments:
+                            if (development.quote not in observation.text or
+                                development.supporting_capture_ids != (observation.capture_id,) or
+                                development.supporting_revision_ids != (observation.revision_id,)):
+                                raise LiveSourceError("processing_invalid_evidence")
+                            semantic_id = development_identity(development, observation)
+                            operation_id = "development:" + digest([
+                                semantic_id, key, development.to_dict(),
+                            ])
+                            ids.append(operation_id)
+                            operations.setdefault(operation_id, {
+                                "semantic_id": semantic_id,
+                                "observation_id": key, "development": development.to_dict(),
+                                "capture_id": None, "postprocessed": False,
+                            })
+                        entry["operation_ids"] = ids
+                        entry["state"] = "prepared"
+                        self._save(state)  # Freeze requests before uncertain external acceptance.
+                    for operation_id in cast(list[str], entry["operation_ids"]):
+                        operation = operations[operation_id]
+                        if operation["capture_id"] is None:
+                            development = Development.from_dict(operation["development"])
+                            bound_observation = SourceObservation.from_dict(
+                                observations[cast(str, operation["observation_id"])]["observation"]
+                            )
+                            operation["capture_attempted"] = True
+                            self._save(state)
+                            capture_id = capture(development, bound_observation, operation_id)
+                            if (type(capture_id) is not str or not capture_id
+                                or len(capture_id) > 512):
+                                raise LiveSourceError("processing_invalid_receipt")
+                            operation["capture_id"] = capture_id
+                            self._save(state)
+                            counts["captures"] += 1
+                        if postprocess is not None and not operation["postprocessed"]:
+                            result = postprocess(Development.from_dict(operation["development"]),
+                                                 cast(str, operation["capture_id"]), operation_id)
+                            operation["notices"] = list(result or ())
+                            operation["postprocessed"] = True
+                            self._save(state)
+                        notices.update(cast(list[str], operation.get("notices", [])))
+                    entry["state"] = "complete"
+                    entry.pop("failure_code", None)
+                    self._save(state)
+                    counts["processed"] += 1
+                except Exception as error:
+                    code = (error.code if isinstance(error, LiveSourceError)
+                            else "processing_item_failed")
+                    if code not in _FAILURE_CODES:
+                        code = "processing_item_failed"
+                    if code == "processing_evidence_superseded" and any(
+                        (operations[identity].get("capture_attempted")
+                         or operations[identity]["capture_id"] is not None
+                         or "semantic_id" not in operations[identity])
+                        and not operations[identity]["postprocessed"]
+                        for identity in cast(list[str], entry["operation_ids"])
+                    ):
+                        code = "processing_evidence_changed_pending_recovery"
+                    entry["failure_code"] = code
+                    if code == "processing_evidence_superseded":
+                        entry["state"] = "superseded"
+                        counts["superseded"] += 1
+                    else:
+                        counts["failed"] += 1
+                    failure_codes.add(code)
+                    # Retain every immutable request and receipt, isolating this item.
+                    self._save(state)
+        outcome = "completed"
+        if counts["held"] or counts["budget_exhausted"]:
+            outcome = "deferred"
+        if counts["failed"] or counts["superseded"]:
+            outcome = "partial"
+        return {
+            **counts,
+            "outcome": outcome,
+            "failure_codes": sorted(failure_codes), "notices": sorted(notices),
+        }

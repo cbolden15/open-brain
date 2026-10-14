@@ -50,6 +50,7 @@ class SlackMessageDiscoveryClient:
         excluded_conversations: tuple[str, ...],
         ai_exclusions_verified: bool,
         oldest: str,
+        latest: str | None = None,
         checkpoint: dict[str, object] | None = None,
     ) -> SlackMessageDiscoveryBatch:
         """One search or DM-history page, with explicit incomplete-coverage evidence."""
@@ -57,6 +58,9 @@ class SlackMessageDiscoveryClient:
         if not re.fullmatch(r"[A-Z0-9]{2,128}", owner_id):
             raise LiveSourceError("invalid_owner_identity")
         floor = _timestamp(oldest)
+        ceiling = None if latest is None else _timestamp(latest)
+        if ceiling is not None and float(ceiling) <= float(floor):
+            raise LiveSourceError("invalid_discovery_policy")
         excluded = {_channel_id(item) for item in excluded_conversations}
         if type(ai_exclusions_verified) is not bool:
             raise LiveSourceError("invalid_discovery_policy")
@@ -81,11 +85,16 @@ class SlackMessageDiscoveryClient:
             "list_cursor": None,
             "pending": [],
             "list_complete": False,
+            **({"latest": ceiling} if ceiling is not None else {}),
         }
         if checkpoint is not None:
-            if set(checkpoint) != set(state) or any(
-                checkpoint[key] != state[key]
-                for key in ("connection_id", "capabilities", "oldest", "owner_id", "excluded")
+            if (
+                set(checkpoint) != set(state)
+                or any(
+                    checkpoint[key] != state[key]
+                    for key in ("connection_id", "capabilities", "oldest", "owner_id", "excluded")
+                )
+                or checkpoint.get("latest") != ceiling
             ):
                 raise LiveSourceError("invalid_checkpoint")
             state = dict(checkpoint)
@@ -104,6 +113,11 @@ class SlackMessageDiscoveryClient:
                 datetime.fromtimestamp(float(floor), UTC).date() - timedelta(days=1)
             ).isoformat()
             query = f"from:<@{owner_id}>" if capability == "owner_messages" else f"<@{owner_id}>"
+            if ceiling is not None:
+                search_until = (
+                    datetime.fromtimestamp(float(ceiling), UTC).date() + timedelta(days=1)
+                ).isoformat()
+                query += f" before:{search_until}"
             payload = self._client._api(
                 connection_id,
                 "search.messages",
@@ -131,7 +145,12 @@ class SlackMessageDiscoveryClient:
                     continue
                 if raw["channel"].get("is_mpim") is True and "group_dm" not in capabilities:
                     continue
-                if conversation not in excluded and float(_timestamp(raw.get("ts"))) > float(floor):
+                timestamp = float(_timestamp(raw.get("ts")))
+                if (
+                    conversation not in excluded
+                    and timestamp > float(floor)
+                    and (ceiling is None or timestamp <= float(ceiling))
+                ):
                     candidates.append(
                         SlackMessageCandidate(
                             connection_id,
@@ -185,6 +204,7 @@ class SlackMessageDiscoveryClient:
                         "channel": conversation,
                         "oldest": floor,
                         "limit": "15",
+                        **({"latest": ceiling} if ceiling is not None else {}),
                         **({"cursor": cast(str, state["cursor"])} if state["cursor"] else {}),
                     },
                 )
@@ -194,6 +214,13 @@ class SlackMessageDiscoveryClient:
                 for raw in values:
                     if not isinstance(raw, dict):
                         raise LiveSourceError("invalid_provider_response")
+                    timestamp = float(_timestamp(raw.get("ts")))
+                    if (
+                        timestamp <= float(floor)
+                        or ceiling is not None
+                        and timestamp > float(ceiling)
+                    ):
+                        continue
                     candidates.append(
                         SlackMessageCandidate(
                             connection_id,

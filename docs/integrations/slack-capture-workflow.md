@@ -74,6 +74,22 @@ The public processing API supports an injected extractor with an explicit provid
 
 Observations deduplicate across discovery methods by account/workspace identity, conversation, message timestamp and revision. Managed revisions remain immutable. Historical overlap replays the old receipt without promoting it as a newer head. Processing reserves development operations before capture, binds canonical supporting evidence before completion and retains failed work for exact retry. Capacity stops admission visibly; unresolved evidence is never evicted.
 
+Development identity follows the semantic claim; its immutable operation also
+includes the observation and evidence. A newer raw revision with the same claim
+therefore creates a current `slack_development` revision while retaining its
+historical captures. Already obsolete observations are retained as superseded and
+do not block independent work. Long supported claims remain developments; names
+that exceed the candidate limit produce `candidate_name_too_long` instead of an
+impossible candidate retry.
+
+Capture acceptance and evidence binding are separate engine operations. A source
+correction between them can require owner recovery; the operation remains visibly
+pending with `processing_evidence_changed_pending_recovery`. Legacy development
+adoption requires an exact original capture request and fails closed with
+`processing_legacy_adoption_conflict` when reconstruction differs. Inspect these
+codes and the retained operations before recovery; do not clear the queue or
+silently mark them complete.
+
 ## Review and classify
 
 Reuse explicit Slack canonical-page mappings and proposal opt-in. Updates freeze the target page revision. The automation authority can propose and assign existing facets; it cannot approve publication or create vocabulary. A maximum of ten weekly proposal slots is reserved before writing. Capacity failures leave work pending.
@@ -105,6 +121,8 @@ Channel-only authorization retains its original scopes. Optional `connect --capa
 
 Add `owner_id`, enabled `capabilities` and exact `permitted_conversations` to processing configuration. Run `capture-discover --connection-id ACCOUNT`. Full message/thread hints and cursors persist before canonical resolution. Permitted hints create protected `slack-extra.*` selections with unknown privacy. They do not enable sources. Inspect returned source IDs, explicitly configure a chosen tier with `reset: true`, then enable after review. Current configuration is checked before lookup, fetch and writes; changed permissions or policy generation fence older optional selections.
 
+Completed discovery returns `source_ids`; `sources --foreground status` also lists the selections. Each scan freezes its lower and upper timestamps across pages. The next scan overlaps the last completed upper timestamp by 72 hours, so a missed week is caught up rather than discarded. Failures retain the interval, hints and retry deadline. If every permitted conversation is excluded, discovery makes no provider requests.
+
 For an unresolved selected old thread, use `capture-track-thread --connection-id ACCOUNT --channel-id CHANNEL --thread-ts TIMESTAMP --privacy-tier TIER`, then enable its returned source ID. Thread refresh shares channel identities, reports partial coverage and cannot prove channel-wide absence. Missing canonical thread identity is reported unsupported. Previously untracked old roots and exhaustive search remain connector limits.
 
 ## Health, recovery and rollout
@@ -116,9 +134,17 @@ open-brain-collector sources --state "$CAPTURE_STATE" --brain-root "$CAPTURE_BRA
 
 Bounded run receipts distinguish empty, completed, partial and failed work without storing message bodies or raw provider errors. Health reports heartbeat age, coverage, backlog count and known retries/usage. Unknown measurements stay unknown. The default heartbeat deadline is 24 hours plus a two-hour grace period; monitor it independently of the collector process.
 
+Execution outcome and `coverage_status` are separate. A completed tracked-thread refresh can have partial source coverage. Receipts retain only allowlisted public `coverage_codes`, including incomplete search, unsupported old-thread discovery and access failures. Provider text and unknown notices are omitted.
+
 Backlog age uses the oldest pending observation time. Checkpoint lag measures time since the oldest acknowledged, caught-up run among enabled sources. It remains unknown if an enabled source has no complete acknowledged run. These are local operation times, not an assertion of exhaustive Slack coverage.
 
 The [systemd service](examples/slack-capture.service), [timer](examples/slack-capture.timer) and [launchd example](examples/slack-capture.plist) are templates. Nothing installs or activates them here.
+
+Daily templates use `run-until-caught-up --max-iterations 500 --max-seconds 900` with the shared lease. One activation drains pending pages and honors persisted retry deadlines. Those defaults bound scheduling passes and the time available to start another pass; an in-progress bounded fetch or capture finishes safely. Exit 0 means the activation caught up, 75 means work remains deferred or needs owner attention, and 78 means the command failed. `stop_reason` distinguishes iteration/deadline exhaustion from owner attention. Pending checkpoints remain intact for the next activation. `run-once` remains a single-pass command; use the catch-up command for an independent daily timer. Monitor deferred runs as well as missed heartbeats.
+
+Catch-up drains ingestion first, then invokes development processing once under the same lease. Processing budgets apply once per activation, including when each ingestion page contains fewer messages than `max_calls`. Exhaustion returns `stop_reason: processing_budget` and retains pending observations. A time limit or signal prevents the final processing stage from starting. The final activation receipt retains the latest coverage of every observed source and cumulative capture/duplicate counts. Global token/cost totals are included only when every contributing result reports that measurement; missing values remain unknown.
+
+Discovery and health private state now use version 2. Version 1 discovery lacks an upper coverage bound, so recovery conservatively replays its retained interval, preserves hints/source registrations and restarts pagination. It does not assume the old completion time proves coverage. Version 1 health receipts retain their measurements with unknown coverage; the next write preserves them in version 2. Older collector binaries cannot read the updated operational state. Keep the matching collector backup for rollback.
 
 Canonical evidence and append reservations survive Portable Brain 11. Private policy, discovery hints, processing/candidate/attention queues, source checkpoints and custody require the private collector recovery backup alongside the Brain. Verify matching restore in a disposable copy before rollout. On failure, pause admission and scheduling while retaining pending work and receipts. Do not delete queues to force progress or run an older binary against a migrated store.
 

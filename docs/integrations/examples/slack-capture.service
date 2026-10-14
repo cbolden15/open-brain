@@ -6,4 +6,4 @@ Description=Open Brain daily capture
 [Service]
 Type=oneshot
 UMask=0077
-ExecStart=/absolute/path/to/open-brain-collector run-once --state /absolute/path/to/private/collector/state.json --brain-root /absolute/path/to/private/brain --lease /absolute/path/to/private/collector/collector.lease
+ExecStart=/absolute/path/to/open-brain-collector run-until-caught-up --state /absolute/path/to/private/collector/state.json --brain-root /absolute/path/to/private/brain --lease /absolute/path/to/private/collector/collector.lease --max-iterations 500 --max-seconds 900

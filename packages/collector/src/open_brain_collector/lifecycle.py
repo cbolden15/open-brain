@@ -1474,7 +1474,7 @@ class EngineRevisionSink:
         self, intake: SourceRecordIntake,
     ) -> tuple[SourceRevisionBinding, PublicJobRevisionSink]:
         if type(intake) is not SourceRecordIntake or intake.key.connector_name not in {
-            "saved_markdown", "slack"
+            "saved_markdown", "slack", "slack_development"
         }:
             raise ConnectorContractError("invalid collector capture")
         identity = self._capture_sink.brain_identity
@@ -1554,7 +1554,7 @@ class EngineRevisionSink:
         with self._store.lock("saved-revision-capacity"), self._store.lock(name):
             sequence: int | None = None
             order_name = "slack-order-" + hashlib.sha256(bounded_json(namespace, 4096)).hexdigest() + ".json"
-            if intake.key.connector_name == "slack":
+            if intake.key.connector_name in {"slack", "slack_development"}:
                 incoming = intake_digest(intake)
                 for archive_name in self._store.names("saved-revision-archive-"):
                     archive = self._store.read(archive_name)
@@ -1565,7 +1565,7 @@ class EngineRevisionSink:
                             intake, sink, binding, archive_name, lookup_only=True,
                         )
                 timestamp = re.fullmatch(r"edited:(\d+(?:\.\d{1,6})?)(?:~policy:[0-9a-f]+)?", intake.key.revision_id)
-                if timestamp is not None:
+                if intake.key.connector_name == "slack" and timestamp is not None:
                     sequence = int(Decimal(timestamp[1]) * 1_000_000)
                     order = self._store.read(order_name)
                     if order is not None:

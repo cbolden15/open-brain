@@ -178,20 +178,41 @@ class LiveSourceManager:
         if self.workflow.configuration()["enabled"] is not True:
             self._slack_patches.propose(selection, records)
 
-    def sync_due(self) -> list[dict[str, object]]:
+    def sync_due(self, *, process_developments: bool = True) -> list[dict[str, object]]:
         """Run due discovery before channel capture, without enabling suggestions."""
         results: list[dict[str, object]] = []
         for account in self._slack_policy.accounts():
             try:
                 policy = self._slack_policy.policy(account)
                 discovery = cast(dict[str, object], policy["discovery"])
-                now = int(time.time())
+                now = self.capture._clock()
+                retry_name = (
+                    "slack-discovery-retry-"
+                    + hashlib.sha256(account.encode()).hexdigest()
+                    + ".json"
+                )
+                retry = self._setup.read(retry_name)
+                if (
+                    isinstance(retry, dict)
+                    and type(retry.get("retry_at")) is int
+                    and retry["retry_at"] > now
+                ):
+                    results.append(
+                        {
+                            "source_id": "slack-discovery:" + account,
+                            "outcome": "deferred",
+                            "retry_at": retry["retry_at"],
+                            "notices": ["discovery_retry_pending"],
+                        }
+                    )
+                    continue
                 if (
                     discovery["checkpoint"] is not None
                     or discovery["completed_at"] is None
                     or now - cast(int, discovery["completed_at"]) >= 86_400
                 ):
                     outcome = self._slack("sources.slack_discover", {"connection_id": account})
+                    self._setup.delete(retry_name)
                     results.append(
                         {
                             "source_id": "slack-discovery:" + account,
@@ -200,14 +221,33 @@ class LiveSourceManager:
                         }
                     )
             except LiveSourceError as error:
+                retry_at = None
+                if error.code in {"rate_limited", "provider_unavailable", "provider_failed"}:
+                    retry_at = self.capture._clock() + (error.retry_after_seconds or 60)
+                    retry_name = (
+                        "slack-discovery-retry-"
+                        + hashlib.sha256(account.encode()).hexdigest()
+                        + ".json"
+                    )
+                    self._setup.write(retry_name, {"retry_at": retry_at})
                 results.append(
                     {
                         "source_id": "slack-discovery:" + account,
                         "outcome": "failed",
                         "failure_code": error.code,
+                        **({"retry_at": retry_at} if retry_at is not None else {}),
                     }
                 )
-        results.extend(self.capture.sync_due())
+        captured = self.capture.sync_due()
+        deadlines = {
+            source["source_id"]: source["next_run_epoch"]
+            for source in cast(list[dict[str, object]], self.capture.status()["sources"])
+            if source["status"] == "enabled"
+        }
+        results.extend(
+            {**result, "next_run_epoch": deadlines.get(result.get("source_id"))}
+            for result in captured
+        )
         if self.workflow.configuration()["enabled"] is True:
             for account in self._slack_policy.accounts():
                 try:
@@ -222,18 +262,19 @@ class LiveSourceManager:
                             "failure_code": error.code,
                         }
                     )
-            try:
-                results.append({"source_id": "slack-development", **self.workflow.process()})
-            except Exception as error:
-                results.append(
-                    {
-                        "source_id": "slack-development",
-                        "outcome": "failed",
-                        "failure_code": error.code
-                        if isinstance(error, LiveSourceError)
-                        else "capture_processing_failed",
-                    }
-                )
+            if process_developments:
+                try:
+                    results.append({"source_id": "slack-development", **self.workflow.process()})
+                except Exception as error:
+                    results.append(
+                        {
+                            "source_id": "slack-development",
+                            "outcome": "failed",
+                            "failure_code": error.code
+                            if isinstance(error, LiveSourceError)
+                            else "capture_processing_failed",
+                        }
+                    )
         return results
 
     def dispatch(self, operation: str, arguments: object) -> dict[str, object]:
