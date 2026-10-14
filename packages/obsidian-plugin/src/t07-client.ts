@@ -69,7 +69,7 @@ export interface PublicationWorkspace { ready: boolean; vault_path: string }
 
 const PUBLICATION_OPERATIONS = [
   "inbox.list", "inbox.route", "publication.approve", "publication.edit_and_approve",
-  "publication.propose", "publication.reject", "publication.show", "space.create",
+  "publication.propose", "publication.reject", "publication.show", "publication.list", "space.create",
   "space.list", "workspace.refresh", "workspace.setup", "workspace.status",
 ] as const;
 

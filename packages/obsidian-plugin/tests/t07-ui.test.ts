@@ -53,7 +53,7 @@ vi.mock("obsidian", () => {
   class TFile { public constructor(readonly path = "") {} }
   return {
     __notices: notices, __opened: opened,
-    App: class {}, FileSystemAdapter, FuzzySuggestModal, Modal,
+    App: class {}, FileSystemAdapter, FuzzySuggestModal, Modal, ItemView: class {},
     Notice: class { public constructor(message: string) { notices.push(message); } },
     Plugin: class { public app: unknown; public constructor(app: unknown) { this.app = app; } },
     PluginSettingTab: class {}, Setting: class {}, TFile,
@@ -78,6 +78,70 @@ const summary = (n: number) => {
 };
 
 describe("actual T07 modals", () => {
+  it.each(["automatic", "manual"] as const)("%s graph refresh preserves the intended focus policy", async (reason) => {
+    const obsidian = await import("obsidian") as unknown as {
+      TFile: new () => object;
+      FileSystemAdapter: new (basePath: string) => object;
+    };
+    const vaultPath = await mkdtemp(path.join(tmpdir(), "open-brain-canvas-focus-"));
+    const executable = await managedBridgeExecutable(vaultPath, true);
+    const file = new obsidian.TFile();
+    const openFile = vi.fn(async () => undefined);
+    const create = vi.fn(async () => file);
+    const plugin = new OpenBrainPlugin({
+      vault: { adapter: new obsidian.FileSystemAdapter(vaultPath), getAbstractFileByPath: () => null, create },
+      workspace: { getLeaf: () => ({ openFile }) },
+    } as never, {} as never);
+    plugin.settings = { executablePath: executable, inferencePaused: true };
+    try {
+      await plugin.refreshPresentation(reason);
+      expect(create).toHaveBeenCalledOnce();
+      expect(openFile).toHaveBeenCalledTimes(reason === "manual" ? 1 : 0);
+    } finally { plugin.onunload(); }
+  });
+  it("does not rewrite or reveal the canvas after unload during its ownership read", async () => {
+    const obsidian = await import("obsidian") as unknown as {
+      TFile: new () => object; FileSystemAdapter: new (basePath: string) => object;
+    };
+    const vaultPath = await mkdtemp(path.join(tmpdir(), "open-brain-canvas-unload-"));
+    const executable = await managedBridgeExecutable(vaultPath, true);
+    const file = new obsidian.TFile();
+    let finishRead!: (value: string) => void;
+    const read = vi.fn(() => new Promise<string>((resolve) => { finishRead = resolve; }));
+    const processFile = vi.fn();
+    const openFile = vi.fn();
+    const plugin = new OpenBrainPlugin({
+      vault: { adapter: new obsidian.FileSystemAdapter(vaultPath), getAbstractFileByPath: () => file, read, process: processFile },
+      workspace: { getLeaf: () => ({ openFile }) },
+    } as never, {} as never);
+    plugin.settings = { executablePath: executable, inferencePaused: true };
+    const running = plugin.refreshPresentation("manual");
+    await vi.waitFor(() => expect(read).toHaveBeenCalledOnce());
+    plugin.onunload();
+    finishRead(JSON.stringify({ nodes: [{ text: "# Open Brain graph" }] }));
+    await running;
+    expect(processFile).not.toHaveBeenCalled();
+    expect(openFile).not.toHaveBeenCalled();
+  });
+  it("offers classification for engine records without a managed file", async () => {
+    const item = summary(0);
+    const classify = vi.fn(async (_item: unknown, _cancelled: () => boolean) => {});
+    const bridge = { cancelPending: vi.fn(), invoke: vi.fn(async () => ({
+      status: "ok", dto_version: 1, results: [item], next_cursor: null,
+      complete: true, mode_used: "lexical", warnings: [],
+    })) };
+    const modal = new PagedRecordSearchModal({} as never, bridge as never, {
+      cursor: null, filters: { payload_families: [], record_types: [], space_ids: [] },
+      limit: 50, mode: "lexical", query: "synthetic",
+    }, { classify, history: async () => {} });
+    modal.open();
+    await vi.waitFor(() => expect(walk(modal.contentEl as unknown as TestElement).some((row) => row.text === "Classify")).toBe(true));
+    walk(modal.contentEl as unknown as TestElement).find((row) => row.text === "Classify")!.trigger("click");
+    await vi.waitFor(() => expect(classify).toHaveBeenCalledOnce());
+    expect(classify.mock.calls[0]?.[0]).toEqual(item);
+    modal.close();
+    expect(bridge.cancelPending).not.toHaveBeenCalled();
+  });
   it("maps the visible Hybrid choice to the frozen hybrid_preferred request", async () => {
     const modal = new SearchFiltersModal({} as never);
     const result = modal.result();
@@ -90,7 +154,7 @@ describe("actual T07 modals", () => {
     expect(() => validateT03Wire("search.page.request", { dto_version: 1, ...request })).not.toThrow();
   });
 
-  it("close/Escape cancels the held read and prevents another chunk request", async () => {
+  it("close/Escape stops the held read without cancelling the shared bridge", async () => {
     let release!: (value: unknown) => void;
     let reads = 0;
     const page = { status: "ok", dto_version: 1, results: [summary(0)], next_cursor: null,
@@ -121,7 +185,7 @@ describe("actual T07 modals", () => {
       start_byte: 0, end_byte: 1, next_cursor: "cursor-1", complete: false });
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(reads).toBe(1);
-    expect(bridge.cancelPending).toHaveBeenCalledOnce();
+    expect(bridge.cancelPending).not.toHaveBeenCalled();
   });
 
   it("allows only one complete-read loop across result rows", async () => {
@@ -470,7 +534,7 @@ async function managedFileHarness(
   };
 }
 
-async function managedBridgeExecutable(vaultPath: string): Promise<string> {
+async function managedBridgeExecutable(vaultPath: string, presentation = false): Promise<string> {
   const directory = await mkdtemp(path.join(tmpdir(), "open-brain-managed-bridge-"));
   const executable = path.join(directory, "open-brain");
   const handshake = {
@@ -485,6 +549,7 @@ async function managedBridgeExecutable(vaultPath: string): Promise<string> {
 let buffer = "";
 const handshake = ${JSON.stringify(handshake)};
 const status = ${JSON.stringify(status)};
+const presentation = ${JSON.stringify(presentation)};
 process.stdin.setEncoding("utf8");
 process.stdin.on("data", (chunk) => {
   buffer += chunk;
@@ -492,7 +557,11 @@ process.stdin.on("data", (chunk) => {
   while (newline >= 0) {
     const request = JSON.parse(buffer.slice(0, newline));
     buffer = buffer.slice(newline + 1);
-    const result = request.operation === "system.handshake" ? handshake : status;
+    let result = request.operation === "system.handshake" ? handshake : status;
+    if (presentation && request.operation === "workspace.reconcile") result = {
+      status:"reconciled",workspace_id:status.workspace_id,generation:0,accepted_note_ids:[],missing_note_ids:[]};
+    if (presentation && request.operation === "graph.canvas") result = {
+      status:"fresh",workspace_id:status.workspace_id,generation_id:null,snapshot_sha256:null,canvas:{nodes:[],edges:[]}};
     process.stdout.write(JSON.stringify({ok:true, protocol:"open-brain-client", protocol_version:1,
       request_id:request.request_id, result}) + "\\n");
     newline = buffer.indexOf("\\n");

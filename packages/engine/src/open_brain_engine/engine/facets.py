@@ -86,7 +86,12 @@ class FacetTasks:
         return clone
 
     def _page_fits(self, value: Mapping[str, object]) -> bool:
-        wire = json.loads(portable_canonical_json_bytes(value))
+        canonical = portable_canonical_json_bytes(value)
+        if len(canonical) > MAX_LIST_BYTES:
+            return False
+        wire = json.loads(canonical)
+        if _ascii_page_size(wire) > MAX_LIST_BYTES:
+            return False
         encoded_size = self._page_admission.encoded_size(wire)
         if type(encoded_size) is not int or encoded_size < 0:
             raise fc.FacetError("invalid_arguments")

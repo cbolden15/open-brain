@@ -46,7 +46,7 @@ _REQUIRED = {
 }
 _OPTIONAL = {
     "propose": {"target_page_id", "idempotency_key", "title", "markdown", "patch"},
-    "list": {"capture_id", "space_id", "status", "limit", "offset"},
+    "list": {"capture_id", "space_id", "status", "limit", "offset", "facet_query_id"},
     "show": set(),
     "approve": {"idempotency_key"},
     "reject": {"idempotency_key"},
@@ -91,6 +91,9 @@ def validate_review_arguments(operation: str, arguments: Mapping[str, object]) -
         elif field in {"capture_id", "proposal_id", "space_id", "target_page_id"}:
             prefix = "page" if field == "target_page_id" else field.removesuffix("_id")
             if not _identifier(value, prefix):
+                raise ReviewPublicationError("invalid_arguments")
+        elif field == "facet_query_id":
+            if not _identifier(value, "facetquery"):
                 raise ReviewPublicationError("invalid_arguments")
         elif field == "review_token":
             if not isinstance(value, str) or _DIGEST.fullmatch(value) is None:
@@ -171,6 +174,10 @@ class ReviewPublicationService:
         validate_review_arguments("list", arguments)
         limit = cast(int, arguments.get("limit", DEFAULT_REVIEW_PAGE_LIMIT))
         offset = cast(int, arguments.get("offset", 0))
+        facet_filter = (
+            {"facet_query_id": cast(str, arguments["facet_query_id"])}
+            if "facet_query_id" in arguments else {}
+        )
         try:
             records = self._task.list(
                 capture_id=cast(str | None, arguments.get("capture_id")),
@@ -178,6 +185,7 @@ class ReviewPublicationService:
                 space_id=cast(str | None, arguments.get("space_id")),
                 limit=limit,
                 offset=offset,
+                **facet_filter,
             )
             has_more = False
             if len(records) == limit:
@@ -188,6 +196,7 @@ class ReviewPublicationService:
                         space_id=cast(str | None, arguments.get("space_id")),
                         limit=1,
                         offset=offset + len(records),
+                        **facet_filter,
                     )
                 )
         except ValueError as error:
@@ -355,6 +364,15 @@ def _public_error(error: ValueError) -> ReviewPublicationError:
         "stale review state": "review_conflict",
         "review source state conflict": "review_conflict",
         "canonical page revision conflict": "review_conflict",
+        "facet binding version conflict": "review_conflict",
+        "facet destination authority conflict": "review_conflict",
+        "facet query selection conflict": "review_conflict",
+        "facet publication target conflict": "review_conflict",
+        "facet provenance conflict": "review_conflict",
+        "facet source head conflict": "review_conflict",
+        "facet membership conflict": "review_conflict",
+        "facet source lineage conflict": "review_conflict",
+        "facet source route conflict": "review_conflict",
         "review proposal exceeds inspection limit": "response_too_large",
     }.get(str(error), "operation_failed")
     return ReviewPublicationError(code)

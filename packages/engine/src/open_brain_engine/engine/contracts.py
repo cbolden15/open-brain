@@ -3189,6 +3189,7 @@ class ReviewTask(Protocol):
         space_id: str | None = None,
         limit: int | None = None,
         offset: int = 0,
+        facet_query_id: str | None = None,
     ) -> tuple[ProposalRecord, ...]: ...
 
     def show(self, proposal_id: str) -> ReviewProposal: ...
@@ -3290,6 +3291,12 @@ class ManagedWorkspaceTask(Protocol):
     def refresh(self, workspace_id: str, *, operation_id: str) -> ManagedWorkspaceReceipt: ...
 
     def observe(self, workspace_id: str) -> ManagedWorkspaceObservation: ...
+
+    def resolve_record(
+        self, workspace_id: str, relative_path: str, *, authority: EffectiveAuthority
+    ) -> dict[str, object]: ...
+
+    def rebuild_facet_views(self, workspace_id: str) -> None: ...
 
     def open_conflicts(
         self, workspace_id: str, *, limit: int = 64

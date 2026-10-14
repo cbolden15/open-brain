@@ -1,8 +1,10 @@
 # Owner-defined facets, Stage 2: Obsidian interface
 
-Status: reviewed against verified Stage 1; O0 contract kit implemented and verified at
-`e3c165f90753464271bcff2aacb1a8f45ad64872`, with independent review complete.
-Remaining Stage 2 tasks have not started.
+Status: Stage 2 implementation in progress against merged, verified main
+`23e7a2bb75567b5492c026ea76f16c463739245e`. O0 retains revision `obsidian-o0-v1`
+and its verified fixture bytes. The current engine uses schema15/runtime10/Portable10.
+Exact Stage 2 ownership, candidate pins and acceptance results are recorded in
+`obsidian-stage-two-task-manifest.json`; historical O0 receipts remain in its original manifest.
 
 Date: 2026-10-13.
 
@@ -245,6 +247,14 @@ action or explain the existing `open-brain workspace observe` recovery. Do not s
 `workspace.reconcile` for this purpose: it also accepts body edits. Protected bytes must match
 both accepted managed content and the current eligible canonical revision; only registered facet
 metadata may differ. Root, relative path, device/inode/link custody and eligibility are checked.
+
+The bridge exposes explicit owner-local `workspace.observe` with empty arguments.
+It records file custody without accepting body edits or applying classification. Additional
+owner-local `workspace.facets.refresh` with empty arguments rebuilds facet metadata and indexes
+through the existing engine projection task. It does not grant canonical body-write authority.
+After Portable attachment, accepted note bodies remain but old write authority is absent.
+A fresh vault can rebuild classification views through this operation while ordinary body
+refresh continues to refuse unproven imported ancestors.
 
 ### Serialization, bounds and retry state
 
