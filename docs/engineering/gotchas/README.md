@@ -3545,6 +3545,23 @@ integrating a UI worker.
 
 Discovered: 2026-10-13, facet browser and editor implementation.
 
+### TESTING-006: Run deadline-bound acceptance separately from native builds
+
+Category: Config/Environment / Verification.
+
+A full Stage 2 run passed 7048 tests but one shared harness fixture exceeded its
+3-second recall limit, causing 26 setup errors. The unchanged
+fixture passed 32 checks separately, and the final full gate passed all 7074 tests
+after the native build finished. Keep the candidate frozen and separate heavy
+native packaging from deadline-bound acceptance. Preserve both failed and passing
+receipts; do not relax the product deadline to hide local scheduling contention.
+
+Fixture reports retain absolute evidence paths and the exact Python executable.
+Archive their unchanged bytes with a relocation manifest before deleting scratch
+data. A relocated copy cannot be presented as a newly collected scenario run.
+
+Discovered: 2026-10-13, actual local Stage 2 verification and approved disk cleanup.
+
 ### FACETS-015: Check historical settlement inside additive migrations
 
 Category: Database/Migrations.

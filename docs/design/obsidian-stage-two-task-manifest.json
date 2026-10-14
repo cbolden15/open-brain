@@ -1,7 +1,7 @@
 {
   "manifest_version": 1,
   "milestone": "Obsidian facets Stage2 B U P V T I R",
-  "status": "integrated_verification",
+  "status": "verified",
   "pins": {
     "verified_main_commit": "23e7a2bb75567b5492c026ea76f16c463739245e",
     "contract_revision": "facets-c0-v4",
@@ -16,13 +16,15 @@
     "max_active_workers": 6,
     "native_available_children": 3,
     "max_total_attempts": 12,
-    "used_attempts": 7,
-    "reserved_active": 3,
-    "authority": "Implement remaining Stage2 tasks using authorized concurrency/worktrees; local commits; no new push, publish, deploy or merge"
+    "used_attempts": 11,
+    "reserved_active": 0,
+    "authority": "Implement remaining Stage2 tasks using authorized concurrency/worktrees; local commits; no new push, publish, deploy or merge",
+    "attempt_accounting": "Seven initial/correction worker tasks and four bounded verification/review followups; no nested workers."
   },
   "ownership": {
     "coordinator": [
-      "Shared contracts/client, bridge.py, facets.py, main.ts, bridge.ts, contracts.ts, t07-client.ts, styles.css, registration, integration, ledger, docs and release checks"
+      "Shared contracts/client, bridge.py, facets.py, main.ts, bridge.ts, contracts.ts, t07-client.ts, styles.css, registration, integration, ledger, docs and release checks",
+      "All completed worker reservations released; future maintenance is coordinator-owned"
     ],
     "U": [
       "packages/obsidian-plugin/src/facet-browser.ts",
@@ -139,13 +141,13 @@
         "runtime": 10,
         "portable": 10
       },
-      "input_commit": "e2ffc803e47e64666961b52698425ccad5951893",
+      "input_commit": "5dc9dcecc3a5765bb1919cc6bc0f76c6494cfffc",
       "write_scope": [
         "packages/app/tests/integration/services/test_obsidian_facets_stage_two.py",
         "packages/obsidian-plugin/tests/facet-transport.test.ts",
         "packages/obsidian-plugin/tests/facet-client.test.ts"
       ],
-      "status": "incremental_verification",
+      "status": "integrated",
       "budget_minutes": 60,
       "verification": "Focused owned checks only; report real vs mock proof separately",
       "completion": "Scoped tests/report and localcommit forT; read-only private report forR; no children/push"
@@ -163,9 +165,9 @@
         "runtime": 10,
         "portable": 10
       },
-      "input_commit": "e2ffc803e47e64666961b52698425ccad5951893",
+      "input_commit": "5dc9dcecc3a5765bb1919cc6bc0f76c6494cfffc",
       "write_scope": [],
-      "status": "final_review",
+      "status": "review_complete",
       "budget_minutes": 60,
       "verification": "Focused owned checks only; report real vs mock proof separately",
       "completion": "Scoped tests/report and localcommit forT; read-only private report forR; no children/push"
@@ -173,7 +175,7 @@
     {
       "role": "P_recovery",
       "worktree": "/Users/calebbolden/Projects/oss/open-brain-stage-two-p-recovery",
-      "input_commit": "7a51b00b992891634ebaaf0124944ea64c0a78a4",
+      "input_commit": "70181a9fdcae09874e839eec13f2b1d9c268151d",
       "input_pins": {
         "verified_main_commit": "23e7a2bb75567b5492c026ea76f16c463739245e",
         "contract_revision": "facets-c0-v4",
@@ -191,7 +193,8 @@
       "status": "integrated",
       "budget_minutes": 30,
       "completion": "Close confirmed publication reopen gap with tests and scoped commit",
-      "verification": "Owned publication tests, typecheck"
+      "verification": "Owned publication tests, typecheck",
+      "source_commit": "cbaf51a349a06c678f3a6de14ccd84db8dbad14d"
     },
     {
       "role": "P_startup",
@@ -211,27 +214,59 @@
         "packages/obsidian-plugin/src/facet-publication.ts",
         "packages/obsidian-plugin/tests/facet-publication.test.ts"
       ],
-      "status": "reserved",
+      "status": "integrated",
       "budget_minutes": 30,
       "verification": "Owned publication tests, typecheck, scoped build",
-      "completion": "Authoritative state/history reload after new client or unload; preserve deliberate new-page workflow; no persistence of drafts or tokens; scoped local commit"
+      "completion": "Authoritative state/history reload after new client or unload; preserve deliberate new-page workflow; no persistence of drafts or tokens; scoped local commit",
+      "source_commit": "e6ed887471a26296fe54b120947c155e021e09d1",
+      "integrated_commit": "fda89a629a926c7c367009018d084eb352aba35e"
+    },
+    {
+      "role": "R_evidence",
+      "worktree": "/Users/calebbolden/Projects/oss/open-brain-public",
+      "input_commit": "55c1ced42ebbeb7dd0ddbd82c70829448306d6f3",
+      "input_pins": {
+        "verified_main_commit": "23e7a2bb75567b5492c026ea76f16c463739245e",
+        "contract_revision": "facets-c0-v4",
+        "fixture_manifest_sha256": "95e85b535eeb4263a6e430970ecf1d49de8d0b72de7425e41be703897d93dbc5",
+        "o0_revision": "obsidian-o0-v1",
+        "o0_fixture_manifest_sha256": "bee455084d682e8e717f5f40e1a5cfad82ada7546fdf6412552a8e4844a50d9f",
+        "schema": 15,
+        "runtime": 10,
+        "portable": 10
+      },
+      "write_scope": [],
+      "status": "review_complete",
+      "budget_minutes": 3,
+      "verification": "Compare coordinator docs with retained actual receipts and proof boundaries",
+      "completion": "Private bounded claim review; no repository writes, children or push"
     }
   ],
   "acceptance": {
-    "O01": "pending",
-    "O02": "pending",
-    "O03": "pending",
-    "O04": "pending",
-    "O05": "pending",
-    "O06": "pending",
-    "O07": "pending",
-    "O08": "pending",
-    "O09": "pending",
-    "O10": "pending",
-    "O11": "pending",
-    "O12": "pending",
-    "O13": "pending",
-    "O14": "pending",
-    "O15": "pending"
+    "O01": "verified; see bounded evidence in verification report",
+    "O02": "verified; see bounded evidence in verification report",
+    "O03": "verified; see bounded evidence in verification report",
+    "O04": "verified; see bounded evidence in verification report",
+    "O05": "verified; see bounded evidence in verification report",
+    "O06": "verified; see bounded evidence in verification report",
+    "O07": "verified; see bounded evidence in verification report",
+    "O08": "verified; see bounded evidence in verification report",
+    "O09": "verified; see bounded evidence in verification report",
+    "O10": "verified; see bounded evidence in verification report",
+    "O11": "verified; see bounded evidence in verification report",
+    "O12": "verified; see bounded evidence in verification report",
+    "O13": "verified; see bounded evidence in verification report",
+    "O14": "verified; see bounded evidence in verification report",
+    "O15": "verified; see bounded evidence in verification report"
+  },
+  "active_reservations": [],
+  "verified_candidate": "55c1ced42ebbeb7dd0ddbd82c70829448306d6f3",
+  "verification_report": "docs/audits/2026-10-13-obsidian-facets-stage-two.md",
+  "final_checks": {
+    "make_verify": "passed; Python7074/5filesystem skips, Obsidian664, desktop259TS/30Python/26Rust",
+    "native_audit_homebrew_smoke": "passed",
+    "independent_review": "findings fixed; actual-process reproductions and final focus/unload review",
+    "actual_obsidian": "1.14.4 synthetic vault; native/plugin hashes in report",
+    "hygiene": "diff/actionlint/gitleaks passed"
   }
 }
