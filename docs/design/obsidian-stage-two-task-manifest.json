@@ -1,0 +1,138 @@
+{
+  "manifest_version": 1,
+  "milestone": "Obsidian facets Stage2 B U P V T I R",
+  "status": "implementation",
+  "pins": {
+    "verified_main_commit": "23e7a2bb75567b5492c026ea76f16c463739245e",
+    "contract_revision": "facets-c0-v4",
+    "fixture_manifest_sha256": "95e85b535eeb4263a6e430970ecf1d49de8d0b72de7425e41be703897d93dbc5",
+    "o0_revision": "obsidian-o0-v1",
+    "o0_fixture_manifest_sha256": "bee455084d682e8e717f5f40e1a5cfad82ada7546fdf6412552a8e4844a50d9f",
+    "schema": 15,
+    "runtime": 10,
+    "portable": 10
+  },
+  "execution": {
+    "max_active_workers": 6,
+    "native_available_children": 3,
+    "max_total_attempts": 12,
+    "used_attempts": 3,
+    "reserved_active": 3,
+    "authority": "Implement remaining Stage2 tasks using authorized concurrency/worktrees; local commits; no new push, publish, deploy or merge"
+  },
+  "ownership": {
+    "coordinator": [
+      "Shared contracts/client, bridge.py, facets.py, main.ts, bridge.ts, contracts.ts, t07-client.ts, styles.css, registration, integration, ledger, docs and release checks"
+    ],
+    "U": [
+      "packages/obsidian-plugin/src/facet-browser.ts",
+      "packages/obsidian-plugin/src/facet-editor.ts",
+      "packages/obsidian-plugin/tests/facet-browser.test.ts",
+      "packages/obsidian-plugin/tests/facet-editor.test.ts"
+    ],
+    "P": [
+      "packages/obsidian-plugin/src/facet-publication.ts",
+      "packages/obsidian-plugin/tests/facet-publication.test.ts"
+    ],
+    "V": [
+      "packages/obsidian-plugin/src/facet-reconciliation.ts",
+      "packages/obsidian-plugin/tests/facet-reconciliation.test.ts"
+    ]
+  },
+  "workers": [
+    {
+      "role": "U",
+      "worktree": "/Users/calebbolden/Projects/oss/open-brain-stage-two-u",
+      "input_pins": {
+        "verified_main_commit": "23e7a2bb75567b5492c026ea76f16c463739245e",
+        "contract_revision": "facets-c0-v4",
+        "fixture_manifest_sha256": "95e85b535eeb4263a6e430970ecf1d49de8d0b72de7425e41be703897d93dbc5",
+        "o0_revision": "obsidian-o0-v1",
+        "o0_fixture_manifest_sha256": "bee455084d682e8e717f5f40e1a5cfad82ada7546fdf6412552a8e4844a50d9f",
+        "schema": 15,
+        "runtime": 10,
+        "portable": 10
+      },
+      "write_scope": [
+        "packages/obsidian-plugin/src/facet-browser.ts",
+        "packages/obsidian-plugin/src/facet-editor.ts",
+        "packages/obsidian-plugin/tests/facet-browser.test.ts",
+        "packages/obsidian-plugin/tests/facet-editor.test.ts"
+      ],
+      "status": "reserved",
+      "budget_minutes": 60,
+      "verification": [
+        "npm --prefix packages/obsidian-plugin run typecheck",
+        "npm --prefix packages/obsidian-plugin test -- owned test paths"
+      ],
+      "completion": "Implement all owned specification behaviors with interaction/lifecycle tests, scoped local commit, exact exports and test receipt; never count mocks as engine proof"
+    },
+    {
+      "role": "P",
+      "worktree": "/Users/calebbolden/Projects/oss/open-brain-stage-two-p",
+      "input_pins": {
+        "verified_main_commit": "23e7a2bb75567b5492c026ea76f16c463739245e",
+        "contract_revision": "facets-c0-v4",
+        "fixture_manifest_sha256": "95e85b535eeb4263a6e430970ecf1d49de8d0b72de7425e41be703897d93dbc5",
+        "o0_revision": "obsidian-o0-v1",
+        "o0_fixture_manifest_sha256": "bee455084d682e8e717f5f40e1a5cfad82ada7546fdf6412552a8e4844a50d9f",
+        "schema": 15,
+        "runtime": 10,
+        "portable": 10
+      },
+      "write_scope": [
+        "packages/obsidian-plugin/src/facet-publication.ts",
+        "packages/obsidian-plugin/tests/facet-publication.test.ts"
+      ],
+      "status": "reserved",
+      "budget_minutes": 60,
+      "verification": [
+        "npm --prefix packages/obsidian-plugin run typecheck",
+        "npm --prefix packages/obsidian-plugin test -- owned test paths"
+      ],
+      "completion": "Implement all owned specification behaviors with interaction/lifecycle tests, scoped local commit, exact exports and test receipt; never count mocks as engine proof"
+    },
+    {
+      "role": "V",
+      "worktree": "/Users/calebbolden/Projects/oss/open-brain-stage-two-v",
+      "input_pins": {
+        "verified_main_commit": "23e7a2bb75567b5492c026ea76f16c463739245e",
+        "contract_revision": "facets-c0-v4",
+        "fixture_manifest_sha256": "95e85b535eeb4263a6e430970ecf1d49de8d0b72de7425e41be703897d93dbc5",
+        "o0_revision": "obsidian-o0-v1",
+        "o0_fixture_manifest_sha256": "bee455084d682e8e717f5f40e1a5cfad82ada7546fdf6412552a8e4844a50d9f",
+        "schema": 15,
+        "runtime": 10,
+        "portable": 10
+      },
+      "write_scope": [
+        "packages/obsidian-plugin/src/facet-reconciliation.ts",
+        "packages/obsidian-plugin/tests/facet-reconciliation.test.ts"
+      ],
+      "status": "reserved",
+      "budget_minutes": 60,
+      "verification": [
+        "npm --prefix packages/obsidian-plugin run typecheck",
+        "npm --prefix packages/obsidian-plugin test -- owned test paths"
+      ],
+      "completion": "Implement all owned specification behaviors with interaction/lifecycle tests, scoped local commit, exact exports and test receipt; never count mocks as engine proof"
+    }
+  ],
+  "acceptance": {
+    "O01": "pending",
+    "O02": "pending",
+    "O03": "pending",
+    "O04": "pending",
+    "O05": "pending",
+    "O06": "pending",
+    "O07": "pending",
+    "O08": "pending",
+    "O09": "pending",
+    "O10": "pending",
+    "O11": "pending",
+    "O12": "pending",
+    "O13": "pending",
+    "O14": "pending",
+    "O15": "pending"
+  }
+}
