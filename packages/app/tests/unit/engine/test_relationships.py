@@ -17,6 +17,7 @@ from open_brain_engine.engine.t03_contracts import (
     RelationshipListRequest,
     T03Error,
 )
+from open_brain_engine.portable.developments_v11 import DEVELOPMENT_SIDECAR_PATHS
 from open_brain_engine.portable.facets_v10 import FACET_SIDECAR_PATHS
 from open_brain_engine.portable.relationships_v1 import (
     RELATIONSHIP_METADATA_PATH,
@@ -39,6 +40,7 @@ from open_brain_engine.portable.v8 import (
 from open_brain_engine.portable.v9 import PORTABLE_V9_SCHEMA_CATALOG_DIGEST, V9_SIDECAR_PATHS
 from open_brain_engine.portable.v9 import validate_historical_authority as validate_v9_history
 from open_brain_engine.portable.v10_catalog import PORTABLE_V10_SCHEMA_CATALOG_DIGEST
+from open_brain_engine.portable.v11_catalog import PORTABLE_V11_SCHEMA_CATALOG_DIGEST
 from open_brain_engine.portable.versioned import validated_portable_snapshot
 
 from open_brain.profile import compile_single_user_local
@@ -83,6 +85,7 @@ def _write_v4_fixture(source: Path, destination: Path) -> dict[str, Any]:
         and relative not in V8_SIDECAR_PATHS
         and relative not in V9_SIDECAR_PATHS
         and relative not in FACET_SIDECAR_PATHS
+        and relative not in DEVELOPMENT_SIDECAR_PATHS
     }
     for relative, payload in files.items():
         target = destination / relative
@@ -179,11 +182,11 @@ def test_symmetric_relationship_replay_versions_and_hidden_endpoint(tmp_path: Pa
         engine.relationships.decide(proposed, authority=scoped)
 
 
-@pytest.mark.parametrize("portable_version", [8, 9, 10])
+@pytest.mark.parametrize("portable_version", [8, 9, 10, 11])
 def test_supersedes_cycle_self_and_export_complete_decisions(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, portable_version: int
 ) -> None:
-    if portable_version in {8, 9}:
+    if portable_version in {8, 9, 10}:
         version = portable_version + 5
         monkeypatch.setattr(local_schema, "PHASE1_STATE_SCHEMA_VERSION", version)
         monkeypatch.setattr(local_schema, "LOCAL_MIGRATIONS", LOCAL_MIGRATIONS[:version])
@@ -191,6 +194,7 @@ def test_supersedes_cycle_self_and_export_complete_decisions(
         8: PORTABLE_V8_SCHEMA_CATALOG_DIGEST,
         9: PORTABLE_V9_SCHEMA_CATALOG_DIGEST,
         10: PORTABLE_V10_SCHEMA_CATALOG_DIGEST,
+        11: PORTABLE_V11_SCHEMA_CATALOG_DIGEST,
     }[portable_version]
     engine = BrainEngine.open(compile_single_user_local(tmp_path / "brain"))
     ids = [

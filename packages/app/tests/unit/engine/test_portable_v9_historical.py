@@ -18,7 +18,7 @@ from .test_historical_compatibility import linked_v2
 def historical_restore_runtime(
     request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch
 ) -> int:
-    """Exercise both the frozen Portable9 runtime and the current Portable10 runtime."""
+    """Exercise both the frozen Portable9 and Portable10 runtimes."""
     from open_brain_engine.engine import local_schema
     from open_brain_engine.engine.local_schema_catalog import LOCAL_MIGRATIONS
 
@@ -444,7 +444,7 @@ def test_frozen_v8_archive_restores_to_fourteen_without_reinterpreting_old_bytes
     )
     restored = BrainEngine.open(open_existing_single_user_local(destination))
     with restored._store.connect() as connection:
-        assert connection.execute("PRAGMA user_version").fetchone()[0] == 15
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 16
     assert (
         HistoricalTransitionStore(restored.profile.root, restored.profile.root_identity)
         .read(baseline.operation_id)
@@ -457,7 +457,7 @@ def test_frozen_v8_archive_restores_to_fourteen_without_reinterpreting_old_bytes
     assert replay.duplicate and replay.capture_id == baseline.retained_original.capture_id
     latest = tmp_path / "latest-nine"
     assert (
-        restored.portability.export(latest, export_id="export_" + str(uuid4())).schema_version == 10
+        restored.portability.export(latest, export_id="export_" + str(uuid4())).schema_version == 11
     )
 
 
@@ -477,7 +477,7 @@ def test_v9_export_restore_preserves_import_and_cloud_copy(
     archive = tmp_path / "archive"
     engine.portability.export(archive, export_id="export_" + str(uuid4()))
     snapshot = validated_portable_snapshot(archive)
-    assert snapshot.manifest["schema_version"] == 10
+    assert snapshot.manifest["schema_version"] == 11
     restored_path = tmp_path / "restored"
     engine.portability.import_clean(archive, restored_path, import_id="import_" + str(uuid4()))
     restored = BrainEngine.open(open_existing_single_user_local(restored_path))

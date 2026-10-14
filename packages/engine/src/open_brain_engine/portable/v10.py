@@ -56,7 +56,9 @@ def manifest_v10(
     }
 
 
-def validate_portable_file_set_v10(files: Mapping[str, bytes], *, tenant_id: str) -> None:
+def validate_portable_file_set_v10(
+    files: Mapping[str, bytes], *, tenant_id: str, allow_development_bindings: bool = False,
+) -> None:
     """Validate base lossless evidence plus replay and v5 facet review bindings."""
     from .v5 import validate_portable_file_set_v5
     from .v6 import V6_SIDECAR_PATHS
@@ -75,7 +77,10 @@ def validate_portable_file_set_v10(files: Mapping[str, bytes], *, tenant_id: str
             if path
             not in FACET_SIDECAR_PATHS | V6_SIDECAR_PATHS | V7_SIDECAR_PATHS | V9_SIDECAR_PATHS
         }
-        validate_portable_file_set_v5(base, tenant_id=tenant_id, allow_facet_bindings=True)
+        validate_portable_file_set_v5(
+            base, tenant_id=tenant_id, allow_facet_bindings=True,
+            allow_development_bindings=allow_development_bindings,
+        )
         validate_source_authority_v9(snapshot)
         validate_sharing_authority(snapshot)
         validate_capture_metadata(snapshot)
@@ -90,7 +95,7 @@ def validate_portable_file_set_v10(files: Mapping[str, bytes], *, tenant_id: str
             if _BINDING_PATH.fullmatch(path) is None:
                 continue
             binding = _portable_record(payload, "review binding")
-            if binding["schema_version"] == 5:
+            if binding.get("base_schema_version", binding["schema_version"]) == 5:
                 proposal = proposals[cast(str, binding["proposal_id"])]
                 validate_facet_binding_record(
                     binding,
@@ -98,6 +103,7 @@ def validate_portable_file_set_v10(files: Mapping[str, bytes], *, tenant_id: str
                     files=snapshot,
                     references=references,
                     tenant_id=tenant_id,
+                    allow_development_binding=allow_development_bindings,
                 )
     except PortableValidationError:
         raise

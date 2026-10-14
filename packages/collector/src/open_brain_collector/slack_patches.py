@@ -9,6 +9,7 @@ from typing import cast
 
 from open_brain_engine.engine import open_local_engine
 
+from open_brain_collector.capture_workflow import automation_authority
 from open_brain_collector.runner import _open_existing_collector_profile
 from open_brain_collector.slack_policy import SlackPolicyStore
 from open_brain_connectors.runtime.live_common import LiveSourceError
@@ -68,7 +69,7 @@ class SlackPatchProposer:
             ).hexdigest()
             try:
                 tasks = open_local_engine(_open_existing_collector_profile(self._brain_root))
-                proposal = tasks.review.propose_append(
+                proposal = tasks.review.with_authority(automation_authority()).propose_append(
                     capture_ids,
                     target_page_id=cast(str, mapping["page_id"]),
                     append_markdown=_fragment(channel, thread_id, grouped),

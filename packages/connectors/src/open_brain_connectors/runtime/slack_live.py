@@ -100,9 +100,7 @@ class SlackSourceClient:
         """Score one bounded channel/history page without reading capture content into intake."""
         account = safe_text(connection_id, maximum=128)
         config = _discovery_policy(policy)
-        state = _discovery_checkpoint(
-            account, checkpoint, cast(int, config["lookback_seconds"])
-        )
+        state = _discovery_checkpoint(account, checkpoint, cast(int, config["lookback_seconds"]))
         active = cast(dict[str, object] | None, state["active_channel"])
         if active is None and not cast(list[object], state["pending_channels"]):
             if state["list_complete"]:
@@ -179,10 +177,26 @@ class SlackSourceClient:
         channel_id = _selection_channel(selection)
         floor = _date_floor(options)
         state = _checkpoint(selection, checkpoint)
+        if (
+            "date_floor" in state
+            and state["date_floor"] != floor
+            and (state["history_cursor"] is not None or state["thread"] is not None)
+        ):
+            raise LiveSourceError("invalid_checkpoint")
+        state = {**state, "date_floor": floor}
         if state["pending_removals"]:
             return self._pending_removals(selection, state)
         if cast(dict[str, object], state["scan"])["cutoff"] is None:
             state = _begin_scan(state)
+            scan = _scan(state)
+            known = _known_map(scan["known"])
+            # A narrower window does not prove absence outside its coverage.
+            covered = {
+                key: revision
+                for key, revision in known.items()
+                if float(key.split(":")[1]) > float(floor)
+            }
+            state = _with_scan(state, _scan_value(scan["cutoff"], covered, set()))
         if state["thread"] is not None:
             return self._fetch_thread(selection, channel_id, state)
         payload = self._api(
@@ -240,6 +254,79 @@ class SlackSourceClient:
             _with_thread(state, thread),
         )
 
+    def resolve_candidate(
+        self,
+        connection_id: str,
+        conversation_id: str,
+        message_ts: str,
+        *,
+        thread_ts: str | None = None,
+    ) -> SlackMessageRecord:
+        """Resolve exactly one hint using authoritative provider thread metadata."""
+        channel = _channel_id(conversation_id)
+        ts = _timestamp(message_ts)
+        root = None if thread_ts is None else _timestamp(thread_ts)
+        if root is not None and float(root) > float(ts):
+            raise LiveSourceError("source_candidate_identity_unsupported")
+        payload = self._api(
+            connection_id,
+            "conversations.replies" if root is not None else "conversations.history",
+            {
+                "channel": channel,
+                "limit": "1",
+                "oldest": ts,
+                "latest": ts,
+                "inclusive": "true",
+                **({"ts": root} if root is not None else {}),
+            },
+        )
+        values = payload.get("messages")
+        if not isinstance(values, list) or len(values) > 1:
+            raise LiveSourceError("invalid_provider_response")
+        if not values:
+            raise LiveSourceError("source_candidate_identity_unsupported")
+        message = _message(values[0], channel)
+        if _timestamp(message.get("ts")) != ts or _is_deleted(message):
+            raise LiveSourceError("source_candidate_identity_unsupported")
+        if root is not None:
+            actual_root = message.get("thread_ts")
+            if actual_root is not None and _timestamp(actual_root) != root:
+                raise LiveSourceError("invalid_provider_response")
+            # An exact reply returned by the root-bound replies API is authoritative.
+            message = {**message, "thread_ts": root}
+        return self._record(message, channel)
+
+    def refresh_thread(
+        self,
+        selection: SourceResourceSelection,
+        root_ts: str,
+        checkpoint: dict[str, object] | None = None,
+    ) -> LiveBatch:
+        """Refresh a tracked thread without inferring channel-wide absence."""
+        channel = _selection_channel(selection)
+        root = _timestamp(root_ts)
+        state = _checkpoint(selection, checkpoint)
+        if state["thread"] is None:
+            state = _with_thread(
+                _begin_scan(_state(selection, None)),
+                {
+                    "emitted_parent": False,
+                    "next_history_cursor": None,
+                    "replies_cursor": None,
+                    "root_ts": root,
+                },
+            )
+        elif cast(dict[str, object], state["thread"])["root_ts"] != root:
+            raise LiveSourceError("invalid_checkpoint")
+        state = _with_scan(state, _scan_value(_scan(state)["cutoff"], {}, set()))
+        batch = self._fetch_thread(selection, channel, state)
+        return LiveBatch(
+            batch.intakes,
+            batch.checkpoint,
+            batch.has_more,
+            tuple(sorted(set((*batch.notices, "partial_thread_coverage")))),
+        )
+
     def _fetch_thread(
         self,
         selection: SourceResourceSelection,
@@ -256,6 +343,7 @@ class SlackSourceClient:
                 "channel": channel_id,
                 "limit": str(_MAX_PAGE),
                 "ts": root_ts,
+                "latest": cast(str, cast(dict[str, object], state["scan"])["cutoff"]),
                 **({"cursor": cursor} if cursor else {}),
             },
         )
@@ -591,11 +679,7 @@ def _valid_discovery_channel(value: object) -> None:
     _channel_id(value["channel_id"])
     _channel_name(value["name"])
     topic = value["topic"]
-    if topic is not None and (
-        type(topic) is not str
-        or len(topic) > 512
-        or "\x00" in topic
-    ):
+    if topic is not None and (type(topic) is not str or len(topic) > 512 or "\x00" in topic):
         raise LiveSourceError("invalid_discovery_checkpoint")
     if value["history_cursor"] is not None and type(value["history_cursor"]) is not str:
         raise LiveSourceError("invalid_discovery_checkpoint")
@@ -631,7 +715,7 @@ def _checkpoint(
 ) -> dict[str, object]:
     if checkpoint is None:
         return _state(selection, None)
-    if type(checkpoint) is not dict or set(checkpoint) != {
+    if type(checkpoint) is not dict or set(checkpoint) - {"date_floor"} != {
         "connection_id",
         "history_cursor",
         "pending_removals",

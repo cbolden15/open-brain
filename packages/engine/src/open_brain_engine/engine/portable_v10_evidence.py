@@ -41,10 +41,14 @@ FACET_TABLES = (
 )
 
 
-def require_facet_snapshot(connection: sqlite3.Connection, *, brain_id: str) -> None:
+def require_facet_snapshot(
+    connection: sqlite3.Connection, *, brain_id: str, expected_schema: int = 15
+) -> None:
+    if expected_schema not in {15, 16}:
+        raise PortableValidationError("unsupported facet state boundary")
     if not connection.in_transaction:
         raise PortableValidationError("Portable v10 facets require an active transaction")
-    if connection.execute("PRAGMA user_version").fetchone()[0] != 15:
+    if connection.execute("PRAGMA user_version").fetchone()[0] != expected_schema:
         raise PortableValidationError("Portable v10 facets require schema 15")
     row = connection.execute("SELECT brain_id FROM brain_identity WHERE singleton=1").fetchone()
     if row is None or row[0] != brain_id:
@@ -128,7 +132,11 @@ def serialize_portable_v10_facets(
     owner_actor_id: str | None = None,
 ) -> PortableFacetBundle:
     """Serialize exact events/operations and assert their stored projection agrees."""
-    require_facet_snapshot(connection, brain_id=brain_id)
+    require_facet_snapshot(
+        connection,
+        brain_id=brain_id,
+        expected_schema=connection.execute("PRAGMA user_version").fetchone()[0],
+    )
     state: dict[str, Any] = {"schema_version": 1, "brain_id": brain_id}
     metadata = ("name", "archived", "version", "created_at", "updated_at")
     specs = (
@@ -262,6 +270,7 @@ def serialize_portable_v10_state(
     profile: LocalEngineContext,
     *,
     relationship_sidecar_present: bool,
+    expected_schema: int = 15,
 ) -> PortableV5StateEvidence:
     """Cut inherited historical/custody evidence and facets from one schema15 snapshot."""
     from .portable_v9_authority import _serialize_historical_state
@@ -271,13 +280,13 @@ def serialize_portable_v10_state(
     ).fetchone()
     if identity is None:
         raise PortableValidationError("Portable v10 requires the admitted Brain identity")
-    require_facet_snapshot(connection, brain_id=identity[0])
+    require_facet_snapshot(connection, brain_id=identity[0], expected_schema=expected_schema)
     base = _serialize_historical_state(
         connection,
         profile,
         relationship_sidecar_present=relationship_sidecar_present,
         portable_version=9,
-        expected_schema=15,
+        expected_schema=expected_schema,
     )
     facets = serialize_portable_v10_facets(
         connection, brain_id=identity[0], owner_actor_id=profile.owner_actor_id

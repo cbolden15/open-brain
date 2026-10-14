@@ -172,11 +172,11 @@ def test_f16_schema14_upgrade_changes_compatibility_once_and_reopens_empty_facet
     _, historical, _ = _schema_evidence(brain)
     coordinate_local_migration(brain.profile)
     version, migrations, compatibility = _schema_evidence(brain)
-    assert version == 15
+    assert version == 16
     assert migrations[:14] == historical, (
         "Retained migration names/checksums/times must remain exact"
     )
-    assert compatibility == [(1, 10, 15)]
+    assert compatibility == [(1, 11, 16)]
     brain.engine = BrainEngine.open(brain.profile)
     assert brain.call("facet.dimension.list")["items"] == []
     assert brain.call("facet.query.list")["items"] == []
@@ -201,7 +201,7 @@ def test_f16_precommit_migration_fault_leaves_exact_schema14(tmp_path: Path, sta
     assert stage in reached
     assert _schema_evidence(brain) == before
     coordinate_local_migration(brain.profile)
-    assert _schema_evidence(brain)[0] == 15
+    assert _schema_evidence(brain)[0] == 16
 
 
 def test_f16_postcommit_migration_fault_reports_committed_upgrade(tmp_path: Path) -> None:
@@ -218,7 +218,7 @@ def test_f16_postcommit_migration_fault_reports_committed_upgrade(tmp_path: Path
     assert isinstance(error.value.__cause__, BoundaryFault)
     assert _schema_evidence(brain)[0] == 15
     assert _schema_evidence(brain)[2] == [(1, 10, 15)]
-    assert inspect_phase1_state(brain.profile).state == "current"
+    assert inspect_phase1_state(brain.profile).state == "supported_old"
     coordinate_local_migration(brain.profile)
     brain.engine = BrainEngine.open(brain.profile)
     assert brain.call("facet.dimension.list")["items"] == []
@@ -249,7 +249,7 @@ def test_f16_live_schema14_runtime_peer_blocks_upgrade(tmp_path: Path) -> None:
         assert _schema_evidence(brain) == before
         fcntl.flock(peer.fileno(), fcntl.LOCK_UN)
     coordinate_local_migration(brain.profile)
-    assert _schema_evidence(brain)[0] == 15
+    assert _schema_evidence(brain)[0] == 16
 
 
 def test_f16_unknown_newer_schema_is_refused_without_touching_evidence(tmp_path: Path) -> None:

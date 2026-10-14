@@ -12,6 +12,7 @@ import threading
 from collections.abc import Callable, Iterator, Mapping
 from contextlib import ExitStack, contextmanager
 from dataclasses import asdict, dataclass
+from decimal import Decimal
 from enum import StrEnum
 from pathlib import Path
 from tempfile import NamedTemporaryFile
@@ -1447,7 +1448,7 @@ class SavedMarkdownDelivery:
 
 
 class EngineRevisionSink:
-    """Saved-Markdown-only bridge to the engine's narrow revision capability."""
+    """Observed local-source bridge to the engine's narrow revision capability."""
 
     def __init__(
         self,
@@ -1472,7 +1473,9 @@ class EngineRevisionSink:
     def _revision_capability(
         self, intake: SourceRecordIntake,
     ) -> tuple[SourceRevisionBinding, PublicJobRevisionSink]:
-        if type(intake) is not SourceRecordIntake or intake.key.connector_name != "saved_markdown":
+        if type(intake) is not SourceRecordIntake or intake.key.connector_name not in {
+            "saved_markdown", "slack", "slack_development"
+        }:
             raise ConnectorContractError("invalid collector capture")
         identity = self._capture_sink.brain_identity
         fingerprint = self._capture_sink.brain_fingerprint
@@ -1549,7 +1552,34 @@ class EngineRevisionSink:
         namespace = dict(binding.namespace)
         name = "saved-revision-" + hashlib.sha256(bounded_json(namespace, 4096)).hexdigest() + ".json"
         with self._store.lock("saved-revision-capacity"), self._store.lock(name):
-            return self._submit_retained(intake, sink, binding, name)
+            sequence: int | None = None
+            order_name = "slack-order-" + hashlib.sha256(bounded_json(namespace, 4096)).hexdigest() + ".json"
+            if intake.key.connector_name in {"slack", "slack_development"}:
+                incoming = intake_digest(intake)
+                for archive_name in self._store.names("saved-revision-archive-"):
+                    archive = self._store.read(archive_name)
+                    if isinstance(archive, dict) and archive.get("intake_digest") == incoming:
+                        # Exact historical replay never becomes a new predecessor
+                        # of the current head after an overlapping discovery scan.
+                        return self._submit_retained(
+                            intake, sink, binding, archive_name, lookup_only=True,
+                        )
+                timestamp = re.fullmatch(r"edited:(\d+(?:\.\d{1,6})?)(?:~policy:[0-9a-f]+)?", intake.key.revision_id)
+                if intake.key.connector_name == "slack" and timestamp is not None:
+                    sequence = int(Decimal(timestamp[1]) * 1_000_000)
+                    order = self._store.read(order_name)
+                    if order is not None:
+                        if (not isinstance(order, dict) or set(order) != {"sequence", "intake_digest"}
+                            or type(order["sequence"]) is not int or type(order["intake_digest"]) is not str):
+                            raise LiveSourceError("collector_invalid_custody")
+                        if sequence < order["sequence"] or (
+                            sequence == order["sequence"] and incoming != order["intake_digest"]
+                        ):
+                            raise T03Error("source_revision_conflict")
+            result = self._submit_retained(intake, sink, binding, name)
+            if sequence is not None and result.outcome in {"captured", "duplicate"}:
+                self._store.write(order_name, {"sequence": sequence, "intake_digest": intake_digest(intake)})
+            return result
 
     @contextmanager
     def page_checkpoint(

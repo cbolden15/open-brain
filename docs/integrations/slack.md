@@ -1,5 +1,9 @@
 # Slack selected-channel capture
 
+For the contributor development, candidate and attention workflow, see
+[Slack development capture](slack-capture-workflow.md). That candidate requires
+schema 16, runtime session 11 and Portable Brain 11.
+
 Open Brain reads only channels the owner selects after connecting a Slack user account. It requests these user scopes:
 
 - `channels:read` and `channels:history` for public channels.

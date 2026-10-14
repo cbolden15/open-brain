@@ -109,8 +109,10 @@ describe("shared Python frames and captured Stage1 inspection (codec consumption
   }
 
   it("negotiates the exact Python descriptor for all facets and the resolver", () => {
-    expect(parseHandshake(shared.handshake)).toEqual(shared.handshake);
-    const result = negotiateFacets(shared.handshake);
+    // The pinned corpus is historical; this tests its DTOs under current admission.
+    const current = { ...shared.handshake, state_schema_version: 16, runtime_session_version: 11 };
+    expect(parseHandshake(current)).toEqual(current);
+    const result = negotiateFacets(current);
     expect(result.status).toBe("available");
     if (result.status !== "available") throw new Error("expected shared contract");
     expect([...result.operations].sort()).toEqual([...FACET_OPERATIONS, "workspace.record.resolve"].sort());
@@ -402,6 +404,7 @@ describe("complete plugin frames and operation limits", () => {
 const handshake = (entries?: unknown[], operations: string[] = ["facet.dimension.list", "workspace.record.resolve"]) => ({
   protocol: "open-brain-client", protocol_version: 1, status: "ok", desktop_only: true,
   product_version: "synthetic-o0", operations,
+  state_schema_version: 16, runtime_session_version: 11,
   ...(entries === undefined ? {} : { facet_capabilities: { version: 1, operations: entries } }),
 });
 const capability = (operation = "facet.dimension.list", overrides: ObjectValue = {}) => ({
@@ -410,7 +413,7 @@ const capability = (operation = "facet.dimension.list", overrides: ObjectValue =
 });
 
 describe("additive facet negotiation and legacy compatibility", () => {
-  it("keeps an older bridge handshake usable while reporting upgrade_required", () => {
+  it("keeps a current runtime without facet capabilities usable while reporting upgrade_required", () => {
     const value = handshake();
     expect(parseHandshake(value)).toEqual(value);
     expect(negotiateFacets(value)).toEqual({ status: "unavailable", reason: "upgrade_required" });
@@ -513,6 +516,39 @@ const inspection = (name: "review-create-cross-space" | "review-update") => {
 };
 
 describe("full facet publication inspection (pure frozen binding codec)", () => {
+  const developmentInspection = () => {
+    const value = inspection("review-create-cross-space");
+    value.facet_selection.schema_version = 6;
+    value.facet_selection.base_schema_version = 5;
+    value.facet_selection.development_evidence = [
+      ...array(value.facet_selection.provenance).map((capture_id) => ({
+        capture_id, evidence_sha256: "d".repeat(64),
+      })),
+      { capture_id: id("capture", 99), evidence_sha256: null },
+    ].sort((a, b) => String(a.capture_id).localeCompare(String(b.capture_id)));
+    return value;
+  };
+
+  it("accepts development-backed facet confirmation without dropping commitments", () => {
+    const value = developmentInspection();
+    expect(parseFacetPublicationInspection(value)).toEqual(value);
+  });
+
+  it.each(["base", "missing", "extra", "digest", "duplicate", "order", "leaf", "uncovered"])("rejects malformed development commitment %s", (change) => {
+    const value = developmentInspection();
+    const binding = value.facet_selection;
+    const commitments = array(binding.development_evidence);
+    if (change === "base") binding.base_schema_version = 4;
+    if (change === "missing") delete binding.development_evidence;
+    if (change === "extra") object(commitments[0]).owner = true;
+    if (change === "digest") object(commitments[0]).evidence_sha256 = "invalid";
+    if (change === "duplicate") commitments.push(commitments[0]);
+    if (change === "order") binding.development_evidence = [...commitments].reverse();
+    if (change === "leaf") object(commitments[0]).capture_id = "invalid";
+    if (change === "uncovered") binding.development_evidence = [{ capture_id: id("capture", 99), evidence_sha256: null }];
+    expect(() => parseFacetPublicationInspection(value)).toThrow();
+  });
+
   it.each(["review-create-cross-space", "review-update"] as const)("accepts %s with selected/inherited distinction intact", (name) => {
     const value = inspection(name);
     expect(parseFacetPublicationInspection(value)).toEqual(value);

@@ -402,11 +402,12 @@ def _empty_facet_archive() -> dict[str, bytes]:
 
     from open_brain_engine.engine.contracts import TextPayload
     from open_brain_engine.engine.local import BrainEngine
+    from open_brain_engine.portable.developments_v11 import DEVELOPMENT_SIDECAR_PATHS
     from open_brain_engine.portable.versioned import validated_portable_snapshot
 
     from open_brain.profile import compile_single_user_local
 
-    # Cut all inherited evidence from a real schema15 Brain. Portable10 requires
+    # Project inherited evidence from the current Brain into frozen Portable10. It requires
     # source/sharing/history/custody sidecars, including their explicit empty states.
     with TemporaryDirectory() as temporary:
         root = Path(temporary).resolve()
@@ -417,7 +418,7 @@ def _empty_facet_archive() -> dict[str, bytes]:
         return {
             path: raw
             for path, raw in validated_portable_snapshot(archive).files.items()
-            if path != "portable-manifest.json"
+            if path != "portable-manifest.json" and path not in DEVELOPMENT_SIDECAR_PATHS
         }
 
 
@@ -511,7 +512,7 @@ def test_real_schema15_empty_facet_restore_reopens_and_preserves_inherited_bytes
     bundle = audit_restored_v10(materialized.profile, snapshot=snapshot)
     assert bundle.next_sequence == 1
     with open_local_database_read_only(materialized.profile) as connection:
-        assert connection.execute("PRAGMA user_version").fetchone()[0] == 15
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 16
         assert all(
             connection.execute(f"SELECT count(*) FROM {table}").fetchone()[0] == 0
             for table in FACET_TABLES
@@ -562,7 +563,7 @@ def test_legacy_v5_restore_keeps_empty_facets_and_is_not_reinterpreted_as_v10(
         tmp_path, snapshot=snapshot, expected_root_identity=snapshot.root_identity
     )
     with open_local_database_read_only(materialized.profile) as connection:
-        assert connection.execute("PRAGMA user_version").fetchone()[0] == 15
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 16
         assert all(
             connection.execute(f"SELECT count(*) FROM {table}").fetchone()[0] == 0
             for table in FACET_TABLES
@@ -746,7 +747,7 @@ def test_real_populated_facets_export_import_reopen_query_retry_and_reexport(
     exported = tmp_path / "portable"
     engine.portability.export(exported, export_id="export_00000000-0000-4000-8000-000000000091")
     before = validated_portable_snapshot(exported)
-    assert before.manifest["schema_version"] == 10
+    assert before.manifest["schema_version"] == 11
     operations = json.loads(before.files[FACET_OPERATIONS_PATH])["operations"]
     assert {row["principal_id"] for row in operations} == {authority.principal_id}
     events = json.loads(before.files[FACET_EVENTS_PATH])["events"]
@@ -1062,7 +1063,8 @@ def test_real_export_impossible_noop_is_refused_after_request_and_manifest_rehas
 ) -> None:
     from open_brain_engine.engine import facet_contracts as fc
     from open_brain_engine.portable.facets_v10 import references_from_portable_files
-    from open_brain_engine.portable.v10 import manifest_v10, validated_portable_snapshot_v10
+    from open_brain_engine.portable.v11 import manifest_v11
+    from open_brain_engine.portable.versioned import validated_portable_snapshot
 
     engine, owner, _query, value, captures, _destination = _real_publication_brain(tmp_path)
     noop_id = "x-impossible-noop"
@@ -1079,7 +1081,7 @@ def test_real_export_impossible_noop_is_refused_after_request_and_manifest_rehas
     assert receipt["event_id"] is None
     exported = tmp_path / "noop-original"
     engine.portability.export(exported, export_id="export_00000000-0000-4000-8000-000000000061")
-    original = validated_portable_snapshot_v10(exported)
+    original = validated_portable_snapshot(exported)
     files = {
         path: data for path, data in original.files.items() if path != "portable-manifest.json"
     }
@@ -1103,7 +1105,7 @@ def test_real_export_impossible_noop_is_refused_after_request_and_manifest_rehas
         target = tampered / path
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_bytes(payload)
-    manifest = manifest_v10(
+    manifest = manifest_v11(
         files,
         tenant_id=cast(str, original.manifest["tenant_id"]),
         export_id=cast(str, original.manifest["export_id"]),

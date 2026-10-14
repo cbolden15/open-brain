@@ -54,6 +54,15 @@ def main(argv: Sequence[str] | None = None) -> int:
     run_once.add_argument("--credential-dir")
     run_once.add_argument("--source-id")
     run_once.add_argument("--force", action="store_true")
+    catch_up = subparsers.add_parser("run-until-caught-up", help="bounded catch-up under one lease")
+    catch_up.add_argument("--state", required=True)
+    catch_up.add_argument("--brain-root", required=True)
+    catch_up.add_argument("--lease", required=True)
+    catch_up.add_argument("--fixture-runtime-json")
+    catch_up.add_argument("--source-runtime-dir")
+    catch_up.add_argument("--credential-dir")
+    catch_up.add_argument("--max-iterations", type=int, default=500)
+    catch_up.add_argument("--max-seconds", type=int, default=900)
     run_loop = subparsers.add_parser("run", help="run due sources in a bounded loop")
     run_loop.add_argument("--state", required=True)
     run_loop.add_argument("--brain-root", required=True)
@@ -215,7 +224,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             return 78
         print(json.dumps(command_result.to_dict(), sort_keys=True))
         return 0
-    if args.command in {"run-once", "run"}:
+    if args.command in {"run-once", "run", "run-until-caught-up"}:
         fixture_runtime = cast(str | None, args.fixture_runtime_json)
         source_runtime_dir = cast(str | None, args.source_runtime_dir)
         credential_dir = cast(str | None, args.credential_dir)
@@ -246,6 +255,10 @@ def main(argv: Sequence[str] | None = None) -> int:
                     source_id=cast(str | None, args.source_id),
                     force=cast(bool, args.force),
                 )
+            elif args.command == "run-until-caught-up":
+                run_result = runner.run_until_caught_up(
+                    max_iterations=args.max_iterations, max_seconds=args.max_seconds
+                )
             else:
                 run_result = runner.run_loop(
                     interval_seconds=cast(float, args.poll_seconds),
@@ -268,6 +281,12 @@ def main(argv: Sequence[str] | None = None) -> int:
             )
             return 78
         print(json.dumps(run_result, sort_keys=True))
+        if args.command == "run-until-caught-up":
+            return (
+                0
+                if run_result["outcome"] == "completed"
+                else (75 if run_result["outcome"] == "deferred" else 78)
+            )
         return 0
     if args.command == "service":
         manager = CollectorLaunchdServiceManager(plist_dir=Path(cast(str, args.plist_dir)))

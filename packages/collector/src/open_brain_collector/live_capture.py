@@ -93,28 +93,42 @@ def _selection(value: object) -> SourceResourceSelection:
 
 
 def _intake_to_dict(intake: SourceRecordIntake) -> dict[str, object]:
-    return {
+    value: dict[str, object] = {
         "key": asdict(intake.key),
         "url": intake.url,
         "text": intake.text,
         "title": intake.title,
         "privacy": intake.privacy.to_dict(),
     }
+    if intake.observation is not None:
+        value["observation"] = intake.observation.value()
+    return value
 
 
 def _intake_from_dict(value: object) -> SourceRecordIntake:
-    if not isinstance(value, dict) or set(value) != {"key", "url", "text", "title", "privacy"}:
+    if not isinstance(value, dict) or set(value) not in (
+        {"key", "url", "text", "title", "privacy"},
+        {"key", "url", "text", "title", "privacy", "observation"},
+    ):
         raise LiveSourceError("source_invalid_preview")
     try:
+        from open_brain_engine.engine.source_observation import SourceRevisionObservation
+
+        from open_brain_collector.capture_policy import validate_retained_privacy
+
         result = SourceRecordIntake(
             key=SourceRecordKey(**value["key"]),
             url=value["url"],
             text=value["text"],
             title=value["title"],
             privacy=PrivacyDecision.from_dict(value["privacy"]),
+            observation=(
+                None
+                if "observation" not in value
+                else SourceRevisionObservation.from_value(value["observation"])
+            ),
         )
-        if result.privacy != local_source_privacy():
-            raise ValueError
+        validate_retained_privacy(result.privacy)
         return result
     except TypeError, ValueError, KeyError:
         raise LiveSourceError("source_invalid_preview") from None
@@ -137,6 +151,7 @@ class LiveCaptureService:
         runtime: LiveRuntime,
         sink: Callable[[SourceRecordIntake], object] | None = None,
         post_apply: PostApply | None = None,
+        admission_guard: Callable[[str, SourceResourceSelection], None] | None = None,
         clock: Callable[[], int] | None = None,
     ) -> None:
         self._brain_root = brain_root
@@ -146,6 +161,7 @@ class LiveCaptureService:
         self._runtime = runtime
         self._sink = sink
         self._post_apply = post_apply
+        self._admission_guard = admission_guard
         self._clock = clock or (lambda: int(time.time()))
         with self._store.lock("state"):
             marker = self._store.read("brain.json")
@@ -268,6 +284,9 @@ class LiveCaptureService:
         ):
             raise LiveSourceError("source_invalid_options")
         bounded_json(options, 16_384)
+        from open_brain_collector.capture_policy import validate_options
+
+        validate_options(options)
         generation = _digest([asdict(selected), options, self._brain_binding])
         cancelled = False
         with self._store.lock("state"):
@@ -413,6 +432,8 @@ class LiveCaptureService:
         cancelled = False
         with self._store.lock("state"):
             entry = self._load(source_id)
+            if self._admission_guard is not None and action in {"enable", "resume", "sync_now"}:
+                self._admission_guard(source_id, _selection(entry["selection"]))
             if action in {"enable", "resume"}:
                 entry.update(status="enabled", pause_ack_epoch=None, next_run_epoch=self._clock())
             elif action == "pause":
@@ -478,13 +499,22 @@ class LiveCaptureService:
         with self._store.lock("run-" + _source_name(source_id), timeout_seconds=0):
             self._drain_cleanup(source_id)
             entry = self._load(source_id)
+            if self._admission_guard is not None:
+                self._admission_guard(source_id, _selection(entry["selection"]))
             pending = self._pending(entry)
             if pending is None:
                 self._acknowledge(entry)
                 selected = _selection(entry["selection"])
+                from open_brain_collector.capture_policy import (
+                    admitted_intake,
+                    observe_slack,
+                    provider_options,
+                )
+
+                options = cast(dict[str, object], entry["options"])
                 batch = self._runtime.fetch(
                     selected,
-                    cast(dict[str, object], entry["options"]),
+                    provider_options(options),
                     cast(dict[str, object] | None, entry["checkpoint"]),
                 )
                 if any(
@@ -495,13 +525,16 @@ class LiveCaptureService:
                     for item in batch.intakes
                 ):
                     raise LiveSourceError("source_selection_mismatch")
+                admitted = tuple(
+                    observe_slack(admitted_intake(item, options)) for item in batch.intakes
+                )
                 pending = {
                     "schema_version": 1,
                     "source_id": source_id,
                     "binding": self._brain_binding,
                     "generation": entry["generation"],
                     "before": _digest(entry["checkpoint"]),
-                    "intakes": [_intake_to_dict(item) for item in batch.intakes],
+                    "intakes": [_intake_to_dict(item) for item in admitted],
                     "checkpoint": batch.checkpoint,
                     "has_more": batch.has_more,
                     "notices": list(batch.notices),
@@ -602,6 +635,15 @@ class LiveCaptureService:
             duplicate = bool(getattr(result, "duplicate", False))
             capture_id = getattr(result, "capture_id", None)
             return ("duplicate" if duplicate else "captured", capture_id)
+        if intake.key.connector_name == "slack" and intake.observation is not None:
+            from open_brain_collector.runner import collector_revision_sink
+
+            result = collector_revision_sink(
+                self._brain_root, self._store.root / "slack-revisions"
+            ).submit(intake)
+            if result.source_receipt is None or result.outcome not in {"captured", "duplicate"}:
+                raise LiveSourceError("source_revision_pending")
+            return result.outcome, result.source_receipt.capture_id
         from open_brain_collector.runner import collector_capture_sink
 
         # Metadata-only provider revisions must also change the engine's content digest.
@@ -645,6 +687,8 @@ class LiveCaptureService:
             self._store.lock("state"),
         ):
             current = self._load(source_id)
+            if self._admission_guard is not None:
+                self._admission_guard(source_id, _selection(current["selection"]))
             if (
                 current["generation"] != receipt["generation"]
                 or current["control_epoch"] != receipt["control_epoch"]
@@ -703,6 +747,8 @@ class LiveCaptureService:
             intakes = tuple(
                 _intake_from_dict(item) for item in cast(list[object], pending["intakes"])
             )
+            if any(item.privacy.tier.value == "unknown" for item in intakes):
+                raise LiveSourceError("source_privacy_unresolved")
             intended_ids = self._custody.receipt_ids(
                 source_id=source_id,
                 binding=self._brain_binding,
@@ -849,10 +895,11 @@ class LiveCaptureService:
                     self._save(latest)
                 return {"source_id": source_id, **last}
 
-    @staticmethod
     def _require_current(
-        before: Mapping[str, object], current: Mapping[str, object], automatic: bool
+        self, before: Mapping[str, object], current: Mapping[str, object], automatic: bool
     ) -> None:
+        if self._admission_guard is not None:
+            self._admission_guard(cast(str, current["source_id"]), _selection(current["selection"]))
         if (
             current["generation"] != before["generation"]
             or current["control_epoch"] != before["control_epoch"]

@@ -57,6 +57,8 @@ const confirm = (modal: FacetReconciliationModal) => {
 const fixture = JSON.parse(readFileSync(new URL("fixtures/facets/o0-cases.json", import.meta.url), "utf8")) as {
   handshake: Record<string, unknown>; frames: { operation: FacetOperation; result: unknown }[];
 };
+// Reuse frozen facet DTOs under current runtime admission; keep fixture bytes historical.
+fixture.handshake = { ...fixture.handshake, state_schema_version: 16, runtime_session_version: 11 };
 const copy = <T,>(value: T): T => JSON.parse(JSON.stringify(value)) as T;
 const response = (operation: string) => copy(fixture.frames.find((entry) => entry.operation === operation)!.result);
 const preview = (overrides: Partial<Wire_facet_vault_preview_response> = {}): Wire_facet_vault_preview_response => ({

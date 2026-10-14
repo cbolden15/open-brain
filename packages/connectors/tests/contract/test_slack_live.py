@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
-from typing import cast
+from typing import Any, cast
 
 import pytest
 
@@ -475,3 +475,305 @@ def _selection_and_auth(tmp_path: Path) -> tuple[SourceResourceSelection, SlackA
     os.chmod(metadata_path, 0o600)
     selection = SourceResourceSelection("slack", connection_id, "channel:COPENBRAIN", "channel")
     return selection, SlackAuth(root, credentials=credentials)
+
+
+def test_moving_floor_does_not_prove_older_message_deleted(tmp_path: Path) -> None:
+    selection, auth = _selection_and_auth(tmp_path)
+    transport = _Transport(
+        [
+            _Response(
+                200,
+                {
+                    "ok": True,
+                    "messages": [{"ts": "1760000000.000001", "user": "UONE", "text": "old"}],
+                },
+            ),
+            _Response(200, {"ok": True, "messages": []}),
+        ]
+    )
+    client = SlackSourceClient(auth, http=cast(LiveHttpTransport, transport))
+    initial = client.fetch(selection, {"date_floor": "2025-01-01T00:00:00Z"}, None)
+    later = client.fetch(selection, {"date_floor": "2026-01-01T00:00:00Z"}, initial.checkpoint)
+    assert later.intakes == ()
+    assert later.notices == ()
+
+
+def test_tracked_old_thread_refresh_freezes_replies_and_reports_partial(tmp_path: Path) -> None:
+    selection, auth = _selection_and_auth(tmp_path)
+    transport = _Transport(
+        [
+            _Response(
+                200,
+                {
+                    "ok": True,
+                    "messages": [
+                        {"ts": "1760000000.000001", "user": "UONE", "text": "root"},
+                        {
+                            "ts": "1760000001.000001",
+                            "thread_ts": "1760000000.000001",
+                            "user": "UTWO",
+                            "text": "new reply",
+                        },
+                    ],
+                },
+            )
+        ]
+    )
+    client = SlackSourceClient(auth, http=cast(LiveHttpTransport, transport))
+    batch = client.refresh_thread(selection, "1760000000.000001")
+    assert "latest=" in transport.urls[0]
+    assert "partial_thread_coverage" in batch.notices
+    assert batch.intakes[1].key.external_id == "reply:1760000000.000001:1760000001.000001"
+
+
+def test_optional_discovery_disabled_or_unverified_makes_no_requests(tmp_path: Path) -> None:
+    from open_brain_connectors.runtime.slack_discovery import SlackMessageDiscoveryClient
+
+    _, auth = _selection_and_auth(tmp_path)
+    transport = _Transport([])
+    client = SlackMessageDiscoveryClient(auth, http=cast(LiveHttpTransport, transport))
+    common: dict[str, Any] = dict(
+        owner_id="UOWNER", excluded_conversations=(), oldest="1760000000.000001"
+    )
+    disabled = client.discover(
+        "account:synthetic", capabilities=(), ai_exclusions_verified=True, **common
+    )
+    excluded = client.discover(
+        "account:synthetic", capabilities=("dm",), ai_exclusions_verified=False, **common
+    )
+    assert disabled.notices == ("discovery_disabled",)
+    assert excluded.notices == ("unsupported_ai_exclusions",)
+    assert transport.urls == []
+
+
+def test_search_discovery_hints_overlap_identity_and_exclude_before_admission(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from open_brain_connectors.runtime.live_common import LiveAccount
+    from open_brain_connectors.runtime.slack_auth import slack_user_scopes
+    from open_brain_connectors.runtime.slack_discovery import SlackMessageDiscoveryClient
+
+    selection, auth = _selection_and_auth(tmp_path)
+    monkeypatch.setattr(
+        auth,
+        "accounts",
+        lambda: (
+            LiveAccount(
+                "slack", selection.connection_id, "Slack", slack_user_scopes(("mentions",)), None
+            ),
+        ),
+    )
+    transport = _Transport(
+        [
+            _Response(
+                200,
+                {
+                    "ok": True,
+                    "messages": {
+                        "matches": [
+                            {
+                                "channel": {"id": "CONE"},
+                                "ts": "1760000001.000001",
+                                "thread_ts": "1760000000.000001",
+                            },
+                            {"channel": {"id": "CEXCLUDED"}, "ts": "1760000002.000001"},
+                            {"channel": {"id": "DONE", "is_im": True}, "ts": "1760000003.000001"},
+                        ],
+                        "paging": {"pages": 1},
+                    },
+                },
+            )
+        ]
+    )
+    batch = SlackMessageDiscoveryClient(auth, http=cast(LiveHttpTransport, transport)).discover(
+        selection.connection_id,
+        owner_id="UOWNER",
+        capabilities=("mentions",),
+        excluded_conversations=("CEXCLUDED",),
+        ai_exclusions_verified=True,
+        oldest="1760000000.000001",
+    )
+    assert len(batch.candidates) == 1
+    candidate = batch.candidates[0]
+    assert candidate.message_ts == "1760000001.000001"
+    assert candidate.thread_ts == "1760000000.000001"
+    assert not hasattr(batch, "intakes")
+    assert "incomplete_search_coverage" in batch.notices
+    assert "conversations.history" not in transport.urls[0]
+
+
+def test_optional_dm_requires_granted_scopes_before_any_request(tmp_path: Path) -> None:
+    from open_brain_connectors.runtime.slack_discovery import SlackMessageDiscoveryClient
+
+    selection, auth = _selection_and_auth(tmp_path)
+    transport = _Transport([])
+    with pytest.raises(LiveSourceError, match="not_allowed"):
+        SlackMessageDiscoveryClient(auth, http=cast(LiveHttpTransport, transport)).discover(
+            selection.connection_id,
+            owner_id="UOWNER",
+            capabilities=("dm",),
+            excluded_conversations=(),
+            ai_exclusions_verified=True,
+            oldest="1760000000.000001",
+        )
+    assert transport.urls == []
+
+
+def test_dm_discovery_is_bounded_and_revocation_is_visible(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from open_brain_connectors.runtime.live_common import LiveAccount
+    from open_brain_connectors.runtime.slack_auth import slack_user_scopes
+    from open_brain_connectors.runtime.slack_discovery import SlackMessageDiscoveryClient
+
+    selection, auth = _selection_and_auth(tmp_path)
+    monkeypatch.setattr(
+        auth,
+        "accounts",
+        lambda: (
+            LiveAccount(
+                "slack", selection.connection_id, "Slack", slack_user_scopes(("dm",)), None
+            ),
+        ),
+    )
+    transport = _Transport(
+        [
+            _Response(200, {"ok": True, "channels": [{"id": "DONE"}, {"id": "DEXCLUDED"}]}),
+            _Response(
+                200, {"ok": True, "messages": [{"ts": "1760000001.000001", "text": "synthetic"}]}
+            ),
+            _Response(200, {"ok": False, "error": "token_revoked"}),
+        ]
+    )
+    client = SlackMessageDiscoveryClient(auth, http=cast(LiveHttpTransport, transport))
+    options: dict[str, Any] = dict(
+        owner_id="UOWNER",
+        capabilities=("dm",),
+        excluded_conversations=("DEXCLUDED",),
+        ai_exclusions_verified=True,
+        oldest="1760000000.000001",
+    )
+    listing = client.discover(selection.connection_id, **options)
+    assert listing.candidates == ()
+    batch = client.discover(selection.connection_id, checkpoint=listing.checkpoint, **options)
+    assert batch.candidates[0].conversation_id == "DONE"
+    assert not batch.has_more
+    assert "types=im" in transport.urls[0]
+    assert "limit=15" in transport.urls[1]
+    with pytest.raises(LiveSourceError, match="auth_required"):
+        client.discover(selection.connection_id, **options)
+
+
+def test_candidate_resolution_uses_exact_reply_identity(tmp_path: Path) -> None:
+    selection, auth = _selection_and_auth(tmp_path)
+    channel = selection.resource_id.removeprefix("channel:")
+    transport = _Transport(
+        [
+            _Response(
+                200,
+                {
+                    "ok": True,
+                    "messages": [
+                        {"ts": "1760000001.000001", "user": "UONE", "text": "synthetic reply"},
+                    ],
+                },
+            )
+        ]
+    )
+    client = SlackSourceClient(auth, http=cast(LiveHttpTransport, transport))
+    record = client.resolve_candidate(
+        selection.connection_id, channel, "1760000001.000001", thread_ts="1760000000.000001"
+    )
+    assert record.thread_ts == "1760000000.000001"
+    assert client._intake(selection, record).key.external_id == (
+        "reply:1760000000.000001:1760000001.000001"
+    )
+    assert "conversations.replies" in transport.urls[0]
+    assert "inclusive=true" in transport.urls[0]
+    assert "oldest=1760000001.000001" in transport.urls[0]
+
+
+@pytest.mark.parametrize(
+    "messages", [[], [{"ts": "1760000002.000001", "user": "UONE", "text": "other"}]]
+)
+def test_unresolvable_hint_never_synthesizes_root(tmp_path: Path, messages: list[object]) -> None:
+    selection, auth = _selection_and_auth(tmp_path)
+    transport = _Transport([_Response(200, {"ok": True, "messages": messages})])
+    client = SlackSourceClient(auth, http=cast(LiveHttpTransport, transport))
+    with pytest.raises(LiveSourceError, match="source_candidate_identity_unsupported"):
+        client.resolve_candidate(
+            selection.connection_id,
+            selection.resource_id.removeprefix("channel:"),
+            "1760000001.000001",
+        )
+
+
+def test_candidate_resolution_rejects_oversized_provider_page(tmp_path: Path) -> None:
+    selection, auth = _selection_and_auth(tmp_path)
+    transport = _Transport([_Response(200, {"ok": True, "messages": [{}, {}]})])
+    client = SlackSourceClient(auth, http=cast(LiveHttpTransport, transport))
+    with pytest.raises(LiveSourceError, match="invalid_provider_response"):
+        client.resolve_candidate(
+            selection.connection_id,
+            selection.resource_id.removeprefix("channel:"),
+            "1760000001.000001",
+        )
+
+
+def test_optional_search_freezes_upper_bound_and_refuses_changed_interval(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from open_brain_connectors.runtime.live_common import LiveAccount
+    from open_brain_connectors.runtime.slack_auth import slack_user_scopes
+    from open_brain_connectors.runtime.slack_discovery import SlackMessageDiscoveryClient
+
+    selection, auth = _selection_and_auth(tmp_path)
+    monkeypatch.setattr(
+        auth,
+        "accounts",
+        lambda: (
+            LiveAccount(
+                "slack",
+                selection.connection_id,
+                "Synthetic",
+                slack_user_scopes(("mentions",)),
+                None,
+            ),
+        ),
+    )
+    transport = _Transport(
+        [
+            _Response(
+                200,
+                {
+                    "ok": True,
+                    "messages": {
+                        "matches": [
+                            {"channel": {"id": "CONE"}, "ts": "1760000001.000001"},
+                            {"channel": {"id": "CONE"}, "ts": "1760000003.000001"},
+                        ],
+                        "paging": {"pages": 2},
+                    },
+                },
+            )
+        ]
+    )
+    client = SlackMessageDiscoveryClient(auth, http=cast(LiveHttpTransport, transport))
+    options: dict[str, Any] = {
+        "owner_id": "UOWNER",
+        "capabilities": ("mentions",),
+        "excluded_conversations": (),
+        "ai_exclusions_verified": True,
+        "oldest": "1760000000.000001",
+        "latest": "1760000002.000001",
+    }
+    batch = client.discover(selection.connection_id, **options)
+    assert [item.message_ts for item in batch.candidates] == ["1760000001.000001"]
+    assert "before%3A" in transport.urls[0]
+    options["latest"] = "1760000004.000001"
+    with pytest.raises(LiveSourceError, match="invalid_checkpoint"):
+        client.discover(selection.connection_id, checkpoint=batch.checkpoint, **options)
+    assert len(transport.urls) == 1

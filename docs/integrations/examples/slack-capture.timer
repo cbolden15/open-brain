@@ -1,0 +1,11 @@
+# Optional example only; shipping this file does not enable it.
+[Unit]
+Description=Open Brain daily capture schedule
+
+[Timer]
+OnCalendar=*-*-* 09:00:00
+Persistent=true
+Unit=slack-capture.service
+
+[Install]
+WantedBy=timers.target

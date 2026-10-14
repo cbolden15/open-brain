@@ -96,6 +96,34 @@ def main(argv: Sequence[str]) -> int:
     )
     commands = parser.add_subparsers(dest="command", required=True)
     commands.add_parser("status")
+    health = commands.add_parser("health")
+    health.add_argument("--interval-seconds", type=int)
+    health.add_argument("--grace-seconds", type=int)
+    for name in ("capture-status", "capture-process", "capture-candidates", "capture-review"):
+        commands.add_parser(name)
+    commands.add_parser("capture-setup").add_argument("--arguments-file", required=True)
+    candidate_decide = commands.add_parser("capture-candidate-decide")
+    candidate_decide.add_argument("--candidate-id", required=True)
+    candidate_decide.add_argument(
+        "--action", required=True, choices=("map", "create", "reject", "defer")
+    )
+    candidate_decide.add_argument("--value-id")
+    candidate_decide.add_argument("--deferred-until")
+    candidate_retry = commands.add_parser("capture-candidate-retry")
+    candidate_retry.add_argument("--candidate-id", required=True)
+    candidate_retry.add_argument("--replan", action="store_true")
+    defer = commands.add_parser("capture-review-defer")
+    defer.add_argument("--proposal-id", required=True)
+    defer.add_argument("--until", required=True)
+    commands.add_parser("capture-review-dismiss").add_argument("--proposal-id", required=True)
+    commands.add_parser("capture-discover").add_argument("--connection-id", required=True)
+    track = commands.add_parser("capture-track-thread")
+    track.add_argument("--connection-id", required=True)
+    track.add_argument("--channel-id", required=True)
+    track.add_argument("--thread-ts", required=True)
+    track.add_argument(
+        "--privacy-tier", choices=("public", "work", "personal", "secret", "unknown")
+    )
     custody_status = commands.add_parser("custody-status")
     custody_status.add_argument("--source-id")
     for name in ("custody-inspect", "custody-retry"):
@@ -108,6 +136,12 @@ def main(argv: Sequence[str]) -> int:
         item.add_argument("--provider", required=True, choices=("gmail", "google_drive", "slack"))
         if name == "connect":
             item.add_argument("--client-config", required=True)
+            item.add_argument(
+                "--capability",
+                action="append",
+                dest="capabilities",
+                choices=("owner_messages", "mentions", "dm", "group_dm"),
+            )
         if name in {"disconnect", "resources"}:
             item.add_argument("--connection-id", required=True)
         if name == "resources":

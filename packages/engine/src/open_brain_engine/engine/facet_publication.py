@@ -16,6 +16,7 @@ from open_brain_engine.core.access_contracts import (
 from open_brain_engine.core.ids import portable_canonical_json_bytes
 from open_brain_engine.core.models import PrivacyTier
 from open_brain_engine.portable.review_binding import (
+    review_binding_base_version,
     review_binding_digest,
     validate_review_binding,
 )
@@ -108,7 +109,7 @@ def verify_facet_snapshot(
     bytes/routes, target and authority within its transactional publication seam.
     This function performs no I/O.
     """
-    if binding.get("schema_version") != 5:
+    if review_binding_base_version(binding) != 5:
         raise ValueError("facet binding version conflict")
     destination = cast(str, binding["destination_space_id"])
     if not authority.permits_space(destination):

@@ -284,7 +284,8 @@ class FacetTasks:
             connection.execute(
                 "SELECT 1 FROM decisions d JOIN review_contexts c USING(proposal_id) "
                 "WHERE d.outcome IN ('approved','edited') AND d.stage<3 "
-                "AND json_extract(c.binding_json,'$.schema_version')=5 "
+                "AND COALESCE(json_extract(c.binding_json,'$.base_schema_version'), "
+                "json_extract(c.binding_json,'$.schema_version'))=5 "
                 "AND json_extract(c.binding_json,'$.operation')='create' "
                 "AND json_extract(c.binding_json,'$.query_id')=? LIMIT 1",
                 (query_id,),

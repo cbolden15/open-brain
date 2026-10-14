@@ -30,6 +30,7 @@ from open_brain_engine.engine.t03_contracts import (
     T03Error,
     response_to_wire,
 )
+from open_brain_engine.portable.developments_v11 import DEVELOPMENT_SIDECAR_PATHS
 from open_brain_engine.portable.facets_v10 import FACET_SIDECAR_PATHS
 from open_brain_engine.portable.v4 import SOURCE_METADATA_PATH, manifest_v4
 from open_brain_engine.portable.v5 import V5_SIDECAR_PATHS
@@ -107,9 +108,9 @@ def test_source_route_cas_preserves_capture_and_exports_v9(tmp_path: Path) -> No
     assert metadata["sources"][0]["head_capture_id"] == receipt.capture_id
     export = tmp_path / "export"
     exported = tasks.portability.export(export, export_id="export_" + str(uuid4()))
-    assert exported.schema_version == 10
+    assert exported.schema_version == 11
     snapshot = validated_portable_snapshot(export)
-    assert snapshot.manifest["schema_version"] == 10
+    assert snapshot.manifest["schema_version"] == 11
     assert snapshot.files.keys() >= (
         V5_SIDECAR_PATHS
         | V6_SIDECAR_PATHS
@@ -122,7 +123,7 @@ def test_source_route_cas_preserves_capture_and_exports_v9(tmp_path: Path) -> No
     import_receipt = tasks.portability.import_clean(
         export, imported, import_id="import_" + str(uuid4())
     )
-    assert import_receipt.schema_version == 10
+    assert import_receipt.schema_version == 11
     assert imported.is_dir()
 
 
@@ -620,6 +621,7 @@ def test_standalone_v4_import_refusal_uses_valid_v4_fixture(tmp_path: Path) -> N
         and relative not in V8_SIDECAR_PATHS
         and relative not in V9_SIDECAR_PATHS
         and relative not in FACET_SIDECAR_PATHS
+        and relative not in DEVELOPMENT_SIDECAR_PATHS
     }
     legacy = tmp_path / "legacy-v4"
     for relative, payload in files.items():
@@ -861,7 +863,7 @@ def test_current_schema_imports_legacy_portable_without_changing_evidence(
     assert validated_portable_snapshot(destination).files == snapshot.files
     imported = open_local_engine(compile_single_user_local(destination))
     with open_local_database_read_only(imported.profile) as connection:
-        assert connection.execute("PRAGMA user_version").fetchone()[0] == 15
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 16
         assert connection.execute("SELECT count(*) FROM source_revisions").fetchone()[0] > 0
 
 
@@ -896,11 +898,11 @@ def test_current_schema_owner_recovery_retains_current_writer_floor(tmp_path: Pa
     assert moved.read_bytes() == before
     reopened = open_local_engine(engine.profile)
     with open_local_database_read_only(reopened.profile) as connection:
-        assert connection.execute("PRAGMA user_version").fetchone()[0] == 15
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 16
         assert tuple(connection.execute("SELECT * FROM runtime_compatibility").fetchone()) == (
             1,
-            10,
-            15,
+            11,
+            16,
         )
 
 
