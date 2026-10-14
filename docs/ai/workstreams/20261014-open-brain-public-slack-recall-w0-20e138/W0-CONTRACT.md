@@ -1,6 +1,6 @@
 # W0 contract freeze and baseline
 
-Status: focused baseline, future-red probes and storage-recovery checks verified; full repository gate pending on the recovered candidate. W0 is not complete.
+Status: W0 complete. Focused baseline, future-red probes, storage recovery and full repository verification passed. W1 production implementation has not started.
 
 ## Pinned inputs
 
@@ -62,10 +62,12 @@ The first full gate passed lint and type checking, then reported 142 failed, 7,0
 
 A two-worker recovery run with immediate passing-fixture cleanup passed 123 cases before two more `storage_high` failures stopped it. Its task-specific temporary directory was empty, but host free space fell below two GiB again. This confirmed broader host headroom was required; changing capture admission or merely weakening assertions would hide the problem. The owner approved four exact ignored artifact directories outside active W0. The janitor agent revalidated and deleted them, recovering 5.38 GiB and leaving 9.29 GiB available. Source worktrees, all 14 worktree records and branch refs were unchanged.
 
-After artifact cleanup, the recovery check passed all 190 cases in 295.75 seconds: every one of the 142 previously failed cases plus the existing storage-watermark/admission tests. Full verification remains required, including package and UI gates that the first failed test stage never reached. The next full run bounds auto workers to four and retains immediate passing-fixture cleanup; production admission and helper deadlines remain unchanged.
+After artifact cleanup, the recovery check passed all 190 cases in 295.75 seconds: every one of the 142 previously failed cases plus the existing storage-watermark/admission tests. Full verification then passed on candidate `2bd071a884f3ceacbbb1d650a92fee61e8ff6ef8`, with no source changes during the gate. It bounded auto workers to four and retained immediate passing-fixture cleanup; production admission and helper deadlines remained unchanged.
+
+Final `make verify` results: Ruff passed, mypy passed across 646 files, Python passed 7,188 tests with five existing filesystem-platform skips and one existing fork warning, all four distributions built, Obsidian passed 673 tests, and desktop passed 259 JavaScript, 30 Python and 26 Rust tests plus formatting/type/build checks. The Python stage took 1,703.45 seconds; the complete gate took 1,840.84 seconds. `git diff --check` and `actionlint` also passed. No W0 test was skipped or xfailed.
 
 Follow `BUILD-004` before another full run: check free bytes, use a short task-specific temporary root outside the checkout, bound workers, clean passing fixtures promptly, retain failure diagnostics and reserve space for builds. `TESTING-006` additionally keeps native packaging separate from timing-sensitive tests.
 
 Only W0 is authorized in this milestone. W1 production code, migration and Portable activation remain absent. W2 owner risk choices remain pending. No real Slack/provider calls, client profile edits, service install, push or publication occurred.
 
-After the full gate passes, commit W0 locally, persist the validated handoff, and start W1a/W1b in a fresh execution thread only when requested.
+W0 is committed locally. Use the validated handoff for a fresh execution thread; start W1a/W1b only when requested and recheck main before reserving compatibility coordinates.

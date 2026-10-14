@@ -344,6 +344,14 @@ hit `storage_high` and a helper timeout; both cases passed serially after worker
 exited, and the full two-worker gate passed with Cargo limited to two jobs.
 Keep the real admission limits and helper deadlines intact.
 
+Follow-up, 2026-10-14: W0 Slack recall verification reproduced 142 connector/collector
+failures after a full run retained 4.7 GiB. Clearing that task's completed fixtures
+was insufficient: a two-worker retry still reached `storage_high` with an empty
+task TMPDIR. An approved cleanup of ignored build artifacts recovered 5.38 GiB.
+All 190 recovery cases then passed, followed by the full gate with four bounded
+workers and immediate passing-fixture cleanup. Check broader host headroom as
+well as fixture size; do not change production admission limits or helper deadlines.
+
 Discovered: 2026-10-09, repeated automatic harness bridge verification.
 
 ### MEMORY-001: Harness boundaries can lose restrictions and cancellation

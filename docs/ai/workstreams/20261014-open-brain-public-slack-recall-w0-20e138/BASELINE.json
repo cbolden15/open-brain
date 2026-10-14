@@ -116,6 +116,34 @@
       "workers": 2,
       "includes_previously_failed_cases": 142,
       "includes_storage_admission_tests": true
+    },
+    "full_verify_final": {
+      "status": "passed",
+      "exit_code": 0,
+      "candidate_head": "2bd071a884f3ceacbbb1d650a92fee61e8ff6ef8",
+      "python_tests_passed": 7188,
+      "platform_skips": 5,
+      "warnings": 1,
+      "pytest_seconds": 1703.45,
+      "wall_seconds": 1840.84,
+      "mypy_files": 646,
+      "plugin_tests": 673,
+      "desktop_javascript_tests": 259,
+      "desktop_python_tests": 30,
+      "desktop_rust_tests": 26,
+      "distributions_built": 4,
+      "workers": 4,
+      "passing_fixture_cleanup": true,
+      "cargo_build_jobs": 2,
+      "source_changed_during_gate": false
+    },
+    "actionlint": {
+      "status": "passed",
+      "exit_code": 0
+    },
+    "diff_check": {
+      "status": "passed",
+      "exit_code": 0
     }
   },
   "ledger": {
@@ -140,6 +168,6 @@
     "artifact_cleanup_gib": 5.38,
     "available_after_cleanup_gib": 9.294,
     "worktrees_and_branches_unchanged": true,
-    "full_gate_completed": false
+    "full_gate_completed": true
   }
 }
