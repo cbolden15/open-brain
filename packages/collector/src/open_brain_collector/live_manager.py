@@ -9,8 +9,7 @@ from dataclasses import asdict
 from pathlib import Path
 from typing import cast
 
-from open_brain_engine.engine import ReadViewUnavailableError, open_local_read_view
-
+from open_brain_collector.capture_workflow import CaptureWorkflow, owner_authority
 from open_brain_collector.live_capture import LiveCaptureService
 from open_brain_collector.runner import CollectorProfileError, _open_existing_collector_profile
 from open_brain_collector.slack_patches import SlackPatchProposer
@@ -62,6 +61,18 @@ OPERATIONS = frozenset(
         "sources.slack_suggestion_dismiss",
         "sources.slack_status",
         "sources.slack_discover",
+        "sources.capture_setup",
+        "sources.capture_status",
+        "sources.capture_process",
+        "sources.capture_candidates",
+        "sources.capture_candidate_decide",
+        "sources.capture_candidate_retry",
+        "sources.capture_review",
+        "sources.capture_review_defer",
+        "sources.capture_review_dismiss",
+        "sources.health",
+        "sources.capture_discover",
+        "sources.capture_track_thread",
     }
 )
 
@@ -118,6 +129,12 @@ class PriorityRuntime:
             return AgentSessionLiveSource(self.root / "sessions").fetch(
                 selection, options, checkpoint
             )
+        if selection.connector_name == "slack" and "tracked_thread" in options:
+            client = self.client("slack")
+            assert isinstance(client, SlackSourceClient)
+            return client.refresh_thread(
+                selection, safe_text(options["tracked_thread"]), checkpoint
+            )
         return self.client(selection.connector_name).fetch(selection, options, checkpoint)
 
     def acknowledge(
@@ -142,11 +159,13 @@ class LiveSourceManager:
         self._setup = PrivateJsonStore(root / "setup")
         self._slack_policy = SlackPolicyStore(root)
         self._slack_patches = SlackPatchProposer(brain_root, self._slack_policy)
+        self.workflow = CaptureWorkflow(root, brain_root, self._slack_policy)
         self.capture = LiveCaptureService(
             root / "capture",
             brain_root,
             runtime=self.runtime,
             post_apply=self._post_apply,
+            admission_guard=self._capture_guard,
         )
         self.background = background
 
@@ -155,7 +174,9 @@ class LiveSourceManager:
         selection: SourceResourceSelection,
         records: tuple[tuple[SourceRecordIntake, str], ...],
     ) -> None:
-        self._slack_patches.propose(selection, records)
+        self.workflow.admit(selection, records)
+        if self.workflow.configuration()["enabled"] is not True:
+            self._slack_patches.propose(selection, records)
 
     def sync_due(self) -> list[dict[str, object]]:
         """Run due discovery before channel capture, without enabling suggestions."""
@@ -186,13 +207,42 @@ class LiveSourceManager:
                         "failure_code": error.code,
                     }
                 )
-        return [*results, *self.capture.sync_due()]
+        results.extend(self.capture.sync_due())
+        if self.workflow.configuration()["enabled"] is True:
+            for account in self._slack_policy.accounts():
+                try:
+                    results.append(
+                        {"source_id": "slack-extra:" + account, **self._capture_discover(account)}
+                    )
+                except LiveSourceError as error:
+                    results.append(
+                        {
+                            "source_id": "slack-extra:" + account,
+                            "outcome": "failed",
+                            "failure_code": error.code,
+                        }
+                    )
+            try:
+                results.append({"source_id": "slack-development", **self.workflow.process()})
+            except Exception as error:
+                results.append(
+                    {
+                        "source_id": "slack-development",
+                        "outcome": "failed",
+                        "failure_code": error.code
+                        if isinstance(error, LiveSourceError)
+                        else "capture_processing_failed",
+                    }
+                )
+        return results
 
     def dispatch(self, operation: str, arguments: object) -> dict[str, object]:
         if operation not in OPERATIONS or type(arguments) is not dict:
             raise LiveSourceError("source_invalid_operation")
         args = cast(dict[str, object], arguments)
         bounded_json(args, 65_536)
+        if operation.startswith("sources.capture_") or operation == "sources.health":
+            return self._capture_operation(operation, args)
         if operation == "sources.status":
             _shape(args, set())
             return {
@@ -363,10 +413,12 @@ class LiveSourceManager:
     def _page_exists(self, page_id: str) -> bool:
         try:
             profile = _open_existing_collector_profile(self.brain_root)
-            return open_local_read_view(profile).read_page(page_id) is not None
+            from open_brain_engine.engine import open_local_engine
+
+            return open_local_engine(profile).retrieval.read_page(page_id) is not None
         except CollectorProfileError:
             raise LiveSourceError("source_brain_unavailable") from None
-        except (ReadViewUnavailableError, ValueError, OSError):
+        except ValueError, OSError:
             raise LiveSourceError("source_brain_unavailable") from None
 
     @staticmethod
@@ -383,7 +435,7 @@ class LiveSourceManager:
             required.add("client_config")
         elif operation == "sources.disconnect":
             required.add("connection_id")
-        _shape(args, required)
+        _shape(args, required, {"capabilities"} if operation == "sources.connect" else set())
         provider = _provider(args["provider"])
         auth = self.runtime.auth(provider)
         if operation == "sources.accounts":
@@ -392,6 +444,14 @@ class LiveSourceManager:
             path = Path(safe_text(args["client_config"], maximum=4096))
             if not path.is_absolute():
                 raise LiveSourceError("source_invalid_configuration_path")
+            if "capabilities" in args:
+                if not isinstance(auth, SlackAuth) or type(args["capabilities"]) is not list:
+                    raise LiveSourceError("source_invalid_arguments")
+                return {
+                    "account": auth.connect(
+                        path, capabilities=tuple(args["capabilities"])
+                    ).to_dict()
+                }
             return {"account": auth.connect(path).to_dict()}
         connection = safe_text(args["connection_id"])
         for item in cast(list[dict[str, object]], self.capture.status()["sources"]):
@@ -400,6 +460,164 @@ class LiveSourceManager:
                 self.capture.control(cast(str, item["source_id"]), "disable")
         auth.disconnect(connection)
         return {"status": "disconnected"}
+
+    def _capture_operation(self, operation: str, args: dict[str, object]) -> dict[str, object]:
+        from datetime import UTC, datetime
+
+        from open_brain_engine.engine import open_local_engine
+
+        from open_brain_collector.capture_candidates import CandidateResolver
+        from open_brain_collector.capture_health import CaptureHealthStore
+        from open_brain_collector.capture_review import CaptureReviewStore
+
+        review = CaptureReviewStore(PrivateJsonStore(self.root / "capture-review"))
+        if operation == "sources.capture_setup":
+            return self.workflow.configure(args)
+        if operation == "sources.capture_status":
+            _shape(args, set())
+            return {**self.workflow.status(), "configuration": self.workflow.configuration()}
+        if operation == "sources.capture_process":
+            _shape(args, set())
+            return self.workflow.process()
+        if operation == "sources.health":
+            _shape(args, set(), {"interval_seconds", "grace_seconds"})
+            processing = self.workflow.status()
+            custody = self.capture.custody_status()
+            metrics = {
+                "backlog_count": cast(int, processing["pending_count"]),
+                "pending_retries": cast(int, custody.get("quarantined_count", 0)),
+            }
+            oldest = processing["oldest_pending_epoch"]
+            if type(oldest) is int:
+                metrics["oldest_pending_epoch"] = oldest
+            enabled = [
+                source for source in cast(list[dict[str, object]], self.capture.status()["sources"])
+                if source["status"] == "enabled"
+            ]
+            checkpoints: list[int] = []
+            for source in enabled:
+                last = source["last_run"]
+                if (isinstance(last, dict) and last.get("outcome") == "completed"
+                    and last.get("has_more") is False and last.get("failure_code") is None
+                    and type(last.get("finished_epoch")) is int):
+                    checkpoints.append(last["finished_epoch"])
+            if checkpoints and len(checkpoints) == len(enabled):
+                metrics["checkpoint_epoch"] = min(checkpoints)
+            return CaptureHealthStore(self.root.parent / "capture-health").health(
+                interval_seconds=cast(int, args.get("interval_seconds", 86_400)),
+                grace_seconds=cast(int, args.get("grace_seconds", 7_200)),
+                metrics=metrics,
+            )
+        if operation == "sources.capture_candidates":
+            _shape(args, set())
+            return {"schema_version": 1, "candidates": list(review.candidates())}
+        if operation == "sources.capture_candidate_decide":
+            _shape(args, {"candidate_id", "action"}, {"value_id", "deferred_until"})
+            return CandidateResolver(self.root, self.brain_root).decide(
+                safe_text(args["candidate_id"]),
+                safe_text(args["action"]),
+                value_id=None if args.get("value_id") is None else safe_text(args["value_id"]),
+                deferred_until=None
+                if args.get("deferred_until") is None
+                else safe_text(args["deferred_until"]),
+            )
+        if operation == "sources.capture_candidate_retry":
+            _shape(args, {"candidate_id"}, {"replan"})
+            if type(args.get("replan", False)) is not bool:
+                raise LiveSourceError("source_invalid_arguments")
+            return CandidateResolver(self.root, self.brain_root).retry(
+                safe_text(args["candidate_id"]),
+                replan=cast(bool, args.get("replan", False)),
+            )
+        if operation == "sources.capture_review":
+            _shape(args, set())
+            tasks = open_local_engine(_open_existing_collector_profile(self.brain_root))
+            return {
+                "schema_version": 1,
+                "items": list(
+                    review.attention(
+                        datetime.now(UTC).isoformat(),
+                        lambda identity: tasks.review.show(identity).status,
+                    )
+                ),
+            }
+        if operation == "sources.capture_review_defer":
+            _shape(args, {"proposal_id", "until"})
+            review.defer_attention(
+                safe_text(args["proposal_id"]),
+                safe_text(args["until"]),
+                authority=owner_authority(),
+            )
+            return {"status": "deferred", "proposal_id": args["proposal_id"]}
+        if operation == "sources.capture_review_dismiss":
+            _shape(args, {"proposal_id"})
+            review.dismiss_attention(safe_text(args["proposal_id"]), authority=owner_authority())
+            return {"status": "dismissed", "proposal_id": args["proposal_id"]}
+        if operation == "sources.capture_discover":
+            _shape(args, {"connection_id"})
+            return self._capture_discover(safe_text(args["connection_id"]))
+        _shape(args, {"connection_id", "channel_id", "thread_ts"}, {"privacy_tier"})
+        selection = SourceResourceSelection(
+            "slack",
+            safe_text(args["connection_id"]),
+            "channel:" + safe_text(args["channel_id"]),
+            "channel",
+        )
+        source_id = "slack-thread." + hashlib.sha256(bounded_json(args)).hexdigest()[:24]
+        configured = self.capture.configure(
+            source_id,
+            selection,
+            {
+                "tracked_thread": safe_text(args["thread_ts"]),
+                "privacy_tier": args.get("privacy_tier", "unknown"),
+            },
+        )
+        return {"source_id": source_id, "configuration": configured}
+
+    def _capture_discover(self, account: str) -> dict[str, object]:
+        from open_brain_collector.capture_discovery import CaptureDiscoveryCoordinator
+        from open_brain_connectors.runtime.slack_discovery import SlackMessageDiscoveryClient
+
+        auth = self.runtime.auth("slack")
+        client = self.runtime.client("slack")
+        assert isinstance(auth, SlackAuth) and isinstance(client, SlackSourceClient)
+        return CaptureDiscoveryCoordinator(
+            self.root,
+            configuration=self.workflow.configuration,
+            discover=SlackMessageDiscoveryClient(auth, http=self.runtime.http),
+            source=client,
+            configure=self.capture.configure,
+            clock=self.capture._clock,
+        ).run(account)
+
+    def _capture_guard(self, source_id: str, selection: SourceResourceSelection) -> None:
+        if selection.connector_name != "slack":
+            return
+        config = self.workflow.configuration()
+        conversation = selection.resource_id.removeprefix("channel:")
+        if conversation in cast(list[str], config["excluded_conversations"]):
+            raise LiveSourceError("source_policy_excluded")
+        if not source_id.startswith("slack-extra."):
+            return
+        if (
+            config["enabled"] is not True
+            or config["ai_exclusions_verified"] is not True
+            or not config["capabilities"]
+            or conversation not in cast(list[str], config["permitted_conversations"])
+        ):
+            raise LiveSourceError("source_permission_revoked")
+        store = PrivateJsonStore(self.root / "capture-discovery")
+        state = store.read(
+            "discovery-" + hashlib.sha256(selection.connection_id.encode()).hexdigest() + ".json"
+        )
+        generation = hashlib.sha256(bounded_json(config)).hexdigest()
+        if not isinstance(state, dict) or not any(
+            isinstance(item, dict)
+            and item.get("source_id") == source_id
+            and item.get("generation") == generation
+            for item in cast(list[object], state.get("sources", []))
+        ):
+            raise LiveSourceError("source_permission_revoked")
 
     def _session_preview(self, args: dict[str, object]) -> dict[str, object]:
         _shape(args, {"client", "project_path", "capture_summary", "capture_transcript", "action"})

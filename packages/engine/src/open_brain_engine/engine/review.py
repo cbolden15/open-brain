@@ -81,15 +81,62 @@ class ReviewOperations(_LocalEngineOperations):
             raise ValueError("invalid append proposal")
         _portable_id(target_page_id, "page")
         _delivery_id(delivery_id)
+        append_request = portable_canonical_json_bytes(
+            {
+                "capture_ids": list(selected),
+                "target_page_id": target_page_id,
+                "append_markdown": append_markdown,
+            }
+        )
+        append_digest = sha256(append_request).hexdigest()
+        proposal_delivery = "append-" + sha256(delivery_id.encode()).hexdigest()
+        with self._store.transaction() as connection:
+            reserved = (
+                connection.execute(
+                    "SELECT * FROM development_append_operations WHERE delivery_id=?",
+                    (delivery_id,),
+                ).fetchone()
+                if connection.execute("PRAGMA user_version").fetchone()[0] >= 16
+                else None
+            )
+            if reserved is not None:
+                if reserved["request_sha256"] != append_digest:
+                    raise ValueError("conflicting append delivery")
+                if reserved["proposal_id"] is not None:
+                    existing_proposal = self._proposal_row(reserved["proposal_id"])
+                    return self._list_proposals(
+                        capture_id=None,
+                        status=None,
+                        set_delivery_id=existing_proposal["set_delivery_id"],
+                    )
+                frozen = json.loads(reserved["draft_json"])
+                draft = PatchDraft(
+                    target_page_id=frozen["target_page_id"],
+                    expected_page_sha256=frozen["expected_page_sha256"],
+                    operations=tuple(PatchOperation(**item) for item in frozen["operations"]),
+                )
+            else:
+                draft = None
+        if draft is not None:
+            records = self._propose(
+                selected, (draft,), proposal_delivery, target_page_id=target_page_id
+            )
+            with self._store.transaction() as connection:
+                connection.execute(
+                    "UPDATE development_append_operations SET proposal_id=? WHERE delivery_id=?",
+                    (records[0].proposal_id, delivery_id),
+                )
+            return records
         with self._store.transaction() as connection:
             target = _target_state(self, connection, target_page_id)
             if target is None:
                 raise ValueError("unknown target page")
             target_space_id = cast(str, target["space_id"])
         for selected_capture_id in selected:
-            route_delivery = "review-route-" + sha256(
-                (delivery_id + "\x1f" + selected_capture_id).encode("utf-8")
-            ).hexdigest()
+            route_delivery = (
+                "review-route-"
+                + sha256((delivery_id + "\x1f" + selected_capture_id).encode("utf-8")).hexdigest()
+            )
             self._route_capture(selected_capture_id, target_space_id, route_delivery)
         with self._store.transaction() as connection:
             target = _target_state(self, connection, target_page_id)
@@ -104,19 +151,54 @@ class ReviewOperations(_LocalEngineOperations):
                 PatchOperation(
                     start_byte=len(body.encode("utf-8")),
                     end_byte=len(body.encode("utf-8")),
-                    replacement="\n\n" + append_markdown.strip(),
+                    replacement="\n\n" + append_markdown.strip() + "\n",
                 ),
             ),
         )
-        proposal_delivery = "append-" + sha256(
-            (delivery_id + "\x1f" + cast(str, target["published_sha256"])).encode("utf-8")
-        ).hexdigest()
-        return self._propose(
+        with self._store.transaction() as connection:
+            if connection.execute("PRAGMA user_version").fetchone()[0] >= 16:
+                connection.execute(
+                    "INSERT OR IGNORE INTO development_append_operations VALUES(?,?,?,?,NULL)",
+                    (
+                        delivery_id,
+                        append_digest,
+                        append_request.decode(),
+                        portable_canonical_json_bytes(draft.to_dict()).decode(),
+                    ),
+                )
+                reserved = connection.execute(
+                    "SELECT * FROM development_append_operations WHERE delivery_id=?",
+                    (delivery_id,),
+                ).fetchone()
+                assert reserved is not None
+                if reserved["request_sha256"] != append_digest:
+                    raise ValueError("conflicting append delivery")
+                frozen = json.loads(reserved["draft_json"])
+                draft = PatchDraft(
+                    target_page_id=frozen["target_page_id"],
+                    expected_page_sha256=frozen["expected_page_sha256"],
+                    operations=tuple(PatchOperation(**item) for item in frozen["operations"]),
+                )
+            else:
+                proposal_delivery = (
+                    "append-"
+                    + sha256(
+                        (delivery_id + "\x1f" + cast(str, target["published_sha256"])).encode()
+                    ).hexdigest()
+                )
+        records = self._propose(
             selected,
             (draft,),
             proposal_delivery,
             target_page_id=target_page_id,
         )
+        with self._store.transaction() as connection:
+            if connection.execute("PRAGMA user_version").fetchone()[0] >= 16:
+                connection.execute(
+                    "UPDATE development_append_operations SET proposal_id=? WHERE delivery_id=?",
+                    (records[0].proposal_id, delivery_id),
+                )
+        return records
 
     def _propose(
         self,
@@ -537,7 +619,9 @@ class ReviewOperations(_LocalEngineOperations):
                                 continue
                             raise
                     visible.append(row)
-                rows = tuple(visible[offset:] if limit is None else visible[offset:offset + limit])
+                rows = tuple(
+                    visible[offset:] if limit is None else visible[offset : offset + limit]
+                )
             references_by_proposal = {
                 cast(str, row["proposal_id"]): tuple(
                     cast(str, capture["source_reference"])
@@ -648,7 +732,9 @@ class ReviewOperations(_LocalEngineOperations):
                     from .facet_publication import authorize_facet_evidence, owner_review_authority
 
                     authorize_facet_evidence(
-                        self, connection, binding,
+                        self,
+                        connection,
+                        binding,
                         owner_review_authority(self) if authority is None else authority,
                     )
                 capture_ids = tuple(cast(list[str], binding["provenance"]))
@@ -754,7 +840,8 @@ class ReviewOperations(_LocalEngineOperations):
             patch_diff=patch_diff,
             facet_binding_json=(
                 portable_canonical_json_bytes(binding).decode("utf-8")
-                if binding is not None and binding.get("schema_version") == 5 else None
+                if binding is not None and binding.get("schema_version") == 5
+                else None
             ),
         )
 
@@ -867,6 +954,31 @@ class ReviewOperations(_LocalEngineOperations):
                     validate_current_binding(
                         self, context[1], connection=connection, authority=authority
                     )
+                if outcome in (DecisionOutcome.APPROVED, DecisionOutcome.EDITED):
+                    from .developments import source_snapshot, validate_development_dependencies
+                    from .facet_publication import owner_review_authority
+
+                    if connection.execute("PRAGMA user_version").fetchone()[0] >= 16:
+                        current_selected = (
+                            context[1]["selected_capture_ids"]
+                            if context is not None
+                            else [proposal["capture_id"]]
+                        )
+                        for identity in cast(Sequence[str], current_selected):
+                            source_snapshot(connection, identity)
+                        selected = (
+                            context[1]["provenance"]
+                            if context is not None
+                            else [proposal["capture_id"]]
+                        )
+                        validate_development_dependencies(
+                            connection,
+                            cast(Sequence[str], selected),
+                            engine=cast("BrainEngine", self),
+                            authority=authority
+                            if authority is not None
+                            else owner_review_authority(self),
+                        )
                 if (
                     cast(str, proposal["proposed_kind"]) == "page_update"
                     and proposal["space_id"] is None
@@ -1096,7 +1208,9 @@ class ReviewOperations(_LocalEngineOperations):
                 from .facet_publication import commit_publication_attachment
 
                 commit_publication_attachment(
-                    self, connection, binding=binding,
+                    self,
+                    connection,
+                    binding=binding,
                     publication_id=cast(str, row["publication_id"]),
                     recorded_at=cast(str, row["recorded_at"]),
                 )
@@ -1162,15 +1276,29 @@ class ReviewOperations(_LocalEngineOperations):
 
 
 class ReviewTasks:
-    def __init__(
-        self, engine: BrainEngine, *, authority: EffectiveAuthority | None = None
-    ) -> None:
+    def __init__(self, engine: BrainEngine, *, authority: EffectiveAuthority | None = None) -> None:
         self._engine = engine
         self._authority = authority
 
     def with_authority(self, authority: EffectiveAuthority) -> ReviewTasks:
         """Bind review reads and decisions to the current trusted session authority."""
         return ReviewTasks(self._engine, authority=authority)
+
+    def _proposal_scope(self, capture_id: str | Sequence[str], target_page_id: str | None) -> None:
+        if self._authority is None:
+            return
+        from .records import RecordProjector
+
+        self._authority.require("review-propose")
+        connection = self._engine._store.connect()
+        try:
+            projector = RecordProjector(self._engine.profile, connection, self._authority)
+            for identity in (capture_id,) if isinstance(capture_id, str) else capture_id:
+                projector.source(identity, expected=identity)
+            if target_page_id is not None:
+                projector.canonical(target_page_id)
+        finally:
+            connection.close()
 
     def propose(
         self,
@@ -1180,8 +1308,12 @@ class ReviewTasks:
         delivery_id: str,
         target_page_id: str | None = None,
     ) -> tuple[ProposalRecord, ...]:
+        self._proposal_scope(capture_id, target_page_id)
         with self._engine._writer_lease.acquire_shared_writer():
-            if not isinstance(capture_id, str) or target_page_id is not None:
+            self._proposal_scope(capture_id, target_page_id)
+            if self._authority is None and (
+                not isinstance(capture_id, str) or target_page_id is not None
+            ):
                 self._engine._drain_review_decisions()
             return self._engine._propose(
                 capture_id, drafts, delivery_id, target_page_id=target_page_id
@@ -1195,7 +1327,9 @@ class ReviewTasks:
         append_markdown: str,
         delivery_id: str,
     ) -> tuple[ProposalRecord, ...]:
+        self._proposal_scope(capture_id, target_page_id)
         with self._engine._writer_lease.acquire_shared_writer():
+            self._proposal_scope(capture_id, target_page_id)
             return self._engine._propose_append(
                 capture_id,
                 target_page_id=target_page_id,

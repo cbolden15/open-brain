@@ -1,5 +1,7 @@
 export const OPEN_BRAIN_CLIENT_PROTOCOL = "open-brain-client";
 export const OPEN_BRAIN_CLIENT_PROTOCOL_VERSION = 1;
+export const OPEN_BRAIN_STATE_SCHEMA_VERSION = 16;
+export const OPEN_BRAIN_RUNTIME_SESSION_VERSION = 11;
 
 import type { FacetOperation } from "./facet-types";
 
@@ -55,6 +57,8 @@ export interface BridgeRequest {
 }
 
 export interface Handshake {
+  state_schema_version: typeof OPEN_BRAIN_STATE_SCHEMA_VERSION;
+  runtime_session_version: typeof OPEN_BRAIN_RUNTIME_SESSION_VERSION;
   desktop_only: true;
   operations: string[];
   product_version: string;
@@ -217,6 +221,8 @@ export function parseHandshake(value: unknown): Handshake {
   if (
     item.protocol !== OPEN_BRAIN_CLIENT_PROTOCOL ||
     item.protocol_version !== OPEN_BRAIN_CLIENT_PROTOCOL_VERSION ||
+    item.state_schema_version !== OPEN_BRAIN_STATE_SCHEMA_VERSION ||
+    item.runtime_session_version !== OPEN_BRAIN_RUNTIME_SESSION_VERSION ||
     item.status !== "ok" ||
     item.desktop_only !== true ||
     !strings(item.operations) ||

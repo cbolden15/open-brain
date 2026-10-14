@@ -25,6 +25,7 @@ from open_brain_engine.engine import (
     open_local_engine,
 )
 
+from open_brain_collector.capture_health import CaptureHealthStore
 from open_brain_collector.lifecycle import (
     CollectorController,
     CollectorLease,
@@ -99,7 +100,7 @@ class CollectorProcessRunner:
         )
         try:
             with CollectorLease(self.lease_path).acquire(owner=self.owner):
-                results = self._sync_sources(
+                results = self._sync_and_record(
                     controller=controller,
                     source_id=source_id,
                     force=force,
@@ -130,7 +131,7 @@ class CollectorProcessRunner:
                         last = {
                             "outcome": "completed",
                             "failure_code": None,
-                            "results": self._sync_sources(
+                            "results": self._sync_and_record(
                                 controller=controller,
                                 source_id=None,
                                 force=False,
@@ -179,6 +180,18 @@ class CollectorProcessRunner:
             "outcome": "completed",
             "stop_reason": "bounded",
         }
+
+    def _sync_and_record(
+        self, *, controller: CollectorController, source_id: str | None, force: bool,
+    ) -> list[dict[str, object]]:
+        health = CaptureHealthStore(self.state_path.parent / "capture-health", clock=self.clock)
+        try:
+            results = self._sync_sources(controller=controller, source_id=source_id, force=force)
+        except Exception:
+            health.record([], failure_code="collector_run_failed")
+            raise
+        health.record(results)
+        return results
 
     def _sync_sources(
         self,

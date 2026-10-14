@@ -177,7 +177,11 @@ def test_scheduled_slack_thread_patch_is_opt_in_idempotent_and_provenanced(
     )
     catch_up = restarted.sync_due()[0]
     assert catch_up["duplicate_count"] == 2 and runtime.calls == 2
-    assert len(tasks.review.list(status="pending")) == 2
+    # Retrying an acknowledged source cannot draft the same update against a
+    # newer page head. The original pending proposal retains its stale binding.
+    assert tuple(item.proposal_id for item in tasks.review.list(status="pending")) == (
+        pending[0].proposal_id,
+    )
 
     mappings = cast(list[dict[str, object]], policy.mappings(_ACCOUNT)["mappings"])
     mapping = mappings[0]
@@ -185,7 +189,7 @@ def test_scheduled_slack_thread_patch_is_opt_in_idempotent_and_provenanced(
     policy.add_mapping(_ACCOUNT, _CHANNEL, page_id, None, page_exists=lambda page: page == page_id)
     clock.value += 14_400
     assert restarted.sync_due()[0]["duplicate_count"] == 2
-    assert len(tasks.review.list(status="pending")) == 3
+    assert len(tasks.review.list(status="pending")) == 2
 
 
 def test_discovery_is_daily_and_capture_failures_preserve_the_pending_patch_work(

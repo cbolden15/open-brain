@@ -14,7 +14,7 @@ describe("T03 strict contract", () => {
     expect(() => parseStrictJson(new Uint8Array([0x22, 0xff, 0x22]))).toThrow();
   });
   it("retains actual legacy parsing and old-server capability fallback", () => {
-    const handshake = parseHandshake({status:"ok", desktop_only:true, protocol:"open-brain-client", protocol_version:1, product_version:"0.1.0", operations:["search.query"]});
+    const handshake = parseHandshake({status:"ok", desktop_only:true,state_schema_version:16,runtime_session_version:11, protocol:"open-brain-client", protocol_version:1, product_version:"0.1.0", operations:["search.query"]});
     expect(handshake.operations).not.toContain("contract.describe");
     expect(parseSearch({status:"ok", results:[]})).toEqual({status:"ok", results:[]});
     expect(() => parseSearch({status:"ok", results:[{record_id:"future"}]})).toThrow();

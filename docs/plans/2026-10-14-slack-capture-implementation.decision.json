@@ -1,0 +1,85 @@
+{
+  "id": "2026-10-14-slack-capture-implementation-notes",
+  "title": "Implementation notes — Slack capture",
+  "subtitle": "Public implementation complete · verified 2026-10-14",
+  "actions": [
+    "acknowledge",
+    "discuss",
+    "revert"
+  ],
+  "items": [
+    {
+      "id": "N1",
+      "title": "Execute native phases on the approved feature branch",
+      "where": "Phase 0",
+      "default": "acknowledge",
+      "body": {
+        "What I did": "Used feat/slack-capture after user authorization. The installed run-plan driver validated the branch but its dry-run could not parse this plan's headings without model directives. Continued through bounded native implementation, independent review and repository gates without rewriting the plan into a different execution format.",
+        "Why": "The user explicitly requested implementation and continuation on the feature branch."
+      }
+    },
+    {
+      "id": "N2",
+      "title": "Advance the canonical compatibility boundary",
+      "where": "packages/engine/src/open_brain_engine/engine/development_schema.py",
+      "default": "acknowledge",
+      "body": {
+        "What I did": "Added state schema 16, runtime admission 11 and Portable Brain 11 for canonical development evidence and frozen append retry reservations. Updated current consumers, retained frozen historical migrations and formats, and documented explicit migration and old-reader refusal.",
+        "Why": "Collector-only links would not survive the supported portable restore or enforce approval checks transactionally."
+      }
+    },
+    {
+      "id": "N3",
+      "title": "Ship a conservative local extractor and a policy-gated adapter API",
+      "where": "packages/collector/src/open_brain_collector/capture_processing.py",
+      "default": "acknowledge",
+      "body": {
+        "What I did": "Default extraction recognizes explicitly labeled requested, proposed, committed, approved, decision and correction statements. It retains uncertainty about missing actors and scope. An injected extractor can supply richer developments; external processing requires explicit provider policy and permitted egress.",
+        "Why": "Private model selection and credentials are deployment choices. The public CLI has no ambient cloud adapter or fallback.",
+        "Risk": "Unlabeled conversational developments are not distilled by the default extractor. Live precision, recall and private model integration remain unmeasured."
+      }
+    },
+    {
+      "id": "N4",
+      "title": "Discovery creates protected selections requiring owner admission",
+      "where": "packages/collector/src/open_brain_collector/capture_discovery.py",
+      "default": "acknowledge",
+      "body": {
+        "What I did": "Persisted discovery hints and cursors before canonical resolution. Optional owner/mention/DM discovery creates disabled selections with unknown privacy. Current capability, permitted-conversation and policy-generation checks fence lookup, fetch and writes.",
+        "Why": "A discovery hint or OAuth scope alone cannot authorize capture."
+      }
+    },
+    {
+      "id": "N5",
+      "title": "Separate public delivery from private rollout",
+      "where": "Phase 6",
+      "default": "acknowledge",
+      "body": {
+        "What I did": "Added bounded run health and inactive supervisor examples, using the existing collector lease. All acceptance data is synthetic; no Slack authorization, real Brain writes, schedule activation or seven-day pilot was performed.",
+        "Followup": "The owner must configure sources and any private extraction adapter, verify a disposable restore and measure pilot quality before rollout."
+      }
+    },
+    {
+      "id": "N6",
+      "title": "Use available timestamps for operation health",
+      "where": "packages/collector/src/open_brain_collector/live_manager.py",
+      "default": "acknowledge",
+      "body": {
+        "What I did": "Wired pending observation timestamps and acknowledged, caught-up source completion times into health reporting. Unknown dates or incomplete source coverage remain unknown; no provider checkpoint time is invented.",
+        "Why": "The health schema alone did not measure these values from live collector state."
+      }
+    },
+    {
+      "id": "N7",
+      "title": "Implementation complete",
+      "default": "acknowledge",
+      "action": "acknowledge",
+      "where": "Public phases 0–6",
+      "body": {
+        "What I did": "Completed the public implementation and synthetic acceptance on feat/slack-capture, including owner-controlled candidates/review, protected optional discovery, operation health and Portable 11 evidence.",
+        "Verification": "7,142 full-suite Python tests passed with five platform filesystem skips. Build and corrected client gates passed: 664 plugin, 259 desktop UI, 30 desktop Python and 26 Rust checks. Native audit, guarded Homebrew smoke, actionlint and diff checks passed.",
+        "Scope": "No real Slack connection, private Brain write, cloud adapter deployment, schedule activation, remote push or seven-day private pilot."
+      }
+    }
+  ]
+}

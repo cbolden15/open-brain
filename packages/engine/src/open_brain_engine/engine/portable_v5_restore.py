@@ -18,7 +18,7 @@ from typing import TYPE_CHECKING, cast
 
 from open_brain_engine.core.ids import portable_canonical_json_bytes as canonical
 from open_brain_engine.portable.relationships_v1 import RELATIONSHIP_METADATA_PATH
-from open_brain_engine.portable.v1 import PortableSnapshot
+from open_brain_engine.portable.v1 import PortableSnapshot, PortableValidationError
 from open_brain_engine.portable.v4 import SOURCE_METADATA_PATH
 from open_brain_engine.storage.filesystem import RootIdentity
 
@@ -212,12 +212,12 @@ class V5RestoreBundle:
                     )
                 ),
             )
-        if self.snapshot.manifest["schema_version"] in {6, 7, 8, 9, 10}:
+        if self.snapshot.manifest["schema_version"] in {6, 7, 8, 9, 10, 11}:
             from open_brain_engine.portable.v6 import validate_source_authority
 
             from .portable_v6_authority import restore_source_authority
 
-            if self.snapshot.manifest["schema_version"] in {9, 10}:
+            if self.snapshot.manifest["schema_version"] in {9, 10, 11}:
                 from open_brain_engine.portable.v9 import validate_source_authority_v9
 
                 authority = validate_source_authority_v9(files)
@@ -228,7 +228,7 @@ class V5RestoreBundle:
             else:
                 authority = validate_source_authority(files)
             restore_source_authority(connection, authority)
-        if self.snapshot.manifest["schema_version"] in {7, 8, 9, 10}:
+        if self.snapshot.manifest["schema_version"] in {7, 8, 9, 10, 11}:
             from open_brain_engine.portable.v7 import validate_sharing_authority
 
             from .portable_v7_authority import restore_sharing_authority
@@ -284,7 +284,7 @@ class V5RestoreBundle:
             connection,
             profile=profile,
             snapshot=self.snapshot,
-            _historical_installed=self.snapshot.manifest["schema_version"] not in {8, 9, 10},
+            _historical_installed=self.snapshot.manifest["schema_version"] not in {8, 9, 10, 11},
         )
 
 
@@ -395,7 +395,7 @@ def _audit_connection(
         raise ValueError("v5 restored database reference mismatch")
     if canonical(source_metadata(connection)) != snapshot.files[SOURCE_METADATA_PATH]:
         raise ValueError("v5 restored source metadata mismatch")
-    if snapshot.manifest["schema_version"] in {6, 7, 8, 9, 10}:
+    if snapshot.manifest["schema_version"] in {6, 7, 8, 9, 10, 11}:
         from .portable_v6_authority import (
             _source_authority_metadata,
             _source_authority_sidecars,
@@ -408,7 +408,7 @@ def _audit_connection(
             ).items()
         ):
             raise ValueError("v6 restored source authority mismatch")
-    if snapshot.manifest["schema_version"] in {7, 8, 9, 10}:
+    if snapshot.manifest["schema_version"] in {7, 8, 9, 10, 11}:
         from open_brain_engine.portable.v7 import SHARING_APPROVALS_PATH
 
         from .portable_v7_authority import _sharing_authority_metadata
@@ -554,6 +554,15 @@ def restored_portable_semantic_state(
 
     relationship_present = RELATIONSHIP_METADATA_PATH in snapshot.files
     version = connection.execute("PRAGMA user_version").fetchone()[0]
+    if (
+        version >= 16
+        and cast(int, snapshot.manifest["schema_version"]) < 11
+        and any(
+            connection.execute(f"SELECT 1 FROM {table} LIMIT 1").fetchone()
+            for table in ("development_evidence", "development_append_operations")
+        )
+    ):
+        raise PortableValidationError("older archive restored development authority drift")
     if version < 13:
         return serialize_portable_v5_state(
             connection,
@@ -561,12 +570,25 @@ def restored_portable_semantic_state(
             relationship_sidecar_present=relationship_present,
         )
     require_historical_snapshot_settled(connection, profile)
-    if historical_installed and version == 15 and snapshot.manifest["schema_version"] in {8, 9, 10}:
+    if (
+        historical_installed
+        and version in {15, 16}
+        and snapshot.manifest["schema_version"] in {8, 9, 10, 11}
+    ):
+        if snapshot.manifest["schema_version"] == 11:
+            from .portable_v11_evidence import serialize_portable_v11_state
+
+            return serialize_portable_v11_state(
+                connection, profile, relationship_sidecar_present=relationship_present
+            )
         if snapshot.manifest["schema_version"] == 10:
             from .portable_v10_evidence import serialize_portable_v10_state
 
             return serialize_portable_v10_state(
-                connection, profile, relationship_sidecar_present=relationship_present
+                connection,
+                profile,
+                relationship_sidecar_present=relationship_present,
+                expected_schema=version,
             )
         from .portable_v9_authority import _serialize_historical_state
 
@@ -575,7 +597,7 @@ def restored_portable_semantic_state(
             profile,
             relationship_sidecar_present=relationship_present,
             portable_version=snapshot.manifest["schema_version"],
-            expected_schema=15,
+            expected_schema=version,
         )
     if snapshot.manifest["schema_version"] == 9 and historical_installed:
         from .portable_v9_authority import serialize_portable_v9_state

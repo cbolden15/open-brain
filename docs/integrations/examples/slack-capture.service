@@ -1,0 +1,9 @@
+# Optional example only. Choose this timer OR a resident runner OR launchd.
+# Replace synthetic absolute paths. Every runner must use this same lease path.
+[Unit]
+Description=Open Brain daily capture
+
+[Service]
+Type=oneshot
+UMask=0077
+ExecStart=/absolute/path/to/open-brain-collector run-once --state /absolute/path/to/private/collector/state.json --brain-root /absolute/path/to/private/brain --lease /absolute/path/to/private/collector/collector.lease

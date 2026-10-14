@@ -309,7 +309,7 @@ def test_facet_catalog_preserves_frozen_migrations_through_fifteen() -> None:
     from open_brain_engine.engine import local_schema_catalog
 
     frozen = json.loads((FIXTURES / "catalog-checksums-fifteen.json").read_text())
-    assert {m.name: m.checksum for m in local_schema_catalog.LOCAL_MIGRATIONS} == frozen
+    assert {m.name: m.checksum for m in local_schema_catalog.LOCAL_MIGRATIONS[:15]} == frozen
 
 
 def test_version_two_database_upgrades_without_changing_existing_rows(tmp_path: Path) -> None:

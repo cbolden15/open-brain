@@ -7,6 +7,8 @@ import type { FacetRequestMap } from "../src/facet-types";
 
 type Transport = Pick<OpenBrainBridge, "invoke">;
 const fixtures = JSON.parse(readFileSync(new URL("fixtures/facets/o0-cases.json", import.meta.url), "utf8"));
+// Reuse frozen facet DTOs under current runtime admission; keep fixture bytes historical.
+fixtures.handshake = { ...fixtures.handshake, state_schema_version: 16, runtime_session_version: 11 };
 const cases = JSON.parse(readFileSync(new URL("../../engine/tests/fixtures/facets/wire-cases.json", import.meta.url), "utf8"));
 const positive = (operation: string) => cases.cases.find((row: {operation: string; outcome: string}) =>
   row.operation === operation && row.outcome === "accept");

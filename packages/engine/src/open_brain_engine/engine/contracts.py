@@ -776,6 +776,7 @@ class PortabilityReceipt:
             8,
             9,
             10,
+            11,
         }:
             raise ValueError("invalid portability receipt schema version")
         if self.index_generation is not None and (
@@ -3163,6 +3164,8 @@ class InboxSpaceTask(Protocol):
 
 
 class ReviewTask(Protocol):
+    def with_authority(self, authority: EffectiveAuthority) -> ReviewTask: ...
+
     def propose(
         self,
         capture_id: str | Sequence[str],
@@ -3529,6 +3532,7 @@ class EngineTaskSet:
     facets: FacetTasks | None = None
     facet_publication: FacetPublicationTasks | None = None
     facet_vault: FacetVaultTasks | None = None
+    developments: Any = None
 
     @property
     def spaces(self) -> InboxSpaceTask:

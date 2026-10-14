@@ -14,7 +14,7 @@ from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from hashlib import sha256
 from pathlib import Path
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING, ClassVar, cast
 
 from open_brain_engine.core.ids import portable_canonical_json_bytes as canonical
 from open_brain_engine.portable.facets_v10 import (
@@ -26,6 +26,7 @@ from open_brain_engine.portable.facets_v10 import (
     references_from_portable_files,
 )
 from open_brain_engine.portable.v1 import PortableSnapshot, PortableValidationError
+from open_brain_engine.portable.v10_catalog import PORTABLE_V10_SCHEMA_CATALOG_DIGEST
 from open_brain_engine.storage.filesystem import RootIdentity
 
 from .contracts import LocalEngineContext
@@ -49,7 +50,11 @@ def install_portable_v10_facets(
     owner_actor_id: str | None = None,
 ) -> None:
     """Revalidate references, install exact ledger bytes, and audit the projection."""
-    require_facet_snapshot(connection, brain_id=bundle.brain_id)
+    require_facet_snapshot(
+        connection,
+        brain_id=bundle.brain_id,
+        expected_schema=connection.execute("PRAGMA user_version").fetchone()[0],
+    )
     if any(
         connection.execute(f"SELECT 1 FROM {table} LIMIT 1").fetchone() for table in FACET_TABLES
     ):
@@ -190,6 +195,8 @@ class V10RestoreBundle(V5RestoreBundle):
     """Actual v10 snapshot composing inherited evidence and facet ledger restoration."""
 
     facets: PortableFacetBundle
+    portable_version: ClassVar[int] = 10
+    catalog_digest: ClassVar[str] = PORTABLE_V10_SCHEMA_CATALOG_DIGEST
 
     @classmethod
     def decode(
@@ -209,23 +216,27 @@ class V10RestoreBundle(V5RestoreBundle):
         manifest = snapshot.manifest
         if (
             type(manifest.get("schema_version")) is not int
-            or manifest["schema_version"] != 10
-            or manifest.get("layout_version") != 10
-            or manifest.get("contract_version") != "10"
+            or manifest["schema_version"] != cls.portable_version
+            or manifest.get("layout_version") != cls.portable_version
+            or manifest.get("contract_version") != str(cls.portable_version)
         ):
             raise PortableValidationError("v10 restore requires a validated v10 snapshot")
         from open_brain_engine.portable.v5 import _manifest
-        from open_brain_engine.portable.v10_catalog import PORTABLE_V10_SCHEMA_CATALOG_DIGEST
 
         payloads = {
             path: data for path, data in snapshot.files.items() if path != "portable-manifest.json"
         }
-        inventory = _manifest(manifest, version=10, catalog=PORTABLE_V10_SCHEMA_CATALOG_DIGEST)
+        inventory = _manifest(manifest, version=cls.portable_version, catalog=cls.catalog_digest)
         if canonical(manifest) != snapshot.files.get("portable-manifest.json") or inventory != {
             path: sha256(data).hexdigest() for path, data in payloads.items()
         }:
             raise PortableValidationError("v10 restore snapshot commitment mismatch")
-        validate_portable_file_set_v10(payloads, tenant_id=cast(str, manifest["tenant_id"]))
+        if cls.portable_version == 11:
+            from open_brain_engine.portable.v11 import validate_portable_file_set_v11
+
+            validate_portable_file_set_v11(payloads, tenant_id=cast(str, manifest["tenant_id"]))
+        else:
+            validate_portable_file_set_v10(payloads, tenant_id=cast(str, manifest["tenant_id"]))
         issuer = json.loads(snapshot.files[ISSUER_MIGRATION_PATH])
         for row in json.loads(snapshot.files[EFFECTIVE_PRIVACY_PATH])["retained_privacy"]:
             retained = decode_retained_privacy_value(row["privacy_json"])
@@ -270,12 +281,30 @@ def audit_restored_v10(
     """Audit inherited content/privacy and facets through fresh read connections."""
     from .local_schema import open_local_database_read_only
 
-    bundle = V10RestoreBundle.decode(snapshot, checkpoint=lambda _stage: None)
+    bundle_type = V10RestoreBundle
+    if snapshot.manifest["schema_version"] == 11:
+        from .portable_v11_restore import V11RestoreBundle
+
+        bundle_type = V11RestoreBundle
+    bundle = bundle_type.decode(snapshot, checkpoint=lambda _stage: None)
     audit_restored_v5(profile, snapshot=snapshot)
     connection = open_local_database_read_only(profile)
     try:
         if not connection.in_transaction:
             connection.execute("BEGIN")
+        if snapshot.manifest["schema_version"] == 11:
+            from .developments import (
+                DEVELOPMENT_APPEND_PATH,
+                DEVELOPMENT_EVIDENCE_PATH,
+                append_sidecar,
+                evidence_sidecar,
+            )
+
+            if (
+                evidence_sidecar(connection) != snapshot.files[DEVELOPMENT_EVIDENCE_PATH]
+                or append_sidecar(connection) != snapshot.files[DEVELOPMENT_APPEND_PATH]
+            ):
+                raise PortableValidationError("restored development evidence mismatch")
         return verify_portable_v10_facets(
             connection,
             bundle=bundle.facets,
@@ -299,7 +328,12 @@ def restore_portable_v10_root(
     """
     from .materializer import materialize_portable_root
 
-    bundle = V10RestoreBundle.decode(snapshot, checkpoint=checkpoint)
+    bundle_type = V10RestoreBundle
+    if snapshot.manifest["schema_version"] == 11:
+        from .portable_v11_restore import V11RestoreBundle
+
+        bundle_type = V11RestoreBundle
+    bundle = bundle_type.decode(snapshot, checkpoint=checkpoint)
     materialization = materialize_portable_root(
         root,
         snapshot=snapshot,

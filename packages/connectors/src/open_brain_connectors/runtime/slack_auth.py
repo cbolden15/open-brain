@@ -20,7 +20,7 @@ from open_brain_connectors.runtime.live_http import LiveHttpTransport
 from open_brain_connectors.runtime.live_oauth import authorize_loopback
 from open_brain_connectors.runtime.live_storage import OsCredentialStore, PrivateJsonStore
 
-__all__ = ["SLACK_USER_SCOPES", "SlackAuth"]
+__all__ = ["SLACK_USER_SCOPES", "SlackAuth", "slack_user_scopes"]
 
 _AUTHORIZE_URL = "https://slack.com/oauth/v2/authorize"
 _TOKEN_URL = "https://slack.com/api/oauth.v2.access"
@@ -35,6 +35,23 @@ SLACK_USER_SCOPES = (
     "groups:history",
     "groups:read",
 )
+
+
+def slack_user_scopes(capabilities: tuple[str, ...] = ()) -> tuple[str, ...]:
+    """Scopes for explicitly enabled read capabilities; channels remain the default."""
+    if type(capabilities) is not tuple or len(set(capabilities)) != len(capabilities):
+        raise LiveSourceError("invalid_slack_capabilities")
+    scopes = set(SLACK_USER_SCOPES)
+    for capability in capabilities:
+        if capability in {"owner_messages", "mentions"}:
+            scopes.add("search:read")
+        elif capability == "dm":
+            scopes.update(("im:read", "im:history"))
+        elif capability == "group_dm":
+            scopes.update(("mpim:read", "mpim:history"))
+        else:
+            raise LiveSourceError("invalid_slack_capabilities")
+    return tuple(sorted(scopes))
 
 
 class SlackAuth:
@@ -53,7 +70,14 @@ class SlackAuth:
         self._credentials = credentials or OsCredentialStore()
         self._http = http or LiveHttpTransport()
 
-    def connect(self, client_config: Path, **loopback_options: object) -> LiveAccount:
+    def connect(
+        self,
+        client_config: Path,
+        *,
+        capabilities: tuple[str, ...] = (),
+        **loopback_options: object,
+    ) -> LiveAccount:
+        requested_scopes = slack_user_scopes(capabilities)
         config = _load_client_config(client_config)
         callback_port = _redirect_port(config.redirect_uri)
         options = dict(loopback_options)
@@ -83,7 +107,7 @@ class SlackAuth:
                         "redirect_uri": redirect_uri,
                         "response_type": "code",
                         "state": state,
-                        "user_scope": ",".join(SLACK_USER_SCOPES),
+                        "user_scope": ",".join(requested_scopes),
                     }
                 )
             )
@@ -112,6 +136,8 @@ class SlackAuth:
         )
         token = _token_from_payload(payload)
         account = _account_from_payload(payload)
+        if account.scopes != requested_scopes:
+            raise LiveSourceError("invalid_scope")
         credential_ref = _credential_reference(account.connection_id, self._store.root)
         name = _account_name(account.connection_id)
         with self._store.lock(name):
@@ -163,7 +189,10 @@ class SlackAuth:
             )
             refreshed_token = _token_from_payload(refreshed)
             refreshed_account = _account_from_payload(refreshed, fallback=account)
-            if refreshed_account.connection_id != account.connection_id:
+            if (
+                refreshed_account.connection_id != account.connection_id
+                or refreshed_account.scopes != account.scopes
+            ):
                 raise LiveSourceError("auth_required")
             self._credentials.set(
                 reference,
@@ -353,7 +382,9 @@ def _scopes(value: object) -> tuple[str, ...]:
     if type(value) is not str:
         raise LiveSourceError("invalid_token_response")
     granted = tuple(sorted(part for part in re.split(r"[ ,]+", value) if part))
-    if granted != SLACK_USER_SCOPES:
+    if not set(SLACK_USER_SCOPES).issubset(granted) or set(granted) - set(
+        slack_user_scopes(("owner_messages", "mentions", "dm", "group_dm"))
+    ):
         raise LiveSourceError("invalid_scope")
     return granted
 

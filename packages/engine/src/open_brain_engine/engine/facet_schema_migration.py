@@ -131,7 +131,7 @@ def migrate_facets(
     committed = False
     try:
         state = classify_local_schema(connection)
-        if state.state == "current" and state.version == FACET_SCHEMA_VERSION:
+        if state.state in {"current", "supported_old"} and state.version in {15, 16}:
             if not facet_schema_available(connection):
                 raise T03Error("operation_pending")
             return
@@ -143,7 +143,7 @@ def migrate_facets(
         state = classify_local_schema(connection)
         if state.state != "supported_old" or state.version != 14:
             raise T03Error("operation_pending")
-        if len(LOCAL_MIGRATIONS) != FACET_SCHEMA_VERSION:
+        if len(LOCAL_MIGRATIONS) < FACET_SCHEMA_VERSION:
             raise T03Error("operation_pending")
         if connection.execute("PRAGMA foreign_keys").fetchone()[0] != 1 or (
             connection.execute("PRAGMA foreign_key_check").fetchone() is not None
@@ -153,7 +153,7 @@ def migrate_facets(
         apply_migrations(
             connection,
             clock=_MigrationClock(clock),
-            migrations=LOCAL_MIGRATIONS,
+            migrations=LOCAL_MIGRATIONS[:FACET_SCHEMA_VERSION],
             schema_version=FACET_SCHEMA_VERSION,
         )
         for table in (
@@ -168,7 +168,7 @@ def migrate_facets(
         ):
             if connection.execute(f"SELECT 1 FROM {table} LIMIT 1").fetchone() is not None:
                 raise T03Error("operation_pending")
-        if classify_local_schema(connection).state != "current":
+        if classify_local_schema(connection).version != FACET_SCHEMA_VERSION:
             raise T03Error("operation_pending")
         checkpoint("facet_schema_applied")
         if connection.execute("PRAGMA foreign_key_check").fetchone() is not None:

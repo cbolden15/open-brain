@@ -187,3 +187,14 @@ def test_disconnect_keeps_another_brains_same_slack_account_connected(
     first.disconnect(one.connection_id)
     assert second.access_token(two.connection_id) == "synthetic-access-token"
     assert len(credentials.values) == 1
+
+
+def test_optional_capability_scopes_leave_default_unchanged() -> None:
+    from open_brain_connectors.runtime.slack_auth import slack_user_scopes
+
+    assert slack_user_scopes() == SLACK_USER_SCOPES
+    assert "search:read" in slack_user_scopes(("mentions",))
+    assert "im:history" in slack_user_scopes(("dm",))
+    assert "mpim:history" not in slack_user_scopes(("dm",))
+    with pytest.raises(LiveSourceError, match="invalid_slack_capabilities"):
+        slack_user_scopes(("unknown",))

@@ -274,8 +274,8 @@ class LiveFacetBrain:
         self.engine = BrainEngine.open(self.profile, clock=self.clock)
         connection = self.engine._store.connect()
         try:
-            assert connection.execute("PRAGMA user_version").fetchone()[0] == 15, (
-                "Coordinator schema-15 admission is required; no substitute test store is used"
+            assert connection.execute("PRAGMA user_version").fetchone()[0] == 16, (
+                "Coordinator schema-16 admission is required; no substitute test store is used"
             )
         finally:
             connection.close()

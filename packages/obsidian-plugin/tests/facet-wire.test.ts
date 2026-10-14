@@ -109,8 +109,10 @@ describe("shared Python frames and captured Stage1 inspection (codec consumption
   }
 
   it("negotiates the exact Python descriptor for all facets and the resolver", () => {
-    expect(parseHandshake(shared.handshake)).toEqual(shared.handshake);
-    const result = negotiateFacets(shared.handshake);
+    // The pinned corpus is historical; this tests its DTOs under current admission.
+    const current = { ...shared.handshake, state_schema_version: 16, runtime_session_version: 11 };
+    expect(parseHandshake(current)).toEqual(current);
+    const result = negotiateFacets(current);
     expect(result.status).toBe("available");
     if (result.status !== "available") throw new Error("expected shared contract");
     expect([...result.operations].sort()).toEqual([...FACET_OPERATIONS, "workspace.record.resolve"].sort());
@@ -402,6 +404,7 @@ describe("complete plugin frames and operation limits", () => {
 const handshake = (entries?: unknown[], operations: string[] = ["facet.dimension.list", "workspace.record.resolve"]) => ({
   protocol: "open-brain-client", protocol_version: 1, status: "ok", desktop_only: true,
   product_version: "synthetic-o0", operations,
+  state_schema_version: 16, runtime_session_version: 11,
   ...(entries === undefined ? {} : { facet_capabilities: { version: 1, operations: entries } }),
 });
 const capability = (operation = "facet.dimension.list", overrides: ObjectValue = {}) => ({
@@ -410,7 +413,7 @@ const capability = (operation = "facet.dimension.list", overrides: ObjectValue =
 });
 
 describe("additive facet negotiation and legacy compatibility", () => {
-  it("keeps an older bridge handshake usable while reporting upgrade_required", () => {
+  it("keeps a current runtime without facet capabilities usable while reporting upgrade_required", () => {
     const value = handshake();
     expect(parseHandshake(value)).toEqual(value);
     expect(negotiateFacets(value)).toEqual({ status: "unavailable", reason: "upgrade_required" });

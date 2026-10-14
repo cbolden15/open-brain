@@ -243,25 +243,31 @@ Public tests and PR evidence use synthetic data only. Real channel names, custom
 
 # Completion checklist
 
-- [ ] Installed and source feature boundaries are documented.
+- [x] Installed and source feature boundaries are documented.
 
-- [ ] Privacy behavior is verified through the actual capture path.
+- [x] Privacy behavior is verified through the actual capture path.
 
-- [ ] Shared source identity, replay and checkpoint recovery pass.
+- [x] Shared source identity, replay and checkpoint recovery pass.
 
-- [ ] Developments retain provenance and semantic distinctions.
+- [x] Developments retain provenance and semantic distinctions.
 
-- [ ] Review proposals remain visible and require owner decisions.
+- [x] Review proposals remain visible and require owner decisions.
 
-- [ ] Entity candidates cannot become taxonomy without owner action.
+- [x] Entity candidates cannot become taxonomy without owner action.
 
-- [ ] Optional DM coverage preserves existing permission boundaries.
+- [x] Optional DM coverage preserves existing permission boundaries.
 
-- [ ] Daily operation, catch-up and independent health monitoring pass.
+- [x] Synthetic daily operation, catch-up and independent health monitoring pass.
 
 - [ ] The private pilot meets the agreed quality and review-time gates.
 
-- [ ] Configuration examples, operator instructions and compatibility notes ship with the public changes.
+- [x] Configuration examples, operator instructions and compatibility notes ship with the public changes.
+
+Public implementation evidence is recorded in
+[`docs/audits/2026-10-14-slack-capture-baseline.md`](../audits/2026-10-14-slack-capture-baseline.md).
+The default local extractor handles explicitly labeled statements. A richer private
+extractor, live-source quality sampling and the seven-day pilot remain deployment
+work. No real Slack access or schedule was activated during implementation.
 
 Defer real-time capture, automatic canonical publication, automatic taxonomy creation, full query-language expansion, and broad historical backfill until this baseline is reliable.
 

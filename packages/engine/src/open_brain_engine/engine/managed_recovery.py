@@ -161,6 +161,7 @@ def _schema_version(connection: sqlite3.Connection) -> int:
         13,
         14,
         15,
+        16,
     }:
         raise ManagedRecoveryFailure("recovery_unavailable")
     if connection.execute("PRAGMA foreign_key_check").fetchone() is not None:

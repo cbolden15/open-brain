@@ -54,9 +54,9 @@ def _catalog() -> dict[str, object]:
         "compatibility": {
             "bridge_protocol": 1,
             "catalog_schema": 2,
-            "portable_metadata": 10,
-            "runtime_session": 10,
-            "state_schema": 15,
+            "portable_metadata": 11,
+            "runtime_session": 11,
+            "state_schema": 16,
             "task_contract": "t03.v1",
         },
         "packages": [
@@ -86,11 +86,18 @@ def test_native_audit_requires_catalog_implementation() -> None:
         "open_brain_engine.portable.v10",
         "open_brain_engine.engine.portable_v10_evidence",
         "open_brain_engine.engine.portable_v10_restore",
+        "open_brain_engine.portable.v11",
+        "open_brain_engine.portable.v11_catalog",
+        "open_brain_engine.portable.developments_v11",
+        "open_brain_engine.engine.developments",
+        "open_brain_engine.engine.development_schema",
+        "open_brain_engine.engine.portable_v11_evidence",
+        "open_brain_engine.engine.portable_v11_restore",
     } <= base_native._REQUIRED_MODULES
 
 
 def test_native_portable_smoke_requires_sharing_and_all_retained_sidecars() -> None:
-    assert base_native._PORTABLE_V10_SIDECARS == (
+    assert base_native._PORTABLE_V11_SIDECARS == (
         "history/issuer/legacy-bindings-v1.json",
         "history/issuer/migration-v1.json",
         "history/privacy/effective-privacy-v1.json",
@@ -103,6 +110,8 @@ def test_native_portable_smoke_requires_sharing_and_all_retained_sidecars() -> N
         "content/facets/state-v1.json",
         "history/facets/operations-v1.json",
         "history/facets/events-v1.json",
+    "history/developments/evidence-v1.json",
+    "history/developments/append-v1.json",
     )
 
 
@@ -194,6 +203,10 @@ def test_grantless_catalog_probe_requires_core_coordinates_and_no_optional_claim
         with pytest.raises(BaseNativeError, match="native catalog discovery failed"):
             base_native._smoke_catalog(tmp_path / "open-brain", environment)
         compatibility.update(current)
+    compatibility.update(portable_metadata=10, runtime_session=10, state_schema=15)
+    with pytest.raises(BaseNativeError, match="native catalog discovery failed"):
+        base_native._smoke_catalog(tmp_path / "open-brain", environment)
+    compatibility.update(current)
     compatibility.update(portable_metadata=8, runtime_session=8, state_schema=13)
     with pytest.raises(BaseNativeError, match="native catalog discovery failed"):
         base_native._smoke_catalog(tmp_path / "open-brain", environment)
