@@ -27,19 +27,25 @@ export class FacetClient {
     const request = parseFacetRequest(operation, JSON.stringify(args));
     const result = await this.bridge.invoke(operation as PluginOperation, request as Record<string, unknown>);
     if (this.#closed) throw new FacetWireError("bridge_closed");
-    return parseFacetResponse(operation, JSON.stringify(result));
+    try { return parseFacetResponse(operation, JSON.stringify(result)); }
+    catch { throw new FacetWireError("protocol_error"); }
   }
   public createMutation<O extends FacetOperation>(operation: O, args: Omit<FacetRequestMap[O], "operation_id">): FacetMutation<O> {
     return new FacetMutation(this, operation, { ...args, operation_id: `obsidian-facet-${randomUUID()}` } as FacetRequestMap[O]);
   }
   public async resolve(workspaceId: string, relativePath: string): Promise<ManagedRecordResponse> {
     if (!this.supports("workspace.record.resolve")) throw new FacetWireError("unsupported_capability");
-    return parseManagedRecordResponse(await this.bridge.invoke("workspace.record.resolve" as PluginOperation,
-      { dto_version: 1, workspace_id: workspaceId, relative_path: relativePath }));
+    const result = await this.bridge.invoke("workspace.record.resolve" as PluginOperation,
+      { dto_version: 1, workspace_id: workspaceId, relative_path: relativePath });
+    if (this.#closed) throw new FacetWireError("bridge_closed");
+    try { return parseManagedRecordResponse(result); }
+    catch { throw new FacetWireError("protocol_error"); }
   }
   public async invoke<T = unknown>(operation: PluginOperation, args: Record<string, unknown>, timeoutMs?: number): Promise<T> {
     if (this.#closed) throw new FacetWireError("bridge_closed");
-    return await this.bridge.invoke<T>(operation, args, timeoutMs);
+    const result = await this.bridge.invoke<T>(operation, args, timeoutMs);
+    if (this.#closed) throw new FacetWireError("bridge_closed");
+    return result;
   }
   public dispose(): void { this.#closed = true; }
 }

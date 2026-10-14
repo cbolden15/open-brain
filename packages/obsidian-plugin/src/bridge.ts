@@ -233,13 +233,19 @@ export class OpenBrainBridge {
       try {
         pending.resolve(parseFacetResponseFrame(pending.operation, Buffer.concat([line, Buffer.from("\n")]), requestId));
       } catch (error) {
-        pending.reject(error instanceof Error ? error : new BridgeError("protocol_error"));
+        const fields = Object.keys(response).sort().join(",");
+        const closedError = response.ok === false && fields === "error,ok,protocol,protocol_version,request_id"
+          && typeof response.error === "object" && response.error !== null
+          && Object.keys(response.error).join(",") === "code"
+          && error instanceof Error && "code" in error
+          && error.code === (response.error as { code?: unknown }).code;
+        pending.reject(closedError && error instanceof Error ? error : new BridgeError("protocol_error"));
       }
       return;
     }
-    if (INTEGER_WIRE_OPERATIONS.has(pending.operation)) {
+    if (INTEGER_WIRE_OPERATIONS.has(pending.operation) || pending.operation === "publication.show") {
       try {
-        if (line.length + 1 > 1024 * 1024) throw new Error("response_too_large");
+        if (INTEGER_WIRE_OPERATIONS.has(pending.operation) && line.length + 1 > 1024 * 1024) throw new Error("response_too_large");
         // Validate the original lexemes before JSON's number conversion can erase them.
         parseStrictJson(line, true);
       } catch {
