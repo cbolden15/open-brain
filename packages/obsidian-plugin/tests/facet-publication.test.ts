@@ -50,21 +50,22 @@ function harness(target?: FacetPublicationTarget) {
   const assignment = { subject: { kind: "canonical", id: inspection.page_id }, record_id: inspection.page_id,
     revision_id: id("revision"), version: 1, memberships: [{ value_id: binding.selector.all_value_ids[0], membership_version: 1 }] };
   const capabilitySet = new Set<string>(["space.list", "publication.list", "publication.show", "publication.approve", "publication.reject", "publication.edit_and_approve"]);
+  const authority = { hasProposal: false };
   const invoke = vi.fn(async (operation: string, args: Record<string, unknown>): Promise<unknown> => {
     if (operation === "facet.query.get") return { status: "ok", dto_version: 1, item: copy(query) };
     if (operation === "facet.query.attachment.get") return { status: "ok", dto_version: 1, item: { page_id: inspection.page_id, query_id: query.query_id, version: 1 } };
     if (operation === "facet.assignment.get") return { status: "ok", dto_version: 1, item: copy(assignment) };
     if (operation === "facet.history.list") return { status: "ok", dto_version: 1, items: [], next_cursor: null, complete: true };
-    if (operation === "publication.list") return { status: "listed", offset: args.offset, next_offset: null, proposals: [{
+    if (operation === "publication.list") return { status: "listed", offset: args.offset, next_offset: null, proposals: authority.hasProposal ? [{
       proposal_id: inspection.proposal_id, status: inspection.proposal_status, title: inspection.title, space_id: inspection.space_id,
       operation: inspection.operation, capture_ids: inspection.capture_ids, selected_capture_ids: inspection.selected_capture_ids,
       page_id: inspection.page_id, target_page_id: inspection.target_page_id,
       terminal_decision_id: inspection.proposal_status === "pending" ? null : id("decision"),
-    }] };
+    }] : [] };
     if (operation === "space.list") return { status: "listed", spaces: [{ space_id: inspection.space_id, name: "Synthetic destination", slug: "synthetic" }], next_offset: null };
-    if (operation === "review.propose_from_facet_query") return { status: "proposed", dto_version: 1, effective_idempotency_key: args.operation_id,
+    if (operation === "review.propose_from_facet_query") { authority.hasProposal = true; return { status: "proposed", dto_version: 1, effective_idempotency_key: args.operation_id,
       proposal_id: inspection.proposal_id, page_id: inspection.page_id, space_id: inspection.space_id, target_page_id: inspection.target_page_id,
-      operation: inspection.operation, proposal_status: "pending" };
+      operation: inspection.operation, proposal_status: "pending" }; }
     if (operation === "publication.show") return copy(inspection);
     if (operation === "publication.reject") return { status: "rejected", proposal_id: inspection.proposal_id };
     if (operation === "publication.approve" || operation === "publication.edit_and_approve") return {
@@ -82,7 +83,7 @@ function harness(target?: FacetPublicationTarget) {
   const ownerDraft = () => { session.title = inspection.title; session.markdown = inspection.markdown; session.destinationSpaceId = inspection.space_id; };
   const ready = async () => { await session.load(); ownerDraft(); };
   const review = async () => { await ready(); await session.propose(); expect(session.state).toBe("review"); };
-  return { session, client, invoke, inspection, query, assignment, hooks, capabilitySet, refreshAndOpen, changed, ownerDraft, ready, review };
+  return { session, client, invoke, inspection, query, assignment, hooks, capabilitySet, refreshAndOpen, changed, ownerDraft, ready, review, authority };
 }
 
 afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); });
@@ -134,7 +135,7 @@ describe("facet publication interaction state (synthetic bridge, not engine proo
   it("refuses an update without an attached query", async () => {
     const i = createInspection(); const h = harness({ kind: "update", pageId: i.page_id, recordId: i.page_id, spaceId: i.space_id });
     h.invoke.mockImplementationOnce(async () => ({ status: "ok", dto_version: 1, item: null }));
-    await h.session.load(); expect(h.session.state).toBe("error");
+    await h.session.load(); expect(h.session.state).toBe("recovery_required");
     expect(h.invoke.mock.calls.some(([op]) => op === "review.propose_from_facet_query")).toBe(false);
   });
   it("disables unavailable facet publication without disturbing legacy client methods", async () => {
@@ -234,6 +235,7 @@ describe("discarded publication recovery using the actual FacetClient and synthe
   }
   async function loseProposal(h: ReturnType<typeof harness>) {
     await h.ready(); h.invoke.mockImplementationOnce(async () => { throw new FacetWireError("timeout"); });
+    h.authority.hasProposal = true;
     await h.session.propose(); expect(h.session.state).toBe("proposal_uncertain"); h.session.dispose();
   }
   it.each(["approved", "edited"] as const)("lost committed %s response reopens into refresh-only recovery without inventing a receipt", async (status) => {
@@ -267,6 +269,7 @@ describe("discarded publication recovery using the actual FacetClient and synthe
     await second.retryRefresh(); expect(h.refreshAndOpen).toHaveBeenCalledOnce();
     expect(h.invoke.mock.calls.some(([op]) => op === "facet.history.list")).toBe(true);
     expect(h.invoke.mock.calls.some(([op]) => op === "publication.list")).toBe(true);
+    expect(h.invoke.mock.calls.filter(([op]) => op === "publication.list").every(([, args]) => args.facet_query_id === h.query.query_id)).toBe(true);
     expect(h.invoke.mock.calls.filter(([op]) => op === "review.propose_from_facet_query")).toHaveLength(1);
   });
   it("complete no-match recovery remains blocked until explicit owner acknowledgment", async () => {
@@ -279,15 +282,16 @@ describe("discarded publication recovery using the actual FacetClient and synthe
   });
   it("unfinished proposal listing uses explicit next-page recovery and blocks acknowledgment", async () => {
     const h = harness(); await loseProposal(h); const normal = h.invoke.getMockImplementation()!;
+    const initialLists = h.invoke.mock.calls.filter(([op]) => op === "publication.list").length;
     h.invoke.mockImplementation(async (op, args) => op === "publication.list" ? { status: "listed", offset: args.offset, next_offset: args.offset === 0 ? 10 : null,
       proposals: args.offset === 0 ? Array.from({ length: 10 }, (_, n) => ({ proposal_id: id("proposal", n + 10), status: "pending", title: "Other page update",
         space_id: h.inspection.space_id, operation: "update", capture_ids: h.inspection.capture_ids, selected_capture_ids: h.inspection.selected_capture_ids,
         page_id: id("page", n + 10), target_page_id: id("page", n + 10), terminal_decision_id: null })) : [] } : normal(op, args));
     const second = reopen(h); await second.load(); await second.recover(); expect(second.recoveryListingComplete).toBe(false);
     await second.acknowledgeRecovery(); expect(second.state).toBe("recovery_review");
-    expect(h.invoke.mock.calls.filter(([op]) => op === "publication.list")).toHaveLength(1);
+    expect(h.invoke.mock.calls.filter(([op]) => op === "publication.list")).toHaveLength(initialLists + 1);
     await second.recover(); expect(second.recoveryListingComplete).toBe(true);
-    expect(h.invoke.mock.calls.filter(([op]) => op === "publication.list").map(([, args]) => args.offset)).toEqual([0, 10]);
+    expect(h.invoke.mock.calls.filter(([op]) => op === "publication.list").slice(initialLists).map(([, args]) => args.offset)).toEqual([0, 10]);
   });
   it.each(["publication.list", "facet.history.list", "publication.show"])("unavailable or failed %s cannot prove recovery or enable replacement", async (failed) => {
     const h = harness(); await loseProposal(h); const normal = h.invoke.getMockImplementation()!;
@@ -352,6 +356,114 @@ describe("discarded publication recovery using the actual FacetClient and synthe
     await loseDecision(h); second.title = "Replacement"; second.markdown = "Replacement"; second.destinationSpaceId = h.inspection.space_id;
     await second.propose(); expect(second.state).toBe("recovery_required");
     expect(h.invoke.mock.calls.filter(([op]) => op === "review.propose_from_facet_query")).toHaveLength(1);
+  });
+});
+
+describe("fresh-client publication startup proof", () => {
+  function fresh(h: ReturnType<typeof harness>, target?: FacetPublicationTarget) {
+    return new FacetPublicationSession(new FacetClient({ invoke: h.invoke } as never, frozen.handshake), target ?? { kind: "create", queryId: h.query.query_id }, h.hooks);
+  }
+  it("initial empty publication state requires query-filtered listing and history before editing", async () => {
+    const h = harness(); await h.session.load(); expect(h.session.state).toBe("editing");
+    expect(h.invoke.mock.calls.find(([op]) => op === "publication.list")![1]).toMatchObject({ facet_query_id: h.query.query_id, limit: 10, offset: 0 });
+    expect(h.invoke.mock.calls.find(([op]) => op === "facet.history.list")![1]).toMatchObject({ subject: { kind: "query", id: h.query.query_id }, limit: 50 });
+    expect(h.invoke.mock.calls.some(([op]) => op === "review.propose_from_facet_query")).toBe(false);
+  });
+  it("plugin unload after lost committed approval resumes the actual page through fresh-client inspection and refresh only", async () => {
+    const h = harness(); await h.review();
+    h.invoke.mockImplementationOnce(async () => { h.inspection.proposal_status = "approved"; throw new FacetWireError("timeout"); });
+    await h.session.decide("approve"); h.session.dispose(); h.client.dispose();
+    const second = fresh(h); await second.load(); expect(second.state).toBe("recovery_review");
+    expect(second.recoveryProposals[0]!.proposal_status).toBe("approved");
+    await second.propose(); expect(h.invoke.mock.calls.filter(([op]) => op === "review.propose_from_facet_query")).toHaveLength(1);
+    second.resumeRecovered(h.inspection.proposal_id); expect(second.state).toBe("refresh_required"); expect(second.publication).toBeNull();
+    await second.retryRefresh(); expect(h.refreshAndOpen).toHaveBeenCalledOnce();
+    expect(h.invoke.mock.calls.filter(([op]) => op === "publication.approve")).toHaveLength(1);
+  });
+  it("fresh-client lost proposal recovery resumes pending evidence and decides without a replacement freeze", async () => {
+    const h = harness(); await h.ready();
+    h.invoke.mockImplementationOnce(async () => { h.authority.hasProposal = true; throw new FacetWireError("timeout"); });
+    await h.session.propose(); h.session.dispose(); h.client.dispose();
+    const second = fresh(h); await second.load(); expect(second.state).toBe("recovery_review");
+    await second.acknowledgeRecovery(true); expect(second.state).toBe("recovery_review");
+    second.resumeRecovered(h.inspection.proposal_id); expect(second.state).toBe("review");
+    await second.decide("approve"); expect(second.state).toBe("published");
+    expect(h.invoke.mock.calls.filter(([op]) => op === "review.propose_from_facet_query")).toHaveLength(1);
+  });
+  it("previously approved pages allow another page only through explicit owner intent after complete proof", async () => {
+    const h = harness(); h.authority.hasProposal = true; h.inspection.proposal_status = "approved";
+    const second = fresh(h); await second.load(); expect(second.state).toBe("recovery_review");
+    await second.acknowledgeRecovery(); expect(second.state).toBe("recovery_review");
+    await second.acknowledgeRecovery(true); expect(second.state).toBe("editing"); expect(second.markdown).toBe(""); expect(second.destinationSpaceId).toBe("");
+    h.inspection.page_id = id("page", 88); h.inspection.proposal_id = id("proposal", 88); h.inspection.proposal_status = "pending";
+    h.inspection.facet_selection.page_id = h.inspection.page_id; h.inspection.facet_selection.proposal_id = h.inspection.proposal_id;
+    second.title = h.inspection.title; second.markdown = h.inspection.markdown; second.destinationSpaceId = h.inspection.space_id;
+    await second.propose(); expect(second.state).toBe("review"); expect(second.inspection?.page_id).toBe(id("page", 88));
+    expect(h.invoke.mock.calls.filter(([op]) => op === "review.propose_from_facet_query")).toHaveLength(1);
+  });
+  it("known same-client terminal recovery can review history and deliberately begin another page", async () => {
+    const h = harness(); await h.review(); h.invoke.mockImplementationOnce(async () => { throw new FacetWireError("timeout"); });
+    await h.session.decide("approve"); h.session.dispose(); h.inspection.proposal_status = "approved";
+    const second = new FacetPublicationSession(h.client, { kind: "create", queryId: h.query.query_id }, h.hooks);
+    await second.load(); await second.recover(); expect(second.state).toBe("refresh_required");
+    await second.reviewPriorPublications(); expect(second.state).toBe("recovery_review");
+    expect(second.recoveryHistoryComplete).toBe(true); expect(second.recoveryListingComplete).toBe(true);
+    await second.acknowledgeRecovery(true); expect(second.state).toBe("editing");
+  });
+  it("fresh client stays closed while a disposed client's unknown dispatch is still in flight and rechecks after settlement", async () => {
+    const h = harness(); await h.ready(); const normal = h.invoke.getMockImplementation()!; let release!: () => void;
+    h.invoke.mockImplementationOnce(async (op, args) => { await new Promise<void>((resolve) => { release = resolve; }); return normal(op, args); });
+    const pending = h.session.propose(); h.session.dispose(); h.client.dispose();
+    const second = fresh(h); await second.load(); expect(second.state).toBe("recovery_review");
+    await second.acknowledgeRecovery(true); expect(second.state).toBe("recovery_review");
+    expect(second.recoveryProposals).toHaveLength(0);
+    release(); await pending; await second.recover(); expect(second.state).toBe("recovery_review");
+    expect(second.recoveryProposals).toHaveLength(1);
+    second.resumeRecovered(h.inspection.proposal_id); expect(second.state).toBe("review");
+    expect(h.invoke.mock.calls.filter(([op]) => op === "review.propose_from_facet_query")).toHaveLength(1);
+  });
+  it.each(["publication.list", "facet.history.list"])("startup with failed %s cannot offer a replacement", async (failed) => {
+    const h = harness(); const normal = h.invoke.getMockImplementation()!;
+    h.invoke.mockImplementation(async (op, args) => { if (op === failed) throw new FacetWireError("unsupported_capability"); return normal(op, args); });
+    const second = fresh(h); await second.load(); expect(second.state).toBe("recovery_required");
+    await second.propose(); expect(h.invoke.mock.calls.some(([op]) => op === "review.propose_from_facet_query")).toBe(false);
+  });
+  it("missing listing capability disables startup before any authority reads", async () => {
+    const h = harness(); h.capabilitySet.delete("publication.list"); const second = fresh(h); await second.load();
+    expect(second.state).toBe("unavailable"); expect(h.invoke).not.toHaveBeenCalled();
+  });
+  it("query drift between startup proof and fresh input read resets recovery instead of mixing versions", async () => {
+    const h = harness(); const normal = h.invoke.getMockImplementation()!; let queryReads = 0;
+    h.invoke.mockImplementation(async (op, args) => { if (op === "facet.query.get" && ++queryReads === 2) h.query.version = 2; return normal(op, args); });
+    const second = fresh(h); await second.load(); expect(second.state).toBe("recovery_required");
+    expect(second.recoveryListingComplete).toBe(false); expect(second.recoveryHistoryComplete).toBe(false);
+    await second.propose(); expect(h.invoke.mock.calls.some(([op]) => op === "review.propose_from_facet_query")).toBe(false);
+    await second.recover(); expect(second.state).toBe("editing"); expect(second.query?.version).toBe(2);
+  });
+  it("oversized startup listing refuses proof rather than silently trimming candidates", async () => {
+    const h = harness(); const normal = h.invoke.getMockImplementation()!;
+    h.invoke.mockImplementation(async (op, args) => op === "publication.list" ? { status: "listed", offset: 0, next_offset: null, proposals: Array(11).fill({}) } : normal(op, args));
+    const second = fresh(h); await second.load(); expect(second.state).toBe("recovery_required");
+    await second.acknowledgeRecovery(true); expect(second.state).toBe("recovery_required");
+  });
+  it("fresh update startup rereads attachment/current revision and resumes a prior committed update", async () => {
+    const initial = createInspection(); const target = { kind: "update", pageId: initial.page_id, recordId: initial.page_id, spaceId: initial.space_id } as const;
+    const h = harness(target); h.authority.hasProposal = true; h.inspection.operation = "update"; h.inspection.target_page_id = h.inspection.page_id;
+    h.inspection.proposal_status = "approved"; h.inspection.expected_page_sha256 = "a".repeat(64); h.inspection.expected_publication_id = id("publication", 2);
+    Object.assign(h.inspection.facet_selection, { operation: "update", attachment_version: 1,
+      expected_page_sha256: h.inspection.expected_page_sha256, expected_publication_id: h.inspection.expected_publication_id });
+    const second = fresh(h, target); await second.load(); expect(second.state).toBe("recovery_review");
+    expect(second.pageAssignments?.revision_id).toBe(h.assignment.revision_id);
+    expect(h.invoke.mock.calls.find(([op]) => op === "publication.list")![1].facet_query_id).toBe(h.query.query_id);
+    second.resumeRecovered(h.inspection.proposal_id); expect(second.state).toBe("refresh_required"); expect(second.recoveredPageId).toBe(target.pageId);
+  });
+  it("a conflict on recovered pending evidence requires new authority inspection before any replacement", async () => {
+    const h = harness(); h.authority.hasProposal = true; const second = fresh(h); await second.load();
+    second.resumeRecovered(h.inspection.proposal_id);
+    h.invoke.mockImplementationOnce(async () => { h.inspection.proposal_status = "approved"; throw new FacetWireError("review_conflict"); });
+    await second.decide("approve"); expect(second.state).toBe("recovery_required");
+    await second.propose(true); expect(h.invoke.mock.calls.some(([op]) => op === "review.propose_from_facet_query")).toBe(false);
+    await second.recover(); expect(second.state).toBe("recovery_review"); expect(second.recoveryProposals[0]!.proposal_status).toBe("approved");
   });
 });
 
@@ -435,5 +547,16 @@ describe("actual facet publication modal with synthetic DOM", () => {
     recovered.find((e) => e.text === "Retry refresh and open")!.trigger("click");
     await vi.waitFor(() => expect(modal.session.state).toBe("published"));
     expect(h.invoke.mock.calls.filter(([op]) => op === "publication.approve")).toHaveLength(1); modal.dispose();
+  });
+  it("native startup controls require deliberate new-page intent after reviewing a prior committed page", async () => {
+    const h = harness(); h.authority.hasProposal = true; h.inspection.proposal_status = "approved";
+    const modal = openFacetPublication({} as never, new FacetClient({ invoke: h.invoke } as never, frozen.handshake), { kind: "create", queryId: h.query.query_id }, h.hooks);
+    await vi.waitFor(() => expect(modal.session.state).toBe("recovery_review"));
+    const controls = walk(modal.contentEl as unknown as Element);
+    expect(controls.some((e) => e.text === "Create proposal and inspect")).toBe(false);
+    controls.find((e) => e.text === "Start another page from this query")!.trigger("click");
+    await vi.waitFor(() => expect(modal.session.state).toBe("editing"));
+    expect(modal.session.markdown).toBe(""); expect(modal.session.destinationSpaceId).toBe("");
+    expect(h.invoke.mock.calls.some(([op]) => op === "review.propose_from_facet_query")).toBe(false); modal.dispose();
   });
 });
