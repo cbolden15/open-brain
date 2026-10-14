@@ -994,7 +994,7 @@ def test_o12_live_facet_and_manual_review_share_proposal_quota(runtime: Any) -> 
             )
             == first
         )
-    plugin.call(
+    manual = plugin.call(
         "publication.propose",
         capture_ids=[record],
         title="Synthetic manual review",
@@ -1014,7 +1014,17 @@ def test_o12_live_facet_and_manual_review_share_proposal_quota(runtime: Any) -> 
         markdown="Owner-written final",
         operation_id="synthetic-review-overflow",
     )
-    assert len(plugin.call("publication.list")["proposals"]) == 2
+    unfiltered = plugin.call("publication.list")["proposals"]
+    assert {item["proposal_id"] for item in unfiltered} == {
+        first["proposal_id"],
+        manual["proposal_id"],
+    }
+    filtered = plugin.call("publication.list", facet_query_id=query)["proposals"]
+    assert [item["proposal_id"] for item in filtered] == [first["proposal_id"]]
+    other_query = plugin.query([value], record_types=["source"])
+    assert plugin.call("publication.list", facet_query_id=other_query)["proposals"] == []
+    plugin.error("publication.list", "invalid_arguments", facet_query_id="malformed-query-id")
+    assert plugin.call("publication.list")["proposals"] == unfiltered
 
 
 def test_o12_live_history_and_facet_history_share_quota(runtime: Any) -> None:
