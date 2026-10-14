@@ -71,6 +71,20 @@ the previous Makefile after any edit to that line.
 
 Discovered: 2026-10-15, independent Astra review of the tier targets.
 
+### DOCS-001: First-use version pins can lag the current candidate
+
+Category: Documentation / Verification.
+
+The first-use and desktop guides still name schema/session `10/5`, while the
+current feature matrix and native runtime require `16/11`. Source controls also
+exist beyond older desktop README descriptions. Read the exact runtime constants,
+current catalog and feature matrix before turning a guide into an acceptance
+claim. Keep implementation, installed assets, provider readiness and public
+acceptance separate; an older guide is not evidence that a feature is absent or
+that a current candidate is released.
+
+Discovered: 2026-10-14, source-backed work-laptop product evaluation.
+
 ### SLACK-001: Freeze evidence closure separately from semantic identity
 
 Category: Database/Migrations, Verification.
