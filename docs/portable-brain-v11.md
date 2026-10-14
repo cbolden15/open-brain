@@ -15,6 +15,27 @@ A development capture binds its supporting capture IDs through an engine-owned o
 
 Publication approval validates transitive supporting developments and their frozen source state inside the approval transaction. A changed source head, withdrawn or unavailable source, changed route, or incompatible revision makes the approval fail rather than silently replacing its evidence. Existing proposal approvals and rejections remain terminal decisions.
 
+Development-backed proposals use review binding 6. It retains the base review
+meaning in `base_schema_version` (3, 4 or 5) and commits to every reachable evidence
+receipt through `development_evidence`. Each commitment contains a capture ID and
+the immutable receipt-row digest; a null digest commits to the absence of a
+receipt. Supporting captures, supporting developments and superseding developments
+all participate in the bounded, cycle-free closure. The owner review digest covers
+these commitments. Approval and full Portable validation reject missing,
+substituted or newly attached receipts that contradict the frozen binding.
+
+Portable 11 explicitly admits binding 6, with catalog versions
+`approval_dependencies: 2` and `development_review_binding: 6`. Frozen Portable
+1–10 validators do not admit it. Ordinary inherited proposals retain their existing
+binding semantics.
+
+This unreleased candidate changes the schema-16 development review contract and
+Portable-11 catalog. Earlier schema-16 candidates containing development proposals
+without binding-6 commitments are unsupported upgrade/export sources, including
+rejected or approved proposals. Rejection and recreation do not repair retained
+history. No automatic conversion is provided; preserve the original state and its
+matching backup. Supported schema-15 migration and Portable-10 import remain intact.
+
 Export captures inherited and development evidence from the same schema 16 snapshot. Validation checks the closed sidecar structures, canonical requests and receipts, source identities, and cross-file evidence relationships. Restore validates before materialization and layers the development installer over the inherited facet/base restore path. Ready-state auditing and import-ID replay protections still apply.
 
 ## Migration and older readers

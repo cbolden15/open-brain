@@ -265,6 +265,10 @@ Public tests and PR evidence use synthetic data only. Real channel names, custom
 
 Public implementation evidence is recorded in
 [`docs/audits/2026-10-14-slack-capture-baseline.md`](../audits/2026-10-14-slack-capture-baseline.md).
+The subsequent [codebase audit](../audits/2026-10-14-slack-capture-implementation-audit.md)
+found blockers not covered by the nominal suite. All eleven audit/integration
+findings now have passing regressions; the full repository and native gates pass.
+The audit retains the broader extraction deviation and partial retrieval ranking.
 The default local extractor handles explicitly labeled statements. A richer private
 extractor, live-source quality sampling and the seven-day pilot remain deployment
 work. No real Slack access or schedule was activated during implementation.

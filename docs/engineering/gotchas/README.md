@@ -4,6 +4,61 @@ Non-obvious behaviors, sharp edges, and lessons learned belong here.
 
 ## Registry
 
+### SLACK-001: Freeze evidence closure separately from semantic identity
+
+Category: Database/Migrations, Verification.
+
+A source-bound development can support another development through ordinary
+supporting capture IDs. Traversing only explicit development relationships missed
+that ancestor. Portable validation also accepted removing the evidence sidecar
+operations after rehashing the manifest, preserving the original approval digest.
+Commit the complete bounded, cycle-free receipt closure, including absent leaves,
+into owner review binding 6. Validate those commitments during approval and full
+Portable restore. Keep frozen historical validators closed to the new binding.
+
+Semantic deduplication cannot retain an old evidence operation when the raw source
+changes. Keep stable semantic identity and immutable evidence-specific operations,
+using supported source revisions for current developments. Preflight currentness,
+retain capture acknowledgement before binding, and isolate typed item failures so
+independent observations progress. Capture and bind remain separate transactions;
+uncertain acceptance requires visible owner recovery rather than a false success.
+
+Discovered: 2026-10-14, independent synthetic Slack audit and regression repairs.
+
+### SLACK-002: Scheduled completion does not prove caught-up coverage
+
+Category: Config/Environment, Verification.
+
+A fresh rolling window skipped source history after a week offline. Freeze each
+paginated discovery interval and overlap the last completed coverage watermark.
+Advance it only after completion. A daily single pass also left ordinary pages and
+retry deadlines until the next day. Use bounded catch-up under the same lease and
+return deferred status when bounds or owner attention retain work. Preserve public
+coverage codes separately from execution outcome; completed partial search is
+still partial coverage. Exercise the actual live scheduler with a virtual clock.
+
+Draining pages must not reset the processing budget on each pass. Even a page
+smaller than the budget can repeat extraction under a fresh budget on the next
+pass. Drain ingestion separately, then process once per activation. Record one
+activation health summary covering all observed sources and cumulative known
+usage; the final pagination pass alone loses earlier source limitations.
+
+Discovered: 2026-10-14, independent synthetic discovery and scheduling audit.
+
+### BUILD-011: Shared Portable validators need explicit binding capabilities
+
+Category: Type Safety, Build Pipeline.
+
+Adding review binding 6 affected shared Portable validator helpers. Annotate their
+version capability collections and preserve historical default refusal; do not
+widen every old format. Python 3.14 connections may already be in a transaction,
+so read-only evidence preflight must not issue an unconditional `BEGIN`. Nullable
+revision receipts and nested test JSON also need explicit narrowing for strict
+mypy. Run full lint/typecheck after targeted regressions and include the new
+Portable commitment module in the native required-module inventory.
+
+Discovered: 2026-10-14, Slack repair typecheck and native integration preparation.
+
 ### BUILD-009: Desktop preparation must select its pair from the complete release manifest
 
 Category: Build Pipeline.

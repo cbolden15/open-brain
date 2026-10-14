@@ -1,7 +1,7 @@
 {
   "id": "2026-10-14-slack-capture-implementation-notes",
-  "title": "Implementation notes — Slack capture",
-  "subtitle": "Public implementation complete · verified 2026-10-14",
+  "title": "Implementation notes \u2014 Slack capture",
+  "subtitle": "Public audit repairs verified \u00b7 2026-10-14",
   "actions": [
     "acknowledge",
     "discuss",
@@ -74,11 +74,45 @@
       "title": "Implementation complete",
       "default": "acknowledge",
       "action": "acknowledge",
-      "where": "Public phases 0–6",
+      "where": "Public phases 0\u20136",
       "body": {
         "What I did": "Completed the public implementation and synthetic acceptance on feat/slack-capture, including owner-controlled candidates/review, protected optional discovery, operation health and Portable 11 evidence.",
         "Verification": "7,142 full-suite Python tests passed with five platform filesystem skips. Build and corrected client gates passed: 664 plugin, 259 desktop UI, 30 desktop Python and 26 Rust checks. Native audit, guarded Homebrew smoke, actionlint and diff checks passed.",
         "Scope": "No real Slack connection, private Brain write, cloud adapter deployment, schedule activation, remote push or seven-day private pilot."
+      }
+    },
+    {
+      "id": "N8",
+      "title": "Independent audit reopened public completion",
+      "default": "acknowledge",
+      "where": "docs/audits/2026-10-14-slack-capture-implementation-audit.md",
+      "body": {
+        "What I found": "Synthetic audit probes reproduced stale-ancestor approval, removable Portable development evidence, edited-source queue stalling, obsolete same-claim evidence, missed discovery windows, incomplete daily catch-up and lost coverage notices. Candidate name limits also contradict supported extractor inputs.",
+        "What I did": "Recorded the read-only audit, reopened affected completion items and started disjoint regression-driven repairs. Owner explicitly selected fixing blockers before draft PR.",
+        "Why": "Passing nominal tests did not validate these sequences; public completion and ship readiness require the stronger cases."
+      }
+    },
+    {
+      "id": "N9",
+      "title": "Bind complete evidence and revise developments through supported source history",
+      "default": "acknowledge",
+      "where": "Public audit repairs",
+      "body": {
+        "What I did": "Added review binding 6 with complete immutable receipt closure, including absent leaves, bounded cycle rejection and full Portable validation. Separated semantic development identity from evidence operations and used supported source revisions plus exact legacy adoption. Added frozen discovery intervals, bounded headless catch-up and explicit health coverage codes.",
+        "Why": "Owner confirmation must survive Portable restore without losing evidence; edited sources and missed schedules need a current recoverable path.",
+        "Compatibility": "This unreleased candidate extends schema16/Portable11 development review. Earlier schema16 histories with development proposals lacking binding6 commitments are unsupported upgrade/export sources, including terminal proposals. Reject/recreate does not repair retained history; preserve matching original state and backup. Supported schema15 migration and Portable10 import remain intact.",
+        "Limit": "Capture and binding remain separate transactions. Uncertain acceptance after a raw correction retains explicit owner-recovery disposition; no atomic invisibility guarantee is claimed."
+      }
+    },
+    {
+      "id": "N10",
+      "title": "Verify all audit and integration repairs before draft review",
+      "default": "acknowledge",
+      "where": "Public verification",
+      "body": {
+        "What I did": "Repaired all eight original findings plus late receipt attachment, per-pass budget reset and final health dropping earlier coverage. Independent reviews reproduced the integration cases before their fixes. Kept broader extraction and retrieval ranking limits explicit.",
+        "Verification": "make verify exited 0: lint, strict mypy on 644 files, builds, 7,179 Python tests with five filesystem skips and one existing fork warning, 673 plugin, 259 desktop UI, 30 desktop Python and 26 Rust tests. Native audit and guarded Homebrew smoke passed on macOS arm64, preserving the existing product. Frozen binding 6 export/restore/original-token approval/re-export also passed. Actionlint and whitespace checks passed.",
+        "Scope": "No real Slack access, cloud deployment, scheduling, private pilot or merge. Public requirement audit: 30 of 32 complete, one partial and one disclosed deviation."
       }
     }
   ]
