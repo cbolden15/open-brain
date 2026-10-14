@@ -575,11 +575,16 @@ def test_o02_observed_custody_resolution_is_readonly_and_source_mapping_refused(
     vault = Path(plugin.call("workspace.status")["vault_path"])
     record = source(engine, 9)
     unregistered = vault / "synthetic-source.md"
-    unregistered.write_text(f"---\nrecord_id: {record}\n---\nSynthetic source file\n")
+    unregistered.write_text(
+        f"---\nrecord_id: {record}\nfacets:\n  Owner: [local]\n---\nSynthetic source file\n"
+    )
+    unregistered_bytes = unregistered.read_bytes()
     plugin.error(
         "workspace.record.resolve", "not_found", **{**args, "relative_path": unregistered.name}
     )
     plugin.patch(record, add=[value])
+    plugin.call("workspace.observe")
+    assert unregistered.read_bytes() == unregistered_bytes
     assert plugin.call("facet.assignment.get", record_id=record)["item"]["version"] == 1
     indexes = [
         path for path in vault.rglob("*.md") if "facets" in {part.casefold() for part in path.parts}
@@ -602,7 +607,7 @@ def test_o02_observed_custody_resolution_is_readonly_and_source_mapping_refused(
         **{**args, "workspace_id": f"workspace_{uuid.uuid4()}"},
     )
     parsed = parse_markdown(before)
-    fields = {**parsed.fields, "record_id": f"page_{uuid.uuid4()}"}
+    fields = {**parsed.fields, "page_id": f"page_{uuid.uuid4()}"}
     file.write_text(render_markdown(fields=fields, body=parsed.body))
     plugin.error("workspace.record.resolve", "not_found", **args)
     assert file.read_bytes() != before
