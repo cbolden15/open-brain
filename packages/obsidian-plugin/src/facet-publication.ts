@@ -2,9 +2,9 @@ import { randomUUID } from "node:crypto";
 import { Modal, type App } from "obsidian";
 import { FacetClient, type FacetMutation } from "./facet-client";
 import { parseFacetPublicationInspection, type FacetPublicationInspection } from "./facet-inspection";
-import type { Wire_assignment_state, Wire_saved_query, Wire_review_propose_from_facet_query_response } from "./facet-types";
-import { FacetWireError, identifier } from "./facet-wire";
-import { listSpaces, type PublicationResult, type SpaceItem } from "./t07-client";
+import type { Wire_assignment_state, Wire_saved_query, Wire_review_propose_from_facet_query_response, Wire_history_entry } from "./facet-types";
+import { FacetWireError, identifier, exact, requireFacet, safeInteger } from "./facet-wire";
+import { inspectPublication, listSpaces, type PublicationResult, type SpaceItem } from "./t07-client";
 
 export type FacetPublicationTarget =
   | { kind: "create"; queryId: string }
@@ -17,12 +17,17 @@ export interface FacetPublicationHooks {
 }
 export type FacetPublicationState = "loading" | "editing" | "proposing" | "proposal_uncertain"
   | "inspection_error" | "review" | "deciding" | "decision_uncertain" | "stale"
-  | "published" | "refreshing" | "refresh_required" | "rejected" | "error" | "unavailable" | "disposed";
+  | "published" | "refreshing" | "refresh_required" | "rejected" | "error" | "unavailable" | "disposed"
+  | "recovery_required" | "recovering" | "recovery_review";
 type Decision = "approve" | "reject" | "edit_and_approve";
 const codeOf = (error: unknown): string => typeof error === "object" && error !== null && "code" in error ? String(error.code) : "transport_failed";
 const staleCodes = new Set(["review_conflict", "version_conflict", "revision_changed", "query_archived", "facet_archived"]);
 const refusalCodes = new Set(["invalid_arguments", "not_found", "unsupported_capability", "idempotency_conflict", "limit_exceeded", ...staleCodes]);
 const uncertaintyWarning = "Closing this dialog or unloading the plugin discards the draft and in-memory retry request. An uncertain write may already have committed. Reload authoritative state before replacing it.";
+type DiscardedWrite = { proposalId: string | null; decision: boolean; pending: boolean };
+// Harmless identity/uncertainty markers only. No draft, token, request or receipt is retained here.
+const discardedWrites = new WeakMap<FacetClient, Map<string, DiscardedWrite>>();
+const targetKey = (target: FacetPublicationTarget): string => target.kind === "create" ? `query:${target.queryId}` : `page:${target.pageId}`;
 
 /** Session-only publication state. A read failure cannot create a replacement write. */
 export class FacetPublicationSession {
@@ -37,6 +42,17 @@ export class FacetPublicationSession {
   public inspection: FacetPublicationInspection | null = null;
   public proposal: Wire_review_propose_from_facet_query_response | null = null;
   public publication: PublicationResult | null = null;
+  /** Authoritative inspection can prove a page committed without returning a publication receipt ID. */
+  public recoveredPageId: string | null = null;
+  public recoveryProposals: FacetPublicationInspection[] = [];
+  public recoveryHistory: Wire_history_entry[] = [];
+  public recoveryListingComplete = false;
+  public recoveryHistoryComplete = false;
+  #recoveryOffset = 0;
+  #recoveryHistoryCursor: string | null = null;
+  #recoveryListed = new Set<string>();
+  #recoveryStarted = false;
+  #discardedMarker: DiscardedWrite | null = null;
   public proposalMutation: FacetMutation<"review.propose_from_facet_query"> | null = null;
   public decisionRequest: Readonly<{ operation: `publication.${Decision}`; args: Readonly<Record<string, unknown>> }> | null = null;
   #closed = false;
@@ -72,6 +88,9 @@ export class FacetPublicationSession {
   }
   public async load(): Promise<void> {
     if (this.#closed || this.#busy || this.state !== "loading") return;
+    if (discardedWrites.get(this.client)?.has(targetKey(this.target))) {
+      this.set("recovery_required", "A discarded write for this target may have committed. Recover authoritative publication state before any replacement."); return;
+    }
     const needed = ["facet.query.get", "review.propose_from_facet_query"] as const;
     if (needed.some((operation) => !this.client.supports(operation)) || !this.hooks.capabilities.has("publication.show")
       || (this.target.kind === "create" && !this.hooks.capabilities.has("space.list"))
@@ -94,6 +113,9 @@ export class FacetPublicationSession {
   }
   public async propose(fresh = false): Promise<void> {
     if (this.#closed || this.#busy || !(this.state === "editing" || (fresh && this.state === "stale"))) return;
+    if (discardedWrites.get(this.client)?.has(targetKey(this.target))) {
+      this.set("recovery_required", "Recover the discarded publication before creating a replacement."); return;
+    }
     if (!this.title.trim() || !this.markdown.trim() || (this.target.kind === "create" && !this.spaces.some((s) => s.space_id === this.destinationSpaceId))) {
       this.set(this.state, "Enter a title, Markdown draft and an explicit destination space."); return;
     }
@@ -112,7 +134,7 @@ export class FacetPublicationSession {
       });
       await this.submitProposal(false);
     } catch (error) { this.proposalError(error); }
-    finally { this.#busy = false; if (!this.#closed) this.changed(); }
+    finally { this.settledDiscardedWrite(); this.#busy = false; if (!this.#closed) this.changed(); }
   }
   private proposalError(error: unknown): void {
     const code = codeOf(error);
@@ -128,11 +150,16 @@ export class FacetPublicationSession {
     if (this.#closed) return;
     await this.inspect();
   }
+  private settledDiscardedWrite(): void {
+    if (this.#discardedMarker === null) return;
+    this.#discardedMarker.pending = false;
+    this.#discardedMarker.proposalId = this.proposal?.proposal_id ?? this.inspection?.proposal_id ?? this.#discardedMarker.proposalId;
+  }
   public async retryProposal(): Promise<void> {
     if (this.#closed || this.#busy || this.state !== "proposal_uncertain") return;
     this.#busy = true; this.set("proposing", "Retrying the same proposal operation…");
     try { await this.submitProposal(true); } catch (error) { this.proposalError(error); }
-    finally { this.#busy = false; if (!this.#closed) this.changed(); }
+    finally { this.settledDiscardedWrite(); this.#busy = false; if (!this.#closed) this.changed(); }
   }
   private async inspect(): Promise<void> {
     try {
@@ -189,19 +216,20 @@ export class FacetPublicationSession {
       await this.refresh();
     } catch (error) {
       const code = codeOf(error);
-      if (staleCodes.has(code)) { this.inspection = null; this.set("stale", "The frozen evidence is stale. Your draft is retained. Explicitly create and inspect a fresh proposal."); }
+      if (staleCodes.has(code)) { this.inspection = null; this.set(discardedWrites.get(this.client)?.has(targetKey(this.target)) ? "recovery_required" : "stale", "The decision conflicted. Your draft is retained. Recover a discarded publication before replacing it, or explicitly create and inspect a fresh proposal."); }
       else this.set(refusalCodes.has(code) ? "review" : "decision_uncertain", refusalCodes.has(code)
         ? `Decision refused (${code}). Your draft is retained.`
         : `Decision result uncertain (${code}). Retry the same decision. ${uncertaintyWarning}`);
-    } finally { this.#busy = false; if (!this.#closed) this.changed(); }
+    } finally { this.settledDiscardedWrite(); this.#busy = false; if (!this.#closed) this.changed(); }
   }
   public async retryDecision(): Promise<void> {
     if (!this.#closed && !this.#busy && this.state === "decision_uncertain") await this.submitDecision();
   }
   private async refresh(): Promise<void> {
-    if (this.#closed || this.publication === null) return;
+    const pageId = this.publication?.page_id ?? this.recoveredPageId;
+    if (this.#closed || pageId === null) return;
     this.set("refreshing", "Published. Refreshing and opening the managed note…");
-    try { await this.hooks.refreshAndOpen(this.publication.page_id, () => this.#closed); this.set("published", "Published and opened the managed note."); }
+    try { await this.hooks.refreshAndOpen(pageId, () => this.#closed); this.set("published", "Published and opened the managed note."); }
     catch { this.set("refresh_required", "Published; vault refresh needed. Retry refresh and open only."); }
   }
   public async retryRefresh(): Promise<void> {
@@ -209,7 +237,128 @@ export class FacetPublicationSession {
     this.#busy = true;
     try { await this.refresh(); } finally { this.#busy = false; if (!this.#closed) this.changed(); }
   }
-  public dispose(): void { this.#closed = true; this.state = "disposed"; }
+  private matchesTarget(inspection: FacetPublicationInspection): boolean {
+    return inspection.operation === this.target.kind && (this.target.kind === "create"
+      ? inspection.facet_selection.query_id === this.target.queryId
+      : inspection.target_page_id === this.target.pageId && inspection.page_id === this.target.pageId && inspection.space_id === this.target.spaceId);
+  }
+  private acceptRecovered(inspection: FacetPublicationInspection): void {
+    this.inspection = inspection; this.title = inspection.title; this.markdown = inspection.markdown;
+    this.destinationSpaceId = inspection.space_id;
+    if (inspection.proposal_status === "approved" || inspection.proposal_status === "edited") {
+      this.recoveredPageId = inspection.page_id;
+      this.set("refresh_required", "Published; vault refresh needed. Authoritative inspection confirms the committed page. Refresh and open only.");
+    } else if (inspection.proposal_status === "rejected") this.set("rejected", "Authoritative inspection confirms this proposal was rejected. No page was published by it.");
+    else this.set("review", "Recovered the actual pending frozen proposal. Inspect its evidence before deciding; this creates no replacement proposal.");
+  }
+  public async recover(): Promise<void> {
+    if (this.#closed || this.#busy || !["recovery_required", "recovery_review"].includes(this.state)) return;
+    const marker = discardedWrites.get(this.client)?.get(targetKey(this.target));
+    if (!marker) return;
+    this.#busy = true; this.set("recovering", "Reading authoritative publication state…");
+    try {
+      if (!this.hooks.capabilities.has("publication.show")) throw new FacetWireError("unsupported_capability");
+      if (marker.proposalId !== null) {
+        const inspection = parseFacetPublicationInspection(await this.client.invoke("publication.show", { dto_version: 1, proposal_id: marker.proposalId }, 30_000));
+        if (this.#closed) return;
+        if (inspection.proposal_id !== marker.proposalId || !this.matchesTarget(inspection)) throw new FacetWireError("protocol_error");
+        if (marker.pending && inspection.proposal_status === "pending") {
+          this.set("recovery_required", "The discarded request is still pending. Its proposal is pending; recover again after the request settles before making another decision."); return;
+        }
+        this.acceptRecovered(inspection); return;
+      }
+      if (!this.hooks.capabilities.has("publication.list") || !this.client.supports("facet.history.list")) throw new FacetWireError("unsupported_capability");
+      if (!this.#recoveryStarted) { await this.loadInputs(); if (this.#closed) return; this.#recoveryStarted = true; }
+      if (!this.recoveryHistoryComplete) {
+        if (this.recoveryHistory.length >= 100) throw new FacetWireError("limit_exceeded");
+        const history = await this.client.call("facet.history.list", { dto_version: 1, subject: { kind: "query", id: this.query!.query_id }, limit: 50, cursor: this.#recoveryHistoryCursor });
+        if (this.#closed) return;
+        this.recoveryHistory.push(...history.items); this.#recoveryHistoryCursor = history.next_cursor; this.recoveryHistoryComplete = history.complete;
+      }
+      if (!this.recoveryListingComplete) {
+        if (this.#recoveryListed.size >= 100) throw new FacetWireError("limit_exceeded");
+        const page = exact(await this.client.invoke("publication.list" as Parameters<FacetClient["invoke"]>[0], { dto_version: 1, limit: 10, offset: this.#recoveryOffset }, 30_000), ["status", "proposals", "offset", "next_offset"], ["offset_limit_reached"]);
+        if (this.#closed) return;
+        requireFacet(page.status === "listed" && page.offset === this.#recoveryOffset && Array.isArray(page.proposals) && page.proposals.length <= 10
+          && (page.next_offset === null || (safeInteger(page.next_offset, this.#recoveryOffset + 1) && page.next_offset === this.#recoveryOffset + page.proposals.length && page.next_offset <= 1_000_000))
+          && page.offset_limit_reached !== true, "protocol_error");
+        const pageIds = new Set<string>();
+        const pageInspections: FacetPublicationInspection[] = [];
+        for (const raw of page.proposals) {
+          const row = exact(raw, ["proposal_id", "status", "title", "space_id", "operation", "capture_ids", "selected_capture_ids", "page_id", "target_page_id", "terminal_decision_id"]);
+          requireFacet(identifier(row.proposal_id, ["proposal"]) && identifier(row.page_id, ["page"]) && identifier(row.space_id, ["space"])
+            && ["pending", "approved", "edited", "rejected"].includes(row.status) && typeof row.title === "string"
+            && ["create", "update"].includes(row.operation) && (row.target_page_id === null || identifier(row.target_page_id, ["page"]))
+            && (row.terminal_decision_id === null || identifier(row.terminal_decision_id, ["decision"]))
+            && (row.operation === "create") === (row.target_page_id === null) && (row.status === "pending") === (row.terminal_decision_id === null)
+            && [row.capture_ids, row.selected_capture_ids].every((ids) => Array.isArray(ids) && ids.length >= 1 && ids.length <= 32 && ids.every((id) => identifier(id, ["capture"]))), "protocol_error");
+          requireFacet(!this.#recoveryListed.has(row.proposal_id) && !pageIds.has(row.proposal_id), "protocol_error"); pageIds.add(row.proposal_id);
+          if (row.operation !== this.target.kind || (this.target.kind === "update" && row.target_page_id !== this.target.pageId)) continue;
+          const shown = await this.client.invoke<Record<string, unknown>>("publication.show", { dto_version: 1, proposal_id: row.proposal_id }, 30_000);
+          if (this.#closed) return;
+          requireFacet(shown !== null && typeof shown === "object" && shown.status === "shown" && shown.proposal_id === row.proposal_id, "protocol_error");
+          // Legacy/manual proposals have no facet binding and cannot be the discarded query write.
+          if (!("facet_selection" in shown)) {
+            // Reuse the existing legacy inspection parser on this already-read response.
+            const legacy = await inspectPublication({ invoke: async <T>() => shown as T }, row.proposal_id);
+            if (this.#closed) return;
+            requireFacet(legacy.proposal_id === row.proposal_id && legacy.page_id === row.page_id && legacy.space_id === row.space_id, "protocol_error");
+            continue;
+          }
+          const inspection = parseFacetPublicationInspection(shown);
+          if (this.matchesTarget(inspection)) pageInspections.push(inspection);
+        }
+        for (const proposalId of pageIds) this.#recoveryListed.add(proposalId);
+        this.recoveryProposals.push(...pageInspections);
+        this.recoveryListingComplete = page.next_offset === null;
+        this.#recoveryOffset = page.next_offset ?? this.#recoveryOffset;
+      }
+      this.set("recovery_review", marker.pending ? "The discarded request is still pending. Replacement remains blocked. Recover again after it settles."
+        : "Review the authoritative proposal inspections and query classification history. Load remaining records explicitly; replacement needs your acknowledgment after complete recovery.");
+    } catch (error) { this.set("recovery_required", `Recovery cannot prove publication state (${codeOf(error)}). Replacement remains blocked. Retry authoritative recovery.`); }
+    finally { this.#busy = false; if (!this.#closed) this.changed(); }
+  }
+  public resumeRecovered(proposalId: string): void {
+    if (this.#closed || this.#busy || this.state !== "recovery_review") return;
+    const marker = discardedWrites.get(this.client)?.get(targetKey(this.target));
+    const inspection = this.recoveryProposals.find((proposal) => proposal.proposal_id === proposalId);
+    if (!marker || !inspection || (marker.pending && inspection.proposal_status === "pending")) return;
+    // Identity only is retained for future reopen; resume uses this session's parsed inspection.
+    marker.proposalId = inspection.proposal_id; this.acceptRecovered(inspection);
+  }
+  public async acknowledgeRecovery(): Promise<void> {
+    if (this.#closed || this.#busy || this.state !== "recovery_review" || !this.recoveryHistoryComplete || !this.recoveryListingComplete) return;
+    const marker = discardedWrites.get(this.client)?.get(targetKey(this.target));
+    if (!marker || marker.pending || marker.proposalId !== null || this.recoveryProposals.some((proposal) => proposal.proposal_status !== "rejected")) {
+      this.set("recovery_review", "A pending or committed proposal may be this write. Inspect and resume it; replacement remains blocked."); return;
+    }
+    this.#busy = true;
+    try {
+      await this.loadInputs(); if (this.#closed) return;
+      if (this.target.kind === "create") this.spaces = await listSpaces({ invoke: async <T>(operation: Parameters<FacetClient["invoke"]>[0], args: Record<string, unknown>, timeoutMs?: number): Promise<T> => {
+        if (this.#closed) throw new FacetWireError("cancelled");
+        const result = await this.client.invoke<T>(operation, args, timeoutMs);
+        if (this.#closed) throw new FacetWireError("cancelled"); return result;
+      } });
+      if (this.#closed || discardedWrites.get(this.client)?.get(targetKey(this.target)) !== marker || marker.pending || marker.proposalId !== null) return;
+      discardedWrites.get(this.client)?.delete(targetKey(this.target));
+      this.set("editing", "Authoritative recovery reviewed and acknowledged. Write a new draft and choose its destination explicitly.");
+    } catch (error) { this.set("recovery_required", `Cannot enable replacement (${codeOf(error)}). Recovery remains required.`); }
+    finally { this.#busy = false; if (!this.#closed) this.changed(); }
+  }
+  public dispose(): void {
+    if (this.#closed) return;
+    if (this.uncertain) {
+      let targets = discardedWrites.get(this.client);
+      if (!targets) { targets = new Map(); discardedWrites.set(this.client, targets); }
+      const marker = { proposalId: this.proposal?.proposal_id ?? this.inspection?.proposal_id ?? null,
+        decision: this.state === "deciding" || this.state === "decision_uncertain", pending: this.#busy };
+      targets.set(targetKey(this.target), marker); this.#discardedMarker = marker;
+    }
+    this.#closed = true; this.state = "disposed";
+    this.title = ""; this.markdown = ""; this.inspection = null; this.decisionRequest = null; this.proposalMutation = null;
+    this.recoveryProposals = []; this.recoveryHistory = [];
+  }
 }
 
 export class FacetPublicationModal extends Modal {
@@ -308,6 +457,20 @@ export class FacetPublicationModal extends Modal {
         source_states: inspection.facet_selection.facet_source_states }, null, 2) });
     }
     if (s.state === "editing") this.button("Create proposal and inspect", () => { void s.propose(); }, s.busy);
+    if (s.state === "recovery_required") this.button("Recover authoritative publication state", () => { void s.recover(); }, s.busy);
+    if (s.state === "recovery_review") {
+      this.contentEl.createEl("h3", { text: "Authoritative publication recovery" });
+      this.contentEl.createEl("p", { text: `Proposal listing: ${s.recoveryListingComplete ? "complete" : "more records needed"}. Query classification history: ${s.recoveryHistoryComplete ? "complete" : "more records needed"}.` });
+      for (const proposal of s.recoveryProposals) {
+        this.contentEl.createEl("p", { text: `${proposal.title} · ${proposal.proposal_status} · ${proposal.proposal_id} · page ${proposal.page_id}` });
+        this.button(`Inspect and resume ${proposal.proposal_id}`, () => s.resumeRecovered(proposal.proposal_id), s.busy);
+      }
+      this.contentEl.createEl("h3", { text: "Query classification history" });
+      this.contentEl.createEl("pre", { text: JSON.stringify(s.recoveryHistory, null, 2) });
+      this.button(s.recoveryListingComplete && s.recoveryHistoryComplete ? "Recheck authoritative recovery" : "Load more recovery records", () => { void s.recover(); }, s.busy);
+      this.button("I reviewed recovery; allow a fresh proposal", () => { void s.acknowledgeRecovery(); }, s.busy || !s.recoveryListingComplete || !s.recoveryHistoryComplete
+        || s.recoveryProposals.some((proposal) => proposal.proposal_status !== "rejected"));
+    }
     if (s.state === "stale") this.button("Create fresh proposal and inspect", () => { void s.propose(true); }, s.busy);
     if (s.state === "inspection_error") this.button("Retry inspection", () => { void s.retryInspection(); }, s.busy);
     if (s.state === "proposal_uncertain") this.button("Retry same proposal operation", () => { void s.retryProposal(); }, s.busy);

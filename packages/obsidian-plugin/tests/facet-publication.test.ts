@@ -49,11 +49,18 @@ function harness(target?: FacetPublicationTarget) {
   const query = { query_id: binding.query_id, name: "Synthetic query", selector: copy(binding.selector), archived: false, version: 1, selection_version: 1 };
   const assignment = { subject: { kind: "canonical", id: inspection.page_id }, record_id: inspection.page_id,
     revision_id: id("revision"), version: 1, memberships: [{ value_id: binding.selector.all_value_ids[0], membership_version: 1 }] };
-  const capabilitySet = new Set<string>(["space.list", "publication.show", "publication.approve", "publication.reject", "publication.edit_and_approve"]);
+  const capabilitySet = new Set<string>(["space.list", "publication.list", "publication.show", "publication.approve", "publication.reject", "publication.edit_and_approve"]);
   const invoke = vi.fn(async (operation: string, args: Record<string, unknown>): Promise<unknown> => {
     if (operation === "facet.query.get") return { status: "ok", dto_version: 1, item: copy(query) };
     if (operation === "facet.query.attachment.get") return { status: "ok", dto_version: 1, item: { page_id: inspection.page_id, query_id: query.query_id, version: 1 } };
     if (operation === "facet.assignment.get") return { status: "ok", dto_version: 1, item: copy(assignment) };
+    if (operation === "facet.history.list") return { status: "ok", dto_version: 1, items: [], next_cursor: null, complete: true };
+    if (operation === "publication.list") return { status: "listed", offset: args.offset, next_offset: null, proposals: [{
+      proposal_id: inspection.proposal_id, status: inspection.proposal_status, title: inspection.title, space_id: inspection.space_id,
+      operation: inspection.operation, capture_ids: inspection.capture_ids, selected_capture_ids: inspection.selected_capture_ids,
+      page_id: inspection.page_id, target_page_id: inspection.target_page_id,
+      terminal_decision_id: inspection.proposal_status === "pending" ? null : id("decision"),
+    }] };
     if (operation === "space.list") return { status: "listed", spaces: [{ space_id: inspection.space_id, name: "Synthetic destination", slug: "synthetic" }], next_offset: null };
     if (operation === "review.propose_from_facet_query") return { status: "proposed", dto_version: 1, effective_idempotency_key: args.operation_id,
       proposal_id: inspection.proposal_id, page_id: inspection.page_id, space_id: inspection.space_id, target_page_id: inspection.target_page_id,
@@ -219,6 +226,135 @@ describe("facet publication interaction state (synthetic bridge, not engine proo
   });
 });
 
+describe("discarded publication recovery using the actual FacetClient and synthetic authority", () => {
+  const reopen = (h: ReturnType<typeof harness>) => new FacetPublicationSession(h.client, { kind: "create", queryId: h.query.query_id }, h.hooks);
+  async function loseDecision(h: ReturnType<typeof harness>) {
+    await h.review(); h.invoke.mockImplementationOnce(async () => { throw new FacetWireError("timeout"); });
+    await h.session.decide("approve"); expect(h.session.state).toBe("decision_uncertain"); h.session.dispose();
+  }
+  async function loseProposal(h: ReturnType<typeof harness>) {
+    await h.ready(); h.invoke.mockImplementationOnce(async () => { throw new FacetWireError("timeout"); });
+    await h.session.propose(); expect(h.session.state).toBe("proposal_uncertain"); h.session.dispose();
+  }
+  it.each(["approved", "edited"] as const)("lost committed %s response reopens into refresh-only recovery without inventing a receipt", async (status) => {
+    const h = harness(); await loseDecision(h); h.inspection.proposal_status = status;
+    const second = reopen(h); const calls = h.invoke.mock.calls.length; await second.load();
+    expect(second.state).toBe("recovery_required"); expect(h.invoke.mock.calls.length).toBe(calls);
+    second.title = "Replacement"; second.markdown = "Replacement"; second.destinationSpaceId = h.inspection.space_id;
+    await second.propose(); expect(h.invoke.mock.calls.filter(([op]) => op === "review.propose_from_facet_query")).toHaveLength(1);
+    await second.recover(); expect(second.state).toBe("refresh_required"); expect(second.recoveredPageId).toBe(h.inspection.page_id);
+    expect(second.publication).toBeNull(); expect(h.refreshAndOpen).not.toHaveBeenCalled();
+    await second.retryRefresh(); expect(second.state).toBe("published"); expect(h.refreshAndOpen).toHaveBeenCalledOnce();
+    expect(h.invoke.mock.calls.slice(calls).map(([op]) => op)).toEqual(["publication.show"]);
+    await second.propose(true); expect(h.invoke.mock.calls.filter(([op]) => op === "publication.approve")).toHaveLength(1);
+    second.dispose(); const third = reopen(h); await third.load(); expect(third.state).toBe("recovery_required");
+  });
+  it("known pending recovery resumes actual frozen inspection and rejected recovery creates nothing", async () => {
+    const h = harness(); await loseDecision(h); const second = reopen(h); await second.load(); await second.recover();
+    expect(second.state).toBe("review"); expect(second.inspection?.review_token).toBe(h.inspection.review_token);
+    await second.decide("reject"); expect(second.state).toBe("rejected"); expect(h.refreshAndOpen).not.toHaveBeenCalled();
+    h.inspection.proposal_status = "rejected"; second.dispose(); const third = reopen(h); await third.load(); await third.recover();
+    expect(third.state).toBe("rejected"); expect(third.publication).toBeNull(); expect(h.refreshAndOpen).not.toHaveBeenCalled();
+    expect(h.invoke.mock.calls.filter(([op]) => op === "review.propose_from_facet_query")).toHaveLength(1);
+  });
+  it("unknown proposal loss requires listing, parsed inspections and query history, then resumes matching committed proposal", async () => {
+    const h = harness(); await loseProposal(h); h.inspection.proposal_status = "approved";
+    const second = reopen(h); await second.load(); await second.recover(); expect(second.state).toBe("recovery_review");
+    expect(second.recoveryHistoryComplete).toBe(true); expect(second.recoveryListingComplete).toBe(true);
+    expect(second.recoveryProposals).toHaveLength(1);
+    await second.acknowledgeRecovery(); expect(second.state).toBe("recovery_review");
+    second.resumeRecovered(h.inspection.proposal_id); expect(second.state).toBe("refresh_required");
+    await second.retryRefresh(); expect(h.refreshAndOpen).toHaveBeenCalledOnce();
+    expect(h.invoke.mock.calls.some(([op]) => op === "facet.history.list")).toBe(true);
+    expect(h.invoke.mock.calls.some(([op]) => op === "publication.list")).toBe(true);
+    expect(h.invoke.mock.calls.filter(([op]) => op === "review.propose_from_facet_query")).toHaveLength(1);
+  });
+  it("complete no-match recovery remains blocked until explicit owner acknowledgment", async () => {
+    const h = harness(); await loseProposal(h); const normal = h.invoke.getMockImplementation()!;
+    h.invoke.mockImplementation(async (op, args) => op === "publication.list" ? { status: "listed", proposals: [], offset: args.offset, next_offset: null } : normal(op, args));
+    const second = reopen(h); await second.load(); await second.recover(); expect(second.state).toBe("recovery_review");
+    await second.propose(); expect(h.invoke.mock.calls.filter(([op]) => op === "review.propose_from_facet_query")).toHaveLength(1);
+    await second.acknowledgeRecovery(); expect(second.state).toBe("editing"); expect(second.markdown).toBe(""); expect(second.destinationSpaceId).toBe("");
+    second.dispose(); const third = reopen(h); await third.load(); expect(third.state).toBe("editing");
+  });
+  it("unfinished proposal listing uses explicit next-page recovery and blocks acknowledgment", async () => {
+    const h = harness(); await loseProposal(h); const normal = h.invoke.getMockImplementation()!;
+    h.invoke.mockImplementation(async (op, args) => op === "publication.list" ? { status: "listed", offset: args.offset, next_offset: args.offset === 0 ? 10 : null,
+      proposals: args.offset === 0 ? Array.from({ length: 10 }, (_, n) => ({ proposal_id: id("proposal", n + 10), status: "pending", title: "Other page update",
+        space_id: h.inspection.space_id, operation: "update", capture_ids: h.inspection.capture_ids, selected_capture_ids: h.inspection.selected_capture_ids,
+        page_id: id("page", n + 10), target_page_id: id("page", n + 10), terminal_decision_id: null })) : [] } : normal(op, args));
+    const second = reopen(h); await second.load(); await second.recover(); expect(second.recoveryListingComplete).toBe(false);
+    await second.acknowledgeRecovery(); expect(second.state).toBe("recovery_review");
+    expect(h.invoke.mock.calls.filter(([op]) => op === "publication.list")).toHaveLength(1);
+    await second.recover(); expect(second.recoveryListingComplete).toBe(true);
+    expect(h.invoke.mock.calls.filter(([op]) => op === "publication.list").map(([, args]) => args.offset)).toEqual([0, 10]);
+  });
+  it.each(["publication.list", "facet.history.list", "publication.show"])("unavailable or failed %s cannot prove recovery or enable replacement", async (failed) => {
+    const h = harness(); await loseProposal(h); const normal = h.invoke.getMockImplementation()!;
+    h.invoke.mockImplementation(async (op, args) => { if (op === failed) throw new FacetWireError("unsupported_capability"); return normal(op, args); });
+    const second = reopen(h); await second.load(); await second.recover(); expect(second.state).toBe("recovery_required");
+    await second.acknowledgeRecovery(); await second.propose(true);
+    expect(h.invoke.mock.calls.filter(([op]) => op === "review.propose_from_facet_query")).toHaveLength(1);
+  });
+  it("a late pending proposal response updates only the identity marker and never starts closed-view inspection", async () => {
+    const h = harness(); await h.ready(); const normal = h.invoke.getMockImplementation()!; let release!: () => void;
+    h.invoke.mockImplementationOnce(async (op, args) => { await new Promise<void>((resolve) => { release = resolve; }); return normal(op, args); });
+    const pending = h.session.propose(); h.session.dispose();
+    const second = reopen(h); await second.load(); await second.recover(); expect(second.state).toBe("recovery_review");
+    await second.acknowledgeRecovery(); expect(second.state).toBe("recovery_review");
+    const shown = h.invoke.mock.calls.filter(([op]) => op === "publication.show").length;
+    release(); await pending; expect(h.session.state).toBe("disposed");
+    expect(h.invoke.mock.calls.filter(([op]) => op === "publication.show")).toHaveLength(shown);
+    await second.recover(); expect(second.state).toBe("review");
+    expect(h.invoke.mock.calls.filter(([op]) => op === "review.propose_from_facet_query")).toHaveLength(1);
+  });
+  it("disposal during authoritative recovery prevents continuation and preserves the blocker", async () => {
+    const h = harness(); await loseDecision(h); let release!: (value: unknown) => void;
+    h.invoke.mockImplementationOnce(async () => new Promise((resolve) => { release = resolve; }));
+    const second = reopen(h); await second.load(); const recovering = second.recover(); second.dispose();
+    release(copy(h.inspection)); await recovering; expect(second.state).toBe("disposed");
+    const third = reopen(h); await third.load(); expect(third.state).toBe("recovery_required");
+    expect(h.refreshAndOpen).not.toHaveBeenCalled();
+  });
+  it("failed inspection can retry the same bounded recovery page without duplicate-ID poisoning", async () => {
+    const h = harness(); await loseProposal(h); const normal = h.invoke.getMockImplementation()!; let fail = true;
+    h.invoke.mockImplementation(async (op, args) => { if (op === "publication.show" && fail) { fail = false; throw new FacetWireError("timeout"); } return normal(op, args); });
+    const second = reopen(h); await second.load(); await second.recover(); expect(second.state).toBe("recovery_required");
+    await second.recover(); expect(second.state).toBe("recovery_review"); expect(second.recoveryProposals).toHaveLength(1);
+  });
+  it("update recovery is keyed by canonical page and recovers its committed update without reattachment", async () => {
+    const initial = createInspection(); const target = { kind: "update", pageId: initial.page_id, recordId: initial.page_id, spaceId: initial.space_id } as const;
+    const h = harness(target);
+    h.inspection.operation = "update"; h.inspection.target_page_id = h.inspection.page_id;
+    h.inspection.expected_page_sha256 = "a".repeat(64); h.inspection.expected_publication_id = id("publication", 2);
+    Object.assign(h.inspection.facet_selection, { operation: "update", attachment_version: 1,
+      expected_page_sha256: h.inspection.expected_page_sha256, expected_publication_id: h.inspection.expected_publication_id });
+    await loseDecision(h); h.inspection.proposal_status = "approved";
+    const second = new FacetPublicationSession(h.client, target, h.hooks); const calls = h.invoke.mock.calls.length;
+    await second.load(); expect(second.state).toBe("recovery_required"); await second.recover();
+    expect(second.state).toBe("refresh_required"); expect(second.recoveredPageId).toBe(target.pageId); expect(second.publication).toBeNull();
+    expect(h.invoke.mock.calls.slice(calls).map(([op]) => op)).toEqual(["publication.show"]);
+  });
+  it("dispose clears drafts, tokens and retained requests while reopening keeps the recovery blocker", async () => {
+    const h = harness(); await loseDecision(h);
+    expect(h.session.markdown).toBe(""); expect(h.session.title).toBe(""); expect(h.session.inspection).toBeNull();
+    expect(h.session.decisionRequest).toBeNull(); expect(h.session.proposalMutation).toBeNull();
+    const second = reopen(h); await second.load(); expect(second.state).toBe("recovery_required");
+  });
+  it("malformed unbound inspection cannot be treated as proof of an unrelated manual proposal", async () => {
+    const h = harness(); await loseProposal(h); const normal = h.invoke.getMockImplementation()!;
+    h.invoke.mockImplementation(async (op, args) => op === "publication.show" ? { status: "shown", proposal_id: h.inspection.proposal_id } : normal(op, args));
+    const second = reopen(h); await second.load(); await second.recover(); expect(second.state).toBe("recovery_required");
+    await second.acknowledgeRecovery(); expect(second.state).toBe("recovery_required");
+  });
+  it("a previously opened editor also blocks replacement when another same-target session discards uncertainty", async () => {
+    const h = harness(); const second = reopen(h); await second.load(); expect(second.state).toBe("editing");
+    await loseDecision(h); second.title = "Replacement"; second.markdown = "Replacement"; second.destinationSpaceId = h.inspection.space_id;
+    await second.propose(); expect(second.state).toBe("recovery_required");
+    expect(h.invoke.mock.calls.filter(([op]) => op === "review.propose_from_facet_query")).toHaveLength(1);
+  });
+});
+
 describe("actual facet publication modal with synthetic DOM", () => {
   it("renders text safely, labels native keyboard controls, and restores opening focus", async () => {
     const obsidian = await import("obsidian") as unknown as { __Element: new () => Element };
@@ -284,5 +420,20 @@ describe("actual facet publication modal with synthetic DOM", () => {
     modal.dispose(); release({ status: "listed", spaces: [], next_offset: 50 });
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(h.invoke.mock.calls.filter(([op]) => op === "space.list")).toHaveLength(1); expect(modal.session.state).toBe("disposed");
+  });
+  it("reopened modal exposes explicit recovery and refresh-only native controls for a lost committed decision", async () => {
+    const h = harness(); await h.review(); h.invoke.mockImplementationOnce(async () => { throw new FacetWireError("timeout"); });
+    await h.session.decide("approve"); h.session.dispose(); h.inspection.proposal_status = "approved";
+    const modal = openFacetPublication({} as never, h.client, { kind: "create", queryId: h.query.query_id }, h.hooks);
+    expect(modal.session.state).toBe("recovery_required");
+    const controls = walk(modal.contentEl as unknown as Element);
+    expect(controls.some((e) => e.text === "Create proposal and inspect")).toBe(false);
+    controls.find((e) => e.text === "Recover authoritative publication state")!.trigger("click");
+    await vi.waitFor(() => expect(modal.session.state).toBe("refresh_required"));
+    const recovered = walk(modal.contentEl as unknown as Element);
+    expect(recovered.some((e) => e.text === "Approve")).toBe(false);
+    recovered.find((e) => e.text === "Retry refresh and open")!.trigger("click");
+    await vi.waitFor(() => expect(modal.session.state).toBe("published"));
+    expect(h.invoke.mock.calls.filter(([op]) => op === "publication.approve")).toHaveLength(1); modal.dispose();
   });
 });
