@@ -1,0 +1,78 @@
+--- a/packages/app/tests/integration/services/test_slack_decision_recall.py
++++ b/packages/app/tests/integration/services/test_slack_decision_recall.py
+@@ -292,6 +292,23 @@
+             assert privacy["tier"] == ("personal" if record is personal else "work")
+             assert privacy["authority"]["external_egress"] is False
+
++    # W1 red probe: a current real Slack source must support the new owner DTO.
++    request_file = tmp_path / "slack-v2-preview.json"
++    request_file.write_text(json.dumps({
++        "dto_version": 2, "sharing_kind": "slack_work_evidence",
++        "operation_id": "sharing.w0.future-v2", "source_id": revised["source_id"],
++        "expected_head": edited_inspection["head_capture_id"],
++        "expected_head_version": edited_inspection["head_version"],
++        "expected_lifecycle_version": edited_inspection["lifecycle_version"],
++        "expected_route_version": edited_inspection["route_version"],
++        "brain_id": brain_id, "issuer_epoch": issuer_epoch,
++        "provider_ids": ["synthetic-provider"],
++        "destination_space_id": work_id, "selection_id": None,
++    }))
++    preview = cli("sharing", "preview", "--request-file", str(request_file))
++    assert preview["dto_version"] == 2
++
++
+
+ @pytest.mark.parametrize("missing_option", ["--session-policy", "--consent-state"])
+ def test_scoped_agent_setup_flags_are_currently_refused(
+@@ -318,3 +335,51 @@
+     assert refused.err == ""
+     assert json.loads(refused.out)["error"]["code"] == "invalid_command"
+     assert list(project.iterdir()) == []
++
++
++def test_future_scoped_agent_setup_forwards_valid_authority(
++    tmp_path: Path, capsys: pytest.CaptureFixture[str]
++) -> None:
++    brain, project = tmp_path / "brain", tmp_path / "project"
++    project.mkdir()
++    tasks = open_local_engine(compile_single_user_local(brain))
++    work_id = tasks.inbox.create_space("Synthetic Work", delivery_id="future.space").space_id
++    brain_id, issuer_epoch = current_brain_identity(tasks)
++    authority_root = tmp_path / "authority"
++    authority_root.mkdir(mode=0o700)
++    policy, consent_path = authority_root / "policy.json", authority_root / "consent.json"
++    consent = DurableProviderConsentStore(
++        consent_path, brain_id=brain_id, issuer_epoch=issuer_epoch
++    )
++    consent.grant(
++        provider_id="synthetic-provider", allowed_tiers=frozenset({PrivacyTier.WORK}),
++        operation_id="future.grant", decided_at="2026-10-14T12:00:00Z",
++        consent_id_factory=lambda: CONSENT_ID,
++    )
++    policy.write_text(json.dumps({
++        "policy_version": "launcher-policy.v1", "principal_id": "synthetic-provider-client",
++        "session_id": "synthetic-future", "capabilities": ["search", "content-read"],
++        "space_ids": [work_id], "allowed_read_tiers": ["work"], "allowed_capture_tiers": [],
++        "egress_mode": "external_provider", "provider_id": "synthetic-provider",
++        "consent_id": CONSENT_ID, "authorization_generation": 1,
++        "brain_id": brain_id, "issuer_epoch": issuer_epoch,
++    }))
++    source = TrustedSessionAuthority(tasks, policy_path=policy, consent_state_path=consent_path)
++    assert source.load().provider_id == "synthetic-provider"
++    arguments = (
++        "agent", "setup", "--client", "codex", "--scope", "project",
++        "--project-dir", str(project), "--allow-search", "--allow-content-read",
++        "--runtime", str(Path(sys.executable).resolve()), "--data-dir", str(brain),
++        "--session-policy", str(policy), "--consent-state", str(consent_path), "--json",
++    )
++    code = entrypoints.run_cli(
++        arguments, environment={"HOME": str(tmp_path)}, filesystem_type_probe=_filesystem
++    )
++    output = capsys.readouterr()
++    assert output.err == "" and code == 0, output.out
++    preview = json.loads(output.out)
++    assert preview["status"] == "preview"
++    rendered = json.dumps(preview["changes"])
++    assert "--session-policy" in rendered and str(policy) in rendered
++    assert "--consent-state" in rendered and str(consent_path) in rendered
++    assert list(project.iterdir()) == []

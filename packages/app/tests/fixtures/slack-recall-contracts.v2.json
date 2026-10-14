@@ -1,0 +1,227 @@
+{
+  "fixture_version": 1,
+  "status": "W0 contract examples; not valid source receipts, signed approvals, record revisions or Portable exports",
+  "compatibility": {
+    "current": {
+      "state_schema": 16,
+      "runtime_session": 11,
+      "portable_metadata": 11
+    },
+    "proposed": {
+      "state_schema": 17,
+      "runtime_session": 12,
+      "portable_metadata": 12
+    },
+    "reservation_status": "proposed; recheck main at W1 start"
+  },
+  "contracts": {
+    "sharing_request": {
+      "dto_version": 2,
+      "python_type": "SlackSharingPreviewRequest",
+      "sharing_kind": "slack_work_evidence",
+      "request_digest_domain": "open-brain-sharing-request.v2\u0000",
+      "preserve_v1": "Keep SharingPreviewRequest and open-brain-sharing-request.v1 unchanged",
+      "copy_marker_prefix": "urn:open-brain:sharing-copy:v2:",
+      "copy_delivery_prefix": "sharing.copy.v2.",
+      "new_variant_errors": [
+        "reapproval_required"
+      ],
+      "selection_optional": true,
+      "wire_dispatch": "dto_version=1 preserves saved-Markdown parsing; dto_version=2 + sharing_kind=slack_work_evidence dispatches the new DTO. No extra fields are added to v1 values."
+    },
+    "selection": {
+      "version": 1,
+      "immutable_membership": true,
+      "ordinal_base": 0,
+      "maximum_members": 24,
+      "duplicate_sources": "refuse",
+      "membership_basis": "logical_source_id",
+      "create_authority": "owner_local_only",
+      "change_membership": "create_new_selection_id",
+      "resolve_copy": "Filter eligible current approvals bound to this selection, source and destination under the current session; choose lexicographically smallest (record_id, revision_id), or unavailable. Resolve inside the returning read snapshot.",
+      "disclose": "Only engine-produced currently authorized copy record/revision IDs; unavailable never contains original IDs, source IDs or withheld-copy IDs.",
+      "selection_digest_domain": "open-brain-slack-recall-selection.v1\u0000",
+      "digest_binding": "Each member approval binds immutable selection_sha256; membership never freezes another member's revision."
+    },
+    "projection": {
+      "envelope_version": "slack-recall-evidence.v1",
+      "canonicalization": "portable_canonical_json_bytes",
+      "envelope_digest_domain": "open-brain-slack-recall-evidence.v1\u0000",
+      "text_digest": "SHA-256 of exact projected message_text UTF-8",
+      "permalink_allowance": "Only validated citation.permalink inside this variant; identical projector at preview, approval and read",
+      "digest_mismatch": "reapproval_required; no unprojected fallback",
+      "unsafe_url": "withhold permalink, preserve projected text, freeze explicit reason",
+      "unavailable_reason_codes": [
+        "unavailable",
+        "unsafe_url",
+        "redacted"
+      ],
+      "reserved_fields": "Engine constructs envelope and structured selection; nested JSON in message_text cannot override either.",
+      "structured_read_field": "selection (optional, only for this sharing variant)"
+    },
+    "privacy": {
+      "tier": "work",
+      "reason": "policy_work",
+      "policy_version": "sharing-slack-work-copy.v1",
+      "authority": {
+        "cloud": false,
+        "external_egress": true
+      },
+      "original_external_egress": false
+    },
+    "source_proof": {
+      "required_bindings": [
+        "brain_id",
+        "issuer_epoch",
+        "connector_name",
+        "connection_id",
+        "resource_id",
+        "external_id",
+        "logical_source_id",
+        "capture_id",
+        "revision_key",
+        "head_version",
+        "lifecycle_version",
+        "route_version",
+        "source_sha256",
+        "payload_sha256",
+        "privacy_sha256",
+        "provenance_sha256",
+        "intake_binding_sha256",
+        "selection_sha256",
+        "projection_version",
+        "projection_sha256",
+        "destination_space_id",
+        "provider_ids",
+        "expires_at"
+      ],
+      "receipt_requirement": "Canonical engine-retained Slack source-intake and revision receipts; examples do not establish proof."
+    },
+    "visibility": {
+      "database_boundary": "same returning read_snapshot for source, lifecycle, route, selection, approval, linkage and revocation",
+      "output_boundary": "launcher policy and provider consent revalidated immediately before MCP output",
+      "unknown_markers": "All urn:open-brain:sharing-copy: markers and independent managed-copy linkage/delivery/provenance evidence must fail closed unless recognized and valid.",
+      "pending": "No visibility until complete copy/linkage reservation and approved Work routing are valid"
+    },
+    "portable": {
+      "version": 12,
+      "sharing_evidence_variant": 2,
+      "selection_evidence_variant": 1,
+      "preserve_old_formats": true,
+      "required_retention": [
+        "source proof and independent intake receipts",
+        "exact preview, inspection and decision binding",
+        "copy privacy, canonical envelope and projection commitment",
+        "copy/linkage replay receipts and revocations",
+        "immutable selection and creation operation receipt"
+      ],
+      "mixed_history": "Keep v1 sharing evidence alongside v2; do not rewrite earlier formats",
+      "tamper_oracle": "Remove or substitute evidence, rehash manifest, and require refusal before destination writes"
+    }
+  },
+  "examples": {
+    "saved_markdown_v1_request": {
+      "dto_version": 1,
+      "operation_id": "recall.synthetic.preview",
+      "source_id": "source_00000000-0000-4000-8000-000000000081",
+      "expected_head": "capture_00000000-0000-4000-8000-000000000082",
+      "expected_head_version": 1,
+      "expected_lifecycle_version": 0,
+      "expected_route_version": 1,
+      "brain_id": "brn_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "issuer_epoch": 1,
+      "provider_ids": [
+        "synthetic-provider"
+      ]
+    },
+    "slack_v2_request": {
+      "dto_version": 2,
+      "operation_id": "recall.synthetic.preview",
+      "source_id": "source_00000000-0000-4000-8000-000000000081",
+      "expected_head": "capture_00000000-0000-4000-8000-000000000082",
+      "expected_head_version": 1,
+      "expected_lifecycle_version": 0,
+      "expected_route_version": 1,
+      "brain_id": "brn_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "issuer_epoch": 1,
+      "provider_ids": [
+        "synthetic-provider"
+      ],
+      "sharing_kind": "slack_work_evidence",
+      "destination_space_id": "space_00000000-0000-4000-8000-000000000083",
+      "selection_id": "selection_00000000-0000-4000-8000-000000000084"
+    },
+    "envelope": {
+      "envelope_version": "slack-recall-evidence.v1",
+      "message_text": "[protected] We kept invite-only onboarding because support capacity is limited. 漢字",
+      "citation": {
+        "original_record_id": "capture_00000000-0000-4000-8000-000000000082",
+        "original_revision_id": "capture_00000000-0000-4000-8000-000000000082",
+        "source_timestamp": "2026-10-01T12:00:00.000001Z",
+        "observed_at": "2026-10-02T12:00:00Z",
+        "upstream_currency": "unknown_since_observation",
+        "permalink": "https://example.slack.com/archives/CSYNTHETIC/p1790856000000001",
+        "permalink_unavailable_reason": null,
+        "content_origin": "third_party",
+        "verification": "unverified",
+        "scope": "selected_owner_approved_messages",
+        "slack_coverage": "unknown"
+      }
+    },
+    "selection": {
+      "selection_version": 1,
+      "selection_id": "selection_00000000-0000-4000-8000-000000000084",
+      "brain_id": "brn_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "issuer_epoch": 1,
+      "destination_space_id": "space_00000000-0000-4000-8000-000000000083",
+      "member_source_ids": [
+        "source_00000000-0000-4000-8000-000000000081",
+        "source_00000000-0000-4000-8000-000000000085"
+      ]
+    },
+    "read_selection": {
+      "selection_id": "selection_00000000-0000-4000-8000-000000000084",
+      "selection_version": 1,
+      "member_count": 2,
+      "member_ordinal": 0,
+      "members": [
+        {
+          "ordinal": 0,
+          "status": "visible",
+          "record_id": "capture_00000000-0000-4000-8000-000000000086",
+          "revision_id": "capture_00000000-0000-4000-8000-000000000086"
+        },
+        {
+          "ordinal": 1,
+          "status": "unavailable"
+        }
+      ]
+    }
+  },
+  "goldens": {
+    "saved_markdown_v1_request": {
+      "canonical_utf8": "{\"brain_id\":\"brn_aaaaaaaaaaaaaaaaaaaaaaaaaa\",\"dto_version\":1,\"expected_head\":\"capture_00000000-0000-4000-8000-000000000082\",\"expected_head_version\":1,\"expected_lifecycle_version\":0,\"expected_route_version\":1,\"issuer_epoch\":1,\"operation_id\":\"recall.synthetic.preview\",\"provider_ids\":[\"synthetic-provider\"],\"source_id\":\"source_00000000-0000-4000-8000-000000000081\"}",
+      "sha256": "cb170615c34779d61e445cbaf38f96a8b3c07e21213108babb6a8090094ae276",
+      "bound_sha256": "1bb69ca9b55b99f25f390d6691baef50d6c0f7857a3642b83b870d38ba345b8c"
+    },
+    "slack_v2_request": {
+      "canonical_utf8": "{\"brain_id\":\"brn_aaaaaaaaaaaaaaaaaaaaaaaaaa\",\"destination_space_id\":\"space_00000000-0000-4000-8000-000000000083\",\"dto_version\":2,\"expected_head\":\"capture_00000000-0000-4000-8000-000000000082\",\"expected_head_version\":1,\"expected_lifecycle_version\":0,\"expected_route_version\":1,\"issuer_epoch\":1,\"operation_id\":\"recall.synthetic.preview\",\"provider_ids\":[\"synthetic-provider\"],\"selection_id\":\"selection_00000000-0000-4000-8000-000000000084\",\"sharing_kind\":\"slack_work_evidence\",\"source_id\":\"source_00000000-0000-4000-8000-000000000081\"}",
+      "sha256": "24d5c2584085322666fa4a9e4cddca5bdfba38481f9f2bc730901d041d16c1d1",
+      "bound_sha256": "19668d10f775aa6be0aeb62cca6e08e901bb74371fbdb05611a501be47b45f58"
+    },
+    "envelope": {
+      "canonical_utf8": "{\"citation\":{\"content_origin\":\"third_party\",\"observed_at\":\"2026-10-02T12:00:00Z\",\"original_record_id\":\"capture_00000000-0000-4000-8000-000000000082\",\"original_revision_id\":\"capture_00000000-0000-4000-8000-000000000082\",\"permalink\":\"https://example.slack.com/archives/CSYNTHETIC/p1790856000000001\",\"permalink_unavailable_reason\":null,\"scope\":\"selected_owner_approved_messages\",\"slack_coverage\":\"unknown\",\"source_timestamp\":\"2026-10-01T12:00:00.000001Z\",\"upstream_currency\":\"unknown_since_observation\",\"verification\":\"unverified\"},\"envelope_version\":\"slack-recall-evidence.v1\",\"message_text\":\"[protected] We kept invite-only onboarding because support capacity is limited. 漢字\"}",
+      "sha256": "a5b96032de505fdf5c3bb0eb9fe29edcea5d173693066e8dc8c5f04272817759",
+      "bound_sha256": "3ff99ead80cc7eba6db015fa6829759edf1c658b0f28b666b115b6d65ea6fd11"
+    },
+    "selection": {
+      "canonical_utf8": "{\"brain_id\":\"brn_aaaaaaaaaaaaaaaaaaaaaaaaaa\",\"destination_space_id\":\"space_00000000-0000-4000-8000-000000000083\",\"issuer_epoch\":1,\"member_source_ids\":[\"source_00000000-0000-4000-8000-000000000081\",\"source_00000000-0000-4000-8000-000000000085\"],\"selection_id\":\"selection_00000000-0000-4000-8000-000000000084\",\"selection_version\":1}",
+      "sha256": "55dcee3273af68e5e373569fe0560a777c1a17b1bb0a911dcc7e4976e96ff00d",
+      "bound_sha256": "21274d9217bc7ce7a52fc30ba7661c1915058ab0916b85147858d28f1c903cc8"
+    },
+    "read_selection": {
+      "canonical_utf8": "{\"member_count\":2,\"member_ordinal\":0,\"members\":[{\"ordinal\":0,\"record_id\":\"capture_00000000-0000-4000-8000-000000000086\",\"revision_id\":\"capture_00000000-0000-4000-8000-000000000086\",\"status\":\"visible\"},{\"ordinal\":1,\"status\":\"unavailable\"}],\"selection_id\":\"selection_00000000-0000-4000-8000-000000000084\",\"selection_version\":1}",
+      "sha256": "df73b90030ebe1f08a43343cee46229cff1f2d70c6e3dfe065328ae7b0e7f831"
+    }
+  }
+}
