@@ -37,6 +37,13 @@ from .contracts import (
     ManagedWorkspaceReceipt,
     ManagedWorkspaceStatus,
 )
+from .facet_vault import (
+    FacetVaultTasks,
+    content_preimage_digest,
+    projection_schema_available,
+    registered_content,
+    retain_content_preimage,
+)
 from .managed_selection import managed_note_is_excluded
 from .markdown_import_fs import (
     MAX_FILE_BYTES,
@@ -141,6 +148,12 @@ class ManagedWorkspaceTasks:
             for row in rows:
                 note_id = cast(str, row["note_id"])
                 relative_path = cast(str, row["relative_path"])
+                if projection_schema_available(connection) and connection.execute(
+                    "SELECT 1 FROM facet_projection_state WHERE workspace_id=? "
+                    "AND relative_path=? AND file_kind='index'",
+                    (workspace_id, relative_path),
+                ).fetchone() is not None:
+                    continue
                 if managed_note_is_excluded(
                     connection,
                     workspace_id,
@@ -499,8 +512,26 @@ class ManagedWorkspaceTasks:
                 if any(outcome.failed for outcome in inventory.outcomes):
                     raise ManagedWorkspaceFailure("invalid_observation")
                 known = self._known_notes(workspace_id)
+                connection = self._engine._store.connect()
+                try:
+                    index_paths = (
+                        {
+                            row[0]
+                            for row in connection.execute(
+                                "SELECT relative_path FROM facet_projection_state "
+                                "WHERE workspace_id=? AND file_kind='index'",
+                                (workspace_id,),
+                            )
+                        }
+                        if projection_schema_available(connection)
+                        else set()
+                    )
+                finally:
+                    connection.close()
                 observed: dict[str, tuple[str, bytes, str]] = {}
                 for candidate in inventory.candidates:
+                    if candidate.relative_path in index_paths:
+                        continue
                     payload = read_markdown_candidate(
                         pinned.descriptor,
                         candidate,
@@ -552,6 +583,12 @@ class ManagedWorkspaceTasks:
                                 "UPDATE managed_notes SET relative_path = ? WHERE note_id = ?",
                                 (f".open-brain-pending/{note_id}", note_id),
                             )
+                            if projection_schema_available(connection):
+                                connection.execute(
+                                    "UPDATE facet_projection_state SET relative_path=? "
+                                    "WHERE workspace_id=? AND file_kind='record' AND file_id=?",
+                                    (f".open-brain-pending/{note_id}", workspace_id, note_id),
+                                )
                         result: list[ManagedNoteObservation] = []
                         now = _timestamp(self._engine._clock())
                         for note_id, (relative_path, payload, fingerprint_json) in sorted(
@@ -563,7 +600,18 @@ class ManagedWorkspaceTasks:
                                 "WHERE note_id = ?",
                                 (relative_path, now, note_id),
                             )
+                            if projection_schema_available(connection):
+                                connection.execute(
+                                    "UPDATE facet_projection_state SET relative_path=? "
+                                    "WHERE workspace_id=? AND file_kind='record' AND file_id=?",
+                                    (relative_path, workspace_id, note_id),
+                                )
                             observed_sha256 = _digest(payload)
+                            content_sha256 = _digest(
+                                registered_content(
+                                    connection, workspace_id, note_id, relative_path, payload
+                                )
+                            )
                             connection.execute(
                                 """INSERT INTO managed_note_observations
                                 (workspace_id, generation, note_id, relative_path,
@@ -595,7 +643,7 @@ class ManagedWorkspaceTasks:
                                         ),
                                         observed_sha256=observed_sha256,
                                         present=True,
-                                        changed=observed_sha256
+                                        changed=content_sha256
                                         != cast(str | None, note["materialized_sha256"]),
                                     )
                                 )
@@ -626,12 +674,14 @@ class ManagedWorkspaceTasks:
                         # Keep the old path and its settlement in the same transaction.
                         # This helper cannot write files or recover unaffected siblings.
                         for note_id in moved:
-                            for operation in tuple(connection.execute(
-                                "SELECT * FROM managed_operations WHERE note_id = ? "
-                                "AND kind IN ('setup', 'materialize') "
-                                "AND status IN ('prepared', 'writing', 'promoted')",
-                                (note_id,),
-                            )):
+                            for operation in tuple(
+                                connection.execute(
+                                    "SELECT * FROM managed_operations WHERE note_id = ? "
+                                    "AND kind IN ('setup', 'materialize') "
+                                    "AND status IN ('prepared', 'writing', 'promoted')",
+                                    (note_id,),
+                                )
+                            ):
                                 self._settle_write_authority(
                                     connection,
                                     self._workspace_value(
@@ -643,7 +693,7 @@ class ManagedWorkspaceTasks:
                 return ManagedWorkspaceObservation(workspace_id, generation, tuple(result))
         except ManagedWorkspaceFailure:
             raise
-        except (ImportDirectoryUnavailable, ImportScanIncomplete, OSError, ValueError):
+        except ImportDirectoryUnavailable, ImportScanIncomplete, OSError, ValueError:
             raise ManagedWorkspaceFailure("invalid_observation") from None
 
     def refresh(self, workspace_id: str, *, operation_id: str) -> ManagedWorkspaceReceipt:
@@ -694,6 +744,7 @@ class ManagedWorkspaceTasks:
             if not duplicate:
                 self._engine._fault(ManagedWorkspaceFault.AFTER_OPERATION_PREPARED)
             self._process_refresh(operation_id)
+        FacetVaultTasks(self._engine).refresh_workspace(workspace_id)
         return ManagedWorkspaceReceipt(
             "refreshed", workspace_id, generation=workspace.generation, duplicate=duplicate
         )
@@ -794,7 +845,10 @@ class ManagedWorkspaceTasks:
                 previous_id != ancestor["revision_id"]
                 or note["materialized_revision_id"] != previous_id
                 or _digest(disk) != expected
-                or disk != ancestor["body_bytes"]
+                or registered_content(
+                    connection, workspace.workspace_id, page.note_id, target, disk
+                )
+                != ancestor["body_bytes"]
             )
         revision_id = _new_id("revision")
         child_id = _new_id("operation")
@@ -856,28 +910,36 @@ class ManagedWorkspaceTasks:
         if divergent:
             # Keep the accepted owner head. The approved upstream revision is a
             # retained branch until explicit conflict resolution selects either side.
-            candidate = disk
+            candidate = registered_content(
+                connection, workspace.workspace_id, page.note_id, target, cast(bytes, disk)
+            )
             if _digest(cast(bytes, disk)) == expected:
                 accepted = connection.execute(
                     "SELECT body_bytes FROM managed_note_revisions WHERE revision_id = ?",
                     (previous_id,),
                 ).fetchone()
                 candidate = accepted["body_bytes"]
+            conflict_id = _new_id("conflict")
             connection.execute(
                 """INSERT INTO managed_conflicts
                 (conflict_id, note_id, base_revision_id, accepted_revision_id,
                  candidate_body_bytes, candidate_sha256, status, detected_at)
                 VALUES (?, ?, ?, ?, ?, ?, 'open', ?)""",
                 (
-                    _new_id("conflict"),
+                    conflict_id,
                     page.note_id,
                     ancestor["revision_id"],
                     revision_id,
                     candidate,
-                    _digest(cast(bytes, candidate)),
+                    _digest(candidate),
                     now,
                 ),
             )
+            if candidate != disk and projection_schema_available(connection):
+                connection.execute(
+                    "INSERT INTO facet_projection_conflict_files VALUES(?,?)",
+                    (conflict_id, _digest(cast(bytes, disk))),
+                )
             connection.execute(
                 "UPDATE managed_operations SET status = 'conflict', stage = 3, completed_at = ? "
                 "WHERE operation_id = ?",
@@ -1028,9 +1090,11 @@ class ManagedWorkspaceTasks:
                     WHERE workspace_id = ? AND generation = ? AND note_id = ?""",
                     (workspace_id, generation, note_id),
                 ).fetchone()
-                if observation is None or int(
-                    self._workspace_row(connection, workspace_id)["observation_generation"]
-                ) != generation:
+                if (
+                    observation is None
+                    or int(self._workspace_row(connection, workspace_id)["observation_generation"])
+                    != generation
+                ):
                     raise ManagedWorkspaceFailure("stale_observation")
                 if observation["accepted_revision_id"] != note["accepted_revision_id"]:
                     raise ManagedWorkspaceFailure("stale_observation")
@@ -1042,6 +1106,13 @@ class ManagedWorkspaceTasks:
                 )
                 if payload is None or _digest(payload) != observation["observed_sha256"]:
                     raise ManagedWorkspaceFailure("stale_observation")
+                content_payload = registered_content(
+                    connection, workspace_id, note_id, observation["relative_path"], payload
+                )
+                retain_content_preimage(
+                    connection, workspace_id, note_id, observation["relative_path"], payload
+                )
+                content_sha256 = _digest(content_payload)
                 previous = connection.execute(
                     "SELECT * FROM managed_note_revisions WHERE revision_id = ?",
                     (note["accepted_revision_id"],),
@@ -1049,7 +1120,7 @@ class ManagedWorkspaceTasks:
                 if previous is None:
                     raise ManagedWorkspaceFailure("operation_replay_mismatch")
                 now = _timestamp(self._engine._clock())
-                duplicate = previous["body_sha256"] == observation["observed_sha256"]
+                duplicate = previous["body_sha256"] == content_sha256
                 if duplicate:
                     revision_id = cast(str, previous["revision_id"])
                 else:
@@ -1064,8 +1135,8 @@ class ManagedWorkspaceTasks:
                             revision_id,
                             note_id,
                             previous["revision_id"],
-                            payload,
-                            observation["observed_sha256"],
+                            content_payload,
+                            content_sha256,
                             self._engine.profile.owner_actor_id,
                             previous["provenance_json"],
                             previous["privacy_json"],
@@ -1082,7 +1153,7 @@ class ManagedWorkspaceTasks:
                     (
                         revision_id,
                         revision_id,
-                        observation["observed_sha256"],
+                        content_sha256,
                         observation["observed_sha256"],
                         observation["relative_path"],
                         now,
@@ -1099,10 +1170,16 @@ class ManagedWorkspaceTasks:
                     target_relative_path=None,
                     expected_revision_id=cast(str, note["accepted_revision_id"]),
                     expected_target_sha256=cast(str, observation["observed_sha256"]),
-                    body=payload,
+                    body=content_payload,
                     now=now,
                     status="completed",
                 )
+                if projection_schema_available(connection):
+                    connection.execute(
+                        "UPDATE facet_projection_state SET managed_revision_id=? "
+                        "WHERE workspace_id=? AND file_kind='record' AND file_id=?",
+                        (revision_id, workspace_id, note_id),
+                    )
                 connection.execute(
                     "DELETE FROM managed_note_observations WHERE workspace_id = ?",
                     (workspace_id,),
@@ -1251,6 +1328,21 @@ class ManagedWorkspaceTasks:
                 # A refresh may preserve an accepted, not-yet-materialized link as
                 # the workspace choice. Its original disk preimage remains guarded.
                 candidate_on_disk = current == candidate
+                if projection_schema_available(connection):
+                    facet_guard = connection.execute(
+                        "SELECT file_sha256 FROM facet_projection_conflict_files "
+                        "WHERE conflict_id=?",
+                        (conflict["conflict_id"],),
+                    ).fetchone()
+                    if facet_guard is not None:
+                        if current is None or _digest(current) != facet_guard[0]:
+                            raise ManagedWorkspaceFailure("target_changed")
+                        candidate_on_disk = (
+                            registered_content(
+                                connection, workspace_id, note_id, note["relative_path"], current
+                            )
+                            == candidate
+                        )
                 if (
                     _digest(candidate) != conflict["candidate_sha256"]
                     or current is None
@@ -1328,6 +1420,15 @@ class ManagedWorkspaceTasks:
                     WHERE conflict_id = ?""",
                     (resolution_revision_id, now, conflict["conflict_id"]),
                 )
+                retain_content_preimage(
+                    connection, workspace_id, note_id, note["relative_path"], current
+                )
+                if projection_schema_available(connection):
+                    connection.execute(
+                        "UPDATE facet_projection_state SET managed_revision_id=? "
+                        "WHERE workspace_id=? AND file_kind='record' AND file_id=?",
+                        (resolution_revision_id, workspace_id, note_id),
+                    )
                 _advance_policy(connection, workspace_id, now)
                 self._insert_operation(
                     connection,
@@ -1356,7 +1457,7 @@ class ManagedWorkspaceTasks:
     def _recover_locked(self) -> int:
         from .managed_recovery import legacy_recovery_blocker
 
-        recovered = 0
+        recovered = FacetVaultTasks(self._engine).recover_locked()
         blocked = False
         connection = self._engine._store.connect()
         try:
@@ -1505,27 +1606,54 @@ class ManagedWorkspaceTasks:
                 or acceptance["body_sha256"] != revision["body_sha256"]
                 or (
                     revision["kind"] == "edit"
-                    and acceptance["expected_target_sha256"] != revision["body_sha256"]
+                    and content_preimage_digest(
+                        connection,
+                        note["workspace_id"],
+                        note["note_id"],
+                        acceptance["expected_target_sha256"],
+                    )
+                    != revision["body_sha256"]
                 )
                 or _digest(revision["body_bytes"]) != revision["body_sha256"]
             ):
                 return False
             link_bases.discard(revision["body_sha256"])
             if revision["kind"] == "link":
-                link_bases.add(acceptance["expected_target_sha256"])
+                link_bases.add(
+                    content_preimage_digest(
+                        connection,
+                        note["workspace_id"],
+                        note["note_id"],
+                        acceptance["expected_target_sha256"],
+                    )
+                )
             if note["materialized_revision_id"] == revision_id:
                 materialized = (
                     note["materialized_sha256"] == revision["body_sha256"]
-                    and note["write_base_sha256"] == revision["body_sha256"]
+                    and content_preimage_digest(
+                        connection, note["workspace_id"], note["note_id"], note["write_base_sha256"]
+                    )
+                    == revision["body_sha256"]
                 )
             revision_id = revision["parent_revision_id"]
         if note["materialized_revision_id"] == operation["expected_revision_id"]:
             materialized = (
                 note["materialized_sha256"] == operation["body_sha256"]
-                and note["write_base_sha256"] == operation["body_sha256"]
+                and content_preimage_digest(
+                    connection, note["workspace_id"], note["note_id"], note["write_base_sha256"]
+                )
+                == operation["body_sha256"]
             )
         link_bases.difference_update(
-            {operation["body_sha256"], operation["expected_target_sha256"]}
+            {
+                operation["body_sha256"],
+                content_preimage_digest(
+                    connection,
+                    note["workspace_id"],
+                    note["note_id"],
+                    operation["expected_target_sha256"],
+                ),
+            }
         )
         return bool(visited) and materialized and not link_bases
 
@@ -1541,7 +1669,10 @@ class ManagedWorkspaceTasks:
             note["accepted_revision_id"] != operation["expected_revision_id"]
             or note["materialized_revision_id"] != operation["expected_revision_id"]
             or note["materialized_sha256"] != operation["body_sha256"]
-            or note["write_base_sha256"] != operation["body_sha256"]
+            or content_preimage_digest(
+                connection, note["workspace_id"], note["note_id"], note["write_base_sha256"]
+            )
+            != operation["body_sha256"]
         ):
             return False
         # The old preimage must still have durable evidence. A new completion
@@ -1566,7 +1697,13 @@ class ManagedWorkspaceTasks:
                 and completed["body_sha256"] == operation["body_sha256"]
                 and (
                     completed["kind"] == "accept_revision"
-                    and completed["expected_target_sha256"] == operation["body_sha256"]
+                    and content_preimage_digest(
+                        connection,
+                        note["workspace_id"],
+                        note["note_id"],
+                        completed["expected_target_sha256"],
+                    )
+                    == operation["body_sha256"]
                     or completed["kind"] == "materialize"
                     and completed["target_relative_path"] == operation["target_relative_path"]
                     and completed["expected_target_sha256"] in {expected, operation["body_sha256"]}
@@ -1598,6 +1735,9 @@ class ManagedWorkspaceTasks:
                 ).fetchone()
                 is not None
             )
+        expected = content_preimage_digest(
+            connection, operation["workspace_id"], operation["note_id"], expected
+        )
         rows = connection.execute(
             "SELECT body_bytes, body_sha256 FROM managed_note_revisions "
             "WHERE note_id = ? AND body_sha256 = ? "
@@ -1686,7 +1826,10 @@ class ManagedWorkspaceTasks:
             if (
                 revision["operation_id"] != operation_id
                 or (revision["parent_revision_id"] is not None and previous is None)
-                or expected != (previous["body_sha256"] if previous is not None else None)
+                or content_preimage_digest(
+                    connection, workspace.workspace_id, note["note_id"], expected
+                )
+                != (previous["body_sha256"] if previous is not None else None)
             ):
                 raise ManagedWorkspaceFailure("operation_replay_mismatch")
         elif operation["kind"] == "materialize":
@@ -1723,9 +1866,7 @@ class ManagedWorkspaceTasks:
             )
         ):
             raise ManagedWorkspaceFailure("operation_replay_mismatch")
-        completed = note[
-            "write_base_sha256"
-        ] != expected and self._completed_same_revision_write(
+        completed = note["write_base_sha256"] != expected and self._completed_same_revision_write(
             connection, note, operation, self._engine.profile.owner_actor_id
         )
         # A proven accepted successor abandons the original authorization,
@@ -1780,9 +1921,7 @@ class ManagedWorkspaceTasks:
         expected = cast(str | None, operation["expected_target_sha256"])
         body_sha256 = cast(str, operation["body_sha256"])
         with self._engine._store.transaction() as connection:
-            cancelled, completed = self._settle_write_authority(
-                connection, workspace, operation
-            )
+            cancelled, completed = self._settle_write_authority(connection, workspace, operation)
         if cancelled:
             # Raise only after committing. Catchers may continue other bound work,
             # but must never interpret an abandoned write as a successful receipt.
@@ -1893,6 +2032,11 @@ class ManagedWorkspaceTasks:
                 WHERE operation_id = ?""",
                 (now, operation_id),
             )
+            projection_operation = FacetVaultTasks(self._engine).prepare_content_refresh(
+                connection, workspace, operation["note_id"], body, operation_id
+            )
+        if projection_operation is not None:
+            FacetVaultTasks(self._engine)._materialize(projection_operation)
 
     def _record_conflict(self, operation: sqlite3.Row, candidate: bytes) -> None:
         now = _timestamp(self._engine._clock())
@@ -1912,13 +2056,20 @@ class ManagedWorkspaceTasks:
                 (operation["note_id"],),
             ).fetchone()
             if existing is None:
+                conflict_id = _new_id("conflict")
+                full_file_sha256 = _digest(candidate)
+                if candidate:
+                    candidate = registered_content(
+                        connection, operation["workspace_id"], operation["note_id"],
+                        note["relative_path"], candidate,
+                    )
                 connection.execute(
                     """INSERT INTO managed_conflicts
                     (conflict_id, note_id, base_revision_id, accepted_revision_id,
                      candidate_body_bytes, candidate_sha256, status, detected_at)
                     VALUES (?, ?, ?, ?, ?, ?, 'open', ?)""",
                     (
-                        _new_id("conflict"),
+                        conflict_id,
                         operation["note_id"],
                         base_revision_id,
                         operation["expected_revision_id"],
@@ -1927,6 +2078,11 @@ class ManagedWorkspaceTasks:
                         now,
                     ),
                 )
+                if full_file_sha256 != _digest(candidate):
+                    connection.execute(
+                        "INSERT INTO facet_projection_conflict_files VALUES(?,?)",
+                        (conflict_id, full_file_sha256),
+                    )
             connection.execute(
                 """UPDATE managed_operations
                 SET status = 'conflict', completed_at = ?, stage = 3 WHERE operation_id = ?""",

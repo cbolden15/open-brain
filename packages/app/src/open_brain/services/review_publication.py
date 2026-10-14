@@ -20,6 +20,8 @@ from open_brain_engine.engine import (
     ReviewProposal,
     ReviewTask,
 )
+from open_brain_engine.engine.facet_contracts import FacetError
+from open_brain_engine.engine.t03_contracts import EffectiveAuthority, T03Error
 
 DEFAULT_REVIEW_PAGE_LIMIT = 50
 MAX_REVIEW_PAGE_LIMIT = 100
@@ -117,7 +119,14 @@ def validate_review_arguments(operation: str, arguments: Mapping[str, object]) -
 
 
 class ReviewPublicationService:
-    def __init__(self, task: ReviewTask) -> None:
+    def __init__(
+        self, task: ReviewTask, *, authority: EffectiveAuthority | None = None
+    ) -> None:
+        if authority is not None:
+            bind = getattr(task, "with_authority", None)
+            if not callable(bind):
+                raise ValueError("review task cannot bind current authority")
+            task = cast(ReviewTask, bind(authority))
         self._task = task
 
     def propose(self, arguments: Mapping[str, object]) -> dict[str, object]:
@@ -193,6 +202,9 @@ class ReviewPublicationService:
         except ValueError as error:
             raise _public_error(error) from None
         result = asdict(proposal)
+        facet_binding = result.pop("facet_binding_json", None)
+        if facet_binding is not None:
+            result["facet_selection"] = json.loads(facet_binding)
         proposal_status = result.pop("status")
         result["review_token"] = result.pop("review_digest")
         if proposal.patch is None:
@@ -322,6 +334,8 @@ def _page_result(
 
 
 def _public_error(error: ValueError) -> ReviewPublicationError:
+    if isinstance(error, (FacetError, T03Error)):
+        return ReviewPublicationError(error.code)
     code = {
         "conflicting delivery": "idempotency_conflict",
         "unknown proposal": "unknown_proposal",

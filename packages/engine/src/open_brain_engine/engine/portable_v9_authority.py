@@ -31,11 +31,13 @@ from .portable_v6_authority import _source_authority_metadata, _source_authority
 from .portable_v7_authority import _sharing_authority_metadata
 
 
-def _journal_snapshot(connection: sqlite3.Connection) -> dict[str, Any]:
+def _journal_snapshot(
+    connection: sqlite3.Connection, *, expected_schema: int = 14
+) -> dict[str, Any]:
     """Same frozen custody rows, admitted only at the new runtime schema boundary."""
     if (
         not connection.in_transaction
-        or connection.execute("PRAGMA user_version").fetchone()[0] != 14
+        or connection.execute("PRAGMA user_version").fetchone()[0] != expected_schema
     ):
         raise ValueError("capture custody requires one schema14 read snapshot")
     state: dict[str, Any] = {"schema_version": 1}
@@ -54,11 +56,11 @@ def _journal_snapshot(connection: sqlite3.Connection) -> dict[str, Any]:
 
 
 def historical_authority_sidecar(
-    connection: sqlite3.Connection, profile: LocalEngineContext
+    connection: sqlite3.Connection, profile: LocalEngineContext, *, expected_schema: int = 14
 ) -> tuple[str, bytes]:
     if (
         not connection.in_transaction
-        or connection.execute("PRAGMA user_version").fetchone()[0] != 14
+        or connection.execute("PRAGMA user_version").fetchone()[0] != expected_schema
     ):
         raise ValueError("Portable9 requires one active schema-14 snapshot")
     row = connection.execute("SELECT brain_id,issuer_epoch FROM brain_identity").fetchone()
@@ -77,11 +79,14 @@ def _serialize_historical_state(
     *,
     relationship_sidecar_present: bool,
     portable_version: int,
+    expected_schema: int = 14,
 ) -> PortableV5StateEvidence:
     """New version boundary, not widened v5/v6/v7 serializer admission."""
     if type(relationship_sidecar_present) is not bool:
         raise ValueError("relationship sidecar presence must be a bool")
-    path, historical = historical_authority_sidecar(connection, profile)
+    path, historical = historical_authority_sidecar(
+        connection, profile, expected_schema=expected_schema
+    )
     if portable_version == 8:
         from open_brain_engine.portable.v8 import (
             HISTORICAL_AUTHORITY_PATH as old_path,
@@ -116,7 +121,7 @@ def _serialize_historical_state(
         [dict(row) for row in connection.execute("SELECT * FROM captures ORDER BY capture_id")]
     )
     sidecars[CAPTURE_METADATA_PATH] = capture_metadata
-    custody = custody_bytes(_journal_snapshot(connection))
+    custody = custody_bytes(_journal_snapshot(connection, expected_schema=expected_schema))
     sidecars[CUSTODY_PATH] = custody
     semantic = dict(base.semantic_state)
     semantic["sharing_authority"] = sharing

@@ -246,6 +246,9 @@ def proposal_snapshot(
     sibling_ids: tuple[str, ...],
     supplied_reason: str | None,
     recorded_at: str,
+    destination_space_id: str | None = None,
+    privacy: Mapping[str, object] | None = None,
+    trust_label: str | None = None,
 ) -> dict[str, object]:
     evidence: list[dict[str, str]] = []
     references = tuple(cast(str, capture["source_reference"]) for capture in captures)
@@ -272,7 +275,7 @@ def proposal_snapshot(
         "expected_receipt": _receipt(
             "proposal_created", receipt_id, proposal_id, recorded_at, receipt_payload
         ),
-        "privacy": _privacy(),
+        "privacy": _privacy() if privacy is None else dict(privacy),
         "proposal_id": proposal_id,
         "proposed_content": {
             "bytes_base64": base64.b64encode(proposed_bytes).decode("ascii"),
@@ -284,14 +287,16 @@ def proposal_snapshot(
         "role_claim": _role_claim(engine.profile),
         "schema_version": 1,
         "sibling_context": {"proposal_ids": list(sibling_ids)},
-        "space_id": captures[0]["space_id"],
+        "space_id": (
+            captures[0]["space_id"] if destination_space_id is None else destination_space_id
+        ),
         "status": "pending",
         "supplied_reason": supplied_reason,
         "tenant_id": engine.profile.tenant_id,
         "trust": _trust(
             engine.profile,
             recorded_at,
-            (
+            trust_label if trust_label is not None else (
                 "third_party"
                 if any(capture["source_origin"] == "third_party" for capture in captures)
                 else "owner"
@@ -314,9 +319,10 @@ def binding_snapshot(
     recorded_at: str,
     target: dict[str, object] | None,
     patch: dict[str, object] | None,
+    facet: Mapping[str, object] | None = None,
 ) -> dict[str, object]:
     states = [
-        {
+        _facet_source_state(engine, connection, capture) if facet is not None else {
             "capture_id": capture["capture_id"],
             "route_id": _latest_route_id(connection, cast(str, capture["capture_id"])),
             "sha256": sha256(_source_record_bytes(engine, capture)).hexdigest(),
@@ -342,6 +348,9 @@ def binding_snapshot(
     }
     if patch is not None:
         binding["patch"] = patch
+    if facet is not None:
+        binding.update(facet)
+        binding["schema_version"] = 5
     binding["review_digest"] = review_binding_digest(proposal, binding)
     return validate_review_binding(binding)
 
@@ -355,13 +364,14 @@ def render_bound_page(
     title: str,
     body: str,
     modified_at: str,
+    privacy: Mapping[str, object] | None = None,
 ) -> bytes:
     return render_markdown(
         fields={
             "actor_id": engine.profile.owner_actor_id,
             "modified_at": modified_at,
             "page_id": page_id,
-            "privacy": _privacy(),
+            "privacy": _privacy() if privacy is None else dict(privacy),
             "provenance": list(provenance),
             "role_claim": _role_claim(engine.profile),
             "schema_version": 1,
@@ -455,7 +465,17 @@ def _draft_request_value(draft: ProposalDraft | PatchDraft) -> dict[str, object]
     }
 
 
-def validate_current_binding(engine: Any, binding: Mapping[str, object]) -> None:
+def validate_current_binding(
+    engine: Any, binding: Mapping[str, object], *,
+    connection: sqlite3.Connection | None = None, authority: Any = None,
+) -> None:
+    if binding.get("schema_version") == 5:
+        from .facet_publication import validate_facet_current_binding
+
+        if connection is None:
+            raise ValueError("facet publication requires transactional snapshot validation")
+        validate_facet_current_binding(engine, connection, binding, authority=authority)
+        return
     connection = engine._store.connect()
     try:
         captures = _capture_rows(connection, cast(Sequence[str], binding["provenance"]))
@@ -541,6 +561,10 @@ def bound_edited_bytes(
         title=cast(str, parsed.fields["title"]),
         body=body,
         modified_at=modified_at,
+        privacy=(
+            cast(Mapping[str, object], parsed.fields["privacy"])
+            if binding.get("schema_version") == 5 else None
+        ),
     )
 
 
@@ -666,6 +690,51 @@ def _latest_route_id(connection: sqlite3.Connection, capture_id: str) -> str | N
     if len(rows) > 1:
         raise ValueError("review source state conflict")
     return None if not rows else cast(str, rows[0]["route_id"])
+
+
+def _facet_source_state(
+    engine: Any, connection: sqlite3.Connection, capture: sqlite3.Row,
+) -> dict[str, object]:
+    """Freeze v5 routing across proven revisions, independently of capture SQL space.
+
+    Routes target the then-current head. A successor inherits its logical route but
+    starts a separate per-capture supersedes chain on its first subsequent route.
+    Revision sequence orders those chains; timestamps need not be distinct.
+    """
+    source = connection.execute(
+        "SELECT s.source_id,s.space_id FROM source_revisions r "
+        "JOIN logical_sources s USING(source_id) WHERE r.capture_id=?",
+        (capture["capture_id"],),
+    ).fetchone()
+    if source is None:
+        raise ValueError("facet source lineage conflict")
+    routed = connection.execute(
+        "SELECT r.capture_id FROM source_revisions r "
+        "WHERE r.source_id=? AND EXISTS (SELECT 1 FROM route_operations o "
+        "WHERE o.capture_id=r.capture_id) ORDER BY r.sequence DESC LIMIT 1",
+        (source["source_id"],),
+    ).fetchone()
+    route_id = None
+    if routed is not None:
+        route_id = _latest_route_id(connection, routed["capture_id"])
+        route = connection.execute(
+            "SELECT space_id FROM route_operations WHERE route_id=?", (route_id,),
+        ).fetchone()
+        if route is None or route["space_id"] != source["space_id"]:
+            raise ValueError("facet source route conflict")
+    else:
+        first = connection.execute(
+            "SELECT source_bytes FROM source_revisions WHERE source_id=? ORDER BY sequence LIMIT 1",
+            (source["source_id"],),
+        ).fetchone()
+        if first is None or json.loads(first["source_bytes"])["space_id"] != source["space_id"]:
+            raise ValueError("facet source route conflict")
+    return {
+        "capture_id": capture["capture_id"],
+        "route_id": route_id,
+        "sha256": sha256(_source_record_bytes(engine, capture)).hexdigest(),
+        "space_id": source["space_id"],
+    }
 
 
 def _ordered_unique(values: Sequence[str]) -> tuple[str, ...]:

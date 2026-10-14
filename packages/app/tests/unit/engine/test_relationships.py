@@ -17,6 +17,7 @@ from open_brain_engine.engine.t03_contracts import (
     RelationshipListRequest,
     T03Error,
 )
+from open_brain_engine.portable.facets_v10 import FACET_SIDECAR_PATHS
 from open_brain_engine.portable.relationships_v1 import (
     RELATIONSHIP_METADATA_PATH,
     validate_relationship_metadata,
@@ -37,6 +38,7 @@ from open_brain_engine.portable.v8 import (
 )
 from open_brain_engine.portable.v9 import PORTABLE_V9_SCHEMA_CATALOG_DIGEST, V9_SIDECAR_PATHS
 from open_brain_engine.portable.v9 import validate_historical_authority as validate_v9_history
+from open_brain_engine.portable.v10_catalog import PORTABLE_V10_SCHEMA_CATALOG_DIGEST
 from open_brain_engine.portable.versioned import validated_portable_snapshot
 
 from open_brain.profile import compile_single_user_local
@@ -65,7 +67,8 @@ def _write_v4_fixture(source: Path, destination: Path) -> dict[str, Any]:
     snapshot = validated_portable_snapshot(source)
     historical = (
         validate_historical_authority(snapshot.files)
-        if snapshot.manifest["schema_version"] == 8 else validate_v9_history(snapshot.files)
+        if snapshot.manifest["schema_version"] == 8
+        else validate_v9_history(snapshot.files)
     )
     assert historical.records == ()
     assert historical.registry.generation == 0
@@ -79,6 +82,7 @@ def _write_v4_fixture(source: Path, destination: Path) -> dict[str, Any]:
         and relative not in V7_SIDECAR_PATHS
         and relative not in V8_SIDECAR_PATHS
         and relative not in V9_SIDECAR_PATHS
+        and relative not in FACET_SIDECAR_PATHS
     }
     for relative, payload in files.items():
         target = destination / relative
@@ -90,9 +94,7 @@ def _write_v4_fixture(source: Path, destination: Path) -> dict[str, Any]:
         export_id="export_" + str(uuid4()),
         created_at=str(snapshot.manifest["created_at"]),
     )
-    (destination / "portable-manifest.json").write_bytes(
-        portable_canonical_json_bytes(manifest)
-    )
+    (destination / "portable-manifest.json").write_bytes(portable_canonical_json_bytes(manifest))
     return cast(dict[str, Any], validated_portable_snapshot(destination).manifest)
 
 
@@ -177,15 +179,18 @@ def test_symmetric_relationship_replay_versions_and_hidden_endpoint(tmp_path: Pa
         engine.relationships.decide(proposed, authority=scoped)
 
 
-@pytest.mark.parametrize("portable_version", [8, 9])
+@pytest.mark.parametrize("portable_version", [8, 9, 10])
 def test_supersedes_cycle_self_and_export_complete_decisions(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, portable_version: int
 ) -> None:
-    if portable_version == 8:
-        monkeypatch.setattr(local_schema, "PHASE1_STATE_SCHEMA_VERSION", 13)
-        monkeypatch.setattr(local_schema, "LOCAL_MIGRATIONS", LOCAL_MIGRATIONS[:13])
+    if portable_version in {8, 9}:
+        version = portable_version + 5
+        monkeypatch.setattr(local_schema, "PHASE1_STATE_SCHEMA_VERSION", version)
+        monkeypatch.setattr(local_schema, "LOCAL_MIGRATIONS", LOCAL_MIGRATIONS[:version])
     expected_catalog = {
-        8: PORTABLE_V8_SCHEMA_CATALOG_DIGEST, 9: PORTABLE_V9_SCHEMA_CATALOG_DIGEST
+        8: PORTABLE_V8_SCHEMA_CATALOG_DIGEST,
+        9: PORTABLE_V9_SCHEMA_CATALOG_DIGEST,
+        10: PORTABLE_V10_SCHEMA_CATALOG_DIGEST,
     }[portable_version]
     engine = BrainEngine.open(compile_single_user_local(tmp_path / "brain"))
     ids = [
@@ -217,9 +222,7 @@ def test_supersedes_cycle_self_and_export_complete_decisions(
     snapshot = validated_portable_snapshot(export)
     assert snapshot.manifest["schema_catalog_digest"] == expected_catalog
     assert (
-        _write_v4_fixture(export, tmp_path / "legacy-v4-relationships")[
-            "schema_catalog_digest"
-        ]
+        _write_v4_fixture(export, tmp_path / "legacy-v4-relationships")["schema_catalog_digest"]
         == PORTABLE_V4_RELATIONSHIPS_CATALOG_DIGEST
     )
     assert all(snapshot.files[path] == data for path, data in before.items())

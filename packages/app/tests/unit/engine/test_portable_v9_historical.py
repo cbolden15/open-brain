@@ -14,6 +14,20 @@ from ._historical_compatibility_fixtures import portable5_import_engine, retaine
 from .test_historical_compatibility import linked_v2
 
 
+@pytest.fixture(params=[14, 15])
+def historical_restore_runtime(
+    request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch
+) -> int:
+    """Exercise both the frozen Portable9 runtime and the current Portable10 runtime."""
+    from open_brain_engine.engine import local_schema
+    from open_brain_engine.engine.local_schema_catalog import LOCAL_MIGRATIONS
+
+    version = int(request.param)
+    monkeypatch.setattr(local_schema, "PHASE1_STATE_SCHEMA_VERSION", version)
+    monkeypatch.setattr(local_schema, "LOCAL_MIGRATIONS", LOCAL_MIGRATIONS[:version])
+    return version - 5
+
+
 def test_v9_mixed_chain_preserves_v1_bytes_and_refuses_frozen_projection(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -168,10 +182,16 @@ def test_v9_refuses_damaged_projection_and_mixed_wire_contract(
         "historical_audited",
     ],
 )
-def test_v9_hidden_restore_retries_without_promoting_interrupted_authority(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, stage: str
+def test_v9_and_current_hidden_restore_retries_without_promoting_interrupted_authority(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, stage: str,
+    historical_restore_runtime: int,
 ) -> None:
-    from open_brain_engine.engine import portable_v9_restore
+    from importlib import import_module
+
+    restore_module = import_module(
+        f"open_brain_engine.engine.portable_v{historical_restore_runtime}_restore"
+    )
+    restore_name = f"restore_portable_v{historical_restore_runtime}_root"
     from open_brain_engine.portable.v1 import PortableSnapshot
     from open_brain_engine.storage.filesystem import RootIdentity
 
@@ -182,7 +202,7 @@ def test_v9_hidden_restore_retries_without_promoting_interrupted_authority(
     original = validated_portable_snapshot(archive)
     destination = tmp_path / "restored"
     import_id = "import_" + str(uuid4())
-    restore = portable_v9_restore.restore_portable_v9_root
+    restore = getattr(restore_module, restore_name)
 
     def checkpoint(current: str) -> None:
         if current == stage:
@@ -199,7 +219,7 @@ def test_v9_hidden_restore_retries_without_promoting_interrupted_authority(
         )
 
     with monkeypatch.context() as fault:
-        fault.setattr(portable_v9_restore, "restore_portable_v9_root", fail_restore)
+        fault.setattr(restore_module, restore_name, fail_restore)
         with pytest.raises(RuntimeError, match="synthetic interrupted restore"):
             engine.portability.import_clean(archive, destination, import_id=import_id)
     assert not destination.exists()
@@ -224,13 +244,18 @@ def test_v9_archive_is_refused_by_actual_v8_reader(
 
 
 @pytest.mark.parametrize("damage", ["sql_prefix", "new_intent", "older_intent"])
-def test_v9_hidden_restore_refuses_stage_tampering_before_promotion(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, damage: str
+def test_v9_and_current_hidden_restore_refuses_stage_tampering_before_promotion(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, damage: str,
+    historical_restore_runtime: int,
 ) -> None:
     import sqlite3
     from contextlib import closing
+    from importlib import import_module
 
-    from open_brain_engine.engine import portable_v9_restore
+    restore_module = import_module(
+        f"open_brain_engine.engine.portable_v{historical_restore_runtime}_restore"
+    )
+    restore_name = f"restore_portable_v{historical_restore_runtime}_root"
     from open_brain_engine.engine.sharing_contracts import SharingError
     from open_brain_engine.portable.v1 import PortableSnapshot
     from open_brain_engine.storage.filesystem import RootIdentity
@@ -241,7 +266,7 @@ def test_v9_hidden_restore_refuses_stage_tampering_before_promotion(
     engine.portability.export(archive, export_id="export_" + str(uuid4()))
     original = validated_portable_snapshot(archive)
     destination = tmp_path / "restored"
-    restore = portable_v9_restore.restore_portable_v9_root
+    restore = getattr(restore_module, restore_name)
 
     def damaged_restore(
         root: Path, *, snapshot: PortableSnapshot, expected_root_identity: RootIdentity
@@ -298,7 +323,7 @@ def test_v9_hidden_restore_refuses_stage_tampering_before_promotion(
         )
 
     with monkeypatch.context() as fault:
-        fault.setattr(portable_v9_restore, "restore_portable_v9_root", damaged_restore)
+        fault.setattr(restore_module, restore_name, damaged_restore)
         with pytest.raises(SharingError, match="binding_mismatch|invalid_arguments"):
             engine.portability.import_clean(
                 archive, destination, import_id="import_" + str(uuid4())
@@ -307,12 +332,17 @@ def test_v9_hidden_restore_refuses_stage_tampering_before_promotion(
     assert validated_portable_snapshot(archive).files == original.files
 
 
-def test_v9_hidden_restore_bounds_immutable_history_reads(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+def test_v9_and_current_hidden_restore_bounds_immutable_history_reads(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    historical_restore_runtime: int,
 ) -> None:
     from dataclasses import replace
+    from importlib import import_module
 
-    from open_brain_engine.engine import portable_v9_restore
+    restore_module = import_module(
+        f"open_brain_engine.engine.portable_v{historical_restore_runtime}_restore"
+    )
+    restore_name = f"restore_portable_v{historical_restore_runtime}_root"
     from open_brain_engine.engine.historical_dispatch import (
         Transition,
         VersionedHistoricalTransitionStore,
@@ -351,7 +381,7 @@ def test_v9_hidden_restore_bounds_immutable_history_reads(
             )
     archive = tmp_path / "archive"
     engine.portability.export(archive, export_id="export_" + str(uuid4()))
-    restore = portable_v9_restore.restore_portable_v9_root
+    restore = getattr(restore_module, restore_name)
     read = VersionedHistoricalTransitionStore.read
     reads = 0
 
@@ -368,7 +398,7 @@ def test_v9_hidden_restore_bounds_immutable_history_reads(
             return restore(root, snapshot=snapshot, expected_root_identity=expected_root_identity)
 
     with monkeypatch.context() as counter:
-        counter.setattr(portable_v9_restore, "restore_portable_v9_root", counted_restore)
+        counter.setattr(restore_module, restore_name, counted_restore)
         engine.portability.import_clean(
             archive, tmp_path / "restored", import_id="import_" + str(uuid4())
         )
@@ -414,7 +444,7 @@ def test_frozen_v8_archive_restores_to_fourteen_without_reinterpreting_old_bytes
     )
     restored = BrainEngine.open(open_existing_single_user_local(destination))
     with restored._store.connect() as connection:
-        assert connection.execute("PRAGMA user_version").fetchone()[0] == 14
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 15
     assert (
         HistoricalTransitionStore(restored.profile.root, restored.profile.root_identity)
         .read(baseline.operation_id)
@@ -427,7 +457,7 @@ def test_frozen_v8_archive_restores_to_fourteen_without_reinterpreting_old_bytes
     assert replay.duplicate and replay.capture_id == baseline.retained_original.capture_id
     latest = tmp_path / "latest-nine"
     assert (
-        restored.portability.export(latest, export_id="export_" + str(uuid4())).schema_version == 9
+        restored.portability.export(latest, export_id="export_" + str(uuid4())).schema_version == 10
     )
 
 
@@ -447,7 +477,7 @@ def test_v9_export_restore_preserves_import_and_cloud_copy(
     archive = tmp_path / "archive"
     engine.portability.export(archive, export_id="export_" + str(uuid4()))
     snapshot = validated_portable_snapshot(archive)
-    assert snapshot.manifest["schema_version"] == 9
+    assert snapshot.manifest["schema_version"] == 10
     restored_path = tmp_path / "restored"
     engine.portability.import_clean(archive, restored_path, import_id="import_" + str(uuid4()))
     restored = BrainEngine.open(open_existing_single_user_local(restored_path))

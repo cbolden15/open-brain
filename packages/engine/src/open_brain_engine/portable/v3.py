@@ -237,6 +237,10 @@ def _validate_binding_semantics(
                 raise PortableValidationError("review binding proposal metadata mismatch")
         if binding["review_digest"] != review_binding_digest(proposal, binding):
             raise PortableValidationError("review binding digest mismatch")
+        if binding.get("schema_version") == 5 and binding.get(
+            "destination_space_id"
+        ) != proposal.get("space_id"):
+            raise PortableValidationError("facet destination mismatch")
         provenance = cast(list[str], binding["provenance"])
         selected = cast(list[str], binding["selected_capture_ids"])
         if proposal.get("capture_ids") != provenance:
@@ -273,13 +277,18 @@ def _validate_binding_semantics(
             )
             if (
                 state.get("sha256") != sha256(files[capture_path]).hexdigest()
-                or not _route_matches_frozen_state(
-                    routes,
-                    capture=capture,
-                    state=state,
-                    proposed_at=binding["recorded_at"],
+                or (
+                    # v5 binds logical-source lineage; the v6 validator checks
+                    # its retained cross-revision routing evidence below.
+                    binding.get("schema_version") != 5
+                    and not _route_matches_frozen_state(
+                        routes, capture=capture, state=state, proposed_at=binding["recorded_at"],
+                    )
                 )
-                or state.get("space_id") != proposal.get("space_id")
+                or (
+                    binding.get("schema_version") != 5
+                    and state.get("space_id") != proposal.get("space_id")
+                )
             ):
                 raise PortableValidationError("review source state changed")
 
@@ -368,7 +377,9 @@ def _validate_binding_semantics(
             raise PortableValidationError("current canonical page is not the review chain head")
 
 
-def validate_portable_file_set_v3(files: Mapping[str, bytes], *, tenant_id: str) -> None:
+def validate_portable_file_set_v3(
+    files: Mapping[str, bytes], *, tenant_id: str, allow_facet_bindings: bool = False
+) -> None:
     """Validate exact Portable v3 payload bytes without an export manifest."""
     binding_paths = [path for path in files if _BINDING_PATH.fullmatch(path)]
     managed_paths = [path for path in files if _MANAGED_PATH.fullmatch(path)]
@@ -377,6 +388,8 @@ def validate_portable_file_set_v3(files: Mapping[str, bytes], *, tenant_id: str)
     bindings: dict[str, dict[str, object]] = {}
     for path in binding_paths:
         binding = validate_review_binding(_portable_record(files[path], "review binding"))
+        if binding["schema_version"] == 5 and not allow_facet_bindings:
+            raise PortableValidationError("facet bindings require Portable v6")
         match = _BINDING_PATH.fullmatch(path)
         assert match is not None
         proposal_id = cast(str, binding["proposal_id"])

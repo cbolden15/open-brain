@@ -31,11 +31,11 @@ def test_schema_fourteen_preserves_thirteen_migration_checksums(tmp_path: Path) 
     assert {m.name: m.checksum for m in LOCAL_MIGRATIONS[:13]} == frozen
     engine = BrainEngine.open(compile_single_user_local(tmp_path / "brain"))
     with engine._store.connect() as connection:
-        assert connection.execute("PRAGMA user_version").fetchone()[0] == 14
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 15
         assert tuple(connection.execute("SELECT * FROM runtime_compatibility").fetchone()) == (
             1,
-            9,
-            14,
+            10,
+            15,
         )
 
 
@@ -57,7 +57,7 @@ def test_schema_thirteen_upgrade_preserves_capture_bytes(
         raw = (profile.root / relative).read_bytes()
     coordinate_local_migration(profile)
     with closing(local_schema.open_local_database_read_only(profile)) as connection:
-        assert connection.execute("PRAGMA user_version").fetchone()[0] == 14
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 15
         for table, rows in before.items():
             after = [tuple(row) for row in connection.execute(f"SELECT * FROM {table}")]
             assert (after[:13] if table == "schema_migrations" else after) == rows
@@ -100,7 +100,9 @@ def test_schema_fourteen_migration_rolls_back_or_retries_exact_committed_state(
             profile, admission=admission, clock=lambda: datetime.now(UTC)
         )
         assert (profile.root / local_schema.PHASE1_STATE_DATABASE).read_bytes() == before
-    assert local_schema.inspect_phase1_state(profile) == local_schema.SchemaState("current", 14)
+    assert local_schema.inspect_phase1_state(profile) == local_schema.SchemaState(
+        "supported_old", 14
+    )
 
 
 @pytest.mark.parametrize("damage", ["pending", "missing_registry"])

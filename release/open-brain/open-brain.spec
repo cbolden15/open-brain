@@ -14,6 +14,8 @@ datas = sorted(
         "open_brain_engine",
         includes=[
             "engine/t03_schema.json",
+            "engine/facet_schema.json",
+            "engine/facet_evidence_schema.json",
             "portable/**/*.json",
             "portability/**/*.json",
         ],

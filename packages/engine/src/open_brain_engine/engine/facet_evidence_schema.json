@@ -1,0 +1,1843 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:open-brain:draft:facets:c0:evidence-v1",
+  "title": "C0 draft facet evidence; not a registered Portable catalog",
+  "x-contract-revision": "facets-c0-v4",
+  "x-sidecar-paths": {
+    "events_sidecar": "history/facets/events-v1.json",
+    "operations_sidecar": "history/facets/operations-v1.json",
+    "state_sidecar": "content/facets/state-v1.json"
+  },
+  "$defs": {
+    "actor_id": {
+      "type": "string",
+      "pattern": "^actor_[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+    },
+    "capture_id": {
+      "type": "string",
+      "pattern": "^capture_[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+    },
+    "page_id": {
+      "type": "string",
+      "pattern": "^page_[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+    },
+    "publication_id": {
+      "type": "string",
+      "pattern": "^publication_[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+    },
+    "proposal_id": {
+      "type": "string",
+      "pattern": "^proposal_[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+    },
+    "route_id": {
+      "type": "string",
+      "pattern": "^route_[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+    },
+    "space_id": {
+      "type": "string",
+      "pattern": "^space_[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+    },
+    "tenant_id": {
+      "type": "string",
+      "pattern": "^tenant_[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+    },
+    "role_claim": {
+      "type": "object",
+      "properties": {
+        "actor_id": {
+          "$ref": "#/$defs/actor_id"
+        },
+        "capabilities": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9_.-]{0,63}$"
+          },
+          "uniqueItems": true
+        },
+        "role_claim_id": {
+          "type": "string",
+          "pattern": "^role_claim_[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+        },
+        "role_id": {
+          "type": "string",
+          "pattern": "^role_[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+        },
+        "tenant_id": {
+          "$ref": "#/$defs/tenant_id"
+        }
+      },
+      "required": [
+        "actor_id",
+        "capabilities",
+        "role_claim_id",
+        "role_id",
+        "tenant_id"
+      ],
+      "additionalProperties": false
+    },
+    "digest": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "timestamp": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(?:\\.[0-9]+)?Z$"
+    },
+    "source_id": {
+      "type": "string",
+      "pattern": "^source_[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+    },
+    "revision_id": {
+      "type": "string",
+      "pattern": "^revision_[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+    },
+    "facetdim_id": {
+      "type": "string",
+      "pattern": "^facetdim_[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+    },
+    "facetval_id": {
+      "type": "string",
+      "pattern": "^facetval_[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+    },
+    "facetquery_id": {
+      "type": "string",
+      "pattern": "^facetquery_[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+    },
+    "facetevent_id": {
+      "type": "string",
+      "pattern": "^facetevent_[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+    },
+    "brain_id": {
+      "type": "string",
+      "pattern": "^brn_[a-z2-7]{26}$"
+    },
+    "name": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 120,
+      "pattern": "^[^\\x00-\\x1f\\x7f-\\x9f]+$",
+      "x-normalized": "NFC stripped"
+    },
+    "operation_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "pattern": "^[^\\x00-\\x1f\\x7f-\\x9f]+$"
+    },
+    "principal_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256,
+      "pattern": "^[^\\x00-\\x1f\\x7f-\\x9f]+$"
+    },
+    "subject": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "const": "source"
+            },
+            "id": {
+              "$ref": "#/$defs/source_id"
+            }
+          },
+          "required": [
+            "kind",
+            "id"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "const": "canonical"
+            },
+            "id": {
+              "$ref": "#/$defs/page_id"
+            }
+          },
+          "required": [
+            "kind",
+            "id"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "selector": {
+      "type": "object",
+      "properties": {
+        "all_value_ids": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/facetval_id"
+          },
+          "minItems": 1,
+          "uniqueItems": true,
+          "maxItems": 32
+        },
+        "space_ids": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/space_id"
+          },
+          "minItems": 0,
+          "uniqueItems": true,
+          "maxItems": 256
+        },
+        "payload_families": {
+          "type": "array",
+          "items": {
+            "enum": [
+              "text",
+              "event",
+              "measurement",
+              "reference_or_file"
+            ]
+          },
+          "minItems": 0,
+          "uniqueItems": true,
+          "maxItems": 4
+        },
+        "record_types": {
+          "type": "array",
+          "items": {
+            "enum": [
+              "source",
+              "canonical"
+            ]
+          },
+          "minItems": 0,
+          "uniqueItems": true,
+          "maxItems": 2
+        }
+      },
+      "required": [
+        "all_value_ids",
+        "space_ids",
+        "payload_families",
+        "record_types"
+      ],
+      "additionalProperties": false
+    },
+    "dimension_row": {
+      "type": "object",
+      "properties": {
+        "dimension_id": {
+          "$ref": "#/$defs/facetdim_id"
+        },
+        "name": {
+          "$ref": "#/$defs/name"
+        },
+        "archived": {
+          "type": "boolean"
+        },
+        "version": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        },
+        "created_at": {
+          "$ref": "#/$defs/timestamp"
+        },
+        "updated_at": {
+          "$ref": "#/$defs/timestamp"
+        }
+      },
+      "required": [
+        "dimension_id",
+        "name",
+        "archived",
+        "version",
+        "created_at",
+        "updated_at"
+      ],
+      "additionalProperties": false
+    },
+    "value_row": {
+      "type": "object",
+      "properties": {
+        "value_id": {
+          "$ref": "#/$defs/facetval_id"
+        },
+        "dimension_id": {
+          "$ref": "#/$defs/facetdim_id"
+        },
+        "name": {
+          "$ref": "#/$defs/name"
+        },
+        "archived": {
+          "type": "boolean"
+        },
+        "version": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        },
+        "created_at": {
+          "$ref": "#/$defs/timestamp"
+        },
+        "updated_at": {
+          "$ref": "#/$defs/timestamp"
+        }
+      },
+      "required": [
+        "value_id",
+        "dimension_id",
+        "name",
+        "archived",
+        "version",
+        "created_at",
+        "updated_at"
+      ],
+      "additionalProperties": false
+    },
+    "subject_row": {
+      "type": "object",
+      "properties": {
+        "subject_kind": {
+          "enum": [
+            "source",
+            "canonical"
+          ]
+        },
+        "subject_id": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/source_id"
+            },
+            {
+              "$ref": "#/$defs/page_id"
+            }
+          ]
+        },
+        "version": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        }
+      },
+      "required": [
+        "subject_kind",
+        "subject_id",
+        "version"
+      ],
+      "additionalProperties": false
+    },
+    "assignment_row": {
+      "type": "object",
+      "properties": {
+        "subject_kind": {
+          "enum": [
+            "source",
+            "canonical"
+          ]
+        },
+        "subject_id": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/source_id"
+            },
+            {
+              "$ref": "#/$defs/page_id"
+            }
+          ]
+        },
+        "value_id": {
+          "$ref": "#/$defs/facetval_id"
+        },
+        "present": {
+          "type": "boolean"
+        },
+        "membership_version": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        },
+        "last_event_sequence": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        }
+      },
+      "required": [
+        "subject_kind",
+        "subject_id",
+        "value_id",
+        "present",
+        "membership_version",
+        "last_event_sequence"
+      ],
+      "additionalProperties": false
+    },
+    "query_row": {
+      "type": "object",
+      "properties": {
+        "query_id": {
+          "$ref": "#/$defs/facetquery_id"
+        },
+        "name": {
+          "$ref": "#/$defs/name"
+        },
+        "selector": {
+          "$ref": "#/$defs/selector"
+        },
+        "archived": {
+          "type": "boolean"
+        },
+        "version": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        },
+        "created_at": {
+          "$ref": "#/$defs/timestamp"
+        },
+        "updated_at": {
+          "$ref": "#/$defs/timestamp"
+        },
+        "selection_version": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        }
+      },
+      "required": [
+        "query_id",
+        "name",
+        "selector",
+        "archived",
+        "version",
+        "created_at",
+        "updated_at",
+        "selection_version"
+      ],
+      "additionalProperties": false
+    },
+    "attachment_row": {
+      "type": "object",
+      "properties": {
+        "page_id": {
+          "$ref": "#/$defs/page_id"
+        },
+        "query_id": {
+          "$ref": "#/$defs/facetquery_id"
+        },
+        "version": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        }
+      },
+      "required": [
+        "page_id",
+        "query_id",
+        "version"
+      ],
+      "additionalProperties": false
+    },
+    "change": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "entity": {
+              "type": "object",
+              "properties": {
+                "kind": {
+                  "const": "dimension"
+                },
+                "id": {
+                  "$ref": "#/$defs/facetdim_id"
+                }
+              },
+              "required": [
+                "kind",
+                "id"
+              ],
+              "additionalProperties": false
+            },
+            "before": {
+              "anyOf": [
+                {
+                  "type": "null"
+                },
+                {
+                  "$ref": "#/$defs/dimension_row"
+                }
+              ]
+            },
+            "after": {
+              "$ref": "#/$defs/dimension_row"
+            }
+          },
+          "required": [
+            "entity",
+            "before",
+            "after"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "entity": {
+              "type": "object",
+              "properties": {
+                "kind": {
+                  "const": "value"
+                },
+                "id": {
+                  "$ref": "#/$defs/facetval_id"
+                }
+              },
+              "required": [
+                "kind",
+                "id"
+              ],
+              "additionalProperties": false
+            },
+            "before": {
+              "anyOf": [
+                {
+                  "type": "null"
+                },
+                {
+                  "$ref": "#/$defs/value_row"
+                }
+              ]
+            },
+            "after": {
+              "$ref": "#/$defs/value_row"
+            }
+          },
+          "required": [
+            "entity",
+            "before",
+            "after"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "entity": {
+              "type": "object",
+              "properties": {
+                "kind": {
+                  "const": "subject"
+                },
+                "id": {
+                  "$ref": "#/$defs/subject"
+                }
+              },
+              "required": [
+                "kind",
+                "id"
+              ],
+              "additionalProperties": false
+            },
+            "before": {
+              "anyOf": [
+                {
+                  "type": "null"
+                },
+                {
+                  "$ref": "#/$defs/subject_row"
+                }
+              ]
+            },
+            "after": {
+              "$ref": "#/$defs/subject_row"
+            }
+          },
+          "required": [
+            "entity",
+            "before",
+            "after"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "entity": {
+              "type": "object",
+              "properties": {
+                "kind": {
+                  "const": "assignment"
+                },
+                "id": {
+                  "type": "object",
+                  "properties": {
+                    "subject_kind": {
+                      "enum": [
+                        "source",
+                        "canonical"
+                      ]
+                    },
+                    "subject_id": {
+                      "anyOf": [
+                        {
+                          "$ref": "#/$defs/source_id"
+                        },
+                        {
+                          "$ref": "#/$defs/page_id"
+                        }
+                      ]
+                    },
+                    "value_id": {
+                      "$ref": "#/$defs/facetval_id"
+                    }
+                  },
+                  "required": [
+                    "subject_kind",
+                    "subject_id",
+                    "value_id"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "required": [
+                "kind",
+                "id"
+              ],
+              "additionalProperties": false
+            },
+            "before": {
+              "anyOf": [
+                {
+                  "type": "null"
+                },
+                {
+                  "$ref": "#/$defs/assignment_row"
+                }
+              ]
+            },
+            "after": {
+              "$ref": "#/$defs/assignment_row"
+            }
+          },
+          "required": [
+            "entity",
+            "before",
+            "after"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "entity": {
+              "type": "object",
+              "properties": {
+                "kind": {
+                  "const": "query"
+                },
+                "id": {
+                  "$ref": "#/$defs/facetquery_id"
+                }
+              },
+              "required": [
+                "kind",
+                "id"
+              ],
+              "additionalProperties": false
+            },
+            "before": {
+              "anyOf": [
+                {
+                  "type": "null"
+                },
+                {
+                  "$ref": "#/$defs/query_row"
+                }
+              ]
+            },
+            "after": {
+              "$ref": "#/$defs/query_row"
+            }
+          },
+          "required": [
+            "entity",
+            "before",
+            "after"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "entity": {
+              "type": "object",
+              "properties": {
+                "kind": {
+                  "const": "attachment"
+                },
+                "id": {
+                  "$ref": "#/$defs/page_id"
+                }
+              },
+              "required": [
+                "kind",
+                "id"
+              ],
+              "additionalProperties": false
+            },
+            "before": {
+              "anyOf": [
+                {
+                  "type": "null"
+                },
+                {
+                  "$ref": "#/$defs/attachment_row"
+                }
+              ]
+            },
+            "after": {
+              "$ref": "#/$defs/attachment_row"
+            }
+          },
+          "required": [
+            "entity",
+            "before",
+            "after"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "event": {
+      "type": "object",
+      "properties": {
+        "schema_version": {
+          "const": 1
+        },
+        "brain_id": {
+          "$ref": "#/$defs/brain_id"
+        },
+        "event_id": {
+          "$ref": "#/$defs/facetevent_id"
+        },
+        "actor_id": {
+          "$ref": "#/$defs/actor_id"
+        },
+        "operation_id": {
+          "$ref": "#/$defs/operation_id"
+        },
+        "sequence": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        },
+        "recorded_at": {
+          "$ref": "#/$defs/timestamp"
+        },
+        "kind": {
+          "enum": [
+            "dimension.create",
+            "dimension.rename",
+            "dimension.archive",
+            "value.create",
+            "value.rename",
+            "value.archive",
+            "assignment.patch",
+            "query.create",
+            "query.update",
+            "query.archive",
+            "query.attach"
+          ]
+        },
+        "changes": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/change"
+          },
+          "minItems": 1,
+          "uniqueItems": true,
+          "maxItems": 129
+        }
+      },
+      "required": [
+        "schema_version",
+        "brain_id",
+        "event_id",
+        "actor_id",
+        "operation_id",
+        "sequence",
+        "recorded_at",
+        "kind",
+        "changes"
+      ],
+      "additionalProperties": false
+    },
+    "facet_dimension_create_request": {
+      "type": "object",
+      "properties": {
+        "dto_version": {
+          "const": 1
+        },
+        "operation_id": {
+          "$ref": "#/$defs/operation_id"
+        },
+        "expected_version": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "name": {
+          "$ref": "#/$defs/name"
+        }
+      },
+      "required": [
+        "dto_version",
+        "operation_id",
+        "expected_version",
+        "name"
+      ],
+      "additionalProperties": false
+    },
+    "facet_dimension_rename_request": {
+      "type": "object",
+      "properties": {
+        "dto_version": {
+          "const": 1
+        },
+        "operation_id": {
+          "$ref": "#/$defs/operation_id"
+        },
+        "expected_version": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "dimension_id": {
+          "$ref": "#/$defs/facetdim_id"
+        },
+        "name": {
+          "$ref": "#/$defs/name"
+        }
+      },
+      "required": [
+        "dto_version",
+        "operation_id",
+        "expected_version",
+        "dimension_id",
+        "name"
+      ],
+      "additionalProperties": false
+    },
+    "facet_dimension_archive_request": {
+      "type": "object",
+      "properties": {
+        "dto_version": {
+          "const": 1
+        },
+        "operation_id": {
+          "$ref": "#/$defs/operation_id"
+        },
+        "expected_version": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "dimension_id": {
+          "$ref": "#/$defs/facetdim_id"
+        }
+      },
+      "required": [
+        "dto_version",
+        "operation_id",
+        "expected_version",
+        "dimension_id"
+      ],
+      "additionalProperties": false
+    },
+    "facet_value_create_request": {
+      "type": "object",
+      "properties": {
+        "dto_version": {
+          "const": 1
+        },
+        "operation_id": {
+          "$ref": "#/$defs/operation_id"
+        },
+        "expected_version": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "dimension_id": {
+          "$ref": "#/$defs/facetdim_id"
+        },
+        "expected_dimension_version": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        },
+        "name": {
+          "$ref": "#/$defs/name"
+        }
+      },
+      "required": [
+        "dto_version",
+        "operation_id",
+        "expected_version",
+        "dimension_id",
+        "expected_dimension_version",
+        "name"
+      ],
+      "additionalProperties": false
+    },
+    "facet_value_rename_request": {
+      "type": "object",
+      "properties": {
+        "dto_version": {
+          "const": 1
+        },
+        "operation_id": {
+          "$ref": "#/$defs/operation_id"
+        },
+        "expected_version": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "value_id": {
+          "$ref": "#/$defs/facetval_id"
+        },
+        "name": {
+          "$ref": "#/$defs/name"
+        }
+      },
+      "required": [
+        "dto_version",
+        "operation_id",
+        "expected_version",
+        "value_id",
+        "name"
+      ],
+      "additionalProperties": false
+    },
+    "facet_value_archive_request": {
+      "type": "object",
+      "properties": {
+        "dto_version": {
+          "const": 1
+        },
+        "operation_id": {
+          "$ref": "#/$defs/operation_id"
+        },
+        "expected_version": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "value_id": {
+          "$ref": "#/$defs/facetval_id"
+        }
+      },
+      "required": [
+        "dto_version",
+        "operation_id",
+        "expected_version",
+        "value_id"
+      ],
+      "additionalProperties": false
+    },
+    "facet_assignment_patch_request": {
+      "type": "object",
+      "properties": {
+        "dto_version": {
+          "const": 1
+        },
+        "operation_id": {
+          "$ref": "#/$defs/operation_id"
+        },
+        "expected_version": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "record_id": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/capture_id"
+            },
+            {
+              "$ref": "#/$defs/page_id"
+            }
+          ]
+        },
+        "expected_revision_id": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/capture_id"
+            },
+            {
+              "$ref": "#/$defs/revision_id"
+            }
+          ]
+        },
+        "add_value_ids": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/facetval_id"
+          },
+          "minItems": 0,
+          "uniqueItems": true,
+          "maxItems": 128
+        },
+        "remove_value_ids": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/facetval_id"
+          },
+          "minItems": 0,
+          "uniqueItems": true,
+          "maxItems": 128
+        }
+      },
+      "required": [
+        "dto_version",
+        "operation_id",
+        "expected_version",
+        "record_id",
+        "expected_revision_id",
+        "add_value_ids",
+        "remove_value_ids"
+      ],
+      "additionalProperties": false
+    },
+    "facet_query_create_request": {
+      "type": "object",
+      "properties": {
+        "dto_version": {
+          "const": 1
+        },
+        "operation_id": {
+          "$ref": "#/$defs/operation_id"
+        },
+        "expected_version": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "name": {
+          "$ref": "#/$defs/name"
+        },
+        "selector": {
+          "$ref": "#/$defs/selector"
+        }
+      },
+      "required": [
+        "dto_version",
+        "operation_id",
+        "expected_version",
+        "name",
+        "selector"
+      ],
+      "additionalProperties": false
+    },
+    "facet_query_update_request": {
+      "type": "object",
+      "properties": {
+        "dto_version": {
+          "const": 1
+        },
+        "operation_id": {
+          "$ref": "#/$defs/operation_id"
+        },
+        "expected_version": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "query_id": {
+          "$ref": "#/$defs/facetquery_id"
+        },
+        "name": {
+          "$ref": "#/$defs/name"
+        },
+        "selector": {
+          "$ref": "#/$defs/selector"
+        }
+      },
+      "required": [
+        "dto_version",
+        "operation_id",
+        "expected_version",
+        "query_id",
+        "name",
+        "selector"
+      ],
+      "additionalProperties": false
+    },
+    "facet_query_archive_request": {
+      "type": "object",
+      "properties": {
+        "dto_version": {
+          "const": 1
+        },
+        "operation_id": {
+          "$ref": "#/$defs/operation_id"
+        },
+        "expected_version": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "query_id": {
+          "$ref": "#/$defs/facetquery_id"
+        }
+      },
+      "required": [
+        "dto_version",
+        "operation_id",
+        "expected_version",
+        "query_id"
+      ],
+      "additionalProperties": false
+    },
+    "facet_query_attach_request": {
+      "type": "object",
+      "properties": {
+        "dto_version": {
+          "const": 1
+        },
+        "operation_id": {
+          "$ref": "#/$defs/operation_id"
+        },
+        "expected_version": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "page_id": {
+          "$ref": "#/$defs/page_id"
+        },
+        "expected_revision_id": {
+          "$ref": "#/$defs/revision_id"
+        },
+        "query_id": {
+          "$ref": "#/$defs/facetquery_id"
+        },
+        "expected_query_version": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        }
+      },
+      "required": [
+        "dto_version",
+        "operation_id",
+        "expected_version",
+        "page_id",
+        "expected_revision_id",
+        "query_id",
+        "expected_query_version"
+      ],
+      "additionalProperties": false
+    },
+    "publication_attachment_request": {
+      "type": "object",
+      "properties": {
+        "operation_id": {
+          "$ref": "#/$defs/operation_id"
+        },
+        "page_id": {
+          "$ref": "#/$defs/page_id"
+        },
+        "query_id": {
+          "$ref": "#/$defs/facetquery_id"
+        },
+        "query_selection_version": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        },
+        "publication_id": {
+          "$ref": "#/$defs/publication_id"
+        }
+      },
+      "required": [
+        "operation_id",
+        "page_id",
+        "query_id",
+        "query_selection_version",
+        "publication_id"
+      ],
+      "additionalProperties": false,
+      "x-internal-only": true
+    },
+    "semantic_request": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "method": {
+              "const": "facet.dimension.create"
+            },
+            "arguments": {
+              "$ref": "#/$defs/facet_dimension_create_request"
+            }
+          },
+          "required": [
+            "method",
+            "arguments"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "method": {
+              "const": "facet.dimension.rename"
+            },
+            "arguments": {
+              "$ref": "#/$defs/facet_dimension_rename_request"
+            }
+          },
+          "required": [
+            "method",
+            "arguments"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "method": {
+              "const": "facet.dimension.archive"
+            },
+            "arguments": {
+              "$ref": "#/$defs/facet_dimension_archive_request"
+            }
+          },
+          "required": [
+            "method",
+            "arguments"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "method": {
+              "const": "facet.value.create"
+            },
+            "arguments": {
+              "$ref": "#/$defs/facet_value_create_request"
+            }
+          },
+          "required": [
+            "method",
+            "arguments"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "method": {
+              "const": "facet.value.rename"
+            },
+            "arguments": {
+              "$ref": "#/$defs/facet_value_rename_request"
+            }
+          },
+          "required": [
+            "method",
+            "arguments"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "method": {
+              "const": "facet.value.archive"
+            },
+            "arguments": {
+              "$ref": "#/$defs/facet_value_archive_request"
+            }
+          },
+          "required": [
+            "method",
+            "arguments"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "method": {
+              "const": "facet.assignment.patch"
+            },
+            "arguments": {
+              "$ref": "#/$defs/facet_assignment_patch_request"
+            }
+          },
+          "required": [
+            "method",
+            "arguments"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "method": {
+              "const": "facet.query.create"
+            },
+            "arguments": {
+              "$ref": "#/$defs/facet_query_create_request"
+            }
+          },
+          "required": [
+            "method",
+            "arguments"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "method": {
+              "const": "facet.query.update"
+            },
+            "arguments": {
+              "$ref": "#/$defs/facet_query_update_request"
+            }
+          },
+          "required": [
+            "method",
+            "arguments"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "method": {
+              "const": "facet.query.archive"
+            },
+            "arguments": {
+              "$ref": "#/$defs/facet_query_archive_request"
+            }
+          },
+          "required": [
+            "method",
+            "arguments"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "method": {
+              "const": "facet.query.attach"
+            },
+            "arguments": {
+              "$ref": "#/$defs/facet_query_attach_request"
+            }
+          },
+          "required": [
+            "method",
+            "arguments"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "method": {
+              "const": "facet.query.attach.publication"
+            },
+            "arguments": {
+              "$ref": "#/$defs/publication_attachment_request"
+            }
+          },
+          "required": [
+            "method",
+            "arguments"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "receipt": {
+      "type": "object",
+      "properties": {
+        "dto_version": {
+          "const": 1
+        },
+        "status": {
+          "enum": [
+            "applied",
+            "unchanged"
+          ]
+        },
+        "operation_id": {
+          "$ref": "#/$defs/operation_id"
+        },
+        "subject_id": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/facetdim_id"
+            },
+            {
+              "$ref": "#/$defs/facetval_id"
+            },
+            {
+              "$ref": "#/$defs/facetquery_id"
+            },
+            {
+              "$ref": "#/$defs/source_id"
+            },
+            {
+              "$ref": "#/$defs/page_id"
+            }
+          ]
+        },
+        "version": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "event_id": {
+          "anyOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/facetevent_id"
+            }
+          ]
+        }
+      },
+      "required": [
+        "dto_version",
+        "status",
+        "operation_id",
+        "subject_id",
+        "version",
+        "event_id"
+      ],
+      "additionalProperties": false
+    },
+    "operation": {
+      "type": "object",
+      "properties": {
+        "operation_id": {
+          "$ref": "#/$defs/operation_id"
+        },
+        "principal_id": {
+          "$ref": "#/$defs/principal_id"
+        },
+        "request_sha256": {
+          "$ref": "#/$defs/digest"
+        },
+        "request_json": {
+          "$ref": "#/$defs/semantic_request"
+        },
+        "receipt_json": {
+          "$ref": "#/$defs/receipt"
+        },
+        "event_id": {
+          "anyOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/facetevent_id"
+            }
+          ]
+        }
+      },
+      "required": [
+        "operation_id",
+        "principal_id",
+        "request_sha256",
+        "request_json",
+        "receipt_json",
+        "event_id"
+      ],
+      "additionalProperties": false
+    },
+    "events_sidecar": {
+      "type": "object",
+      "properties": {
+        "schema_version": {
+          "const": 1
+        },
+        "brain_id": {
+          "$ref": "#/$defs/brain_id"
+        },
+        "events": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/event"
+          },
+          "minItems": 0,
+          "uniqueItems": true
+        }
+      },
+      "required": [
+        "schema_version",
+        "brain_id",
+        "events"
+      ],
+      "additionalProperties": false
+    },
+    "operations_sidecar": {
+      "type": "object",
+      "properties": {
+        "schema_version": {
+          "const": 1
+        },
+        "brain_id": {
+          "$ref": "#/$defs/brain_id"
+        },
+        "operations": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/operation"
+          },
+          "minItems": 0,
+          "uniqueItems": true
+        }
+      },
+      "required": [
+        "schema_version",
+        "brain_id",
+        "operations"
+      ],
+      "additionalProperties": false
+    },
+    "replay_state": {
+      "type": "object",
+      "properties": {
+        "schema_version": {
+          "const": 1
+        },
+        "brain_id": {
+          "$ref": "#/$defs/brain_id"
+        },
+        "dimensions": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/dimension_row"
+          },
+          "minItems": 0,
+          "uniqueItems": true
+        },
+        "values": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/value_row"
+          },
+          "minItems": 0,
+          "uniqueItems": true
+        },
+        "subjects": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/subject_row"
+          },
+          "minItems": 0,
+          "uniqueItems": true
+        },
+        "assignments": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/assignment_row"
+          },
+          "minItems": 0,
+          "uniqueItems": true
+        },
+        "queries": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/query_row"
+          },
+          "minItems": 0,
+          "uniqueItems": true
+        },
+        "page_queries": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/attachment_row"
+          },
+          "minItems": 0,
+          "uniqueItems": true
+        }
+      },
+      "required": [
+        "schema_version",
+        "brain_id",
+        "dimensions",
+        "values",
+        "subjects",
+        "assignments",
+        "queries",
+        "page_queries"
+      ],
+      "additionalProperties": false
+    },
+    "state_sidecar": {
+      "$ref": "#/$defs/replay_state"
+    },
+    "portable_assertion": {
+      "type": "object",
+      "properties": {
+        "events": {
+          "$ref": "#/$defs/events_sidecar"
+        },
+        "operations": {
+          "$ref": "#/$defs/operations_sidecar"
+        },
+        "state": {
+          "$ref": "#/$defs/state_sidecar"
+        }
+      },
+      "required": [
+        "events",
+        "operations",
+        "state"
+      ],
+      "additionalProperties": false
+    },
+    "membership": {
+      "type": "object",
+      "properties": {
+        "value_id": {
+          "$ref": "#/$defs/facetval_id"
+        },
+        "membership_version": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        }
+      },
+      "required": [
+        "value_id",
+        "membership_version"
+      ],
+      "additionalProperties": false
+    },
+    "facet_source_state": {
+      "type": "object",
+      "properties": {
+        "source_id": {
+          "$ref": "#/$defs/source_id"
+        },
+        "capture_id": {
+          "$ref": "#/$defs/capture_id"
+        },
+        "head_version": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        },
+        "memberships": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/membership"
+          },
+          "minItems": 1,
+          "uniqueItems": true,
+          "maxItems": 32
+        }
+      },
+      "required": [
+        "source_id",
+        "capture_id",
+        "head_version",
+        "memberships"
+      ],
+      "additionalProperties": false
+    },
+    "review_binding_v5": {
+      "type": "object",
+      "properties": {
+        "actor_id": {
+          "$ref": "#/$defs/actor_id"
+        },
+        "expected_page_sha256": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/digest"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "expected_publication_id": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/publication_id"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "operation": {
+          "enum": [
+            "create",
+            "update"
+          ]
+        },
+        "page_id": {
+          "$ref": "#/$defs/page_id"
+        },
+        "proposal_id": {
+          "$ref": "#/$defs/proposal_id"
+        },
+        "provenance": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/capture_id"
+          },
+          "minItems": 1,
+          "maxItems": 32,
+          "uniqueItems": true
+        },
+        "recorded_at": {
+          "$ref": "#/$defs/timestamp"
+        },
+        "review_digest": {
+          "$ref": "#/$defs/digest"
+        },
+        "role_claim": {
+          "$ref": "#/$defs/role_claim"
+        },
+        "schema_version": {
+          "const": 5
+        },
+        "selected_capture_ids": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/capture_id"
+          },
+          "minItems": 1,
+          "maxItems": 32,
+          "uniqueItems": true
+        },
+        "source_states": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 32,
+          "items": {
+            "type": "object",
+            "properties": {
+              "capture_id": {
+                "$ref": "#/$defs/capture_id"
+              },
+              "route_id": {
+                "oneOf": [
+                  {
+                    "$ref": "#/$defs/route_id"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "sha256": {
+                "$ref": "#/$defs/digest"
+              },
+              "space_id": {
+                "anyOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/$defs/space_id"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "capture_id",
+              "route_id",
+              "sha256",
+              "space_id"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "tenant_id": {
+          "$ref": "#/$defs/tenant_id"
+        },
+        "selection_kind": {
+          "const": "facet"
+        },
+        "destination_space_id": {
+          "$ref": "#/$defs/space_id"
+        },
+        "query_id": {
+          "$ref": "#/$defs/facetquery_id"
+        },
+        "query_version": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        },
+        "query_selection_version": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        },
+        "selector": {
+          "$ref": "#/$defs/selector"
+        },
+        "attachment_version": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "facet_source_states": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/facet_source_state"
+          },
+          "minItems": 1,
+          "uniqueItems": true,
+          "maxItems": 32
+        }
+      },
+      "required": [
+        "actor_id",
+        "expected_page_sha256",
+        "expected_publication_id",
+        "operation",
+        "page_id",
+        "proposal_id",
+        "provenance",
+        "recorded_at",
+        "review_digest",
+        "role_claim",
+        "schema_version",
+        "selected_capture_ids",
+        "source_states",
+        "tenant_id",
+        "selection_kind",
+        "destination_space_id",
+        "query_id",
+        "query_version",
+        "query_selection_version",
+        "selector",
+        "attachment_version",
+        "facet_source_states"
+      ],
+      "additionalProperties": false
+    }
+  }
+}

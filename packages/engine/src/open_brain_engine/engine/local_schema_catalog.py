@@ -2,6 +2,7 @@
 
 from open_brain_engine.storage.migrations import Migration, _migration
 
+from .facet_schema_migration import FACET_MIGRATION
 from .historical_compatibility_schema import HISTORICAL_STORED_V2_BOUNDS
 from .historical_schema import HISTORICAL_AUTHORITY_SCHEMA
 from .source_schema import SOURCE_HISTORY_SCHEMA
@@ -1561,3 +1562,5 @@ HISTORICAL_COMPATIBILITY_SCHEMA = (
 LOCAL_MIGRATIONS += (
     _migration(14, "historical_retained_compatibility", HISTORICAL_COMPATIBILITY_SCHEMA),
 )
+
+LOCAL_MIGRATIONS += (FACET_MIGRATION,)

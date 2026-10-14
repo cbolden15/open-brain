@@ -3301,3 +3301,226 @@ CLI recovery followed by schema14 migration, documentation matrix and desktop
 handshake acceptance with old/fractional/unknown versions refused.
 
 Discovered: 2026-10-05, exact full gate and independent final review.
+
+### FACETS-001: Wire history and Portable evidence share canonical values
+
+Symptom: A valid facet event fails public history validation, or a saved selector changes bytes
+between wire and evidence validators.
+
+Cause: Copying the T03 timestamp rule loses the six fractional digits used by canonical engine
+events. Validating selector set membership alone also accepts unsorted response arrays.
+
+Fix: Preserve canonical event timestamps (`YYYY-MM-DDTHH:MM:SS.ffffffZ`) and sorted unique selector
+arrays across both contracts. Run `test_facet_contract_integration.py` against the shared fixtures
+when changing either schema. Empty optional selector filters still mean unrestricted.
+
+Discovered: 2026-10-13, C0 cross-contract review and independent boundary tests.
+
+### FACETS-002: Type-check the concrete fake against each protocol
+
+Category: Type Safety.
+
+Symptom: Fake-based tests pass, but strict mypy rejects a chained identity assertion between
+three distinct protocol types or a redundant generic-response cast.
+
+Action: Assign the concrete fake to each protocol separately and compare each assignment with
+the concrete instance. Let `isinstance` narrow the generic response. Run the combined repository
+type check after integrating independently typed workers, before the full test/build gate.
+
+Discovered: 2026-10-13, first integrated C0 type check; production exports were unaffected.
+
+### TESTING-003: Contributor-guide rows are checked by product-boundary tests
+
+Symptom: The full suite fails in `test_contributor_guide_describes_the_foreground_only_boundary`
+after the CLI and installed-entrypoint rows disappear from `CLAUDE.md`.
+
+Action: Keep those accurate quick-reference rows when shortening contributor instructions, and
+run `tests/security/test_open_brain_product_split.py` after changing the guide. C0 verification
+found this pre-existing drift and restored the rows without weakening the boundary assertions.
+
+Discovered: 2026-10-13.
+
+### PORTABLE-003: Historical format documentation is not the current import boundary
+
+Symptom: A feature assessment treats clean Portable import as missing because the v4 document
+states that v4 import is refused.
+
+Cause: Version-specific documents and package instructions retain older compatibility boundaries.
+The current implementation supports clean v5 import while still refusing standalone v4 import.
+
+Fix: Check the latest Portable document and `PortabilityTask.import_clean` before scoping format
+work. Extend the current supported round-trip path and derive schema/runtime requirements from
+current source; do not infer them from an older milestone document.
+
+Discovered: 2026-10-13, facet architecture assessment for issue #78.
+
+### FACETS-004: Portable-first imports must not initialize the engine
+
+Category: Dependencies.
+
+Symptom: Focused tests pass, but full-suite collection fails while importing Portable v6.
+
+Cause: A top-level import of an engine facet validator initializes engine/__init__.py, which
+loads local composition and imports the partially initialized Portable module again.
+
+Fix: Defer engine validation imports until Portable validation executes. Keep subprocess tests
+for Portable-first, engine-first, and version-dispatch import order. Collection order is not a
+valid dependency boundary. Discovered during the first stage-one integrated full gate, 2026-10-13.
+
+### FACETS-005: MCP discovery applies two authorization filters
+
+Symptom: The injected facet adapter advertises a granted write, but MCP discovery returns only
+brain_catalog and rejects the authorized call as unknown.
+
+Cause: LocalMcpAdapter applies its own scoped operation matrix after collecting adapter tools.
+
+Fix: Route facet names through the injected adapter's capability intersection in both discovery
+and invocation. Keep real-engine grant tests alongside fake transport tests. The independent F15
+suite found this integration gap on 2026-10-13.
+
+### TESTING-004: Shared virtualenv subprocesses can load a different worktree
+
+Symptom: Focused in-process tests pass, while managed-recovery subprocesses reject a schema
+checksum that belongs to the worker's current code.
+
+Cause: Pytest adds the worker's source roots, but a child Python launched through the coordinator's
+editable virtualenv resolves packages from the coordinator checkout.
+
+Fix: Give worker subprocess checks explicit absolute source roots in `PYTHONPATH`, or use an
+isolated worker virtualenv. Keep full candidate verification in its own worktree and environment.
+Four V recovery cases failed with mixed imports and passed with the V source roots on 2026-10-13.
+
+### FACETS-006: Store reads already hold a snapshot transaction
+
+Symptom: Facet publication inspection fails with “cannot start a transaction within a transaction.”
+
+Cause: The store connection starts its read transaction before the facet inspection path calls
+`BEGIN` again.
+
+Fix: Use the existing snapshot when it is active. Test inspection through the real store; an
+in-memory fixture connection does not reproduce this boundary. Independent F09–F14 checks
+found the publication path failure on 2026-10-13.
+
+### FACETS-007: Wire limits include both MCP response representations
+
+Symptom: A Unicode-heavy facet page fits its DTO limit but the actual MCP response is more than
+twice that size. A large JSON-RPC request ID can also make a small mutation's receipt exceed its cap.
+
+Cause: MCP encodes the result in both text content and structured content, with ASCII escaping.
+Counting only parsed arguments also omits request metadata, whitespace and the request ID.
+
+Fix: Pass the real raw request size through stdio, reserve a bounded complete receipt before
+mutation, and give an immutable engine task clone the actual response encoder for pagination.
+Keep the requested limit in cursor binding. Independent wire tests found these cases on 2026-10-13.
+
+### FACETS-008: Source routing follows proven revision lineage
+
+Symptom: Publication from a routed source successor succeeds, but Portable export rejects its
+frozen source state because the successor's immutable capture has no route of its own.
+
+Cause: Logical source space can be inherited from an ancestor. Route supersession chains are
+per capture, so the latest logical route also needs the proven source revision sequence.
+
+Fix: Bind current publication evidence to the newest routed revision's chain tip. Validate
+historical bindings against retained source lineage, route order, destination and proposal time.
+Keep legacy binding validation unchanged. Real successor/export acceptance exposed this on 2026-10-13.
+
+### FACETS-009: A no-op receipt still needs reachable history
+
+Symptom: Rehashed Portable evidence can claim an impossible unchanged version or membership.
+
+Cause: A no-op has no event, but syntactic receipt validation alone cannot prove it was possible.
+
+Fix: Require the unchanged request and receipt to match one reachable historical event boundary.
+Test the importer with a tampered, rehashed real export and assert rejection before writes.
+Independent stage-one review found this on 2026-10-13; contract revision v4 contains the correction.
+
+### OBSIDIAN-001: Materialization does not establish retained file identity
+
+Symptom: A freshly refreshed canonical note has no observation baseline for trusted resolution.
+An atomic editor save also replaces the inode even when content is unchanged.
+
+Cause: Stage 1 managed materialization and explicit observation are separate operations. A
+path-to-note SQL lookup or editable frontmatter alone cannot prove custody.
+
+Fix: Require explicit observation and compare retained device/inode/link identity with confined
+reads and accepted/current canonical bytes. Return unavailable when stale. Do not silently use
+reconcile to recover identity because it also accepts content. O0 real tests cover both cases.
+
+### TESTING-005: JSON fixture producer boundaries need explicit types and paths
+
+Category: Type Safety / Build Pipeline. O0 fixture authoring exposed a `no-any-return` error
+after JSON-normalizing a real dataclass response, plus an incorrect fixture root ancestor.
+
+Fix: Give the normalized producer return an explicit checked contract type, resolve temporary
+roots before engine creation on macOS, and run the generated-fixture/hash test from each worktree.
+Full repository mypy and plugin build are the prevention checks. No production types were loosened.
+
+### OBSIDIAN-002: Inspection excerpt and source checksums describe different bytes
+
+Symptom: The closed plugin inspection parser accepts synthetic bindings but rejects a real
+publication inspection because its two SHA-256 values differ.
+
+Cause: `ReviewEvidence.sha256` hashes the displayed excerpt; the v5 binding's source state
+hashes the immutable source. Equality is not part of the engine contract.
+
+Fix: Preserve both checksums and validate their grammar independently. Match evidence to
+provenance by capture identity/order. Keep a fixture from the real inspection producer in the
+TypeScript suite; independent O0 tests exposed this on 2026-10-13.
+
+### COMPAT-002: Concurrent features cannot share migration or Portable versions
+
+Category: Database/Migrations.
+
+Symptom: A branch and main independently assign schema11/Portable6 to different formats.
+Textual conflict resolution alone leaves a runtime that loses one feature or misreads evidence.
+
+Action: Preserve the published main catalogs and append new versions. Facets now use
+schema15/runtime10/Portable10 over main14/9/9. Trace registration, recovery closures,
+historical snapshot admission, native smoke requirements and strict client handshakes.
+Use real mixed-history restore and policy tests; adapter fakes cannot prove these boundaries.
+Keep earlier verification pins as historical evidence and reverify the integrated candidate.
+
+Discovered: 2026-10-13, PR79 reconciliation.
+
+### FACETS-013: Frozen executables need engine schema resources
+
+Category: Build Pipeline.
+
+Symptom: Source tests pass while the frozen core cannot import facet validation.
+
+Action: Include both facet_schema.json and facet_evidence_schema.json in the native
+spec. Native core and optional harness share that data closure. Run the actual native
+audit and Homebrew smoke after adding import-time JSON resources; source builds do
+not prove frozen resource availability. Independent PR79 review reproduced the omission.
+
+Discovered: 2026-10-13.
+
+### FACETS-014: Reconcile current policy before retaining old feature expectations
+
+Category: Type Safety.
+
+Action: Preserve main eligibility and custody semantics when combining facet work: current
+canonical targets with withdrawn or superseded provenance stay hidden, owner historical
+inspection remains separate, and ordinary pending ingress is retained in Portable custody.
+Use concrete typed request DTOs in tests and the full shared MCP signature for harness
+adapters. Run full typecheck after integration and verify on a fixed commit; harness
+acceptance fingerprints intentionally reject source edits during a test run.
+
+Discovered: 2026-10-13, integrated PR79 tests and typecheck.
+
+### FACETS-015: Check historical settlement inside additive migrations
+
+Category: Database/Migrations.
+
+Symptom: Startup runs schema migration before its ordinary historical settlement
+check. An appended migration can therefore raise the writer floor while independent
+historical authority is pending or missing.
+
+Action: Check historical snapshot settlement inside the migration transaction before
+DDL and again before commit. Revalidate runtime admission and foreign keys. Exercise
+pending, missing and changed registry cases and assert exact database bytes and the
+old schema remain unchanged on refusal. Independent PR79 review reproduced both
+pre-migration bypasses and verified the corrected behavior.
+
+Discovered: 2026-10-13.

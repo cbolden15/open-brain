@@ -37,6 +37,7 @@ class StdioMcpAdapter(Protocol):
         *,
         request_id: object = 0,
         maximum_response_bytes: int = 1_048_576,
+        encoded_request_size: int | None = None,
     ) -> dict[str, object]: ...
 
 
@@ -157,6 +158,7 @@ def _handle_message(
                 params,
                 adapter,
                 maximum_response_bytes=maximum_response_bytes,
+                encoded_request_size=len(line),
             ),
             initialized,
         )
@@ -210,6 +212,7 @@ def _call_tool_response(
     adapter: StdioMcpAdapter,
     *,
     maximum_response_bytes: int,
+    encoded_request_size: int | None = None,
 ) -> dict[str, object]:
     if set(params) != {"name", "arguments"}:
         return _error_response(request_id, -32602, "invalid params")
@@ -223,6 +226,7 @@ def _call_tool_response(
             arguments,
             request_id=request_id,
             maximum_response_bytes=maximum_response_bytes,
+            encoded_request_size=encoded_request_size,
         )
     except McpCallError as exc:
         message = str(exc)
@@ -262,6 +266,12 @@ def _call_tool_response(
             "model_unavailable",
             "projection_stale",
             "invalid_arguments",
+            "name_conflict",
+            "version_conflict",
+            "facet_archived",
+            "query_archived",
+            "limit_exceeded",
+            "projection_conflict",
             "unsupported_capability",
             "incompatible_runtime",
         }:

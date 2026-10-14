@@ -86,7 +86,9 @@ def manifest_v4(
     }
 
 
-def validate_portable_file_set_v4(files: Mapping[str, bytes], *, tenant_id: str) -> None:
+def validate_portable_file_set_v4(
+    files: Mapping[str, bytes], *, tenant_id: str, allow_facet_bindings: bool = False
+) -> None:
     payload = files.get(SOURCE_METADATA_PATH)
     if payload is None:
         raise PortableValidationError("source metadata missing")
@@ -108,7 +110,12 @@ def validate_portable_file_set_v4(files: Mapping[str, bytes], *, tenant_id: str)
         if any(p.startswith("history/managed-workspace/") for p in base)
         else validate_portable_file_set
     )
-    validator(base, tenant_id=tenant_id)
+    if validator is validate_portable_file_set_v3:
+        validate_portable_file_set_v3(
+            base, tenant_id=tenant_id, allow_facet_bindings=allow_facet_bindings
+        )
+    else:
+        validator(base, tenant_id=tenant_id)
     captures = {
         json.loads(data)["capture_id"]: (path, sha256(data).hexdigest())
         for path, data in base.items()

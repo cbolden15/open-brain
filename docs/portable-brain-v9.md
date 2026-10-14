@@ -1,6 +1,6 @@
 # Portable Brain v9
 
-The current unreleased historical compatibility candidate uses local schema 14,
+The historical compatibility predecessor uses local schema 14,
 runtime session 9 and Portable9. Product version `0.1.0` does not establish these
 coordinates or release acceptance. Use the exact artifact and catalog. Schema 13,
 runtime 8 and [Portable8](portable-brain-v8.md) retain their frozen meanings.

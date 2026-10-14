@@ -212,12 +212,12 @@ class V5RestoreBundle:
                     )
                 ),
             )
-        if self.snapshot.manifest["schema_version"] in {6, 7, 8, 9}:
+        if self.snapshot.manifest["schema_version"] in {6, 7, 8, 9, 10}:
             from open_brain_engine.portable.v6 import validate_source_authority
 
             from .portable_v6_authority import restore_source_authority
 
-            if self.snapshot.manifest["schema_version"] == 9:
+            if self.snapshot.manifest["schema_version"] in {9, 10}:
                 from open_brain_engine.portable.v9 import validate_source_authority_v9
 
                 authority = validate_source_authority_v9(files)
@@ -228,7 +228,7 @@ class V5RestoreBundle:
             else:
                 authority = validate_source_authority(files)
             restore_source_authority(connection, authority)
-        if self.snapshot.manifest["schema_version"] in {7, 8, 9}:
+        if self.snapshot.manifest["schema_version"] in {7, 8, 9, 10}:
             from open_brain_engine.portable.v7 import validate_sharing_authority
 
             from .portable_v7_authority import restore_sharing_authority
@@ -284,7 +284,7 @@ class V5RestoreBundle:
             connection,
             profile=profile,
             snapshot=self.snapshot,
-            _historical_installed=self.snapshot.manifest["schema_version"] not in {8, 9},
+            _historical_installed=self.snapshot.manifest["schema_version"] not in {8, 9, 10},
         )
 
 
@@ -395,7 +395,7 @@ def _audit_connection(
         raise ValueError("v5 restored database reference mismatch")
     if canonical(source_metadata(connection)) != snapshot.files[SOURCE_METADATA_PATH]:
         raise ValueError("v5 restored source metadata mismatch")
-    if snapshot.manifest["schema_version"] in {6, 7, 8, 9}:
+    if snapshot.manifest["schema_version"] in {6, 7, 8, 9, 10}:
         from .portable_v6_authority import (
             _source_authority_metadata,
             _source_authority_sidecars,
@@ -408,7 +408,7 @@ def _audit_connection(
             ).items()
         ):
             raise ValueError("v6 restored source authority mismatch")
-    if snapshot.manifest["schema_version"] in {7, 8, 9}:
+    if snapshot.manifest["schema_version"] in {7, 8, 9, 10}:
         from open_brain_engine.portable.v7 import SHARING_APPROVALS_PATH
 
         from .portable_v7_authority import _sharing_authority_metadata
@@ -561,6 +561,22 @@ def restored_portable_semantic_state(
             relationship_sidecar_present=relationship_present,
         )
     require_historical_snapshot_settled(connection, profile)
+    if historical_installed and version == 15 and snapshot.manifest["schema_version"] in {8, 9, 10}:
+        if snapshot.manifest["schema_version"] == 10:
+            from .portable_v10_evidence import serialize_portable_v10_state
+
+            return serialize_portable_v10_state(
+                connection, profile, relationship_sidecar_present=relationship_present
+            )
+        from .portable_v9_authority import _serialize_historical_state
+
+        return _serialize_historical_state(
+            connection,
+            profile,
+            relationship_sidecar_present=relationship_present,
+            portable_version=snapshot.manifest["schema_version"],
+            expected_schema=15,
+        )
     if snapshot.manifest["schema_version"] == 9 and historical_installed:
         from .portable_v9_authority import serialize_portable_v9_state
 

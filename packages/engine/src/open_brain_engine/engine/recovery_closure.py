@@ -23,6 +23,10 @@ from open_brain_engine.portable.v9 import (
     PORTABLE_V9_SCHEMA_CATALOG_DIGEST,
     validate_portable_file_set_v9,
 )
+from open_brain_engine.portable.v10 import (
+    PORTABLE_V10_SCHEMA_CATALOG_DIGEST,
+    validate_portable_file_set_v10,
+)
 
 from .recovery_journal import (
     MAX_RECOVERY_DEPENDENCIES,
@@ -42,10 +46,15 @@ class RecoveryClosureBounds:
     max_journal_bytes: int
 
     def __post_init__(self) -> None:
-        if any(type(value) is not int or value <= 0 for value in (
-            self.max_baseline_files, self.max_baseline_bytes,
-            self.max_records, self.max_journal_bytes,
-        )):
+        if any(
+            type(value) is not int or value <= 0
+            for value in (
+                self.max_baseline_files,
+                self.max_baseline_bytes,
+                self.max_records,
+                self.max_journal_bytes,
+            )
+        ):
             raise ValueError("invalid recovery closure bounds")
 
 
@@ -53,7 +62,7 @@ class RecoveryClosureBounds:
 class RecoveryClosure:
     """Immutable complete bytes bound to a caller-authenticated exact head.
 
-    Construction checks exact Portable8/9 semantics and hash/dependency closure only.
+    Construction checks exact Portable8/9/10 semantics and hash/dependency closure only.
     Every journal operation still needs its own typed semantic replay validator;
     a recognized record kind is not proof that its payload can be recovered.
     Authenticate the latest head and baseline independently, never from this
@@ -82,8 +91,10 @@ class RecoveryClosure:
         size = 0
         previous = ""
         for entry in self.baseline_files:
-            if type(entry) is not tuple or len(entry) != 2 or (
-                type(entry[0]) is not str or type(entry[1]) is not bytes
+            if (
+                type(entry) is not tuple
+                or len(entry) != 2
+                or (type(entry[0]) is not str or type(entry[1]) is not bytes)
             ):
                 raise ValueError("invalid recovery baseline entry")
             path, raw = entry
@@ -108,7 +119,9 @@ class RecoveryClosure:
                 raise ValueError("recovery journal exceeds byte bounds")
         self._validate_baseline()
         verify_recovery_chain(
-            self.expected_head.baseline, self.records, expected_head=self.expected_head,
+            self.expected_head.baseline,
+            self.records,
+            expected_head=self.expected_head,
             dependency_payloads=self.dependency_payloads,
         )
 
@@ -123,11 +136,12 @@ class RecoveryClosure:
             if type(manifest) is not dict or canonical(manifest) != raw:
                 raise ValueError("invalid recovery baseline manifest")
             version = manifest.get("schema_version")
-            if type(version) is not int or version not in {8, 9}:
+            if type(version) is not int or version not in {8, 9, 10}:
                 raise ValueError("unsupported recovery baseline version")
             catalog, validator = {
                 8: (PORTABLE_V8_SCHEMA_CATALOG_DIGEST, validate_portable_file_set_v8),
                 9: (PORTABLE_V9_SCHEMA_CATALOG_DIGEST, validate_portable_file_set_v9),
+                10: (PORTABLE_V10_SCHEMA_CATALOG_DIGEST, validate_portable_file_set_v10),
             }[version]
             inventory = _manifest(manifest, version=version, catalog=catalog)
             if inventory != {path: sha256(body).hexdigest() for path, body in files.items()}:
@@ -145,10 +159,17 @@ class RecoveryClosure:
     def closure_sha256(self) -> str:
         """Commit actual validated inventories, order and head, not durability."""
         head = self.expected_head
-        return sha256(b"open-brain-recovery-closure.v1\0" + canonical({
-            "baseline": head.baseline.value(),
-            "head": {"sequence": head.sequence, "record_sha256": head.record_sha256},
-            "files": [[path, sha256(raw).hexdigest()] for path, raw in self.baseline_files],
-            "records": [record.record_sha256 for record in self.records],
-            "dependencies": sorted(sha256(raw).hexdigest() for raw in self.dependency_payloads),
-        })).hexdigest()
+        return sha256(
+            b"open-brain-recovery-closure.v1\0"
+            + canonical(
+                {
+                    "baseline": head.baseline.value(),
+                    "head": {"sequence": head.sequence, "record_sha256": head.record_sha256},
+                    "files": [[path, sha256(raw).hexdigest()] for path, raw in self.baseline_files],
+                    "records": [record.record_sha256 for record in self.records],
+                    "dependencies": sorted(
+                        sha256(raw).hexdigest() for raw in self.dependency_payloads
+                    ),
+                }
+            )
+        ).hexdigest()

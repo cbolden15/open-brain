@@ -65,8 +65,9 @@ class HarnessMcpAdapter:
         *,
         request_id: object = 0,
         maximum_response_bytes: int = 65_536,
+        encoded_request_size: int | None = None,
     ) -> dict[str, object]:
-        del request_id
+        del request_id, encoded_request_size
         if name == "brain_search_page" and set(arguments) <= {"query", "limit"}:
             action = "search"
             query = arguments.get("query")

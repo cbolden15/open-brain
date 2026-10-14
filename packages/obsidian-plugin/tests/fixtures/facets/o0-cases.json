@@ -1,0 +1,762 @@
+{
+  "contract_revision": "obsidian-o0-v1",
+  "handshake": {
+    "protocol": "open-brain-client",
+    "protocol_version": 1,
+    "status": "ok",
+    "desktop_only": true,
+    "product_version": "0.1.0",
+    "operations": [
+      "facet.dimension.list",
+      "facet.dimension.create",
+      "facet.dimension.rename",
+      "facet.dimension.archive",
+      "facet.value.list",
+      "facet.value.create",
+      "facet.value.rename",
+      "facet.value.archive",
+      "facet.assignment.get",
+      "facet.assignment.patch",
+      "facet.query.list",
+      "facet.query.get",
+      "facet.query.create",
+      "facet.query.update",
+      "facet.query.archive",
+      "facet.query.attach",
+      "facet.query.attachment.get",
+      "facet.query.page",
+      "facet.history.list",
+      "facet.history.state",
+      "review.propose_from_facet_query",
+      "facet.vault.preview",
+      "facet.vault.apply",
+      "workspace.record.resolve"
+    ],
+    "facet_capabilities": {
+      "version": 1,
+      "operations": [
+        {
+          "operation": "facet.assignment.get",
+          "dto_versions": [
+            1
+          ],
+          "request_bytes": 65536,
+          "response_bytes": 1048576
+        },
+        {
+          "operation": "facet.assignment.patch",
+          "dto_versions": [
+            1
+          ],
+          "request_bytes": 65536,
+          "response_bytes": 4096
+        },
+        {
+          "operation": "facet.dimension.archive",
+          "dto_versions": [
+            1
+          ],
+          "request_bytes": 65536,
+          "response_bytes": 4096
+        },
+        {
+          "operation": "facet.dimension.create",
+          "dto_versions": [
+            1
+          ],
+          "request_bytes": 65536,
+          "response_bytes": 4096
+        },
+        {
+          "operation": "facet.dimension.list",
+          "dto_versions": [
+            1
+          ],
+          "request_bytes": 65536,
+          "response_bytes": 250000
+        },
+        {
+          "operation": "facet.dimension.rename",
+          "dto_versions": [
+            1
+          ],
+          "request_bytes": 65536,
+          "response_bytes": 4096
+        },
+        {
+          "operation": "facet.history.list",
+          "dto_versions": [
+            1
+          ],
+          "request_bytes": 65536,
+          "response_bytes": 250000
+        },
+        {
+          "operation": "facet.history.state",
+          "dto_versions": [
+            1
+          ],
+          "request_bytes": 65536,
+          "response_bytes": 1048576
+        },
+        {
+          "operation": "facet.query.archive",
+          "dto_versions": [
+            1
+          ],
+          "request_bytes": 65536,
+          "response_bytes": 4096
+        },
+        {
+          "operation": "facet.query.attach",
+          "dto_versions": [
+            1
+          ],
+          "request_bytes": 65536,
+          "response_bytes": 4096
+        },
+        {
+          "operation": "facet.query.attachment.get",
+          "dto_versions": [
+            1
+          ],
+          "request_bytes": 65536,
+          "response_bytes": 1048576
+        },
+        {
+          "operation": "facet.query.create",
+          "dto_versions": [
+            1
+          ],
+          "request_bytes": 65536,
+          "response_bytes": 4096
+        },
+        {
+          "operation": "facet.query.get",
+          "dto_versions": [
+            1
+          ],
+          "request_bytes": 65536,
+          "response_bytes": 1048576
+        },
+        {
+          "operation": "facet.query.list",
+          "dto_versions": [
+            1
+          ],
+          "request_bytes": 65536,
+          "response_bytes": 250000
+        },
+        {
+          "operation": "facet.query.page",
+          "dto_versions": [
+            1
+          ],
+          "request_bytes": 65536,
+          "response_bytes": 250000
+        },
+        {
+          "operation": "facet.query.update",
+          "dto_versions": [
+            1
+          ],
+          "request_bytes": 65536,
+          "response_bytes": 4096
+        },
+        {
+          "operation": "facet.value.archive",
+          "dto_versions": [
+            1
+          ],
+          "request_bytes": 65536,
+          "response_bytes": 4096
+        },
+        {
+          "operation": "facet.value.create",
+          "dto_versions": [
+            1
+          ],
+          "request_bytes": 65536,
+          "response_bytes": 4096
+        },
+        {
+          "operation": "facet.value.list",
+          "dto_versions": [
+            1
+          ],
+          "request_bytes": 65536,
+          "response_bytes": 250000
+        },
+        {
+          "operation": "facet.value.rename",
+          "dto_versions": [
+            1
+          ],
+          "request_bytes": 65536,
+          "response_bytes": 4096
+        },
+        {
+          "operation": "facet.vault.apply",
+          "dto_versions": [
+            1
+          ],
+          "request_bytes": 65536,
+          "response_bytes": 4096
+        },
+        {
+          "operation": "facet.vault.preview",
+          "dto_versions": [
+            1
+          ],
+          "request_bytes": 65536,
+          "response_bytes": 1048576
+        },
+        {
+          "operation": "review.propose_from_facet_query",
+          "dto_versions": [
+            1
+          ],
+          "request_bytes": 1048576,
+          "response_bytes": 4096
+        },
+        {
+          "operation": "workspace.record.resolve",
+          "dto_versions": [
+            1
+          ],
+          "request_bytes": 65536,
+          "response_bytes": 1048576
+        }
+      ]
+    }
+  },
+  "managed_request": {
+    "dto_version": 1,
+    "workspace_id": "workspace_00000000-0000-4000-8000-000000000002",
+    "relative_path": "Notes/研究.md"
+  },
+  "publication_inspections": [
+    {
+      "proposal_id": "proposal_bf19afe9-48df-4865-9806-7bb304af2e11",
+      "title": "Synthetic O0 publication",
+      "markdown": "Synthetic evidence: café.",
+      "space_id": "space_79016700-5c76-4cba-b457-e2398ae3a071",
+      "page_id": "page_4d13bf18-e256-4822-9412-7d612bdc19b4",
+      "target_page_id": null,
+      "operation": "create",
+      "capture_ids": [
+        "capture_e33e3372-342b-4aba-b765-f0e9945ad291"
+      ],
+      "selected_capture_ids": [
+        "capture_e33e3372-342b-4aba-b765-f0e9945ad291"
+      ],
+      "evidence": [
+        {
+          "capture_id": "capture_e33e3372-342b-4aba-b765-f0e9945ad291",
+          "excerpt": "Synthetic independent source",
+          "sha256": "8dfe5bea558d9d18e5d0ab518d37d8179540541fc6f43422a14786cd053a7f4d",
+          "projection_applied": false
+        }
+      ],
+      "expected_page_sha256": null,
+      "expected_publication_id": null,
+      "projection_applied": false,
+      "facet_selection": {
+        "actor_id": "actor_00000000-0000-4000-8000-000000000002",
+        "attachment_version": 0,
+        "destination_space_id": "space_79016700-5c76-4cba-b457-e2398ae3a071",
+        "expected_page_sha256": null,
+        "expected_publication_id": null,
+        "facet_source_states": [
+          {
+            "capture_id": "capture_e33e3372-342b-4aba-b765-f0e9945ad291",
+            "head_version": 1,
+            "memberships": [
+              {
+                "membership_version": 1,
+                "value_id": "facetval_a5af2f95-8a7a-429e-9a12-d5e92fc2bd73"
+              }
+            ],
+            "source_id": "source_cc27e71e-1ece-40f6-990c-c8a4b51a7560"
+          }
+        ],
+        "operation": "create",
+        "page_id": "page_4d13bf18-e256-4822-9412-7d612bdc19b4",
+        "proposal_id": "proposal_bf19afe9-48df-4865-9806-7bb304af2e11",
+        "provenance": [
+          "capture_e33e3372-342b-4aba-b765-f0e9945ad291"
+        ],
+        "query_id": "facetquery_189e1615-9e0c-4072-9656-4a82c8063454",
+        "query_selection_version": 1,
+        "query_version": 1,
+        "recorded_at": "2026-10-13T00:00:00Z",
+        "review_digest": "fbf490dd9202f5c351132cdd30c839881d56a070c41e4248b740c04b4766e0ba",
+        "role_claim": {
+          "actor_id": "actor_00000000-0000-4000-8000-000000000002",
+          "capabilities": [
+            "canonical.publish",
+            "capture.accept",
+            "space.write"
+          ],
+          "role_claim_id": "role_claim_00000000-0000-4000-8000-000000000003",
+          "role_id": "role_00000000-0000-4000-8000-000000000004",
+          "tenant_id": "tenant_00000000-0000-4000-8000-000000000001"
+        },
+        "schema_version": 5,
+        "selected_capture_ids": [
+          "capture_e33e3372-342b-4aba-b765-f0e9945ad291"
+        ],
+        "selection_kind": "facet",
+        "selector": {
+          "all_value_ids": [
+            "facetval_a5af2f95-8a7a-429e-9a12-d5e92fc2bd73"
+          ],
+          "payload_families": [],
+          "record_types": [
+            "canonical",
+            "source"
+          ],
+          "space_ids": []
+        },
+        "source_states": [
+          {
+            "capture_id": "capture_e33e3372-342b-4aba-b765-f0e9945ad291",
+            "route_id": null,
+            "sha256": "1b978ed7de9cc541425295e5f25efd868178277e375a3f2c7783f9d2920b7ab5",
+            "space_id": "space_79016700-5c76-4cba-b457-e2398ae3a071"
+          }
+        ],
+        "tenant_id": "tenant_00000000-0000-4000-8000-000000000001"
+      },
+      "review_token": "fbf490dd9202f5c351132cdd30c839881d56a070c41e4248b740c04b4766e0ba",
+      "proposal_status": "pending",
+      "status": "shown"
+    }
+  ],
+  "frames": [
+    {
+      "operation": "facet.dimension.list",
+      "result": {
+        "complete": true,
+        "dto_version": 1,
+        "items": [
+          {
+            "archived": false,
+            "dimension_id": "facetdim_00000000-0000-4000-8000-000000000001",
+            "name": "Project",
+            "version": 1
+          }
+        ],
+        "next_cursor": null,
+        "status": "ok"
+      },
+      "frame": "{\"ok\":true,\"protocol\":\"open-brain-client\",\"protocol_version\":1,\"request_id\":\"plugin_00000000-0000-4000-8000-000000000001\",\"result\":{\"complete\":true,\"dto_version\":1,\"items\":[{\"archived\":false,\"dimension_id\":\"facetdim_00000000-0000-4000-8000-000000000001\",\"name\":\"Project\",\"version\":1}],\"next_cursor\":null,\"status\":\"ok\"}}\n"
+    },
+    {
+      "operation": "facet.dimension.create",
+      "result": {
+        "dto_version": 1,
+        "event_id": "facetevent_00000000-0000-4000-8000-000000000001",
+        "operation_id": "synthetic-operation-1",
+        "status": "applied",
+        "subject_id": "facetdim_00000000-0000-4000-8000-000000000001",
+        "version": 1
+      },
+      "frame": "{\"ok\":true,\"protocol\":\"open-brain-client\",\"protocol_version\":1,\"request_id\":\"plugin_00000000-0000-4000-8000-000000000001\",\"result\":{\"dto_version\":1,\"event_id\":\"facetevent_00000000-0000-4000-8000-000000000001\",\"operation_id\":\"synthetic-operation-1\",\"status\":\"applied\",\"subject_id\":\"facetdim_00000000-0000-4000-8000-000000000001\",\"version\":1}}\n"
+    },
+    {
+      "operation": "facet.dimension.rename",
+      "result": {
+        "dto_version": 1,
+        "event_id": "facetevent_00000000-0000-4000-8000-000000000001",
+        "operation_id": "synthetic-operation-1",
+        "status": "applied",
+        "subject_id": "facetdim_00000000-0000-4000-8000-000000000001",
+        "version": 2
+      },
+      "frame": "{\"ok\":true,\"protocol\":\"open-brain-client\",\"protocol_version\":1,\"request_id\":\"plugin_00000000-0000-4000-8000-000000000001\",\"result\":{\"dto_version\":1,\"event_id\":\"facetevent_00000000-0000-4000-8000-000000000001\",\"operation_id\":\"synthetic-operation-1\",\"status\":\"applied\",\"subject_id\":\"facetdim_00000000-0000-4000-8000-000000000001\",\"version\":2}}\n"
+    },
+    {
+      "operation": "facet.dimension.archive",
+      "result": {
+        "dto_version": 1,
+        "event_id": "facetevent_00000000-0000-4000-8000-000000000001",
+        "operation_id": "synthetic-operation-1",
+        "status": "applied",
+        "subject_id": "facetdim_00000000-0000-4000-8000-000000000001",
+        "version": 2
+      },
+      "frame": "{\"ok\":true,\"protocol\":\"open-brain-client\",\"protocol_version\":1,\"request_id\":\"plugin_00000000-0000-4000-8000-000000000001\",\"result\":{\"dto_version\":1,\"event_id\":\"facetevent_00000000-0000-4000-8000-000000000001\",\"operation_id\":\"synthetic-operation-1\",\"status\":\"applied\",\"subject_id\":\"facetdim_00000000-0000-4000-8000-000000000001\",\"version\":2}}\n"
+    },
+    {
+      "operation": "facet.value.list",
+      "result": {
+        "complete": true,
+        "dto_version": 1,
+        "items": [
+          {
+            "archived": false,
+            "dimension_id": "facetdim_00000000-0000-4000-8000-000000000001",
+            "effective_archived": false,
+            "name": "Apollo",
+            "value_id": "facetval_00000000-0000-4000-8000-000000000001",
+            "version": 1
+          }
+        ],
+        "next_cursor": null,
+        "status": "ok"
+      },
+      "frame": "{\"ok\":true,\"protocol\":\"open-brain-client\",\"protocol_version\":1,\"request_id\":\"plugin_00000000-0000-4000-8000-000000000001\",\"result\":{\"complete\":true,\"dto_version\":1,\"items\":[{\"archived\":false,\"dimension_id\":\"facetdim_00000000-0000-4000-8000-000000000001\",\"effective_archived\":false,\"name\":\"Apollo\",\"value_id\":\"facetval_00000000-0000-4000-8000-000000000001\",\"version\":1}],\"next_cursor\":null,\"status\":\"ok\"}}\n"
+    },
+    {
+      "operation": "facet.value.create",
+      "result": {
+        "dto_version": 1,
+        "event_id": "facetevent_00000000-0000-4000-8000-000000000001",
+        "operation_id": "synthetic-operation-1",
+        "status": "applied",
+        "subject_id": "facetval_00000000-0000-4000-8000-000000000001",
+        "version": 1
+      },
+      "frame": "{\"ok\":true,\"protocol\":\"open-brain-client\",\"protocol_version\":1,\"request_id\":\"plugin_00000000-0000-4000-8000-000000000001\",\"result\":{\"dto_version\":1,\"event_id\":\"facetevent_00000000-0000-4000-8000-000000000001\",\"operation_id\":\"synthetic-operation-1\",\"status\":\"applied\",\"subject_id\":\"facetval_00000000-0000-4000-8000-000000000001\",\"version\":1}}\n"
+    },
+    {
+      "operation": "facet.value.rename",
+      "result": {
+        "dto_version": 1,
+        "event_id": "facetevent_00000000-0000-4000-8000-000000000001",
+        "operation_id": "synthetic-operation-1",
+        "status": "applied",
+        "subject_id": "facetval_00000000-0000-4000-8000-000000000001",
+        "version": 2
+      },
+      "frame": "{\"ok\":true,\"protocol\":\"open-brain-client\",\"protocol_version\":1,\"request_id\":\"plugin_00000000-0000-4000-8000-000000000001\",\"result\":{\"dto_version\":1,\"event_id\":\"facetevent_00000000-0000-4000-8000-000000000001\",\"operation_id\":\"synthetic-operation-1\",\"status\":\"applied\",\"subject_id\":\"facetval_00000000-0000-4000-8000-000000000001\",\"version\":2}}\n"
+    },
+    {
+      "operation": "facet.value.archive",
+      "result": {
+        "dto_version": 1,
+        "event_id": "facetevent_00000000-0000-4000-8000-000000000001",
+        "operation_id": "synthetic-operation-1",
+        "status": "applied",
+        "subject_id": "facetval_00000000-0000-4000-8000-000000000001",
+        "version": 2
+      },
+      "frame": "{\"ok\":true,\"protocol\":\"open-brain-client\",\"protocol_version\":1,\"request_id\":\"plugin_00000000-0000-4000-8000-000000000001\",\"result\":{\"dto_version\":1,\"event_id\":\"facetevent_00000000-0000-4000-8000-000000000001\",\"operation_id\":\"synthetic-operation-1\",\"status\":\"applied\",\"subject_id\":\"facetval_00000000-0000-4000-8000-000000000001\",\"version\":2}}\n"
+    },
+    {
+      "operation": "facet.assignment.get",
+      "result": {
+        "dto_version": 1,
+        "item": {
+          "memberships": [
+            {
+              "membership_version": 1,
+              "value_id": "facetval_00000000-0000-4000-8000-000000000001"
+            }
+          ],
+          "record_id": "capture_00000000-0000-4000-8000-000000000001",
+          "revision_id": "capture_00000000-0000-4000-8000-000000000001",
+          "subject": {
+            "id": "source_00000000-0000-4000-8000-000000000001",
+            "kind": "source"
+          },
+          "version": 1
+        },
+        "status": "ok"
+      },
+      "frame": "{\"ok\":true,\"protocol\":\"open-brain-client\",\"protocol_version\":1,\"request_id\":\"plugin_00000000-0000-4000-8000-000000000001\",\"result\":{\"dto_version\":1,\"item\":{\"memberships\":[{\"membership_version\":1,\"value_id\":\"facetval_00000000-0000-4000-8000-000000000001\"}],\"record_id\":\"capture_00000000-0000-4000-8000-000000000001\",\"revision_id\":\"capture_00000000-0000-4000-8000-000000000001\",\"subject\":{\"id\":\"source_00000000-0000-4000-8000-000000000001\",\"kind\":\"source\"},\"version\":1},\"status\":\"ok\"}}\n"
+    },
+    {
+      "operation": "facet.assignment.patch",
+      "result": {
+        "dto_version": 1,
+        "event_id": "facetevent_00000000-0000-4000-8000-000000000001",
+        "operation_id": "synthetic-operation-1",
+        "status": "applied",
+        "subject_id": "source_00000000-0000-4000-8000-000000000001",
+        "version": 2
+      },
+      "frame": "{\"ok\":true,\"protocol\":\"open-brain-client\",\"protocol_version\":1,\"request_id\":\"plugin_00000000-0000-4000-8000-000000000001\",\"result\":{\"dto_version\":1,\"event_id\":\"facetevent_00000000-0000-4000-8000-000000000001\",\"operation_id\":\"synthetic-operation-1\",\"status\":\"applied\",\"subject_id\":\"source_00000000-0000-4000-8000-000000000001\",\"version\":2}}\n"
+    },
+    {
+      "operation": "facet.query.list",
+      "result": {
+        "complete": true,
+        "dto_version": 1,
+        "items": [
+          {
+            "archived": false,
+            "name": "Apollo",
+            "query_id": "facetquery_00000000-0000-4000-8000-000000000001",
+            "selection_version": 1,
+            "selector": {
+              "all_value_ids": [
+                "facetval_00000000-0000-4000-8000-000000000001"
+              ],
+              "payload_families": [],
+              "record_types": [
+                "canonical",
+                "source"
+              ],
+              "space_ids": []
+            },
+            "version": 1
+          }
+        ],
+        "next_cursor": null,
+        "status": "ok"
+      },
+      "frame": "{\"ok\":true,\"protocol\":\"open-brain-client\",\"protocol_version\":1,\"request_id\":\"plugin_00000000-0000-4000-8000-000000000001\",\"result\":{\"complete\":true,\"dto_version\":1,\"items\":[{\"archived\":false,\"name\":\"Apollo\",\"query_id\":\"facetquery_00000000-0000-4000-8000-000000000001\",\"selection_version\":1,\"selector\":{\"all_value_ids\":[\"facetval_00000000-0000-4000-8000-000000000001\"],\"payload_families\":[],\"record_types\":[\"canonical\",\"source\"],\"space_ids\":[]},\"version\":1}],\"next_cursor\":null,\"status\":\"ok\"}}\n"
+    },
+    {
+      "operation": "facet.query.get",
+      "result": {
+        "dto_version": 1,
+        "item": {
+          "archived": false,
+          "name": "Apollo",
+          "query_id": "facetquery_00000000-0000-4000-8000-000000000001",
+          "selection_version": 1,
+          "selector": {
+            "all_value_ids": [
+              "facetval_00000000-0000-4000-8000-000000000001"
+            ],
+            "payload_families": [],
+            "record_types": [
+              "canonical",
+              "source"
+            ],
+            "space_ids": []
+          },
+          "version": 1
+        },
+        "status": "ok"
+      },
+      "frame": "{\"ok\":true,\"protocol\":\"open-brain-client\",\"protocol_version\":1,\"request_id\":\"plugin_00000000-0000-4000-8000-000000000001\",\"result\":{\"dto_version\":1,\"item\":{\"archived\":false,\"name\":\"Apollo\",\"query_id\":\"facetquery_00000000-0000-4000-8000-000000000001\",\"selection_version\":1,\"selector\":{\"all_value_ids\":[\"facetval_00000000-0000-4000-8000-000000000001\"],\"payload_families\":[],\"record_types\":[\"canonical\",\"source\"],\"space_ids\":[]},\"version\":1},\"status\":\"ok\"}}\n"
+    },
+    {
+      "operation": "facet.query.create",
+      "result": {
+        "dto_version": 1,
+        "event_id": "facetevent_00000000-0000-4000-8000-000000000001",
+        "operation_id": "synthetic-operation-1",
+        "status": "applied",
+        "subject_id": "facetquery_00000000-0000-4000-8000-000000000001",
+        "version": 1
+      },
+      "frame": "{\"ok\":true,\"protocol\":\"open-brain-client\",\"protocol_version\":1,\"request_id\":\"plugin_00000000-0000-4000-8000-000000000001\",\"result\":{\"dto_version\":1,\"event_id\":\"facetevent_00000000-0000-4000-8000-000000000001\",\"operation_id\":\"synthetic-operation-1\",\"status\":\"applied\",\"subject_id\":\"facetquery_00000000-0000-4000-8000-000000000001\",\"version\":1}}\n"
+    },
+    {
+      "operation": "facet.query.update",
+      "result": {
+        "dto_version": 1,
+        "event_id": "facetevent_00000000-0000-4000-8000-000000000001",
+        "operation_id": "synthetic-operation-1",
+        "status": "applied",
+        "subject_id": "facetquery_00000000-0000-4000-8000-000000000001",
+        "version": 2
+      },
+      "frame": "{\"ok\":true,\"protocol\":\"open-brain-client\",\"protocol_version\":1,\"request_id\":\"plugin_00000000-0000-4000-8000-000000000001\",\"result\":{\"dto_version\":1,\"event_id\":\"facetevent_00000000-0000-4000-8000-000000000001\",\"operation_id\":\"synthetic-operation-1\",\"status\":\"applied\",\"subject_id\":\"facetquery_00000000-0000-4000-8000-000000000001\",\"version\":2}}\n"
+    },
+    {
+      "operation": "facet.query.archive",
+      "result": {
+        "dto_version": 1,
+        "event_id": "facetevent_00000000-0000-4000-8000-000000000001",
+        "operation_id": "synthetic-operation-1",
+        "status": "applied",
+        "subject_id": "facetquery_00000000-0000-4000-8000-000000000001",
+        "version": 2
+      },
+      "frame": "{\"ok\":true,\"protocol\":\"open-brain-client\",\"protocol_version\":1,\"request_id\":\"plugin_00000000-0000-4000-8000-000000000001\",\"result\":{\"dto_version\":1,\"event_id\":\"facetevent_00000000-0000-4000-8000-000000000001\",\"operation_id\":\"synthetic-operation-1\",\"status\":\"applied\",\"subject_id\":\"facetquery_00000000-0000-4000-8000-000000000001\",\"version\":2}}\n"
+    },
+    {
+      "operation": "facet.query.attach",
+      "result": {
+        "dto_version": 1,
+        "event_id": "facetevent_00000000-0000-4000-8000-000000000001",
+        "operation_id": "synthetic-operation-1",
+        "status": "applied",
+        "subject_id": "page_00000000-0000-4000-8000-000000000001",
+        "version": 2
+      },
+      "frame": "{\"ok\":true,\"protocol\":\"open-brain-client\",\"protocol_version\":1,\"request_id\":\"plugin_00000000-0000-4000-8000-000000000001\",\"result\":{\"dto_version\":1,\"event_id\":\"facetevent_00000000-0000-4000-8000-000000000001\",\"operation_id\":\"synthetic-operation-1\",\"status\":\"applied\",\"subject_id\":\"page_00000000-0000-4000-8000-000000000001\",\"version\":2}}\n"
+    },
+    {
+      "operation": "facet.query.attachment.get",
+      "result": {
+        "dto_version": 1,
+        "item": {
+          "page_id": "page_00000000-0000-4000-8000-000000000001",
+          "query_id": "facetquery_00000000-0000-4000-8000-000000000001",
+          "version": 1
+        },
+        "status": "ok"
+      },
+      "frame": "{\"ok\":true,\"protocol\":\"open-brain-client\",\"protocol_version\":1,\"request_id\":\"plugin_00000000-0000-4000-8000-000000000001\",\"result\":{\"dto_version\":1,\"item\":{\"page_id\":\"page_00000000-0000-4000-8000-000000000001\",\"query_id\":\"facetquery_00000000-0000-4000-8000-000000000001\",\"version\":1},\"status\":\"ok\"}}\n"
+    },
+    {
+      "operation": "facet.query.page",
+      "result": {
+        "complete": true,
+        "dto_version": 1,
+        "items": [
+          {
+            "classification_version": 1,
+            "record": {
+              "excerpt": "Synthetic source evidence.",
+              "payload_family": "text",
+              "provenance": {
+                "capture_ids": [
+                  "capture_00000000-0000-4000-8000-000000000001"
+                ],
+                "representative_capture_id": "capture_00000000-0000-4000-8000-000000000001",
+                "source_origin": "owner_authored"
+              },
+              "record_id": "capture_00000000-0000-4000-8000-000000000001",
+              "record_type": "source",
+              "revision_id": "capture_00000000-0000-4000-8000-000000000001",
+              "source_id": "source_00000000-0000-4000-8000-000000000001",
+              "source_update_available": false,
+              "space_id": null,
+              "title": "Apollo",
+              "trust": "owner"
+            },
+            "subject": {
+              "id": "source_00000000-0000-4000-8000-000000000001",
+              "kind": "source"
+            }
+          }
+        ],
+        "next_cursor": null,
+        "status": "ok"
+      },
+      "frame": "{\"ok\":true,\"protocol\":\"open-brain-client\",\"protocol_version\":1,\"request_id\":\"plugin_00000000-0000-4000-8000-000000000001\",\"result\":{\"complete\":true,\"dto_version\":1,\"items\":[{\"classification_version\":1,\"record\":{\"excerpt\":\"Synthetic source evidence.\",\"payload_family\":\"text\",\"provenance\":{\"capture_ids\":[\"capture_00000000-0000-4000-8000-000000000001\"],\"representative_capture_id\":\"capture_00000000-0000-4000-8000-000000000001\",\"source_origin\":\"owner_authored\"},\"record_id\":\"capture_00000000-0000-4000-8000-000000000001\",\"record_type\":\"source\",\"revision_id\":\"capture_00000000-0000-4000-8000-000000000001\",\"source_id\":\"source_00000000-0000-4000-8000-000000000001\",\"source_update_available\":false,\"space_id\":null,\"title\":\"Apollo\",\"trust\":\"owner\"},\"subject\":{\"id\":\"source_00000000-0000-4000-8000-000000000001\",\"kind\":\"source\"}}],\"next_cursor\":null,\"status\":\"ok\"}}\n"
+    },
+    {
+      "operation": "facet.history.list",
+      "result": {
+        "complete": true,
+        "dto_version": 1,
+        "items": [
+          {
+            "actor_id": "synthetic-owner",
+            "changes": [
+              {
+                "after": {
+                  "subject_id": "source_00000000-0000-4000-8000-000000000001",
+                  "subject_kind": "source",
+                  "version": 1
+                },
+                "before": null,
+                "entity": {
+                  "id": {
+                    "id": "source_00000000-0000-4000-8000-000000000001",
+                    "kind": "source"
+                  },
+                  "kind": "subject"
+                }
+              },
+              {
+                "after": {
+                  "last_event_sequence": 1,
+                  "membership_version": 1,
+                  "present": true,
+                  "subject_id": "source_00000000-0000-4000-8000-000000000001",
+                  "subject_kind": "source",
+                  "value_id": "facetval_00000000-0000-4000-8000-000000000001"
+                },
+                "before": null,
+                "entity": {
+                  "id": {
+                    "subject_id": "source_00000000-0000-4000-8000-000000000001",
+                    "subject_kind": "source",
+                    "value_id": "facetval_00000000-0000-4000-8000-000000000001"
+                  },
+                  "kind": "assignment"
+                }
+              }
+            ],
+            "event_id": "facetevent_00000000-0000-4000-8000-000000000001",
+            "kind": "assignment.patch",
+            "recorded_at": "2026-10-13T12:00:00.000000Z",
+            "sequence": 1
+          }
+        ],
+        "next_cursor": null,
+        "status": "ok"
+      },
+      "frame": "{\"ok\":true,\"protocol\":\"open-brain-client\",\"protocol_version\":1,\"request_id\":\"plugin_00000000-0000-4000-8000-000000000001\",\"result\":{\"complete\":true,\"dto_version\":1,\"items\":[{\"actor_id\":\"synthetic-owner\",\"changes\":[{\"after\":{\"subject_id\":\"source_00000000-0000-4000-8000-000000000001\",\"subject_kind\":\"source\",\"version\":1},\"before\":null,\"entity\":{\"id\":{\"id\":\"source_00000000-0000-4000-8000-000000000001\",\"kind\":\"source\"},\"kind\":\"subject\"}},{\"after\":{\"last_event_sequence\":1,\"membership_version\":1,\"present\":true,\"subject_id\":\"source_00000000-0000-4000-8000-000000000001\",\"subject_kind\":\"source\",\"value_id\":\"facetval_00000000-0000-4000-8000-000000000001\"},\"before\":null,\"entity\":{\"id\":{\"subject_id\":\"source_00000000-0000-4000-8000-000000000001\",\"subject_kind\":\"source\",\"value_id\":\"facetval_00000000-0000-4000-8000-000000000001\"},\"kind\":\"assignment\"}}],\"event_id\":\"facetevent_00000000-0000-4000-8000-000000000001\",\"kind\":\"assignment.patch\",\"recorded_at\":\"2026-10-13T12:00:00.000000Z\",\"sequence\":1}],\"next_cursor\":null,\"status\":\"ok\"}}\n"
+    },
+    {
+      "operation": "facet.history.state",
+      "result": {
+        "as_of_sequence": 0,
+        "dto_version": 1,
+        "item": {
+          "attachment": null,
+          "memberships": [],
+          "subject": {
+            "id": "source_00000000-0000-4000-8000-000000000001",
+            "kind": "source"
+          },
+          "version": 0
+        },
+        "status": "ok"
+      },
+      "frame": "{\"ok\":true,\"protocol\":\"open-brain-client\",\"protocol_version\":1,\"request_id\":\"plugin_00000000-0000-4000-8000-000000000001\",\"result\":{\"as_of_sequence\":0,\"dto_version\":1,\"item\":{\"attachment\":null,\"memberships\":[],\"subject\":{\"id\":\"source_00000000-0000-4000-8000-000000000001\",\"kind\":\"source\"},\"version\":0},\"status\":\"ok\"}}\n"
+    },
+    {
+      "operation": "review.propose_from_facet_query",
+      "result": {
+        "dto_version": 1,
+        "effective_idempotency_key": "synthetic-review-1",
+        "operation": "create",
+        "page_id": "page_00000000-0000-4000-8000-000000000001",
+        "proposal_id": "proposal_00000000-0000-4000-8000-000000000001",
+        "proposal_status": "pending",
+        "space_id": "space_00000000-0000-4000-8000-000000000001",
+        "status": "proposed",
+        "target_page_id": null
+      },
+      "frame": "{\"ok\":true,\"protocol\":\"open-brain-client\",\"protocol_version\":1,\"request_id\":\"plugin_00000000-0000-4000-8000-000000000001\",\"result\":{\"dto_version\":1,\"effective_idempotency_key\":\"synthetic-review-1\",\"operation\":\"create\",\"page_id\":\"page_00000000-0000-4000-8000-000000000001\",\"proposal_id\":\"proposal_00000000-0000-4000-8000-000000000001\",\"proposal_status\":\"pending\",\"space_id\":\"space_00000000-0000-4000-8000-000000000001\",\"status\":\"proposed\",\"target_page_id\":null}}\n"
+    },
+    {
+      "operation": "facet.vault.preview",
+      "result": {
+        "add_value_ids": [
+          "facetval_00000000-0000-4000-8000-000000000001"
+        ],
+        "conflicts": [],
+        "dto_version": 1,
+        "expected_version": 1,
+        "expires_at": "2026-10-13T12:15:00.000000Z",
+        "preview_id": "synthetic-preview-1",
+        "remove_value_ids": [],
+        "status": "ok",
+        "subject": {
+          "id": "source_00000000-0000-4000-8000-000000000001",
+          "kind": "source"
+        }
+      },
+      "frame": "{\"ok\":true,\"protocol\":\"open-brain-client\",\"protocol_version\":1,\"request_id\":\"plugin_00000000-0000-4000-8000-000000000001\",\"result\":{\"add_value_ids\":[\"facetval_00000000-0000-4000-8000-000000000001\"],\"conflicts\":[],\"dto_version\":1,\"expected_version\":1,\"expires_at\":\"2026-10-13T12:15:00.000000Z\",\"preview_id\":\"synthetic-preview-1\",\"remove_value_ids\":[],\"status\":\"ok\",\"subject\":{\"id\":\"source_00000000-0000-4000-8000-000000000001\",\"kind\":\"source\"}}}\n"
+    },
+    {
+      "operation": "facet.vault.apply",
+      "result": {
+        "dto_version": 1,
+        "projection_status": "current",
+        "receipt": {
+          "event_id": "facetevent_00000000-0000-4000-8000-000000000001",
+          "operation_id": "apply-1",
+          "status": "applied",
+          "subject_id": "source_00000000-0000-4000-8000-000000000001",
+          "version": 2
+        },
+        "status": "ok"
+      },
+      "frame": "{\"ok\":true,\"protocol\":\"open-brain-client\",\"protocol_version\":1,\"request_id\":\"plugin_00000000-0000-4000-8000-000000000001\",\"result\":{\"dto_version\":1,\"projection_status\":\"current\",\"receipt\":{\"event_id\":\"facetevent_00000000-0000-4000-8000-000000000001\",\"operation_id\":\"apply-1\",\"status\":\"applied\",\"subject_id\":\"source_00000000-0000-4000-8000-000000000001\",\"version\":2},\"status\":\"ok\"}}\n"
+    }
+  ]
+}
