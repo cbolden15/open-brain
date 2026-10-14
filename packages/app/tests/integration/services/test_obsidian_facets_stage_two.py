@@ -389,7 +389,7 @@ def test_o06_match_all_filters_pagination_and_stale_cursor(runtime: Any) -> None
     excluded = source(engine, 5)
     plugin.patch(excluded, add=[first])
     selector = {
-        "all_value_ids": [first, second],
+        "all_value_ids": sorted([first, second]),
         "record_types": ["source"],
         "space_ids": [engine.inbox.spaces()[0].space_id],
         "payload_families": ["text"],
@@ -856,11 +856,16 @@ def test_o14_fresh_portable_preserves_plugin_mutations_and_rejects_old_preview(
         operation_id="synthetic-restored-preview",
     )
     fresh_workspace = plugin.call("workspace.setup")
-    plugin.call("workspace.refresh")
+    # Imported content carries evidence, not local body-write authority.
+    plugin.error("workspace.refresh", "ineligible_source")
+    plugin.call("workspace.facets.refresh")
     assert (
         fresh_workspace["workspace_id"] == workspace
     )  # Portable identity survives local reattach.
-    assert list(Path(fresh_workspace["vault_path"]).rglob(f"{page}.md"))
+    fresh_vault = Path(fresh_workspace["vault_path"])
+    restored_note = next(fresh_vault.rglob(f"{page}.md"))
+    assert parse_markdown(restored_note.read_bytes()).fields["facets"] == {"Project": ["Apollo"]}
+    assert list((fresh_vault / "Facets").rglob(f"{value}.md"))
     assert reopened.facets is not None
 
 
