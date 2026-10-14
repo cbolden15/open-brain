@@ -230,11 +230,14 @@ export class OpenBrainBridge {
     }
     if (isFacetOperation(pending.operation)) {
       clearTimeout(pending.timer); this.#pending.delete(requestId);
+      let validLexemes = false;
       try {
+        parseStrictJson(line, true);
+        validLexemes = true;
         pending.resolve(parseFacetResponseFrame(pending.operation, Buffer.concat([line, Buffer.from("\n")]), requestId));
       } catch (error) {
         const fields = Object.keys(response).sort().join(",");
-        const closedError = response.ok === false && fields === "error,ok,protocol,protocol_version,request_id"
+        const closedError = validLexemes && response.ok === false && fields === "error,ok,protocol,protocol_version,request_id"
           && typeof response.error === "object" && response.error !== null
           && Object.keys(response.error).join(",") === "code"
           && error instanceof Error && "code" in error

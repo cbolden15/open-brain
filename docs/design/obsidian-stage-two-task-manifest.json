@@ -1,7 +1,7 @@
 {
   "manifest_version": 1,
   "milestone": "Obsidian facets Stage2 B U P V T I R",
-  "status": "implementation",
+  "status": "integrated_verification",
   "pins": {
     "verified_main_commit": "23e7a2bb75567b5492c026ea76f16c463739245e",
     "contract_revision": "facets-c0-v4",
@@ -16,7 +16,7 @@
     "max_active_workers": 6,
     "native_available_children": 3,
     "max_total_attempts": 12,
-    "used_attempts": 6,
+    "used_attempts": 7,
     "reserved_active": 3,
     "authority": "Implement remaining Stage2 tasks using authorized concurrency/worktrees; local commits; no new push, publish, deploy or merge"
   },
@@ -40,7 +40,7 @@
       "packages/obsidian-plugin/tests/facet-client.test.ts"
     ],
     "R": [],
-    "P_recovery": [
+    "P_startup": [
       "packages/obsidian-plugin/src/facet-publication.ts",
       "packages/obsidian-plugin/tests/facet-publication.test.ts"
     ]
@@ -145,7 +145,7 @@
         "packages/obsidian-plugin/tests/facet-transport.test.ts",
         "packages/obsidian-plugin/tests/facet-client.test.ts"
       ],
-      "status": "reserved",
+      "status": "incremental_verification",
       "budget_minutes": 60,
       "verification": "Focused owned checks only; report real vs mock proof separately",
       "completion": "Scoped tests/report and localcommit forT; read-only private report forR; no children/push"
@@ -165,7 +165,7 @@
       },
       "input_commit": "e2ffc803e47e64666961b52698425ccad5951893",
       "write_scope": [],
-      "status": "reserved",
+      "status": "final_review",
       "budget_minutes": 60,
       "verification": "Focused owned checks only; report real vs mock proof separately",
       "completion": "Scoped tests/report and localcommit forT; read-only private report forR; no children/push"
@@ -188,10 +188,33 @@
         "packages/obsidian-plugin/src/facet-publication.ts",
         "packages/obsidian-plugin/tests/facet-publication.test.ts"
       ],
-      "status": "reserved",
+      "status": "integrated",
       "budget_minutes": 30,
       "completion": "Close confirmed publication reopen gap with tests and scoped commit",
       "verification": "Owned publication tests, typecheck"
+    },
+    {
+      "role": "P_startup",
+      "worktree": "/Users/calebbolden/Projects/oss/open-brain-stage-two-p-startup",
+      "input_commit": "bbacd4246925a5af3ba6336292d255db1dc73b50",
+      "input_pins": {
+        "verified_main_commit": "23e7a2bb75567b5492c026ea76f16c463739245e",
+        "contract_revision": "facets-c0-v4",
+        "fixture_manifest_sha256": "95e85b535eeb4263a6e430970ecf1d49de8d0b72de7425e41be703897d93dbc5",
+        "o0_revision": "obsidian-o0-v1",
+        "o0_fixture_manifest_sha256": "bee455084d682e8e717f5f40e1a5cfad82ada7546fdf6412552a8e4844a50d9f",
+        "schema": 15,
+        "runtime": 10,
+        "portable": 10
+      },
+      "write_scope": [
+        "packages/obsidian-plugin/src/facet-publication.ts",
+        "packages/obsidian-plugin/tests/facet-publication.test.ts"
+      ],
+      "status": "reserved",
+      "budget_minutes": 30,
+      "verification": "Owned publication tests, typecheck, scoped build",
+      "completion": "Authoritative state/history reload after new client or unload; preserve deliberate new-page workflow; no persistence of drafts or tokens; scoped local commit"
     }
   ],
   "acceptance": {

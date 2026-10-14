@@ -342,9 +342,9 @@ export default class OpenBrainPlugin extends Plugin {
       if (!this.#unloaded) openFacetAssignment(this.app, await this.#facets(), identity.record_id);
     }) });
     this.addCommand({ id: "review-current-facet-edits", name: "Review facet edits in current note", callback: () => facetAction(async () => {
-      const identity = await this.#currentFacetRecord();
-      const client = await this.#facets();
       const file = this.app.workspace.getActiveFile();
+      const identity = await this.#currentFacetRecord(file);
+      const client = await this.#facets();
       if (this.#unloaded) return;
       this.#trackFacetModal(openFacetReconciliation(this.app, client, {
         workspaceId: identity.workspace_id, recordId: identity.record_id,
@@ -948,9 +948,8 @@ export default class OpenBrainPlugin extends Plugin {
     return this.#facetClient;
   }
 
-  async #currentFacetRecord(): Promise<ManagedRecordResponse> {
+  async #currentFacetRecord(file = this.app.workspace.getActiveFile()): Promise<ManagedRecordResponse> {
     const client = await this.#facets();
-    const file = this.app.workspace.getActiveFile();
     if (file === null || file.extension.toLowerCase() !== "md") throw new BridgeError("source_unavailable");
     const status = parseWorkspaceStatus(await client.invoke("workspace.status", {}));
     if (status === null) throw new BridgeError("workspace_unconfigured");

@@ -3509,6 +3509,42 @@ acceptance fingerprints intentionally reject source edits during a test run.
 
 Discovered: 2026-10-13, integrated PR79 tests and typecheck.
 
+### OBSIDIAN-003: A malformed success can follow a committed mutation
+
+Category: Transport / Recovery.
+
+An actual plugin-child proxy corrupted a successful dimension receipt after the
+engine committed it. Treat response parsing failures as uncertain protocol errors,
+retain the exact operation ID, and retry that request. Request validation errors
+before dispatch remain definitive. Recheck disposal after every awaited bridge
+call so a late identity lookup cannot open a dialog after unload. Real child tests
+cover corrupted receipts, dropped responses and restarts.
+
+Discovered: 2026-10-13, independent Stage 2 review.
+
+### OBSIDIAN-004: Restored note bodies do not restore write authority
+
+Category: Managed Workspace / Restore.
+
+Portable attachment retains accepted note bodies while deliberately omitting old
+managed-operation write authority. Ordinary body refresh must still fail closed.
+Use the owner-local facet-only refresh to rebuild classification metadata and
+indexes without accepting body edits. A fresh actual export/import test verifies
+both this rebuild and refusal of an old reconciliation preview.
+
+Discovered: 2026-10-13, real Stage 2 restore acceptance.
+
+### BUILD-010: Generic cursor pagination needs explicit response annotations
+
+Category: Type Safety.
+
+TypeScript inferred a cyclic initializer when a generic page response updated the
+cursor used by its next request. Annotate the response with its generated contract
+type rather than weakening the request or using any. Run plugin typecheck before
+integrating a UI worker.
+
+Discovered: 2026-10-13, facet browser and editor implementation.
+
 ### FACETS-015: Check historical settlement inside additive migrations
 
 Category: Database/Migrations.
