@@ -63,6 +63,7 @@ def validate_portable_file_set_v11(files: Mapping[str, bytes], *, tenant_id: str
         DEVELOPMENT_EVIDENCE_PATH,
         validate_append_operations,
         validate_development_evidence,
+        validate_development_review_bindings,
     )
     from .v10 import validate_portable_file_set_v10
 
@@ -75,8 +76,9 @@ def validate_portable_file_set_v11(files: Mapping[str, bytes], *, tenant_id: str
             for path, payload in snapshot.items()
             if path not in {DEVELOPMENT_EVIDENCE_PATH, DEVELOPMENT_APPEND_PATH}
         }
-        validate_portable_file_set_v10(base, tenant_id=tenant_id)
-        validate_development_evidence(snapshot)
+        validate_portable_file_set_v10(base, tenant_id=tenant_id, allow_development_bindings=True)
+        rows = validate_development_evidence(snapshot)
+        validate_development_review_bindings(snapshot, rows)
         validate_append_operations(snapshot)
         issuer = _portable_record(snapshot[ISSUER_MIGRATION_PATH], "issuer migration")
         references = references_from_portable_files(snapshot)
@@ -88,7 +90,7 @@ def validate_portable_file_set_v11(files: Mapping[str, bytes], *, tenant_id: str
             if _BINDING_PATH.fullmatch(path) is None:
                 continue
             binding = _portable_record(payload, "review binding")
-            if binding["schema_version"] == 5:
+            if binding.get("base_schema_version", binding["schema_version"]) == 5:
                 proposal = proposals[cast(str, binding["proposal_id"])]
                 validate_facet_binding_record(
                     binding,
@@ -96,6 +98,7 @@ def validate_portable_file_set_v11(files: Mapping[str, bytes], *, tenant_id: str
                     files=snapshot,
                     references=references,
                     tenant_id=tenant_id,
+                    allow_development_binding=True,
                 )
     except PortableValidationError:
         raise

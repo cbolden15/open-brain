@@ -96,6 +96,7 @@ _REQUIRED_MODULES: Final = frozenset(
         "open_brain_engine.portable.v11",
         "open_brain_engine.portable.v11_catalog",
         "open_brain_engine.portable.developments_v11",
+        "open_brain_engine.portable.development_binding",
         "open_brain_engine.engine.developments",
         "open_brain_engine.engine.development_schema",
         "open_brain_engine.engine.portable_v11_evidence",

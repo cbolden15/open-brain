@@ -404,3 +404,226 @@ def test_selected_raw_correction_conflicts_without_derived_evidence(tmp_path: Pa
             delivery_id="raw.approve",
             expected_review_digest=proposal.review_digest,
         )
+
+
+def test_supporting_capture_traverses_derived_ancestor(tmp_path: Path) -> None:
+    engine = _engine(tmp_path / "brain")
+    raw = _raw(engine, 1)
+    first, second = _derived(engine, "first"), _derived(engine, "second")
+    engine.developments.bind(first, (raw,), operation_id="first.bind", authority=_authority())
+    engine.developments.bind(second, (first,), operation_id="second.bind", authority=_authority())
+    proposal = engine.review.propose(
+        (second,), (ProposalDraft("Decision", "Supported"),), delivery_id="propose"
+    )[0]
+    _raw(engine, 2, raw)
+    with pytest.raises(ValueError, match="development evidence revision conflict"):
+        engine.review.decide(
+            proposal.proposal_id, DecisionOutcome.APPROVED, delivery_id="approve",
+            expected_review_digest=proposal.review_digest,
+        )
+
+
+def test_supporting_capture_cycle_is_rejected_atomically(tmp_path: Path) -> None:
+    engine = _engine(tmp_path / "brain")
+    first, second = _derived(engine, "first"), _derived(engine, "second")
+    engine.developments.bind(first, (second,), operation_id="first.bind", authority=_authority())
+    with pytest.raises(ValueError, match="development evidence cycle"):
+        engine.developments.bind(
+            second, (first,), operation_id="second.bind", authority=_authority()
+        )
+    with pytest.raises(T03Error, match="not_found"):
+        engine.developments.get(second, authority=_authority())
+
+
+@pytest.mark.parametrize("tamper", ["remove", "substitute"])
+@pytest.mark.parametrize("legacy_argument", [False, True])
+def test_portable_cannot_change_confirmed_development_closure(
+    tmp_path: Path, tamper: str, legacy_argument: bool,
+) -> None:
+    from hashlib import sha256
+
+    from open_brain_engine.engine.developments import source_snapshot
+    from open_brain_engine.portable.developments_v11 import DEVELOPMENT_EVIDENCE_PATH
+    from open_brain_engine.portable.review_binding import review_binding_digest
+
+    engine = _engine(tmp_path / "brain")
+    raw, derived = _raw(engine, 1), _derived(engine, "derived")
+    engine.developments.bind(derived, (raw,), operation_id="bind", authority=_authority())
+    proposal = engine.review.propose(
+        derived if legacy_argument else (derived,),
+        (ProposalDraft("Decision", "Supported"),), delivery_id="propose",
+    )[0]
+    corrected = _raw(engine, 2, raw)
+    exported = tmp_path / "exported"
+    engine.portability.export(exported, export_id="export_2b5f2d12-59ee-4f04-9a8b-7f6bbd9c1bd4")
+    path = exported / DEVELOPMENT_EVIDENCE_PATH
+    evidence = json.loads(path.read_bytes())
+    if tamper == "remove":
+        evidence["operations"] = []
+    else:
+        row = evidence["operations"][0]
+        request, receipt = json.loads(row["request_json"]), json.loads(row["receipt_json"])
+        request["supporting_capture_ids"] = receipt["supporting_capture_ids"] = [corrected]
+        connection = engine._store.connect()
+        try:
+            receipt["source_states"] = [source_snapshot(connection, corrected)]
+        finally:
+            connection.close()
+        row["request_json"] = portable_canonical_json_bytes(request).decode()
+        row["request_sha256"] = sha256(row["request_json"].encode()).hexdigest()
+        row["receipt_json"] = portable_canonical_json_bytes(receipt).decode()
+    path.write_bytes(portable_canonical_json_bytes(evidence))
+    manifest_path = exported / "portable-manifest.json"
+    manifest = json.loads(manifest_path.read_bytes())
+    for item in manifest["files"]:
+        item["sha256"] = sha256((exported / item["path"]).read_bytes()).hexdigest()
+    manifest_path.write_bytes(portable_canonical_json_bytes(manifest))
+    # Each sidecar is internally valid; the proposal's frozen commitment detects the attack.
+    validate_development_evidence({
+        path.relative_to(exported).as_posix(): path.read_bytes()
+        for path in exported.rglob("*") if path.is_file()
+    })
+    with pytest.raises(PortableValidationError, match="development"):
+        validate_portable_root(exported)
+    with pytest.raises((PortableValidationError, ValueError), match="development"):
+        engine.portability.import_clean(
+            exported, tmp_path / "restored",
+            import_id="import_2b5f2d12-59ee-4f04-9a8b-7f6bbd9c1bd4",
+        )
+    # Rewriting the confirmation itself may produce a consistent archive, but it must
+    # require a new owner confirmation rather than accepting the unchanged digest.
+    binding_path = next((exported / "history/review-bindings").rglob("*.json"))
+    proposal_path = next((exported / "history/proposals").rglob("*.json"))
+    binding = json.loads(binding_path.read_bytes())
+    binding["development_evidence"] = [{"capture_id": derived, "evidence_sha256": None}]
+    if tamper == "substitute":
+        commitments: list[dict[str, str | None]] = [
+            {"capture_id": derived, "evidence_sha256": sha256(
+                portable_canonical_json_bytes(evidence["operations"][0])
+            ).hexdigest()},
+            {"capture_id": corrected, "evidence_sha256": None},
+        ]
+        binding["development_evidence"] = sorted(
+            commitments, key=lambda item: str(item["capture_id"])
+        )
+    binding["review_digest"] = review_binding_digest(
+        json.loads(proposal_path.read_bytes()), binding
+    )
+    assert binding["review_digest"] != proposal.review_digest
+    binding_path.write_bytes(portable_canonical_json_bytes(binding))
+    for item in manifest["files"]:
+        item["sha256"] = sha256((exported / item["path"]).read_bytes()).hexdigest()
+    manifest_path.write_bytes(portable_canonical_json_bytes(manifest))
+    validate_portable_root(exported)
+    rewritten = tmp_path / "rewritten"
+    engine.portability.import_clean(
+        exported, rewritten, import_id="import_2b5f2d12-59ee-4f04-9a8b-7f6bbd9c1bd5"
+    )
+    reopened = BrainEngine.open(open_existing_single_user_local(rewritten))
+    with pytest.raises(ValueError, match="review digest conflict"):
+        reopened.review.decide(
+            proposal.proposal_id, DecisionOutcome.APPROVED, delivery_id="approve",
+            expected_review_digest=proposal.review_digest,
+        )
+
+
+def test_support_preflight_is_read_only_and_refuses_stale_ancestors(tmp_path: Path) -> None:
+    engine = _engine(tmp_path / "brain")
+    raw, derived = _raw(engine, 1), _derived(engine, "derived")
+    engine.developments.bind(derived, (raw,), operation_id="bind", authority=_authority())
+    engine.developments.validate_support((derived,), authority=_authority())
+    _raw(engine, 2, raw)
+    with pytest.raises(T03Error, match="revision_changed"):
+        engine.developments.validate_support((derived,), authority=_authority())
+
+
+def test_development_confirmation_survives_restore_and_reexport(tmp_path: Path) -> None:
+    from open_brain_engine.portable.developments_v11 import DEVELOPMENT_EVIDENCE_PATH
+    from open_brain_engine.portable.v10 import validate_portable_file_set_v10
+
+    engine = _engine(tmp_path / "brain")
+    raw = _raw(engine, 1)
+    first, second = _derived(engine, "first"), _derived(engine, "second")
+    engine.developments.bind(first, (raw,), operation_id="first.bind", authority=_authority())
+    engine.developments.bind(second, (first,), operation_id="second.bind", authority=_authority())
+    proposal = engine.review.propose(
+        (second,), (ProposalDraft("Decision", "Supported"),), delivery_id="propose"
+    )[0]
+    exported, restored = tmp_path / "exported", tmp_path / "restored"
+    engine.portability.export(exported, export_id="export_2b5f2d12-59ee-4f04-9a8b-7f6bbd9c1bd4")
+    files = {
+        path.relative_to(exported).as_posix(): path.read_bytes()
+        for path in exported.rglob("*") if path.is_file()
+    }
+    binding_path = next(path for path in files if path.startswith("history/review-bindings/"))
+    binding = json.loads(files[binding_path])
+    assert binding["schema_version"] == 6
+    assert binding["base_schema_version"] == 3
+    assert {item["capture_id"] for item in binding["development_evidence"]} == {raw, first, second}
+    base = {
+        path: payload for path, payload in files.items()
+        if not path.startswith("history/developments/") and path != "portable-manifest.json"
+    }
+    with pytest.raises(PortableValidationError, match="development bindings require Portable11"):
+        validate_portable_file_set_v10(base, tenant_id=engine.profile.tenant_id)
+    engine.portability.import_clean(
+        exported, restored, import_id="import_2b5f2d12-59ee-4f04-9a8b-7f6bbd9c1bd4"
+    )
+    reopened = BrainEngine.open(open_existing_single_user_local(restored))
+    assert reopened.review.show(proposal.proposal_id).review_digest == proposal.review_digest
+    reopened.review.decide(
+        proposal.proposal_id, DecisionOutcome.APPROVED, delivery_id="approve",
+        expected_review_digest=proposal.review_digest,
+    )
+    reexported = tmp_path / "reexported"
+    reopened.portability.export(
+        reexported, export_id="export_2b5f2d12-59ee-4f04-9a8b-7f6bbd9c1bd5"
+    )
+    validate_portable_root(reexported)
+    assert (reexported / binding_path).read_bytes() == files[binding_path]
+    assert (reexported / DEVELOPMENT_EVIDENCE_PATH).read_bytes() == files[DEVELOPMENT_EVIDENCE_PATH]
+
+
+@pytest.mark.parametrize("approved", [False, True])
+def test_transitive_absent_receipt_cannot_be_bound_after_confirmation(
+    tmp_path: Path, approved: bool,
+) -> None:
+    engine = _engine(tmp_path / "brain")
+    raw = _raw(engine, 1)
+    leaf, derived = _derived(engine, "leaf"), _derived(engine, "derived")
+    original = engine.developments.bind(
+        derived, (leaf,), operation_id="derived.bind", authority=_authority()
+    )
+    proposal = engine.review.propose(
+        (derived,), (ProposalDraft("Decision", "Supported"),), delivery_id="propose"
+    )[0]
+    if approved:
+        engine.review.decide(
+            proposal.proposal_id, DecisionOutcome.APPROVED, delivery_id="approve",
+            expected_review_digest=proposal.review_digest,
+        )
+    # A historical receipt remains exactly replayable after its confirmation freezes it.
+    assert engine.developments.bind(
+        derived, (leaf,), operation_id="derived.bind", authority=_authority()
+    ) == original
+    # The leaf's lack of a receipt is also immutable confirmation evidence.
+    with pytest.raises(ValueError, match="must precede proposal"):
+        engine.developments.bind(
+            leaf, (raw,), operation_id="leaf.late.bind", authority=_authority()
+        )
+    with pytest.raises(T03Error, match="not_found"):
+        engine.developments.get(leaf, authority=_authority())
+    unrelated = _derived(engine, "unrelated")
+    engine.developments.bind(
+        unrelated, (raw,), operation_id="unrelated.bind", authority=_authority()
+    )
+    if not approved:
+        engine.review.decide(
+            proposal.proposal_id, DecisionOutcome.APPROVED, delivery_id="approve",
+            expected_review_digest=proposal.review_digest,
+        )
+    exported = tmp_path / "exported"
+    engine.portability.export(
+        exported, export_id="export_2b5f2d12-59ee-4f04-9a8b-7f6bbd9c1bd4"
+    )
+    assert validate_portable_root(exported)["schema_version"] == 11

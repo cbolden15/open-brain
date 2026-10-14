@@ -11,6 +11,7 @@ from hashlib import sha256
 from typing import TYPE_CHECKING, cast
 
 from open_brain_engine.core.ids import portable_canonical_json_bytes
+from open_brain_engine.portable.review_binding import review_binding_base_version
 from open_brain_engine.storage.filesystem import StorageError, read_confined
 from open_brain_engine.storage.markdown import parse_markdown, render_markdown
 
@@ -208,8 +209,17 @@ class ReviewOperations(_LocalEngineOperations):
         *,
         target_page_id: str | None = None,
     ) -> tuple[ProposalRecord, ...]:
+        development = False
+        if isinstance(capture_id, str):
+            with self._store.transaction() as connection:
+                if connection.execute("PRAGMA user_version").fetchone()[0] >= 16:
+                    development = connection.execute(
+                        "SELECT 1 FROM development_evidence WHERE derived_capture_id=?",
+                        (capture_id,),
+                    ).fetchone() is not None
         if (
-            not isinstance(capture_id, str)
+            development
+            or not isinstance(capture_id, str)
             or target_page_id is not None
             or any(isinstance(draft, PatchDraft) for draft in drafts)
         ):
@@ -575,7 +585,8 @@ class ReviewOperations(_LocalEngineOperations):
             clauses.append(
                 "EXISTS (SELECT 1 FROM review_contexts rc "
                 "WHERE rc.proposal_id=proposals.proposal_id "
-                "AND json_extract(CAST(rc.binding_json AS TEXT),'$.schema_version')=5 "
+                "AND COALESCE(json_extract(rc.binding_json,'$.base_schema_version'), "
+                "json_extract(rc.binding_json,'$.schema_version'))=5 "
                 "AND json_extract(CAST(rc.binding_json AS TEXT),'$.query_id')=?)"
             )
             parameters.append(facet_query_id)
@@ -611,7 +622,7 @@ class ReviewOperations(_LocalEngineOperations):
                 visible = []
                 for row in rows:
                     context = contexts[cast(str, row["proposal_id"])]
-                    if context is not None and context[1].get("schema_version") == 5:
+                    if context is not None and review_binding_base_version(context[1]) == 5:
                         try:
                             authorize_facet_evidence(self, connection, context[1], authority)
                         except (FacetError, T03Error) as error:
@@ -728,7 +739,7 @@ class ReviewOperations(_LocalEngineOperations):
                 review_digest = sha256(portable_canonical_json_bytes(proposal_value)).hexdigest()
             else:
                 proposal_value, binding = context
-                if binding.get("schema_version") == 5:
+                if review_binding_base_version(binding) == 5:
                     from .facet_publication import authorize_facet_evidence, owner_review_authority
 
                     authorize_facet_evidence(
@@ -840,7 +851,7 @@ class ReviewOperations(_LocalEngineOperations):
             patch_diff=patch_diff,
             facet_binding_json=(
                 portable_canonical_json_bytes(binding).decode("utf-8")
-                if binding is not None and binding.get("schema_version") == 5
+                if binding is not None and review_binding_base_version(binding) == 5
                 else None
             ),
         )
@@ -897,7 +908,10 @@ class ReviewOperations(_LocalEngineOperations):
             and expected_review_digest != inspection.review_digest
         ):
             raise ValueError("review digest conflict")
-        if context is not None and reserved is None and context[1].get("schema_version") != 5:
+        if (
+            context is not None and reserved is None
+            and review_binding_base_version(context[1]) != 5
+        ):
             validate_current_binding(self, context[1])
         conflict: tuple[str, str] | None = None
         created = False
@@ -950,7 +964,7 @@ class ReviewOperations(_LocalEngineOperations):
                 duplicate = True
                 decision_id = cast(str, existing["decision_id"])
             else:
-                if context is not None and context[1].get("schema_version") == 5:
+                if context is not None and review_binding_base_version(context[1]) == 5:
                     validate_current_binding(
                         self, context[1], connection=connection, authority=authority
                     )
@@ -959,6 +973,17 @@ class ReviewOperations(_LocalEngineOperations):
                     from .facet_publication import owner_review_authority
 
                     if connection.execute("PRAGMA user_version").fetchone()[0] >= 16:
+                        from .developments import validate_development_commitments
+
+                        if context is not None:
+                            validate_development_commitments(connection, context[1])
+                        elif connection.execute(
+                            "SELECT 1 FROM development_evidence WHERE derived_capture_id=?",
+                            (proposal["capture_id"],),
+                        ).fetchone():
+                            raise ValueError(
+                                "development evidence requires a committed review binding"
+                            )
                         current_selected = (
                             context[1]["selected_capture_ids"]
                             if context is not None
@@ -1204,7 +1229,7 @@ class ReviewOperations(_LocalEngineOperations):
                 """,
                 values,
             )
-            if binding.get("schema_version") == 5:
+            if review_binding_base_version(binding) == 5:
                 from .facet_publication import commit_publication_attachment
 
                 commit_publication_attachment(

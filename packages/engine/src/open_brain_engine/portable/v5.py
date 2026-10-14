@@ -563,7 +563,8 @@ def _privacy(files: Mapping[str, bytes], identity: dict[str, Any]) -> None:
 
 
 def validate_portable_file_set_v5(
-    files: Mapping[str, bytes], *, tenant_id: str, allow_facet_bindings: bool = False
+    files: Mapping[str, bytes], *, tenant_id: str, allow_facet_bindings: bool = False,
+    allow_development_bindings: bool = False
 ) -> None:
     """Validate all v5 evidence without reading a Brain, database, or root path."""
     try:
@@ -574,6 +575,7 @@ def validate_portable_file_set_v5(
             {path: payload for path, payload in snapshot.items() if path not in V5_SIDECAR_PATHS},
             tenant_id=tenant_id,
             allow_facet_bindings=allow_facet_bindings,
+            allow_development_bindings=allow_development_bindings,
         )
         identity = _issuer(snapshot, tenant_id)
         _privacy(snapshot, identity)

@@ -10,7 +10,8 @@ PORTABLE_V11_SCHEMA_CATALOG = {
     "base_catalog_sha256": PORTABLE_V10_SCHEMA_CATALOG_DIGEST,
     "development_evidence": 1,
     "append_operations": 1,
-    "approval_dependencies": 1,
+    "approval_dependencies": 2,
+    "development_review_binding": 6,
     "schema_version": 11,
 }
 PORTABLE_V11_SCHEMA_CATALOG_DIGEST = sha256(

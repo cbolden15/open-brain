@@ -11,6 +11,7 @@ from typing import Any, cast
 
 from open_brain_engine.core.ids import portable_canonical_json_bytes
 from open_brain_engine.portable.review_binding import (
+    review_binding_base_version,
     review_binding_digest,
     validate_review_binding,
 )
@@ -351,6 +352,14 @@ def binding_snapshot(
     if facet is not None:
         binding.update(facet)
         binding["schema_version"] = 5
+    if connection.execute("PRAGMA user_version").fetchone()[0] >= 16:
+        from .developments import development_commitments
+
+        commitments = development_commitments(connection, provenance)
+        if any(item["evidence_sha256"] is not None for item in commitments):
+            binding["base_schema_version"] = binding["schema_version"]
+            binding["schema_version"] = 6
+            binding["development_evidence"] = commitments
     binding["review_digest"] = review_binding_digest(proposal, binding)
     return validate_review_binding(binding)
 
@@ -469,7 +478,7 @@ def validate_current_binding(
     engine: Any, binding: Mapping[str, object], *,
     connection: sqlite3.Connection | None = None, authority: Any = None,
 ) -> None:
-    if binding.get("schema_version") == 5:
+    if review_binding_base_version(binding) == 5:
         from .facet_publication import validate_facet_current_binding
 
         if connection is None:
@@ -563,7 +572,7 @@ def bound_edited_bytes(
         modified_at=modified_at,
         privacy=(
             cast(Mapping[str, object], parsed.fields["privacy"])
-            if binding.get("schema_version") == 5 else None
+            if review_binding_base_version(binding) == 5 else None
         ),
     )
 

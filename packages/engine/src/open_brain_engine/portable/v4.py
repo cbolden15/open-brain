@@ -87,7 +87,8 @@ def manifest_v4(
 
 
 def validate_portable_file_set_v4(
-    files: Mapping[str, bytes], *, tenant_id: str, allow_facet_bindings: bool = False
+    files: Mapping[str, bytes], *, tenant_id: str, allow_facet_bindings: bool = False,
+    allow_development_bindings: bool = False
 ) -> None:
     payload = files.get(SOURCE_METADATA_PATH)
     if payload is None:
@@ -112,7 +113,8 @@ def validate_portable_file_set_v4(
     )
     if validator is validate_portable_file_set_v3:
         validate_portable_file_set_v3(
-            base, tenant_id=tenant_id, allow_facet_bindings=allow_facet_bindings
+            base, tenant_id=tenant_id, allow_facet_bindings=allow_facet_bindings,
+            allow_development_bindings=allow_development_bindings
         )
     else:
         validator(base, tenant_id=tenant_id)

@@ -3,14 +3,15 @@
 from __future__ import annotations
 
 import json
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from hashlib import sha256
-from typing import Any
+from typing import Any, cast
 
 from open_brain_engine.core.access_contracts import _TIER_PRECEDENCE
 from open_brain_engine.core.ids import portable_canonical_json_bytes as canonical
 from open_brain_engine.core.models import PrivacyTier
 
+from .development_binding import development_closure
 from .v1 import PortableValidationError
 from .v4 import SOURCE_METADATA_PATH
 from .v5 import EFFECTIVE_PRIVACY_PATH
@@ -155,25 +156,45 @@ def validate_development_evidence(files: Mapping[str, bytes]) -> list[dict[str, 
             )
         if [row["derived_capture_id"] for row in rows] != sorted(identities):
             raise ValueError
-        visited: set[str] = set()
-        active: set[str] = set()
-
-        def visit(identity: str) -> None:
-            if identity in active or identity not in graph:
-                raise ValueError
-            if identity in visited:
-                return
-            active.add(identity)
-            for dependency in graph[identity]:
-                visit(dependency)
-            active.remove(identity)
-            visited.add(identity)
-
+        if any(dependency not in identities for deps in graph.values() for dependency in deps):
+            raise ValueError
+        by_id = {row["derived_capture_id"]: row for row in rows}
         for identity in identities:
-            visit(identity)
+            development_closure((identity,), by_id.get)
         return rows
     except (KeyError, TypeError, ValueError, RecursionError) as error:
         raise PortableValidationError("Portable11 development evidence invalid") from error
+
+
+def validate_development_review_bindings(
+    files: Mapping[str, bytes], rows: list[dict[str, Any]],
+) -> None:
+    """Require the exact closure committed by each owner review confirmation."""
+    from .review_binding import validate_review_binding
+
+    by_id = {row["derived_capture_id"]: row for row in rows}
+    bound: set[str] = set()
+    try:
+        for path, payload in files.items():
+            if not path.startswith("history/review-bindings/"):
+                continue
+            binding = validate_review_binding(json.loads(payload))
+            actual = development_closure(cast(Sequence[str], binding["provenance"]), by_id.get)
+            if binding["schema_version"] == 6:
+                if actual != binding["development_evidence"]:
+                    raise ValueError
+            elif any(item["evidence_sha256"] is not None for item in actual):
+                raise ValueError
+            bound.add(cast(str, binding["proposal_id"]))
+        for path, payload in files.items():
+            if path.startswith("history/proposals/"):
+                proposal = json.loads(payload)
+                if proposal["proposal_id"] not in bound and any(
+                    identity in by_id for identity in proposal["capture_ids"]
+                ):
+                    raise ValueError
+    except (KeyError, TypeError, ValueError) as error:
+        raise PortableValidationError("Portable11 development review commitment invalid") from error
 
 
 def validate_append_operations(files: Mapping[str, bytes]) -> list[dict[str, Any]]:

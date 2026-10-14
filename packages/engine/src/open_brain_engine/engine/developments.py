@@ -9,6 +9,7 @@ from hashlib import sha256
 from typing import TYPE_CHECKING, Any, cast
 
 from open_brain_engine.core.ids import portable_canonical_json_bytes as canonical
+from open_brain_engine.portable.development_binding import development_closure
 
 from .records import RecordProjector
 from .t03_contracts import EffectiveAuthority, T03Error
@@ -96,12 +97,59 @@ def validate_development_dependencies(
                     frozen["capture_id"],
                     expected=frozen["capture_id"],
                 )
+        pending.extend(receipt["supporting_capture_ids"])
         pending.extend(receipt["supports_development_ids"])
+
+
+def development_commitments(
+    connection: sqlite3.Connection, capture_ids: Sequence[str],
+) -> list[dict[str, Any]]:
+    def lookup(identity: str) -> dict[str, Any] | None:
+        row = connection.execute(
+            "SELECT * FROM development_evidence WHERE derived_capture_id=?", (identity,)
+        ).fetchone()
+        return None if row is None else dict(row)
+
+    return development_closure(capture_ids, lookup)
+
+
+def validate_development_commitments(
+    connection: sqlite3.Connection, binding: dict[str, Any],
+) -> None:
+    actual = development_commitments(connection, binding["provenance"])
+    if binding.get("schema_version") == 6:
+        if actual != binding["development_evidence"]:
+            raise ValueError("development evidence commitment conflict")
+    elif any(item["evidence_sha256"] is not None for item in actual):
+        raise ValueError("development evidence requires a committed review binding")
 
 
 class DevelopmentTasks:
     def __init__(self, engine: BrainEngine) -> None:
         self._engine = engine
+
+    def validate_support(
+        self, capture_ids: Sequence[str], *, authority: EffectiveAuthority,
+    ) -> None:
+        """Read-only preflight; binding still revalidates before its atomic write."""
+        authority.require("development-bind")
+        selected = _ids(capture_ids, required=True)
+        connection = self._engine._store.connect()
+        try:
+            if not connection.in_transaction:
+                connection.execute("BEGIN")
+            projector = RecordProjector(self._engine.profile, connection, authority)
+            for identity in selected:
+                source_snapshot(connection, identity)
+                projector.source(identity, expected=identity)
+            development_commitments(connection, selected)
+            validate_development_dependencies(
+                connection, selected, engine=self._engine, authority=authority
+            )
+        except ValueError as error:
+            raise T03Error("revision_changed") from error
+        finally:
+            connection.close()
 
     def get(self, derived_capture_id: str, *, authority: EffectiveAuthority) -> dict[str, Any]:
         authority.require("review-read")
@@ -187,7 +235,13 @@ class DevelopmentTasks:
             ).fetchone():
                 raise ValueError("development evidence must precede proposal")
             for context in c.execute("SELECT binding_json FROM review_contexts"):
-                if derived_capture_id in json.loads(context[0])["provenance"]:
+                binding = json.loads(context[0])
+                committed = (
+                    {item["capture_id"] for item in binding["development_evidence"]}
+                    if binding.get("schema_version") == 6 else set()
+                )
+                # Null receipt leaves are frozen just like present transitive receipts.
+                if derived_capture_id in binding["provenance"] or derived_capture_id in committed:
                     raise ValueError("development evidence must precede proposal")
             for key in ("supports_development_ids", "supersedes_development_ids"):
                 for identity in args[key]:
@@ -203,7 +257,8 @@ class DevelopmentTasks:
                     ):
                         raise ValueError("unknown earlier development")
             validate_development_dependencies(
-                c, args["supports_development_ids"], engine=self._engine, authority=authority
+                c, args["supporting_capture_ids"] + args["supports_development_ids"],
+                engine=self._engine, authority=authority
             )
             from open_brain_engine.core.access_contracts import _TIER_PRECEDENCE
 
@@ -246,6 +301,7 @@ class DevelopmentTasks:
                     canonical(receipt).decode(),
                 ),
             )
+            development_commitments(c, (derived_capture_id,))
             return receipt
 
 

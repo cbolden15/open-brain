@@ -74,10 +74,42 @@ def _capture_ids(value: object, label: str) -> list[str]:
     return capture_ids
 
 
+def review_binding_base_version(binding: Mapping[str, object]) -> object:
+    return (
+        binding.get("base_schema_version")
+        if binding.get("schema_version") == 6 else binding.get("schema_version")
+    )
+
+
 def validate_review_binding(binding: object) -> dict[str, object]:
-    """Validate one closed, bounded v3, v4, or v5 review binding."""
+    """Validate one closed binding; Portable readers separately gate permitted versions."""
     value = _object(binding, "review binding")
     version = value.get("schema_version")
+    if type(version) is int and version == 6:
+        from .development_binding import MAX_DEVELOPMENT_DEPENDENCIES
+
+        base = dict(value)
+        base_version = base.pop("base_schema_version", None)
+        if type(base_version) is not int or base_version not in {3, 4, 5}:
+            raise PortableValidationError("development review base version is malformed")
+        commitments = base.pop("development_evidence", None)
+        base["schema_version"] = base_version
+        validate_review_binding(base)
+        if (
+            type(commitments) is not list
+            or not 1 <= len(commitments) <= MAX_DEVELOPMENT_DEPENDENCIES
+        ):
+            raise PortableValidationError("development review commitments are malformed")
+        ids = []
+        for raw in commitments:
+            item = _object(raw, "development review commitment")
+            _require_exact_keys(item, {"capture_id", "evidence_sha256"}, "development commitment")
+            ids.append(_identifier(item["capture_id"], "capture", "development commitment"))
+            if item["evidence_sha256"] is not None:
+                _digest(item["evidence_sha256"], "development commitment")
+        if ids != sorted(set(ids)):
+            raise PortableValidationError("development review commitments are malformed")
+        return dict(value)
     expected_keys = (
         _BINDING_KEYS if version == 3 else
         _BINDING_KEYS | {"patch"} if version == 4 else

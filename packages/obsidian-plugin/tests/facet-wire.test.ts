@@ -516,6 +516,39 @@ const inspection = (name: "review-create-cross-space" | "review-update") => {
 };
 
 describe("full facet publication inspection (pure frozen binding codec)", () => {
+  const developmentInspection = () => {
+    const value = inspection("review-create-cross-space");
+    value.facet_selection.schema_version = 6;
+    value.facet_selection.base_schema_version = 5;
+    value.facet_selection.development_evidence = [
+      ...array(value.facet_selection.provenance).map((capture_id) => ({
+        capture_id, evidence_sha256: "d".repeat(64),
+      })),
+      { capture_id: id("capture", 99), evidence_sha256: null },
+    ].sort((a, b) => String(a.capture_id).localeCompare(String(b.capture_id)));
+    return value;
+  };
+
+  it("accepts development-backed facet confirmation without dropping commitments", () => {
+    const value = developmentInspection();
+    expect(parseFacetPublicationInspection(value)).toEqual(value);
+  });
+
+  it.each(["base", "missing", "extra", "digest", "duplicate", "order", "leaf", "uncovered"])("rejects malformed development commitment %s", (change) => {
+    const value = developmentInspection();
+    const binding = value.facet_selection;
+    const commitments = array(binding.development_evidence);
+    if (change === "base") binding.base_schema_version = 4;
+    if (change === "missing") delete binding.development_evidence;
+    if (change === "extra") object(commitments[0]).owner = true;
+    if (change === "digest") object(commitments[0]).evidence_sha256 = "invalid";
+    if (change === "duplicate") commitments.push(commitments[0]);
+    if (change === "order") binding.development_evidence = [...commitments].reverse();
+    if (change === "leaf") object(commitments[0]).capture_id = "invalid";
+    if (change === "uncovered") binding.development_evidence = [{ capture_id: id("capture", 99), evidence_sha256: null }];
+    expect(() => parseFacetPublicationInspection(value)).toThrow();
+  });
+
   it.each(["review-create-cross-space", "review-update"] as const)("accepts %s with selected/inherited distinction intact", (name) => {
     const value = inspection(name);
     expect(parseFacetPublicationInspection(value)).toEqual(value);

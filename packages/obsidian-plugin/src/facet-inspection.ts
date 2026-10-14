@@ -1,9 +1,11 @@
-/** Closed view of the existing v5 publication evidence. Never grants authority. */
+/** Closed view of v5/v6 publication evidence. Never grants authority. */
 import { digest, exact, identifier, requireFacet, safeInteger, timestamp, validateFacetDefinition } from "./facet-wire";
 import type { Wire_selector } from "./facet-types";
 
 export interface FacetPublicationBinding {
-  schema_version: 5; selection_kind: "facet";
+  schema_version: 5 | 6; selection_kind: "facet";
+  base_schema_version?: 5;
+  development_evidence?: { capture_id: string; evidence_sha256: string | null }[];
   actor_id: string; tenant_id: string; recorded_at: string; review_digest: string;
   role_claim: { actor_id: string; tenant_id: string; role_id: string; role_claim_id: string; capabilities: string[] };
   operation: "create" | "update"; page_id: string; proposal_id: string;
@@ -31,8 +33,9 @@ function ids(value: unknown): string[] {
   return [...value];
 }
 export function parseFacetPublicationBinding(value: unknown): FacetPublicationBinding {
-  const b = exact(value, ["schema_version", "selection_kind", "actor_id", "tenant_id", "recorded_at", "review_digest", "role_claim", "operation", "page_id", "proposal_id", "expected_page_sha256", "expected_publication_id", "destination_space_id", "query_id", "query_version", "query_selection_version", "attachment_version", "selector", "selected_capture_ids", "provenance", "source_states", "facet_source_states"]);
-  requireFacet(b.schema_version === 5 && b.selection_kind === "facet");
+  const development = typeof value === "object" && value !== null && "schema_version" in value && value.schema_version === 6;
+  const b = exact(value, ["schema_version", "selection_kind", "actor_id", "tenant_id", "recorded_at", "review_digest", "role_claim", "operation", "page_id", "proposal_id", "expected_page_sha256", "expected_publication_id", "destination_space_id", "query_id", "query_version", "query_selection_version", "attachment_version", "selector", "selected_capture_ids", "provenance", "source_states", "facet_source_states", ...(development ? ["base_schema_version", "development_evidence"] : [])]);
+  requireFacet((b.schema_version === 5 || development && b.base_schema_version === 5) && b.selection_kind === "facet");
   for (const [key, prefix] of Object.entries({ actor_id: "actor", tenant_id: "tenant", page_id: "page", proposal_id: "proposal", destination_space_id: "space", query_id: "facetquery" })) requireFacet(identifier(b[key], [prefix], true));
   requireFacet(typeof b.recorded_at === "string" && /^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d+)?Z$/.test(b.recorded_at));
   const canonicalTime = b.recorded_at.replace(/(?:\.(\d+))?Z$/, (_match: string, fraction: string | undefined) => "." + (fraction ?? "").padEnd(6, "0").slice(0, 6) + "Z");
@@ -48,6 +51,18 @@ export function parseFacetPublicationBinding(value: unknown): FacetPublicationBi
   requireFacet(selector.record_types.length === 0 || selector.record_types.includes("source"));
   const selected = ids(b.selected_capture_ids), provenance = ids(b.provenance);
   requireFacet(selected.every((id) => provenance.includes(id)) && (!create || equal(selected, provenance)));
+  if (development) {
+    requireFacet(Array.isArray(b.development_evidence) && b.development_evidence.length >= 1 && b.development_evidence.length <= 1024);
+    let previous = "";
+    const committed = new Set<string>();
+    for (const raw of b.development_evidence) {
+      const item = exact(raw, ["capture_id", "evidence_sha256"]);
+      requireFacet(identifier(item.capture_id, ["capture"], true) && item.capture_id > previous && (item.evidence_sha256 === null || digest(item.evidence_sha256)));
+      previous = item.capture_id;
+      committed.add(item.capture_id);
+    }
+    requireFacet(provenance.every((captureId) => committed.has(captureId)));
+  }
   requireFacet(Array.isArray(b.source_states) && b.source_states.length === provenance.length);
   for (const [index, raw] of b.source_states.entries()) {
     const state = exact(raw, ["capture_id", "route_id", "sha256", "space_id"]);

@@ -17,7 +17,7 @@ from typing import Any, cast
 from open_brain_engine.core.ids import portable_canonical_json_bytes as canonical
 from open_brain_engine.storage.markdown import parse_markdown
 
-from .review_binding import review_binding_digest
+from .review_binding import review_binding_digest, validate_review_binding
 from .v1 import PortableValidationError, _portable_record
 from .v3 import _published_bytes, _recorded_before, _records
 from .v4 import SOURCE_METADATA_PATH
@@ -360,6 +360,7 @@ def validate_facet_binding_record(
     files: Mapping[str, bytes],
     references: FacetPortableReferences,
     tenant_id: str,
+    allow_development_binding: bool = False,
 ) -> dict[str, Any]:
     """Validate retained v5 draft bytes and historical routes across spaces.
 
@@ -369,7 +370,16 @@ def validate_facet_binding_record(
     from open_brain_engine.engine.facet_evidence import FacetEvidenceError, validate_evidence
 
     try:
-        value = validate_evidence("review_binding_v5", binding)
+        if isinstance(binding, dict) and binding.get("schema_version") == 6:
+            if not allow_development_binding:
+                raise PortableValidationError("development bindings require Portable11")
+            value: dict[str, Any] = validate_review_binding(binding)
+            base = dict(value)
+            base["schema_version"] = base.pop("base_schema_version")
+            base.pop("development_evidence")
+            validate_evidence("review_binding_v5", base)
+        else:
+            value = validate_evidence("review_binding_v5", binding)
     except FacetEvidenceError as error:
         raise PortableValidationError("invalid version-5 facet review binding") from error
     _require(
@@ -467,7 +477,7 @@ def validate_facet_binding_record(
         )
         inherited.extend(item for item in value["selected_capture_ids"] if item not in inherited)
         _require(inherited == provenance, "facet review cumulative provenance mismatch")
-    return value  # type: ignore[no-any-return]
+    return value
 
 
 __all__ = [

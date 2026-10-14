@@ -23,7 +23,11 @@ from open_brain_engine.storage.filesystem import (
 from open_brain_engine.storage.markdown import parse_markdown
 
 from .managed_v2 import validate_managed_workspace_record
-from .review_binding import review_binding_digest, validate_review_binding
+from .review_binding import (
+    review_binding_base_version,
+    review_binding_digest,
+    validate_review_binding,
+)
 from .v1 import (
     PortableSnapshot,
     PortableValidationError,
@@ -237,7 +241,7 @@ def _validate_binding_semantics(
                 raise PortableValidationError("review binding proposal metadata mismatch")
         if binding["review_digest"] != review_binding_digest(proposal, binding):
             raise PortableValidationError("review binding digest mismatch")
-        if binding.get("schema_version") == 5 and binding.get(
+        if review_binding_base_version(binding) == 5 and binding.get(
             "destination_space_id"
         ) != proposal.get("space_id"):
             raise PortableValidationError("facet destination mismatch")
@@ -280,13 +284,13 @@ def _validate_binding_semantics(
                 or (
                     # v5 binds logical-source lineage; the v6 validator checks
                     # its retained cross-revision routing evidence below.
-                    binding.get("schema_version") != 5
+                    review_binding_base_version(binding) != 5
                     and not _route_matches_frozen_state(
                         routes, capture=capture, state=state, proposed_at=binding["recorded_at"],
                     )
                 )
                 or (
-                    binding.get("schema_version") != 5
+                    review_binding_base_version(binding) != 5
                     and state.get("space_id") != proposal.get("space_id")
                 )
             ):
@@ -305,7 +309,7 @@ def _validate_binding_semantics(
                 raise PortableValidationError("review predecessor digest mismatch")
             parent_page = parse_markdown(_published_bytes(parent))
             parent_provenance = cast(list[str], parent_page.fields["provenance"])
-            if binding.get("schema_version") == 4:
+            if review_binding_base_version(binding) == 4:
                 patch = cast(Mapping[str, object], binding["patch"])
                 base_body = cast(str, patch["base_body"])
                 if parent_page.body != base_body or proposed_page.body != _apply_patch(
@@ -378,7 +382,8 @@ def _validate_binding_semantics(
 
 
 def validate_portable_file_set_v3(
-    files: Mapping[str, bytes], *, tenant_id: str, allow_facet_bindings: bool = False
+    files: Mapping[str, bytes], *, tenant_id: str, allow_facet_bindings: bool = False,
+    allow_development_bindings: bool = False
 ) -> None:
     """Validate exact Portable v3 payload bytes without an export manifest."""
     binding_paths = [path for path in files if _BINDING_PATH.fullmatch(path)]
@@ -388,7 +393,9 @@ def validate_portable_file_set_v3(
     bindings: dict[str, dict[str, object]] = {}
     for path in binding_paths:
         binding = validate_review_binding(_portable_record(files[path], "review binding"))
-        if binding["schema_version"] == 5 and not allow_facet_bindings:
+        if binding["schema_version"] == 6 and not allow_development_bindings:
+            raise PortableValidationError("development bindings require Portable11")
+        if review_binding_base_version(binding) == 5 and not allow_facet_bindings:
             raise PortableValidationError("facet bindings require Portable v6")
         match = _BINDING_PATH.fullmatch(path)
         assert match is not None
