@@ -4,6 +4,33 @@ Non-obvious behaviors, sharp edges, and lessons learned belong here.
 
 ## Registry
 
+### SLACK-003: Work classification does not authorize provider recall
+
+Category: Privacy / Authority.
+
+Collector Work privacy remains local-only with external egress disabled. Work
+space routing is separate from privacy and provider consent. Existing sharing
+requires saved-Markdown managed evidence and produces a public-tier v1 copy; raw
+Slack revisions do not satisfy that proof. A Slack recall extension must preserve
+the old format and explicitly bind its new source evidence, Work copy and approved
+citation metadata. Never substitute an owner-local session for an external-provider
+session to bypass these checks.
+
+Discovered: 2026-10-14, Slack cited-decision recall implementation planning.
+
+### DOCS-002: Distinguish capture routing from logical-source routing
+
+Category: Documentation / Source Continuity.
+
+The spaces/inbox guide warns that routing a capture prevents automated updates.
+Current owner `source route` instead binds the logical source using its expected
+head and route version; accepted managed successors inherit that source's space.
+Use the actual logical-source path for continuing Slack intake. Do not add a
+`space_id` provider option or grant collector-wide organize authority to work
+around the older capture-routing description.
+
+Discovered: 2026-10-14, source routing and revision acceptance inspection.
+
 ### BUILD-017: Native packaging must pin the reviewed Python patch
 
 Category: Build Pipeline; Dependencies.
