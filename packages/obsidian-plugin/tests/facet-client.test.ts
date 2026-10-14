@@ -122,4 +122,15 @@ describe("FacetClient capability and lifecycle states (unit proof)", () => {
       subject: {kind: "canonical", id: "page_00000000-0000-4000-8000-000000000001"}});
     await expect(pending).rejects.toMatchObject({code: "bridge_closed"});
   });
+
+  it("O13: disposal rejects late legacy invocation without disposing the shared transport", async () => {
+    let release!: (value: unknown) => void;
+    const invoke = vi.fn().mockImplementation(() => new Promise((resolve) => { release = resolve; }));
+    const client = new FacetClient(transport(invoke), fixtures.handshake);
+    const pending = client.invoke("workspace.status", {});
+    client.dispose();
+    release({status: "ok"});
+    await expect(pending).rejects.toMatchObject({code: "bridge_closed"});
+    expect(invoke).toHaveBeenCalledTimes(1);
+  });
 });
