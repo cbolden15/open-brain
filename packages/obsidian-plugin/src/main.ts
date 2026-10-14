@@ -47,6 +47,14 @@ import {
   safeRelativePath,
 } from "./contracts";
 import { RefreshScheduler, type RefreshReason } from "./refresh-scheduler";
+import { FacetClient } from "./facet-client";
+import { FACET_BROWSER_VIEW_TYPE, FacetBrowserView, type FacetBrowserSection } from "./facet-browser";
+import { openFacetAssignment, openFacetVocabulary, openClassificationHistory, disposeFacetDialogs } from "./facet-editor";
+import { openFacetPublication } from "./facet-publication";
+import { openFacetReconciliation } from "./facet-reconciliation";
+import { identifier, type ManagedRecordResponse } from "./facet-wire";
+import { validateT03Wire } from "./t03-wire";
+import type { Wire_facet_result, Wire_saved_query } from "./facet-types";
 import {
   clientCapabilities,
   createSpace,
@@ -104,12 +112,37 @@ export default class OpenBrainPlugin extends Plugin {
   #handshake: Handshake | null = null;
   #pendingFileWaits = new Set<() => void>();
   #unloaded = false;
+  #facetClient: FacetClient | null = null;
+  #facetModals = new Set<Modal & { dispose(): void }>();
+  #facetViewClients = new WeakMap<FacetBrowserView, FacetClient>();
+  #facetPaths = new Map<string, string>();
+  #facetViewOpened = false;
 
   public override async onload(): Promise<void> {
     this.#unloaded = false;
     this.settings = parseSettings(await this.loadData());
     this.addSettingTab(new OpenBrainSettingTab(this.app, this));
     this.#scheduler = new RefreshScheduler((reason) => this.refreshPresentation(reason));
+    this.registerView(FACET_BROWSER_VIEW_TYPE, (leaf) => {
+      this.#facetViewOpened = true;
+      const client = this.#facetClient ?? new FacetClient({
+        invoke: async <T>(operation: Parameters<OpenBrainBridge["invoke"]>[0], args: Record<string, unknown>, timeout?: number): Promise<T> =>
+          (await this.#bridgeClient()).invoke<T>(operation, args, timeout),
+      }, this.#handshake ?? {});
+      const view = new FacetBrowserView(leaf, client, {
+        listSpaces: () => listSpaces(client),
+        publishQuery: (query, target) => this.#publishFacetQuery(query, target),
+        getAttachmentTarget: async () => {
+          const identity = await this.#currentFacetRecord();
+          return identity.subject.kind === "canonical" ? { pageId: identity.subject.id, revisionId: identity.revision_id } : null;
+        },
+        canOpenNote: (result) => this.#facetPaths.has(result.record.record_id),
+        openVerifiedNote: (result) => this.#openFacetRecordNote(result),
+        openIndex: (dimension, value) => this.#openFacetIndex(dimension, value),
+      });
+      this.#facetViewClients.set(view, client);
+      return view;
+    });
     this.#registerCommands();
     this.app.workspace.onLayoutReady(() => {
       this.#registerVaultEvents();
@@ -119,6 +152,7 @@ export default class OpenBrainPlugin extends Plugin {
 
   public override onunload(): void {
     this.#unloaded = true;
+    this.#disposeFacets();
     this.#scheduler?.dispose();
     this.#scheduler = null;
     for (const cancel of [...this.#pendingFileWaits]) cancel();
@@ -134,6 +168,7 @@ export default class OpenBrainPlugin extends Plugin {
   }
 
   resetBridge(): void {
+    this.#disposeFacets();
     this.#bridge?.dispose();
     this.#bridge = null;
     this.#providerSelection = null;
@@ -296,6 +331,39 @@ export default class OpenBrainPlugin extends Plugin {
   }
 
   #registerCommands(): void {
+    const facetAction = (action: () => Promise<void>): void => { void action().catch((error: unknown) => this.#noticeError(error)); };
+    this.addCommand({ id: "browse-facets", name: "Browse facets", callback: () => facetAction(() => this.#browseFacets("browse")) });
+    this.addCommand({ id: "saved-facet-queries", name: "Saved facet queries", callback: () => facetAction(() => this.#browseFacets("saved")) });
+    this.addCommand({ id: "manage-facet-vocabulary", name: "Manage facet vocabulary", callback: () => facetAction(async () => {
+      openFacetVocabulary(this.app, await this.#facets());
+    }) });
+    this.addCommand({ id: "classify-current-note", name: "Classify current note", callback: () => facetAction(async () => {
+      const identity = await this.#currentFacetRecord();
+      if (!this.#unloaded) openFacetAssignment(this.app, await this.#facets(), identity.record_id);
+    }) });
+    this.addCommand({ id: "review-current-facet-edits", name: "Review facet edits in current note", callback: () => facetAction(async () => {
+      const identity = await this.#currentFacetRecord();
+      const client = await this.#facets();
+      const file = this.app.workspace.getActiveFile();
+      if (this.#unloaded) return;
+      this.#trackFacetModal(openFacetReconciliation(this.app, client, {
+        workspaceId: identity.workspace_id, recordId: identity.record_id,
+        refreshManaged: async () => { await client.invoke("workspace.facets.refresh", {}, 30_000); this.#facetPaths.clear(); },
+        editNote: async () => { if (file !== null && !this.#unloaded) await this.app.workspace.getLeaf("tab").openFile(file); },
+      }));
+    }) });
+    this.addCommand({ id: "observe-managed-notes", name: "Observe managed notes for classification", callback: () => facetAction(async () => {
+      const client = await this.#facets();
+      await client.invoke("workspace.observe", {}, 30_000);
+      this.#facetPaths.clear();
+      new Notice("Managed file identities observed. This did not accept body edits or apply classification.");
+    }) });
+    this.addCommand({ id: "refresh-facet-projections", name: "Refresh facet projections", callback: () => facetAction(async () => {
+      const client = await this.#facets();
+      await client.invoke("workspace.facets.refresh", {}, 30_000);
+      this.#facetPaths.clear();
+      new Notice("Facet projections refreshed. Existing body edits and edited indexes remain protected.");
+    }) });
     this.addCommand({
       callback: () => void this.#initialize(),
       id: "initialize-managed-vault",
@@ -519,7 +587,17 @@ export default class OpenBrainPlugin extends Plugin {
       requireCapabilities(capabilities, ["search.page", "record.read"]);
       const request = await new SearchFiltersModal(this.app).result();
       if (request === null) return;
-      new PagedRecordSearchModal(this.app, bridge, request).open();
+      new PagedRecordSearchModal(this.app, bridge, request, {
+        classify: async (item, cancelled) => {
+          const client = await this.#facets();
+          if (!cancelled() && !this.#unloaded) openFacetAssignment(this.app, client, item.record_id);
+        },
+        history: async (item, cancelled) => {
+          const client = await this.#facets();
+          const state = await client.call("facet.assignment.get", { dto_version: 1, record_id: item.record_id });
+          if (!cancelled() && !this.#unloaded) openClassificationHistory(this.app, client, state.item.subject);
+        },
+      }).open();
     } catch (error) {
       this.#noticeError(error);
     }
@@ -836,9 +914,6 @@ export default class OpenBrainPlugin extends Plugin {
     const bridge = new OpenBrainBridge(executable);
     try {
       const handshake = parseHandshake(await bridge.invoke("system.handshake", {}));
-      if (!handshake.operations.includes("graph.review")) {
-        throw new BridgeError("incompatible_binary");
-      }
       this.#handshake = handshake;
     } catch (error) {
       bridge.dispose();
@@ -846,6 +921,120 @@ export default class OpenBrainPlugin extends Plugin {
     }
     this.#bridge = bridge;
     return bridge;
+  }
+
+  #disposeFacets(): void {
+    if (this.#facetClient !== null) {
+      disposeFacetDialogs(this.#facetClient);
+      this.#facetClient.dispose();
+    }
+    for (const modal of [...this.#facetModals]) modal.dispose();
+    this.#facetModals.clear(); this.#facetPaths.clear(); this.#facetClient = null;
+    if (this.#facetViewOpened) this.app.workspace.detachLeavesOfType(FACET_BROWSER_VIEW_TYPE);
+    this.#facetViewOpened = false;
+  }
+
+  #trackFacetModal<T extends Modal & { dispose(): void }>(modal: T): T {
+    this.#facetModals.add(modal);
+    const close = modal.onClose.bind(modal);
+    modal.onClose = () => { close(); this.#facetModals.delete(modal); };
+    return modal;
+  }
+
+  async #facets(): Promise<FacetClient> {
+    const bridge = await this.#managedBridge();
+    if (this.#unloaded || this.#handshake === null) throw new BridgeError("bridge_closed");
+    this.#facetClient ??= new FacetClient(bridge, this.#handshake);
+    return this.#facetClient;
+  }
+
+  async #currentFacetRecord(): Promise<ManagedRecordResponse> {
+    const client = await this.#facets();
+    const file = this.app.workspace.getActiveFile();
+    if (file === null || file.extension.toLowerCase() !== "md") throw new BridgeError("source_unavailable");
+    const status = parseWorkspaceStatus(await client.invoke("workspace.status", {}));
+    if (status === null) throw new BridgeError("workspace_unconfigured");
+    try {
+      const identity = await client.resolve(status.workspace_id, file.path);
+      if (this.#unloaded) throw new BridgeError("bridge_closed");
+      if (this.#facetPaths.size >= 500) this.#facetPaths.clear();
+      this.#facetPaths.set(identity.record_id, file.path);
+      return identity;
+    } catch (error) {
+      if (typeof error === "object" && error !== null && "code" in error && error.code === "not_found") {
+        new Notice("This note has no current managed custody. Observe managed notes explicitly, then retry. Source files and generated indexes cannot be resolved as managed records.", 12_000);
+      }
+      throw error;
+    }
+  }
+
+  async #browseFacets(section: FacetBrowserSection): Promise<void> {
+    const client = await this.#facets();
+    let leaf = this.app.workspace.getLeavesOfType(FACET_BROWSER_VIEW_TYPE)[0];
+    if (leaf !== undefined && leaf.view instanceof FacetBrowserView && this.#facetViewClients.get(leaf.view) !== client) {
+      leaf.detach(); leaf = undefined;
+    }
+    leaf ??= this.app.workspace.getRightLeaf(false) ?? this.app.workspace.getLeaf("tab");
+    await leaf.setViewState({ type: FACET_BROWSER_VIEW_TYPE, active: true });
+    if (this.#unloaded) return;
+    if (leaf.view instanceof FacetBrowserView) leaf.view.showSection(section);
+    await this.app.workspace.revealLeaf(leaf);
+  }
+
+  async #publishFacetQuery(query: Wire_saved_query, target?: { pageId: string; revisionId: string }): Promise<void> {
+    const client = await this.#facets();
+    const capabilities = await this.#clientOperations(await this.#bridgeClient());
+    let publicationTarget: Parameters<typeof openFacetPublication>[2] = { kind: "create", queryId: query.query_id };
+    if (target !== undefined) {
+      const response = validateT03Wire("record.read.response", await client.invoke("record.read", {
+        dto_version: 1, record_id: target.pageId, expected_revision_id: target.revisionId, cursor: null, target_bytes: 1024,
+      }));
+      const summary = record(response.record);
+      if (summary.record_id !== target.pageId || summary.revision_id !== target.revisionId || typeof summary.space_id !== "string") throw new BridgeError("revision_changed");
+      publicationTarget = { kind: "update", pageId: target.pageId, recordId: target.pageId, spaceId: summary.space_id };
+    }
+    if (this.#unloaded) return;
+    this.#trackFacetModal(openFacetPublication(this.app, client, publicationTarget, {
+      capabilities,
+      refreshAndOpen: async (pageId, cancelled) => {
+        if (cancelled() || this.#unloaded) throw new BridgeError("cancelled");
+        const note = await refreshAndFindApprovedNote(client, pageId);
+        this.#facetPaths.clear();
+        if (cancelled() || this.#unloaded) throw new BridgeError("cancelled");
+        await this.openManagedFile(note.relative_path);
+      },
+    }));
+  }
+
+  async #openFacetRecordNote(result: Wire_facet_result): Promise<void> {
+    const relative = this.#facetPaths.get(result.record.record_id);
+    if (relative === undefined) throw new BridgeError("source_unavailable");
+    const client = await this.#facets();
+    const status = parseWorkspaceStatus(await client.invoke("workspace.status", {}));
+    if (status === null) throw new BridgeError("workspace_unconfigured");
+    const identity = await client.resolve(status.workspace_id, relative);
+    if (identity.record_id !== result.record.record_id || identity.revision_id !== result.record.revision_id) throw new BridgeError("revision_changed");
+    await this.openManagedFile(relative);
+  }
+
+  async #openFacetIndex(dimensionId: string, valueId?: string): Promise<void> {
+    if (!identifier(dimensionId, ["facetdim"], true)) throw new BridgeError("invalid_source_path");
+    const client = await this.#facets();
+    if (valueId === undefined) {
+      const values = await client.call("facet.value.list", { dto_version: 1, dimension_id: dimensionId, include_archived: true, limit: 50, cursor: null });
+      const choices = values.items.filter((value) => this.app.vault.getAbstractFileByPath(`Facets/${dimensionId}/${value.value_id}.md`) instanceof TFile);
+      const chosen = await new ChoiceModal(this.app, choices.map((value) => ({ label: value.name, value: value.value_id })), "Choose an existing generated facet index").result();
+      if (chosen === null) return;
+      valueId = chosen;
+    }
+    if (!identifier(valueId, ["facetval"], true)) throw new BridgeError("invalid_source_path");
+    const relative = `Facets/${dimensionId}/${valueId}.md`;
+    const adapter = this.app.vault.adapter;
+    if (!(adapter instanceof FileSystemAdapter)) throw new BridgeError("wrong_vault");
+    const base = await realpath(adapter.getBasePath());
+    const actual = await realpath(`${base}/${relative}`);
+    if (!actual.startsWith(base + "/")) throw new BridgeError("invalid_source_path");
+    await this.openManagedFile(relative);
   }
 
   async #clientOperations(bridge: OpenBrainBridge): Promise<Set<string>> {
@@ -1268,7 +1457,11 @@ export class PagedRecordSearchModal extends Modal {
   #readEpoch = 0;
   #reading = false;
 
-  public constructor(app: App, bridge: Pick<OpenBrainBridge, "invoke" | "cancelPending">, request: SearchRequest) {
+  public constructor(app: App, bridge: Pick<OpenBrainBridge, "invoke" | "cancelPending">, request: SearchRequest,
+    private readonly facetActions?: {
+      classify(item: RecordSummary, cancelled: () => boolean): Promise<void>;
+      history(item: RecordSummary, cancelled: () => boolean): Promise<void>;
+    }) {
     super(app);
     this.#bridge = bridge;
     this.#base = request;
@@ -1286,7 +1479,6 @@ export class PagedRecordSearchModal extends Modal {
   public override onClose(): void {
     this.#active = false;
     this.#readEpoch += 1;
-    this.#bridge.cancelPending();
     this.contentEl.empty();
   }
 
@@ -1324,6 +1516,19 @@ export class PagedRecordSearchModal extends Modal {
     row.createEl("h4", { text: item.title });
     row.createEl("p", { text: `${item.record_type} · revision ${item.revision_id}` });
     row.createEl("blockquote", { text: item.excerpt });
+    if (this.facetActions !== undefined) {
+      for (const [label, action] of [["Classify", this.facetActions.classify], ["Classification history", this.facetActions.history]] as const) {
+        const button = row.createEl("button", { text: label });
+        button.type = "button";
+        button.addEventListener("click", () => {
+          if (!this.#active || button.disabled) return;
+          button.disabled = true;
+          void action(item, () => !this.#active).catch((error: unknown) => {
+            if (this.#active) new Notice(`Facet action unavailable: ${error instanceof Error ? error.message : "operation_failed"}`);
+          }).finally(() => { if (this.#active) button.disabled = false; });
+        });
+      }
+    }
     const read = row.createEl("button", { text: "Read complete record" });
     this.#readButtons.add(read);
     read.addEventListener("click", () => {

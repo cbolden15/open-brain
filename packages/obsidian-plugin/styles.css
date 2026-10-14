@@ -56,3 +56,36 @@
   border-bottom: 1px solid var(--background-modifier-border);
   padding: 0.6rem 0;
 }
+
+.open-brain-facet-browser nav,
+.open-brain-facet-browser button,
+.open-brain-facet-publication button,
+.open-brain-facet-reconciliation button {
+  margin: 0.2rem;
+}
+
+.open-brain-facet-browser label,
+.open-brain-facet-publication label,
+.open-brain-facet-reconciliation label {
+  display: block;
+  margin: 0.6rem 0;
+}
+
+.open-brain-facet-evidence,
+.open-brain-facet-publication pre,
+.open-brain-facet-reconciliation pre {
+  max-height: 35vh;
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  padding: 0.5rem;
+  background: var(--background-secondary);
+}
+
+.open-brain-facet-publication textarea { width: 100%; }
+.open-brain-facet-browser :focus-visible,
+.open-brain-facet-publication :focus-visible,
+.open-brain-facet-reconciliation :focus-visible {
+  outline: 2px solid var(--interactive-accent);
+  outline-offset: 2px;
+}

@@ -53,7 +53,7 @@ vi.mock("obsidian", () => {
   class TFile { public constructor(readonly path = "") {} }
   return {
     __notices: notices, __opened: opened,
-    App: class {}, FileSystemAdapter, FuzzySuggestModal, Modal,
+    App: class {}, FileSystemAdapter, FuzzySuggestModal, Modal, ItemView: class {},
     Notice: class { public constructor(message: string) { notices.push(message); } },
     Plugin: class { public app: unknown; public constructor(app: unknown) { this.app = app; } },
     PluginSettingTab: class {}, Setting: class {}, TFile,
@@ -78,6 +78,25 @@ const summary = (n: number) => {
 };
 
 describe("actual T07 modals", () => {
+  it("offers classification for engine records without a managed file", async () => {
+    const item = summary(0);
+    const classify = vi.fn(async (_item: unknown, _cancelled: () => boolean) => {});
+    const bridge = { cancelPending: vi.fn(), invoke: vi.fn(async () => ({
+      status: "ok", dto_version: 1, results: [item], next_cursor: null,
+      complete: true, mode_used: "lexical", warnings: [],
+    })) };
+    const modal = new PagedRecordSearchModal({} as never, bridge as never, {
+      cursor: null, filters: { payload_families: [], record_types: [], space_ids: [] },
+      limit: 50, mode: "lexical", query: "synthetic",
+    }, { classify, history: async () => {} });
+    modal.open();
+    await vi.waitFor(() => expect(walk(modal.contentEl as unknown as TestElement).some((row) => row.text === "Classify")).toBe(true));
+    walk(modal.contentEl as unknown as TestElement).find((row) => row.text === "Classify")!.trigger("click");
+    await vi.waitFor(() => expect(classify).toHaveBeenCalledOnce());
+    expect(classify.mock.calls[0]?.[0]).toEqual(item);
+    modal.close();
+    expect(bridge.cancelPending).not.toHaveBeenCalled();
+  });
   it("maps the visible Hybrid choice to the frozen hybrid_preferred request", async () => {
     const modal = new SearchFiltersModal({} as never);
     const result = modal.result();
@@ -90,7 +109,7 @@ describe("actual T07 modals", () => {
     expect(() => validateT03Wire("search.page.request", { dto_version: 1, ...request })).not.toThrow();
   });
 
-  it("close/Escape cancels the held read and prevents another chunk request", async () => {
+  it("close/Escape stops the held read without cancelling the shared bridge", async () => {
     let release!: (value: unknown) => void;
     let reads = 0;
     const page = { status: "ok", dto_version: 1, results: [summary(0)], next_cursor: null,
@@ -121,7 +140,7 @@ describe("actual T07 modals", () => {
       start_byte: 0, end_byte: 1, next_cursor: "cursor-1", complete: false });
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(reads).toBe(1);
-    expect(bridge.cancelPending).toHaveBeenCalledOnce();
+    expect(bridge.cancelPending).not.toHaveBeenCalled();
   });
 
   it("allows only one complete-read loop across result rows", async () => {

@@ -508,6 +508,14 @@ class ManagedWorkspaceTasks:
             authority=authority,
         ).to_wire()
 
+    def rebuild_facet_views(self, workspace_id: str) -> None:
+        """Explicitly rebuild classification projections without body-write authority.
+
+        Portable attachment retains accepted bodies but does not import the authority
+        needed for canonical refresh. Facet projection custody remains independent.
+        """
+        FacetVaultTasks(self._engine).refresh_workspace(workspace_id)
+
     def observe(self, workspace_id: str) -> ManagedWorkspaceObservation:
         _portable_id(workspace_id, "workspace")
         workspace = self._workspace(workspace_id)

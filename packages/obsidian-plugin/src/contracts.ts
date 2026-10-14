@@ -6,6 +6,7 @@ import type { FacetOperation } from "./facet-types";
 export type PluginOperation = FacetOperation
   | "workspace.record.resolve"
   | "workspace.observe"
+  | "workspace.facets.refresh"
   | "history.list"
   | "history.show"
   | "source.route"
@@ -27,6 +28,7 @@ export type PluginOperation = FacetOperation
   | "publication.propose"
   | "publication.reject"
   | "publication.show"
+  | "publication.list"
   | "record.read"
   | "search.page"
   | "space.create"

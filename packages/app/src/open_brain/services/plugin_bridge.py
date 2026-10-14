@@ -158,7 +158,7 @@ _COLLECTOR_OPERATIONS = (
     "collector.sync_now",
 )
 _FACET_OPERATIONS = facet_wire.OPERATIONS
-_BASE_OPERATIONS += (*_FACET_OPERATIONS, "workspace.observe")
+_BASE_OPERATIONS += (*_FACET_OPERATIONS, "workspace.observe", "workspace.facets.refresh")
 _OPERATIONS = _BASE_OPERATIONS + _NEGOTIATED_OPERATIONS + _COLLECTOR_OPERATIONS
 
 _SCOPED_OPERATION_GRANTS: dict[str, frozenset[str]] = {
@@ -563,6 +563,11 @@ def dispatch_plugin_request(
         observation = tasks.managed_workspace.observe(status.workspace_id)
         return {"status": "observed", "workspace_id": status.workspace_id,
                 "generation": observation.generation}
+    if operation == "workspace.facets.refresh":
+        _require_keys(arguments, frozenset())
+        status = _configured_status(tasks)
+        tasks.managed_workspace.rebuild_facet_views(status.workspace_id)
+        return {"status": "refreshed", "workspace_id": status.workspace_id}
     if operation == "capture.create":
         _require_keys(arguments, frozenset({"text"}))
         text = _bounded_text(arguments["text"], maximum_bytes=16 * 1024)

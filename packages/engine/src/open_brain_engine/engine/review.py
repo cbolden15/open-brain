@@ -449,6 +449,7 @@ class ReviewOperations(_LocalEngineOperations):
         offset: int = 0,
         set_delivery_id: str | None = None,
         authority: EffectiveAuthority | None = None,
+        facet_query_id: str | None = None,
     ) -> tuple[ProposalRecord, ...]:
         if capture_id is not None:
             _portable_id(capture_id, "capture")
@@ -461,6 +462,10 @@ class ReviewOperations(_LocalEngineOperations):
             raise ValueError("invalid proposal status")
         if space_id is not None:
             _portable_id(space_id, "space")
+        if facet_query_id is not None:
+            from .facet_validation import validate
+
+            validate("facet.query.get.request", {"dto_version": 1, "query_id": facet_query_id})
         if (
             (limit is not None and (type(limit) is not int or not 1 <= limit <= 100))
             or type(offset) is not int
@@ -484,6 +489,14 @@ class ReviewOperations(_LocalEngineOperations):
         if space_id is not None:
             clauses.append("space_id = ?")
             parameters.append(space_id)
+        if facet_query_id is not None:
+            clauses.append(
+                "EXISTS (SELECT 1 FROM review_contexts rc "
+                "WHERE rc.proposal_id=proposals.proposal_id "
+                "AND json_extract(CAST(rc.binding_json AS TEXT),'$.schema_version')=5 "
+                "AND json_extract(CAST(rc.binding_json AS TEXT),'$.query_id')=?)"
+            )
+            parameters.append(facet_query_id)
         sql = "SELECT * FROM proposals"
         if clauses:
             sql += " WHERE " + " AND ".join(clauses)
@@ -1198,6 +1211,7 @@ class ReviewTasks:
         space_id: str | None = None,
         limit: int | None = None,
         offset: int = 0,
+        facet_query_id: str | None = None,
     ) -> tuple[ProposalRecord, ...]:
         if self._authority is not None:
             self._authority.require("review-read")
@@ -1208,6 +1222,7 @@ class ReviewTasks:
             limit=limit,
             offset=offset,
             authority=self._authority,
+            facet_query_id=facet_query_id,
         )
 
     def show(self, proposal_id: str) -> ReviewProposal:

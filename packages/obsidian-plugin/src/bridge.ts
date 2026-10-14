@@ -243,7 +243,7 @@ export class OpenBrainBridge {
       }
       return;
     }
-    if (INTEGER_WIRE_OPERATIONS.has(pending.operation) || pending.operation === "publication.show") {
+    if (INTEGER_WIRE_OPERATIONS.has(pending.operation) || ["publication.show", "publication.list"].includes(pending.operation)) {
       try {
         if (INTEGER_WIRE_OPERATIONS.has(pending.operation) && line.length + 1 > 1024 * 1024) throw new Error("response_too_large");
         // Validate the original lexemes before JSON's number conversion can erase them.
