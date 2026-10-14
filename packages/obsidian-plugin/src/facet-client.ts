@@ -51,7 +51,7 @@ export class FacetMutation<O extends FacetOperation> {
   public readonly request: FacetRequestMap[O];
   #pending: Promise<FacetResponseMap[O]> | null = null;
   public constructor(private readonly client: FacetClient, public readonly operation: O, request: FacetRequestMap[O]) {
-    this.request = Object.freeze(JSON.parse(JSON.stringify(request))) as FacetRequestMap[O];
+    this.request = freezeRequest(JSON.parse(JSON.stringify(request))) as FacetRequestMap[O];
   }
   public submit(): Promise<FacetResponseMap[O]> {
     if (this.#pending !== null) return this.#pending;
@@ -62,10 +62,21 @@ export class FacetMutation<O extends FacetOperation> {
       this.result = result; this.status = "committed"; return result;
     }).catch((error: unknown) => {
       const code = typeof error === "object" && error !== null && "code" in error ? String(error.code) : "operation_pending";
-      this.status = ["timeout", "bridge_closed", "transport_failed", "operation_pending"].includes(code) ? "uncertain" : "conflict";
+      this.status = ["version_conflict", "revision_changed", "review_conflict", "preview_stale",
+        "projection_conflict", "facet_archived", "query_archived", "name_conflict",
+        "invalid_arguments", "unsupported_capability", "not_found", "idempotency_conflict",
+        "limit_exceeded"].includes(code) ? "conflict" : "uncertain";
       throw error;
     }).finally(() => { this.#pending = null; });
     return this.#pending;
   }
   public retry(): Promise<FacetResponseMap[O]> { return this.submit(); }
+}
+
+function freezeRequest(value: unknown): unknown {
+  if (value !== null && typeof value === "object") {
+    for (const child of Object.values(value)) freezeRequest(child);
+    Object.freeze(value);
+  }
+  return value;
 }

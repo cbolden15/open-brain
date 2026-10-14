@@ -58,6 +58,7 @@ from .markdown_import_fs import (
     snapshot_directory,
 )
 from .normalization import _delivery_id, _new_id, _portable_id
+from .t03_contracts import EffectiveAuthority
 
 if TYPE_CHECKING:
     from .local import BrainEngine
@@ -495,6 +496,17 @@ class ManagedWorkspaceTasks:
             raise
         except (ImportDirectoryUnavailable, ImportScanIncomplete, OSError, ValueError):
             raise ManagedWorkspaceFailure("unsafe_workspace") from None
+
+    def resolve_record(
+        self, workspace_id: str, relative_path: str, *, authority: EffectiveAuthority
+    ) -> dict[str, object]:
+        """Expose the read-only custody lookup through the public workspace task."""
+        from .managed_record_identity import resolve_managed_record
+
+        return resolve_managed_record(
+            self._engine, workspace_id=workspace_id, relative_path=relative_path,
+            authority=authority,
+        ).to_wire()
 
     def observe(self, workspace_id: str) -> ManagedWorkspaceObservation:
         _portable_id(workspace_id, "workspace")

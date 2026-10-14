@@ -1,7 +1,14 @@
 export const OPEN_BRAIN_CLIENT_PROTOCOL = "open-brain-client";
 export const OPEN_BRAIN_CLIENT_PROTOCOL_VERSION = 1;
 
-export type PluginOperation =
+import type { FacetOperation } from "./facet-types";
+
+export type PluginOperation = FacetOperation
+  | "workspace.record.resolve"
+  | "workspace.observe"
+  | "history.list"
+  | "history.show"
+  | "source.route"
   | "brain.initialize"
   | "capture.create"
   | "contract.describe"
@@ -52,6 +59,7 @@ export interface Handshake {
   protocol: typeof OPEN_BRAIN_CLIENT_PROTOCOL;
   protocol_version: typeof OPEN_BRAIN_CLIENT_PROTOCOL_VERSION;
   status: "ok";
+  facet_capabilities?: unknown;
 }
 
 export interface WorkspaceStatus {

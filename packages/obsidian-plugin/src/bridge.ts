@@ -12,6 +12,10 @@ import {
   type PluginOperation,
   record,
 } from "./contracts";
+import {
+  FACET_OPERATIONS, RESOLVE_OPERATION, encodeFacetRequest, negotiateFacets,
+  parseFacetResponseFrame, type FacetBridgeOperation, type FacetNegotiation,
+} from "./facet-wire";
 
 const MAX_REQUEST_BYTES = 64 * 1024;
 const MAX_RESPONSE_BYTES = 5 * 1024 * 1024;
@@ -26,6 +30,7 @@ type Pending = {
   reject: (error: Error) => void;
   resolve: (value: unknown) => void;
   timer: ReturnType<typeof setTimeout>;
+  maximumResponseBytes: number;
 };
 
 type SpawnProcess = (
@@ -55,6 +60,8 @@ export class OpenBrainBridge {
   #stdout = Buffer.alloc(0);
   #stderrBytes = 0;
   #disposed = false;
+  #facetNegotiation: FacetNegotiation | null = null;
+  #facetHandshake: Promise<unknown> | null = null;
 
   public constructor(executable: string, spawnProcess: SpawnProcess = spawn) {
     if (!path.isAbsolute(executable)) throw new BridgeError("binary_unavailable");
@@ -72,6 +79,16 @@ export class OpenBrainBridge {
     if (!/^plugin_[0-9a-f-]{36}$/.test(requestId) || timeoutMs < 1 || timeoutMs > 120_000) {
       throw new BridgeError("invalid_request");
     }
+    const facet = isFacetOperation(operation);
+    if (facet && this.#facetNegotiation === null) {
+      this.#facetHandshake ??= this.invoke("system.handshake", {}, timeoutMs).finally(() => {
+        this.#facetHandshake = null;
+      });
+      await this.#facetHandshake;
+    }
+    const negotiated = this.#facetNegotiation;
+    const bounds = facet && negotiated?.status === "available" ? negotiated.limits[operation] : undefined;
+    if (facet && bounds === undefined) throw new BridgeError("unsupported_capability");
     const child = this.#ensureChild();
     const request: BridgeRequest = {
       arguments: args,
@@ -80,8 +97,9 @@ export class OpenBrainBridge {
       protocol_version: OPEN_BRAIN_CLIENT_PROTOCOL_VERSION,
       request_id: requestId,
     };
-    const payload = Buffer.from(`${JSON.stringify(request)}\n`, "utf8");
-    if (payload.length > MAX_REQUEST_BYTES || this.#pending.has(requestId)) {
+    const payload = facet ? Buffer.from(encodeFacetRequest(operation, args, requestId))
+      : Buffer.from(`${JSON.stringify(request)}\n`, "utf8");
+    if (payload.length > (bounds?.request_bytes ?? MAX_REQUEST_BYTES) || this.#pending.has(requestId)) {
       throw new BridgeError("invalid_request");
     }
     return await new Promise<T>((resolve, reject) => {
@@ -95,6 +113,9 @@ export class OpenBrainBridge {
         reject,
         resolve: (value) => resolve(value as T),
         timer,
+        maximumResponseBytes: bounds?.response_bytes ?? (
+          INTEGER_WIRE_OPERATIONS.has(operation) ? 1024 * 1024 : MAX_RESPONSE_BYTES
+        ),
       });
       child.stdin.write(payload, (error) => {
         if (error !== null && error !== undefined) {
@@ -144,29 +165,38 @@ export class OpenBrainBridge {
     child.once("error", () => {
       if (this.#child !== child) return;
       this.#child = null;
+      this.#facetNegotiation = null;
       this.#failAll("transport_failed");
     });
     child.once("exit", () => {
       if (this.#child !== child) return;
       this.#child = null;
+      this.#facetNegotiation = null;
       this.#failAll("bridge_closed");
     });
     return child;
   }
 
   #onStdout(chunk: Buffer | string): void {
-    this.#stdout = Buffer.concat([this.#stdout, Buffer.from(chunk)]);
-    if (this.#stdout.length > MAX_RESPONSE_BYTES) {
-      this.#failAll("response_too_large");
-      this.#terminate();
-      return;
-    }
-    let newline = this.#stdout.indexOf(0x0a);
-    while (newline >= 0) {
-      const line = this.#stdout.subarray(0, newline);
-      this.#stdout = this.#stdout.subarray(newline + 1);
-      this.#handleLine(line);
-      newline = this.#stdout.indexOf(0x0a);
+    const incoming = Buffer.from(chunk);
+    let offset = 0;
+    while (offset < incoming.length) {
+      const newline = incoming.indexOf(0x0a, offset);
+      const end = newline < 0 ? incoming.length : newline + 1;
+      const maximum = Math.max(1, ...Array.from(this.#pending.values(), (p) => p.maximumResponseBytes));
+      if (this.#stdout.length + end - offset > maximum) {
+        this.#failAll("response_too_large"); this.#terminate(); return;
+      }
+      this.#stdout = Buffer.concat([this.#stdout, incoming.subarray(offset, end)]);
+      offset = end;
+      if (newline >= 0) {
+        const line = this.#stdout.subarray(0, this.#stdout.length - 1);
+        this.#stdout = Buffer.alloc(0);
+        this.#handleLine(line);
+        if (this.#pending.size === 0 && offset < incoming.length) {
+          this.#terminate(); return;
+        }
+      }
     }
   }
 
@@ -195,6 +225,18 @@ export class OpenBrainBridge {
       this.#terminate();
       return;
     }
+    if (line.length + 1 > pending.maximumResponseBytes) {
+      this.#failAll("response_too_large"); this.#terminate(); return;
+    }
+    if (isFacetOperation(pending.operation)) {
+      clearTimeout(pending.timer); this.#pending.delete(requestId);
+      try {
+        pending.resolve(parseFacetResponseFrame(pending.operation, Buffer.concat([line, Buffer.from("\n")]), requestId));
+      } catch (error) {
+        pending.reject(error instanceof Error ? error : new BridgeError("protocol_error"));
+      }
+      return;
+    }
     if (INTEGER_WIRE_OPERATIONS.has(pending.operation)) {
       try {
         if (line.length + 1 > 1024 * 1024) throw new Error("response_too_large");
@@ -209,6 +251,7 @@ export class OpenBrainBridge {
     clearTimeout(pending.timer);
     this.#pending.delete(requestId);
     if (response.ok === true && "result" in response && !("error" in response)) {
+      if (pending.operation === "system.handshake") this.#facetNegotiation = negotiateFacets(response.result);
       pending.resolve(response.result);
       return;
     }
@@ -237,6 +280,7 @@ export class OpenBrainBridge {
   #terminate(): void {
     const child = this.#child;
     this.#child = null;
+    this.#facetNegotiation = null;
     this.#failAll("bridge_closed");
     if (child === null || child.exitCode !== null) return;
     child.stdin.end();
@@ -260,6 +304,10 @@ export class OpenBrainBridge {
       child.kill("SIGTERM");
     }
   }
+}
+
+function isFacetOperation(operation: PluginOperation): operation is FacetBridgeOperation {
+  return operation === RESOLVE_OPERATION || (FACET_OPERATIONS as readonly string[]).includes(operation);
 }
 
 export async function discoverOpenBrainExecutable(explicitPath: string): Promise<string> {

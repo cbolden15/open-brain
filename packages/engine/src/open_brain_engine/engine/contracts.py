@@ -3291,6 +3291,10 @@ class ManagedWorkspaceTask(Protocol):
 
     def observe(self, workspace_id: str) -> ManagedWorkspaceObservation: ...
 
+    def resolve_record(
+        self, workspace_id: str, relative_path: str, *, authority: EffectiveAuthority
+    ) -> dict[str, object]: ...
+
     def open_conflicts(
         self, workspace_id: str, *, limit: int = 64
     ) -> tuple[ManagedWorkspaceConflictSummary, ...]: ...

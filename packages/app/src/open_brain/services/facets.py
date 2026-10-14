@@ -171,12 +171,12 @@ class FacetAppAdapter:
 
     def available_operations(self, *, transport: str = "mcp") -> tuple[str, ...]:
         self._revalidate()
-        if transport not in {"mcp", "cli"}:
+        if transport not in {"mcp", "cli", "plugin"}:
             raise fc.FacetError("invalid_arguments")
         return tuple(
             operation
             for operation, (_component, grants, _bucket, _cap) in _OPERATIONS.items()
-            if (transport == "cli" or operation in _MCP_NAMES)
+            if (transport in {"cli", "plugin"} or operation in _MCP_NAMES)
             and (self.authority.owner or grants <= self.authority.capabilities)
             and (
                 transport == "cli"
@@ -297,6 +297,11 @@ class FacetAppAdapter:
         # at the output boundary before any result leaves this adapter.
         self._revalidate()
         return result
+
+
+def facet_operation_grants(operation: str) -> frozenset[str]:
+    """Shared registration policy; authority always comes from trusted setup."""
+    return _OPERATIONS[operation][1]
 
 
 def _receipt_bound(operation: str, operation_id: str) -> dict[str, object]:

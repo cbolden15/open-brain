@@ -29,16 +29,24 @@ from open_brain_engine.engine import (
     canonical_json_bytes,
     inspect_phase1_state,
 )
+from open_brain_engine.engine.facet_contracts import FacetError
 from open_brain_engine.engine.t03_contracts import EffectiveAuthority
 from open_brain_engine.storage.locks import LockBusyError
 
 from open_brain.local_data import FilesystemTypeProbe, LocalDataError, LocalRootSelection
 from open_brain.profile import ProfileError, open_existing_single_user_local
+from open_brain.services import plugin_facet_contracts as facet_wire
 from open_brain.services.agent_setup import (
     AgentSetupFailure,
     apply_agent_setup,
     preview_agent_setup,
     resolve_agent_runtime,
+)
+from open_brain.services.facets import (
+    FacetAppAdapter,
+    FacetReviewQuota,
+    FacetSessionBudget,
+    facet_operation_grants,
 )
 from open_brain.services.graphify_projection import GraphifyFailure
 from open_brain.services.local_bootstrap import (
@@ -89,6 +97,7 @@ OPEN_BRAIN_CLIENT_PROTOCOL_VERSION = 1
 MAX_PLUGIN_REQUEST_BYTES = 64 * 1024
 MAX_PLUGIN_RESPONSE_BYTES = 5 * 1024 * 1024
 MAX_PLUGIN_SESSION_REQUESTS = 2_000
+MAX_PLUGIN_FRAME_BYTES = facet_wire.MAX_REQUEST_BYTES
 _REQUEST_ID = re.compile(
     r"^plugin_[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
 )
@@ -148,6 +157,8 @@ _COLLECTOR_OPERATIONS = (
     "collector.status",
     "collector.sync_now",
 )
+_FACET_OPERATIONS = facet_wire.OPERATIONS
+_BASE_OPERATIONS += (*_FACET_OPERATIONS, "workspace.observe")
 _OPERATIONS = _BASE_OPERATIONS + _NEGOTIATED_OPERATIONS + _COLLECTOR_OPERATIONS
 
 _SCOPED_OPERATION_GRANTS: dict[str, frozenset[str]] = {
@@ -220,6 +231,12 @@ class PluginBridgeFailure(RuntimeError):
             "source_unrouted",
             "terminal_decision",
             "review_conflict",
+            "name_conflict",
+            "version_conflict",
+            "facet_archived",
+            "query_archived",
+            "limit_exceeded",
+            "projection_conflict",
         }:
             raise ValueError("invalid plugin bridge failure")
         self.code = code
@@ -240,6 +257,9 @@ class PluginRuntimeState:
         "selected_provider",
         "session_credentials",
         "t03_adapter",
+        "facet_adapter",
+        "review_proposals",
+        "review_bytes",
     )
 
     def __init__(
@@ -263,6 +283,22 @@ class PluginRuntimeState:
         self.selected_custody: str | None = None
         self.session_credentials: dict[ManagedProvider, str] = {}
         self.t03_adapter: T03AppAdapter | None = None
+        self.facet_adapter: FacetAppAdapter | None = None
+        self.review_proposals = 0
+        self.review_bytes = 0
+
+    def begin_review(self) -> None:
+        if self.review_proposals >= 100:
+            raise ValueError("limit_exceeded")
+        self.review_proposals += 1
+
+    def reserve_review(self, size: int) -> None:
+        if self.review_bytes + size > 16 * 1024 * 1024:
+            raise ValueError("limit_exceeded")
+
+    def commit_review(self, size: int) -> None:
+        self.reserve_review(size)
+        self.review_bytes += size
 
     def resolve_credential(self, provider: ManagedProvider, custody: str) -> str | None:
         if custody == "session":
@@ -294,12 +330,10 @@ def serve_plugin_stdio(
     with ExitStack() as stack:
         session: LocalBrainSession | None = None
         for _index in range(MAX_PLUGIN_SESSION_REQUESTS):
-            payload = input_stream.readline(MAX_PLUGIN_REQUEST_BYTES + 2)
+            payload = input_stream.readline(MAX_PLUGIN_FRAME_BYTES + 1)
             if not payload:
                 break
-            if len(payload) > MAX_PLUGIN_REQUEST_BYTES + 1 or (
-                len(payload) == MAX_PLUGIN_REQUEST_BYTES + 1 and not payload.endswith(b"\n")
-            ):
+            if len(payload) > MAX_PLUGIN_FRAME_BYTES:
                 _write_error(output_stream, None, "invalid_request")
                 break
             request_id: str | None = None
@@ -315,6 +349,21 @@ def serve_plugin_stdio(
                 )
                 if operation in _OPERATIONS and operation not in available_operations:
                     raise PluginBridgeFailure("unsupported_capability")
+                if operation in _FACET_OPERATIONS:
+                    try:
+                        request = facet_wire.decode_request(
+                            payload, available_operations=available_operations,
+                        )
+                    except ValueError as error:
+                        code = str(error)
+                        raise PluginBridgeFailure(
+                            code if code in {"invalid_request", "invalid_arguments",
+                                             "unsupported_capability", "incompatible_protocol"}
+                            else "invalid_arguments"
+                        ) from None
+                    arguments = cast(dict[str, object], request["arguments"])
+                elif len(payload.rstrip(b"\n")) > MAX_PLUGIN_REQUEST_BYTES:
+                    raise PluginBridgeFailure("invalid_request")
                 if operation == "system.handshake":
                     _require_keys(arguments, frozenset())
                     result: dict[str, object] = {
@@ -327,6 +376,7 @@ def serve_plugin_stdio(
                         "runtime_session_version": RUNTIME_SESSION_VERSION,
                         "state_schema_version": PHASE1_STATE_SCHEMA_VERSION,
                         "status": "ok",
+                        "facet_capabilities": facet_wire.capabilities(available_operations),
                     }
                 elif operation == "catalog.describe":
                     from open_brain.services.catalog import (
@@ -406,7 +456,19 @@ def serve_plugin_stdio(
                         base_executable=base_executable,
                         environment=selected_environment,
                         runtime=runtime,
+                        encoded_request_size=len(payload),
                     )
+                if operation in _FACET_OPERATIONS:
+                    try:
+                        response_frame = facet_wire.encode_response(operation, request_id, result)
+                    except ValueError as error:
+                        raise PluginBridgeFailure(
+                            "response_too_large" if str(error) == "response_too_large"
+                            else "operation_pending"
+                        ) from None
+                    output_stream.write(response_frame)
+                    output_stream.flush()
+                    continue
                 _write_response(
                     output_stream,
                     {
@@ -418,6 +480,8 @@ def serve_plugin_stdio(
                     },
                 )
             except PluginBridgeFailure as error:
+                _write_error(output_stream, request_id, error.code)
+            except FacetError as error:
                 _write_error(output_stream, request_id, error.code)
             except LockBusyError:
                 _write_error(output_stream, request_id, "database_busy")
@@ -453,6 +517,7 @@ def dispatch_plugin_request(
     base_executable: Path | None,
     environment: Mapping[str, object] | None = None,
     runtime: PluginRuntimeState,
+    encoded_request_size: int | None = None,
 ) -> dict[str, object]:
     if not isinstance(runtime, PluginRuntimeState):
         raise ValueError("invalid plugin runtime")
@@ -467,6 +532,37 @@ def dispatch_plugin_request(
     if operation in _SCOPED_PUBLIC_OPERATIONS:
         raise PluginBridgeFailure("unsupported_capability")
     tasks = session.tasks
+    if operation in _FACET_OPERATIONS:
+        request_bytes = len(_plugin_frame({
+            "arguments": arguments, "operation": operation,
+            "protocol": OPEN_BRAIN_CLIENT_PROTOCOL,
+            "protocol_version": OPEN_BRAIN_CLIENT_PROTOCOL_VERSION,
+            "request_id": request_id,
+        })) if encoded_request_size is None else encoded_request_size
+        if request_bytes > facet_wire.limits(operation)[0]:
+            raise PluginBridgeFailure("invalid_arguments")
+        if operation == facet_wire.RESOLVE_OPERATION:
+            parsed = facet_wire.managed_request(arguments)
+            authority = runtime.authority
+            result = tasks.managed_workspace.resolve_record(
+                parsed["workspace_id"], parsed["relative_path"], authority=authority,
+            )
+            if runtime.authority is not authority:
+                raise PluginBridgeFailure("unsupported_capability")
+            return result
+        facet_adapter = _facet_bridge_adapter(tasks, runtime)
+        return facet_adapter.invoke(
+            operation, arguments, transport="plugin",
+            maximum_response_bytes=facet_wire.limits(operation)[1],
+            encoded_size=lambda result: facet_wire.response_size(request_id, result),
+            encoded_request_size=request_bytes,
+        )
+    if operation == "workspace.observe":
+        _require_keys(arguments, frozenset())
+        status = _configured_status(tasks)
+        observation = tasks.managed_workspace.observe(status.workspace_id)
+        return {"status": "observed", "workspace_id": status.workspace_id,
+                "generation": observation.generation}
     if operation == "capture.create":
         _require_keys(arguments, frozenset({"text"}))
         text = _bounded_text(arguments["text"], maximum_bytes=16 * 1024)
@@ -527,8 +623,19 @@ def dispatch_plugin_request(
     if operation in publication_handlers:
         publication_service = ReviewPublicationService(tasks.review)
         handler = getattr(publication_service, publication_handlers[operation])
+        if operation == "publication.propose":
+            try:
+                runtime.begin_review()
+                runtime.reserve_review(4096)
+            except ValueError:
+                raise PluginBridgeFailure("limit_exceeded") from None
         try:
-            return cast(dict[str, object], handler(_legacy_versioned_arguments(arguments)))
+            publication_result = cast(
+                dict[str, object], handler(_legacy_versioned_arguments(arguments))
+            )
+            if operation == "publication.propose":
+                runtime.commit_review(_plugin_result_size(request_id, publication_result))
+            return publication_result
         except ReviewPublicationError as error:
             raise PluginBridgeFailure(error.code) from None
     if operation.startswith("collector."):
@@ -1085,6 +1192,12 @@ def _available_operations(
         operation
         for operation in _BASE_OPERATIONS + _NEGOTIATED_OPERATIONS
         if authority.owner
+        or (
+            operation in _FACET_OPERATIONS
+            and operation != facet_wire.RESOLVE_OPERATION
+            and not operation.startswith("facet.vault.")
+            and facet_operation_grants(operation) <= authority.capabilities
+        )
         or operation in _SCOPED_PUBLIC_OPERATIONS
         or (
             operation in _SCOPED_OPERATION_GRANTS
@@ -1399,6 +1512,30 @@ def _plugin_result_size(request_id: str, result: Mapping[str, object]) -> int:
         )
         + 1
     )
+
+
+def _plugin_frame(value: Mapping[str, object]) -> bytes:
+    return json.dumps(value, ensure_ascii=False, separators=(",", ":"),
+                      allow_nan=False).encode("utf-8") + b"\n"
+
+
+def _facet_bridge_adapter(tasks: EngineTaskSet, runtime: PluginRuntimeState) -> FacetAppAdapter:
+    if runtime.facet_adapter is None:
+        runtime.facet_adapter = FacetAppAdapter(
+            facets=tasks.facets, publication=tasks.facet_publication, vault=tasks.facet_vault,
+            authority=runtime.authority,
+            budget=FacetSessionBudget(
+                negotiated=_t03_bridge_adapter(tasks, runtime).budget,
+                review=FacetReviewQuota(
+                    begin=runtime.begin_review, reserve=runtime.reserve_review,
+                    commit=runtime.commit_review,
+                ),
+            ),
+            revalidate_authority=lambda: runtime.authority,
+        )
+    elif runtime.facet_adapter.authority is not runtime.authority:
+        raise PluginBridgeFailure("unsupported_capability")
+    return runtime.facet_adapter
 
 
 def _direct_provider(value: object) -> ManagedProvider:
