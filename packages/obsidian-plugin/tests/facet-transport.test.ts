@@ -20,7 +20,7 @@ afterEach(async () => {
   for (const directory of directories.splice(0)) await rm(directory, {recursive: true, force: true});
 });
 
-type ProxyMode = "plain" | "drop-once" | "malform-once" | "small-request" | "small-response" | "inspection-exponent";
+type ProxyMode = "plain" | "drop-once" | "malform-once" | "malformed-error-once" | "small-request" | "small-response" | "inspection-exponent";
 
 async function live(mode: ProxyMode = "plain") {
   const directory = await realpath(await mkdtemp(path.join(tmpdir(), "synthetic-open-brain-facet-")));
@@ -65,9 +65,16 @@ child.stdout.on("data", (chunk) => {
         if (mode === "small-response" && entry.operation === "facet.dimension.list") entry.response_bytes = 200;
       }
     }
-    if (response.ok && operation === "facet.dimension.create" && (mode === "drop-once" || mode === "malform-once") && !fs.existsSync(${JSON.stringify(marker)})) {
+    if (response.ok && operation === "facet.dimension.create" && (mode === "drop-once" || mode === "malform-once" || mode === "malformed-error-once") && !fs.existsSync(${JSON.stringify(marker)})) {
       fs.writeFileSync(${JSON.stringify(marker)}, "used");
       if (mode === "drop-once") continue;
+      if (mode === "malformed-error-once") {
+        response.ok = false;
+        delete response.result;
+        response.error = {code: "invalid_arguments"};
+        process.stdout.write(JSON.stringify(response).replace('"protocol_version":1', '"protocol_version":1e0') + "\\n");
+        continue;
+      }
       response.result.unexpected_field = true;
     }
     if (response.ok && operation === "publication.show" && mode === "inspection-exponent") {
@@ -100,7 +107,7 @@ describe("actual OpenBrainBridge child against synthetic source runtime", () => 
     expect((await bridge.invoke<{facet_capabilities: unknown}>("system.handshake", {})).facet_capabilities).toBeDefined();
   }, 20_000);
 
-  it.each(["drop-once", "malform-once"] as const)(
+  it.each(["drop-once", "malform-once", "malformed-error-once"] as const)(
     "O05: %s after real commit stays uncertain and retries the same durable operation", async (mode) => {
       const {bridge, client} = await live(mode);
       const mutation = client.createMutation("facet.dimension.create", {dto_version: 1, expected_version: 0, name: "Synthetic uncertain mutation"});
