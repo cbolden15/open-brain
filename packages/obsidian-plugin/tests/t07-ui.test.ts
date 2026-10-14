@@ -78,6 +78,51 @@ const summary = (n: number) => {
 };
 
 describe("actual T07 modals", () => {
+  it.each(["automatic", "manual"] as const)("%s graph refresh preserves the intended focus policy", async (reason) => {
+    const obsidian = await import("obsidian") as unknown as {
+      TFile: new () => object;
+      FileSystemAdapter: new (basePath: string) => object;
+    };
+    const vaultPath = await mkdtemp(path.join(tmpdir(), "open-brain-canvas-focus-"));
+    const executable = await managedBridgeExecutable(vaultPath, true);
+    const file = new obsidian.TFile();
+    const openFile = vi.fn(async () => undefined);
+    const create = vi.fn(async () => file);
+    const plugin = new OpenBrainPlugin({
+      vault: { adapter: new obsidian.FileSystemAdapter(vaultPath), getAbstractFileByPath: () => null, create },
+      workspace: { getLeaf: () => ({ openFile }) },
+    } as never, {} as never);
+    plugin.settings = { executablePath: executable, inferencePaused: true };
+    try {
+      await plugin.refreshPresentation(reason);
+      expect(create).toHaveBeenCalledOnce();
+      expect(openFile).toHaveBeenCalledTimes(reason === "manual" ? 1 : 0);
+    } finally { plugin.onunload(); }
+  });
+  it("does not rewrite or reveal the canvas after unload during its ownership read", async () => {
+    const obsidian = await import("obsidian") as unknown as {
+      TFile: new () => object; FileSystemAdapter: new (basePath: string) => object;
+    };
+    const vaultPath = await mkdtemp(path.join(tmpdir(), "open-brain-canvas-unload-"));
+    const executable = await managedBridgeExecutable(vaultPath, true);
+    const file = new obsidian.TFile();
+    let finishRead!: (value: string) => void;
+    const read = vi.fn(() => new Promise<string>((resolve) => { finishRead = resolve; }));
+    const processFile = vi.fn();
+    const openFile = vi.fn();
+    const plugin = new OpenBrainPlugin({
+      vault: { adapter: new obsidian.FileSystemAdapter(vaultPath), getAbstractFileByPath: () => file, read, process: processFile },
+      workspace: { getLeaf: () => ({ openFile }) },
+    } as never, {} as never);
+    plugin.settings = { executablePath: executable, inferencePaused: true };
+    const running = plugin.refreshPresentation("manual");
+    await vi.waitFor(() => expect(read).toHaveBeenCalledOnce());
+    plugin.onunload();
+    finishRead(JSON.stringify({ nodes: [{ text: "# Open Brain graph" }] }));
+    await running;
+    expect(processFile).not.toHaveBeenCalled();
+    expect(openFile).not.toHaveBeenCalled();
+  });
   it("offers classification for engine records without a managed file", async () => {
     const item = summary(0);
     const classify = vi.fn(async (_item: unknown, _cancelled: () => boolean) => {});
@@ -489,7 +534,7 @@ async function managedFileHarness(
   };
 }
 
-async function managedBridgeExecutable(vaultPath: string): Promise<string> {
+async function managedBridgeExecutable(vaultPath: string, presentation = false): Promise<string> {
   const directory = await mkdtemp(path.join(tmpdir(), "open-brain-managed-bridge-"));
   const executable = path.join(directory, "open-brain");
   const handshake = {
@@ -504,6 +549,7 @@ async function managedBridgeExecutable(vaultPath: string): Promise<string> {
 let buffer = "";
 const handshake = ${JSON.stringify(handshake)};
 const status = ${JSON.stringify(status)};
+const presentation = ${JSON.stringify(presentation)};
 process.stdin.setEncoding("utf8");
 process.stdin.on("data", (chunk) => {
   buffer += chunk;
@@ -511,7 +557,11 @@ process.stdin.on("data", (chunk) => {
   while (newline >= 0) {
     const request = JSON.parse(buffer.slice(0, newline));
     buffer = buffer.slice(newline + 1);
-    const result = request.operation === "system.handshake" ? handshake : status;
+    let result = request.operation === "system.handshake" ? handshake : status;
+    if (presentation && request.operation === "workspace.reconcile") result = {
+      status:"reconciled",workspace_id:status.workspace_id,generation:0,accepted_note_ids:[],missing_note_ids:[]};
+    if (presentation && request.operation === "graph.canvas") result = {
+      status:"fresh",workspace_id:status.workspace_id,generation_id:null,snapshot_sha256:null,canvas:{nodes:[],edges:[]}};
     process.stdout.write(JSON.stringify({ok:true, protocol:"open-brain-client", protocol_version:1,
       request_id:request.request_id, result}) + "\\n");
     newline = buffer.indexOf("\\n");

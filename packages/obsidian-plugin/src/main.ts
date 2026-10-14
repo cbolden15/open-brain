@@ -208,7 +208,7 @@ export default class OpenBrainPlugin extends Plugin {
         }
       }
       const canvas = parseCanvas(await bridge.invoke("graph.canvas", {}, 15_000));
-      await this.#writeCanvas(canvas.canvas);
+      await this.#writeCanvas(canvas.canvas, reason === "manual");
       if (reason === "manual") {
         new Notice(
           `Open Brain graph refreshed. ${reconciliation.accepted_note_ids.length} edited note(s) accepted.`,
@@ -1059,20 +1059,24 @@ export default class OpenBrainPlugin extends Plugin {
     }
   }
 
-  async #writeCanvas(canvas: Record<string, unknown>): Promise<void> {
+  async #writeCanvas(canvas: Record<string, unknown>, reveal: boolean): Promise<void> {
+    if (this.#unloaded) return;
     const payload = `${JSON.stringify(canvas, null, 2)}\n`;
     const current = this.app.vault.getAbstractFileByPath(CANVAS_PATH);
     let file: TFile;
     if (current === null) {
       file = await this.app.vault.create(CANVAS_PATH, payload);
     } else {
-      if (!(current instanceof TFile) || !(await this.#isOwnedCanvas(current))) {
+      if (!(current instanceof TFile)) throw new BridgeError("canvas_path_owned_by_user");
+      const owned = await this.#isOwnedCanvas(current);
+      if (this.#unloaded) return;
+      if (!owned) {
         throw new BridgeError("canvas_path_owned_by_user");
       }
       await this.app.vault.process(current, () => payload);
       file = current;
     }
-    await this.app.workspace.getLeaf("tab").openFile(file);
+    if (reveal && !this.#unloaded) await this.app.workspace.getLeaf("tab").openFile(file);
   }
 
   async #isOwnedCanvas(file: TFile): Promise<boolean> {
