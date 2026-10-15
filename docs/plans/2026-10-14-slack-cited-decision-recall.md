@@ -97,7 +97,7 @@ Record every traversed page/read completion flag. When a read response reports s
 
 ## Ordered work packages
 
-Implement one package at a time. Later packages depend on the earlier acceptance checks passing. W0 and W1a/W1b are complete. After the owner selected B/B/B, remaining W2–W4 repository work is approximately **8–14 engineer-days** for a familiar engineer, including **6–10 for revised W2** and 1–2 each for W3/W4. This replaces the original W2 estimate; private pilot evidence, provider availability and separately scoped compatibility migrations are excluded. See the [revised W2 scope and client-settings feasibility](/Users/calebbolden/Projects/oss/open-brain-public-worktrees/slack-cited-recall-w3-20261015-86014d/docs/plans/2026-10-14-slack-cited-decision-recall.w2-scope.md).
+Implement one package at a time. Later packages depend on the earlier acceptance checks passing. W0 and W1a/W1b are complete. After the owner selected B/B/B, remaining W2–W4 repository work is approximately **8–14 engineer-days** for a familiar engineer, including **6–10 for revised W2** and 1–2 each for W3/W4. This replaces the original W2 estimate; private pilot evidence, provider availability and separately scoped compatibility migrations are excluded. See the [revised W2 scope and client-settings feasibility](/Users/calebbolden/Projects/oss/open-brain-public-worktrees/slack-cited-recall-w4-20261015-6d407b/docs/plans/2026-10-14-slack-cited-decision-recall.w2-scope.md).
 
 ### W0 Baseline and failing journey fixture
 
@@ -141,7 +141,7 @@ Estimate: 2–3 days. Depends on W1a.
 
 ### W2 Preview-bound Work client setup
 
-Estimate: **6–10 engineer-days**, or a planning allowance of **4–7 working days elapsed** with two bounded implementers after contract freeze. Depends on accepted W1b and the recorded B/B/B choices. Implementation remains separately authorized. The [revised scope and feasibility assessment](/Users/calebbolden/Projects/oss/open-brain-public-worktrees/slack-cited-recall-w3-20261015-86014d/docs/plans/2026-10-14-slack-cited-decision-recall.w2-scope.md) defines the finite client-settings contract, acceptance and re-estimation conditions.
+Estimate: **6–10 engineer-days**, or a planning allowance of **4–7 working days elapsed** with two bounded implementers after contract freeze. Depends on accepted W1b and the recorded B/B/B choices. Implementation remains separately authorized. The [revised scope and feasibility assessment](/Users/calebbolden/Projects/oss/open-brain-public-worktrees/slack-cited-recall-w4-20261015-6d407b/docs/plans/2026-10-14-slack-cited-decision-recall.w2-scope.md) defines the finite client-settings contract, acceptance and re-estimation conditions.
 
 1. Freeze supported client versions, settings/profile inputs, override provenance and trusted internal MCP policy context using synthetic fixtures. A settings snapshot describes observed configuration, not actual network transport or another process's environment.
 2. Require explicit policy for every Slack-sourced Work MCP read through shared engine eligibility before ranking, generation digests, pagination and projection. Close legacy search, implicit owner elevation, metadata, auxiliary callbacks, mixed-source and content-returning mutation paths. Keep direct local CLI and unrelated non-Slack defaults intact.
@@ -164,7 +164,7 @@ Estimate: 1–2 days. Depends on W2.
 
 **Acceptance:** The question about invite-only onboarding yields sufficient authorized evidence for the expected rationale with exact quote citations and approved links. Paraphrases exercise bounded query variants; ambiguous or insufficient evidence remains visibly unresolved. No message sending, publication or direct-provider inference is added.
 
-**Targets:** The new end-to-end test, scoped setup guidance and a new guide at [/Users/calebbolden/Projects/oss/open-brain-public-worktrees/slack-cited-recall-w3-20261015-86014d/docs/integrations/slack-decision-recall.md](/Users/calebbolden/Projects/oss/open-brain-public-worktrees/slack-cited-recall-w3-20261015-86014d/docs/integrations/slack-decision-recall.md). Neither future path exists at this planning baseline.
+**Targets:** The new end-to-end test, scoped setup guidance and a new guide at [/Users/calebbolden/Projects/oss/open-brain-public-worktrees/slack-cited-recall-w4-20261015-6d407b/docs/integrations/slack-decision-recall.md](/Users/calebbolden/Projects/oss/open-brain-public-worktrees/slack-cited-recall-w4-20261015-6d407b/docs/integrations/slack-decision-recall.md). Neither future path exists at this planning baseline.
 
 ### W4 Regression, native proof and handoff
 

@@ -17,7 +17,7 @@ The fastest credible path is the plan's approved Work-copy architecture, impleme
 | Approved copies with stronger default session gating | Requires explicit policy before Slack Work reads, rather than relying on detecting unscoped configurations. Changes existing defaults and compatibility expectations. | Owner option before W2; estimate and test the change separately. |
 | Controlled egress and deterministic evidence broker | Enforces destination, evidence bounds and tool isolation at a controlled boundary. A network broker belongs in a separate distribution; deterministic pre-model retrieval also changes this slice's no-runner boundary. | Proper architecture for end-to-end transport/tool enforcement. Separate project; feasibility, client integration and effort remain unverified. |
 
-Revised planning target after B/B/B: W2 requires **6–10 engineer-days**, with a **4–7 working day elapsed** allowance for a familiar coordinator and two bounded implementers after contract freeze. W3/W4 add their separate 1–2 days each. This replaces the original scheduling baseline, is not a measured agent speedup, and excludes private pilot runs and new persisted-format work. See the [W2 scope and feasibility assessment](/Users/calebbolden/Projects/oss/open-brain-public-worktrees/slack-cited-recall-w3-20261015-86014d/docs/plans/2026-10-14-slack-cited-decision-recall.w2-scope.md).
+Revised planning target after B/B/B: W2 requires **6–10 engineer-days**, with a **4–7 working day elapsed** allowance for a familiar coordinator and two bounded implementers after contract freeze. W3/W4 add their separate 1–2 days each. This replaces the original scheduling baseline, is not a measured agent speedup, and excludes private pilot runs and new persisted-format work. See the [W2 scope and feasibility assessment](/Users/calebbolden/Projects/oss/open-brain-public-worktrees/slack-cited-recall-w4-20261015-6d407b/docs/plans/2026-10-14-slack-cited-decision-recall.w2-scope.md).
 
 ## Grounding and authority
 
@@ -93,7 +93,7 @@ Preparation while W1 runs is limited to reading the current setup implementation
 4. Write the guide and task template using response-derived IDs and exact implemented commands. Include dedicated release-space guidance, unknown upstream coverage, manual refresh, separate new-message correction approval and restricted client tools. Record the actual-client check as `recorded` or `not_run` with a reason; its private, owner-authorized run is separate from repository completion and must satisfy the selected injection-resistance gate before private pilot use.
 5. Run W3 focused tests and `make verify`, review protocol and guide consistency, then commit and hand off locally. Deterministic citation plumbing is not proof of real-model quality or injection resistance.
 
-The future guide target is `/Users/calebbolden/Projects/oss/open-brain-public-worktrees/slack-cited-recall-w3-20261015-86014d/docs/integrations/slack-decision-recall.md`.
+The future guide target is `/Users/calebbolden/Projects/oss/open-brain-public-worktrees/slack-cited-recall-w4-20261015-6d407b/docs/integrations/slack-decision-recall.md`.
 
 ### Phase 5: W4 on a frozen candidate
 
@@ -115,7 +115,7 @@ All paths below are under the explicit root `/Users/calebbolden/Projects/oss/ope
 | Sharing worker | `packages/engine/src/open_brain_engine/engine/sharing.py`, new sharing-specific modules and assigned sharing tests | Uses frozen contracts; does not invent an alternate proof, copy privacy policy or version. |
 | Projection worker | `packages/engine/src/open_brain_engine/engine/records.py`, `paging.py`, `search_projection.py`, assigned projection/race tests | Starts only after sharing eligibility APIs are fixed; shared-helper changes go through coordinator. |
 | Portable/setup worker, in later waves | Assigned new Portable validator/restore module and tests in W1b; `packages/app/src/open_brain/services/agent_setup.py` and its tests in W2 | Separate sequential roles, not simultaneous edits of shared catalog/CLI files. |
-| Journey/docs worker, in W3 | Assigned journey/validator tests or `/Users/calebbolden/Projects/oss/open-brain-public-worktrees/slack-cited-recall-w3-20261015-86014d/docs/integrations/slack-decision-recall.md` | Use separate workers only when fixture ownership is disjoint. Reviewer always remains read-only. |
+| Journey/docs worker, in W3 | Assigned journey/validator tests or `/Users/calebbolden/Projects/oss/open-brain-public-worktrees/slack-cited-recall-w4-20261015-6d407b/docs/integrations/slack-decision-recall.md` | Use separate workers only when fixture ownership is disjoint. Reviewer always remains read-only. |
 
 Engine contracts or eligibility APIs that cannot be separated safely stay with one owner. Stop parallel writes immediately when a new shared dependency appears; serial integration is cheaper than incompatible implementations.
 
