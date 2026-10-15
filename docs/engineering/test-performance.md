@@ -74,6 +74,12 @@ a VM, file indexing) added load. Every run recorded load and free disk every 15 
 Baseline: `5afee33`, which differs from `8ef1d06` only by the opt-in reporter.
 Candidate: `86cb78c`. All profiled runs had the reporter enabled.
 
+These commits are on the unmerged branch where the work was measured. That branch sat on a
+feature base (`8ef1d06`) 32 commits ahead of `main` at `d5cf64e`, so its suite had 301 more
+tests. The work reached `main` by cherry-pick. On `main` the suite collects 7,239 tests:
+4,585 fast and 2,654 integration. The manifest keeps the baseline classification, filtered to
+`main`'s collection (42 function IDs that exist only on the feature base were removed).
+
 ### Complete suite
 
 | | Baseline, 2 workers | Candidate, 2 workers | Candidate, 4 workers | Candidate, 4 workers, repeat |
@@ -162,3 +168,5 @@ Makefile still uses `-n auto`; no default changed.
   imported it, but that run's input hashes are not frozen; every candidate run's are.
 - These are macOS arm64 numbers on one shared workstation. CI runners have fewer cores and
   were not measured.
+- The timings come from the feature base described above; the `main` version was not
+  benchmarked again.

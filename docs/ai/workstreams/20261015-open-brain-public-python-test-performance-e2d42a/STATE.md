@@ -81,5 +81,23 @@ own Cargo target. Receipts, evidence digests and native artifact digests are in
 `PERFORMANCE-RESULTS.json`. This status and that file were committed after the tested HEAD
 as documentation-only continuity.
 
-Not done: push, merge, deployment, publication, live client/model/provider checks, real
-Slack or Brain access, W5 or competitive-gap features.
+Not done: deployment, publication, live client/model/provider checks, real Slack or Brain
+access, W5 or competitive-gap features.
+
+## Merge to main
+
+The owner authorized push, PR and merge, and chose to rebase onto `main` so the 32 unmerged
+feature-base commits stay out. The nine commits were cherry-picked onto `origin/main`
+(`d5cf64e`) as branch `perf/python-test-performance-main`. Changes from the tested tree:
+
+- The gotcha registry kept only TESTING-008, TESTING-009 and BUILD-015; the feature-base
+  entries were dropped.
+- `tests/tiers/integration.txt` was filtered to `main`'s collection: 1,076 of 1,118 entries
+  kept, 42 feature-base-only function IDs removed. Tier audit on `main`: 7,239 = 4,585 fast
+  + 2,654 integration, disjoint, nothing stale. The one renamed `main` test absent from the
+  profile (`test_schema_newer_than_sixteen_fails_closed`) matches a counterpart measured at
+  0.19 s with no spawns or sleeps, so it stays fast.
+- Local free disk was 1.2 GiB, below the 2 GiB capture watermark, so a full local
+  `make verify` could not run. Local checks were lint, typecheck, the tier audit and the
+  changed tests. The merge gate is the six required CI checks, including
+  `make contributor-check` on Linux x86_64 and macOS arm64, on the PR head.
