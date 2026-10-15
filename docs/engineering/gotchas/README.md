@@ -4,6 +4,24 @@ Non-obvious behaviors, sharp edges, and lessons learned belong here.
 
 ## Registry
 
+### DOCS-003: Historical release statements and compatibility pins need source reconciliation
+
+Category: Documentation / Product evidence.
+
+At main d5cf64e, README still names schema/runtime/Portable9/4/5 and the
+first-use script asserts10/5/5, while active engine/runtime/catalog constants
+establish16/11/11. A historical successful documentation gate does not prove
+these literal examples target the current binary. Derive current claims from
+the actual source and preserve the distinction from older released resources.
+
+The September8 roadmap also says no release exists, but the public v0.1.0
+release was published September13 and the tap references its paired platform
+assets. Verify current public release metadata before treating an old roadmap
+sentence as absence. Release existence does not certify current main or an
+unmerged candidate. The October15 competitive-gap audit records source anchors
+and a fresh read-only release/formula metadata check; it claims no new install,
+provider, GUI or runtime acceptance.
+
 ### BUILD-017: Native packaging must pin the reviewed Python patch
 
 Category: Build Pipeline; Dependencies.

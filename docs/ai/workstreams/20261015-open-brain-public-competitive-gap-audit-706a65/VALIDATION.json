@@ -1,0 +1,122 @@
+{
+  "main_source_head": "d5cf64e652366dc14a8cf18732f7cb1e82ae4187",
+  "report_sha256": "cd0833408e4794733d7f8a8ef39ff46c87e8b87d1f92882b8e75b80c366aefb3",
+  "assessment_sha256": "bfaffedf3ecd203581006fe4accdcaa46e4daa940381ab8e4198c85ccc6f67cf",
+  "eleven_rows": true,
+  "source_links_checked": 22,
+  "sources": [
+    {
+      "path": "packages/engine/src/open_brain_engine/engine/retrieval.py",
+      "line": 128,
+      "sha256": "0a17ff99958e95bf1134223f7cd2271346638140274c7ad59e2be4f92f18a934"
+    },
+    {
+      "path": "packages/app/src/open_brain/services/catalog.py",
+      "line": 274,
+      "sha256": "9f7a5feae9b1ed052aec737845e50d7f65ee75138114bd9152f1cfc870430657"
+    },
+    {
+      "path": "packages/app/src/open_brain/services/local_entrypoints.py",
+      "line": 1187,
+      "sha256": "07785941c8ea0081aef1dffca4fab0060ef733874c925eb7f6502387013a1b10"
+    },
+    {
+      "path": "packages/engine/src/open_brain_engine/engine/source_lifecycle.py",
+      "line": 65,
+      "sha256": "78ec4ce1486a540b98c271721541a50161cc40f4928e17f097b2798cc871c4ce"
+    },
+    {
+      "path": "packages/app/pyproject.toml",
+      "line": 6,
+      "sha256": "c0573571655db263e21b91e7569689559ab0e192c09193f9d759e86796cf3fb6"
+    },
+    {
+      "path": "README.md",
+      "line": 3,
+      "sha256": "c23d4844fbabd8ff04bebc99c15ca5ce89a327d0c6fcbd4ac8ffa93a93a863b7"
+    },
+    {
+      "path": "packages/engine/src/open_brain_engine/engine/local_schema.py",
+      "line": 54,
+      "sha256": "e59cc1f2dbbae5d288445ea304fb66f0d29bbfc4f69643da481d8857c6c756f2"
+    },
+    {
+      "path": "packages/app/src/open_brain/services/local_runtime_session.py",
+      "line": 37,
+      "sha256": "f6fa05c8986f0e712394695103453ae8b13fe7ae814f8874ac1643a395f37fb8"
+    },
+    {
+      "path": "packages/app/src/open_brain/services/catalog.py",
+      "line": 181,
+      "sha256": "9f7a5feae9b1ed052aec737845e50d7f65ee75138114bd9152f1cfc870430657"
+    },
+    {
+      "path": "packages/app/src/open_brain/services/local_entrypoints.py",
+      "line": 683,
+      "sha256": "07785941c8ea0081aef1dffca4fab0060ef733874c925eb7f6502387013a1b10"
+    },
+    {
+      "path": "packages/connectors/src/open_brain_connectors/runtime/agent_session_live.py",
+      "line": 1,
+      "sha256": "b7e93c372aaaa83341131377ba26bac25fee18a9d78a267a7a56b27b4ec7ec87"
+    },
+    {
+      "path": "CHANGELOG.md",
+      "line": null,
+      "sha256": "c31dd6a0ebe9dd388dc213f9a4619235990c2885603d793a6ce4cbde466018e8"
+    },
+    {
+      "path": "packages/app/src/open_brain/services/catalog.py",
+      "line": 179,
+      "sha256": "9f7a5feae9b1ed052aec737845e50d7f65ee75138114bd9152f1cfc870430657"
+    },
+    {
+      "path": "packages/app/src/open_brain/services/agent_setup.py",
+      "line": 375,
+      "sha256": "f74795a55420ea1536523fefa97c4f664c83cd3947db2f78927d5114a0050312"
+    },
+    {
+      "path": "packages/app/src/open_brain/services/harness_setup.py",
+      "line": 177,
+      "sha256": "97c5a897b73a7a0b9deb4f45eae55a22f15e1bfe23f49b2f8ed7e877a95690a9"
+    },
+    {
+      "path": "docs/hermes-memory.md",
+      "line": null,
+      "sha256": "4cd603f9e063e374634643e50e2d0696fec5557e6760036b4ae92e3d0499521c"
+    },
+    {
+      "path": "packages/app/src/open_brain/services/local_entrypoints.py",
+      "line": 641,
+      "sha256": "07785941c8ea0081aef1dffca4fab0060ef733874c925eb7f6502387013a1b10"
+    },
+    {
+      "path": "packages/obsidian-plugin/manifest.json",
+      "line": 10,
+      "sha256": "5c1f9a8b43dcdf63dab172082034d3447f54238f2d4911d820a3bba545f13fc9"
+    },
+    {
+      "path": "packages/collector/src/open_brain_collector/live_manager.py",
+      "line": 87,
+      "sha256": "e96a0a9d62bccc17321978dbe3ef3de335708022dc50bcd732753485327d4efa"
+    },
+    {
+      "path": "docs/audits/2026-09-16-priority-capture-audit.md",
+      "line": 35,
+      "sha256": "813f50955eea3a7172011de8586616ae3ab72c582447f5de864c5fe9ae071f78"
+    },
+    {
+      "path": "packages/app/src/open_brain/services/local_entrypoints.py",
+      "line": 1199,
+      "sha256": "07785941c8ea0081aef1dffca4fab0060ef733874c925eb7f6502387013a1b10"
+    },
+    {
+      "path": "tools/open_brain_dev/base_native.py",
+      "line": 189,
+      "sha256": "3ef0966e726a00b0821640b800eca2fb02e0916bcaa3b9f6594041bfdaca218a"
+    }
+  ],
+  "release_tag": "v0.1.0",
+  "published_at": "2026-09-13T22:55:54Z",
+  "runtime_tests": "not_run; source audit only"
+}

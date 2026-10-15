@@ -1,0 +1,29 @@
+{
+  "source_head": "d5cf64e652366dc14a8cf18732f7cb1e82ae4187",
+  "report_sha256": "cd0833408e4794733d7f8a8ef39ff46c87e8b87d1f92882b8e75b80c366aefb3",
+  "checks": [
+    {
+      "command": "source reference/hash checks",
+      "result": "passed:11rows22links"
+    },
+    {
+      "command": "independent Astra source review",
+      "result": "approved; no unresolved findings"
+    },
+    {
+      "command": "git diff --cached --check; git diff --check",
+      "exit_code": 0
+    },
+    {
+      "command": "actionlint .github/workflows/ci.yml",
+      "exit_code": 0
+    }
+  ],
+  "not_run": [
+    "make verify",
+    "native gates",
+    "installed/client/provider/source acceptance"
+  ],
+  "reason": "Source audit and documentation only",
+  "final_head_bound_handoff": "/tmp/ob-gap-audit-vptdt4c2/HANDOFF.json"
+}

@@ -1,0 +1,44 @@
+{
+  "source_baseline": "d5cf64e652366dc14a8cf18732f7cb1e82ae4187",
+  "scope": "read-only source/evidence reconciliation; documentation writes only",
+  "inputs": [
+    {
+      "path": "/Users/calebbolden/Downloads/Open Brain Competitive Gaps.md",
+      "sha256": "bfaffedf3ecd203581006fe4accdcaa46e4daa940381ab8e4198c85ccc6f67cf"
+    },
+    {
+      "path": "/tmp/ob-gap-audit-vptdt4c2/core.md",
+      "sha256": "5c4893a73a6f5bc869e94c06e29402a33caa53f95bc4a9925f450d714bab600a"
+    },
+    {
+      "path": "/tmp/ob-gap-audit-vptdt4c2/surfaces.md",
+      "sha256": "fba7eb7b575a18d8d7095130ebb568e4f105498470507d6fa1a43a855dfbc512"
+    },
+    {
+      "path": "/tmp/ob-gap-audit-vptdt4c2/public-releases.json",
+      "sha256": "c4821689a37a4991c8e1868cf02127e474ab84252cd7f3d9eba8a8ef174e5cbd"
+    },
+    {
+      "path": "/tmp/ob-gap-audit-vptdt4c2/public-formula.rb",
+      "sha256": "75f3ab053c6ac8ea372fe9e9106e1b44336ea48e38cb79f44f17f5b870bbc176"
+    }
+  ],
+  "external_release": {
+    "tag": "v0.1.0",
+    "tag_commit": "a374e4d806bcebe396c63eab916e005813f07bda",
+    "published_at": "2026-09-13T22:55:54Z",
+    "formula_commit": "a74151154be1244646c5fdf106759bace1d8b699",
+    "evidence": "read-only gh API; browser timed out; no artifact execution"
+  },
+  "w4": {
+    "status": "complete locally",
+    "tested_head": "7818f4f3138b887220c414119be9ac16e28b0a80",
+    "retained_branch_head": "19f2f160e67a91623b5ec252d4002b8826b03830",
+    "merged_into_main": false,
+    "actual_client": "not_run; excluded W4 boundary"
+  },
+  "w5": {
+    "status": "P0 specification complete; parked; P1 unimplemented"
+  },
+  "runtime_acceptance": "not_run; no code changes"
+}
