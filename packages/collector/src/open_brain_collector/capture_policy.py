@@ -6,6 +6,7 @@ import hashlib
 from dataclasses import replace
 from typing import cast
 
+from open_brain_engine.core.ids import portable_canonical_json_bytes
 from open_brain_engine.engine import PrivacyDecision
 from open_brain_engine.engine.source_observation import SourceRevisionObservation
 
@@ -74,6 +75,8 @@ def observe_slack(intake: SourceRecordIntake) -> SourceRecordIntake:
         return intake
     digest = hashlib.sha256(intake.text.encode()).hexdigest()
     privacy = intake.privacy.to_dict()
+    payload = intake.payload().to_dict()
+    bounded_json(payload)  # Preserve the existing intake size admission limit.
     return replace(
         intake,
         observation=SourceRevisionObservation(
@@ -83,7 +86,7 @@ def observe_slack(intake: SourceRecordIntake) -> SourceRecordIntake:
             privacy_policy_version=cast(str, privacy["policy_version"]),
             privacy_policy_sha256=hashlib.sha256(bounded_json(privacy)).hexdigest(),
             admitted_payload_sha256=hashlib.sha256(
-                bounded_json(intake.payload().to_dict())
+                portable_canonical_json_bytes(payload)
             ).hexdigest(),
         ),
     )

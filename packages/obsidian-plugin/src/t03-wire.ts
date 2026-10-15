@@ -28,8 +28,30 @@ const filters: Rule = { type: "object", optional: [], properties: {
   record_types: { type: "array", items: { enum: ["source", "canonical"] }, min: 0, max: 2, unique: true },
 } };
 
+const selection: Rule = { type: "object", optional: [], properties: {
+  selection_id: id(["selection"]), selection_version: { enum: [1] },
+  member_count: { type: "integer", min: 1, max: 24 }, member_ordinal: { type: "integer", min: 0, max: 23 },
+  members: { type: "array", min: 1, max: 24, items: { anyOf: [
+    { type: "object", optional: [], properties: {
+      ordinal: { type: "integer", min: 0, max: 23 }, status: { enum: ["unavailable"] },
+    } },
+    { type: "object", optional: [], properties: {
+      ordinal: { type: "integer", min: 0, max: 23 }, status: { enum: ["visible"] },
+      record_id: id(["capture"]), revision_id: id(["capture"]),
+    } },
+  ] } },
+} };
+const responseExtensions: Rule = { type: "object", optional: [], properties: {
+  slack_recall: { type: "object", optional: [], properties: {
+    version: { enum: [1] }, selection_version: { enum: [1] }, maximum_selection_members: { enum: [24] },
+    record_read_optional_fields: { type: "array", min: 1, max: 1, items: { enum: ["selection"] } },
+    error_codes: { type: "array", min: 1, max: 1, items: { enum: ["reapproval_required"] } },
+  } },
+} };
+
 const schemas: Record<string, Rule> = {
-  "contract.describe.response": { type: "object", optional: [], properties: {
+  "contract.describe.response": { type: "object", optional: ["response_extensions"], properties: {
+    response_extensions: responseExtensions,
     status: { enum: ["ok"] }, contract_version: { enum: ["t03.v1"] },
     operations: { type: "array", min: 0, max: 5, unique: true, items: { type: "object", optional: [], properties: {
       name: { enum: ["search.page", "record.read", "history.list", "history.show", "source.route"] },
@@ -52,7 +74,8 @@ const schemas: Record<string, Rule> = {
     dto_version: { enum: [1] }, record_id: id(["capture", "page"]), expected_revision_id: id(["capture", "revision"]),
     target_bytes: { type: "integer", min: 1, max: 65536 }, cursor,
   } },
-  "record.read.response": { type: "object", optional: [], properties: {
+  "record.read.response": { type: "object", optional: ["selection"], properties: {
+    selection,
     status: { enum: ["ok"] }, dto_version: { enum: [1] }, next_cursor: cursor, complete: { type: "boolean" }, record: summary,
     content: { type: "object", optional: [], properties: { kind: { enum: ["untrusted_text"] }, text: { type: "string" } } },
     start_byte: { type: "integer", min: 0, max: Number.MAX_SAFE_INTEGER }, end_byte: { type: "integer", min: 0, max: Number.MAX_SAFE_INTEGER },
@@ -102,6 +125,7 @@ function check(rule: Rule, value: unknown): void {
         require(Array.isArray(item.capture_ids) && item.representative_capture_id === item.capture_ids[0]);
       }
       if ("record_type" in item) checkRecordConsistency(item);
+      if ("selection_id" in item) checkSelectionConsistency(item);
       if ("content" in item) {
         const content = item.content as { text: string };
         const length = new TextEncoder().encode(content.text).length;
@@ -118,6 +142,16 @@ function check(rule: Rule, value: unknown): void {
     }
     default: throw new Error("invalid schema");
   }
+}
+
+function checkSelectionConsistency(item: Record<string, unknown>): void {
+  const members = item.members as Array<{ ordinal: number; status: string; record_id?: string; revision_id?: string }>;
+  const uuid4 = /_[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
+  require(uuid4.test(String(item.selection_id)) && members.length === item.member_count && Number(item.member_ordinal) < members.length);
+  members.forEach((member, ordinal) => {
+    require(member.ordinal === ordinal);
+    if (member.status === "visible") require(uuid4.test(member.record_id!) && member.record_id === member.revision_id);
+  });
 }
 
 function checkRecordConsistency(item: Record<string, unknown>): void {

@@ -140,10 +140,10 @@ class RecordProjector:
             head = expected
         elif expected is not None and expected != head:
             raise T03Error("revision_changed")
+        self._require_source_revision_privacy(head)
         require_capture_eligibility(
             self.connection, head, self.authority, history=history, profile=self.profile
         )
-        self._require_source_revision_privacy(head)
         _revision, record = self._capture(head)
         reference = record["source"]["reference"]
         payload = record["payload"]

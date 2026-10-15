@@ -231,7 +231,11 @@ class V10RestoreBundle(V5RestoreBundle):
             path: sha256(data).hexdigest() for path, data in payloads.items()
         }:
             raise PortableValidationError("v10 restore snapshot commitment mismatch")
-        if cls.portable_version == 11:
+        if cls.portable_version == 12:
+            from open_brain_engine.portable.v12 import validate_portable_file_set_v12
+
+            validate_portable_file_set_v12(payloads, tenant_id=cast(str, manifest["tenant_id"]))
+        elif cls.portable_version == 11:
             from open_brain_engine.portable.v11 import validate_portable_file_set_v11
 
             validate_portable_file_set_v11(payloads, tenant_id=cast(str, manifest["tenant_id"]))
@@ -282,7 +286,11 @@ def audit_restored_v10(
     from .local_schema import open_local_database_read_only
 
     bundle_type = V10RestoreBundle
-    if snapshot.manifest["schema_version"] == 11:
+    if snapshot.manifest["schema_version"] == 12:
+        from .portable_v12_restore import V12RestoreBundle
+
+        bundle_type = V12RestoreBundle
+    elif snapshot.manifest["schema_version"] == 11:
         from .portable_v11_restore import V11RestoreBundle
 
         bundle_type = V11RestoreBundle
@@ -292,7 +300,7 @@ def audit_restored_v10(
     try:
         if not connection.in_transaction:
             connection.execute("BEGIN")
-        if snapshot.manifest["schema_version"] == 11:
+        if snapshot.manifest["schema_version"] in {11, 12}:
             from .developments import (
                 DEVELOPMENT_APPEND_PATH,
                 DEVELOPMENT_EVIDENCE_PATH,
@@ -329,7 +337,11 @@ def restore_portable_v10_root(
     from .materializer import materialize_portable_root
 
     bundle_type = V10RestoreBundle
-    if snapshot.manifest["schema_version"] == 11:
+    if snapshot.manifest["schema_version"] == 12:
+        from .portable_v12_restore import V12RestoreBundle
+
+        bundle_type = V12RestoreBundle
+    elif snapshot.manifest["schema_version"] == 11:
         from .portable_v11_restore import V11RestoreBundle
 
         bundle_type = V11RestoreBundle

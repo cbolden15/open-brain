@@ -2,7 +2,7 @@
 
 Date: 2026-10-14
 
-Status: Reviewed implementation plan, hardened 2026-10-14 (see the adjacent `.hardening.md` report). W0 completed in the isolated Slack recall worktree on 2026-10-14; full verification passed on candidate `2bd071a`. W1 and later implementation and live deployment have not started.
+Status: Reviewed implementation plan, hardened 2026-10-14 (see the adjacent `.hardening.md` report). W0 completed in the isolated Slack recall worktree on 2026-10-14; full verification passed on candidate `2bd071a`. W1a was accepted before W1b implementation. W1a/W1b passed independent review, combined `make verify`, native audit and Homebrew smoke as one atomic merge unit at schema/runtime/Portable `17/12/12`. W2 and later implementation and live deployment have not started; owner decisions below remain open.
 
 Planning baseline: `e444526`; application code baseline: `d5cf64e652366dc14a8cf18732f7cb1e82ae4187`.
 
@@ -208,8 +208,8 @@ Use absolute file arguments when invoking individual tests outside the repositor
 Completion means the synthetic capture-to-approved-evidence-to-stdio-recall journey passes, scopes and revocation hold, and compatibility evidence survives supported restore. The actual-client check is recorded separately as `recorded` or `not_run` and does not block completion. Public release, real Slack quality and private pilot acceptance remain distinct. Checkboxes for implementation stay open until their package acceptance passes:
 
 - [x] W0: Baseline and failing journey fixture. Synthetic local journey, versioned contract goldens and isolated expected-red probes verified; full repository gate passed. See the `20261014-open-brain-public-slack-recall-w0-20e138` workstream receipt.
-- [ ] W1a: Versioned Slack Work sharing contract and visibility.
-- [ ] W1b: Compatibility and Portable evidence.
+- [x] W1a: Versioned Slack Work sharing contract and visibility. Accepted before W1b; both verified together for activation.
+- [x] W1b: Compatibility and Portable evidence. Real mixed-history restore, byte-exact re-export, rehashed tamper refusal and combined package/native gates passed.
 - [ ] W2: Scoped client setup.
 - [ ] W3: Cited recall journey and guide.
 - [ ] W4: Regression/native proof and handoff.

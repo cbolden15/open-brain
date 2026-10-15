@@ -56,6 +56,11 @@ def source_search_title(
 
 def public_harness_record_text(value: str, *, source_reference: str) -> tuple[str, str]:
     """Project fields independently so redaction cannot break inert JSON framing."""
+    if source_reference.startswith("urn:open-brain:sharing-copy:v2:"):
+        from .slack_sharing_projection import project_copy_text
+
+        body = project_copy_text(value, source_reference=source_reference)
+        return body, body
     memory = recognized_memory(value, source_reference=source_reference)
     if memory is None:
         body = public_search_text(value, protected_source_reference=source_reference)
@@ -234,11 +239,13 @@ def project_search_document(
             protected_source_reference=source_reference,
             additional_source_references=additional_references,
         ),
-        body=public_search_text(
-            body,
-            protected_source_reference=source_reference,
-            additional_source_references=additional_references,
-        ),
+        body=(public_harness_record_text(body, source_reference=source_reference)[0]
+              if (source_reference.startswith("urn:open-brain:sharing-copy:v2:")
+                  and record_type == "source")
+              else public_search_text(
+                  body, protected_source_reference=source_reference,
+                  additional_source_references=additional_references,
+              )),
         trust=trust,
         canonical_frontmatter_trust=canonical_frontmatter_trust,
         provenance_json=portable_canonical_json_bytes(provenance).decode("utf-8"),

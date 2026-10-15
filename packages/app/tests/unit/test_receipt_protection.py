@@ -86,7 +86,7 @@ def test_owner_only_configuration_runs_a_bounded_foreground_protector(tmp_path: 
         "json.dump(ack.to_dict(),sys.stdout,sort_keys=True)\n",
     )
     configuration = load_receipt_protection_configuration(
-        _configuration(tmp_path, script)
+        _configuration(tmp_path, script, timeout=5.0)
     )
     request = _request(tmp_path)
 

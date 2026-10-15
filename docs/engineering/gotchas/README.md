@@ -4,6 +4,51 @@ Non-obvious behaviors, sharp edges, and lessons learned belong here.
 
 ## Registry
 
+### SHARING-006: New copy policy must not redefine historical Work authority
+
+Category: Privacy / Compatibility.
+
+A blanket ban on externally reading ordinary Work records broke a supported
+Portable-6 recovery fixture whose pre-existing policy explicitly permits egress.
+Keep tier classification separate from the record's existing egress authority.
+Treat the new `sharing-slack-work-copy.v1` policy as independent managed-copy
+custody: its marker, delivery, provenance and linkage must satisfy current approval
+checks even if another identity hint is damaged. Ordinary historical policy
+semantics stay intact; raw Slack originals retain their local-only decisions.
+Test both old-policy recovery and forged new-policy refusal.
+
+Discovered: 2026-10-14, W1a/W1b combined compatibility regressions.
+
+### SLACK-004: Payload commitments use canonical UTF-8
+
+Category: Config/Environment / Source Proof.
+
+Slack observation admission hashed `bounded_json(payload)`, which escapes Unicode,
+while the engine verifies `portable_canonical_json_bytes(payload)` as UTF-8. ASCII
+fixtures passed, but a real synthetic Unicode edit failed source observation
+validation before sharing. Keep the bounded admission check, then hash the exact
+canonical payload bytes required by the engine. Exercise Unicode through collector
+intake, revision replacement and owner reapproval rather than testing only the
+sharing envelope.
+
+Discovered: 2026-10-14, W1a synthetic Slack cited recall acceptance.
+
+### BUILD-012: Dynamic DTO construction and fixture spreads need full typechecks
+
+Category: Type Safety.
+
+Dataclass field reflection mixed integer defaults with arbitrary field values,
+so mypy rejected the validated maps passed into versioned DTO constructors.
+Type the validated keyword map explicitly, narrow variant-only fields before
+access and update every protocol implementation when adding a task method.
+In TypeScript, spreading `Record<string, unknown>` into a fixture does not give
+arbitrary keys a named property type. Use the validator's returned record or an
+explicit fixture type when asserting those keys. Vitest transpilation passes
+without finding these TypeScript errors; run both package typechecks as well as
+the tests, followed by the full build/typecheck gate.
+
+Discovered: 2026-10-14, W1a implementation and disjoint wire compatibility checks.
+
 ### SLACK-003: Work classification does not authorize provider recall
 
 Category: Privacy / Authority.
@@ -343,6 +388,19 @@ Host swap growth can still exhaust disk with tiny fixtures. An eight-worker run
 hit `storage_high` and a helper timeout; both cases passed serially after workers
 exited, and the full two-worker gate passed with Cargo limited to two jobs.
 Keep the real admission limits and helper deadlines intact.
+
+Follow-up, 2026-10-14: A zero retention count also removes failed session
+directories at exit. That erased the nested harness JUnit behind a shared
+`scenario_run_failed` setup error; all 38 nested cases passed on direct replay,
+so the original cause remains unverified. Use retention count one with policy
+`failed` when diagnosing a full run. Passing function fixtures still clean up
+immediately, while failed evidence survives. Keep each run's log outside its
+temporary directory and inspect the entire progress log before reporting success.
+The receipt-protection success fixture also configured only one second for a
+fresh interpreter and real engine imports. Clean imports measured 0.526–1.416
+seconds, with three of eight samples over that limit. Its success case now uses
+an explicit five-second test configuration; production deadlines and the separate
+50 ms timeout-refusal case remain unchanged.
 
 Follow-up, 2026-10-14: W0 Slack recall verification reproduced 142 connector/collector
 failures after a full run retained 4.7 GiB. Clearing that task's completed fixtures
@@ -3472,6 +3530,20 @@ CLI recovery followed by schema14 migration, documentation matrix and desktop
 handshake acceptance with old/fractional/unknown versions refused.
 
 Discovered: 2026-10-05, exact full gate and independent final review.
+
+Follow-up, 2026-10-14: Appending schema17 made the predecessor development
+migration accidentally consume the new migration while still declaring schema16.
+Its postflight also rejected schema16 after classification changed to supported-old.
+Pin predecessor migration slices and settlement coordinates; test real schema15
+and schema16 upgrades through schema17, including refusal before changing unsettled
+historical state.
+Issuer-migration idempotent re-entry and managed recovery also keep explicit
+supported-schema lists; advance their current floor and verify exact no-op/recovery
+behavior without broadening historical-only cutover phases. Recovery closure,
+capture replay and verified-export receipts must also dispatch the new Portable
+version through its exact catalog and validator. Update the documentation checker
+coordinate map and its mutation probes together; a stale string replacement can
+leave the supposedly invalid test input unchanged.
 
 ### FACETS-001: Wire history and Portable evidence share canonical values
 

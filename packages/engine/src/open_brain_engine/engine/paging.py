@@ -530,6 +530,13 @@ def read_record(
             "complete": complete,
             "next_cursor": None,
         }
+        from .slack_sharing import read_selection
+
+        selection = read_selection(
+            connection, engine.profile, projected.summary["record_id"], authority
+        )
+        if selection is not None:
+            response["selection"] = selection
         while len(portable_canonical_json_bytes(response)) > MAX_RESPONSE_BYTES:
             if end <= start:
                 raise T03Error("response_too_large")

@@ -1196,10 +1196,12 @@ def _add_t03_parsers(
     source_withdraw.add_argument("--request-file", required=True)
     source_withdraw.set_defaults(_catalog_discoverable=False)
 
-    sharing = subparsers.add_parser("sharing", help="Owner-approved saved-Markdown copies.")
+    sharing = subparsers.add_parser(
+        "sharing", help="Owner-approved sharing copies and Slack selections."
+    )
     _add_local_options(sharing)
     sharing_children = sharing.add_subparsers(dest="sharing_action", required=True)
-    for action in ("preview", "approve", "reject", "revoke"):
+    for action in ("preview", "approve", "reject", "revoke", "selection-create"):
         child = sharing_children.add_parser(action)
         _add_local_options(child)
         child.add_argument("--request-file", required=True)
@@ -3082,7 +3084,7 @@ def _record_verified_export(
     except UnicodeDecodeError, json.JSONDecodeError, KeyError, TypeError:
         raise ValueError("Portable export manifest is unavailable") from None
     if type(manifest_version) is not int or manifest_version not in {
-        1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11
+        1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12
     }:
         raise ValueError("Portable export manifest is unavailable")
     session.prepared.revalidate()
@@ -3123,7 +3125,7 @@ def _verified_export_state(session: LocalBrainSession) -> str:
                 "schema_version",
             }
             or type(value["schema_version"]) is not int
-            or value["schema_version"] not in {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11}
+            or value["schema_version"] not in {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12}
             or canonical_json_bytes(value) != payload
             or not isinstance(value["created_at"], str)
             or not isinstance(value["export_id"], str)

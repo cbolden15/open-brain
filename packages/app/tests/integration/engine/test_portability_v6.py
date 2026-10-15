@@ -47,6 +47,7 @@ from open_brain_engine.engine.t03_contracts import (
 )
 from open_brain_engine.portable.developments_v11 import DEVELOPMENT_SIDECAR_PATHS
 from open_brain_engine.portable.facets_v10 import FACET_SIDECAR_PATHS
+from open_brain_engine.portable.slack_v12 import SELECTIONS_PATH
 from open_brain_engine.portable.v1 import PortableValidationError
 from open_brain_engine.portable.v4 import SOURCE_METADATA_PATH
 from open_brain_engine.portable.v5 import validate_portable_file_set_v5
@@ -268,13 +269,13 @@ def test_withdrawn_source_history_and_visibility_survive_recovery(
         export, restored = tmp_path / "export", tmp_path / "restored"
         assert (
             engine.portability.export(export, export_id="export_" + str(uuid4())).schema_version
-            == 11
+            == 12
         )
         assert (
             engine.portability.import_clean(
                 export, restored, import_id="import_" + str(uuid4())
             ).schema_version
-            == 11
+            == 12
         )
         engine = BrainEngine.open(_profile(restored, validated_portable_snapshot(restored)))
 
@@ -348,15 +349,15 @@ def test_schema11_runtime6_portable6_lifecycle_admission_roundtrip(tmp_path: Pat
     )
     receipt = tasks.sources.withdraw(withdrawal, authority=owner)
     export, restored, again = (tmp_path / name for name in ("export", "restored", "again"))
-    assert tasks.portability.export(export, export_id="export_" + str(uuid4())).schema_version == 11
+    assert tasks.portability.export(export, export_id="export_" + str(uuid4())).schema_version == 12
     snapshot = validated_portable_snapshot(export)
-    assert snapshot.manifest["schema_version"] == 11
+    assert snapshot.manifest["schema_version"] == 12
     assert snapshot.files.keys() >= V6_SIDECAR_PATHS
     assert (
         tasks.portability.import_clean(
             export, restored, import_id="import_" + str(uuid4())
         ).schema_version
-        == 11
+        == 12
     )
     engine = BrainEngine.open(_profile(restored, validated_portable_snapshot(restored)))
     assert engine.sources.withdraw(withdrawal, authority=owner) == receipt
@@ -423,6 +424,7 @@ def test_portable6_closed_authority_refuses_semantic_tampering(
                 | V9_SIDECAR_PATHS
                 | FACET_SIDECAR_PATHS
                 | DEVELOPMENT_SIDECAR_PATHS
+                | {SELECTIONS_PATH}
             },
             tenant_id=tasks.profile.tenant_id,
         )
@@ -562,6 +564,7 @@ def test_portable6_managed_envelope_requires_exact_validated_intake_linkage(
             | V9_SIDECAR_PATHS
             | FACET_SIDECAR_PATHS
             | DEVELOPMENT_SIDECAR_PATHS
+            | {SELECTIONS_PATH}
         },
         tenant_id=engine.profile.tenant_id,
     )
@@ -647,6 +650,7 @@ def test_portable6_managed_envelope_requires_exact_validated_intake_linkage(
                 | V9_SIDECAR_PATHS
                 | FACET_SIDECAR_PATHS
                 | DEVELOPMENT_SIDECAR_PATHS
+                | {SELECTIONS_PATH}
             },
             tenant_id=engine.profile.tenant_id,
         )
@@ -813,6 +817,7 @@ def test_portable6_observed_envelope_rejects_invalid_attestation_and_linkage(
                 | V9_SIDECAR_PATHS
                 | FACET_SIDECAR_PATHS
                 | DEVELOPMENT_SIDECAR_PATHS
+                | {SELECTIONS_PATH}
             },
             tenant_id=engine.profile.tenant_id,
         )
@@ -983,6 +988,7 @@ def test_portable6_coordinated_admission_forgery_contradicts_retained_capture_an
                 | V9_SIDECAR_PATHS
                 | FACET_SIDECAR_PATHS
                 | DEVELOPMENT_SIDECAR_PATHS
+                | {SELECTIONS_PATH}
             },
             tenant_id=engine.profile.tenant_id,
         )
@@ -1125,6 +1131,7 @@ def test_portable6_coordinated_history_only_revision_cannot_be_expected_head(
                 | V9_SIDECAR_PATHS
                 | FACET_SIDECAR_PATHS
                 | DEVELOPMENT_SIDECAR_PATHS
+                | {SELECTIONS_PATH}
             },
             tenant_id=engine.profile.tenant_id,
         )

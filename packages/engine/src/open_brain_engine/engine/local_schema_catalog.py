@@ -6,6 +6,7 @@ from .development_schema import DEVELOPMENT_MIGRATION
 from .facet_schema_migration import FACET_MIGRATION
 from .historical_compatibility_schema import HISTORICAL_STORED_V2_BOUNDS
 from .historical_schema import HISTORICAL_AUTHORITY_SCHEMA
+from .slack_sharing_schema import SLACK_SHARING_MIGRATION
 from .source_schema import SOURCE_HISTORY_SCHEMA
 
 BASELINE = (
@@ -1567,3 +1568,5 @@ LOCAL_MIGRATIONS += (
 LOCAL_MIGRATIONS += (FACET_MIGRATION,)
 
 LOCAL_MIGRATIONS += (DEVELOPMENT_MIGRATION,)
+
+LOCAL_MIGRATIONS += (SLACK_SHARING_MIGRATION,)

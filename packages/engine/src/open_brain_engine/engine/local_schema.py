@@ -51,7 +51,7 @@ if TYPE_CHECKING:
     from .portable_v5_restore import ValidatedV5IssuerSeed
 
 PHASE1_STATE_DATABASE = ".open-brain/state/phase1.sqlite3"
-PHASE1_STATE_SCHEMA_VERSION = 16
+PHASE1_STATE_SCHEMA_VERSION = 17
 
 
 class LocalRecoveryRequiredError(SchemaError):
@@ -121,6 +121,8 @@ def _expected_shape(era: int, nullable: bool, ledger: bool) -> tuple[tuple[str, 
         statements.extend(LOCAL_MIGRATIONS[14].statements)
     if era >= 18 and len(LOCAL_MIGRATIONS) >= 16:
         statements.extend(LOCAL_MIGRATIONS[15].statements)
+    if era >= 19 and len(LOCAL_MIGRATIONS) >= 17:
+        statements.extend(LOCAL_MIGRATIONS[16].statements)
     if ledger:
         statements.append(_SCHEMA_MIGRATIONS_SQL)
     return _cached_shape(tuple(statements))
@@ -154,7 +156,7 @@ def classify_local_schema(connection: sqlite3.Connection) -> SchemaState:
             if any(type(row[0]) is int and row[0] > PHASE1_STATE_SCHEMA_VERSION for row in rows):
                 return SchemaState("newer", version)
             if (
-                version not in (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16)
+                version not in (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17)
                 or len(rows) != version
             ):
                 return SchemaState("invalid", version)
@@ -186,6 +188,7 @@ def classify_local_schema(connection: sqlite3.Connection) -> SchemaState:
                                 14: 9,
                                 15: 10,
                                 16: 11,
+                                17: 12,
                             }.get(version, 1),
                             version,
                         )
@@ -298,12 +301,12 @@ def _validate_upgrade_data(connection: sqlite3.Connection) -> None:
         ).fetchall()
         state_version = connection.execute("PRAGMA user_version").fetchone()[0]
         compatibility_version = (
-            state_version if state_version in (5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16) else 4
+            state_version if state_version in (5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17) else 4
         )
         if [tuple(row) for row in compatibility] != [
             (
                 1,
-                {7: 2, 8: 3, 9: 4, 10: 5, 11: 6, 12: 7, 13: 8, 14: 9, 15: 10, 16: 11}.get(
+                {7: 2, 8: 3, 9: 4, 10: 5, 11: 6, 12: 7, 13: 8, 14: 9, 15: 10, 16: 11, 17: 12}.get(
                     state_version, 1
                 ),
                 compatibility_version,

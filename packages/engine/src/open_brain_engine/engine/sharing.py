@@ -46,6 +46,9 @@ from .sharing_contracts import (
     SharingPreviewRequest,
     SharingRevokeReceipt,
     SharingRevokeRequest,
+    SlackSelectionCreateRequest,
+    SlackSharingPreview,
+    SlackSharingPreviewRequest,
     parse_sharing_request,
 )
 from .source_intake import (
@@ -247,16 +250,18 @@ def _read_original_evidence(
     if matched is None:
         raise SharingError("binding_mismatch")
     envelope = _json(bytes(matched["envelope_bytes"]))
+    slack = isinstance(request, SlackSharingPreviewRequest)
+    connector = "slack" if slack else "saved_markdown"
     if (
         envelope.get("dto_version") != 2
         or envelope.get("binding", {}).get("namespace", {}).get("connector_name")
-        != "saved_markdown"
+        != connector
     ):
         raise SharingError("binding_mismatch")
     observation = envelope.get("observation")
     if (
         type(observation) is not dict
-        or observation.get("normalization_version") not in NORMALIZATION_VERSIONS
+        or observation.get("normalization_version") not in (("slack-source-v1",) if slack else NORMALIZATION_VERSIONS)
     ):
         raise SharingError("binding_mismatch")
     if matched["envelope_sha256"] != sha256(bytes(matched["envelope_bytes"])).hexdigest():
@@ -288,7 +293,7 @@ def _read_original_evidence(
         record.get("capture_id") != request.expected_head
         or record.get("payload") != payload
         or record.get("privacy") != privacy.to_dict()
-        or privacy.tier is not PrivacyTier.PUBLIC
+        or privacy.tier is not (PrivacyTier.WORK if slack else PrivacyTier.PUBLIC)
         or privacy.authority.cloud
         or privacy.authority.external_egress
         or privacy.policy_version != observation.get("privacy_policy_version")
@@ -378,6 +383,7 @@ def _read_original_evidence(
         or namespace["namespace_json"].encode("utf-8") != submission.namespace_bytes()
         or matched["delivery_id"] != delivery.delivery_id
         or matched["source_delivery_id"] != capture.delivery_id
+        or dict(delivery.binding.namespace) != dict(submission.namespace)
         or matched["expected_head"] != submission.expected_head
         or matched["expected_lifecycle_version"] != delivery.expected_lifecycle_version
         or delivery.expected_lifecycle_version > request.expected_lifecycle_version
@@ -411,16 +417,38 @@ def _read_original_evidence(
     text = payload["supplied_text"]
     if TextPayload(text).text != text or len(text.encode("utf-8")) > 65_536:
         raise SharingError("response_too_large")
-    if has_redaction_finding(text):
+    if has_redaction_finding(text) and not slack:
         raise SharingError("unsupported_capability")
-    return {
+    if isinstance(request, SlackSharingPreviewRequest) and (
+        source["space_id"] != request.destination_space_id
+        or connection.execute("SELECT 1 FROM spaces WHERE space_id=?", (request.destination_space_id,)).fetchone() is None
+        or not submission.namespace["connection_id"].startswith("account:")
+        or not submission.namespace["resource_id"].startswith("channel:")
+        or not submission.namespace["external_id"].startswith(("message:", "reply:"))
+    ):
+        raise SharingError("binding_mismatch")
+    result = {
         "source": dict(source),
         "revision": dict(revision),
         "managed": dict(matched),
         "observation": observation,
         "text": text,
         "privacy": privacy.to_dict(),
+        "namespace": dict(submission.namespace),
+        "revision_key": submission.revision_key,
+        "record": record,
+        "raw_text": text,
+        "intake_binding_sha256": sha256(_canonical({
+            "submission": _json(bytes(intake["submission_json"])),
+            "receipt": _json(intake["receipt_json"]), "plan": plan,
+            "namespace": _json(namespace["namespace_json"]),
+        })).hexdigest(),
     }
+    if slack:
+        from .slack_sharing_projection import build_envelope
+
+        result["text"] = build_envelope(result, capture_id=request.expected_head)
+    return result
 
 
 def _preview_from_row(row: sqlite3.Row) -> SharingPreview:
@@ -430,7 +458,8 @@ def _preview_from_row(row: sqlite3.Row) -> SharingPreview:
     ):
         raise SharingError("binding_mismatch")
     value = _json(bytes(row["preview_bytes"]))
-    return SharingPreview(
+    kind = SlackSharingPreview if value.get("dto_version") == 2 else SharingPreview
+    return kind(
         preview_id=row["preview_id"],
         preview_sha256=row["preview_sha256"],
         source_id=value["source_id"],
@@ -472,6 +501,12 @@ class SharingTasks:
             completed += int(receipt.copy_capture_id is not None)
         return completed
 
+    def create_selection(self, request: SlackSelectionCreateRequest, *, authority: EffectiveAuthority) -> dict[str, Any]:
+        from .slack_sharing import create_selection
+
+        _owner_local(authority)
+        return create_selection(self._engine, request)
+
     def preview(
         self, request: SharingPreviewRequest, *, authority: EffectiveAuthority
     ) -> SharingPreview:
@@ -500,7 +535,9 @@ class SharingTasks:
             preview_id = str(uuid4())
             now = engine._clock()
             expires_at = _timestamp(now + timedelta(minutes=15))
-            marker = f"{MARKER_PREFIX}{preview_id}:{request.expected_head.removeprefix('capture_')}"
+            slack = isinstance(request, SlackSharingPreviewRequest)
+            prefix = "urn:open-brain:sharing-copy:v2:" if slack else MARKER_PREFIX
+            marker = f"{prefix}{preview_id}:{request.expected_head.removeprefix('capture_')}"
             text = evidence["text"]
             value = {
                 "dto_version": 1,
@@ -531,6 +568,10 @@ class SharingTasks:
                 "created_at": _timestamp(now),
                 "expires_at": expires_at,
             }
+            if isinstance(request, SlackSharingPreviewRequest):
+                from .slack_sharing import slack_preview_fields
+
+                value.update(slack_preview_fields(connection, request, evidence))
             preview_bytes = _canonical(value)
             if len(preview_bytes) > _MAX_RESPONSE_BYTES:
                 raise SharingError("response_too_large")
@@ -651,7 +692,7 @@ class SharingTasks:
                 if _timestamp(engine._clock()) >= preview.expires_at:
                     raise SharingError("preview_expired")
                 frozen = _json(bytes(row["preview_bytes"]))
-                original_request = SharingPreviewRequest(**_json(bytes(row["request_bytes"])))
+                original_request = parse_sharing_request(bytes(row["request_bytes"]), SharingPreviewRequest)
                 evidence = _original_evidence(connection, engine, original_request)
                 context = _job_context(connection, engine)
                 if (
@@ -671,6 +712,12 @@ class SharingTasks:
                     != _canonical(frozen["job_identity"])
                 ):
                     raise SharingError("binding_mismatch")
+                if isinstance(original_request, SlackSharingPreviewRequest):
+                    from .slack_sharing import slack_preview_fields
+
+                    expected = slack_preview_fields(connection, original_request, evidence)
+                    if any(frozen.get(key) != value for key, value in expected.items()):
+                        raise SharingError("reapproval_required")
                 approval_id = str(uuid4())
                 delivery_id: str | None = None
                 envelope_bytes: bytes | None = None
@@ -688,10 +735,11 @@ class SharingTasks:
                             content_origin=ContentOrigin.THIRD_PARTY,
                             owner_context=CaptureWhyOrigin.AUTOMATION_ABSENT,
                         ),
-                        privacy=_copy_privacy(),
+                        privacy=PrivacyDecision.from_dict(frozen["copy_privacy"]),
                     )
                     submission_sha = submission.request_sha256()
-                    delivery_id = f"sharing-copy.v1:{approval_id}:{submission_sha}"
+                    prefix = "sharing.copy.v2.:" if frozen.get("dto_version") == 2 else "sharing-copy.v1:"
+                    delivery_id = f"{prefix}{approval_id}:{submission_sha}"
                     submission = CaptureSubmission.for_public_job(
                         context=context,
                         payload=TextPayload(preview.text),
@@ -784,6 +832,18 @@ class SharingTasks:
             return self._decision_receipt(approval_id)
         if not isinstance(outcome, CaptureReceipt):
             return self._decision_receipt(approval_id)
+        preview_connection = engine._store.connect()
+        try:
+            preview_row = preview_connection.execute("SELECT preview_bytes FROM sharing_previews WHERE preview_id=?", (row["preview_id"],)).fetchone()
+            frozen_preview = _json(bytes(preview_row["preview_bytes"]))
+        finally:
+            preview_connection.close()
+        if frozen_preview.get("dto_version") == 2:
+            try:
+                engine._route_capture(outcome.capture_id, frozen_preview["destination_space_id"],
+                                      "sharing.route.v2." + approval_id, allow_published=True)
+            except ValueError, RuntimeError:
+                return self._decision_receipt(approval_id)
         with (
             engine._writer_lease.acquire_shared_writer(),
             engine._store.transaction() as connection,
@@ -951,9 +1011,9 @@ def _managed_copy_identity(
     connection: sqlite3.Connection, capture_id: str, revision: sqlite3.Row
 ) -> bool:
     """Any independent custody signal keeps a damaged copy on managed policy."""
-    if (revision["source_reference"] or "").startswith(MARKER_PREFIX) or (
+    if (revision["source_reference"] or "").startswith("urn:open-brain:sharing-copy:") or (
         revision["delivery_id"] or ""
-    ).startswith("sharing-copy.v1:"):
+    ).startswith(("sharing-copy.", "sharing.copy.")):
         return True
     if connection.execute(
         "SELECT 1 FROM sharing_links WHERE copy_capture_id=? "
@@ -964,8 +1024,10 @@ def _managed_copy_identity(
     try:
         retained = _json(bytes(revision["source_bytes"]))
         provenance = _json(revision["provenance_json"])
+        if _json(revision["privacy_json"]).get("policy_version") == "sharing-slack-work-copy.v1":
+            return True
         return any(
-            isinstance(value, str) and value.startswith(MARKER_PREFIX)
+            isinstance(value, str) and value.startswith("urn:open-brain:sharing-copy:")
             for value in (
                 retained.get("source", {}).get("reference"),
                 retained.get("provenance", {}).get("source_ref"),
@@ -986,10 +1048,11 @@ def sharing_eligible(
     brain_id: str | None = None,
     issuer_epoch: int | None = None,
     profile: LocalEngineContext | None = None,
+    _allow_projection_drift: bool = False,
 ) -> bool:
     """One managed-source decision, reused before content-bearing projection."""
     revision = connection.execute(
-        "SELECT r.source_id,r.source_bytes,r.source_sha256,c.source_reference,c.payload_json,"
+        "SELECT r.source_id,r.source_path,r.source_bytes,r.source_sha256,c.source_reference,c.payload_json,"
         "c.privacy_json,c.provenance_json,c.role_claim_json,c.actor_id,c.source_origin,"
         "c.submission_path,c.request_sha256,c.stage,c.delivery_id "
         "FROM source_revisions r LEFT JOIN captures c USING(capture_id) WHERE r.capture_id=?",
@@ -1180,6 +1243,16 @@ def sharing_eligible(
             or row["destination_brain_id"] != brain_id
         ):
             return False
+        if frozen.get("dto_version") == 2:
+            from .slack_sharing import slack_copy_eligible
+
+            if (profile is None or read_confined(root=profile.root, relative=revision["source_path"],
+                                               expected_root_identity=profile.root_identity) != bytes(revision["source_bytes"])
+                or not slack_copy_eligible(connection, profile, capture_id, frozen,
+                                           allow_projection_drift=_allow_projection_drift)):
+                return False
+        elif not marker.startswith(MARKER_PREFIX):
+            return False
         source = connection.execute(
             "SELECT s.*,l.lifecycle_version FROM logical_sources s JOIN source_lifecycle_state l "
             "USING(source_id) WHERE s.source_id=?",
@@ -1194,7 +1267,7 @@ def sharing_eligible(
             and source["lifecycle"] == "active"
             and source["availability"] == "available"
         )
-    except KeyError, TypeError, ValueError, UnicodeError:
+    except KeyError, TypeError, ValueError, UnicodeError, OSError:
         return False
 
 
@@ -1223,6 +1296,12 @@ def require_capture_eligibility(
     ):
         from .t03_contracts import T03Error
 
+        if sharing_eligible(
+            connection, capture_id, mode=mode, provider_id=authority.provider_id,
+            brain_id=authority.brain_id, issuer_epoch=authority.issuer_epoch,
+            profile=profile, _allow_projection_drift=True,
+        ):
+            raise T03Error("reapproval_required")
         raise T03Error("not_found")
 
 
@@ -1250,7 +1329,7 @@ def external_candidate_clause(
     )
     AND (
       NOT EXISTS (SELECT 1 FROM captures marker_capture WHERE marker_capture.capture_id={capture}
-        AND marker_capture.source_reference LIKE 'urn:open-brain:sharing-copy:v1:%')
+        AND marker_capture.source_reference LIKE 'urn:open-brain:sharing-copy:%')
       OR EXISTS (
         SELECT 1 FROM sharing_links link
         JOIN sharing_decisions decision ON decision.approval_id=link.approval_id
@@ -1309,8 +1388,8 @@ def external_canonical_clause(
 
 def validate_reserved_copy_submission(engine: BrainEngine, submission: CaptureSubmission) -> bool:
     """A marker or delivery prefix cannot enter the journal without matching custody."""
-    marked = submission.source_reference.startswith(MARKER_PREFIX)
-    reserved = submission.delivery_id.startswith("sharing-copy.v1:")
+    marked = submission.source_reference.startswith("urn:open-brain:sharing-copy:")
+    reserved = submission.delivery_id.startswith(("sharing-copy.", "sharing.copy."))
     if not marked and not reserved:
         return False
     if not marked or not reserved:

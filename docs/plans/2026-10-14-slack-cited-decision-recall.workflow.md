@@ -1,6 +1,6 @@
 # Slack cited decision recall: implementation workflow
 
-Date: 2026-10-14. Status: execution design; implementation has not started.
+Date: 2026-10-14. Status: W0 and the atomic W1a/W1b unit are verified. W1a acceptance preceded W1b implementation; independent Astra review, combined `make verify`, native audit and Homebrew smoke passed. W2 owner decisions remain open; W2 and later implementation have not started. The execution design below remains the sequence for later authorized work.
 
 Start with W0 in an isolated feature worktree. Use one coordinator, two implementation workers when their files are disjoint, and one independent reviewer. Keep package acceptance ordered. Complete W1a and W1b together before making the new persisted format available to a retained Brain.
 
