@@ -4,6 +4,19 @@ Non-obvious behaviors, sharp edges, and lessons learned belong here.
 
 ## Registry
 
+### BUILD-014: New app modules must update the exact architecture inventory
+
+Category: Build Pipeline.
+
+The application package has an exact source-file allowlist in the architecture
+security tests. Adding the finite settings observer and scoped authority validator
+without registering those two foreground modules failed the full suite after
+focused behavior tests passed. Update the exact inventory for intended modules;
+keep the equality assertion and prohibited-surface checks intact. Include the
+architecture tests when adding an application source file.
+
+Discovered: 2026-10-14, W2 full verification; failed log and fixtures retained.
+
 ### BUILD-013: Settings observation callbacks need explicit types
 
 Category: Type Safety.

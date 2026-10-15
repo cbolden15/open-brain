@@ -45,3 +45,6 @@
 - Coordinator full make typecheck passed: 671 source files. No production code changed in recovery.
 - Corrected the user guide's pre-existing 10/5 coordinate statement to 17/12/12 and explained unchanged same-coordinate older-binary admission.
 - Prevention registry updated. All writers frozen again. Dispatch ledger: 11 bounded task turns / 12, three unique child identities; one final review turn reserved.
+
+- Second make verify attempt: lint/mypy passed; Python suite reported the exact app-source architecture inventory omitted the two intended new foreground modules. Stopped cleanly for traceback after 606 passing tests; one failure, 229.38 seconds, exit 2. Full log and failed fixtures retained.
+- Coordinator registered only the two modules in the exact test allowlist; equality/prohibited-surface checks and all production code/admission thresholds unchanged. No source edits occurred while the run was active.
