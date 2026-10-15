@@ -4,6 +4,9 @@ Usage: ``python -m tools.open_brain_dev.pytest_timing_report DIRECTORY [--top N]
 [--nodes-out PATH]``. Prints one JSON summary that separates collection, cumulative
 setup/call/teardown time, per-worker busy and idle time, and session wall time.
 ``--nodes-out`` writes per-node phase totals for comparisons and tier audits.
+Every record must identify the same run; missing or mixed run identifiers are
+rejected. Fixture totals are setup hook elapsed time and can overlap when a
+fixture requests a dependency dynamically with ``request.getfixturevalue()``.
 """
 
 from __future__ import annotations
@@ -45,6 +48,7 @@ def _node_file(nodeid: str) -> str:
 
 
 def summarize(directory: Path, top: int) -> tuple[dict[str, Any], dict[str, dict[str, Any]]]:
+    run: str | None = None
     nodes: dict[str, dict[str, Any]] = {}
     fixtures: dict[tuple[str, str, str], list[float]] = defaultdict(lambda: [0.0, 0.0, 0.0, 0.0])
     collection: dict[str, float] = {}
@@ -54,6 +58,14 @@ def summarize(directory: Path, top: int) -> tuple[dict[str, Any], dict[str, dict
     worker_last_stop: dict[str, float] = {}
     worker_first_start: dict[str, float] = {}
     for record in _records(directory):
+        record_run = record.get("run")
+        if not isinstance(record_run, str) or not record_run:
+            raise ValueError("Timing records require a non-empty run identifier on every record")
+        if run is not None and record_run != run:
+            raise ValueError(
+                "Timing directory contains multiple run identifiers; use one fresh run"
+            )
+        run = record_run
         kind = record["kind"]
         worker = str(record.get("worker", "main"))
         if kind == "phase":
@@ -83,6 +95,8 @@ def summarize(directory: Path, top: int) -> tuple[dict[str, Any], dict[str, dict
             worker_collected[worker] = record["seconds"]
         elif kind == "session_end":
             sessions[worker] = record
+    if run is None:
+        raise ValueError("No timing run identifier found; directory contains no timing records")
     for node in nodes.values():
         node["total"] = node["setup"] + node["call"] + node["teardown"]
     phase_totals = {p: _round(sum(n[p] for n in nodes.values())) for p in PHASES}
@@ -121,6 +135,7 @@ def summarize(directory: Path, top: int) -> tuple[dict[str, Any], dict[str, dict
     workers = sorted(worker_busy)
     controller = sessions.get("main")
     summary: dict[str, Any] = {
+        "run": run,
         "tests": len(nodes),
         "outcomes": dict(sorted(outcomes.items())),
         "session_wall_seconds": _round(controller["wall"]) if controller else None,
@@ -195,7 +210,11 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--top", type=int, default=25)
     parser.add_argument("--nodes-out", type=Path)
     arguments = parser.parse_args(argv)
-    summary, nodes = summarize(arguments.directory, arguments.top)
+    try:
+        summary, nodes = summarize(arguments.directory, arguments.top)
+    except ValueError as error:
+        print(f"error: {error}", file=sys.stderr)
+        return 1
     if arguments.nodes_out is not None:
         arguments.nodes_out.write_text(json.dumps(nodes, indent=1, sort_keys=True) + "\n")
     json.dump(summary, sys.stdout, indent=2)

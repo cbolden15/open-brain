@@ -1,14 +1,19 @@
 """Opt-in pytest timing reporter for local test-performance profiling.
 
 Load it with ``-p tools.open_brain_dev.pytest_timing`` and set
-``OPEN_BRAIN_PYTEST_TIMING_DIR`` to an absolute directory outside the checkout.
+``OPEN_BRAIN_PYTEST_TIMING_DIR`` to a fresh absolute directory outside the checkout.
 Each pytest process (the xdist controller and every worker, or the single
 process of a serial run) appends JSON Lines records to its own file there.
+All records share one run identifier; existing JSONL files are refused.
 Without the variable the plugin records nothing and changes no test behavior.
 
 Workers record per-phase wall time, process CPU, reaped child-process CPU,
 voluntary context switches, and audited sleep, spawn, and SQLite-connect
-counts; exclusive fixture setup time is aggregated per fixture definition.
+counts. Fixture setup hook elapsed time is aggregated per fixture definition:
+``seconds`` and ``max_seconds`` measure wall time, and ``cpu`` measures process
+CPU over the same hook interval. These exclude fixtures declared as parameters,
+but a dynamic ``request.getfixturevalue()`` dependency can be counted in both
+the requesting fixture and the dependency.
 The controller records session wall time and when each worker finished
 collection. Records hold node IDs and timings only, never test output.
 """
@@ -20,6 +25,7 @@ import os
 import resource
 import sys
 import time
+import uuid
 from collections.abc import Generator
 from pathlib import Path
 from typing import IO, Any
@@ -80,7 +86,8 @@ def _usage() -> tuple[float, float, int, int, int]:
 class TimingRecorder:
     """Writes one JSON Lines file per pytest process."""
 
-    def __init__(self, config: pytest.Config, directory: Path) -> None:
+    def __init__(self, config: pytest.Config, directory: Path, run: str) -> None:
+        self.run = run
         workerinput = getattr(config, "workerinput", None)
         self.worker = str(workerinput["workerid"]) if workerinput else "main"
         self.controller = workerinput is None and config.getoption("dist", "no") != "no"
@@ -107,7 +114,12 @@ class TimingRecorder:
         )
 
     def _write(self, record: dict[str, Any]) -> None:
+        record["run"] = self.run
         self._stream.write(json.dumps(record, sort_keys=True) + "\n")
+
+    @pytest.hookimpl(optionalhook=True)
+    def pytest_configure_node(self, node: Any) -> None:
+        node.workerinput["open_brain_timing_run"] = self.run
 
     @pytest.hookimpl(trylast=True)
     def pytest_collection_finish(self, session: pytest.Session) -> None:
@@ -201,6 +213,7 @@ class TimingRecorder:
     def pytest_fixture_setup(
         self, fixturedef: pytest.FixtureDef[Any], request: pytest.FixtureRequest
     ) -> Generator[None, object, object]:
+        """Measure hook elapsed setup time, including nested dynamic dependencies."""
         wall = time.perf_counter()
         cpu = time.process_time()
         try:
@@ -252,4 +265,14 @@ def pytest_configure(config: pytest.Config) -> None:
     path = Path(directory)
     if not path.is_absolute():
         raise pytest.UsageError(f"{TIMING_DIRECTORY_ENVIRONMENT} must be an absolute path")
-    config.pluginmanager.register(TimingRecorder(config, path), "open-brain-timing-recorder")
+    workerinput = getattr(config, "workerinput", None)
+    if workerinput is None:
+        if any(path.glob("*.jsonl")):
+            raise pytest.UsageError(
+                f"{TIMING_DIRECTORY_ENVIRONMENT} requires a fresh directory; "
+                f"{path} already contains JSONL files"
+            )
+        run = uuid.uuid4().hex
+    else:
+        run = str(workerinput["open_brain_timing_run"])
+    config.pluginmanager.register(TimingRecorder(config, path, run), "open-brain-timing-recorder")
