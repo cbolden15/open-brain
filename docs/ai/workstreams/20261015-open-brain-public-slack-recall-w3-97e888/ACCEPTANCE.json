@@ -1,0 +1,112 @@
+{
+  "head": "b36dfed44f063b5b1d98d4f0130e1a460a945147",
+  "branch": "feat/slack-cited-recall-w3-20261015-86014d",
+  "worktree": "/Users/calebbolden/Projects/oss/open-brain-public-worktrees/slack-cited-recall-w3-20261015-86014d",
+  "verification": {
+    "make-verify": {
+      "command": "make verify",
+      "head": "b36dfed44f063b5b1d98d4f0130e1a460a945147",
+      "exit_code": 0,
+      "elapsed_seconds": 2241.94
+    },
+    "diff-check": {
+      "command": "git diff --check",
+      "head": "b36dfed44f063b5b1d98d4f0130e1a460a945147",
+      "exit_code": 0,
+      "elapsed_seconds": 0.02
+    },
+    "actionlint": {
+      "command": "actionlint .github/workflows/ci.yml",
+      "head": "b36dfed44f063b5b1d98d4f0130e1a460a945147",
+      "exit_code": 0,
+      "elapsed_seconds": 0.24
+    },
+    "frozen-source-validation": {
+      "head": "b36dfed44f063b5b1d98d4f0130e1a460a945147",
+      "files": 1897,
+      "all_input_hashes_unchanged": true,
+      "inventory_sha256": "d90ecee75ed92693190f96acfacaf3b88da17cc3f1bcaa67a8e94828eaa172c2"
+    },
+    "tail-recovery": {
+      "command": "make build plugin-test desktop-test lint typecheck",
+      "head": "b36dfed44f063b5b1d98d4f0130e1a460a945147",
+      "exit_code": 0,
+      "elapsed_seconds": 110.86
+    },
+    "plugin-recovery": {
+      "command": "npm --prefix packages/obsidian-plugin test -- --run tests/facet-transport.test.ts",
+      "head": "06373af116b0caabf12ab8afe9163dcfe1351f1f",
+      "exit_code": 0,
+      "tests_passed": 8,
+      "duration_seconds": 12.01,
+      "environment_repair": "ignored .venv directory with bin alias to task external environment; no source/test/runtime changes"
+    }
+  },
+  "counts": {
+    "python_passed": 7474,
+    "python_skipped": 5,
+    "plugin_passed": 700,
+    "desktop_frontend_passed": 286,
+    "desktop_python_passed": 30,
+    "rust_passed": 26,
+    "typechecked_files": 673
+  },
+  "focused": {
+    "combined_cases_passed": 73,
+    "combined_seconds": 163.28,
+    "final_nonanchor_repair_passed": 1,
+    "final_nonanchor_seconds": 17.79,
+    "independent_cases_passed": 50,
+    "independent_seconds": 18.16,
+    "final_partial_line_passed": 1,
+    "final_partial_line_seconds": 0.62,
+    "guide_help_surfaces": 18,
+    "guide_command_templates": 19,
+    "guide_json_templates": 5,
+    "guide_local_links": 4
+  },
+  "independent_review": {
+    "model": "GPT-6 Astra",
+    "verdict": "approved",
+    "head": "b36dfed44f063b5b1d98d4f0130e1a460a945147",
+    "unresolved_findings": 0,
+    "hashes_independently_matched": 1897
+  },
+  "native": {
+    "status": "not_run_in_W3",
+    "reason": "No runtime, native, packaging or compatibility inputs changed versus accepted W2; W3 is tests and documentation. W4 remains unstarted."
+  },
+  "actual_client_check": {
+    "status": "not_run",
+    "reason": "No actual client/model/provider, real Slack or private pilot execution authorized for W3; later recorded injection-resistance evidence remains mandatory before private pilot use."
+  },
+  "cleanup": {
+    "removed_worktree": "/Users/calebbolden/Projects/oss/open-brain-public-worktrees/slack-cited-recall-w2-20261014-d5fe13",
+    "preserved_local_branch": "feat/slack-cited-recall-w2-20261014-d5fe13",
+    "preserved_tip": "8eb36e5ac97318537ab19aa4163c38cd0d03ff0d",
+    "continuity_files": 5,
+    "sha256_matches_old_new_and_commit": true,
+    "continuity_commit": "b39c2ef",
+    "no_new_dirt": true,
+    "ignored_rebuildable_count": 8886,
+    "unclassified_ignored": [],
+    "open_process_users": 0,
+    "all_refs_and_other_worktrees_unchanged": true
+  },
+  "first_full_gate": {
+    "command": "make verify",
+    "head": "06373af116b0caabf12ab8afe9163dcfe1351f1f",
+    "exit_code": 2,
+    "elapsed_seconds": 2175.26
+  },
+  "first_full_gate_recovery": "All7474 Python cases and package builds passed before8plugin children failed due missing literal checkout/.venv/bin/open-brain. Exact source hashes unchanged. Same environment made available through ignored actual .venv directory and external bin alias; all8passed then complete make verify reran successfully. No source/threshold weakening.",
+  "evidence_directory": "/tmp/obw3-logs-86014d",
+  "focused_and_failed_fixture_directory": "/tmp/obw3-86014d",
+  "limitations": [
+    "Deterministic driver/answer fixtures validate protocol and citation plumbing, not arbitrary semantic support or LLM reasoning/injection quality.",
+    "Complete means selected authorized evidence only; later Slack edits/deletions/messages remain unknown until owner reimport/approval.",
+    "Client settings/transport and old-binary limitations remain those of accepted W2 at17/12/12.",
+    "Five filesystem-specific skips and one existing fork deprecation warning; no limits weakened.",
+    "Final HANDOFF/STATE/ACCEPTANCE documents are post-check local continuity; implementation and tested HEAD remain unchanged."
+  ]
+}
