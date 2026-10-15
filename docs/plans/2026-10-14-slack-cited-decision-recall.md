@@ -2,7 +2,7 @@
 
 Date: 2026-10-14
 
-Status: Reviewed implementation plan, hardened 2026-10-14 (see the adjacent `.hardening.md` report). W0 completed in the isolated Slack recall worktree on 2026-10-14; full verification passed on candidate `2bd071a`. W1a was accepted before W1b implementation. W1a/W1b passed independent review, combined `make verify`, native audit and Homebrew smoke as one atomic merge unit at schema/runtime/Portable `17/12/12`. W2 and later implementation and live deployment have not started; the owner selected option B for all three decisions below.
+Status: Reviewed implementation plan, hardened 2026-10-14 (see the adjacent `.hardening.md` report). W0 completed in the isolated Slack recall worktree on 2026-10-14; full verification passed on candidate `2bd071a`. W1a was accepted before W1b implementation. W1a/W1b passed independent review, combined `make verify`, native audit and Homebrew smoke as one atomic merge unit at schema/runtime/Portable `17/12/12`. W2 passed independent Astra review, full verification and native gates at 8eb36e5ac97318537ab19aa4163c38cd0d03ff0d. W3 was authorized on 2026-10-15 in a fresh worktree; W4 and live deployment remain unstarted. The owner selected option B for all three decisions below.
 
 Planning baseline: `e444526`; application code baseline: `d5cf64e652366dc14a8cf18732f7cb1e82ae4187`.
 
@@ -97,7 +97,7 @@ Record every traversed page/read completion flag. When a read response reports s
 
 ## Ordered work packages
 
-Implement one package at a time. Later packages depend on the earlier acceptance checks passing. W0 and W1a/W1b are complete. After the owner selected B/B/B, remaining W2–W4 repository work is approximately **8–14 engineer-days** for a familiar engineer, including **6–10 for revised W2** and 1–2 each for W3/W4. This replaces the original W2 estimate; private pilot evidence, provider availability and separately scoped compatibility migrations are excluded. See the [revised W2 scope and client-settings feasibility](/Users/calebbolden/Projects/oss/open-brain-public-worktrees/slack-cited-recall-w0-20261014-006b67/docs/plans/2026-10-14-slack-cited-decision-recall.w2-scope.md).
+Implement one package at a time. Later packages depend on the earlier acceptance checks passing. W0 and W1a/W1b are complete. After the owner selected B/B/B, remaining W2–W4 repository work is approximately **8–14 engineer-days** for a familiar engineer, including **6–10 for revised W2** and 1–2 each for W3/W4. This replaces the original W2 estimate; private pilot evidence, provider availability and separately scoped compatibility migrations are excluded. See the [revised W2 scope and client-settings feasibility](/Users/calebbolden/Projects/oss/open-brain-public-worktrees/slack-cited-recall-w3-20261015-86014d/docs/plans/2026-10-14-slack-cited-decision-recall.w2-scope.md).
 
 ### W0 Baseline and failing journey fixture
 
@@ -141,7 +141,7 @@ Estimate: 2–3 days. Depends on W1a.
 
 ### W2 Preview-bound Work client setup
 
-Estimate: **6–10 engineer-days**, or a planning allowance of **4–7 working days elapsed** with two bounded implementers after contract freeze. Depends on accepted W1b and the recorded B/B/B choices. Implementation remains separately authorized. The [revised scope and feasibility assessment](/Users/calebbolden/Projects/oss/open-brain-public-worktrees/slack-cited-recall-w0-20261014-006b67/docs/plans/2026-10-14-slack-cited-decision-recall.w2-scope.md) defines the finite client-settings contract, acceptance and re-estimation conditions.
+Estimate: **6–10 engineer-days**, or a planning allowance of **4–7 working days elapsed** with two bounded implementers after contract freeze. Depends on accepted W1b and the recorded B/B/B choices. Implementation remains separately authorized. The [revised scope and feasibility assessment](/Users/calebbolden/Projects/oss/open-brain-public-worktrees/slack-cited-recall-w3-20261015-86014d/docs/plans/2026-10-14-slack-cited-decision-recall.w2-scope.md) defines the finite client-settings contract, acceptance and re-estimation conditions.
 
 1. Freeze supported client versions, settings/profile inputs, override provenance and trusted internal MCP policy context using synthetic fixtures. A settings snapshot describes observed configuration, not actual network transport or another process's environment.
 2. Require explicit policy for every Slack-sourced Work MCP read through shared engine eligibility before ranking, generation digests, pagination and projection. Close legacy search, implicit owner elevation, metadata, auxiliary callbacks, mixed-source and content-returning mutation paths. Keep direct local CLI and unrelated non-Slack defaults intact.
@@ -164,7 +164,7 @@ Estimate: 1–2 days. Depends on W2.
 
 **Acceptance:** The question about invite-only onboarding yields sufficient authorized evidence for the expected rationale with exact quote citations and approved links. Paraphrases exercise bounded query variants; ambiguous or insufficient evidence remains visibly unresolved. No message sending, publication or direct-provider inference is added.
 
-**Targets:** The new end-to-end test, scoped setup guidance and a new guide at [/Users/calebbolden/Projects/oss/open-brain-public/docs/integrations/slack-decision-recall.md](/Users/calebbolden/Projects/oss/open-brain-public/docs/integrations/slack-decision-recall.md). Neither future path exists at this planning baseline.
+**Targets:** The new end-to-end test, scoped setup guidance and a new guide at [/Users/calebbolden/Projects/oss/open-brain-public-worktrees/slack-cited-recall-w3-20261015-86014d/docs/integrations/slack-decision-recall.md](/Users/calebbolden/Projects/oss/open-brain-public-worktrees/slack-cited-recall-w3-20261015-86014d/docs/integrations/slack-decision-recall.md). Neither future path exists at this planning baseline.
 
 ### W4 Regression, native proof and handoff
 
@@ -211,7 +211,7 @@ Completion means the synthetic capture-to-approved-evidence-to-stdio-recall jour
 - [x] W0: Baseline and failing journey fixture. Synthetic local journey, versioned contract goldens and isolated expected-red probes verified; full repository gate passed. See the `20261014-open-brain-public-slack-recall-w0-20e138` workstream receipt.
 - [x] W1a: Versioned Slack Work sharing contract and visibility. Accepted before W1b; both verified together for activation.
 - [x] W1b: Compatibility and Portable evidence. Real mixed-history restore, byte-exact re-export, rehashed tamper refusal and combined package/native gates passed.
-- [ ] W2: Scoped client setup.
+- [x] W2: Scoped client setup. Accepted at 8eb36e5ac97318537ab19aa4163c38cd0d03ff0d; exact receipts are in the preserved W2 workstream.
 - [ ] W3: Cited recall journey and guide.
 - [ ] W4: Regression/native proof and handoff.
 
@@ -225,7 +225,7 @@ If this plan is executed after other schema work merges, rebase its compatibilit
 
 ## Owner decisions
 
-Hardening identified three owner decisions before W2 starts. The table retains the alternatives; recorded selections below govern W2. W2 implementation has not started.
+Hardening identified three owner decisions before W2 starts. The table retains the alternatives; recorded selections below govern W2. W2 implementation was later accepted at 8eb36e5ac97318537ab19aa4163c38cd0d03ff0d; the alternatives below remain the historical decision record.
 
 Recorded selection: **B for raw Slack Work access.** The owner requires an explicit session policy before any MCP session reads Slack-sourced Work records. W2 must include a compatibility note and acceptance coverage for omitted-policy refusal and explicit-policy behavior under the existing authority and egress checks.
 

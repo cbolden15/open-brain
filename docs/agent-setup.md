@@ -106,6 +106,10 @@ fragments. Other clients, project directories and custom launch wrappers remain
 outside this finite inventory. Removal uses owned fragment identity and preimages;
 deleted policies, revoked consent and unavailable settings cannot prevent it.
 
+For the complete selected-channel capture, owner approval and cited-read workflow,
+use the [Slack decision recall guide](integrations/slack-decision-recall.md) and its
+[reusable client task](integrations/slack-decision-recall-task.md).
+
 An actual-client injection-resistance check is still required before private pilot
 use. W2 defines that later check and records it as `not_run`; repository tests do
 not satisfy the pilot gate or authorize a pilot.

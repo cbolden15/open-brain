@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from contextlib import closing
 from dataclasses import asdict, replace
 from pathlib import Path
 from typing import Any, cast
@@ -58,7 +59,7 @@ class Journey:
             },
         )
         self.owner = owner_authority(self.tasks, session_id="w1a-owner")
-        with open_local_database_read_only(self.tasks.profile) as connection:
+        with closing(open_local_database_read_only(self.tasks.profile)) as connection:
             self.brain_id, self.epoch = connection.execute(
                 "SELECT brain_id,issuer_epoch FROM brain_identity"
             ).fetchone()
@@ -82,7 +83,7 @@ class Journey:
             assert result["outcome"] == "completed"
 
     def sources(self) -> list[dict[str, Any]]:
-        with open_local_database_read_only(self.tasks.profile) as connection:
+        with closing(open_local_database_read_only(self.tasks.profile)) as connection:
             return [
                 dict(row)
                 for row in connection.execute(

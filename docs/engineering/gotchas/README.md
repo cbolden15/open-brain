@@ -4,6 +4,31 @@ Non-obvious behaviors, sharp edges, and lessons learned belong here.
 
 ## Registry
 
+### TESTING-007: Scoped stdio fixtures need grants and complete source scans
+
+Category: Config/Environment / Verification.
+
+A launcher policy narrows authority; it does not enable the CLI tool facades.
+Synthetic MCP subprocess fixtures must pass explicit search/content-read grant
+flags as well as policy/consent. Diagnose EOF with the child status and stderr
+before classifying it as an oversized frame. Keep an overall line deadline:
+readability of the first byte does not bound a later blocking readline.
+
+A complete mocked Slack history scan must retain unchanged prior messages.
+Omitting them models an observed deletion and correctly invalidates their sharing
+approvals. Citation fixtures must also compare exact returned projected text:
+intake normalizes Unicode to NFC, so a decomposed spelling is not an exact quote
+of the returned composed text. These are acceptance-fixture corrections, not
+reasons to weaken runtime currentness or projection.
+
+The inherited journey fixture also left read-only connections alive because
+SQLite context exit does not close them. Explicitly close its identity/source
+reads before cross-process sessions; see SHARING-001 and COLLECTOR-002. Select
+a known non-anchor message for edit tests rather than a random source-ID order,
+so the still-approved anchor remains a valid external selection entry point.
+
+Discovered: 2026-10-15, W3 real-stdio journey; failed logs/fixtures retained.
+
 ### MCP-002: Source-only selection expansion must not receive canonical page IDs
 
 Category: Privacy / Compatibility.
