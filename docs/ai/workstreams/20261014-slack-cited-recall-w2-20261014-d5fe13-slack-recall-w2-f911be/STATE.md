@@ -57,3 +57,6 @@
 
 - Regression reproduced before repair as real stdio not_found for an ordinary canonical page. Fixed only the source-type condition around source-copy selection expansion; shared source/canonical eligibility unchanged.
 - Sol repair freeze: existing failed history test plus fourteen W2 cases passed (15 total, 24.59s); six-file mypy, ruff and diff check passed. Failed synthetic fixture copied outside pytest retention before another run.
+
+- Fourth full attempt on 0808ab2 passed lint/mypy and 2,108 Python tests with five filesystem skips, then hit W0's pre-feature assertion that policy setup flags were unrecognized. Stopped cleanly after failure; 1,450.67 seconds, exit 2. Logs and failed fixture copied outside retention; source inventory unchanged.
+- Updated only that baseline's name/comment/error expectation to recognized-but-incomplete invalid_arguments; refusal and no-write assertions remain. No production changes. Full W0 fixture module plus scoped/legacy setup and forwarding acceptance: 90 passed in 24.72s; target mypy and diff check passed.

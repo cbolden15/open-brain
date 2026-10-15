@@ -294,7 +294,7 @@ def test_slack_local_recall_continuity_and_external_release_refusal(
 
 
 @pytest.mark.parametrize("missing_option", ["--session-policy", "--consent-state"])
-def test_scoped_agent_setup_flags_are_currently_refused(
+def test_scoped_agent_setup_incomplete_policy_inputs_are_refused(
     tmp_path: Path, capsys: pytest.CaptureFixture[str], missing_option: str
 ) -> None:
     project = tmp_path / "project"
@@ -305,7 +305,7 @@ def test_scoped_agent_setup_flags_are_currently_refused(
         "--runtime", str(Path(sys.executable).resolve()), "--data-dir", str(tmp_path / "brain"),
         "--json",
     )
-    # Establish that valid setup prerequisites work before asserting the missing flag.
+    # Generic setup remains valid; incomplete scoped authority must refuse before writes.
     assert entrypoints.run_cli(arguments, environment={"HOME": str(tmp_path)},
                                filesystem_type_probe=_filesystem) == 0
     output = capsys.readouterr()
@@ -316,5 +316,5 @@ def test_scoped_agent_setup_flags_are_currently_refused(
                                filesystem_type_probe=_filesystem) == 2
     refused = capsys.readouterr()
     assert refused.err == ""
-    assert json.loads(refused.out)["error"]["code"] == "invalid_command"
+    assert json.loads(refused.out)["error"]["code"] == "invalid_arguments"
     assert list(project.iterdir()) == []

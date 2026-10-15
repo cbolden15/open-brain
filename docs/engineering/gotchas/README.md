@@ -29,7 +29,13 @@ focused behavior tests passed. Update the exact inventory for intended modules;
 keep the equality assertion and prohibited-surface checks intact. Include the
 architecture tests when adding an application source file.
 
-Discovered: 2026-10-14, W2 full verification; failed log and fixtures retained.
+A later full run also found a W0 CLI baseline asserting that the planned policy
+flags were unrecognized. Once those flags exist, incomplete authority must still
+refuse, but through invalid_arguments rather than invalid_command. Update this
+pre-feature expectation while preserving the refusal/no-write assertions and all
+frozen wire resources.
+
+Discovered: 2026-10-14, W2 full verification; failed logs and fixtures retained.
 
 ### BUILD-013: Settings observation callbacks need explicit types
 
