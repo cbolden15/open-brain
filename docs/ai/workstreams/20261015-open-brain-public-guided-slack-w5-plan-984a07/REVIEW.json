@@ -1,0 +1,58 @@
+{
+  "status": "planning_complete",
+  "source_head": "328e55bc6e6eb8551ad6057029e8f70617880651",
+  "plan_path": "/Users/calebbolden/Projects/oss/open-brain-public-worktrees/slack-cited-recall-w4-20261015-6d407b/docs/plans/2026-10-15-guided-slack-workflow-w5.md",
+  "plan_sha256": "a3b384a9b9a626e14ace4f3e14b2eaf784d9c89c0400601818dfa57bb053fce7",
+  "implementation_authorized": false,
+  "scope": "one guided foreground Slack channel; source health; existing owner routing/sharing/scoped setup",
+  "estimates_engineer_days": [
+    8,
+    15
+  ],
+  "local_source_links_valid": 16,
+  "independent_review": {
+    "model": "gpt-6-astra",
+    "verdict": "approved_proposal",
+    "initial_findings": 3,
+    "unresolved_findings": 0,
+    "resolved": [
+      "Non-bootstrapping no-write status path is mandatory",
+      "Bounded exact non-content request preimages and transition-specific recovery",
+      "One confirmed capture preview per import advance"
+    ],
+    "report_path": "/tmp/obw5-plan-nre16jt2/review-final.md",
+    "report_sha256": "28ac1c8787ff21b8d4be0265084c27d9d74a6b905c1567706aa7ac4757e947be"
+  },
+  "source_mapping": {
+    "model": "gpt-6.1-sol",
+    "report_path": "/tmp/obw5-plan-nre16jt2/source-map.md",
+    "report_sha256": "0d53cded5694e06e4429511adec8acc74e93c692bef685e4cd2c0642e79497db"
+  },
+  "w4_continuity_preserved": {
+    "files": 7,
+    "commit": "328e55bc6e6eb8551ad6057029e8f70617880651",
+    "all_hashes_match": true,
+    "w4_tested_head": "7818f4f3138b887220c414119be9ac16e28b0a80"
+  },
+  "verification": {
+    "plan_structure_and_links": "passed",
+    "git_diff_check": "passed",
+    "actionlint_ci": "passed",
+    "runtime_full_native_tests": "not_run; documentation-only planning, no runtime changes; W4 receipts remain historical"
+  },
+  "remaining_P0_checks": [
+    "Exact optional collector capability protocol and subprocess bounds",
+    "Read-only metadata DTO and consistency tokens",
+    "Every transition replay/receipt/halt-only table and journal retention contract",
+    "Exact CLI flags and per-file ownership; no engine/Brain/Portable format change assumed"
+  ],
+  "prohibited_actions_not_run": [
+    "implementation",
+    "actual-client/model/provider checks",
+    "real Slack/Brain access",
+    "private pilot",
+    "push",
+    "merge",
+    "deployment"
+  ]
+}
