@@ -1,4 +1,4 @@
-.PHONY: dev build test lint typecheck plugin-build plugin-test desktop-install desktop-test desktop-runtime desktop-native desktop-native-proof audit audit-history native native-audit smoke homebrew-smoke native-integration-smoke verify contributor-check
+.PHONY: dev build test test-fast test-integration test-tiers-audit test-profile linttypecheck plugin-build plugin-test desktop-install desktop-test desktop-runtime desktop-native desktop-native-proof audit audit-history native native-audit smoke homebrew-smoke native-integration-smoke verify contributor-check
 
 NATIVE_OUTPUT ?= build/native
 NATIVE_ARTIFACT = $(NATIVE_OUTPUT)/dist/open-brain
@@ -21,6 +21,21 @@ build: plugin-build
 
 test:
 	uv run --frozen pytest -q -n auto
+
+# Development tiers only; `make test` and `make verify` always run the complete suite.
+test-fast:
+	uv run --frozen pytest -q -n auto -p tools.open_brain_dev.pytest_tiers -m "not integration"
+
+test-integration:
+	uv run --frozen pytest -q -n auto -p tools.open_brain_dev.pytest_tiers -m integration
+
+test-tiers-audit:
+	uv run --frozen python -m tools.open_brain_dev.pytest_tiers audit
+
+test-profile:
+	@test -n "$(OPEN_BRAIN_PYTEST_TIMING_DIR)" || (echo "OPEN_BRAIN_PYTEST_TIMING_DIR must name an absolute directory outside the checkout" >&2; exit 2)
+	@uv run --frozen pytest -q -n auto -p tools.open_brain_dev.pytest_timing
+	@uv run --frozen python -m tools.open_brain_dev.pytest_timing_report "$(OPEN_BRAIN_PYTEST_TIMING_DIR)" --nodes-out "$(OPEN_BRAIN_PYTEST_TIMING_DIR)/nodes.json" > "$(OPEN_BRAIN_PYTEST_TIMING_DIR)/summary.json"
 
 lint:
 	uv run --frozen ruff check .

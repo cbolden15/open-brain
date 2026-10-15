@@ -32,6 +32,9 @@ open-brain-engine = { workspace = true }
 
 [tool.pytest.ini_options]
 addopts = "-ra --import-mode=importlib"
+markers = [
+  "integration: process, sleep, or slow test in the integration tier; see docs/engineering/test-performance.md",
+]
 pythonpath = [
   ".",
   "packages/app/src",
