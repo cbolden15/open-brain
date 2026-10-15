@@ -1,4 +1,4 @@
-.PHONY: dev build test test-fast test-integration test-tiers-audit test-profile linttypecheck plugin-build plugin-test desktop-install desktop-test desktop-runtime desktop-native desktop-native-proof audit audit-history native native-audit smoke homebrew-smoke native-integration-smoke verify contributor-check
+.PHONY: dev build test test-fast test-integration test-tiers-audit test-profile lint typecheck plugin-build plugin-test desktop-install desktop-test desktop-runtime desktop-native desktop-native-proof audit audit-history native native-audit smoke homebrew-smoke native-integration-smoke verify contributor-check
 
 NATIVE_OUTPUT ?= build/native
 NATIVE_ARTIFACT = $(NATIVE_OUTPUT)/dist/open-brain
