@@ -1279,6 +1279,10 @@ def require_capture_eligibility(
     history: bool = False,
     profile: LocalEngineContext | None = None,
 ) -> None:
+    from .mcp_eligibility import capture_visible
+
+    if not capture_visible(connection, capture_id, authority):
+        raise T03Error("not_found")
     if authority.egress_mode is EgressMode.EXTERNAL_PROVIDER:
         mode = EligibilityMode.EXTERNAL_READ
     elif authority.owner:
@@ -1294,8 +1298,6 @@ def require_capture_eligibility(
         issuer_epoch=authority.issuer_epoch,
         profile=profile,
     ):
-        from .t03_contracts import T03Error
-
         if sharing_eligible(
             connection, capture_id, mode=mode, provider_id=authority.provider_id,
             brain_id=authority.brain_id, issuer_epoch=authority.issuer_epoch,

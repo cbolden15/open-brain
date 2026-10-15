@@ -11,6 +11,7 @@ from uuid import uuid4
 from open_brain_engine.core.ids import portable_canonical_json_bytes
 
 from .contracts import CaptureReceipt
+from .mcp_eligibility import capture_visible
 from .normalization import _timestamp
 from .source_intake import (
     PublicJobRevisionSink,
@@ -322,7 +323,8 @@ class SourceTasks:
             source = connection.execute(
                 "SELECT * FROM logical_sources WHERE source_id=?", (request.source_id,)
             ).fetchone()
-            if source is None or not authority.permits_space(source["space_id"]):
+            if (source is None or not authority.permits_space(source["space_id"])
+                or not capture_visible(connection, source["head_capture_id"], authority)):
                 raise T03Error("not_found")
             if (
                 not authority.permits_space(request.space_id)

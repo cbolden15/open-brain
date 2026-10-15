@@ -6,6 +6,7 @@ import json
 import re
 from collections.abc import Mapping
 from dataclasses import dataclass, field, fields
+from enum import Enum
 from types import MappingProxyType
 from typing import Any, ClassVar, cast
 
@@ -76,6 +77,14 @@ def parse_wire(raw: str | bytes) -> Any:
         raise T03Error("invalid_arguments") from None
 
 
+class SessionOrigin(Enum):
+    """Trusted process context; never parsed from a client wire request."""
+
+    LOCAL_OWNER = "local_owner"
+    MCP_IMPLICIT = "mcp_implicit"
+    MCP_POLICY = "mcp_policy"
+
+
 @dataclass(frozen=True, slots=True)
 class EffectiveAuthority:
     principal_id: str
@@ -93,6 +102,7 @@ class EffectiveAuthority:
     consent_id: str | None = None
     brain_id: str | None = None
     issuer_epoch: int | None = None
+    session_origin: SessionOrigin = SessionOrigin.LOCAL_OWNER
 
     def __post_init__(self) -> None:
         if (
@@ -110,6 +120,7 @@ class EffectiveAuthority:
             or type(self.allowed_capture_tiers) is not frozenset
             or any(not isinstance(tier, PrivacyTier) for tier in self.allowed_read_tiers)
             or any(not isinstance(tier, PrivacyTier) for tier in self.allowed_capture_tiers)
+            or not isinstance(self.session_origin, SessionOrigin)
             or not isinstance(self.egress_mode, EgressMode)
         ):
             raise ValueError("invalid effective authority")

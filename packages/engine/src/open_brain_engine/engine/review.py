@@ -29,6 +29,7 @@ from .contracts import (
     _LocalEngineOperations,
     project_public_result_text,
 )
+from .mcp_eligibility import install
 from .normalization import (
     _MAX_TEXT,
     _dated_path,
@@ -564,7 +565,12 @@ class ReviewOperations(_LocalEngineOperations):
             or not 0 <= offset <= 1_000_000
         ):
             raise ValueError("invalid page bounds")
-        clauses: list[str] = []
+        clauses: list[str] = [
+            "mcp_capture_visible(proposals.capture_id)=1 AND NOT EXISTS ("
+            "SELECT 1 FROM review_sources protected "
+            "WHERE protected.proposal_id=proposals.proposal_id "
+            "AND mcp_capture_visible(protected.capture_id)=0)"
+        ]
         parameters: list[object] = []
         if capture_id is not None:
             clauses.append(
@@ -602,6 +608,9 @@ class ReviewOperations(_LocalEngineOperations):
             parameters.append(offset)
         connection = self._store.connect()
         try:
+            install(connection, authority)
+            if not connection.in_transaction:
+                connection.execute("BEGIN")
             rows = tuple(connection.execute(sql, parameters))
             sibling_rows = tuple(
                 connection.execute(
@@ -717,11 +726,23 @@ class ReviewOperations(_LocalEngineOperations):
     def _show_proposal(
         self, proposal_id: str, *, authority: EffectiveAuthority | None = None
     ) -> ReviewProposal:
-        proposal = self._proposal_row(proposal_id)
+        _portable_id(proposal_id, "proposal")
         capture_ids: tuple[str, ...]
         selected_capture_ids: tuple[str, ...]
         connection = self._store.connect()
         try:
+            install(connection, authority)
+            if not connection.in_transaction:
+                connection.execute("BEGIN")
+            proposal = connection.execute(
+                "SELECT * FROM proposals WHERE proposal_id=? "
+                "AND mcp_capture_visible(capture_id)=1 AND NOT EXISTS ("
+                "SELECT 1 FROM review_sources protected "
+                "WHERE protected.proposal_id=proposals.proposal_id "
+                "AND mcp_capture_visible(protected.capture_id)=0)", (proposal_id,),
+            ).fetchone()
+            if proposal is None:
+                raise ValueError("unknown proposal")
             context = load_bound_context(connection, proposal_id)
             if context is None:
                 siblings = tuple(

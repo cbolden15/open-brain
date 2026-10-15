@@ -49,8 +49,10 @@ from .managed_policy import _advance_policy, _provider_access
 from .managed_selection import managed_note_is_excluded
 from .managed_workspace import _digest, _request_sha256, _timestamp
 from .markdown_import_fs import MAX_FILE_BYTES
+from .mcp_eligibility import install
 from .normalization import _delivery_id, _new_id, _portable_id, _utc_now
 from .sharing import SEMANTIC_PROVIDER_IDS, EligibilityMode, sharing_eligible
+from .t03_contracts import EffectiveAuthority
 
 if TYPE_CHECKING:
     from .local import BrainEngine
@@ -221,9 +223,21 @@ def _recover_inference_workspace_locked(
 class ManagedInferenceTasks:
     """Reserve exact accepted sources before an adapter can receive note content."""
 
-    def __init__(self, engine: BrainEngine, workspace: ManagedWorkspaceTasks) -> None:
+    def __init__(
+        self,
+        engine: BrainEngine,
+        workspace: ManagedWorkspaceTasks,
+        *,
+        authority: EffectiveAuthority | None = None,
+    ) -> None:
         self._engine = engine
         self._workspace_tasks = workspace
+        self._authority = authority
+
+    def with_authority(self, authority: EffectiveAuthority) -> ManagedInferenceTasks:
+        return ManagedInferenceTasks(
+            self._engine, self._workspace_tasks.with_authority(authority), authority=authority
+        )
 
     def recover_abandoned_sessions(self) -> int:
         """End abandoned or final-client authority under serialized session control."""
@@ -234,6 +248,7 @@ class ManagedInferenceTasks:
         _portable_id(workspace_id, "workspace")
         connection = self._engine._store.connect()
         try:
+            install(connection, self._authority)
             if (
                 connection.execute(
                     "SELECT 1 FROM managed_workspaces WHERE workspace_id = ?", (workspace_id,)
@@ -245,6 +260,8 @@ class ManagedInferenceTasks:
                 connection.execute(
                     """SELECT * FROM managed_suggestions
                     WHERE workspace_id = ? AND status = 'pending'
+                      AND mcp_graph_visible(source_note_id)=1
+                      AND mcp_graph_visible(target_note_id)=1
                     ORDER BY issued_at, suggestion_id""",
                     (workspace_id,),
                 )

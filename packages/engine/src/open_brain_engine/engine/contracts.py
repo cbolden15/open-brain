@@ -3152,6 +3152,8 @@ class PublicJobCaptureSink:
 
 
 class InboxSpaceTask(Protocol):
+    def with_authority(self, authority: EffectiveAuthority) -> InboxSpaceTask: ...
+
     def list(
         self, *, unassigned_only: bool = False, limit: int | None = None, offset: int = 0
     ) -> tuple[InboxItem, ...]: ...
@@ -3227,6 +3229,8 @@ class ScopedRetrievalTask(Protocol):
 
 
 class RetrievalTask(Protocol):
+    def with_authority(self, authority: EffectiveAuthority) -> RetrievalTask: ...
+
     def search_page(
         self, request: SearchPageRequest, *, authority: EffectiveAuthority
     ) -> SearchPageResponse: ...
@@ -3289,6 +3293,10 @@ class MarkdownImportTask(Protocol):
 
 
 class ManagedWorkspaceTask(Protocol):
+    def graph_note_visible(self, note_id: str) -> bool: ...
+
+    def with_authority(self, authority: EffectiveAuthority) -> ManagedWorkspaceTask: ...
+
     def status(self) -> ManagedWorkspaceStatus | None: ...
 
     def setup(self, directory: str, *, operation_id: str) -> ManagedWorkspaceReceipt: ...
@@ -3382,6 +3390,8 @@ class ManagedPolicyTask(Protocol):
 
 
 class ManagedInferenceTask(Protocol):
+    def with_authority(self, authority: EffectiveAuthority) -> ManagedInferenceTask: ...
+
     def suggestions(self, workspace_id: str) -> tuple[ManagedSuggestion, ...]: ...
 
     def suggestion(self, workspace_id: str, suggestion_id: str) -> ManagedSuggestion: ...

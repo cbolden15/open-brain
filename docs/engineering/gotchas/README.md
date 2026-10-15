@@ -4,6 +4,58 @@ Non-obvious behaviors, sharp edges, and lessons learned belong here.
 
 ## Registry
 
+### BUILD-013: Settings observation callbacks need explicit types
+
+Category: Type Safety.
+
+The W2 observation prototype used an untyped local lambda for a reusable snapshot
+check. Mypy rejected it under the repository's strict settings. Use a typed local
+function for the callback and check the observer together with scoped setup and
+agent setup, then run the complete build/typecheck gate. Shared callback contracts
+also affect CLI/plugin consumers; a single-file check cannot establish closure.
+
+Discovered: 2026-10-14, W2 settings implementation; targeted dependent mypy checks passed.
+
+### STORAGE-001: Review reads can borrow the active writer transaction
+
+Category: Database/Migrations.
+
+Bound proposal creation reads its newly reserved proposal before its writer
+transaction exits. The store can lend that transaction to the read path;
+unconditional `BEGIN` raises a nested-transaction error. Start a read snapshot
+only when `connection.in_transaction` is false. Preserve the existing owner's
+commit/rollback boundary, and run propose, show and terminal replay regressions
+alongside the full verification gate.
+
+Discovered: 2026-10-14, W2 final auxiliary authorization regression.
+
+### MCP-001: Global graph caches and counters bypass record filtering
+
+Category: Privacy / Authority.
+
+A filtered graph snapshot does not make a whole-workspace structural cache safe.
+The cache can retain denied endpoint IDs and diagnostics, while its global digest
+and failure state reflect hidden notes. A hidden duplicate basename can also
+change extraction of otherwise visible edges. Implicit MCP must refuse this cache
+before reading it unless extraction has independently scoped provenance. Continue
+using engine-filtered inferred suggestions. Suppress global workspace policy
+counters and bind facet continuations to visible state for implicit sessions.
+
+Discovered: 2026-10-14, W2 independent source review and synthetic graph/cursor tests.
+
+### CONFIG-001: Claude local MCP entries and OS aliases need finite handling
+
+Category: Config/Environment.
+
+Claude user JSON can store selected-project MCP entries inside
+`projects[absolute_project_path].mcpServers`, as well as top-level user entries.
+Check that exact selected entry when detecting unscoped coexistence. A no-follow
+reader must also account explicitly for macOS's system `/etc` alias using its
+known `/private/etc` location; do not resolve arbitrary user-controlled links.
+Reject writable configuration parents and commit their identities.
+
+Discovered: 2026-10-14, W2 synthetic settings and independent review.
+
 ### SHARING-006: New copy policy must not redefine historical Work authority
 
 Category: Privacy / Compatibility.

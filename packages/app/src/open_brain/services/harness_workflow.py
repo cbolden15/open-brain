@@ -50,6 +50,7 @@ from open_brain_engine.engine.t03_contracts import (
     EffectiveAuthority,
     RecordReadRequest,
     SearchPageRequest,
+    SessionOrigin,
     SourceRouteRequest,
     T03Error,
 )
@@ -529,6 +530,7 @@ class HarnessWorkflow:
             consent_id=consent.consent_id,
             brain_id=self._consent.brain_id,
             issuer_epoch=self._consent.issuer_epoch,
+            session_origin=SessionOrigin.MCP_POLICY,
         ), state
 
     def _local_authority(self, policy: HarnessPolicy, project: Path) -> EffectiveAuthority:
@@ -549,6 +551,7 @@ class HarnessWorkflow:
             spaces,
             owner=True,
             allowed_read_tiers=frozenset(PrivacyTier),
+            session_origin=SessionOrigin.MCP_POLICY,
         )
 
     def recall_local(self, query: str, *, project: Path, limit: int = 5) -> HarnessRecallResult:

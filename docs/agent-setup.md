@@ -51,6 +51,65 @@ including stable page updates. Direct owner CLI review commands need no MCP gran
 For a source checkout, prefix these commands with `uv run`. Keep the checkout and its environment
 at the same location because agent configuration records an absolute executable path.
 
+## Scoped Work evidence setup
+
+The W2 candidate requires an explicit session policy before any MCP session can read
+Slack-derived Work records, approved copies or publications containing that evidence.
+This includes sessions with owner grants. Direct owner CLI access remains available;
+ordinary non-Slack MCP reads retain their existing behavior. The gate applies to the
+upgraded runtime at schema/runtime/Portable `17/12/12`. Older binaries do not gain it.
+Policy-omitted graph projection withholds the whole-workspace structural cache before
+reading it: its global extraction and freshness cannot be safely scoped. Authorized
+inferred suggestions remain available. Direct owner and explicit-policy behavior
+retain their existing structural cache path.
+
+Scoped setup accepts `--session-policy`, `--consent-state`, `--client-version` and
+`--launch-context`. The policy must already authorize exactly search and content-read,
+Work privacy, one existing space and one external provider under current durable
+consent. Setup validates that authority and forwards its paths to MCP. It does not
+create consent or approve evidence. Existing generic setup and desktop callers retain
+their default behavior when these inputs are absent.
+
+The launch context is a closed JSON object, for example:
+
+```json
+{
+  "surface": "standalone-cli",
+  "cwd": "/absolute/path/to/project",
+  "profile": null,
+  "setting_sources": ["user", "project", "local"],
+  "settings_file": null,
+  "overrides": [],
+  "managed_state": "owner-declared-absent"
+}
+```
+
+The initial matrix supports Codex CLI `0.162.1` and Claude Code `2.1.300` on
+macOS/Linux in an ordinary project root matching the declared launch directory.
+Codex supports an explicitly selected v2 profile file. Unknown versions, linked
+worktrees, subdirectory launches, hosted clients, additional settings files,
+nondefault settings sources, unresolved overrides and known managed layers refuse
+scoped configuration. MDM, server policy and the future client environment remain
+unobserved operator preconditions. An owner declaration is not observed absence.
+
+The preview shows sanitized endpoint/proxy candidates and their configuration
+sources. It does not verify the client's inference destination, transport or
+provider identity. Setup's environment describes setup only. The preview binds
+observed file identities, bytes, absence, declared context and allowlisted
+environment inputs; a changed input requires a fresh preview. No model, client
+launcher, helper command, broker or listener runs during observation.
+
+Setup checks both clients' managed user and selected-project MCP locations for
+unscoped Open Brain entries. Remove those entries or use the preview-bound
+`--acknowledge-unscoped` option after inspection. Setup changes only owned
+fragments. Other clients, project directories and custom launch wrappers remain
+outside this finite inventory. Removal uses owned fragment identity and preimages;
+deleted policies, revoked consent and unavailable settings cannot prevent it.
+
+An actual-client injection-resistance check is still required before private pilot
+use. W2 defines that later check and records it as `not_run`; repository tests do
+not satisfy the pilot gate or authorize a pilot.
+
 ## Client files and activation
 
 | Client | Project scope | User scope |

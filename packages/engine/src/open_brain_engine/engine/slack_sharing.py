@@ -236,10 +236,13 @@ def read_selection(
     capture_id: str,
     authority: EffectiveAuthority,
 ) -> dict[str, Any] | None:
+    from .mcp_eligibility import capture_visible
     from .records import RecordProjector
     from .sharing import EligibilityMode, _json, sharing_eligible
     from .t03_contracts import T03Error
 
+    if not capture_visible(connection, capture_id, authority):
+        raise T03Error("not_found")
     row = connection.execute(
         "SELECT p.preview_bytes FROM sharing_links l JOIN sharing_decisions d USING(approval_id) "
         "JOIN sharing_previews p USING(preview_id) WHERE l.copy_capture_id=?",
