@@ -1,13 +1,13 @@
 {
   "packet_version": 1,
-  "status": "in_progress",
+  "status": "complete",
   "workstream": "20261014-open-brain-public-slack-recall-w1-f9ec78",
   "milestone": "W1a/W1b",
   "branch": "feat/slack-cited-recall-w0-20261014-006b67",
-  "head": "e8f024180c477bf111956bf3582c061023502113",
+  "head": "c1d2c5298a6fd87fe44d982dd51f5c2a1899470a",
   "last_verified": {
     "command": "make verify; make native-audit homebrew-smoke; git diff --check; actionlint .github/workflows/ci.yml",
-    "result": "passed:7334 Python,700 plugin,286 desktop JS,30 desktop Python,26 Rust;5 filesystem skips; native audit and packaged journey passed"
+    "result": "passed on frozen source a8312eba:7334 Python,700 plugin,286 desktop JS,30 desktop Python,26 Rust;5 filesystem skips; native audit and Homebrew journey passed"
   },
   "changes": [
     "packages/engine",
@@ -19,6 +19,6 @@
     "docs"
   ],
   "blocker": null,
-  "next_action": "Commit verified W1a/W1b locally, then refresh handoff to committed HEAD and review W2 owner decisions.",
-  "safe_to_start_new_thread": false
+  "next_action": "Prepare revised bounded W2 scope and estimate, including client endpoint/proxy settings feasibility and pilot-gate criteria. All three option B choices recorded; W2 implementation remains unauthorized.",
+  "safe_to_start_new_thread": true
 }

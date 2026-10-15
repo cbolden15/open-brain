@@ -50,17 +50,17 @@
 # Workstream status
 
 packet_version: 1
-status: in_progress
+status: complete
 workstream: 20261014-open-brain-public-slack-recall-w1-f9ec78
 milestone: W1a/W1b
 branch: feat/slack-cited-recall-w0-20261014-006b67
-head: e8f024180c477bf111956bf3582c061023502113
-last_verified.command: W1a focused pytest; plugin and desktop wire tests; Ruff; mypy; independent Astra review
-last_verified.result: passed W1a 380 plus four boundary cases; W1b mixed roundtrip/tamper tests and regressions in progress
-changes: ["packages/engine", "packages/app", "packages/collector", "packages/obsidian-plugin", "packages/desktop", "tools/open_brain_dev/base_native.py", "docs"]
+head: c1d2c5298a6fd87fe44d982dd51f5c2a1899470a
+last_verified.command: make verify; make native-audit homebrew-smoke; git diff --check; actionlint .github/workflows/ci.yml
+last_verified.result: passed on frozen source a8312eba:7334 Python,700 plugin,286 desktop JS,30 desktop Python,26 Rust;5 filesystem skips; native audit and Homebrew journey passed
+changes: ["packages/engine", "packages/app", "packages/collector", "packages/desktop", "packages/obsidian-plugin", "tools/open_brain_dev/base_native.py", "docs"]
 blocker: null
-next_action: Complete W1b acceptance and independent review, then freeze writers for combined make verify and required native checks.
-safe_to_start_new_thread: false
+next_action: Prepare revised bounded W2 scope and estimate, including client endpoint/proxy settings feasibility and pilot-gate criteria. All three option B choices recorded; W2 implementation remains unauthorized.
+safe_to_start_new_thread: true
 
 ### Combined verification started
 
@@ -140,3 +140,19 @@ safe_to_start_new_thread: false
 - Rebuilt worktree Rust target cache was removed again within the already approved exact path after all Cargo jobs finished, restoring native-smoke storage headroom. No source/continuity deletion.
 - Final source/test candidate matches107-file SHA-256 `a8312eba42daa81f01764088285cab63821aad65cf895d4a77786b7e8b3786c5`. Main remains `d5cf64e652366dc14a8cf18732f7cb1e82ae4187`;17/12/12 has no new main collision. Initial W0 continuity remains byte-exact and is excluded from staging.
 - Only acceptance/status prose changes follow the verified candidate; no implementation changes. Local atomic W1a/W1b commit is next, followed by head-bound continuity refresh. W2 questions remain open; no W2 code, push, merge, deployment or retained Brain access.
+
+### Local milestone complete
+
+- Atomic implementation commit: `7a19321f85bb29688c0dc5280ed8cd83959cadcd`. W1a acceptance preceded W1b; final code matches the verified107-file candidate.
+- Final head-bound W1 continuity packet is refreshed after the implementation commit, so these continuity-only updates remain uncommitted. Original W0 continuity remains byte-exact to session start and outside the commit.
+- No unresolved W1 code-review findings or verification blockers. Fresh thread is safe after handoff validation. W2 owner decisions are next discussion only; no W2 implementation, push, merge, deployment, real Slack import or retained Brain migration occurred.
+
+### W2 owner decision review
+
+- Owner selected option B for raw Slack Work access: explicit session policy required before MCP reads Slack-sourced Work records. Plan records the selection and required compatibility/acceptance follow-up. W2 implementation remains paused; endpoint binding and client-tool injection choices remain open.
+- Decision documentation is uncommitted while the remaining owner choices are reviewed. W1 implementation and its verified source remain unchanged.
+
+- Owner selected option B for endpoint configuration visibility: bind client-visible endpoint/proxy settings into setup preview and report overrides. Supported settings remain a feasibility check; transport enforcement is not established. Client-tool injection is the final open choice. W2 implementation remains paused.
+
+- Owner selected option B for client-tool injection resistance: recorded evidence is required before private pilot use; `not_run` cannot satisfy that gate. All three decisions are now B. W2 implementation remains paused.
+- Decision-only local commit: `c1d2c5298a6fd87fe44d982dd51f5c2a1899470a`. Plan and workflow now record the selections; revised bounded W2 scope/estimate, client-settings feasibility and pilot-gate criteria are next. W1 code and its verification evidence remain unchanged. Head-bound continuity was refreshed after this documentation-only commit and remains uncommitted.

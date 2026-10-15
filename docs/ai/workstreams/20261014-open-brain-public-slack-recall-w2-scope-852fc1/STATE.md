@@ -24,3 +24,24 @@
 - GPT-6 Astra independently verified both bypass paths, setup preimage limits, shared engine predicate architecture and6–10 engineer-day range. Required auxiliary closure includes metadata, mixed-source publications and content-returning mutations. Exact Slack reachability remains implementation acceptance work; no full code-path closure claimed.
 - Estimate: setup3–5, source-aware policy closure2–4, integration/review0.5–1; rounded6–10 engineer-days. Parallel elapsed4–7 working days after contract freeze is a scheduling estimate. Actual-client pilot runs, persisted-format/old-binary fencing and brokers excluded.
 - Revised scope document and parent plan/workflow updated. W2 implementation remains unstarted; source, tests, client configs and model settings unchanged.
+
+## Planning milestone complete
+
+- Documentation-only local commit: `7e2b8657ab7350e89983f4774ff053f5c14964ca`. Six planning/workstream files committed; original W0/W1 dirty continuity excluded and preserved.
+- Passed source-link/estimate/no-code-change checks, git diff --check and actionlint. Independent Astra technical verification covered source findings and bounded feasibility assumptions; no formal multi-lens document audit or production tests/builds ran in this planning milestone.
+- Fresh-thread handoff refreshed to committed HEAD. Only continuity updates remain dirty. Next work begins with reviewing this bounded scope and separately authorizing W2 implementation; no W2 production code, model/provider call, real-client config write, push, merge or deployment occurred.
+
+# Workstream status
+
+packet_version: 1
+status: complete
+workstream: 20261014-open-brain-public-slack-recall-w2-scope-852fc1
+milestone: W2-scope-planning
+branch: feat/slack-cited-recall-w0-20261014-006b67
+head: 7e2b8657ab7350e89983f4774ff053f5c14964ca
+last_verified.command: Source inventories; independent Astra feasibility verification; document link/estimate/no-code-change checks; git diff --check; actionlint .github/workflows/ci.yml
+last_verified.result: passed documentation and source-feasibility checks;6–10 engineer-day bounded estimate; no production changes, tests/builds or actual-client pilot run
+changes: ["docs/plans/2026-10-14-slack-cited-decision-recall.w2-scope.md","docs/plans/2026-10-14-slack-cited-decision-recall.md","docs/plans/2026-10-14-slack-cited-decision-recall.workflow.md","docs/ai/workstreams/20261014-open-brain-public-slack-recall-w2-scope-852fc1"]
+blocker: null
+next_action: Review committed revised W2 scope/estimate. W2 implementation requires separate authorization; begin with the bounded version/settings and authority-contract freeze.
+safe_to_start_new_thread: true
