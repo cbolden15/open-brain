@@ -29,6 +29,13 @@ ALL_IDS = {PLAIN, EXPLICIT, GROUPED + "[a[b]]", GROUPED + "[plain]", METHOD}
         ("test_a.py::test_a[x[y][z]]", "test_a.py::test_a"),
         ("test_a.py::TestA::test_a[x[y]]", "test_a.py::TestA::test_a"),
         ("dir[one]/test_a.py::TestA::test_a", "dir[one]/test_a.py::TestA::test_a"),
+        ("test_a.py::test_a[x::y]", "test_a.py::test_a"),
+        ("test_a.py::test_a[2001:db8::1]", "test_a.py::test_a"),
+        ("test_a.py::TestA::test_a[x::y[z]]", "test_a.py::TestA::test_a"),
+        (
+            "dir[one]/test_a[two].py::TestA::test_a[::1[x]]",
+            "dir[one]/test_a[two].py::TestA::test_a",
+        ),
         ("test_a[x]", "test_a"),
     ],
 )
@@ -93,6 +100,37 @@ def test_generate_empty_manifest(tmp_path: Path) -> None:
     assert len(output.read_text(encoding="utf-8").splitlines()) == 2
 
 
+def test_generate_groups_one_qualifying_ipv6_parametrization(tmp_path: Path) -> None:
+    source = tmp_path / "nodes.json"
+    source.write_text(
+        json.dumps(
+            {
+                GROUPED + "[2001:db8::1[x]]": _totals(0.01, spawns=1),
+                GROUPED + "[plain]": _totals(0.01),
+            }
+        ),
+        encoding="utf-8",
+    )
+    output = tmp_path / "integration.txt"
+    pytest_tiers.generate(source, output)
+    assert pytest_tiers.read_ids(output) == {GROUPED}
+
+
+def test_makefile_verification_targets_are_phony() -> None:
+    makefile = (REPOSITORY / "Makefile").read_text(encoding="utf-8")
+    phony = next(line for line in makefile.splitlines() if line.startswith(".PHONY:"))
+    assert {
+        "lint",
+        "typecheck",
+        "test",
+        "test-fast",
+        "test-integration",
+        "test-tiers-audit",
+        "test-profile",
+        "verify",
+    } <= set(phony.partition(":")[2].split())
+
+
 @pytest.fixture
 def project(tmp_path: Path) -> Path:
     root = tmp_path / "project"
@@ -119,13 +157,16 @@ def project(tmp_path: Path) -> Path:
     return root
 
 
-def _run(project: Path, *arguments: str) -> subprocess.CompletedProcess[str]:
+def _run(
+    project: Path, *arguments: str, env: dict[str, str] | None = None
+) -> subprocess.CompletedProcess[str]:
     environment = dict(os.environ)
     environment["PYTHONPATH"] = os.pathsep.join(
         [str(REPOSITORY), environment.get("PYTHONPATH", "")]
     )
     environment["PYTEST_ADDOPTS"] = ""
     environment["PYTEST_DISABLE_PLUGIN_AUTOLOAD"] = "1"
+    environment.update(env or {})
     return subprocess.run(
         [sys.executable, *arguments],
         cwd=project,
@@ -178,12 +219,113 @@ def test_audit_partition_baseline_and_hashes(project: Path) -> None:
     assert completed.returncode == 0, completed.stdout + completed.stderr
     result = json.loads(completed.stdout)
     assert result["ok"] and result["disjoint"] and result["union_equals_all"]
+    assert result["baseline_checked"] is True
     assert result["all"]["count"] == result["union"]["count"] == 5
     assert result["integration"]["count"] == 4
     assert result["fast"]["count"] == 1
     assert result["all"]["sha256"] == hashlib.sha256(baseline.read_bytes()).hexdigest()
     assert result["union"]["sha256"] == result["all"]["sha256"]
     assert result["stale_manifest"]["ids"] == result["missing_baseline"]["ids"] == []
+
+
+@pytest.mark.integration
+def test_audit_removes_inherited_selection_and_plugins(project: Path) -> None:
+    completed = _run(
+        project,
+        "-m",
+        pytest_tiers.PLUGIN,
+        "audit",
+        env={
+            "PYTEST_ADDOPTS": "-k not test_plain",
+            "PYTEST_PLUGINS": "nonexistent_synthetic_plugin",
+        },
+    )
+    assert completed.returncode == 0, completed.stdout + completed.stderr
+    result = json.loads(completed.stdout)
+    assert result["ok"] and result["baseline_checked"] is False
+    assert result["all"] == pytest_tiers._summary(ALL_IDS)
+    assert result["fast"] == pytest_tiers._summary({PLAIN})
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize(
+    "selection",
+    [
+        "-k test_plain",
+        "-ktest_plain",
+        "-m integration",
+        "-mintegration",
+        f"--deselect {PLAIN}",
+        f"--deselect={PLAIN}",
+        "--ignore nested/test_sample.py",
+        "--ignore-glob=nested/*",
+        "--lf",
+        "--last-failed",
+        "--ff",
+        "--failed-first",
+        "--sw",
+        "--stepwise",
+    ],
+)
+def test_audit_refuses_configured_selection(project: Path, selection: str) -> None:
+    (project / "pytest.ini").write_text(
+        f"[pytest]\naddopts = --import-mode=importlib {selection}\n", encoding="utf-8"
+    )
+    completed = _run(project, "-m", pytest_tiers.PLUGIN, "audit")
+    assert completed.returncode == 1, completed.stdout + completed.stderr
+    result = json.loads(completed.stdout)
+    assert result["ok"] is False
+    assert result["baseline_checked"] is False
+    assert set(result["collection_errors"]) == {"all", "fast", "integration"}
+    for error in result["collection_errors"].values():
+        assert "Tier audit refuses configured addopts selection option" in error["stderr"]
+        assert str(project) in error["stderr"]
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize("warned_id", [EXPLICIT, PLAIN])
+def test_audit_ignores_collection_warning_locations(project: Path, warned_id: str) -> None:
+    (project / "conftest.py").write_text(
+        "import pytest, warnings\n"
+        "@pytest.hookimpl(tryfirst=True)\n"
+        "def pytest_collection_modifyitems(config, items):\n"
+        "    for item in items:\n"
+        f"        if item.nodeid == {warned_id!r}:\n"
+        "            with warnings.catch_warnings(record=True) as recorded:\n"
+        "                warnings.simplefilter('always')\n"
+        "                item.warn(pytest.PytestWarning('synthetic collection warning'))\n"
+        "            config.hook.pytest_warning_recorded.call_historic(kwargs=dict(\n"
+        "                warning_message=recorded[0], when='collect',\n"
+        "                nodeid=item.nodeid, location=None))\n",
+        encoding="utf-8",
+    )
+    # The deselected item's warning really does survive in terminal output.
+    expression = "not integration" if warned_id == EXPLICIT else "integration"
+    collected = project / "selected.txt"
+    completed = _run(
+        project,
+        "-m",
+        "pytest",
+        "--collect-only",
+        "-q",
+        "-p",
+        pytest_tiers.PLUGIN,
+        "-m",
+        expression,
+        env={pytest_tiers.COLLECT_OUT: str(collected)},
+    )
+    assert completed.returncode == 0, completed.stdout + completed.stderr
+    assert warned_id in completed.stdout
+    assert "synthetic collection warning" in completed.stdout
+    expected = {PLAIN} if warned_id == EXPLICIT else ALL_IDS - {PLAIN}
+    assert set(collected.read_text(encoding="utf-8").splitlines()) == expected
+    completed = _run(project, "-m", pytest_tiers.PLUGIN, "audit")
+    assert completed.returncode == 0, completed.stdout + completed.stderr
+    result = json.loads(completed.stdout)
+    assert result["ok"] and result["disjoint"] and result["union_equals_all"]
+    assert result["all"] == pytest_tiers._summary(ALL_IDS)
+    assert result["fast"] == pytest_tiers._summary({PLAIN})
+    assert result["integration"] == pytest_tiers._summary(ALL_IDS - {PLAIN})
 
 
 @pytest.mark.integration

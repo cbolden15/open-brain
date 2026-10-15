@@ -11,8 +11,10 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
 import subprocess
 import sys
+import tempfile
 from collections.abc import Iterable, Sequence
 from pathlib import Path
 from typing import Any
@@ -21,12 +23,28 @@ import pytest
 
 MANIFEST = Path("tests/tiers/integration.txt")
 PLUGIN = "tools.open_brain_dev.pytest_tiers"
+COLLECT_OUT = "OPEN_BRAIN_PYTEST_TIERS_COLLECT_OUT"
+SELECTION_OPTIONS = {
+    "-k",
+    "-m",
+    "--deselect",
+    "--ignore",
+    "--ignore-glob",
+    "--lf",
+    "--last-failed",
+    "--ff",
+    "--failed-first",
+    "--sw",
+    "--stepwise",
+}
 
 
 def function_id(nodeid: str) -> str:
-    """Remove parametrization only from the final node ID segment."""
-    prefix, separator, final = nodeid.rpartition("::")
-    return prefix + separator + final.split("[", 1)[0]
+    """Preserve the file path and remove parameters after the Python identifiers."""
+    path, separator, identifiers = nodeid.partition("::")
+    if not separator:
+        return nodeid.split("[", 1)[0]
+    return path + separator + identifiers.split("[", 1)[0]
 
 
 def read_ids(path: Path) -> set[str]:
@@ -39,6 +57,25 @@ def read_ids(path: Path) -> set[str]:
 
 def pytest_configure(config: pytest.Config) -> None:
     config.addinivalue_line("markers", "integration: measured process, sleep, or slow test")
+
+
+@pytest.hookimpl(tryfirst=True)
+def pytest_load_initial_conftests(early_config: pytest.Config) -> None:
+    if os.environ.get(COLLECT_OUT):
+        for option in early_config.getini("addopts"):
+            if option.split("=", 1)[0] in SELECTION_OPTIONS or option.startswith(("-k", "-m")):
+                raise pytest.UsageError(
+                    f"Tier audit refuses configured addopts selection option {option!r} "
+                    f"in rootdir {early_config.rootpath}"
+                )
+
+
+@pytest.hookimpl(trylast=True)
+def pytest_collection_finish(session: pytest.Session) -> None:
+    if output := os.environ.get(COLLECT_OUT):
+        Path(output).write_text(
+            "".join(f"{item.nodeid}\n" for item in session.items), encoding="utf-8"
+        )
 
 
 @pytest.hookimpl(tryfirst=True)
@@ -79,7 +116,9 @@ def _summary(ids: Iterable[str], *, include_ids: bool = False) -> dict[str, Any]
     return result
 
 
-def _collect(rootdir: Path, expression: str | None) -> subprocess.CompletedProcess[str]:
+def _collect(
+    rootdir: Path, expression: str | None
+) -> tuple[subprocess.CompletedProcess[str], set[str] | None]:
     command = [
         sys.executable,
         "-m",
@@ -93,7 +132,17 @@ def _collect(rootdir: Path, expression: str | None) -> subprocess.CompletedProce
     ]
     if expression is not None:
         command.extend(["-m", expression])
-    return subprocess.run(command, cwd=rootdir, capture_output=True, text=True, timeout=120)
+    environment = dict(os.environ)
+    environment.pop("PYTEST_ADDOPTS", None)
+    environment.pop("PYTEST_PLUGINS", None)
+    with tempfile.TemporaryDirectory(prefix="pytest-tiers-") as directory:
+        output = Path(directory) / "collected.txt"
+        environment[COLLECT_OUT] = str(output)
+        completed = subprocess.run(
+            command, cwd=rootdir, env=environment, capture_output=True, text=True, timeout=120
+        )
+        ids = set(output.read_text(encoding="utf-8").splitlines()) if output.is_file() else None
+    return completed, ids
 
 
 def audit(rootdir: Path, baseline: Path | None = None) -> dict[str, Any]:
@@ -104,17 +153,16 @@ def audit(rootdir: Path, baseline: Path | None = None) -> dict[str, Any]:
         ("integration", "integration"),
         ("fast", "not integration"),
     ):
-        completed = _collect(rootdir, expression)
-        # Quiet pytest collection emits one unindented node ID per line.
-        collections[name] = {
-            line for line in completed.stdout.splitlines() if "::" in line and not line[0].isspace()
-        }
-        if completed.returncode not in (0, 5):
+        completed, ids = _collect(rootdir, expression)
+        collections[name] = ids if ids is not None else set()
+        if completed.returncode not in (0, 5) or ids is None:
             errors[name] = {
                 "returncode": completed.returncode,
                 "stdout": completed.stdout,
                 "stderr": completed.stderr,
             }
+            if ids is None:
+                errors[name]["error"] = "Collection did not write its selected node ID artifact"
     all_ids = collections["all"]
     integration = collections["integration"]
     fast = collections["fast"]
@@ -133,6 +181,7 @@ def audit(rootdir: Path, baseline: Path | None = None) -> dict[str, Any]:
         "missing_from_tiers": _summary(missing, include_ids=True),
         "unexpected_in_tiers": _summary(unexpected, include_ids=True),
         "missing_baseline": _summary(missing_baseline, include_ids=True),
+        "baseline_checked": baseline is not None,
         "stale_manifest": _summary(stale, include_ids=True),
         "collection_errors": errors,
         "ok": not (errors or overlap or missing or unexpected or missing_baseline or stale),
@@ -156,7 +205,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             return 0
         result = audit(Path.cwd(), arguments.baseline)
     except (OSError, ValueError, subprocess.TimeoutExpired) as error:
-        json.dump({"ok": False, "error": str(error)}, sys.stdout)
+        json.dump({"ok": False, "baseline_checked": False, "error": str(error)}, sys.stdout)
         sys.stdout.write("\n")
         return 1
     json.dump(result, sys.stdout, indent=2, sort_keys=True)
