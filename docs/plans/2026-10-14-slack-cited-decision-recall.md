@@ -2,7 +2,7 @@
 
 Date: 2026-10-14
 
-Status: Reviewed implementation plan, hardened 2026-10-14 (see the adjacent `.hardening.md` report). W0 completed in the isolated Slack recall worktree on 2026-10-14; full verification passed on candidate `2bd071a`. W1a was accepted before W1b implementation. W1a/W1b passed independent review, combined `make verify`, native audit and Homebrew smoke as one atomic merge unit at schema/runtime/Portable `17/12/12`. W2 passed independent Astra review, full verification and native gates at 8eb36e5ac97318537ab19aa4163c38cd0d03ff0d. W3 was accepted at b36dfed44f063b5b1d98d4f0130e1a460a945147. W4 implementation is authorized in the prepared W4 worktree; fresh full/native acceptance is pending. Actual-client checks and live deployment remain unstarted. The owner selected option B for all three decisions below.
+Status: Reviewed implementation plan, hardened 2026-10-14 (see the adjacent `.hardening.md` report). W0 completed in the isolated Slack recall worktree on 2026-10-14; full verification passed on candidate `2bd071a`. W1a was accepted before W1b implementation. W1a/W1b passed independent review, combined `make verify`, native audit and Homebrew smoke as one atomic merge unit at schema/runtime/Portable `17/12/12`. W2 passed independent Astra review, full verification and native gates at 8eb36e5ac97318537ab19aa4163c38cd0d03ff0d. W3 was accepted at b36dfed44f063b5b1d98d4f0130e1a460a945147. W4 synthetic full/native acceptance passed at 7818f4f3138b887220c414119be9ac16e28b0a80. See the W4 execution packet `docs/ai/workstreams/20261015-open-brain-public-slack-recall-w4-execution-4f6ce3/ACCEPTANCE.json`. Actual-client checks and live deployment remain unstarted. The owner selected option B for all three decisions below.
 
 Planning baseline: `e444526`; application code baseline: `d5cf64e652366dc14a8cf18732f7cb1e82ae4187`.
 
@@ -212,7 +212,7 @@ Completion means the synthetic capture-to-approved-evidence-to-stdio-recall jour
 - [x] W1b: Compatibility and Portable evidence. Real mixed-history restore, byte-exact re-export, rehashed tamper refusal and combined package/native gates passed.
 - [x] W2: Scoped client setup. Accepted at 8eb36e5ac97318537ab19aa4163c38cd0d03ff0d; exact receipts are in the preserved W2 workstream.
 - [x] W3: Cited recall journey and guide. Accepted at b36dfed44f063b5b1d98d4f0130e1a460a945147; actual-client status remains `not_run`.
-- [ ] W4: Regression/native proof and handoff.
+- [x] W4: Regression/native proof and local handoff. Fresh full verification, native audit/Homebrew smoke and independent Astra verification passed at 7818f4f3138b887220c414119be9ac16e28b0a80; actual-client status remains `not_run` and private pilot remains separately gated.
 
 ## Recovery and stop conditions
 

@@ -1,6 +1,6 @@
 # Slack cited decision recall: implementation workflow
 
-Date: 2026-10-14. Status: W0 and the atomic W1a/W1b unit are verified. W1a acceptance preceded W1b implementation; independent Astra review, combined `make verify`, native audit and Homebrew smoke passed. The owner selected option B for all three W2 decisions. W2 was accepted at 8eb36e5ac97318537ab19aa4163c38cd0d03ff0d. W3 was accepted at b36dfed44f063b5b1d98d4f0130e1a460a945147. W4 is now authorized in the prepared worktree, with fresh full/native acceptance pending. The execution design below remains the sequence for later authorized work.
+Date: 2026-10-14. Status: W0 and the atomic W1a/W1b unit are verified. W1a acceptance preceded W1b implementation; independent Astra review, combined `make verify`, native audit and Homebrew smoke passed. The owner selected option B for all three W2 decisions. W2 was accepted at 8eb36e5ac97318537ab19aa4163c38cd0d03ff0d. W3 was accepted at b36dfed44f063b5b1d98d4f0130e1a460a945147. W4 synthetic full/native acceptance passed at 7818f4f3138b887220c414119be9ac16e28b0a80. Exact receipts are in the W4 execution packet. The execution design below remains the sequence for later authorized work.
 
 Start with W0 in an isolated feature worktree. Use one coordinator, two implementation workers when their files are disjoint, and one independent reviewer. Keep package acceptance ordered. Complete W1a and W1b together before making the new persisted format available to a retained Brain.
 
@@ -163,4 +163,4 @@ Each milestone receipt names the acceptance rows proved, exact command/exit stat
 
 A source-proof gap, inability to preserve Work-copy boundaries, frozen-format incompatibility or incomplete sharing restoration blocks W1. A missing owner risk choice blocks W2 only; it does not prevent finishing W0/W1. An unavailable provider does not block synthetic repository completion. A failed required gate prevents a completion claim.
 
-Current execution action: complete authorized W4 in the prepared W4 worktree, verify the full matrix and fresh full/native gates, then hand off locally. Actual-client/pilot execution remains separately authorized and unrun.
+Current boundary: W4 is complete locally at 7818f4f3138b887220c414119be9ac16e28b0a80. Stop at the validated W4 execution handoff; actual-client/pilot execution remains separately authorized and unrun.

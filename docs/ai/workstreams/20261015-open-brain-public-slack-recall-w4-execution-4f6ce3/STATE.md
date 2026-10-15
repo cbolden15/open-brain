@@ -64,3 +64,13 @@ packaging, dependency, frozen-contract or format changes. Owner waiting0s.
 Next: locally commit this candidate, bind reviewed hashes to its HEAD, freeze all
 nonignored checkout inputs including docs and continuity, and run required gates.
 All writers now frozen. No full/native acceptance or plan completion claimed yet.
+
+## W4 complete; local handoff boundary
+
+Fresh required gates passed at 7818f4f3138b887220c414119be9ac16e28b0a80; see ACCEPTANCE.json for exact receipts,
+source/artifact/log digests and platform limitations. All 1910 frozen checkout
+inputs stayed unchanged during every gate. Astra independent verification and
+committed-head binding passed; no unresolved findings. Ledger total 2/12, active 0.
+Post-check continuity and plan completion updates are uncommitted and listed
+explicitly in ACCEPTANCE.json. Actual-client status not_run; pilot gate unsatisfied.
+No further implementation or external operation is authorized by this handoff.
