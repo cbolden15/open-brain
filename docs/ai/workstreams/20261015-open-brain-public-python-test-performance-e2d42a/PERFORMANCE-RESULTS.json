@@ -1,0 +1,772 @@
+{
+  "baseline_head": "5afee33a02e556c4d7cbf0b937e0b32f4a39ec99",
+  "branch": "perf/python-test-performance",
+  "code_candidate_head": "86cb78cd97f0ddbc43e04b5f3fe5f0254fa6369c",
+  "commits": [
+    "330c243cf9002146d552c238db53be8e9f31ea59 docs: record Python test performance measurements and tiers",
+    "86cb78cd97f0ddbc43e04b5f3fe5f0254fa6369c fix(test): bind timing records to one run",
+    "34f5f1608d7f9430c65ddf86ab11ee7b63ae8111 fix(test): harden tier grouping and collection audit",
+    "a7aa220efaabf9feb639ef55f6a2ace16c0580fc fix(make): restore separate lint and typecheck phony targets",
+    "698f11268579284232fd7243a788abf711bd00cf test: add measured fast and integration test tiers",
+    "91a4102185dca63ff1d76052aa4b54a98306d698 fix(engine): size schema normalization cache for a full scan",
+    "2c8eafb5b18133a189f070d2576a1d90c755261a test: add pytest timing summary tool",
+    "5afee33a02e556c4d7cbf0b937e0b32f4a39ec99 test: add opt-in pytest timing reporter"
+  ],
+  "evidence": [
+    {
+      "path": "mix.txt",
+      "sha256": "ebd52a7a9d1092dd7cadc8dcdd0d6965784bd3debf1d9cf65090334f018bb1d9"
+    },
+    {
+      "path": "mix-rationale.md",
+      "sha256": "5753874560424c317a0dfc551ff5dd7dfc0ccb7c5ca9fac48618e97648d99e05"
+    },
+    {
+      "path": "collected-base.txt",
+      "sha256": "7a7cb5cdd8b01a040d617918a95c1d60a0bb3be13799f9375b07c61b8d4a29da"
+    },
+    {
+      "path": "versions.json",
+      "sha256": "0a5e8510edfa6f9b40b2fb46806f52ac29f24dfe89f66e79b635eade5a80b070"
+    },
+    {
+      "path": "ledger.md",
+      "sha256": "93c6f5b31fcf02cb42df655dd4d319b5269c3d9313474efb6b94fc0840ff6c55"
+    },
+    {
+      "path": "run.py",
+      "sha256": "a4e3acf9ddc738ac3b27597ae784f4b4cf700c2c2f9b3eb4916f716627b88f8a"
+    },
+    {
+      "path": "gates.sh",
+      "sha256": "60d669ea3f540744eb632c23c2ff5af05fb40621b3ec5b37163dd29eca7497fe"
+    },
+    {
+      "path": "gates2.sh",
+      "sha256": "35c44dd0cd12fc25e6ba4364a47fac3dfaabdc37f7ced8a4d292f24ccf967e9f"
+    },
+    {
+      "path": "baseline_timing_report.py",
+      "sha256": "f40245f34f9a71a659eaaaf25cea237172591bbc7fbec8a5d34c39bab7a26fe9"
+    },
+    {
+      "path": "compare.json",
+      "sha256": "316f389605e1834cde93aa07928f1c8163db97f0e3225e27b15c88545ddf8101"
+    },
+    {
+      "path": "audit-fixed.json",
+      "sha256": "57f5809d827fd4be4a4a494717c13cbfd381eb7de024b26ab9122fd27b8d34d6"
+    },
+    {
+      "path": "audit-candidate.json",
+      "sha256": "a3b4caa7e67462dd1b5f15136826152a5e00d8f86ce395bb51da1c3ea73bda43"
+    },
+    {
+      "path": "o1.patch",
+      "sha256": "535717355515d020d058671498bc660555c2a44cdd46c3576952b42294f71c3b"
+    },
+    {
+      "path": "fixtiers.patch",
+      "sha256": "fb9172b377ae2fedaec4d2906878f957a3f1d237f378e2ae41a24b2d53d2d1c3"
+    },
+    {
+      "path": "fixtiming.patch",
+      "sha256": "f2bbbea3974b91c89d6840a4f6da56c3293ac8894b50ae6411584e18e777b56e"
+    },
+    {
+      "path": "briefs/o1-report.md",
+      "sha256": "9f7ef488097f9e39cf02b3c6bb4ab87e0f3d6de6050e79ce7f12764105596e6b"
+    },
+    {
+      "path": "briefs/tiers-report.md",
+      "sha256": "e51ff164de1469f8ac580dbf5f6b9944fb3375a65bf3240ea0d6ce051eea9ec4"
+    },
+    {
+      "path": "briefs/tiers-report-attempt1.md",
+      "sha256": "3c0c3f82e05afc06706907c046a211ea843c9eaa1916e38d52b610de54b38f5e"
+    },
+    {
+      "path": "briefs/fixtiers-report.md",
+      "sha256": "070e4cf335b72170d13756eb4bbabacfc795224a4ee75dc50ea0ce7b3f30da61"
+    },
+    {
+      "path": "briefs/fixtiming-report.md",
+      "sha256": "de50435c0c3bb647c1db8dfdaa0be9bfca9e0ecc42b9c7c4dfae1076d94b9d0f"
+    },
+    {
+      "path": "briefs/astra-review-1.md",
+      "sha256": "11df721b20dd88f4b2036e4b39ba61f481ce3123ac78fb26acb95c331603855e"
+    },
+    {
+      "path": "briefs/astra-review-2.md",
+      "sha256": "3b2a03f2053aa415cdb0c72362732b05ea222d458a4090fb4f6beaa37c715f30"
+    }
+  ],
+  "evidence_root": "/private/tmp/obpt-l",
+  "final_gates": {
+    "gate-actionlint-2": {
+      "command": [
+        "actionlint",
+        ".github/workflows/ci.yml"
+      ],
+      "elapsed_seconds": 0.15,
+      "exit_code": 0,
+      "hashes_unchanged": true,
+      "head": "330c243cf9002146d552c238db53be8e9f31ea59",
+      "head_unchanged": true,
+      "input_files": 1955,
+      "inventory_sha256": "c0c2eee042a58473b4095c8f27a96ffa26cb7812bb2400fb10a3d33a6fc5ffc5",
+      "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "receipt_sha256": "72d42dd2d5f90f68a3b03023290186277c53750fbdd618c6ef7cc3cf1401d716",
+      "start_status_clean": true
+    },
+    "gate-diffcheck-2": {
+      "command": [
+        "git",
+        "diff",
+        "--check"
+      ],
+      "elapsed_seconds": 0.02,
+      "exit_code": 0,
+      "hashes_unchanged": true,
+      "head": "330c243cf9002146d552c238db53be8e9f31ea59",
+      "head_unchanged": true,
+      "input_files": 1955,
+      "inventory_sha256": "c0c2eee042a58473b4095c8f27a96ffa26cb7812bb2400fb10a3d33a6fc5ffc5",
+      "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "receipt_sha256": "5b2809215ee011a2ff6384689a50511500a2843b52a39160473640392d63df76",
+      "start_status_clean": true
+    },
+    "gate-native-2": {
+      "command": [
+        "make",
+        "native-audit",
+        "homebrew-smoke",
+        "NATIVE_OUTPUT=/private/tmp/obpt-n"
+      ],
+      "elapsed_seconds": 511.05,
+      "exit_code": 0,
+      "hashes_unchanged": true,
+      "head": "330c243cf9002146d552c238db53be8e9f31ea59",
+      "head_unchanged": true,
+      "input_files": 1955,
+      "inventory_sha256": "c0c2eee042a58473b4095c8f27a96ffa26cb7812bb2400fb10a3d33a6fc5ffc5",
+      "log_sha256": "1f942b87983b449bc5c3f7335780700a5ca04b9c83d504b3699338016b2124a4",
+      "receipt_sha256": "ab1c4005a8c2762b7860a9f4dd6ba9bed4b1e3c27cb621be54ae8f5020bec152",
+      "start_status_clean": true
+    },
+    "gate-verify": {
+      "command": [
+        "make",
+        "verify"
+      ],
+      "elapsed_seconds": 1555.47,
+      "exit_code": 0,
+      "hashes_unchanged": true,
+      "head": "330c243cf9002146d552c238db53be8e9f31ea59",
+      "head_unchanged": true,
+      "input_files": 1955,
+      "inventory_sha256": "c0c2eee042a58473b4095c8f27a96ffa26cb7812bb2400fb10a3d33a6fc5ffc5",
+      "log_sha256": "9fe8957b709aa65e075b8821e4e5d944e8329b5d2bf6975084f18fa2ced956fa",
+      "receipt_sha256": "797d5cb8cb446b357969e5e4a612b0707c3832839c1bda40db8500b5fae07fb0",
+      "start_status_clean": true
+    }
+  },
+  "inherited_and_limits": [
+    "Strict historical MCP documentation-pin mismatch (DOCS-004) not touched or rechecked.",
+    "Baseline full run input hashes changed mid-run by an unimported tool file (summary tool); later runs frozen.",
+    "One complete run per configuration plus one repeat at 4 workers; mix supplies repeats.",
+    "Reporter overhead not isolated; unprofiled verify Python time 1433.96 s vs profiled 1474.94 s on code-identical candidates is indicative only.",
+    "macOS arm64 shared workstation with heavy swap; Linux and CI not measured.",
+    "Five filesystem skips (markdown_import_fs NFC/NFD and non-UTF-8 names) and one existing fork DeprecationWarning are unchanged."
+  ],
+  "measurement_runs": [
+    {
+      "command": [
+        "uv",
+        "run",
+        "--frozen",
+        "pytest",
+        "--collect-only",
+        "-q"
+      ],
+      "elapsed_seconds": 8.43,
+      "exit_code": 0,
+      "harness_sha256": "a4e3acf9ddc738ac3b27597ae784f4b4cf700c2c2f9b3eb4916f716627b88f8a",
+      "hashes_unchanged": true,
+      "head": "5afee33a02e556c4d7cbf0b937e0b32f4a39ec99",
+      "head_unchanged": true,
+      "input_files": 1949,
+      "inventory_sha256": "72cc4da97041cc26f94aa513bf0ddead463c5316dcc6de8de6bf66a65ffc0424",
+      "label": "collect-base",
+      "log_sha256": "afd27f12732edf6bf3e4e9eb0f519c650ead3f8f24095f692bd180d1b56eb4de",
+      "max_load1": 0,
+      "min_free_gib": 3.78,
+      "profile": true,
+      "pytest_summary": "",
+      "receipt_sha256": "4e46c1a030d1af0d511720c0fc2983854b3ab00d323a16e6f5fe6211f7c09c35",
+      "start_status_clean": true,
+      "workers": 2
+    },
+    {
+      "command": [
+        "make",
+        "test"
+      ],
+      "elapsed_seconds": 2331.24,
+      "exit_code": 0,
+      "harness_sha256": "a4e3acf9ddc738ac3b27597ae784f4b4cf700c2c2f9b3eb4916f716627b88f8a",
+      "hashes_unchanged": false,
+      "head": "5afee33a02e556c4d7cbf0b937e0b32f4a39ec99",
+      "head_unchanged": true,
+      "input_files": 1949,
+      "inventory_sha256": "72cc4da97041cc26f94aa513bf0ddead463c5316dcc6de8de6bf66a65ffc0424",
+      "label": "base-w2",
+      "log_sha256": "e3758f06cdec7f9c353cc9069c81fe80c92af580fd7bf1c7884cd620d6e548ad",
+      "max_load1": 15.5,
+      "min_free_gib": 3.6,
+      "profile": true,
+      "pytest_summary": "7480 passed, 5 skipped, 1 warning in 2330.69s (0:38:50)",
+      "receipt_sha256": "87fa7495e490f5e0efc2a433369416fb9c3dffb36b2e2f874212bc10dc0d7cc5",
+      "start_status_clean": true,
+      "workers": 2
+    },
+    {
+      "command": [
+        "uv",
+        "run",
+        "--frozen",
+        "pytest",
+        "-q",
+        "-n",
+        "auto",
+        "@/private/tmp/obpt-l/mix.txt"
+      ],
+      "elapsed_seconds": 198.02,
+      "exit_code": 0,
+      "harness_sha256": "a4e3acf9ddc738ac3b27597ae784f4b4cf700c2c2f9b3eb4916f716627b88f8a",
+      "hashes_unchanged": true,
+      "head": "2c8eafb5b18133a189f070d2576a1d90c755261a",
+      "head_unchanged": true,
+      "input_files": 1950,
+      "inventory_sha256": "27640d3256a09a4804b6e479b61b20276998828f89a7b6ac6800c93581db828c",
+      "label": "mixbase-w2-r1",
+      "log_sha256": "7d7e39b3f2951e36217f7169ad4c56e7556e3ce13a7ee94e54dd9a8c15d8749c",
+      "max_load1": 17.6,
+      "min_free_gib": 3.19,
+      "profile": true,
+      "pytest_summary": "407 passed, 1 warning in 197.60s (0:03:17)",
+      "receipt_sha256": "d7f458a875de3ae3e438fca45a0ca15139d524fe13845e39e4fd68facf822f49",
+      "start_status_clean": true,
+      "workers": 2
+    },
+    {
+      "command": [
+        "uv",
+        "run",
+        "--frozen",
+        "pytest",
+        "-q",
+        "-n",
+        "auto",
+        "@/private/tmp/obpt-l/mix.txt"
+      ],
+      "elapsed_seconds": 111.53,
+      "exit_code": 0,
+      "harness_sha256": "a4e3acf9ddc738ac3b27597ae784f4b4cf700c2c2f9b3eb4916f716627b88f8a",
+      "hashes_unchanged": true,
+      "head": "2c8eafb5b18133a189f070d2576a1d90c755261a",
+      "head_unchanged": true,
+      "input_files": 1950,
+      "inventory_sha256": "27640d3256a09a4804b6e479b61b20276998828f89a7b6ac6800c93581db828c",
+      "label": "mixbase-w4-r1",
+      "log_sha256": "f1fdc571987ddc00b6aadb4ddd32b3f903a2820418190d193b80ee93a2c63871",
+      "max_load1": 36.3,
+      "min_free_gib": 3.19,
+      "profile": true,
+      "pytest_summary": "407 passed, 1 warning in 111.11s (0:01:51)",
+      "receipt_sha256": "25252b185bcfc87123d781b4399729218e49da83c830f7ce5961faca598207de",
+      "start_status_clean": true,
+      "workers": 4
+    },
+    {
+      "command": [
+        "uv",
+        "run",
+        "--frozen",
+        "pytest",
+        "-q",
+        "-n",
+        "auto",
+        "@/private/tmp/obpt-l/mix.txt"
+      ],
+      "elapsed_seconds": 196.34,
+      "exit_code": 0,
+      "harness_sha256": "a4e3acf9ddc738ac3b27597ae784f4b4cf700c2c2f9b3eb4916f716627b88f8a",
+      "hashes_unchanged": true,
+      "head": "2c8eafb5b18133a189f070d2576a1d90c755261a",
+      "head_unchanged": true,
+      "input_files": 1950,
+      "inventory_sha256": "27640d3256a09a4804b6e479b61b20276998828f89a7b6ac6800c93581db828c",
+      "label": "mixbase-w2-r2",
+      "log_sha256": "a7cc9aba3eaaf2ef8f3a8008cc8d8374d3f13badb2870890141c2922a146f97c",
+      "max_load1": 42.2,
+      "min_free_gib": 4.08,
+      "profile": true,
+      "pytest_summary": "407 passed, 1 warning in 195.80s (0:03:15)",
+      "receipt_sha256": "42041460ce5b1a054c0c003eb68126ce6464b40c4c7889dc45d5900b43c12386",
+      "start_status_clean": true,
+      "workers": 2
+    },
+    {
+      "command": [
+        "uv",
+        "run",
+        "--frozen",
+        "pytest",
+        "-q",
+        "-n",
+        "auto",
+        "@/private/tmp/obpt-l/mix.txt"
+      ],
+      "elapsed_seconds": 105.89,
+      "exit_code": 0,
+      "harness_sha256": "a4e3acf9ddc738ac3b27597ae784f4b4cf700c2c2f9b3eb4916f716627b88f8a",
+      "hashes_unchanged": true,
+      "head": "2c8eafb5b18133a189f070d2576a1d90c755261a",
+      "head_unchanged": true,
+      "input_files": 1950,
+      "inventory_sha256": "27640d3256a09a4804b6e479b61b20276998828f89a7b6ac6800c93581db828c",
+      "label": "mixbase-w4-r2",
+      "log_sha256": "c496aeec1bdfb9f3e8dd59b767b7217e7a846656adcb240db23a46f25a03b5ea",
+      "max_load1": 8.0,
+      "min_free_gib": 4.11,
+      "profile": true,
+      "pytest_summary": "407 passed, 1 warning in 105.56s (0:01:45)",
+      "receipt_sha256": "346690053fcad24ada9dfcf3edbcb438cdc8ed9539d8485ee10a03a4fece1b52",
+      "start_status_clean": true,
+      "workers": 4
+    },
+    {
+      "command": [
+        "uv",
+        "run",
+        "--frozen",
+        "pytest",
+        "-q",
+        "-n",
+        "auto",
+        "@/private/tmp/obpt-l/mix.txt"
+      ],
+      "elapsed_seconds": 193.65,
+      "exit_code": 0,
+      "harness_sha256": "a4e3acf9ddc738ac3b27597ae784f4b4cf700c2c2f9b3eb4916f716627b88f8a",
+      "hashes_unchanged": true,
+      "head": "2c8eafb5b18133a189f070d2576a1d90c755261a",
+      "head_unchanged": true,
+      "input_files": 1950,
+      "inventory_sha256": "27640d3256a09a4804b6e479b61b20276998828f89a7b6ac6800c93581db828c",
+      "label": "mixbase-w2-r3",
+      "log_sha256": "aba32603a74d2fa928cf76b6d2ebad14efae103e4403b949c286c3eb917858e4",
+      "max_load1": 8.2,
+      "min_free_gib": 4.09,
+      "profile": true,
+      "pytest_summary": "407 passed, 1 warning in 193.34s (0:03:13)",
+      "receipt_sha256": "c8b2ac19ff7f2dbd00079b0d7dd9b7a302673a51bf5f1518ec069a0c71b42ac2",
+      "start_status_clean": true,
+      "workers": 2
+    },
+    {
+      "command": [
+        "uv",
+        "run",
+        "--frozen",
+        "pytest",
+        "-q",
+        "-n",
+        "auto",
+        "@/private/tmp/obpt-l/mix.txt"
+      ],
+      "elapsed_seconds": 119.21,
+      "exit_code": 0,
+      "harness_sha256": "a4e3acf9ddc738ac3b27597ae784f4b4cf700c2c2f9b3eb4916f716627b88f8a",
+      "hashes_unchanged": true,
+      "head": "2c8eafb5b18133a189f070d2576a1d90c755261a",
+      "head_unchanged": true,
+      "input_files": 1950,
+      "inventory_sha256": "27640d3256a09a4804b6e479b61b20276998828f89a7b6ac6800c93581db828c",
+      "label": "mixbase-w4-r3",
+      "log_sha256": "d22945d32f16bacd4128f5dd9ccf8687dfedeb07ddacc9ac553f25822befead2",
+      "max_load1": 9.6,
+      "min_free_gib": 3.3,
+      "profile": true,
+      "pytest_summary": "407 passed, 1 warning in 118.85s (0:01:58)",
+      "receipt_sha256": "d5745b61d28e86233591987770ac65cf96588af7e7de3aa890d5b422533e58a3",
+      "start_status_clean": true,
+      "workers": 4
+    },
+    {
+      "command": [
+        "uv",
+        "run",
+        "--frozen",
+        "pytest",
+        "-q",
+        "-n",
+        "auto",
+        "@/private/tmp/obpt-l/mix.txt"
+      ],
+      "elapsed_seconds": 125.92,
+      "exit_code": 0,
+      "harness_sha256": "a4e3acf9ddc738ac3b27597ae784f4b4cf700c2c2f9b3eb4916f716627b88f8a",
+      "hashes_unchanged": true,
+      "head": "86cb78cd97f0ddbc43e04b5f3fe5f0254fa6369c",
+      "head_unchanged": true,
+      "input_files": 1954,
+      "inventory_sha256": "9b7dc85a0265a79f723fcd746b7981257f58bdefd8a505586598a1435c9db4c8",
+      "label": "mixcand-w2-r1",
+      "log_sha256": "480e78a7edb4f403f1ff11c93cd1989a21e9f128ecbed67b3e8bbefc79646461",
+      "max_load1": 10.4,
+      "min_free_gib": 3.24,
+      "profile": true,
+      "pytest_summary": "407 passed, 1 warning in 125.50s (0:02:05)",
+      "receipt_sha256": "8ab650b36b6473337ffadce1490565bdcff10f7a3172d9b89867f1e9812bd514",
+      "start_status_clean": true,
+      "workers": 2
+    },
+    {
+      "command": [
+        "uv",
+        "run",
+        "--frozen",
+        "pytest",
+        "-q",
+        "-n",
+        "auto",
+        "@/private/tmp/obpt-l/mix.txt"
+      ],
+      "elapsed_seconds": 72.32,
+      "exit_code": 0,
+      "harness_sha256": "a4e3acf9ddc738ac3b27597ae784f4b4cf700c2c2f9b3eb4916f716627b88f8a",
+      "hashes_unchanged": true,
+      "head": "86cb78cd97f0ddbc43e04b5f3fe5f0254fa6369c",
+      "head_unchanged": true,
+      "input_files": 1954,
+      "inventory_sha256": "9b7dc85a0265a79f723fcd746b7981257f58bdefd8a505586598a1435c9db4c8",
+      "label": "mixcand-w4-r1",
+      "log_sha256": "15625d749686c16250e94d3e63c055def8c3957dde4dded1a40e36423b5760a8",
+      "max_load1": 7.0,
+      "min_free_gib": 3.27,
+      "profile": true,
+      "pytest_summary": "407 passed, 1 warning in 72.00s (0:01:11)",
+      "receipt_sha256": "fc016321abad5e57f56af8a104ea1dd5efd6e270f6915e3e67faa0e534ea437c",
+      "start_status_clean": true,
+      "workers": 4
+    },
+    {
+      "command": [
+        "uv",
+        "run",
+        "--frozen",
+        "pytest",
+        "-q",
+        "-n",
+        "auto",
+        "@/private/tmp/obpt-l/mix.txt"
+      ],
+      "elapsed_seconds": 126.62,
+      "exit_code": 0,
+      "harness_sha256": "a4e3acf9ddc738ac3b27597ae784f4b4cf700c2c2f9b3eb4916f716627b88f8a",
+      "hashes_unchanged": true,
+      "head": "86cb78cd97f0ddbc43e04b5f3fe5f0254fa6369c",
+      "head_unchanged": true,
+      "input_files": 1954,
+      "inventory_sha256": "9b7dc85a0265a79f723fcd746b7981257f58bdefd8a505586598a1435c9db4c8",
+      "label": "mixcand-w2-r2",
+      "log_sha256": "390b7b67a1c6bd28e1c57727600b2574f8f6f725ed3654ab458be450f23e6d82",
+      "max_load1": 10.2,
+      "min_free_gib": 3.26,
+      "profile": true,
+      "pytest_summary": "407 passed, 1 warning in 126.29s (0:02:06)",
+      "receipt_sha256": "13666448d492ec780d18446309200cd3c4c167ed221c225cafdc7a940dd00528",
+      "start_status_clean": true,
+      "workers": 2
+    },
+    {
+      "command": [
+        "uv",
+        "run",
+        "--frozen",
+        "pytest",
+        "-q",
+        "-n",
+        "auto",
+        "@/private/tmp/obpt-l/mix.txt"
+      ],
+      "elapsed_seconds": 69.46,
+      "exit_code": 0,
+      "harness_sha256": "a4e3acf9ddc738ac3b27597ae784f4b4cf700c2c2f9b3eb4916f716627b88f8a",
+      "hashes_unchanged": true,
+      "head": "86cb78cd97f0ddbc43e04b5f3fe5f0254fa6369c",
+      "head_unchanged": true,
+      "input_files": 1954,
+      "inventory_sha256": "9b7dc85a0265a79f723fcd746b7981257f58bdefd8a505586598a1435c9db4c8",
+      "label": "mixcand-w4-r2",
+      "log_sha256": "9bb324d632481aeb1c92f3af96869b3408ad37d113cb2ecffb6949302253782a",
+      "max_load1": 11.0,
+      "min_free_gib": 3.43,
+      "profile": true,
+      "pytest_summary": "407 passed, 1 warning in 69.17s (0:01:09)",
+      "receipt_sha256": "db7a2f64a75392163427968df5695bbcfb6a6f358aaa34334456c3740aa7052d",
+      "start_status_clean": true,
+      "workers": 4
+    },
+    {
+      "command": [
+        "uv",
+        "run",
+        "--frozen",
+        "pytest",
+        "-q",
+        "-n",
+        "auto",
+        "@/private/tmp/obpt-l/mix.txt"
+      ],
+      "elapsed_seconds": 118.95,
+      "exit_code": 0,
+      "harness_sha256": "a4e3acf9ddc738ac3b27597ae784f4b4cf700c2c2f9b3eb4916f716627b88f8a",
+      "hashes_unchanged": true,
+      "head": "86cb78cd97f0ddbc43e04b5f3fe5f0254fa6369c",
+      "head_unchanged": true,
+      "input_files": 1954,
+      "inventory_sha256": "9b7dc85a0265a79f723fcd746b7981257f58bdefd8a505586598a1435c9db4c8",
+      "label": "mixcand-w2-r3",
+      "log_sha256": "a8e1428c41c8e94c03b8c2836f1b098fea40e6de956fb9585ff6bfb3925e6925",
+      "max_load1": 7.4,
+      "min_free_gib": 3.45,
+      "profile": true,
+      "pytest_summary": "407 passed, 1 warning in 118.64s (0:01:58)",
+      "receipt_sha256": "27bf0e5be8a618b3dc4bc0d887043d2e205e5f9254cb8e2a1a4797c3d9b6cd58",
+      "start_status_clean": true,
+      "workers": 2
+    },
+    {
+      "command": [
+        "uv",
+        "run",
+        "--frozen",
+        "pytest",
+        "-q",
+        "-n",
+        "auto",
+        "@/private/tmp/obpt-l/mix.txt"
+      ],
+      "elapsed_seconds": 68.26,
+      "exit_code": 0,
+      "harness_sha256": "a4e3acf9ddc738ac3b27597ae784f4b4cf700c2c2f9b3eb4916f716627b88f8a",
+      "hashes_unchanged": true,
+      "head": "86cb78cd97f0ddbc43e04b5f3fe5f0254fa6369c",
+      "head_unchanged": true,
+      "input_files": 1954,
+      "inventory_sha256": "9b7dc85a0265a79f723fcd746b7981257f58bdefd8a505586598a1435c9db4c8",
+      "label": "mixcand-w4-r3",
+      "log_sha256": "5a4bac17a6264216e1edc876281149edcf5da85e8aa9197867ba574b20447425",
+      "max_load1": 6.6,
+      "min_free_gib": 3.43,
+      "profile": true,
+      "pytest_summary": "407 passed, 1 warning in 68.02s (0:01:08)",
+      "receipt_sha256": "3aafc400665552c15b5873cc3363e94ed4a282e8124c3a7ab1303e5e82a73b16",
+      "start_status_clean": true,
+      "workers": 4
+    },
+    {
+      "command": [
+        "make",
+        "test"
+      ],
+      "elapsed_seconds": 1475.45,
+      "exit_code": 0,
+      "harness_sha256": "a4e3acf9ddc738ac3b27597ae784f4b4cf700c2c2f9b3eb4916f716627b88f8a",
+      "hashes_unchanged": true,
+      "head": "86cb78cd97f0ddbc43e04b5f3fe5f0254fa6369c",
+      "head_unchanged": true,
+      "input_files": 1954,
+      "inventory_sha256": "9b7dc85a0265a79f723fcd746b7981257f58bdefd8a505586598a1435c9db4c8",
+      "label": "cand-w2",
+      "log_sha256": "565635f07785e60ab8251e433a57d7c03b5bab4dc71075d42aa6196cec80420c",
+      "max_load1": 32.8,
+      "min_free_gib": 3.58,
+      "profile": true,
+      "pytest_summary": "7535 passed, 5 skipped, 1 warning in 1474.94s (0:24:34)",
+      "receipt_sha256": "7d1912f22260faafc38946e2f82a1be70e7136d73f8555c2e580e5396e38804e",
+      "start_status_clean": true,
+      "workers": 2
+    },
+    {
+      "command": [
+        "make",
+        "test"
+      ],
+      "elapsed_seconds": 898.36,
+      "exit_code": 0,
+      "harness_sha256": "a4e3acf9ddc738ac3b27597ae784f4b4cf700c2c2f9b3eb4916f716627b88f8a",
+      "hashes_unchanged": true,
+      "head": "86cb78cd97f0ddbc43e04b5f3fe5f0254fa6369c",
+      "head_unchanged": true,
+      "input_files": 1954,
+      "inventory_sha256": "9b7dc85a0265a79f723fcd746b7981257f58bdefd8a505586598a1435c9db4c8",
+      "label": "cand-w4",
+      "log_sha256": "d202d4f0ef9b07b7c2efdac61dc6e3b04de2eeb3c01831c669f3ab1f62fa1d9d",
+      "max_load1": 67.8,
+      "min_free_gib": 4.01,
+      "profile": true,
+      "pytest_summary": "7535 passed, 5 skipped, 1 warning in 897.74s (0:14:57)",
+      "receipt_sha256": "9a6c9d28fa32670c0d58912de87b061cb6fc3473dff3bc73469526c089220d6b",
+      "start_status_clean": true,
+      "workers": 4
+    },
+    {
+      "command": [
+        "make",
+        "test"
+      ],
+      "elapsed_seconds": 820.07,
+      "exit_code": 0,
+      "harness_sha256": "a4e3acf9ddc738ac3b27597ae784f4b4cf700c2c2f9b3eb4916f716627b88f8a",
+      "hashes_unchanged": true,
+      "head": "86cb78cd97f0ddbc43e04b5f3fe5f0254fa6369c",
+      "head_unchanged": true,
+      "input_files": 1954,
+      "inventory_sha256": "9b7dc85a0265a79f723fcd746b7981257f58bdefd8a505586598a1435c9db4c8",
+      "label": "cand-w4-b",
+      "log_sha256": "47588779453b08da6b58027993d452785cd2e8590609c70c5275be455cafa40c",
+      "max_load1": 21.3,
+      "min_free_gib": 4.24,
+      "profile": true,
+      "pytest_summary": "7535 passed, 5 skipped, 1 warning in 819.31s (0:13:39)",
+      "receipt_sha256": "1db3fb3c8755f312675c5263e1f2fb85cefd635a2c761e6f73ca51d9d120cb66",
+      "start_status_clean": true,
+      "workers": 4
+    },
+    {
+      "command": [
+        "make",
+        "test-fast"
+      ],
+      "elapsed_seconds": 107.04,
+      "exit_code": 0,
+      "harness_sha256": "a4e3acf9ddc738ac3b27597ae784f4b4cf700c2c2f9b3eb4916f716627b88f8a",
+      "hashes_unchanged": true,
+      "head": "86cb78cd97f0ddbc43e04b5f3fe5f0254fa6369c",
+      "head_unchanged": true,
+      "input_files": 1954,
+      "inventory_sha256": "9b7dc85a0265a79f723fcd746b7981257f58bdefd8a505586598a1435c9db4c8",
+      "label": "fast-w2",
+      "log_sha256": "70ec4d0f065f6b63c1196684bb739bb20f56fdcab56dda98c5abe16b605c99a8",
+      "max_load1": 11.7,
+      "min_free_gib": 4.24,
+      "profile": false,
+      "pytest_summary": "4725 passed, 5 skipped in 106.53s (0:01:46)",
+      "receipt_sha256": "53e36d05492755e0d8e1e2264c3c654fb226fc0fd85d684149b960e8627e6053",
+      "start_status_clean": true,
+      "workers": 2
+    },
+    {
+      "command": [
+        "uv",
+        "run",
+        "--frozen",
+        "pytest",
+        "--collect-only",
+        "-q"
+      ],
+      "elapsed_seconds": 1.97,
+      "exit_code": 0,
+      "harness_sha256": "a4e3acf9ddc738ac3b27597ae784f4b4cf700c2c2f9b3eb4916f716627b88f8a",
+      "hashes_unchanged": true,
+      "head": "86cb78cd97f0ddbc43e04b5f3fe5f0254fa6369c",
+      "head_unchanged": true,
+      "input_files": 1954,
+      "inventory_sha256": "9b7dc85a0265a79f723fcd746b7981257f58bdefd8a505586598a1435c9db4c8",
+      "label": "collect-cand",
+      "log_sha256": "6fdcafe913ae8292d67c8721d1b7defe7a111bab56cad921ff9cbbc5bab063ff",
+      "max_load1": 0,
+      "min_free_gib": 4.28,
+      "profile": true,
+      "pytest_summary": "",
+      "receipt_sha256": "a2192e79d5cd846ce40af3df0038324aff1e98adea46a805bd67a91ac863e7fc",
+      "start_status_clean": true,
+      "workers": 2
+    }
+  ],
+  "native": {
+    "artifacts": [
+      {
+        "bytes": 11477551,
+        "path": "/private/tmp/obpt-n/release/open-brain-0.1.0-macos-arm64.tar.gz",
+        "sha256": "42340f71fcf2c8d5ae0efdb6a945d68f238e3dea8864014a8621469d0ae7bcfd"
+      },
+      {
+        "bytes": 736,
+        "path": "/private/tmp/obpt-n/release/open-brain-component-manifest-v1.txt",
+        "sha256": "8ba16dba12efe1479d6a29190b0b364298a1c24ea9d426dd651368e7440f34e4"
+      },
+      {
+        "bytes": 9548911,
+        "path": "/private/tmp/obpt-n/release/open-brain-graphify-0.1.0-macos-arm64.tar.gz",
+        "sha256": "56941e20eb24054a3624cea6ebaa9fd65ee37ffd88b486fd771c904601014fe1"
+      },
+      {
+        "bytes": 11472155,
+        "path": "/private/tmp/obpt-n/release/open-brain-harness-0.1.0-macos-arm64.tar.gz",
+        "sha256": "de1e86097d52910ef73d5ff29fac7e67d4d8668f4091c01b02e3dc9c05b7a55d"
+      },
+      {
+        "bytes": 11575568,
+        "path": "/private/tmp/obpt-n/dist/open-brain",
+        "sha256": "3cb49355251970aea8f3e4cf605c497bfedb409b97873501682eb95067a3593d"
+      },
+      {
+        "bytes": 9678336,
+        "path": "/private/tmp/obpt-n/dist/open-brain-graphify",
+        "sha256": "f133a9f47c6fcb70080c7442db5aa4b59ba2d3e1ea9ecffc9912551d1810b781"
+      },
+      {
+        "bytes": 4114544,
+        "path": "/private/tmp/obpt-n/dist/open-brain-harness/open-brain-harness",
+        "sha256": "07fc37bbc0a775e0119599acffeaf0f0e93c7e5fdf929d86296955238d4e2913"
+      }
+    ],
+    "existing_product": "preserved",
+    "journey": "capture, doctor, export, graph_projection, local_mcp, markdown_import, obsidian_plugin, search, status passed; self_check passed",
+    "platform": "macOS arm64 only"
+  },
+  "refused_gate_attempts": [
+    "gate-native",
+    "gate-diffcheck",
+    "gate-actionlint: harness refused before start because free disk was 1.48 GB after make verify; reran as *-2 after removing this task's own Cargo target"
+  ],
+  "source": {
+    "advanced_beyond_expected": false,
+    "branch": "feat/competitive-gap-reconciliation",
+    "head": "8ef1d069259c291e669341079806103c8fa90e86"
+  },
+  "status": "complete_local_candidate",
+  "tested_candidate": {
+    "diff_from_code_candidate": "Markdown only (CLAUDE.md, CONTRIBUTING.md, gotchas, test-performance guide, workstream STATE/HANDOFF)",
+    "head": "330c243cf9002146d552c238db53be8e9f31ea59",
+    "tree": "7f25c407515ab03061ac9facbeede793ef1df7a5"
+  },
+  "verify_counts": {
+    "desktop_frontend_passed": 286,
+    "desktop_python_passed": 30,
+    "mypy_source_files": 678,
+    "plugin_passed": 700,
+    "python_passed": 7535,
+    "python_seconds": 1433.96,
+    "python_skipped": 5,
+    "python_warnings": 1,
+    "rust_passed": 26
+  },
+  "workstream": "20261015-open-brain-public-python-test-performance-e2d42a"
+}

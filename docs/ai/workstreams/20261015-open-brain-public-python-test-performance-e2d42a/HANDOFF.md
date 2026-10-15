@@ -1,14 +1,14 @@
 # Workstream handoff
 
 packet_version: 1
-status: in_progress
+status: complete
 workstream: 20261015-open-brain-public-python-test-performance-e2d42a
-milestone: candidate-frozen-final-gates-pending
+milestone: python-test-performance-local-candidate-verified
 branch: perf/python-test-performance
-head: code candidate 86cb78cd97f0ddbc43e04b5f3fe5f0254fa6369c; this documentation commit is the gate target
-last_verified.command: profiled full make test at 2 and 4 workers, representative mix 3x per worker count, make test-fast, tier audit with baseline, Astra re-review
-last_verified.result: PASS on 86cb78c; 7,535 passed, 5 skipped at both worker counts; 1,474.9 s (2 workers) and 819.3 s (4 workers) against a 2,330.7 s baseline
-changes: opt-in pytest timing reporter and summary; approved _normalized_sql cache bound 1024; measured fast/integration tiers with audit; Make targets; docs and gotchas
+head: 330c243cf9002146d552c238db53be8e9f31ea59 (tested candidate; this handoff is a later documentation-only continuity commit)
+last_verified.command: make verify (two workers); make native-audit homebrew-smoke; git diff --check; actionlint .github/workflows/ci.yml; all on frozen 330c243
+last_verified.result: PASS; Python 7535 passed, 5 skipped, 1 warning in 1433.96 s; native journey passed, existing product preserved; inventory c0c2eee0 unchanged
+changes: opt-in pytest timing reporter and summary tool with run identity; owner-approved _normalized_sql lru_cache bound 128 to 1024 with regression tests; measured fast and integration tiers with audit and Make targets (make test and make verify unchanged); full suite 2330.7 s to 1474.9 s at two workers and 819.3 s at four workers; docs, gotchas and contributor pointer
 blocker: null
-next_action: run make verify (two workers), combined native-audit homebrew-smoke, git diff --check and actionlint on the frozen documentation commit
-safe_to_start_new_thread: false
+next_action: owner review of branch perf/python-test-performance; push or merge only with explicit authorization
+safe_to_start_new_thread: true

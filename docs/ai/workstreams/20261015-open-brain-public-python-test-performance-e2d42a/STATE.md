@@ -64,5 +64,22 @@ the 7,485 baseline IDs present (`baseline_checked: true`). Benchmark execution u
 
 ## Status
 
-Final gates pending on the frozen documentation commit: `make verify` (two workers),
-combined `make native-audit homebrew-smoke`, `git diff --check`, `actionlint`.
+Complete local candidate. Tested HEAD `330c243cf9002146d552c238db53be8e9f31ea59` (frozen
+inventory of 1,955 inputs, SHA-256 `c0c2eee042a58473b4095c8f27a96ffa26cb7812bb2400fb10a3d33a6fc5ffc5`,
+identical before and after every gate):
+
+| Gate | Result | Elapsed |
+|---|---|---:|
+| `make verify`, two workers | PASS; Python 7,535 passed, 5 skipped, 1 warning in 1,433.96 s; plugin 700, desktop frontend 286, desktop Python 30, Rust 26 | 1,555.47 s |
+| `make native-audit homebrew-smoke` (NATIVE_OUTPUT outside checkout) | PASS; journey and self-check passed; existing product preserved | 511.05 s |
+| `git diff --check` | PASS | 0.02 s |
+| `actionlint .github/workflows/ci.yml` | PASS | 0.15 s |
+
+The first native, diff-check and actionlint attempts were refused by the measurement harness
+before starting (free disk 1.48 GB after `make verify`); they ran after removing this task's
+own Cargo target. Receipts, evidence digests and native artifact digests are in
+`PERFORMANCE-RESULTS.json`. This status and that file were committed after the tested HEAD
+as documentation-only continuity.
+
+Not done: push, merge, deployment, publication, live client/model/provider checks, real
+Slack or Brain access, W5 or competitive-gap features.
