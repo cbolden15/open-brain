@@ -433,3 +433,74 @@ def test_review_terminal_replays_recheck_protected_evidence(
         )
     assert journey.tasks.review.with_authority(journey.owner).show(proposal.proposal_id)
     assert receipt.proposal_id == proposal.proposal_id
+
+
+def test_implicit_mcp_reads_ordinary_canonical_current_and_retained_history(tmp_path: Path) -> None:
+    from packages.app.tests.integration.services.test_local_mcp import (
+        INITIALIZE,
+        _call,
+        _exchange,
+        _start,
+    )
+
+    engine = _engine(tmp_path / "brain")
+    source = _derived(engine, "ordinary-canonical-source")
+    page_id: str | None = None
+    for index, body in enumerate(
+        ("Retained ordinary canonical body", "Current ordinary canonical body")
+    ):
+        proposal = engine.review.propose(
+            (source,),
+            (ProposalDraft("Ordinary canonical", body),),
+            target_page_id=page_id,
+            delivery_id=f"w2.canonical.propose.{index}",
+        )[0]
+        decision = engine.review.decide(
+            proposal.proposal_id,
+            DecisionOutcome.APPROVED,
+            delivery_id=f"w2.canonical.approve.{index}",
+            expected_review_digest=proposal.review_digest,
+        )
+        page_id = decision.page_id
+    assert page_id is not None
+    child = _start(engine.profile.root, "--allow-content-read", "--allow-history-read")
+    try:
+        assert "result" in _exchange(child, INITIALIZE)
+        listed = _exchange(
+            child,
+            _call(
+                "brain_history_list",
+                {
+                    "dto_version": 1,
+                    "record_id": page_id,
+                },
+            ),
+        )["result"]["structuredContent"]
+        current, retained = listed["entries"]
+        for tool, revision, expected in (
+            ("brain_read", current["revision_id"], "Current ordinary canonical body"),
+            ("brain_history_show", retained["revision_id"], "Retained ordinary canonical body"),
+        ):
+            response = _exchange(
+                child,
+                _call(
+                    tool,
+                    {
+                        "dto_version": 1,
+                        "record_id": page_id,
+                        "expected_revision_id": revision,
+                    },
+                ),
+            )
+            assert "structuredContent" in response["result"], response
+            shown = response["result"]["structuredContent"]
+            assert shown["record"]["record_type"] == "canonical"
+            assert shown["record"]["revision_id"] == revision
+            assert expected in shown["content"]["text"]
+            assert "selection" not in shown
+    finally:
+        if child.stdin is not None and not child.stdin.closed:
+            child.stdin.close()
+        if child.poll() is None:
+            child.wait(timeout=10)
+        assert child.stderr is not None and child.stderr.read() == ""

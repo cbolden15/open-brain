@@ -48,3 +48,12 @@
 
 - Second make verify attempt: lint/mypy passed; Python suite reported the exact app-source architecture inventory omitted the two intended new foreground modules. Stopped cleanly for traceback after 606 passing tests; one failure, 229.38 seconds, exit 2. Full log and failed fixtures retained.
 - Coordinator registered only the two modules in the exact test allowlist; equality/prohibited-surface checks and all production code/admission thresholds unchanged. No source edits occurred while the run was active.
+
+## Required full-suite regression repair
+
+- Third full attempt: lint/mypy passed; one ordinary canonical history-read regression surfaced after 1,783 passing tests and five filesystem-specific skips. Complete trace and failed fixture retained; stopped task pytest cleanly for diagnosis, 1,354.21 seconds, exit 2. Source inventory unchanged throughout.
+- Cause: source-copy selection expansion received a canonical page ID and the new capture eligibility guard refused that non-capture identity. Canonical member eligibility itself remains required.
+- Required repair reuses existing Sol implementer and Astra reviewer; no new child identities or parallel writes. Recorded limit clarification/override: the prior ledger conservatively counted task turns as children; actual child identities remain three. Permit only the required regression repair and final verification review beyond the recorded twelve-turn reservation, since the full required acceptance exposed a production regression. No optional expansion or grandchildren.
+
+- Regression reproduced before repair as real stdio not_found for an ordinary canonical page. Fixed only the source-type condition around source-copy selection expansion; shared source/canonical eligibility unchanged.
+- Sol repair freeze: existing failed history test plus fourteen W2 cases passed (15 total, 24.59s); six-file mypy, ruff and diff check passed. Failed synthetic fixture copied outside pytest retention before another run.

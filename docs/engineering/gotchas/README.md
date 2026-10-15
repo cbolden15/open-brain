@@ -4,6 +4,20 @@ Non-obvious behaviors, sharp edges, and lessons learned belong here.
 
 ## Registry
 
+### MCP-002: Source-only selection expansion must not receive canonical page IDs
+
+Category: Privacy / Compatibility.
+
+The complete record reader serves both captures and canonical pages. A source-copy
+selection helper historically returned no descriptor for page IDs. Adding a
+capture eligibility guard to that helper made ordinary canonical MCP reads fail
+with not_found after their canonical projection had succeeded. Call source-only
+selection expansion only for source records; retain canonical member eligibility
+before every current/history read. Cover ordinary canonical current and paginated
+history reads through real stdio alongside protected mixed-source refusals.
+
+Discovered: 2026-10-14, W2 full-suite history regression; failed fixture retained.
+
 ### BUILD-014: New app modules must update the exact architecture inventory
 
 Category: Build Pipeline.
