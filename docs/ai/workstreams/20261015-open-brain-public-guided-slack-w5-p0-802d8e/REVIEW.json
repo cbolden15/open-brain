@@ -1,0 +1,65 @@
+{
+  "status": "approved_specification_only",
+  "reviewer": "gpt-6-astra",
+  "source_baseline": "377d23849467bb33ec4bcb31dcd79b812b60fbbb",
+  "children": {
+    "total": 3,
+    "active": 0,
+    "nested": 0,
+    "research_models": [
+      "gpt-6.1-sol",
+      "gpt-6.1-sol"
+    ]
+  },
+  "initial_findings": 4,
+  "resolved": 4,
+  "additional_intent_preimage_carry_through": "resolved",
+  "final_collector_source_locator": "approved",
+  "approved_artifacts": [
+    {
+      "path": "docs/plans/2026-10-15-guided-slack-workflow-w5-p0/ACCEPTANCE.md",
+      "sha256": "4c25ac883b01e5cd5340fb6f7c92193875ac76adafc3da7e5e386db5192471d9",
+      "bytes": 16274
+    },
+    {
+      "path": "docs/plans/2026-10-15-guided-slack-workflow-w5-p0/HEALTH.md",
+      "sha256": "299565319a403ad24c9542294cf34e495343a13ef0673108e19347e4f0af66dc",
+      "bytes": 12631
+    },
+    {
+      "path": "docs/plans/2026-10-15-guided-slack-workflow-w5-p0/IDENTITY.md",
+      "sha256": "c38609c681c25affab039a6a33c69f2322022881fd01f03da37f375eaae90dbb",
+      "bytes": 7326
+    },
+    {
+      "path": "docs/plans/2026-10-15-guided-slack-workflow-w5-p0/INTERFACE.md",
+      "sha256": "ef49f66db0f7c7da44c2f0845a756939ae62b71da4eb22b74d0949538040d39f",
+      "bytes": 17371
+    },
+    {
+      "path": "docs/plans/2026-10-15-guided-slack-workflow-w5-p0/RECOVERY.md",
+      "sha256": "c0fa8e3697ab883128d5c1ce5e5a083489d2fdb9e58be1f198d3384307927c2a",
+      "bytes": 15718
+    }
+  ],
+  "final_report": {
+    "path": "/tmp/obw5p0-295dl3cl/astra-review-final.md",
+    "sha256": "113ddb91f890e0f8a4aef1149106e73755b83b2af58504ff1c481fb0f856801e"
+  },
+  "unresolved_blockers": [],
+  "not_runtime_acceptance": true,
+  "research_evidence": [
+    {
+      "path": "/tmp/obw5p0-295dl3cl/recovery-research.md",
+      "sha256": "962bd99fc1f87ebbbdfb35e2cc610daea388f81cc8be18e9ab5906461e62e12d"
+    },
+    {
+      "path": "/tmp/obw5p0-295dl3cl/health-research.md",
+      "sha256": "3e5b520e42cab62665335f20ff07c4e8d420e5b4436d1becb63aba8304b085ae"
+    },
+    {
+      "path": "/tmp/obw5p0-295dl3cl/astra-review.md",
+      "sha256": "309ce07db954c5e74c0b8ff2cfc700bd5cb82ba158d74083c4728d58e75b2846"
+    }
+  ]
+}

@@ -2,6 +2,8 @@
 
 Date: 2026-10-15. Status: bounded implementation proposal; implementation is not authorized by this planning document.
 
+P0 specification is complete in the [five-artifact contract packet](/Users/calebbolden/Projects/oss/open-brain-public-worktrees/slack-cited-recall-w4-20261015-6d407b/docs/plans/2026-10-15-guided-slack-workflow-w5-p0/ACCEPTANCE.md). P1 remains unimplemented and requires separate authorization. The packet freezes per-store health with global consistency unknown, exact replay-or-halt rules and an inherited operation-lifetime guard. It also discloses a narrow create-only owner helper for the existing launcher-policy.v1 format; no existing persisted format or engine authority changes.
+
 ## 1. Summary
 
 Give an owner one foreground CLI journey from selecting a Slack channel to inspecting imported messages, explicitly releasing selected Work evidence and configuring an existing scoped MCP client. Show the selected source's actual capture state, coverage limits and recovery action without requiring the owner to copy internal IDs between commands.
@@ -124,13 +126,13 @@ Run packages in order. P0 is a prerequisite contract check, not permission to re
 
 | Package | Bounded deliverable | Acceptance gate | Estimate |
 |---|---|---|---|
-| P0 Contract freeze | Exact CLI/DTOs, optional executable handshake, receipt/source binding, journal/reconciliation rules, selected-source health mapping and fixtures. Recheck main coordinates and nested instructions. | Every transition has an existing authority API or a narrowly specified gap. Confirm no new engine/Brain/Portable persisted format; identify any missing reconciliation before P1. | 1–2 engineer-days |
+| P0 Contract freeze (specification complete) | Exact CLI/DTOs, optional executable handshake, receipt/source binding, journal/reconciliation rules, selected-source health mapping and fixtures. Recheck main coordinates and nested instructions. | Every transition has an existing authority API or a narrowly specified gap. Confirm no new engine/Brain/Portable persisted format; identify any missing reconciliation before P1. | 1–2 engineer-days |
 | P1 Read-only foundation | Optional collector adapter, required non-bootstrapping metadata read path, resource inventory, exact captured-record resolution and source-health report. | Core-only refusal is actionable; status performs zero network/writes; duplicates/ambiguity/partial pages and source mismatches fail closed. | 1–2 days |
 | P2 Foreground capture guide | Interactive and one-phase JSON flow through preflight, selection, explicit configure/preview/import and complete owner inspection, with bounded journal recovery. | Real intake/collector/engine components with only Slack transport mocked; no authority changes; interruption matrix passes. | 2–4 days |
-| P3 Owner release and setup | Explicit routing, per-message release/selection inspection and scoped setup handoff using existing services. | No implicit consent/approval; stale sources/policies refuse; two-session races and exact retries preserve W4 scope/currentness; no client launch. | 3–5 days |
+| P3 Owner release and setup | Explicit routing, per-message release/selection inspection and scoped setup handoff using existing services. | No implicit consent/approval; stale sources/policies refuse; two-session races and exact retries preserve W4 scope/currentness; no client launch. | 3.5–6 days after P0 |
 | P4 Regression and handoff | Operator/source/capability docs, synthetic usability transcript, complete compatibility/regression and current-platform native receipts on one candidate. | Independent review resolved; required gates pass; exact source/artifact digests and remaining live/platform limitations recorded. | 1–2 days |
 
-Total: 8–15 engineer-days for a familiar implementer, excluding provider approval, actual-client checks, real pilot, another distribution or new engine/Brain/Portable persistence/fencing. These are planning ranges, not measured agent elapsed time. P0 must re-estimate if safe receipt reconciliation, capability negotiation or journal retention is materially larger than assumed. No desktop feature work is included.
+Total after P0 scope clarification: 8.5–16 engineer-days for a familiar implementer, excluding provider approval, actual-client checks, real pilot, another distribution or new engine/Brain/Portable persistence/fencing. P0 adds0.5–1day to P3 for explicit policy preview/create-only apply using the unchanged launcher-policy.v1 format; existing code has no owner authoring receipt. The original proposal was8–15days. These are planning ranges, not measured agent elapsed time. P0 must re-estimate if safe receipt reconciliation, capability negotiation or journal retention is materially larger than assumed. No desktop feature work is included.
 
 ### Required scenario matrix
 

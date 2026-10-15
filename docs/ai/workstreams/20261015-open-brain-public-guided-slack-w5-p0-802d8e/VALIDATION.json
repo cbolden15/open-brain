@@ -1,0 +1,36 @@
+{
+  "documents": [
+    {
+      "path": "docs/plans/2026-10-15-guided-slack-workflow-w5-p0/ACCEPTANCE.md",
+      "sha256": "4c25ac883b01e5cd5340fb6f7c92193875ac76adafc3da7e5e386db5192471d9",
+      "bytes": 16274
+    },
+    {
+      "path": "docs/plans/2026-10-15-guided-slack-workflow-w5-p0/HEALTH.md",
+      "sha256": "299565319a403ad24c9542294cf34e495343a13ef0673108e19347e4f0af66dc",
+      "bytes": 12631
+    },
+    {
+      "path": "docs/plans/2026-10-15-guided-slack-workflow-w5-p0/IDENTITY.md",
+      "sha256": "c38609c681c25affab039a6a33c69f2322022881fd01f03da37f375eaae90dbb",
+      "bytes": 7326
+    },
+    {
+      "path": "docs/plans/2026-10-15-guided-slack-workflow-w5-p0/INTERFACE.md",
+      "sha256": "ef49f66db0f7c7da44c2f0845a756939ae62b71da4eb22b74d0949538040d39f",
+      "bytes": 17371
+    },
+    {
+      "path": "docs/plans/2026-10-15-guided-slack-workflow-w5-p0/RECOVERY.md",
+      "sha256": "c0fa8e3697ab883128d5c1ce5e5a083489d2fdb9e58be1f198d3384307927c2a",
+      "bytes": 15718
+    }
+  ],
+  "absolute_links_checked": 4,
+  "existing_explicit_source_files_checked": 17,
+  "explicit_test_symbols_checked": 9,
+  "json_examples_parsed": 3,
+  "independent_review_hashes": "all five matched",
+  "continuity": "two predecessor files unchanged",
+  "errors": []
+}

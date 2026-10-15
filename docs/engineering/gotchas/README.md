@@ -4,6 +4,30 @@ Non-obvious behaviors, sharp edges, and lessons learned belong here.
 
 ## Registry
 
+### COLLECTOR-008: Source health reads can initialize state and overstate evidence
+
+Category: Source status / Recovery.
+
+Existing source status dispatch constructs LiveSourceManager/LiveCaptureService;
+PrivateJsonStore construction and directory reads create absent directories and
+locks. A no-write status path must bypass those constructors, credential access,
+control IPC and engine bootstrap. Existing per-file atomic replacement does not
+provide a committed snapshot across source, preview and custody files. Source
+generation hashes configuration, not every mutation; stable reads support
+per-store evidence, with global consistency unknown.
+
+Direct foreground imports update source last_run without recording runner health.
+An overwritten failed last_run cannot prove a previous successful completion.
+Stored next_run may be a scheduling fallback, so it does not prove a provider
+retry deadline. Existing live_manager pending_retries also reads a nonexistent
+top-level custody.quarantined_count and defaults to zero; do not reuse that metric
+for selected-source health. W5 P0 records these source observations and specifies
+honest unavailable fields; no runtime metric fix is included in that phase.
+
+Source: packages/collector/src/open_brain_collector/live_capture.py:146,729,924;
+packages/collector/src/open_brain_collector/live_manager.py:529;
+packages/connectors/src/open_brain_connectors/runtime/live_storage.py:29,36,161.
+
 ### TESTING-007: Scoped stdio fixtures need grants and complete source scans
 
 Category: Config/Environment / Verification.
