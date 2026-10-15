@@ -1,0 +1,31 @@
+{
+  "active_gaps": [
+    1,
+    2,
+    4,
+    5,
+    6,
+    7,
+    9
+  ],
+  "deferred": {
+    "3": "Keep Open Brain; rename separately"
+  },
+  "removed": [
+    8
+  ],
+  "excluded": [
+    10,
+    11
+  ],
+  "semantic": "Assess bundled local model/runtime; offline foreground core",
+  "imports": "Both ChatGPT and Claude in first implementation",
+  "w4": "complete locally; preserve/reuse; integration not yet authorized",
+  "w5": "parked after completed P0; no guided workflow implementation",
+  "external_limits": [
+    "no actual client/model/provider checks",
+    "no real Slack/Brain/private exports",
+    "no pilot",
+    "no push/merge/deployment without separate authorization"
+  ]
+}

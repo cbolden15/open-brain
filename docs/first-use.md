@@ -1,12 +1,28 @@
 # First use
 
-This guide exercises the supported core 0.1.0 journey with synthetic data. It uses the
-foreground CLI only. `OPEN_BRAIN` may name an installed `open-brain`; the documentation gate sets
-it to the exact native candidate. The temporary Brain and managed vault are removed when you
-remove `RUN_ROOT`.
+For a short synthetic capture/search trial, start with the [README quickstart](../README.md#try-a-synthetic-note).
+The current source candidate uses local state schema **16**, runtime session **11**, and Portable
+metadata **11**. These coordinates do not identify the published Homebrew release and do not
+establish public acceptance. Check your executable's `catalog --schema-version 2 --json` output
+against the [current compatibility matrix](core-v01-features.md#compatibility-coordinates).
 
-The runnable blocks are one sequence. The executable verification requires `jq` as an explicit
-prerequisite. Open Brain itself remains offline for every operation below.
+## Historical executable journey
+
+The marked runnable blocks below are the preserved **10/5/5 historical candidate fixture**, bound
+by the documentation gate to its exact executable and example hashes. They are not a runnable
+acceptance guide for the current 16/11/11 candidate: the initial coordinate assertions deliberately
+reject a different runtime. Do not remove those assertions to make a newer binary pass. Current
+candidate certification requires a separately reviewed executable and matching guide receipt.
+
+These assertions describe preserved fixture text, not freshly verified artifact compatibility.
+A current strict contract check also rejects the existing `mcp-grant-isolation` body because its
+hash differs from the old pin. That mismatch already exists in the source baseline. The fixture
+and pin are retained for diagnosis; this page does not claim that frozen gate currently passes.
+
+The historical journey uses synthetic data and the foreground CLI only. `OPEN_BRAIN` must name
+the matching historical candidate; the documentation gate supplies that exact artifact. The
+runnable blocks form one sequence and require `jq`. The temporary Brain and managed vault live
+under `RUN_ROOT`. Open Brain itself remains offline for every operation below.
 
 <!-- open-brain-example:first-use-environment -->
 ```sh

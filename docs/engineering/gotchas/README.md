@@ -4,6 +4,23 @@ Non-obvious behaviors, sharp edges, and lessons learned belong here.
 
 ## Registry
 
+### DOCS-004: Passing documentation unit tests do not certify the pinned artifact journey
+
+Category: Documentation / Verification.
+
+Main at `8889181` has eleven marked first-use/doctor blocks, but its unchanged
+`mcp-grant-isolation` body SHA `8377509a…` differs from the pinned `adc3c687…` hash. The ten focused documentation tests
+pass while validate_example_contract rejects that pre-existing mismatch.
+Preserve both bodies and pins as evidence; renewing current guide/artifact
+proof is a reviewed candidate task, not a blind expected-hash update.
+
+A synthetic README smoke also found that macOS /tmp is a symlink and fails
+the existing no-follow data-directory admission. Resolve the newly created
+temporary parent with pwd -P before using it as --data-dir. The corrected
+capture/search/setup-preview source CLI smoke passes without changing any
+filesystem or production admission rule. Neither check launches a real
+client/provider or certifies an installed native artifact.
+
 ### DOCS-003: Historical release statements and compatibility pins need source reconciliation
 
 Category: Documentation / Product evidence.
