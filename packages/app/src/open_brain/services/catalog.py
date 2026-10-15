@@ -260,6 +260,17 @@ def build_catalog(
             "scope": "source_only",
         },
         "capability_notes": {
+            "slack_cited_recall": {
+                "acceptance": "developer_accepted",
+                "implementation": "implemented",
+                "scope": "core_with_optional_collector",
+                "readiness": "unassessed",
+                "evidence": "owner_approved_work_copies",
+                "transport": "stdio_existing_search_and_read",
+                "actual_client_check": "not_run",
+                "model_reasoning_proven": False,
+                "injection_resistance_proven": False,
+            },
             "collector_recovery": {
                 "acceptance": "developer_accepted",
                 "lifecycle": "optional_scheduled_collector",

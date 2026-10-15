@@ -2,7 +2,7 @@
 
 Date: 2026-10-14
 
-Status: Reviewed implementation plan, hardened 2026-10-14 (see the adjacent `.hardening.md` report). W0 completed in the isolated Slack recall worktree on 2026-10-14; full verification passed on candidate `2bd071a`. W1a was accepted before W1b implementation. W1a/W1b passed independent review, combined `make verify`, native audit and Homebrew smoke as one atomic merge unit at schema/runtime/Portable `17/12/12`. W2 passed independent Astra review, full verification and native gates at 8eb36e5ac97318537ab19aa4163c38cd0d03ff0d. W3 was authorized on 2026-10-15 in a fresh worktree; W4 and live deployment remain unstarted. The owner selected option B for all three decisions below.
+Status: Reviewed implementation plan, hardened 2026-10-14 (see the adjacent `.hardening.md` report). W0 completed in the isolated Slack recall worktree on 2026-10-14; full verification passed on candidate `2bd071a`. W1a was accepted before W1b implementation. W1a/W1b passed independent review, combined `make verify`, native audit and Homebrew smoke as one atomic merge unit at schema/runtime/Portable `17/12/12`. W2 passed independent Astra review, full verification and native gates at 8eb36e5ac97318537ab19aa4163c38cd0d03ff0d. W3 was accepted at b36dfed44f063b5b1d98d4f0130e1a460a945147. W4 implementation is authorized in the prepared W4 worktree; fresh full/native acceptance is pending. Actual-client checks and live deployment remain unstarted. The owner selected option B for all three decisions below.
 
 Planning baseline: `e444526`; application code baseline: `d5cf64e652366dc14a8cf18732f7cb1e82ae4187`.
 
@@ -191,15 +191,14 @@ No confidence score or timestamp heuristic may turn “current stored head” in
 
 ## Verification commands and completion
 
-Run commands from `/Users/calebbolden/Projects/oss/open-brain-public`. The focused targets below are existing tests; W0 adds the new journey test to this command once it exists.
+Run commands from the prepared W4 worktree `/Users/calebbolden/Projects/oss/open-brain-public-worktrees/slack-cited-recall-w4-20261015-6d407b`. The focused targets below are existing tests; W0 adds the new journey test to this command once it exists.
 
 ```sh
 uv run --frozen pytest -q packages/collector/tests/integration/test_slack_capture_acceptance.py packages/app/tests/integration/engine/test_slack_development_evidence.py packages/app/tests/unit/test_session_authority.py packages/app/tests/unit/test_agent_setup.py packages/app/tests/unit/engine/test_sharing_tasks.py packages/app/tests/integration/engine/test_sharing_source_evidence.py packages/app/tests/integration/services/test_managed_cli_mcp.py
 make verify
-make native-audit
-make homebrew-smoke
+make native-audit homebrew-smoke
 git diff --check
-actionlint /Users/calebbolden/Projects/oss/open-brain-public/.github/workflows/ci.yml
+actionlint .github/workflows/ci.yml
 ```
 
 `actionlint` is a repository handoff requirement that no Make target provisions; it must be on `PATH`. If it is missing, report the check as not run rather than claiming it passed.
@@ -212,7 +211,7 @@ Completion means the synthetic capture-to-approved-evidence-to-stdio-recall jour
 - [x] W1a: Versioned Slack Work sharing contract and visibility. Accepted before W1b; both verified together for activation.
 - [x] W1b: Compatibility and Portable evidence. Real mixed-history restore, byte-exact re-export, rehashed tamper refusal and combined package/native gates passed.
 - [x] W2: Scoped client setup. Accepted at 8eb36e5ac97318537ab19aa4163c38cd0d03ff0d; exact receipts are in the preserved W2 workstream.
-- [ ] W3: Cited recall journey and guide.
+- [x] W3: Cited recall journey and guide. Accepted at b36dfed44f063b5b1d98d4f0130e1a460a945147; actual-client status remains `not_run`.
 - [ ] W4: Regression/native proof and handoff.
 
 ## Recovery and stop conditions

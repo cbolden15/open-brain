@@ -21,6 +21,14 @@ intake normalizes Unicode to NFC, so a decomposed spelling is not an exact quote
 of the returned composed text. These are acceptance-fixture corrections, not
 reasons to weaken runtime currentness or projection.
 
+A history-only Slack transport fixture must not advertise a positive `reply_count`
+unless it also implements `conversations.replies`. That count triggers real thread
+expansion; `latest_reply` alone does not. W4's first new reaction-refresh case failed at
+that transport assertion; narrowing it to reaction-only metadata exercised the
+intended revision-stability oracle and passed without a runtime change. Keep
+thread-refresh cases in fixtures that support the reply endpoint. The complete
+failed log and byte-preserved synthetic fixture are retained in the W4 receipts.
+
 The inherited journey fixture also left read-only connections alive because
 SQLite context exit does not close them. Explicitly close its identity/source
 reads before cross-process sessions; see SHARING-001 and COLLECTOR-002. Select

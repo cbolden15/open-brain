@@ -11,7 +11,7 @@ Local documentation checks do not promote catalog acceptance.
 | Coordinate | Candidate value | Meaning |
 |---|---|---|
 | Core / engine package | `0.1.0` / exactly `0.1.0` | Core requires the matching engine |
-| Local state schema | `17` | Older incompatible writers must refuse |
+| Local state schema | `17` | Incompatible coordinates refuse; same-coordinate older binaries are not fenced |
 | Runtime session | `12` | Stop old sessions and upgrade clients together |
 | Task contract | `t03.v1` | Negotiated search/read/history/source-route DTOs |
 | Catalog schema | `2` | Joined implementation, package, authorization and acceptance metadata |
@@ -37,6 +37,7 @@ and mixed historical operations. [Portable 12](portable-brain-v12.md) retains ow
 | Graphify | Separately packaged structural helper | Paired resource; rebuildable graph is not source evidence |
 | Direct-provider graph refresh | Existing consent-gated adapters | Authorization/readiness unassessed; distinct from deferred semantic recall; no provider readiness claim |
 | Optional connectors | Fifteen source descriptors plus YouTube conformance extension metadata | Source-only; not installed in the core artifact; no public onboarding claim |
+| Slack cited recall | Optional selected-channel intake, owner-approved Work evidence copies, scoped existing stdio search/read and exact citation plumbing | Synthetic acceptance only; [operator and pilot guide](integrations/slack-decision-recall.md); actual-client/model/injection checks `not_run`; no live Slack or public integration claim |
 | Optional collector recovery | Durable receipts/quarantine/retry implementation, T09 local evidence | Optional source functionality; not public connected-source continuity or service acceptance |
 | Optional offline outbox | Bounded durable enqueue, one-cycle owner drain with an exclusive lease and batch bounds, receipt-verified body removal, quarantine with owner retry, confirmed discard, and lineage conversion | Optional connectors distribution, not in the core artifact; text payloads only; the synthetic transport is the only automated-test transport and real transports are private deployment acceptance |
 | Desktop companion | Existing contributor build and compatibility tests retained | Separate package; no Core v0.1 desktop release |

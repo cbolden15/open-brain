@@ -8,10 +8,12 @@ from contextlib import contextmanager
 from pathlib import Path
 from threading import Event
 from typing import Any
+from uuid import uuid4
 
 import pytest
 from open_brain_engine.core.models import PrivacyTier
 from open_brain_engine.engine import paging
+from open_brain_engine.engine.t03_contracts import SourceRouteRequest
 
 from open_brain.services.local_mcp import LocalMcpAdapter
 from open_brain.services.mcp_protocol import McpCallError
@@ -22,7 +24,7 @@ from packages.app.tests.integration.engine.test_slack_sharing import _revoke, _s
 from packages.app.tests.integration.services.test_slack_decision_recall import _message
 
 
-@pytest.mark.parametrize("transition", ["revoke", "edit"])
+@pytest.mark.parametrize("transition", ["revoke", "edit", "withdraw", "route"])
 @pytest.mark.parametrize("boundary", ["before", "after"])
 def test_source_mutation_respects_returning_read_snapshot(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, transition: str, boundary: str
@@ -31,6 +33,10 @@ def test_source_mutation_respects_returning_read_snapshot(
     approved = journey.approve(journey.sources()[0])[3]
     copy = approved.copy_capture_id
     assert copy is not None
+    found = journey.mcp().call_tool(
+        "brain_search_page", {"dto_version": 1, "query": "onboarding"}
+    )["results"]
+    assert [(item["record_id"], item["revision_id"]) for item in found] == [(copy, copy)]
     entered, committed = Event(), Event()
     original = paging.read_snapshot
 
@@ -52,7 +58,7 @@ def test_source_mutation_respects_returning_read_snapshot(
         try:
             if transition == "revoke":
                 _revoke(journey, approved)
-            else:
+            elif transition == "edit":
                 journey.scan(
                     [
                         _message(
@@ -61,6 +67,43 @@ def test_source_mutation_respects_returning_read_snapshot(
                             edited="1760000301.000001",
                         )
                     ]
+                )
+            elif transition == "route":
+                source = journey.sources()[0]
+                destination = journey.tasks.inbox.create_space(
+                    "Rerouted Work", delivery_id="snapshot.rerouted-work"
+                ).space_id
+                assert destination != journey.space
+                journey.tasks.sources.route(
+                    SourceRouteRequest(
+                        source_id=source["source_id"],
+                        space_id=destination,
+                        expected_head=source["head_capture_id"],
+                        expected_route_version=source["route_version"],
+                        operation_id="operation_" + str(uuid4()),
+                    ),
+                    authority=journey.owner,
+                )
+                routed = journey.sources()[0]
+                assert routed["space_id"] == destination
+                assert routed["route_version"] == source["route_version"] + 1
+            else:
+                from open_brain_engine.engine.source_lifecycle_contracts import (
+                    SourceWithdrawRequest,
+                )
+
+                source = journey.sources()[0]
+                journey.tasks.sources.withdraw(
+                    SourceWithdrawRequest(
+                        operation_id="withdraw.snapshot",
+                        source_id=source["source_id"],
+                        expected_head=source["head_capture_id"],
+                        expected_lifecycle_version=source["lifecycle_version"],
+                        brain_id=journey.brain_id,
+                        issuer_epoch=journey.epoch,
+                        reason_code="owner_choice",
+                    ),
+                    authority=journey.owner,
                 )
         finally:
             committed.set()

@@ -51,8 +51,9 @@ refused. Frozen historical resource bytes are not rewritten to current coordinat
 The schema-16-to-17 migration requires exclusive runtime admission and settled
 historical state. It checks settlement inside the migration transaction and before
 commit, appends the selection ledger, and advances the runtime compatibility floor
-to 12/17. Older runtimes must refuse schema 17. Current clients require the exact
-state/runtime pair 17/12 and refuse the previous 16/11 pair.
+to 12/17. Runtimes with incompatible coordinates must refuse schema 17. Current
+clients require the exact state/runtime pair 17/12 and refuse the previous 16/11
+pair.
 
 Use synthetic disposable Brains for implementation checks. Before any separately
 authorized private rollout, export with the currently installed matching binary,
@@ -61,5 +62,13 @@ binary. Portable Brain does not include collector credentials, schedules, queues
 or source-selection state. An older executable is not a rollback mechanism for a
 migrated Brain.
 
-Scoped client setup and the cited-recall operator journey belong to W2 and W3.
-Their owner decisions and live acceptance remain open.
+W2 scoped setup and W3 cited-recall plumbing are accepted synthetic repository work.
+W4 preserves 17/12/12 without a migration. The explicit-policy Slack Work gate is
+new-runtime behavior: an older binary already using 17/12/12 is not fenced by
+these coordinates and does not acquire that gate. Stop older sessions and use
+the exact candidate consistently. This does not confine a hostile same-user process.
+
+Use the [owner-run pilot checklist](integrations/slack-decision-recall.md#owner-run-private-pilot-checklist)
+before any candidate opens the real Brain. Actual-client checks remain `not_run`;
+private rollout requires separate approval and recorded restricted-client
+injection-resistance evidence. No real Slack/provider acceptance is claimed.

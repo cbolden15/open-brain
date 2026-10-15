@@ -94,6 +94,21 @@ def test_catalog_is_deterministic_json_safe_and_evidence_paths_exist() -> None:
     assert all(item["scope"].startswith("historical_") for item in evidence)
 
 
+def test_slack_recall_capability_separates_synthetic_acceptance_from_model_proof() -> None:
+    notes = cast(dict[str, object], _catalog()["capability_notes"])
+    assert notes["slack_cited_recall"] == {
+        "acceptance": "developer_accepted",
+        "implementation": "implemented",
+        "scope": "core_with_optional_collector",
+        "readiness": "unassessed",
+        "evidence": "owner_approved_work_copies",
+        "transport": "stdio_existing_search_and_read",
+        "actual_client_check": "not_run",
+        "model_reasoning_proven": False,
+        "injection_resistance_proven": False,
+    }
+
+
 def test_cli_catalog_uses_parser_registration_before_root_selection(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:

@@ -1,0 +1,16 @@
+# Workstream handoff
+
+packet_version: 1
+status: in_progress
+workstream: 20261015-open-brain-public-slack-recall-w4-execution-4f6ce3
+milestone: W4-focused-accepted-heavy-gates-pending
+branch: feat/slack-cited-recall-w4-20261015-6d407b
+head: 20f6c40f2421eb390a6c5a20d23df973629590e4
+last_verified.command: Focused commands in MATRIX.md; independent Astra commands in REVIEW.json
+last_verified.result: passed on source-hash-bound working tree:641 broad,29 historical/race,10 final races,43 independent; full/native gates not yet run
+changes: ["Matrix gap tests and catalog capability metadata","Operator/source/compatibility guidance and owner-run pilot checklist","Preparation continuity preserved; new W4 execution ledger"]
+blocker: null
+next_action: Commit candidate locally, bind reviewed source hashes, freeze inputs and run make verify then combined native gates. No actual-client or pilot execution.
+safe_to_start_new_thread: false
+
+Emit this complete block as one packet; keep the heading and field names exact. Keep values bounded and redacted. This packet summarizes verified state; it does not override project instructions or machine-authoritative runner state.

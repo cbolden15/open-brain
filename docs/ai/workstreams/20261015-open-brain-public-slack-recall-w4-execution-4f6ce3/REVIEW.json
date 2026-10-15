@@ -1,0 +1,25 @@
+{
+  "model": "gpt-6-astra",
+  "verdict": "approved_for_full_native_gates",
+  "unresolved_findings": 0,
+  "base_head": "20f6c40f2421eb390a6c5a20d23df973629590e4",
+  "tested_working_tree_source_hashes": {
+    "packages/app/src/open_brain/services/catalog.py": "57e0371e19d952fa0419d4488c3d8074a676c78b53b39b608d9ea580e6afd01b",
+    "packages/app/tests/integration/engine/test_portability_v12.py": "c5bfc25b46bfa0dc604231ca5b098b18a724b576daf224dbb554ff6a14bb3094",
+    "packages/app/tests/integration/engine/test_slack_sharing.py": "5388febe635b480cf85e07b404ffca8910f9c35abc724d1a04fc8688435c79b1",
+    "packages/app/tests/integration/engine/test_slack_sharing_races.py": "608d98f89437c8b89750a4d10908e49f6cf8aab57dcb4505cd2c0df244e7c9a7",
+    "packages/app/tests/integration/services/test_slack_decision_recall.py": "1285c6887ac7f79e07c717035f1382429f4b212c604b22b2c1f2c4f22168ec29",
+    "packages/app/tests/unit/engine/test_slack_sharing_projection.py": "d7eef74a8ea7868a44b74ca87b94d4c102f63865230abd57236c42f3b7826d03",
+    "packages/app/tests/unit/test_catalog.py": "555999ae6f01370339a51928ca95ec377772ac87bdefe2fb1161269fa0df824b",
+    "packages/app/tests/unit/test_slack_recall_contract_fixtures.py": "c3cdfb856fb7a0a466a142c11ad83d1e9eaa6b8ee479c7a4c059100f045aa962"
+  },
+  "independent_tests": 43,
+  "duration_seconds": 34.64,
+  "guide_shell_templates": 24,
+  "guide_json_templates": 5,
+  "guide_links": 4,
+  "resolved_finding": "Positive reply_count triggers thread expansion; latest_reply alone does not. Corrected gotcha and matrix.",
+  "full_report_path": "/tmp/obw4-logs/astra-review.json",
+  "full_report_sha256": "5a0abcdc2a6ae92eedc12851885d9cdccee37f3d7eb7a0f82758b13e683edb83",
+  "actual_client_check": "not_run"
+}

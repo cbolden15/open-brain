@@ -540,3 +540,101 @@ def test_w3_real_stdio_large_selection_and_one_member_reapproval(
     before, after = set(initial.evidence), set(recovered.evidence)
     assert len(before & after) == 8
     assert after - before == {(repaired.copy_capture_id, repaired.copy_capture_id)}
+
+
+def test_w4_persistent_stdio_observation_refresh_and_separate_correction(
+    tmp_path: Path,
+) -> None:
+    from open_brain_connectors.runtime.live_common import LiveSourceError
+    from packages.app.tests.integration.engine.test_slack_sharing import Journey, _revoke
+    from packages.app.tests.integration.services.slack_recall_support import (
+        QUALIFIER,
+        ClaimRule,
+        IncompleteEvidence,
+        RecallDriver,
+        validate_answer,
+    )
+
+    journey = Journey(tmp_path)
+    original = _message("1760000001.000001", DECISION)
+    journey.scan([original])
+    source = journey.sources()[0]
+    with pytest.raises(LiveSourceError, match="^source_invalid_operation$"):
+        journey.manager.dispatch("sources.route", {
+            "source_id": source["source_id"], "space_id": journey.space,
+        })
+    assert journey.sources()[0] == source
+    journey.route(journey.sources()[0])
+    approved = journey.approve(journey.sources()[0])[3]
+    session = _w3_session(journey, tmp_path / "persistent")
+    try:
+        initial = RecallDriver(session.call).run(("onboarding",))
+        assert initial.status == "complete" and len(initial.evidence) == 1
+        identity, evidence = next(iter(initial.evidence.items()))
+        assert identity == (approved.copy_capture_id, approved.copy_capture_id)
+        assert DECISION in evidence.message_text
+        assert evidence.citation["upstream_currency"] == "unknown_since_observation"
+
+        # Volatile Slack metadata is parsed through intake without a new head or approval.
+        journey.scan([{**original, "reactions": [{"name": "thumbsup", "count": 1}]}])
+        reaction = RecallDriver(session.call).run(("onboarding",))
+        assert reaction.status == "complete" and reaction.evidence == initial.evidence
+
+        # Slack now offers an edit, but the owner has not run a preview/import.
+        edited = _message("1760000001.000001", EDITED, edited="1760000301.000001")
+        journey.http.scan("CONBOARDING", [edited])
+        calls = len(journey.http.calls)
+        unseen = RecallDriver(session.call).run(("onboarding",))
+        assert unseen.status == "complete" and unseen.evidence == initial.evidence
+        assert len(journey.http.calls) == calls and len(journey.http.responses) == 1
+        validate_answer({"outcome": "supported", "claims": [{
+            "id": "rationale", "text": DECISION, "kind": "stated_rationale",
+            "citations": [{"record_id": identity[0], "revision_id": identity[1],
+                           "quote": DECISION, "permalink": evidence.citation["permalink"]}],
+        }], "qualifier": QUALIFIER}, unseen,
+            {"rationale": ClaimRule(DECISION, "stated_rationale", frozenset({identity}))},
+            outcome="supported")
+
+        # Search returned the old copy before the owner observes the edit.
+        preview = journey.manager.dispatch("sources.preview", {"source_id": "onboarding"})
+        imported = journey.manager.dispatch("sources.import", {
+            "source_id": "onboarding", "preview_id": preview["preview_id"],
+        })
+        assert imported["outcome"] == "completed" and not journey.http.responses
+        with pytest.raises(IncompleteEvidence, match="not_found"):
+            session.call("brain_read", {"dto_version": 1, "record_id": identity[0],
+                                       "expected_revision_id": identity[1]})
+        assert RecallDriver(session.call).run(("onboarding",)).evidence == {}
+        revised_source = journey.sources()[0]
+        assert revised_source["head_capture_id"] != evidence.citation["original_revision_id"]
+        revised = journey.approve(revised_source)[3]
+        current = RecallDriver(session.call).run(("onboarding",))
+        assert current.status == "complete" and len(current.evidence) == 1
+        assert EDITED in next(iter(current.evidence.values())).message_text
+
+        # A newly posted correction has its own identity and owner approval boundary.
+        journey.scan([_message("1760000002.000001", CORRECTION), edited])
+        correction = next(source for source in journey.sources()
+                          if source["source_id"] != revised_source["source_id"])
+        assert correction["space_id"] is None
+        assert RecallDriver(session.call).run(("Correction",)).evidence == {}
+        journey.route(correction)
+        correction = next(source for source in journey.sources()
+                          if source["source_id"] == correction["source_id"])
+        assert RecallDriver(session.call).run(("Correction",)).evidence == {}
+        corrected = journey.approve(correction)[3]
+        released = RecallDriver(session.call).run(("onboarding",))
+        assert released.status == "complete"
+        assert set(released.evidence) == {
+            (revised.copy_capture_id, revised.copy_capture_id),
+            (corrected.copy_capture_id, corrected.copy_capture_id),
+        }
+        assert next(source for source in journey.sources()
+                    if source["source_id"] == revised_source["source_id"]) == revised_source
+        _revoke(journey, revised)
+        replaced = RecallDriver(session.call).run(("onboarding",))
+        corrected_identity = (corrected.copy_capture_id, corrected.copy_capture_id)
+        assert replaced.status == "complete" and set(replaced.evidence) == {corrected_identity}
+        assert CORRECTION in replaced.evidence[corrected_identity].message_text
+    finally:
+        session.close()
