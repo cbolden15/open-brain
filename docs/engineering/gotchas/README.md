@@ -35,6 +35,11 @@ refuse, but through invalid_arguments rather than invalid_command. Update this
 pre-feature expectation while preserving the refusal/no-write assertions and all
 frozen wire resources.
 
+The complete run then found the exact cursor authority-field inventory omitted
+internal session_origin. When adding an authority dimension, update both the exact
+key set and a one-field mutation variant proving the cursor digest changes. Keep
+the exact-key assertion intact.
+
 Discovered: 2026-10-14, W2 full verification; failed logs and fixtures retained.
 
 ### BUILD-013: Settings observation callbacks need explicit types

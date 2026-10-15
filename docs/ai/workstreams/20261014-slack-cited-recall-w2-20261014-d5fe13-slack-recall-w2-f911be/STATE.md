@@ -60,3 +60,7 @@
 
 - Fourth full attempt on 0808ab2 passed lint/mypy and 2,108 Python tests with five filesystem skips, then hit W0's pre-feature assertion that policy setup flags were unrecognized. Stopped cleanly after failure; 1,450.67 seconds, exit 2. Logs and failed fixture copied outside retention; source inventory unchanged.
 - Updated only that baseline's name/comment/error expectation to recognized-but-incomplete invalid_arguments; refusal and no-write assertions remain. No production changes. Full W0 fixture module plus scoped/legacy setup and forwarding acceptance: 90 passed in 24.72s; target mypy and diff check passed.
+
+- Fifth complete Python gate: 7,421 passed, five filesystem-specific skips, one stale exact cursor authority-field assertion; 2,364.16 seconds, exit 2. Complete log retained and all 1,884 frozen files unchanged. Required Sol test-only repair adds session_origin to both the exact key set and the digest mutation proof; production remains unchanged. Independent Astra review follows before a fresh full gate.
+
+- Required cursor-binding repair verified: whole paging module 26 passed in 70.54s; full mypy 671 files, ruff and diff check passed. Astra independently approved the three-file delta with no findings; production unchanged. All writers frozen again for complete acceptance/native gates.
