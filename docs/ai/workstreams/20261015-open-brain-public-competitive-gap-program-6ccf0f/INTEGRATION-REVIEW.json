@@ -1,0 +1,50 @@
+{
+  "reviewer": "gpt-6-astra",
+  "verdict": "approved_local_integration_and_documentation_continuity",
+  "tested_head": "7b511c292a83b9f6d5aab7efbda3c28435fee996",
+  "reports": [
+    {
+      "path": "/tmp/obgi-l/astra-integration-review.md",
+      "sha256": "2fe69ab24d27cf17ec45c47453b1b974546d06f12fd154ef368ae7e7debe8311"
+    },
+    {
+      "path": "/tmp/obgi-l/astra-final-receipt-review.md",
+      "sha256": "d7a7b5a7a9b01d3cfe973f7d9d1f5bf8a196c392ab8755890d3a2187b5702cf7"
+    }
+  ],
+  "reviewed_documents": [
+    {
+      "path": "docs/ai/workstreams/20261015-open-brain-public-competitive-gap-program-6ccf0f/DECISIONS.json",
+      "sha256": "c11e37b94aaa0d8ffec99210d1e5380d80a4894c5476fb1d6ef0f177e6550bb7"
+    },
+    {
+      "path": "docs/ai/workstreams/20261015-open-brain-public-competitive-gap-program-6ccf0f/STATE.md",
+      "sha256": "6a6f3a8b0d2dedfd62549ec851c96f50589d29eeca9573a847933c94ba9771d9"
+    },
+    {
+      "path": "docs/plans/PRD-open-brain-competitive-gaps.md",
+      "sha256": "dd3a6606797dfd1e6995e4c39de1e9cbb3cae30e44bed38ce9f922b637af9be9"
+    },
+    {
+      "path": "docs/ai/workstreams/20261015-open-brain-public-competitive-gap-program-6ccf0f/INTEGRATION-ACCEPTANCE.json",
+      "sha256": "9215e01e341aec6c71634c71e8a4ad953098b6907c994a0bd94b966b9b0c4c84"
+    },
+    {
+      "path": "docs/ai/workstreams/20261015-open-brain-public-competitive-gap-program-6ccf0f/INTEGRATION.md",
+      "sha256": "c51daaeb39bcfc73b98d02faaced2d84c9bf593ebf26c3ab3b93fafd77a6f049"
+    }
+  ],
+  "unresolved_findings": [],
+  "limits": [
+    "Final documentation-only commit is not the tested candidate",
+    "No live/platform/publishing promotion",
+    "Nonfatal Homebrew Xcode/Command Line Tools age warnings retained in native log",
+    "Separate historical strict example pin failure remains"
+  ],
+  "ledger": {
+    "children_created": 4,
+    "active": 0,
+    "nested": 0,
+    "existing_reviewer_resumed": true
+  }
+}

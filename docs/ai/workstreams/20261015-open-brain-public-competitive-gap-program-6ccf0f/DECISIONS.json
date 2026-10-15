@@ -20,12 +20,12 @@
   ],
   "semantic": "Assess bundled local model/runtime; offline foreground core",
   "imports": "Both ChatGPT and Claude in first implementation",
-  "w4": "complete locally; preserve/reuse; integration not yet authorized",
+  "w4": "complete locally and owner-authorized integration verified at7b511c292a83b9f6d5aab7efbda3c28435fee996; no main merge or publication",
   "w5": "parked after completed P0; no guided workflow implementation",
   "external_limits": [
     "no actual client/model/provider checks",
     "no real Slack/Brain/private exports",
     "no pilot",
-    "no push/merge/deployment without separate authorization"
+    "local W4 integration authorized on this feature branch only; no main merge, push or deployment"
   ]
 }

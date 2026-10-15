@@ -1,0 +1,9 @@
+# Local W4 integration
+
+The owner authorized integration into `feat/competitive-gap-reconciliation` only. The tested merge is `7b511c292a83b9f6d5aab7efbda3c28435fee996`, tree `e1f9383fd543b53fec10bf320ce5467286c57bcb`, with parents `fd2147a96afe7a62e6f180552d73ed5e07c0dff8` and `19f2f160e67a91623b5ec252d4002b8826b03830`. One gotcha-registry conflict was resolved by retaining both branches. Runtime, tests, packaging and build inputs equal completed W4. Coordinates remain schema/runtime/Portable 17/12/12; same-coordinate older binaries are not fenced.
+
+Fresh verification passed: make verify, combined make native-audit homebrew-smoke with external output, git diff --check and actionlint .github/workflows/ci.yml. See [exact receipts](/Users/calebbolden/Projects/oss/open-brain-public/.worktrees/competitive-gap-reconciliation/docs/ai/workstreams/20261015-open-brain-public-competitive-gap-program-6ccf0f/INTEGRATION-ACCEPTANCE.json). The post-check documentation commit records results without claiming that commit was the frozen candidate. Final head-bound handoff: /tmp/obgi-l/HANDOFF.json.
+
+Python took 38 minutes 40 seconds with two workers, compared with historical W4's 43 minutes 21 seconds. This establishes total runtime, not individual bottlenecks. Add durations and a timing report to the next full run; use focused tests during iteration. Profile expensive setup and process/storage cases before restructuring tiers or benchmarking more workers. Keep complete milestone acceptance and real component/race evidence.
+
+Limits: macOS arm64 only; no Linux, actual client/model/provider, real Slack/Brain or private pilot checks. No push, merge into main, publication or deployment. The separate historical MCP example pin gate remains a disclosed pre-existing failure. Remaining G1 contracts and new competitive-gap features are pending; W5 stays parked.
