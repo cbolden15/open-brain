@@ -1,10 +1,10 @@
 # Slack cited decision recall: implementation workflow
 
-Date: 2026-10-14. Status: W0 and the atomic W1a/W1b unit are verified. W1a acceptance preceded W1b implementation; independent Astra review, combined `make verify`, native audit and Homebrew smoke passed. W2 owner decisions remain open; W2 and later implementation have not started. The execution design below remains the sequence for later authorized work.
+Date: 2026-10-14. Status: W0 and the atomic W1a/W1b unit are verified. W1a acceptance preceded W1b implementation; independent Astra review, combined `make verify`, native audit and Homebrew smoke passed. The owner selected option B for all three W2 decisions; W2 and later implementation have not started. The execution design below remains the sequence for later authorized work.
 
 Start with W0 in an isolated feature worktree. Use one coordinator, two implementation workers when their files are disjoint, and one independent reviewer. Keep package acceptance ordered. Complete W1a and W1b together before making the new persisted format available to a retained Brain.
 
-This is a companion to the [implementation plan](/Users/calebbolden/Projects/oss/open-brain-public/docs/plans/2026-10-14-slack-cited-decision-recall.md), not a replacement for its contracts or acceptance matrix. The [hardening report](/Users/calebbolden/Projects/oss/open-brain-public/docs/plans/2026-10-14-slack-cited-decision-recall.md.hardening.md) leaves owner decisions before W2 and says the final remediation edits have not received independent review. Neither document establishes that the feature is ready to ship.
+This is a companion to the [implementation plan](/Users/calebbolden/Projects/oss/open-brain-public/docs/plans/2026-10-14-slack-cited-decision-recall.md), not a replacement for its contracts or acceptance matrix. The [hardening report](/Users/calebbolden/Projects/oss/open-brain-public/docs/plans/2026-10-14-slack-cited-decision-recall.md.hardening.md) identified the owner decisions now recorded in the plan and said the final remediation edits had not received independent review at that time. Neither document establishes that the feature is ready to ship.
 
 ## Recommended execution shape
 
@@ -75,7 +75,7 @@ Portable is on the critical path. Do not defer it to a final documentation pass.
 
 ### Phase 3: W2 after the owner decision gate
 
-Record an owner choice for each risk in the plan's "Unresolved owner decisions" table before W2 begins. The workflow recommends the current plan's option A for repository implementation speed. That recommendation does not count as acceptance of its limitations. Option B/C selections require a revised bounded scope and estimate before production work.
+The owner selected option B for all three risks in the plan's "Owner decisions" section: explicit policy for Slack Work MCP reads, endpoint/proxy visibility in setup preview, and recorded injection-resistance evidence before private pilot use. Prepare a revised bounded W2 scope and estimate before production work, including verification of client-visible settings support. W2 implementation remains separately authorized work.
 
 1. Forward policy/consent options through preview/apply/remove and the CLI into the existing MCP invocation. Bind effective authority and relevant preimages; reject incompatible grants and unsafe/stale paths. Preserve defaults and existing desktop/plugin callers.
 2. Detect all relevant unscoped Open Brain entries in the managed files for both clients, including unowned entries. Refuse scoped apply until removal or a preview-bound explicit acknowledgment. Change only owned fragments.
@@ -89,7 +89,7 @@ Preparation while W1 runs is limited to reading the current setup implementation
 1. Extend the shared journey fixture through a real stdio child: initialize, discover tools, lexical search, full paginated reads, structured selection traversal and citation validation. Use the actual authority and complete-read components.
 2. Enforce deterministic limits: three searches, ten results per search, eight distinct records unless a selection raises that limit to its member count, maximum 24, and 64 KiB assembled projected evidence. Count completion flags and fail incomplete on stale cursors, unread/unavailable members and budget exhaustion.
 3. Validate every claim's copy record/revision against this session's structured returned IDs and every quote against returned message text. Include nested fake envelopes, conflicting rationale, proposal/decision distinctions, unsafe links, Unicode, a 9–24 member selection and the one-edited-member repair case.
-4. Write the guide and task template using response-derived IDs and exact implemented commands. Include dedicated release-space guidance, unknown upstream coverage, manual refresh, separate new-message correction approval and restricted client tools. Record the actual-client check as `recorded` or `not_run` with a reason; its private, owner-authorized run is separate from repository completion.
+4. Write the guide and task template using response-derived IDs and exact implemented commands. Include dedicated release-space guidance, unknown upstream coverage, manual refresh, separate new-message correction approval and restricted client tools. Record the actual-client check as `recorded` or `not_run` with a reason; its private, owner-authorized run is separate from repository completion and must satisfy the selected injection-resistance gate before private pilot use.
 5. Run W3 focused tests and `make verify`, review protocol and guide consistency, then commit and hand off locally. Deterministic citation plumbing is not proof of real-model quality or injection resistance.
 
 The future guide target is `/Users/calebbolden/Projects/oss/open-brain-public/docs/integrations/slack-decision-recall.md`.
