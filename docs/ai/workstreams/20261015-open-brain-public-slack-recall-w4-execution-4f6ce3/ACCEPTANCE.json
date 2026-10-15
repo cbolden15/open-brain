@@ -1,0 +1,324 @@
+{
+  "status": "complete",
+  "head": "7818f4f3138b887220c414119be9ac16e28b0a80",
+  "branch": "feat/slack-cited-recall-w4-20261015-6d407b",
+  "worktree": "/Users/calebbolden/Projects/oss/open-brain-public-worktrees/slack-cited-recall-w4-20261015-6d407b",
+  "source_tree": "7340e49fecc88de95436841611e1267b5be13120",
+  "compatibility": {
+    "state_schema": 17,
+    "runtime_session": 12,
+    "portable_metadata": 12,
+    "unchanged_in_W4": true,
+    "same_coordinate_older_binaries_fenced": false
+  },
+  "verification": {
+    "verify": {
+      "clean": true,
+      "command": [
+        "make",
+        "verify"
+      ],
+      "elapsed_seconds": 2727.99,
+      "exit_code": 0,
+      "frozen_inventory_sha256": "f51dcc26593aef3b4fa9437410f187ade37a20719e20b165d47ca0de415a28c4",
+      "hashes_unchanged": true,
+      "head": "7818f4f3138b887220c414119be9ac16e28b0a80",
+      "head_unchanged": true,
+      "input_files": 1910,
+      "log_sha256": "ec3c11eb2095e3f7f5764ea422aeb130c2c786ca62e27291e2d073e1bedfd9bc"
+    },
+    "native": {
+      "clean": true,
+      "command": [
+        "make",
+        "native-audit",
+        "homebrew-smoke"
+      ],
+      "elapsed_seconds": 556.75,
+      "exit_code": 0,
+      "frozen_inventory_sha256": "f51dcc26593aef3b4fa9437410f187ade37a20719e20b165d47ca0de415a28c4",
+      "hashes_unchanged": true,
+      "head": "7818f4f3138b887220c414119be9ac16e28b0a80",
+      "head_unchanged": true,
+      "input_files": 1910,
+      "log_sha256": "ba3d7b4ead87cf8e431dee9d3e72cdc19b464868e6c6a9bc40cc1fb5413004ff"
+    },
+    "diff-check": {
+      "clean": true,
+      "command": [
+        "git",
+        "diff",
+        "--check"
+      ],
+      "elapsed_seconds": 0.02,
+      "exit_code": 0,
+      "frozen_inventory_sha256": "f51dcc26593aef3b4fa9437410f187ade37a20719e20b165d47ca0de415a28c4",
+      "hashes_unchanged": true,
+      "head": "7818f4f3138b887220c414119be9ac16e28b0a80",
+      "head_unchanged": true,
+      "input_files": 1910,
+      "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "actionlint": {
+      "clean": true,
+      "command": [
+        "actionlint",
+        ".github/workflows/ci.yml"
+      ],
+      "elapsed_seconds": 0.32,
+      "exit_code": 0,
+      "frozen_inventory_sha256": "f51dcc26593aef3b4fa9437410f187ade37a20719e20b165d47ca0de415a28c4",
+      "hashes_unchanged": true,
+      "head": "7818f4f3138b887220c414119be9ac16e28b0a80",
+      "head_unchanged": true,
+      "input_files": 1910,
+      "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    }
+  },
+  "counts": {
+    "python_passed": 7480,
+    "python_skipped": 5,
+    "plugin_passed": 700,
+    "desktop_frontend_passed": 286,
+    "desktop_python_passed": 30,
+    "rust_passed": 26,
+    "typechecked_files": 673
+  },
+  "suite_summaries": [
+    "All checks passed!",
+    "7480 passed, 5 skipped, 1 warning in 2600.81s (0:43:20)",
+    " Test Files  16 passed (16)",
+    "      Tests  700 passed (700)",
+    " Test Files  8 passed (8)",
+    "      Tests  286 passed (286)",
+    "30 passed in 1.43s",
+    "test result: ok. 26 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 5.98s",
+    "test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+    "test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s"
+  ],
+  "source_fingerprint": {
+    "files": 1910,
+    "inventory_path": "/tmp/obw4-logs/frozen.json",
+    "inventory_sha256": "f51dcc26593aef3b4fa9437410f187ade37a20719e20b165d47ca0de415a28c4",
+    "all_inputs_unchanged_during_all_gates": true,
+    "scope": "all tracked and nonignored checkout inputs including documentation and continuity; ignored generated outputs excluded"
+  },
+  "artifacts": {
+    "/tmp/obw4-native/release/open-brain-0.1.0-macos-arm64.tar.gz": {
+      "sha256": "34003f8d5cd4d6e0ef15eb1eed3b135f3c1b21ec13671c0884ca2aded7d8fd16",
+      "bytes": 11478100
+    },
+    "/tmp/obw4-native/release/open-brain-component-manifest-v1.txt": {
+      "sha256": "9b4b61646a3e871cc9b7473d95baa7d11c56b4fca6568089e137676e00cbac8b",
+      "bytes": 736
+    },
+    "/tmp/obw4-native/release/open-brain-graphify-0.1.0-macos-arm64.tar.gz": {
+      "sha256": "516987a4aa817c8c4de20b4d47b4811634c22fbcb28fbb0c8a6483c9352196c4",
+      "bytes": 9550328
+    },
+    "/tmp/obw4-native/release/open-brain-harness-0.1.0-macos-arm64.tar.gz": {
+      "sha256": "74f0a2ddf5bcb5d90f811483fc101e2b5d527ad41ac1619cbcd23de9a4e430d8",
+      "bytes": 11472873
+    },
+    "/tmp/obw4-native/dist/open-brain": {
+      "sha256": "af3d0c627ba34599ea06d2b840903c8528763c2df0c955ec6f3e00a03d83db34",
+      "bytes": 11575520
+    },
+    "/tmp/obw4-native/dist/open-brain-graphify": {
+      "sha256": "3c8ea76770029595e21a786f405cdfff6e01f06516e0d168f189997c74418737",
+      "bytes": 9679120
+    },
+    "/tmp/obw4-native/dist/open-brain-harness/open-brain-harness": {
+      "sha256": "e1e1e553a56189986ed285397464802f3fa884a692ca4b60b2c6a9179c19b876",
+      "bytes": 4114528
+    }
+  },
+  "focused": {
+    "broad_passed": 641,
+    "broad_seconds": 366.43,
+    "historical_race_passed": 29,
+    "historical_race_seconds": 28.0,
+    "final_races_passed": 10,
+    "final_races_seconds": 9.63,
+    "typechecked_files": 673
+  },
+  "independent_review": {
+    "model": "gpt-6-astra",
+    "verdict": "approved",
+    "unresolved_findings": 0,
+    "passed": 43,
+    "seconds": 34.64,
+    "committed_head_binding": {
+      "verdict": "pass",
+      "head": "7818f4f3138b887220c414119be9ac16e28b0a80",
+      "checks": {
+        "head_matches": true,
+        "git_clean": true,
+        "inventory_sha256_matches": true,
+        "inventory_count_matches": true,
+        "inventory_all_hashes_match": true,
+        "all_reviewed_hashes_match": true
+      },
+      "inventory_sha256": "f51dcc26593aef3b4fa9437410f187ade37a20719e20b165d47ca0de415a28c4",
+      "inventory_files": 1910,
+      "reviewed_files_compared": 17,
+      "reviewed_file_hashes": {
+        "docs/core-v01-features.md": "cd3712317d7a0cec2333e20b8b8c9b07ba93f0229118c5db21fe291cd5a6cef9",
+        "docs/engineering/gotchas/README.md": "ba4f58249eb63aea5de012e191a465ab335d5b4288bcdf5fd53e00dcf0c2c1db",
+        "docs/integrations/core-sources.md": "3dd9da8a98d125a051018ed989b168adc0e3419b74a7241e08a100fa7e3388bb",
+        "docs/integrations/slack-capture-workflow.md": "bb051c8f813e11e67c1555d5c66996ac70b04e0d19227e8e07a1df815ddd8e52",
+        "docs/integrations/slack-decision-recall.md": "10f39f84e4228c40b80cb31d36a5bde47208f2ccb4b91573087e8630ad1538a8",
+        "docs/plans/2026-10-14-slack-cited-decision-recall.md": "98a780d9927e0e2bdb5106ae9571d9d750f0f4ab983477038324111a86f5ef9c",
+        "docs/plans/2026-10-14-slack-cited-decision-recall.workflow.md": "1ac9a64ce5e0413cbe35c38b87901034927cdc9f1233aeed281dff8b9d11c6fb",
+        "docs/portable-brain-v12.md": "f956ba60e855182fd59d41ecff833a98a47c98a665a2a33acfd47793dbd72a4d",
+        "packages/app/src/open_brain/services/catalog.py": "57e0371e19d952fa0419d4488c3d8074a676c78b53b39b608d9ea580e6afd01b",
+        "packages/app/tests/integration/engine/test_slack_sharing_races.py": "608d98f89437c8b89750a4d10908e49f6cf8aab57dcb4505cd2c0df244e7c9a7",
+        "packages/app/tests/integration/services/test_slack_decision_recall.py": "1285c6887ac7f79e07c717035f1382429f4b212c604b22b2c1f2c4f22168ec29",
+        "packages/app/tests/unit/test_catalog.py": "555999ae6f01370339a51928ca95ec377772ac87bdefe2fb1161269fa0df824b",
+        "packages/app/tests/integration/engine/test_portability_v12.py": "c5bfc25b46bfa0dc604231ca5b098b18a724b576daf224dbb554ff6a14bb3094",
+        "packages/app/tests/integration/engine/test_slack_sharing.py": "5388febe635b480cf85e07b404ffca8910f9c35abc724d1a04fc8688435c79b1",
+        "packages/app/tests/unit/engine/test_slack_sharing_projection.py": "d7eef74a8ea7868a44b74ca87b94d4c102f63865230abd57236c42f3b7826d03",
+        "packages/app/tests/unit/test_slack_recall_contract_fixtures.py": "c3cdfb856fb7a0a466a142c11ad83d1e9eaa6b8ee479c7a4c059100f045aa962",
+        "docs/ai/workstreams/20261015-open-brain-public-slack-recall-w4-execution-4f6ce3/MATRIX.md": "0d6cb19349d281f86e3454a6fdeaae8ec83907dc1f87b05be932e0a78ab58fe8"
+      },
+      "mismatches": {},
+      "elapsed_seconds": 0.37,
+      "tests_rerun": false,
+      "checkout_writes": false,
+      "review_report": "/tmp/obw4-logs/astra-review.json"
+    },
+    "report_path": "/tmp/obw4-logs/astra-review.json",
+    "report_sha256": "5a0abcdc2a6ae92eedc12851885d9cdccee37f3d7eb7a0f82758b13e683edb83"
+  },
+  "actual_client_check": {
+    "status": "not_run",
+    "reason": "Actual client/model/provider, real Slack and private pilot execution are outside W4 authorization. Deterministic citation plumbing is not model/injection evidence.",
+    "private_pilot_gate_satisfied": false
+  },
+  "platform": "macOS-26.3-arm64-arm-64bit",
+  "limitations": [
+    "Only macOS arm64 full/native receipts; Linux exact-candidate native/Homebrew and GUI acceptance not run.",
+    "Five filesystem skips and any warnings are retained verbatim in full logs; no production thresholds/deadlines weakened.",
+    "Same-coordinate older binaries at17/12/12 are not fenced and lack the new-runtime gate; no new migration or fencing was introduced.",
+    "Observed source state only; upstream Slack changes remain unknown until owner reimport. New-message corrections require separate selection/approval.",
+    "Client controls real network destination and other tools; actual-model reasoning and injection resistance remain unproven."
+  ],
+  "evidence_directory": "/tmp/obw4-logs",
+  "failed_fixture_preservation": {
+    "path": "/tmp/obw4-failed-first",
+    "manifest_sha256": "4aac6e1314d4cb773e348a2fee3e58e4da6b2f83d7bf0b9d7e42cc35271c9b76",
+    "first_failed_log": "/tmp/obw4-logs/w4-changed-tests.log",
+    "first_failed_log_sha256": "bc5c6ce900404fe813c33c9d1dd1753c719505b3198adab80e3125c8f6d5ae44",
+    "cause": "History-only synthetic transport advertised positive reply_count, triggering unimplemented replies endpoint; narrowed to required reaction-only fixture, no runtime change."
+  },
+  "post_check_uncommitted_files": [
+    "/Users/calebbolden/Projects/oss/open-brain-public-worktrees/slack-cited-recall-w4-20261015-6d407b/docs/ai/workstreams/20261015-open-brain-public-slack-recall-w4-execution-4f6ce3/STATE.md",
+    "/Users/calebbolden/Projects/oss/open-brain-public-worktrees/slack-cited-recall-w4-20261015-6d407b/docs/ai/workstreams/20261015-open-brain-public-slack-recall-w4-execution-4f6ce3/HANDOFF.md",
+    "/Users/calebbolden/Projects/oss/open-brain-public-worktrees/slack-cited-recall-w4-20261015-6d407b/docs/ai/workstreams/20261015-open-brain-public-slack-recall-w4-execution-4f6ce3/HANDOFF.json",
+    "/Users/calebbolden/Projects/oss/open-brain-public-worktrees/slack-cited-recall-w4-20261015-6d407b/docs/ai/workstreams/20261015-open-brain-public-slack-recall-w4-execution-4f6ce3/ACCEPTANCE.md",
+    "/Users/calebbolden/Projects/oss/open-brain-public-worktrees/slack-cited-recall-w4-20261015-6d407b/docs/ai/workstreams/20261015-open-brain-public-slack-recall-w4-execution-4f6ce3/ACCEPTANCE.json",
+    "/Users/calebbolden/Projects/oss/open-brain-public-worktrees/slack-cited-recall-w4-20261015-6d407b/docs/plans/2026-10-14-slack-cited-decision-recall.md",
+    "/Users/calebbolden/Projects/oss/open-brain-public-worktrees/slack-cited-recall-w4-20261015-6d407b/docs/plans/2026-10-14-slack-cited-decision-recall.workflow.md"
+  ],
+  "next_authorized_boundary": "Local handoff only. Actual-client synthetic check, real Slack/private pilot, push, merge and deployment require separate owner authorization.",
+  "skips": [
+    "SKIPPED [1] packages/app/tests/integration/engine/test_markdown_import_fs.py:171: filesystem rejects non-UTF-8 filenames",
+    "SKIPPED [1] packages/app/tests/integration/engine/test_markdown_import_fs.py:204: filesystem does not preserve distinct NFC and NFD names",
+    "SKIPPED [2] packages/app/tests/integration/engine/test_markdown_import_fs.py:239: filesystem does not preserve distinct NFC and NFD names",
+    "SKIPPED [1] packages/app/tests/integration/engine/test_markdown_import_fs.py:268: filesystem does not preserve distinct NFC and NFD names"
+  ],
+  "warnings": [
+    "Existing multi-threaded fork deprecation warning in writer transaction test.",
+    "Homebrew reported an untrusted reserved local smoke tap, outdated Xcode 26.6/newer Command Line Tools and Tier 2 configuration; gate passed with existing product preserved.",
+    "Native macOS executables are ad hoc signed; public release/notarization acceptance is not claimed."
+  ],
+  "native_details": {
+    "output_root": "/tmp/obw4-native",
+    "single_shared_build": true,
+    "audit": {
+      "base": {
+        "executable_sha256": "af3d0c627ba34599ea06d2b840903c8528763c2df0c955ec6f3e00a03d83db34",
+        "module_count": 379,
+        "modules_sha256": "297ee80a16dcad72f2173b3864fba2420fc5d06f5731736e220958785e29df6f",
+        "platform": "macos-arm64",
+        "signature": "adhoc"
+      },
+      "graphify": {
+        "executable_sha256": "3c8ea76770029595e21a786f405cdfff6e01f06516e0d168f189997c74418737",
+        "module_count": 320,
+        "modules_sha256": "946341cba0c2697773f7794263236bf118c4dd18358252b6464634ea6c09ad5c",
+        "platform": "macos-arm64",
+        "signature": "adhoc"
+      }
+    },
+    "existing_product": "preserved",
+    "signature": "adhoc",
+    "homebrew_warning_scope": "toolchain/Tier 2 and reserved local smoke tap",
+    "all_manifest_resource_digests_verified": true
+  },
+  "environment": {
+    "platform": "macOS-26.3-arm64-arm-64bit",
+    "machine": "arm64",
+    "versions": {
+      "uv": {
+        "exit_code": 0,
+        "version": "uv 0.11.14 (Homebrew 2026-05-12 aarch64-apple-darwin)"
+      },
+      "node": {
+        "exit_code": 0,
+        "version": "v26.8.1"
+      },
+      "npm": {
+        "exit_code": 0,
+        "version": "11.19.0"
+      },
+      "cargo": {
+        "exit_code": 0,
+        "version": "cargo 1.96.0 (30a34c682 2026-05-25)"
+      },
+      "rustc": {
+        "exit_code": 0,
+        "version": "rustc 1.96.0 (ac68faa20 2026-05-25)"
+      },
+      "actionlint": {
+        "exit_code": 0,
+        "version": "1.7.12\ninstalled from Homebrew\nbuilt with go1.26.3 compiler for darwin/arm64"
+      }
+    },
+    "environment": "/tmp/obw4-env",
+    "venv_is_actual_directory": true,
+    "bin_alias_target": "/private/tmp/obw4-env/bin",
+    "pytest_workers": 2,
+    "cargo_jobs": 2,
+    "pytest_retention_policy": "failed",
+    "pytest_retention_count": 1,
+    "tmpdir": "/tmp/obw4",
+    "import_verification": "app local_entrypoints, engine, collector, connectors resolved to current W4 worktree before checks",
+    "gate_wrapper_sha256": "a80f4435f5851e08ba61f1033c0d628fed5fa6d2194cc03945636b02311b9771",
+    "native_output": "/tmp/obw4-native"
+  },
+  "gate_environment": {
+    "UV_PROJECT_ENVIRONMENT": "/tmp/obw4-env",
+    "TMPDIR": "/tmp/obw4",
+    "PYTEST_XDIST_AUTO_NUM_WORKERS": "2",
+    "CARGO_BUILD_JOBS": "2",
+    "PYTEST_ADDOPTS": "-o tmp_path_retention_policy=failed -o tmp_path_retention_count=1",
+    "NATIVE_OUTPUT_for_native_gate": "/tmp/obw4-native"
+  },
+  "timing": {
+    "sol_worker_seconds_approximate": 860,
+    "sol_measurement": "rendered prompt mtime to final report; approximate",
+    "astra_focused_seconds": 34.99,
+    "astra_overall_review_seconds": null,
+    "coordinator_integration_seconds": null,
+    "unmeasured_reason": "Inspection/documentation/integration overlapped focused worker execution and were not separately timed.",
+    "owner_approval_wait_seconds": 0
+  },
+  "git_coordinates": {
+    "preparation_commit": "20f6c40f2421eb390a6c5a20d23df973629590e4",
+    "origin_main_local_ref": "d5cf64e652366dc14a8cf18732f7cb1e82ae4187",
+    "origin_ref_refresh": "not_run",
+    "w3_branch_retained": "b36dfed44f063b5b1d98d4f0130e1a460a945147",
+    "worktree_creation_or_cleanup": "none in W4 execution"
+  }
+}

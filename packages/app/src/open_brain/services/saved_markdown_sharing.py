@@ -14,6 +14,7 @@ from open_brain_engine.engine.sharing_contracts import (
     SharingInspectRequest,
     SharingPreviewRequest,
     SharingRevokeRequest,
+    SlackSelectionCreateRequest,
     parse_sharing_request,
 )
 from open_brain_engine.engine.t03_contracts import EffectiveAuthority
@@ -24,6 +25,7 @@ _REQUEST_LIMIT = 65_536
 def read_sharing_request(path: str, action: str) -> object:
     kinds = {
         "preview": SharingPreviewRequest,
+        "selection-create": SlackSelectionCreateRequest,
         "approve": SharingDecisionRequest,
         "reject": SharingDecisionRequest,
         "revoke": SharingRevokeRequest,
@@ -55,6 +57,8 @@ def invoke_sharing(
     sharing = tasks.sharing
     if sharing is None:
         raise SharingError("operation_pending")
+    if action == "selection-create" and isinstance(request, SlackSelectionCreateRequest):
+        return sharing.create_selection(request, authority=authority)
     if action == "preview" and isinstance(request, SharingPreviewRequest):
         return asdict(sharing.preview(request, authority=authority))
     if action == "inspect" and isinstance(request, SharingInspectRequest):

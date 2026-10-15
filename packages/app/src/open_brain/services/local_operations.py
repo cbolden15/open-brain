@@ -34,12 +34,13 @@ from open_brain_engine.engine import (
     TextPayload,
 )
 from open_brain_engine.engine.local_schema import PHASE1_STATE_DATABASE
-from open_brain_engine.engine.t03_contracts import EffectiveAuthority
+from open_brain_engine.engine.t03_contracts import EffectiveAuthority, SessionOrigin
 from open_brain_engine.storage.locks import LockBusyError
 from open_brain_engine.storage.sqlite import connect_database_read_only, is_database_busy
 
 from open_brain.services.graph_projection_store import (
     GraphProjectionStore,
+    StructuralGraphReceipt,
     canvas_result,
     projection_result,
 )
@@ -323,7 +324,9 @@ def graph_suggestions(tasks: EngineTaskSet) -> dict[str, object]:
     }
 
 
-def graph_projection(tasks: EngineTaskSet) -> dict[str, object]:
+def graph_projection(
+    tasks: EngineTaskSet, *, authority: EffectiveAuthority | None = None
+) -> dict[str, object]:
     status = tasks.managed_workspace.status()
     if status is None:
         return {
@@ -333,8 +336,24 @@ def graph_projection(tasks: EngineTaskSet) -> dict[str, object]:
         }
     try:
         snapshot = tasks.managed_workspace.graph_snapshot(status.workspace_id)
-        structural = GraphProjectionStore(tasks.profile.root, tasks.profile.root_identity).load(
-            snapshot
+        store = GraphProjectionStore(tasks.profile.root, tasks.profile.root_identity)
+        # This cache commits to a whole workspace, including denied notes. Its
+        # structural edges and global freshness cannot be safely scoped after
+        # extraction. Refuse that cache before reading it; authorized inferred
+        # suggestions still use the bound engine path below.
+        structural = (
+            StructuralGraphReceipt(
+                workspace_id=snapshot.workspace_id,
+                status="missing",
+                generation_id=None,
+                snapshot_sha256=None,
+                adapter_identity=None,
+                links=(),
+                diagnostics=(),
+                failure=None,
+            )
+            if authority is not None and authority.session_origin is SessionOrigin.MCP_IMPLICIT
+            else store.load(snapshot)
         )
     except GraphifyFailure as error:
         return {

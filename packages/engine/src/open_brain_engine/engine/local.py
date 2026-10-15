@@ -183,7 +183,7 @@ class BrainEngine(CaptureOperations, SpaceOperations, ReviewOperations, Retrieva
         assert_root_identity(profile.root, profile.root_identity)
         schema = inspect_phase1_state(profile)
         if recovery_protection_guard is not None and (
-            schema.state != "current" or schema.version not in {13, 14, 15, 16}
+            schema.state != "current" or schema.version not in {13, 14, 15, 16, 17}
         ):
             raise StateSchemaUnavailableError("recovery protection requires existing schema13")
         if recovery_protection_guard is not None:
@@ -275,7 +275,7 @@ class BrainEngine(CaptureOperations, SpaceOperations, ReviewOperations, Retrieva
         if (
             receipt_protection_port is not None
             and schema.state != "absent"
-            and schema.version not in {12, 13, 14, 15, 16}
+            and schema.version not in {12, 13, 14, 15, 16, 17}
         ):
             raise StateSchemaUnavailableError(
                 "receipt protection requires the schema-10 ingestion journal"
@@ -290,6 +290,13 @@ class BrainEngine(CaptureOperations, SpaceOperations, ReviewOperations, Retrieva
             )
         if schema.state == "supported_old" and schema.version == 15:
             raise StateSchemaUnavailableError("development migration requires exclusive admission")
+        if (
+            schema.state == "supported_old" and schema.version == 16
+            and local_schema.PHASE1_STATE_SCHEMA_VERSION >= 17
+        ):
+            raise StateSchemaUnavailableError(
+                "Slack sharing migration requires exclusive admission"
+            )
         self.profile = profile
         self._faults = set(faults)
         self._clock = clock
@@ -352,7 +359,7 @@ class BrainEngine(CaptureOperations, SpaceOperations, ReviewOperations, Retrieva
                 finally:
                     connection.close()
         except LockBusyError:
-            if schema.state != "current" or schema.version not in {12, 13, 14, 15, 16}:
+            if schema.state != "current" or schema.version not in {12, 13, 14, 15, 16, 17}:
                 raise
             self._store = _LocalStore(profile, clock=self._clock, initialize=False)
         self.capture = CaptureTasks(self)

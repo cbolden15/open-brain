@@ -31,9 +31,10 @@ from .v8 import validated_portable_snapshot_v8
 from .v9 import validated_portable_snapshot_v9
 from .v10 import validated_portable_snapshot_v10
 from .v11 import validated_portable_snapshot_v11
+from .v12 import validated_portable_snapshot_v12
 
 
-def validated_portable_snapshot(
+def _validated_portable_snapshot(
     root: Path, *, expected_root_identity: RootIdentity | None = None
 ) -> PortableSnapshot:
     try:
@@ -74,6 +75,8 @@ def validated_portable_snapshot(
         return validated_portable_snapshot_v6(root, expected_root_identity=identity)
     if version == 7:
         return validated_portable_snapshot_v7(root, expected_root_identity=identity)
+    if version == 12:
+        return validated_portable_snapshot_v12(root, expected_root_identity=identity)
     if version == 11:
         return validated_portable_snapshot_v11(root, expected_root_identity=identity)
     if version == 10:
@@ -85,6 +88,28 @@ def validated_portable_snapshot(
     if version == 3:
         return validated_portable_snapshot_v3(root, expected_root_identity=identity)
     raise PortableValidationError("unsupported Portable Brain schema")
+
+
+def validated_portable_snapshot(
+    root: Path, *, expected_root_identity: RootIdentity | None = None
+) -> PortableSnapshot:
+    snapshot = _validated_portable_snapshot(root, expected_root_identity=expected_root_identity)
+    version = cast(int, snapshot.manifest["schema_version"])
+    if version < 12:
+        for path, payload in snapshot.files.items():
+            if not path.startswith("sources/captures/") or not path.endswith(".json"):
+                continue
+            record = json.loads(payload)
+            references = (record["source"]["reference"], record["provenance"]["source_ref"])
+            if record["privacy"].get("policy_version") == "sharing-slack-work-copy.v1" or any(
+                reference.startswith("urn:open-brain:sharing-copy:")
+                and (version < 7 or not reference.startswith("urn:open-brain:sharing-copy:v1:"))
+                for reference in references
+            ):
+                raise PortableValidationError(
+                    "sharing marker is unsupported by this Portable version"
+                )
+    return snapshot
 
 
 def validate_portable_root(

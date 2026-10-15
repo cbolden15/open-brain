@@ -19,6 +19,7 @@ from .consent_contracts import EgressMode
 from .contracts import FilePayload, LocalEngineContext
 from .harness_memory import is_harness_source_reference
 from .materializer import _payload_search_text
+from .mcp_eligibility import capture_visible, record_visible
 from .normalization import _privacy, _role_claim
 from .privacy_projection import parse_effective_privacy_json
 from .search_projection import (
@@ -129,6 +130,10 @@ class RecordProjector:
             and not (history and self.authority.owner)
         ):
             raise T03Error("not_found")
+        if not capture_visible(self.connection, anchor, self.authority) or not capture_visible(
+            self.connection, source["head_capture_id"], self.authority,
+        ):
+            raise T03Error("not_found")
         head = source["head_capture_id"]
         if history and expected is not None:
             retained = self.connection.execute(
@@ -140,10 +145,10 @@ class RecordProjector:
             head = expected
         elif expected is not None and expected != head:
             raise T03Error("revision_changed")
+        self._require_source_revision_privacy(head)
         require_capture_eligibility(
             self.connection, head, self.authority, history=history, profile=self.profile
         )
-        self._require_source_revision_privacy(head)
         _revision, record = self._capture(head)
         reference = record["source"]["reference"]
         payload = record["payload"]
@@ -239,6 +244,8 @@ class RecordProjector:
     def canonical(
         self, page_id: str, *, expected: str | None = None, history: bool = False
     ) -> ProjectedRecord:
+        if not record_visible(self.connection, "canonical", page_id, self.authority):
+            raise T03Error("not_found")
         publication_id = self.current_publication(page_id)
         document = self.connection.execute(
             "SELECT * FROM search_documents WHERE result_id=? AND record_type='canonical'",

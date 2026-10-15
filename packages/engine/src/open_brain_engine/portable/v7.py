@@ -232,12 +232,14 @@ def _uuid4(value: str, prefix: str = "") -> None:
         raise ValueError("sharing UUID invalid")
 
 
-def _preview(value: dict[str, Any]) -> None:
+def _preview(value: dict[str, Any], *, slack: bool = False) -> None:
     from open_brain_engine.engine.contracts import TextPayload
     from open_brain_engine.engine.sharing import _copy_privacy
     from open_brain_engine.engine.source_observation import SourceRevisionObservation
 
-    if set(value) != _PREVIEW_FIELDS:
+    from .slack_v12 import SLACK_PREVIEW_FIELDS
+
+    if set(value) != _PREVIEW_FIELDS | (SLACK_PREVIEW_FIELDS if slack else frozenset()):
         raise ValueError("sharing preview shape invalid")
     for name in (
         "dto_version",
@@ -248,7 +250,7 @@ def _preview(value: dict[str, Any]) -> None:
     ):
         if type(value[name]) is not int or not 0 <= value[name] <= 9007199254740991:
             raise ValueError("sharing preview integer invalid")
-    if value["dto_version"] != 1 or value["issuer_epoch"] < 1:
+    if value["dto_version"] != (2 if slack else 1) or value["issuer_epoch"] < 1:
         raise ValueError("sharing preview version invalid")
     for name in _PREVIEW_FIELDS - {
         "dto_version",
@@ -306,7 +308,9 @@ def _preview(value: dict[str, Any]) -> None:
     ):
         raise ValueError("sharing preview text invalid")
     SourceRevisionObservation.from_value(value["observation"])
-    if canonical(value["copy_privacy"]) != canonical(_copy_privacy().to_dict()):
+    from open_brain_engine.engine.slack_sharing import copy_privacy
+
+    if canonical(value["copy_privacy"]) != canonical((copy_privacy() if slack else _copy_privacy()).to_dict()):
         raise ValueError("sharing copy privacy invalid")
     created = datetime.fromisoformat(_timestamp(value["created_at"], "sharing preview"))
     expiry = datetime.fromisoformat(_timestamp(value["expires_at"], "sharing preview"))
@@ -332,7 +336,12 @@ def _receipt(raw: bytes, fields: frozenset[str]) -> dict[str, Any]:
 
 
 def validate_sharing_authority(files: Mapping[str, bytes]) -> dict[str, Any]:
-    """Cross-check separately retained source/copy bytes after v6 validation."""
+    """Frozen v7 entry point: only saved-Markdown v1 sharing is admissible."""
+    return _validate_sharing_authority(files, allow_slack=False)
+
+
+def _validate_sharing_authority(files: Mapping[str, bytes], *, allow_slack: bool) -> dict[str, Any]:
+    """Common immutable row checks; only Portable12 may enable the Slack variant."""
     try:
         value = _portable_record(files.get(SHARING_APPROVALS_PATH, b""), "sharing approvals")
         if (
@@ -399,7 +408,8 @@ def validate_sharing_authority(files: Mapping[str, bytes]) -> dict[str, Any]:
         for row in rows["sharing_previews"]:
             raw = _b64(row["preview_bytes"])
             preview = _decoded(raw)
-            _preview(preview)
+            slack = allow_slack and preview.get("dto_version") == 2
+            _preview(preview, slack=slack)
             request_raw = _b64(row["request_bytes"])
             from open_brain_engine.engine.sharing_contracts import (
                 SharingPreviewRequest,
@@ -408,7 +418,8 @@ def validate_sharing_authority(files: Mapping[str, bytes]) -> dict[str, Any]:
 
             preview_request = parse_sharing_request(request_raw, SharingPreviewRequest)
             if (
-                request_raw != canonical(preview_request.value())
+                preview_request.dto_version != (2 if slack else 1)
+                or request_raw != canonical(preview_request.value())
                 or preview_request.request_sha256 != row["request_sha256"]
                 or preview_request.operation_id != row["operation_id"]
                 or preview_request.source_id != row["source_id"]
@@ -442,8 +453,8 @@ def validate_sharing_authority(files: Mapping[str, bytes]) -> dict[str, Any]:
                 revision_by_id[row["original_capture_id"]]["source_id"] != row["source_id"]
                 or preview["source_sha256"]
                 != revision_by_id[row["original_capture_id"]]["source_sha256"]
-                or original["payload"].get("supplied_text") != preview["text"]
-                or original["privacy"].get("tier") != "public"
+                or not slack and original["payload"].get("supplied_text") != preview["text"]
+                or original["privacy"].get("tier") != ("work" if slack else "public")
                 or original["privacy"].get("authority")
                 != {"cloud": False, "external_egress": False}
                 or original["source"].get("origin") != "third_party"
@@ -453,7 +464,7 @@ def validate_sharing_authority(files: Mapping[str, bytes]) -> dict[str, Any]:
                 and source["head_version"] != preview["head_version"]
                 or source["head_capture_id"] != row["original_capture_id"]
                 and source["head_version"] <= preview["head_version"]
-                or preview["lifecycle_version"] != 0
+                or not slack and preview["lifecycle_version"] != 0
                 or datetime.fromisoformat(preview["created_at"])
                 < datetime.fromisoformat(original["accepted_at"])
                 or source["route_version"] < preview["route_version"]
@@ -497,13 +508,17 @@ def validate_sharing_authority(files: Mapping[str, bytes]) -> dict[str, Any]:
                 or envelope.get("dto_version") != 2
                 or envelope.get("observation") != preview["observation"]
                 or preview["observation"].get("normalization_version")
-                not in ("saved-markdown-continuous.v1", "saved-markdown-continuous.v2")
+                not in (("slack-source-v1",) if slack else ("saved-markdown-continuous.v1", "saved-markdown-continuous.v2"))
                 or sha256(canonical(original["privacy"])).hexdigest() != preview["privacy_sha256"]
                 or sha256(canonical(original["payload"])).hexdigest() != preview["payload_sha256"]
                 or preview["marker"]
-                != f"urn:open-brain:sharing-copy:v1:{row['preview_id']}:{row['original_capture_id'].removeprefix('capture_')}"
+                != f"urn:open-brain:sharing-copy:v{2 if slack else 1}:{row['preview_id']}:{row['original_capture_id'].removeprefix('capture_')}"
             ):
                 raise ValueError("sharing observation mismatch")
+            if slack:
+                from .slack_v12 import validate_slack_preview
+
+                validate_slack_preview(files, preview, preview_request, original, envelope, source_admission)
             preview_operations.add(row["operation_id"])
             previews[row["preview_id"]] = preview
         decisions: dict[str, dict[str, Any]] = {}
@@ -591,7 +606,8 @@ def validate_sharing_authority(files: Mapping[str, bytes]) -> dict[str, Any]:
                 if (
                     submission.delivery_id != row["copy_delivery_id"]
                     or submission.delivery_id
-                    != f"sharing-copy.v1:{row['approval_id']}:{row['copy_submission_sha256']}"
+                    != (("sharing.copy.v2.:" if preview["dto_version"] == 2 else "sharing-copy.v1:")
+                        + f"{row['approval_id']}:{row['copy_submission_sha256']}")
                     or submission.request_sha256() != row["copy_submission_sha256"]
                     or submission.source_reference != preview["marker"]
                     or submission.payload.to_dict() != {"family": "text", "text": preview["text"]}
@@ -652,13 +668,15 @@ def validate_sharing_authority(files: Mapping[str, bytes]) -> dict[str, Any]:
                 raise ValueError("sharing link precedes preview")
             copy_ids.add(link["copy_capture_id"])
         for capture_id in revision_by_id:
-            if (
-                record(capture_id)["source"]["reference"].startswith(
-                    "urn:open-brain:sharing-copy:v1:"
-                )
-                and capture_id not in copy_ids
-            ):
-                raise ValueError("unlinked sharing marker")
+            retained = record(capture_id)
+            references = (retained["source"]["reference"], retained["provenance"]["source_ref"])
+            marked = (any(reference.startswith("urn:open-brain:sharing-copy:") for reference in references)
+                      or retained["privacy"].get("policy_version") == "sharing-slack-work-copy.v1")
+            if marked and (capture_id not in copy_ids or not allow_slack and any(
+                reference.startswith("urn:open-brain:sharing-copy:") and not reference.startswith("urn:open-brain:sharing-copy:v1:")
+                for reference in references
+            )):
+                raise ValueError("unlinked or unsupported sharing marker")
         revoked_approvals: set[str] = set()
         for row in rows["sharing_revocations"]:
             from open_brain_engine.engine.sharing_contracts import (

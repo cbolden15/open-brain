@@ -20,6 +20,7 @@ from .contracts import LocalEngineContext
 from .cursors import CursorStore, binding_digest
 from .historical_read_snapshot import historical_read_snapshot
 from .local_schema import PHASE1_STATE_SCHEMA_VERSION
+from .mcp_eligibility import implicit, install
 from .records import RecordProjector
 from .sharing import (
     EligibilityMode,
@@ -51,6 +52,7 @@ def authority_binding(authority: EffectiveAuthority) -> dict[str, Any]:
         "session_id": authority.session_id,
         "capabilities": sorted(authority.capabilities),
         "owner": authority.owner,
+        "session_origin": authority.session_origin.value,
         "space_ids": None if authority.space_ids is None else sorted(authority.space_ids),
         "allowed_read_tiers": sorted(tier.value for tier in authority.allowed_read_tiers),
         "allowed_capture_tiers": sorted(tier.value for tier in authority.allowed_capture_tiers),
@@ -90,8 +92,9 @@ def _authorized_retrieval_digest(
     *,
     visible_state: object | None,
 ) -> str:
+    install(connection, authority)
     readable_tiers = tuple(tier.value for tier in PrivacyTier if authority.permits_read_tier(tier))
-    clauses: list[str] = []
+    clauses: list[str] = ["mcp_record_visible(d.record_type,d.result_id)=1"]
     parameters: list[Any] = []
     if readable_tiers:
         clauses.append("d.effective_tier IN (" + ",".join("?" for _ in readable_tiers) + ")")
@@ -158,10 +161,15 @@ def generations(
     authority: EffectiveAuthority | None = None,
     visible_state: object | None = None,
 ) -> dict[str, Any]:
+    install(connection, authority)
     row = connection.execute("SELECT * FROM engine_generations WHERE singleton=1").fetchone()
     if row is None:
         raise T03Error("operation_pending")
-    if authority is None or authority.owner and authority.egress_mode is EgressMode.OWNER_LOCAL:
+    if authority is None or (
+        authority.owner
+        and authority.egress_mode is EgressMode.OWNER_LOCAL
+        and not implicit(authority)
+    ):
         return dict(row)
     if authority.egress_mode is EgressMode.OWNER_LOCAL:
         from .historical_visibility import historical_capture_visibility
@@ -323,6 +331,7 @@ def search_page(
         last = _last_key(prior)
         parameters: list[Any] = []
         clauses = [
+            "mcp_record_visible(d.record_type,d.result_id)=1",
             "(d.record_type='canonical' OR EXISTS (SELECT 1 FROM logical_sources s "
             "WHERE s.head_capture_id=d.result_id AND s.historical_only=0 "
             "AND s.lifecycle='active' AND s.availability='available'))"
@@ -530,6 +539,14 @@ def read_record(
             "complete": complete,
             "next_cursor": None,
         }
+        from .slack_sharing import read_selection
+
+        if projected.summary["record_type"] == "source":
+            selection = read_selection(
+                connection, engine.profile, projected.summary["record_id"], authority
+            )
+            if selection is not None:
+                response["selection"] = selection
         while len(portable_canonical_json_bytes(response)) > MAX_RESPONSE_BYTES:
             if end <= start:
                 raise T03Error("response_too_large")

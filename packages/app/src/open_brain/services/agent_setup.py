@@ -17,6 +17,10 @@ from pathlib import Path
 from typing import Literal, cast
 
 from open_brain.local_data import LocalRootSelection
+from open_brain.services.agent_settings_observation import (
+    observe_client_settings,
+)
+from open_brain.services.scoped_setup import validate_scoped_setup
 
 AgentClient = Literal["claude-code", "codex"]
 AgentScope = Literal["project", "user"]
@@ -90,6 +94,10 @@ class _SetupPlan:
     allow_review_decide: bool
     mutations: tuple[_Mutation, ...]
     notices: tuple[str, ...]
+    settings_observation: dict[str, object] | None = None
+    scoped_commitment: str | None = None
+    revalidate_scope: Callable[[], None] | None = None
+    revalidate_settings: Callable[[], None] | None = None
 
     def preview(self) -> dict[str, object]:
         changes = [
@@ -129,6 +137,8 @@ class _SetupPlan:
             "runtime_path": os.fspath(self.runtime_path),
             "scope": self.scope,
         }
+        if self.scoped_commitment is not None:
+            preview_seed["scoped_commitment"] = self.scoped_commitment
         preview_id = "setup_" + sha256(_canonical_json(preview_seed)).hexdigest()
         preview_permissions = {"capture": self.allow_capture, "search": self.allow_search}
         if any(
@@ -160,7 +170,7 @@ class _SetupPlan:
                 review_propose=self.allow_review_propose,
                 review_decide=self.allow_review_decide,
             )
-        return {
+        result: dict[str, object] = {
             "action": self.action,
             "brain_root": os.fspath(self.brain_root),
             "changes": changes,
@@ -172,6 +182,9 @@ class _SetupPlan:
             "scope": self.scope,
             "status": "preview",
         }
+        if self.settings_observation is not None:
+            result["settings_observation"] = self.settings_observation
+        return result
 
 
 def resolve_agent_runtime(value: str | Path | None = None) -> Path:
@@ -226,6 +239,11 @@ def preview_agent_setup(
     action: object,
     runtime_path: Path,
     environment: Mapping[str, object],
+    session_policy: object = None,
+    consent_state: object = None,
+    client_version: object = None,
+    launch_context: object = None,
+    acknowledge_unscoped: object = False,
 ) -> dict[str, object]:
     """Describe only Open Brain-owned fragments and current target paths."""
     return _build_plan(
@@ -249,6 +267,11 @@ def preview_agent_setup(
         action=action,
         runtime_path=runtime_path,
         environment=environment,
+        session_policy=session_policy,
+        consent_state=consent_state,
+        client_version=client_version,
+        launch_context=launch_context,
+        acknowledge_unscoped=acknowledge_unscoped,
     ).preview()
 
 
@@ -275,6 +298,11 @@ def apply_agent_setup(
     preview_id: object,
     runtime_path: Path,
     environment: Mapping[str, object],
+    session_policy: object = None,
+    consent_state: object = None,
+    client_version: object = None,
+    launch_context: object = None,
+    acknowledge_unscoped: object = False,
     write_file: FileWriter | None = None,
 ) -> dict[str, object]:
     """Revalidate a preview and atomically apply its owned fragments."""
@@ -301,12 +329,24 @@ def apply_agent_setup(
         action=action,
         runtime_path=runtime_path,
         environment=environment,
+        session_policy=session_policy,
+        consent_state=consent_state,
+        client_version=client_version,
+        launch_context=launch_context,
+        acknowledge_unscoped=acknowledge_unscoped,
     )
     if cast(str, plan.preview()["preview_id"]) != preview_id:
         raise AgentSetupFailure("setup_preview_stale")
     changed = tuple(mutation for mutation in plan.mutations if mutation.before != mutation.after)
     applied: list[_Mutation] = []
     try:
+        if plan.revalidate_scope is not None:
+            plan.revalidate_scope()
+        if plan.revalidate_settings is not None:
+            try:
+                plan.revalidate_settings()
+            except ValueError, OSError:
+                raise AgentSetupFailure("setup_preview_stale") from None
         for mutation in changed:
             current = _read_safe(mutation.path, maximum_bytes=_limit_for(mutation.kind))
             if current != mutation.before:
@@ -318,6 +358,8 @@ def apply_agent_setup(
                 write_file(mutation.path, mutation.after)
             if _read_safe(mutation.path, maximum_bytes=_limit_for(mutation.kind)) != mutation.after:
                 raise AgentSetupFailure("operation_failed")
+        if plan.revalidate_scope is not None:
+            plan.revalidate_scope()
     except BaseException as error:
         rollback_failed = False
         for mutation in reversed(applied):
@@ -370,6 +412,11 @@ def _build_plan(
     action: object,
     runtime_path: Path,
     environment: Mapping[str, object],
+    session_policy: object = None,
+    consent_state: object = None,
+    client_version: object = None,
+    launch_context: object = None,
+    acknowledge_unscoped: object = False,
 ) -> _SetupPlan:
     if (
         not isinstance(client, str)
@@ -419,7 +466,74 @@ def _build_plan(
     if typed_scope == "user" and project_dir is not None:
         raise AgentSetupFailure("invalid_arguments")
     runtime = resolve_agent_runtime(runtime_path)
-    args = ["mcp", "--data-dir", os.fspath(selection.brain_root)]
+    settings_observation: dict[str, object] | None = None
+    scoped_commitment: str | None = None
+    revalidate_scope: Callable[[], None] | None = None
+    revalidate_settings: Callable[[], None] | None = None
+    scoped_args: list[str] = []
+    scoped = typed_action == "configure" and (
+        any(
+            value is not None
+            for value in (session_policy, consent_state, client_version, launch_context)
+        )
+        or acknowledge_unscoped is not False
+    )
+    if scoped:
+        if (
+            type(acknowledge_unscoped) is not bool
+            or not allow_search
+            or not allow_content_read
+            or any(
+                (
+                    allow_capture,
+                    allow_history_read,
+                    allow_facet_read,
+                    allow_facet_catalog_write,
+                    allow_facet_assign,
+                    allow_facet_query_write,
+                    allow_inbox_read,
+                    allow_organize,
+                    allow_review_read,
+                    allow_review_propose,
+                    allow_review_decide,
+                )
+            )
+        ):
+            raise AgentSetupFailure("invalid_arguments")
+        try:
+            observation = observe_client_settings(
+                client=typed_client,
+                client_version=client_version,
+                project=project,
+                home=selection.home,
+                environment=environment,
+                launch_context=launch_context,
+                platform_name=selection.platform_name,
+                runtime=runtime,
+            )
+            if observation.public["unscoped_entries"] and not acknowledge_unscoped:
+                raise AgentSetupFailure("setup_conflict")
+            scoped_args, policy_commitment, revalidate_scope = validate_scoped_setup(
+                brain_root=selection.brain_root,
+                session_policy=session_policy,
+                consent_state=consent_state,
+            )
+            scoped_commitment = sha256(
+                _canonical_json(
+                    {
+                        "settings": observation.commitment,
+                        "policy": policy_commitment,
+                        "acknowledge_unscoped": acknowledge_unscoped,
+                    }
+                )
+            ).hexdigest()
+            settings_observation = observation.public
+            revalidate_settings = observation.revalidate
+        except AgentSetupFailure:
+            raise
+        except ValueError, OSError:
+            raise AgentSetupFailure("invalid_arguments") from None
+    args = ["mcp", "--data-dir", os.fspath(selection.brain_root), *scoped_args]
     if allow_capture:
         args.append("--allow-capture")
     if allow_search:
@@ -561,6 +675,10 @@ def _build_plan(
             ),
         ),
         notices=tuple(notices),
+        settings_observation=settings_observation,
+        scoped_commitment=scoped_commitment,
+        revalidate_scope=revalidate_scope,
+        revalidate_settings=revalidate_settings,
     )
 
 
@@ -686,7 +804,13 @@ def _claude_config(
         else:
             updated["mcpServers"] = updated_servers
         return (
-            (None if not updated and origin == "absent" else _render_json(updated)),
+            (
+                None
+                if not updated and origin == "absent"
+                else _edit_claude_json(
+                    before, remove=True, drop_servers="mcpServers" not in updated, desired=desired
+                )
+            ),
             "remove",
             fragment,
         )
@@ -697,7 +821,80 @@ def _claude_config(
     updated_servers[_SERVER_NAME] = desired
     updated = dict(document)
     updated["mcpServers"] = updated_servers
-    return _render_json(updated), "add", fragment
+    return (
+        _edit_claude_json(before, remove=False, drop_servers=False, desired=desired),
+        "add",
+        fragment,
+    )
+
+
+def _edit_claude_json(
+    before: bytes | None, *, remove: bool, drop_servers: bool, desired: Mapping[str, object]
+) -> bytes:
+    """Edit only the owned JSON token span and its necessary comma.
+
+    The complete document was parsed with duplicate-key rejection first. Token
+    offsets use Unicode characters; re-encoding preserves every untouched byte.
+    """
+    text = "{}" if before is None else before.decode("utf-8")
+    decoder = json.JSONDecoder()
+
+    def members(start: int) -> tuple[list[tuple[str, int, int, int]], int]:
+        position = start + 1
+        result: list[tuple[str, int, int, int]] = []
+        while True:
+            while text[position].isspace():
+                position += 1
+            if text[position] == "}":
+                return result, position
+            key_start = position
+            key, position = decoder.raw_decode(text, position)
+            while text[position].isspace():
+                position += 1
+            position += 1  # colon, already checked by the whole-document parse
+            while text[position].isspace():
+                position += 1
+            value_start = position
+            _, position = decoder.raw_decode(text, position)
+            result.append((key, key_start, value_start, position))
+            while text[position].isspace():
+                position += 1
+            if text[position] == ",":
+                position += 1
+
+    def update(start: int, key: str, value: str | None) -> str:
+        entries, end = members(start)
+        for index, (name, key_start, value_start, value_end) in enumerate(entries):
+            if name != key:
+                continue
+            if value is not None:
+                return text[:value_start] + value + text[value_end:]
+            if index:
+                left, right = entries[index - 1][3], value_end
+            elif len(entries) > 1:
+                left, right = key_start, entries[1][1]
+            else:
+                left, right = key_start, value_end
+            return text[:left] + text[right:]
+        if value is None:
+            return text
+        insertion = entries[-1][3] if entries else end
+        addition = ("," if entries else "") + json.dumps(key) + ":" + value
+        return text[:insertion] + addition + text[insertion:]
+
+    root = len(text) - len(text.lstrip())
+    entries, _end = members(root)
+    servers = next((entry for entry in entries if entry[0] == "mcpServers"), None)
+    encoded = json.dumps(dict(desired), ensure_ascii=False, separators=(",", ":"))
+    if drop_servers:
+        rendered = update(root, "mcpServers", None)
+    elif servers is None:
+        rendered = update(root, "mcpServers", '{"open-brain":' + encoded + "}")
+    else:
+        rendered = update(servers[2], "open-brain", None if remove else encoded)
+    payload = rendered.encode("utf-8")
+    _json_document(payload)
+    return payload
 
 
 def _owned_json_entry(runtime: Path, args: list[str], *, origin: str) -> dict[str, object]:

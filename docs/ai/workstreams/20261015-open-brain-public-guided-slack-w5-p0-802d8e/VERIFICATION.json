@@ -1,0 +1,104 @@
+{
+  "scope": "P0 documentation/specification only",
+  "source_baseline": "377d23849467bb33ec4bcb31dcd79b812b60fbbb",
+  "commands": [
+    {
+      "command": "reference/symbol/JSON/continuity and independent approved artifact hash checks",
+      "exit_code": 0,
+      "evidence": "VALIDATION.json"
+    },
+    {
+      "command": "git diff --cached --check; git diff --check",
+      "exit_code": 0
+    },
+    {
+      "command": "actionlint .github/workflows/ci.yml",
+      "exit_code": 0
+    },
+    {
+      "command": "workflow-governance validate-handoff.mjs HANDOFF.json",
+      "exit_code": 0,
+      "serialized_bytes": 1266
+    }
+  ],
+  "source_files": [
+    {
+      "path": "packages/app/tests/integration/engine/test_slack_sharing.py",
+      "sha256": "5388febe635b480cf85e07b404ffca8910f9c35abc724d1a04fc8688435c79b1"
+    },
+    {
+      "path": "packages/app/tests/integration/engine/test_slack_sharing_races.py",
+      "sha256": "608d98f89437c8b89750a4d10908e49f6cf8aab57dcb4505cd2c0df244e7c9a7"
+    },
+    {
+      "path": "packages/app/tests/integration/services/test_slack_decision_recall.py",
+      "sha256": "1285c6887ac7f79e07c717035f1382429f4b212c604b22b2c1f2c4f22168ec29"
+    },
+    {
+      "path": "packages/app/tests/unit/engine/test_sharing_recovery.py",
+      "sha256": "162d7349d95593c2a62458aab7d45d0b5349166dbd34c5dfbee28fd625a9bfd0"
+    },
+    {
+      "path": "packages/app/tests/unit/engine/test_slack_sharing_projection.py",
+      "sha256": "d7eef74a8ea7868a44b74ca87b94d4c102f63865230abd57236c42f3b7826d03"
+    },
+    {
+      "path": "packages/app/tests/unit/engine/test_source_tasks.py",
+      "sha256": "c78a5fcfe1584c3878311221bc18fad341104c2b9ad91a06a6dd5ecea61a0ef5"
+    },
+    {
+      "path": "packages/app/tests/unit/test_agent_setup.py",
+      "sha256": "3830d047c3d197ef0a00288eeea785c600ab5ea1b8c950adea3a6a36d29e476b"
+    },
+    {
+      "path": "packages/app/tests/unit/test_scoped_agent_setup.py",
+      "sha256": "14cba6d3e4bcf5ff7c0c18ede8505eb589fd39877feb86f844b4c7624c0b22a8"
+    },
+    {
+      "path": "packages/app/tests/unit/test_session_consent.py",
+      "sha256": "a6c2962ac8f2818b763ab3c50246e78d2b4006ed7befb432850c30b945b34f11"
+    },
+    {
+      "path": "packages/app/tests/unit/test_w2_setup_forwarding.py",
+      "sha256": "23ba4ae4c455a1365101f77840a52a236c8175a1f64c26405895a5102f9aea8a"
+    },
+    {
+      "path": "packages/collector/src/open_brain_collector/cli.py",
+      "sha256": "5f96311be96bad32eed9765bbd2958110110a077ef4258765abbb848903c6cf0"
+    },
+    {
+      "path": "packages/collector/src/open_brain_collector/sources_cli.py",
+      "sha256": "0658de0bda6c2770142ffb4249ca264ec245d53e626b6670c0b00817726900e9"
+    },
+    {
+      "path": "packages/collector/tests/integration/test_capture_health.py",
+      "sha256": "fdb8a92b9cb8072263cf915f4cdcd5bfb3f7a8d6fe630d49ac9d37eb9a06cf7d"
+    },
+    {
+      "path": "packages/collector/tests/integration/test_custody.py",
+      "sha256": "f4b7f0d59c4f3fe15e8b244bc6dfe51a5ebc6907e92d966b51e063df6a963fda"
+    },
+    {
+      "path": "packages/collector/tests/integration/test_live_capture.py",
+      "sha256": "fd88d42d053f49e46b252249e2829192f26ab7396d509bca431f55cae04ce25e"
+    },
+    {
+      "path": "packages/collector/tests/integration/test_slack_capture_acceptance.py",
+      "sha256": "5e661cea8e640381ebfaf0c4a11670de6cfb40d8b7686bdfd8e26a2ed39057f7"
+    },
+    {
+      "path": "packages/engine/tests/contract/test_consent_contracts.py",
+      "sha256": "dbafdfe3b19c05ee0f326d8547c16378978d642b8f423df5be5e467140a402c1"
+    }
+  ],
+  "not_run": [
+    "make verify",
+    "native packaging",
+    "W5 runtime fixtures",
+    "actual-client/model/provider checks",
+    "real Slack/Brain",
+    "private pilot"
+  ],
+  "reason": "No production code changed; future P1-P4 executable gates remain mandatory.",
+  "platform": "Current macOS source/doc validation only; no runtime portability claim"
+}

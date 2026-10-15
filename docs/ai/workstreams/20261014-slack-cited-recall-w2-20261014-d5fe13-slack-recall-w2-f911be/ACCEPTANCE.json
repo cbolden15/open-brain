@@ -1,0 +1,114 @@
+{
+  "head": "8eb36e5ac97318537ab19aa4163c38cd0d03ff0d",
+  "branch": "feat/slack-cited-recall-w2-20261014-d5fe13",
+  "worktree": "/Users/calebbolden/Projects/oss/open-brain-public-worktrees/slack-cited-recall-w2-20261014-d5fe13",
+  "verification": {
+    "make-verify": {
+      "command": "make verify",
+      "head": "8eb36e5ac97318537ab19aa4163c38cd0d03ff0d",
+      "exit_code": 0,
+      "elapsed_seconds": 2255.55
+    },
+    "native": {
+      "command": "make native-audit homebrew-smoke NATIVE_OUTPUT=/tmp/obw2-native-d5fe13",
+      "head": "8eb36e5ac97318537ab19aa4163c38cd0d03ff0d",
+      "exit_code": 0,
+      "elapsed_seconds": 468.07
+    },
+    "actionlint": {
+      "command": "actionlint .github/workflows/ci.yml",
+      "head": "8eb36e5ac97318537ab19aa4163c38cd0d03ff0d",
+      "exit_code": 0,
+      "elapsed_seconds": 0.19
+    },
+    "diff-check": {
+      "command": "git diff --check",
+      "head": "8eb36e5ac97318537ab19aa4163c38cd0d03ff0d",
+      "exit_code": 0,
+      "elapsed_seconds": 0.02
+    },
+    "frozen-source-validation": {
+      "head": "8eb36e5ac97318537ab19aa4163c38cd0d03ff0d",
+      "files": 1884,
+      "all_input_hashes_unchanged": true,
+      "inventory_sha256": "20b3b7b8a9cd6c4ec59549c221f266735a58675124b453649a1e05fcdd4bf5df"
+    },
+    "cleanup-final-preflight": {
+      "head": "8eb36e5ac97318537ab19aa4163c38cd0d03ff0d",
+      "previous_tip": "7e2b8657ab7350e89983f4774ff053f5c14964ca",
+      "previous_tip_is_ancestor": true,
+      "continuity_files": 9,
+      "old_new_and_committed_sha256_match": true,
+      "old_dirty_inventory_unchanged": true,
+      "ignored_files": 11522,
+      "unclassified_ignored": [],
+      "non_rebuildable_ignored_detected": false,
+      "open_file_or_cwd_users": 0,
+      "all_gates_passed": true,
+      "checked_at_utc": "2026-10-15T05:38:21Z"
+    },
+    "cleanup-result": {
+      "head": "8eb36e5ac97318537ab19aa4163c38cd0d03ff0d",
+      "removed_worktree": "/Users/calebbolden/Projects/oss/open-brain-public-worktrees/slack-cited-recall-w0-20261014-006b67",
+      "deleted_local_branch": "feat/slack-cited-recall-w0-20261014-006b67",
+      "worktree_force_reason": "Nine dirty continuity files preserved byte-for-byte, committed at 8bff336, and SHA-256 reverified immediately before removal",
+      "ordinary_branch_deletion": true,
+      "unrelated_worktrees_and_refs_unchanged": true,
+      "remote_actions": false,
+      "completed_at_utc": "2026-10-15T05:38:23Z"
+    }
+  },
+  "independent_review": {
+    "model": "GPT-6 Astra",
+    "head": "8eb36e5ac97318537ab19aa4163c38cd0d03ff0d",
+    "verdict": "approved",
+    "unresolved_findings": 0,
+    "separate_run_evidence": "Settings69; engine/stdio/graph15; hidden-only exclusion1; canonical regression2; final receipt and1884 input hash audit"
+  },
+  "full_gate_counts": {
+    "python_passed": 7422,
+    "python_skipped": 5,
+    "plugin_passed": 700,
+    "desktop_frontend_passed": 286,
+    "desktop_python_passed": 30,
+    "rust_passed": 26
+  },
+  "limitations": [
+    "Schema/runtime/Portable remain17/12/12; enforcement requires upgraded runtime; no older-binary fence.",
+    "Settings support is limited to frozen standalone client version/context matrix; declared context is not observed actual-client transport.",
+    "Implicit MCP refuses whole-workspace structural cache before access; authorized engine suggestions remain.",
+    "Actual-client injection check, W3 and private pilot are not run; later pilot receipt remains mandatory.",
+    "Native audit and Homebrew smoke cover macOS ARM64 only."
+  ],
+  "failed_attempts": [
+    {
+      "command": "make verify",
+      "exit_code": 2,
+      "elapsed_seconds": 11.13
+    },
+    {
+      "command": "make verify",
+      "exit_code": 2,
+      "elapsed_seconds": 229.38
+    },
+    {
+      "command": "make verify",
+      "exit_code": 2,
+      "elapsed_seconds": 1354.21
+    },
+    {
+      "command": "make verify",
+      "head": "0808ab236e19a7f277796083f89276120bde8bb7",
+      "exit_code": 2,
+      "elapsed_seconds": 1450.67
+    },
+    {
+      "command": "make verify",
+      "head": "ca788084bc93a55233f1df0d319fb8fb0c967676",
+      "exit_code": 2,
+      "elapsed_seconds": 2364.16
+    }
+  ],
+  "evidence_directory": "/tmp/obw2-logs-d5fe13",
+  "post_check_continuity": "Only this workstream STATE, HANDOFF and ACCEPTANCE documents were written after source-fingerprint checks. They remain local continuity; tested implementation HEAD is unchanged."
+}

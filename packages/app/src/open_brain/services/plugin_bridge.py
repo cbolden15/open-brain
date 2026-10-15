@@ -1272,6 +1272,11 @@ def _agent_setup(
 ) -> dict[str, object]:
     required = {"action", "allow_capture", "allow_search", "client", "scope"}
     optional = {
+        "session_policy",
+        "consent_state",
+        "client_version",
+        "launch_context",
+        "acknowledge_unscoped",
         "project_dir",
         "allow_content_read",
         "allow_history_read",
@@ -1290,6 +1295,11 @@ def _agent_setup(
         return preview_agent_setup(
             selection,
             action=arguments["action"],
+            session_policy=arguments.get("session_policy"),
+            consent_state=arguments.get("consent_state"),
+            client_version=arguments.get("client_version"),
+            launch_context=arguments.get("launch_context"),
+            acknowledge_unscoped=arguments.get("acknowledge_unscoped", False),
             allow_capture=arguments["allow_capture"],
             allow_search=arguments["allow_search"],
             allow_content_read=arguments.get("allow_content_read", False),
@@ -1308,6 +1318,11 @@ def _agent_setup(
     return apply_agent_setup(
         selection,
         action=arguments["action"],
+        session_policy=arguments.get("session_policy"),
+        consent_state=arguments.get("consent_state"),
+        client_version=arguments.get("client_version"),
+        launch_context=arguments.get("launch_context"),
+        acknowledge_unscoped=arguments.get("acknowledge_unscoped", False),
         allow_capture=arguments["allow_capture"],
         allow_search=arguments["allow_search"],
         allow_content_read=arguments.get("allow_content_read", False),

@@ -37,7 +37,7 @@ import { FacetWireError } from "../src/facet-wire";
 
 const frozen = JSON.parse(readFileSync(new URL("fixtures/facets/o0-cases.json", import.meta.url), "utf8"));
 // Reuse frozen facet DTOs under current runtime admission; keep fixture bytes historical.
-frozen.handshake = { ...frozen.handshake, state_schema_version: 16, runtime_session_version: 11 };
+frozen.handshake = { ...frozen.handshake, state_schema_version: 17, runtime_session_version: 12 };
 const copy = <T,>(value: T): T => JSON.parse(JSON.stringify(value));
 const id = (prefix: string, n = 1) => `${prefix}_00000000-0000-4000-8000-${String(n).padStart(12, "0")}`;
 const createInspection = (): FacetPublicationInspection => copy(frozen.publication_inspections[0]);

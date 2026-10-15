@@ -35,6 +35,7 @@ from open_brain_engine.engine.t03_contracts import (
     HistoryListRequest,
     RecordReadRequest,
     SearchPageRequest,
+    SessionOrigin,
     T03Error,
 )
 
@@ -141,6 +142,7 @@ def test_cursor_authority_binding_names_and_binds_every_policy_dimension() -> No
     assert set(binding) == {
         "principal_id",
         "session_id",
+        "session_origin",
         "capabilities",
         "owner",
         "space_ids",
@@ -163,6 +165,7 @@ def test_cursor_authority_binding_names_and_binds_every_policy_dimension() -> No
     variants = {
         "principal_id": replace(baseline, principal_id="other-principal"),
         "session_id": replace(baseline, session_id="other-session"),
+        "session_origin": replace(baseline, session_origin=SessionOrigin.MCP_IMPLICIT),
         "capabilities": replace(baseline, capabilities=frozenset({"content-read"})),
         "owner": replace(baseline, owner=True),
         "space_ids": replace(

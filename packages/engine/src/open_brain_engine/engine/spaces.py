@@ -21,6 +21,7 @@ from .contracts import (
     project_public_result_text,
     project_public_space,
 )
+from .mcp_eligibility import capture_visible, install
 from .normalization import (
     _MAX_NAME,
     _delivery_id,
@@ -33,6 +34,7 @@ from .normalization import (
     _timestamp,
 )
 from .portability_ports import portable_write_port
+from .t03_contracts import EffectiveAuthority, T03Error
 
 if TYPE_CHECKING:
     from .local import BrainEngine
@@ -40,13 +42,18 @@ if TYPE_CHECKING:
 
 class SpaceOperations(_LocalEngineOperations):
     def _list_inbox(
-        self, *, unassigned_only: bool, limit: int | None = None, offset: int = 0
+        self,
+        *,
+        unassigned_only: bool,
+        limit: int | None = None,
+        offset: int = 0,
+        authority: EffectiveAuthority | None = None,
     ) -> tuple[InboxItem, ...]:
         _validate_page(limit, offset)
         sql = (
             "SELECT capture_id, payload_family, space_id, intent, capture_why, "
             "title, search_text AS preview, source_reference "
-            "FROM captures WHERE action = ?"
+            "FROM captures WHERE mcp_capture_visible(capture_id)=1 AND action = ?"
         )
         parameters: list[object] = [CaptureAction.QUICK.value]
         if unassigned_only:
@@ -62,6 +69,7 @@ class SpaceOperations(_LocalEngineOperations):
                     "WHERE s.head_capture_id=captures.capture_id AND s.historical_only=0 "
                     "AND s.lifecycle='active' AND s.availability='available') AND",
                 )
+            install(connection, authority)
             rows = tuple(connection.execute(sql, parameters))
         finally:
             connection.close()
@@ -397,13 +405,19 @@ class SpaceOperations(_LocalEngineOperations):
 
 
 class InboxSpaceTasks:
-    def __init__(self, engine: BrainEngine) -> None:
+    def __init__(self, engine: BrainEngine, *, authority: EffectiveAuthority | None = None) -> None:
         self._engine = engine
+        self._authority = authority
+
+    def with_authority(self, authority: EffectiveAuthority) -> InboxSpaceTasks:
+        return InboxSpaceTasks(self._engine, authority=authority)
 
     def list(
         self, *, unassigned_only: bool = False, limit: int | None = None, offset: int = 0
     ) -> tuple[InboxItem, ...]:
-        return self._engine._list_inbox(unassigned_only=unassigned_only, limit=limit, offset=offset)
+        return self._engine._list_inbox(
+            unassigned_only=unassigned_only, limit=limit, offset=offset, authority=self._authority
+        )
 
     def spaces(self, *, limit: int | None = None, offset: int = 0) -> tuple[SpaceRecord, ...]:
         return tuple(
@@ -422,6 +436,12 @@ class InboxSpaceTasks:
 
     def route(self, capture_id: str, space_id: str, *, delivery_id: str) -> RoutedCapture:
         with self._engine._writer_lease.acquire_shared_writer():
+            connection = self._engine._store.connect()
+            try:
+                if not capture_visible(connection, capture_id, self._authority):
+                    raise T03Error("not_found")
+            finally:
+                connection.close()
             return self._engine._route_capture(capture_id, space_id, delivery_id)
 
 

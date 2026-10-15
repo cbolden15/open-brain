@@ -1,0 +1,22 @@
+{
+  "starting_head": "a56b7a67d8bc7f3545f10cef98863833230dc9e3",
+  "preservation_commit": "20f6c40f2421eb390a6c5a20d23df973629590e4",
+  "tracked_modifications": [
+    {
+      "path": "docs/ai/workstreams/20261015-open-brain-public-slack-recall-w4-7629d6/HANDOFF.json",
+      "sha256": "78a2350c55ee84ebec6bb33361988c2fb3de947f76e8f71c86dd5b997fdca65f",
+      "bytes": 1326
+    },
+    {
+      "path": "docs/ai/workstreams/20261015-open-brain-public-slack-recall-w4-7629d6/HANDOFF.md",
+      "sha256": "ddc71d366b87be8d47ec6db24006818e75ca6ae276d30630d81940ec95cf091e",
+      "bytes": 1480
+    }
+  ],
+  "untracked_files_before_preservation": [],
+  "origin_main_local_ref": "d5cf64e652366dc14a8cf18732f7cb1e82ae4187",
+  "remote_refresh": "not_run; no fetch/push required",
+  "accepted_w3": "b36dfed44f063b5b1d98d4f0130e1a460a945147",
+  "w3_preservation": "e6187798ab796811e86e2c58cd836a683f0ea96d",
+  "preparation_bytes_verified_in_commit": true
+}

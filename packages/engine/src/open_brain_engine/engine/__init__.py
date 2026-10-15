@@ -150,6 +150,8 @@ from .sharing_contracts import (
     SharingPreviewRequest,
     SharingRevokeReceipt,
     SharingRevokeRequest,
+    SlackSelectionCreateRequest,
+    SlackSharingPreviewRequest,
     parse_sharing_request,
 )
 from .source_intake import (
@@ -279,6 +281,8 @@ __all__ = [
     "SharingInspection",
     "SharingPreview",
     "SharingPreviewRequest",
+    "SlackSharingPreviewRequest",
+    "SlackSelectionCreateRequest",
     "SharingRevokeReceipt",
     "SharingRevokeRequest",
     "parse_sharing_request",

@@ -403,6 +403,7 @@ def _empty_facet_archive() -> dict[str, bytes]:
     from open_brain_engine.engine.contracts import TextPayload
     from open_brain_engine.engine.local import BrainEngine
     from open_brain_engine.portable.developments_v11 import DEVELOPMENT_SIDECAR_PATHS
+    from open_brain_engine.portable.slack_v12 import SELECTIONS_PATH
     from open_brain_engine.portable.versioned import validated_portable_snapshot
 
     from open_brain.profile import compile_single_user_local
@@ -418,7 +419,8 @@ def _empty_facet_archive() -> dict[str, bytes]:
         return {
             path: raw
             for path, raw in validated_portable_snapshot(archive).files.items()
-            if path != "portable-manifest.json" and path not in DEVELOPMENT_SIDECAR_PATHS
+            if path != "portable-manifest.json"
+            and path not in DEVELOPMENT_SIDECAR_PATHS | {SELECTIONS_PATH}
         }
 
 
@@ -512,7 +514,7 @@ def test_real_schema15_empty_facet_restore_reopens_and_preserves_inherited_bytes
     bundle = audit_restored_v10(materialized.profile, snapshot=snapshot)
     assert bundle.next_sequence == 1
     with open_local_database_read_only(materialized.profile) as connection:
-        assert connection.execute("PRAGMA user_version").fetchone()[0] == 16
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 17
         assert all(
             connection.execute(f"SELECT count(*) FROM {table}").fetchone()[0] == 0
             for table in FACET_TABLES
@@ -563,7 +565,7 @@ def test_legacy_v5_restore_keeps_empty_facets_and_is_not_reinterpreted_as_v10(
         tmp_path, snapshot=snapshot, expected_root_identity=snapshot.root_identity
     )
     with open_local_database_read_only(materialized.profile) as connection:
-        assert connection.execute("PRAGMA user_version").fetchone()[0] == 16
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 17
         assert all(
             connection.execute(f"SELECT count(*) FROM {table}").fetchone()[0] == 0
             for table in FACET_TABLES
@@ -747,7 +749,7 @@ def test_real_populated_facets_export_import_reopen_query_retry_and_reexport(
     exported = tmp_path / "portable"
     engine.portability.export(exported, export_id="export_00000000-0000-4000-8000-000000000091")
     before = validated_portable_snapshot(exported)
-    assert before.manifest["schema_version"] == 11
+    assert before.manifest["schema_version"] == 12
     operations = json.loads(before.files[FACET_OPERATIONS_PATH])["operations"]
     assert {row["principal_id"] for row in operations} == {authority.principal_id}
     events = json.loads(before.files[FACET_EVENTS_PATH])["events"]

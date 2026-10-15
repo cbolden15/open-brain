@@ -26,6 +26,7 @@ MAX_HISTORY_BYTES = 16 * 1024 * 1024
 SAFE_ERROR_CODES = frozenset(
     {
         "not_found",
+        "reapproval_required",
         "cursor_invalid",
         "cursor_stale",
         "revision_changed",
@@ -150,6 +151,15 @@ class T03AppAdapter:
         return {
             "status": "ok",
             "contract_version": CONTRACT_VERSION,
+            "response_extensions": {
+                "slack_recall": {
+                    "version": 1,
+                    "record_read_optional_fields": ["selection"],
+                    "selection_version": 1,
+                    "maximum_selection_members": 24,
+                    "error_codes": ["reapproval_required"],
+                }
+            },
             "operations": [
                 {
                     "name": operation,

@@ -57,7 +57,7 @@ from open_brain_engine.engine.privacy_repairs import (
     PrivacyRepairRequest,
 )
 from open_brain_engine.engine.sharing_contracts import SharingError, SharingInspectRequest
-from open_brain_engine.engine.t03_contracts import EffectiveAuthority, T03Error
+from open_brain_engine.engine.t03_contracts import EffectiveAuthority, SessionOrigin, T03Error
 from open_brain_engine.storage.locks import LockBusyError
 from open_brain_engine.storage.operational import (
     StorageError,
@@ -926,6 +926,13 @@ def _parser() -> argparse.ArgumentParser:
     agent_setup_parser.add_argument("--client", required=True, choices=("claude-code", "codex"))
     agent_setup_parser.add_argument("--scope", required=True, choices=("project", "user"))
     agent_setup_parser.add_argument("--project-dir")
+    agent_setup_parser.add_argument("--session-policy")
+    agent_setup_parser.add_argument("--consent-state")
+    agent_setup_parser.add_argument("--client-version")
+    agent_setup_parser.add_argument(
+        "--launch-context", help="Closed JSON declaration of the standalone client launch context."
+    )
+    agent_setup_parser.add_argument("--acknowledge-unscoped", action="store_true")
     agent_setup_parser.add_argument("--allow-capture", action="store_true")
     agent_setup_parser.add_argument("--allow-search", action="store_true")
     agent_setup_parser.add_argument("--allow-content-read", action="store_true")
@@ -1196,10 +1203,12 @@ def _add_t03_parsers(
     source_withdraw.add_argument("--request-file", required=True)
     source_withdraw.set_defaults(_catalog_discoverable=False)
 
-    sharing = subparsers.add_parser("sharing", help="Owner-approved saved-Markdown copies.")
+    sharing = subparsers.add_parser(
+        "sharing", help="Owner-approved sharing copies and Slack selections."
+    )
     _add_local_options(sharing)
     sharing_children = sharing.add_subparsers(dest="sharing_action", required=True)
-    for action in ("preview", "approve", "reject", "revoke"):
+    for action in ("preview", "approve", "reject", "revoke", "selection-create"):
         child = sharing_children.add_parser(action)
         _add_local_options(child)
         child.add_argument("--request-file", required=True)
@@ -1679,8 +1688,19 @@ def _run_agent_setup(
     if not parsed.apply and parsed.preview_id is not None:
         raise AgentSetupFailure("invalid_arguments")
     runtime_path = resolve_agent_runtime(parsed.runtime)
+    launch_context = None
+    if parsed.launch_context is not None:
+        try:
+            launch_context = json.loads(parsed.launch_context)
+        except ValueError, TypeError:
+            raise AgentSetupFailure("invalid_arguments") from None
     values = {
         "action": parsed.action,
+        "session_policy": parsed.session_policy,
+        "consent_state": parsed.consent_state,
+        "client_version": parsed.client_version,
+        "launch_context": launch_context,
+        "acknowledge_unscoped": parsed.acknowledge_unscoped,
         "allow_capture": parsed.allow_capture,
         "allow_search": parsed.allow_search,
         "allow_content_read": parsed.allow_content_read,
@@ -2250,10 +2270,13 @@ def _run_local_command(
             if enabled
         )
         selected_grants |= facet_grants_from_namespace(parsed)
-        session_authority = agent_authority(
-            principal_id="open-brain-mcp-local",
-            session_id="mcp-" + str(uuid.uuid4()),
-            grants=selected_grants,
+        session_authority = replace(
+            agent_authority(
+                principal_id="open-brain-mcp-local",
+                session_id="mcp-" + str(uuid.uuid4()),
+                grants=selected_grants,
+            ),
+            session_origin=SessionOrigin.MCP_IMPLICIT,
         )
         session_authority_revalidator: Callable[[], EffectiveAuthority] | None = None
         owner_grants = frozenset(
@@ -2269,7 +2292,10 @@ def _run_local_command(
         )
         policy_path = parsed.session_policy or parsed.capture_policy
         if selected_grants & owner_grants and policy_path is None:
-            session_authority = owner_authority(tasks, session_id="mcp-" + str(uuid.uuid4()))
+            session_authority = replace(
+                owner_authority(tasks, session_id="mcp-" + str(uuid.uuid4())),
+                session_origin=SessionOrigin.MCP_IMPLICIT,
+            )
         capture_submit_capability = None
         if policy_path is not None:
             authority_source = TrustedSessionAuthority(
@@ -2302,6 +2328,13 @@ def _run_local_command(
                 return session_authority
 
             session_authority_revalidator = revalidate_session_authority
+        retrieval = tasks.retrieval.with_authority(session_authority)
+        organization = SpaceInboxService(tasks.spaces.with_authority(session_authority))
+        workspace_tasks = replace(
+            tasks,
+            managed_workspace=tasks.managed_workspace.with_authority(session_authority),
+            managed_inference=tasks.managed_inference.with_authority(session_authority),
+        )
         if parsed.allow_capture_submit:
             capture_submit_capability = destination_bound_capture_submit(tasks, session_authority)
         review = ReviewPublicationService(
@@ -2383,17 +2416,17 @@ def _run_local_command(
                 budget=FacetSessionBudget(negotiated=negotiated.budget if negotiated else None),
             ),
             workspace_status=(
-                (lambda: workspace_status_result(tasks))
+                (lambda: workspace_status_result(workspace_tasks))
                 if local_callbacks and parsed.allow_workspace_read
                 else None
             ),
             graph_suggestions=(
-                (lambda: graph_suggestions(tasks))
+                (lambda: graph_suggestions(workspace_tasks))
                 if local_callbacks and parsed.allow_workspace_read
                 else None
             ),
             graph_projection=(
-                (lambda: graph_projection(tasks))
+                (lambda: graph_projection(workspace_tasks, authority=session_authority))
                 if local_callbacks and parsed.allow_workspace_read
                 else None
             ),
@@ -3082,7 +3115,7 @@ def _record_verified_export(
     except UnicodeDecodeError, json.JSONDecodeError, KeyError, TypeError:
         raise ValueError("Portable export manifest is unavailable") from None
     if type(manifest_version) is not int or manifest_version not in {
-        1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11
+        1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12
     }:
         raise ValueError("Portable export manifest is unavailable")
     session.prepared.revalidate()
@@ -3123,7 +3156,7 @@ def _verified_export_state(session: LocalBrainSession) -> str:
                 "schema_version",
             }
             or type(value["schema_version"]) is not int
-            or value["schema_version"] not in {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11}
+            or value["schema_version"] not in {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12}
             or canonical_json_bytes(value) != payload
             or not isinstance(value["created_at"], str)
             or not isinstance(value["export_id"], str)

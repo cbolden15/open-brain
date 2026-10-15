@@ -6,6 +6,7 @@ import json
 import re
 from collections.abc import Mapping
 from dataclasses import dataclass, field, fields
+from enum import Enum
 from types import MappingProxyType
 from typing import Any, ClassVar, cast
 
@@ -24,7 +25,7 @@ class T03Error(ValueError):
         codes = CONTRACT["definitions"]["error"]["properties"]["error"]["properties"]["code"][
             "enum"
         ]
-        if code not in codes:
+        if code not in codes and code != "reapproval_required":
             raise ValueError("invalid error code")
         self.code = code
         super().__init__(code)
@@ -32,6 +33,36 @@ class T03Error(ValueError):
 
 def validate_wire(name: str, value: object) -> Any:
     try:
+        if (
+            name == "contract.describe.response"
+            and isinstance(value, dict)
+            and "response_extensions" in value
+        ):
+            from open_brain_engine.core.ids import portable_canonical_json_bytes
+
+            from .slack_selection_validation import SLACK_RECALL_RESPONSE_EXTENSIONS
+
+            if portable_canonical_json_bytes(
+                value["response_extensions"]
+            ) != portable_canonical_json_bytes(SLACK_RECALL_RESPONSE_EXTENSIONS):
+                raise ValueError("invalid response extensions")
+            validate(
+                name, {key: field for key, field in value.items() if key != "response_extensions"}
+            )
+            return value
+        if (
+            name == "error"
+            and isinstance(value, dict)
+            and value == {"status": "error", "error": {"code": "reapproval_required"}}
+        ):
+            validate(name, {"status": "error", "error": {"code": "not_found"}})
+            return value
+        if name == "record.read.response" and isinstance(value, dict) and "selection" in value:
+            from .slack_selection_validation import validate_selection
+
+            validate_selection(value["selection"])
+            validate(name, {key: field for key, field in value.items() if key != "selection"})
+            return value
         return validate(name, value)
     except ValueError, TypeError, KeyError, UnicodeError:
         raise T03Error("invalid_arguments") from None
@@ -44,6 +75,14 @@ def parse_wire(raw: str | bytes) -> Any:
         return parse(raw)
     except ValueError, TypeError, UnicodeError:
         raise T03Error("invalid_arguments") from None
+
+
+class SessionOrigin(Enum):
+    """Trusted process context; never parsed from a client wire request."""
+
+    LOCAL_OWNER = "local_owner"
+    MCP_IMPLICIT = "mcp_implicit"
+    MCP_POLICY = "mcp_policy"
 
 
 @dataclass(frozen=True, slots=True)
@@ -63,6 +102,7 @@ class EffectiveAuthority:
     consent_id: str | None = None
     brain_id: str | None = None
     issuer_epoch: int | None = None
+    session_origin: SessionOrigin = SessionOrigin.LOCAL_OWNER
 
     def __post_init__(self) -> None:
         if (
@@ -80,6 +120,7 @@ class EffectiveAuthority:
             or type(self.allowed_capture_tiers) is not frozenset
             or any(not isinstance(tier, PrivacyTier) for tier in self.allowed_read_tiers)
             or any(not isinstance(tier, PrivacyTier) for tier in self.allowed_capture_tiers)
+            or not isinstance(self.session_origin, SessionOrigin)
             or not isinstance(self.egress_mode, EgressMode)
         ):
             raise ValueError("invalid effective authority")
@@ -100,8 +141,7 @@ class EffectiveAuthority:
         }:
             raise ValueError("invalid effective authority")
         if (self.brain_id is None) != (self.issuer_epoch is None) or (
-            self.brain_id is not None
-            and re.fullmatch(r"brn_[a-z2-7]{26}", self.brain_id) is None
+            self.brain_id is not None and re.fullmatch(r"brn_[a-z2-7]{26}", self.brain_id) is None
         ):
             raise ValueError("invalid effective authority")
         if self.egress_mode is EgressMode.OWNER_LOCAL:

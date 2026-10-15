@@ -7,6 +7,7 @@ from typing import Any
 import pytest
 from open_brain_engine.core.models import PrivacyTier
 from open_brain_engine.engine import open_local_engine
+from open_brain_engine.engine.t03_contracts import SessionOrigin
 
 from open_brain.profile import compile_single_user_local
 from open_brain.services.launcher_policy import LauncherPolicyError
@@ -63,6 +64,7 @@ def test_owner_local_policy_is_loaded_and_static_mapping_is_revalidated(
     source = TrustedSessionAuthority(tasks, policy_path=policy_path)
 
     authority = source.load()
+    assert authority.session_origin is SessionOrigin.MCP_POLICY
     assert authority.allowed_read_tiers == frozenset(
         {PrivacyTier.PUBLIC, PrivacyTier.WORK}
     )
@@ -110,6 +112,7 @@ def test_external_policy_requires_current_durable_consent(
     )
     authority = source.load()
     assert authority.egress_mode.value == "external_provider"
+    assert authority.session_origin is SessionOrigin.MCP_POLICY
 
     consent.revoke(
         consent_id=CONSENT_ID,

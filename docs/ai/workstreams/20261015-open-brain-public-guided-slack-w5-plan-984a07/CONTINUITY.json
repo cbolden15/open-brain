@@ -1,0 +1,41 @@
+{
+  "preservation_commit": "328e55bc6e6eb8551ad6057029e8f70617880651",
+  "w4_tested_head": "7818f4f3138b887220c414119be9ac16e28b0a80",
+  "files": [
+    {
+      "path": "docs/ai/workstreams/20261015-open-brain-public-slack-recall-w4-execution-4f6ce3/HANDOFF.json",
+      "sha256": "ba868dd27686433f08e6a0ab53a4b4216cab56a917c1bf74990d64d888eb01e8",
+      "bytes": 3142
+    },
+    {
+      "path": "docs/ai/workstreams/20261015-open-brain-public-slack-recall-w4-execution-4f6ce3/HANDOFF.md",
+      "sha256": "d4ef370ba9266009b72f28fb154787a5d403db085e213c3e65ec1aeb11961d2e",
+      "bytes": 3289
+    },
+    {
+      "path": "docs/ai/workstreams/20261015-open-brain-public-slack-recall-w4-execution-4f6ce3/STATE.md",
+      "sha256": "03bd74d47c2741cd754116500ee75f62be866745f3e9ed2c912f0de5847ab803",
+      "bytes": 4843
+    },
+    {
+      "path": "docs/plans/2026-10-14-slack-cited-decision-recall.md",
+      "sha256": "1b6b89f47f531290701d1e5b5e91391a351d28c76571e895d2aa742681038c50",
+      "bytes": 51188
+    },
+    {
+      "path": "docs/plans/2026-10-14-slack-cited-decision-recall.workflow.md",
+      "sha256": "6029d0972124399b26c90949ea809757e13fa3d3968d9a765dffdade2635719b",
+      "bytes": 24041
+    },
+    {
+      "path": "docs/ai/workstreams/20261015-open-brain-public-slack-recall-w4-execution-4f6ce3/ACCEPTANCE.json",
+      "sha256": "17d414235883e24b1c753b609f5366d4909b08f80775940d98b48fe907d9f18e",
+      "bytes": 15955
+    },
+    {
+      "path": "docs/ai/workstreams/20261015-open-brain-public-slack-recall-w4-execution-4f6ce3/ACCEPTANCE.md",
+      "sha256": "6c84aef5aeed70e81404ae86712e04ed652e7ee30f9479e247d49b16b0b786cd",
+      "bytes": 1624
+    }
+  ]
+}
