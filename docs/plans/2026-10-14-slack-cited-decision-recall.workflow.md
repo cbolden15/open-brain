@@ -17,7 +17,7 @@ The fastest credible path is the plan's approved Work-copy architecture, impleme
 | Approved copies with stronger default session gating | Requires explicit policy before Slack Work reads, rather than relying on detecting unscoped configurations. Changes existing defaults and compatibility expectations. | Owner option before W2; estimate and test the change separately. |
 | Controlled egress and deterministic evidence broker | Enforces destination, evidence bounds and tool isolation at a controlled boundary. A network broker belongs in a separate distribution; deterministic pre-model retrieval also changes this slice's no-runner boundary. | Proper architecture for end-to-end transport/tool enforcement. Separate project; feasibility, client integration and effort remain unverified. |
 
-Planning target: 6–10 working days elapsed with a familiar coordinator and up to two active implementers, compared with the plan's 8–14 day solo estimate. This is a scheduling estimate, not a measured speedup. Re-estimate after W0 and the first W1 slice. Owner decision delay, repository-wide regressions and native build duration can erase the saving.
+Revised planning target after B/B/B: W2 requires **6–10 engineer-days**, with a **4–7 working day elapsed** allowance for a familiar coordinator and two bounded implementers after contract freeze. W3/W4 add their separate 1–2 days each. This replaces the original scheduling baseline, is not a measured agent speedup, and excludes private pilot runs and new persisted-format work. See the [W2 scope and feasibility assessment](/Users/calebbolden/Projects/oss/open-brain-public-worktrees/slack-cited-recall-w0-20261014-006b67/docs/plans/2026-10-14-slack-cited-decision-recall.w2-scope.md).
 
 ## Grounding and authority
 
@@ -75,12 +75,13 @@ Portable is on the critical path. Do not defer it to a final documentation pass.
 
 ### Phase 3: W2 after the owner decision gate
 
-The owner selected option B for all three risks in the plan's "Owner decisions" section: explicit policy for Slack Work MCP reads, endpoint/proxy visibility in setup preview, and recorded injection-resistance evidence before private pilot use. Prepare a revised bounded W2 scope and estimate before production work, including verification of client-visible settings support. W2 implementation remains separately authorized work.
+The owner selected option B for all three risks in the plan's "Owner decisions" section: explicit policy for Slack Work MCP reads, endpoint/proxy visibility in setup preview, and recorded injection-resistance evidence before private pilot use. The revised W2 scope and estimate now documents observed client-settings feasibility, remaining synthetic compatibility checks and read-path closure. W2 implementation remains separately authorized work.
 
-1. Forward policy/consent options through preview/apply/remove and the CLI into the existing MCP invocation. Bind effective authority and relevant preimages; reject incompatible grants and unsafe/stale paths. Preserve defaults and existing desktop/plugin callers.
-2. Detect all relevant unscoped Open Brain entries in the managed files for both clients, including unowned entries. Refuse scoped apply until removal or a preview-bound explicit acknowledgment. Change only owned fragments.
-3. Test changes/revocation during an active session and cleanup after policy deletion. Confirm no fallback to unscoped access, no model/provider-setting edits, and no raw originals or decoys returned by search or guessed-ID reads.
-4. Run W2 focused tests and `make verify`; independently review configuration mutation and authority boundaries. Commit and hand off when acceptance passes.
+1. Freeze the finite settings/version observation contract and trusted internal MCP provenance with synthetic fixtures. Recheck current main coordinates; do not infer effective transport, silently accept unsupported layers or preassign a new storage format.
+2. Implement source-aware Slack Work eligibility across legacy/current/owner-elevated MCP reads before ranking, digests, cursors and projection. Prove closure for metadata, auxiliary callbacks, mixed-source and content-returning mutations. Local owner CLI and non-Slack defaults remain covered.
+3. Forward policy/consent through scoped setup and bind observed settings, absence, selected roots, relevant environment inputs and mutation preimages into preview/apply. Preserve unrelated settings and legacy desktop/plugin caller shapes.
+4. Detect unscoped entries across both clients' managed user/project files, including unowned entries. Require removal or preview-bound acknowledgment; mutate owned fragments only. Prove safe cleanup after policy deletion/revocation and no unscoped fallback.
+5. Run focused and full checks, required native gates and independent authority/configuration verification. Define the later private-pilot injection gate; actual-client execution waits for separate authorization after W3. Commit and hand off before another implementation milestone.
 
 Preparation while W1 runs is limited to reading the current setup implementation, collecting contract questions and designing tests. Do not code a chosen owner-risk branch before the decision gate.
 

@@ -97,7 +97,7 @@ Record every traversed page/read completion flag. When a read response reports s
 
 ## Ordered work packages
 
-Implement one package at a time. Later packages depend on the earlier acceptance checks passing. Estimates assume one engineer familiar with this repository: approximately **8–14 working days**, excluding Slack app approval, private deployment and external-provider availability. W1a/W1b dominate because together they are a storage-format revision as well as a sharing contract.
+Implement one package at a time. Later packages depend on the earlier acceptance checks passing. W0 and W1a/W1b are complete. After the owner selected B/B/B, remaining W2–W4 repository work is approximately **8–14 engineer-days** for a familiar engineer, including **6–10 for revised W2** and 1–2 each for W3/W4. This replaces the original W2 estimate; private pilot evidence, provider availability and separately scoped compatibility migrations are excluded. See the [revised W2 scope and client-settings feasibility](/Users/calebbolden/Projects/oss/open-brain-public-worktrees/slack-cited-recall-w0-20261014-006b67/docs/plans/2026-10-14-slack-cited-decision-recall.w2-scope.md).
 
 ### W0 Baseline and failing journey fixture
 
@@ -141,14 +141,15 @@ Estimate: 2–3 days. Depends on W1a.
 
 ### W2 Preview-bound Work client setup
 
-Estimate: 0.5–1.5 days. Depends on W1b.
+Estimate: **6–10 engineer-days**, or a planning allowance of **4–7 working days elapsed** with two bounded implementers after contract freeze. Depends on accepted W1b and the recorded B/B/B choices. Implementation remains separately authorized. The [revised scope and feasibility assessment](/Users/calebbolden/Projects/oss/open-brain-public-worktrees/slack-cited-recall-w0-20261014-006b67/docs/plans/2026-10-14-slack-cited-decision-recall.w2-scope.md) defines the finite client-settings contract, acceptance and re-estimation conditions.
 
-1. Extend the setup request/service and owner CLI parser with the two policy/consent options. Forward them to the existing MCP invocation without adding a new transport.
-2. Include selected Work scope, read grants, egress/provider identity and relevant file preimages in preview validation. Refuse stale apply, unsafe/missing files, another Brain's consent and attempts to combine this workflow with owner-authority write grants. Report and refuse a coexisting unscoped owned fragment for the same client as described under scoped client setup.
-3. Generate concise evidence-use guidance for Claude Code and Codex without changing their selected model or unrelated configuration. Keep generic MCP use available through the existing manual invocation for other compatible clients.
-4. Test preview/apply/remove, untouched defaults, changed policy/consent, revocation during a running session and ownership-preserving removal in synthetic client profiles. Removal must also succeed after policy deletion or consent revocation without restoring read access.
+1. Freeze supported client versions, settings/profile inputs, override provenance and trusted internal MCP policy context using synthetic fixtures. A settings snapshot describes observed configuration, not actual network transport or another process's environment.
+2. Require explicit policy for every Slack-sourced Work MCP read through shared engine eligibility before ranking, generation digests, pagination and projection. Close legacy search, implicit owner elevation, metadata, auxiliary callbacks, mixed-source and content-returning mutation paths. Keep direct local CLI and unrelated non-Slack defaults intact.
+3. Forward policy/consent through setup service, owner CLI and closed DTOs into existing MCP. Bind read-only settings observations, presence/absence, policy/consent and mutation preimages into preview/apply; sanitize endpoint/proxy reports and refuse unsupported relevant layers. Preserve model/provider settings and old desktop/plugin caller behavior.
+4. Detect unscoped entries in the managed files for both clients, regardless of ownership marker. Refuse scoped apply until removal or preview-bound acknowledgment; mutate only owned fragments. Removal must work after policy deletion or consent revocation and cannot restore access.
+5. Verify all read and configuration boundaries with focused tests, independent review and `make verify`, plus required native gates. Define the injection-resistance pilot acceptance contract for W3/W4; run no actual-client/provider check as part of W2 implementation acceptance.
 
-**Acceptance:** Installed fragments launch only the intended scoped session. Personal records, unrelated Work-space records and same-space local-only originals cannot be discovered, affect returned evidence, or be fetched by guessing IDs. Policy changes terminate the old session; reconnection does not reuse revoked consent. A coexisting unscoped fragment is reported and blocks scoped apply until removed or acknowledged. No owner grant or credential is introduced.
+**Acceptance:** Every MCP path that can expose Slack-derived Work content or metadata is gated or proven unreachable, including legacy and owner-elevated paths. An explicit policy still cannot release raw local-only originals externally. Forbidden records cannot affect ranking, counts, cursors, content, source expansion or selection disclosure. Snapshot changes stale apply; unsupported inputs do not become inferred defaults. Policy changes/revocation refuse the old session; cleanup does not require current authorization. Frozen contracts and old setup caller shapes remain covered. The guarantee applies to the new runtime; older-binary fencing or persisted-format changes require separate scope and estimate.
 
 **Targets:** [/Users/calebbolden/Projects/oss/open-brain-public/packages/app/src/open_brain/services/agent_setup.py](/Users/calebbolden/Projects/oss/open-brain-public/packages/app/src/open_brain/services/agent_setup.py:422), CLI parser, setup DTOs/callers and existing setup/session tests in E5. Keep desktop setup callers on their old defaults; no desktop feature or release work is included.
 
