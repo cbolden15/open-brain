@@ -105,6 +105,7 @@ uv sync --frozen --group dev --group native-build
 make lint
 make typecheck
 make test
+make test-fast
 make build
 make plugin-test
 make verify
