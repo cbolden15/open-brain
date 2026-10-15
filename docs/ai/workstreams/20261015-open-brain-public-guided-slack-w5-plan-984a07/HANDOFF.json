@@ -4,7 +4,7 @@
   "workstream": "20261015-open-brain-public-guided-slack-w5-plan-984a07",
   "milestone": "W5-guided-slack-workflow-planning",
   "branch": "feat/slack-cited-recall-w4-20261015-6d407b",
-  "head": "328e55bc6e6eb8551ad6057029e8f70617880651",
+  "head": "44eb5c606587953e9fb8011d19372e318a32dd79",
   "last_verified": {
     "command": "Plan/source reference checks; independent Astra source-grounded review; git diff --check; actionlint .github/workflows/ci.yml",
     "result": "passed: 16 source links, reviewed plan SHA-256 matched, three findings resolved, seven W4 continuity files unchanged. No implementation/full/native/live checks claimed."
@@ -19,5 +19,9 @@
   "safe_to_start_new_thread": true,
   "plan_path": "/Users/calebbolden/Projects/oss/open-brain-public-worktrees/slack-cited-recall-w4-20261015-6d407b/docs/plans/2026-10-15-guided-slack-workflow-w5.md",
   "plan_sha256": "a3b384a9b9a626e14ace4f3e14b2eaf784d9c89c0400601818dfa57bb053fce7",
-  "worktree": "/Users/calebbolden/Projects/oss/open-brain-public-worktrees/slack-cited-recall-w4-20261015-6d407b"
+  "worktree": "/Users/calebbolden/Projects/oss/open-brain-public-worktrees/slack-cited-recall-w4-20261015-6d407b",
+  "post_commit_uncommitted_files": [
+    "/Users/calebbolden/Projects/oss/open-brain-public-worktrees/slack-cited-recall-w4-20261015-6d407b/docs/ai/workstreams/20261015-open-brain-public-guided-slack-w5-plan-984a07/HANDOFF.json",
+    "/Users/calebbolden/Projects/oss/open-brain-public-worktrees/slack-cited-recall-w4-20261015-6d407b/docs/ai/workstreams/20261015-open-brain-public-guided-slack-w5-plan-984a07/HANDOFF.md"
+  ]
 }

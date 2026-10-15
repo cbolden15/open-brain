@@ -5,7 +5,7 @@ status: complete
 workstream: 20261015-open-brain-public-guided-slack-w5-plan-984a07
 milestone: W5-guided-slack-workflow-planning
 branch: feat/slack-cited-recall-w4-20261015-6d407b
-head: 328e55bc6e6eb8551ad6057029e8f70617880651
+head: 44eb5c606587953e9fb8011d19372e318a32dd79
 last_verified.command: Plan/source reference checks; independent Astra source-grounded review; git diff --check; actionlint .github/workflows/ci.yml
 last_verified.result: passed: 16 source links, reviewed plan SHA-256 matched, three findings resolved, seven W4 continuity files unchanged. No implementation/full/native/live checks claimed.
 changes: ["W4 final continuity preserved byte-exact in local commit 328e55b","Bounded W5 proposal with five ordered packages, acceptance cases and 8–15 engineer-day conditional estimate","New planning workstream and independent source/review receipts"]
