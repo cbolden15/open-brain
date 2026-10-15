@@ -27,6 +27,15 @@ reads before cross-process sessions; see SHARING-001 and COLLECTOR-002. Select
 a known non-anchor message for edit tests rather than a random source-ID order,
 so the still-approved anchor remains a valid external selection entry point.
 
+The plugin facet transport fixture launches checkout/.venv/bin/open-brain directly,
+so UV_PROJECT_ENVIRONMENT alone is insufficient in a fresh worktree. Provide its
+expected executable using the same task environment before a full gate. An actual
+ignored .venv directory with an external bin alias preserves the short environment
+path; a .venv symlink itself does not match the directory-only ignore pattern.
+Verify the alias is ignored and points to the current source environment. The
+first W3 full gate passed all 7,474 Python cases but failed eight plugin children
+until that local environment prerequisite was present; all eight then passed.
+
 Discovered: 2026-10-15, W3 real-stdio journey; failed logs/fixtures retained.
 
 ### MCP-002: Source-only selection expansion must not receive canonical page IDs

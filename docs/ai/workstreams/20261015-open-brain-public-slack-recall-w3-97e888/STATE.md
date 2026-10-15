@@ -35,3 +35,9 @@ Assumption: W3 remains test and documentation work using accepted W1/W2 APIs. No
 - Final deterministic non-anchor case passed 17.79s. Astra independently passed 50 tests in 18.16s (all 49 driver controls plus real-stdio nine-member repair). Final partial-line readiness stabilization passed independently in 0.62s; it excludes interpreter startup from the stalled-line deadline. No remaining findings.
 - Full lint/typecheck passed across 673 files after the final correction. Guide examples remain verified and frozen. Runtime/compatibility/native/packaging inputs are unchanged from accepted W2; native gates are not required for this tests/docs milestone and W4 is deferred.
 - All three worker slots released. Implementation and guide are frozen. Coordinator commits this candidate before complete make verify, diff check and actionlint; all checkout inputs including docs/continuity stay frozen during those checks.
+
+## Full gate environment recovery
+
+- First full gate at06373af: Python7474 passed, five filesystem skips, one existing fork warning in2160.78s; package builds passed. Eight plugin facet-transport children failed bridge_closed because the fixture directly launches checkout/.venv/bin/open-brain, absent with only external UV_PROJECT_ENVIRONMENT. Full gate exit2 in2175.26s. All1897 frozen inputs unchanged; complete failed logs/receipts retained externally.
+- Local prerequisite repaired without source/runtime/test changes: actual ignored .venv directory, bin alias to /tmp/ob-w3-venv/bin. A root symlink alone is untracked under the directory-only ignore rule, so it was replaced. Git ignore and executable resolution checked. Focused eight plugin failures all passed in12.01s. Astra independently confirmed diagnosis and unchanged source imports/transport.
+- Record prevention before repeating required full gate. No production limits were weakened. Tail build/plugin/desktop checks and full make verify remain pending.
