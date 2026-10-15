@@ -23,6 +23,7 @@ import json
 import stat
 import tomllib
 from pathlib import Path
+from typing import TypedDict
 from urllib.parse import urlsplit, urlunsplit
 
 import pytest
@@ -51,6 +52,14 @@ CODEX_PROJECT_IGNORED = frozenset(
         "profiles",
     }
 )
+
+
+class ContextOverrides(TypedDict, total=False):
+    surface: str
+    root_is_cwd: bool
+    worktree: bool
+    managed_state: str
+    unresolved_overrides: bool
 
 
 def require_supported_context(
@@ -275,7 +284,7 @@ def test_version_and_context_support_is_explicit(client: str) -> None:
         {"unresolved_overrides": True},
     ],
 )
-def test_known_unsupported_context_refuses(context: dict[str, object]) -> None:
+def test_known_unsupported_context_refuses(context: ContextOverrides) -> None:
     with pytest.raises(ValueError, match="unsupported observation context"):
         require_supported_context("claude", VERSIONS["claude"], **context)
 

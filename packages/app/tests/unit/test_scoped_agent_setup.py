@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import pytest
 from open_brain_engine.core.models import PrivacyTier
@@ -20,6 +20,7 @@ from open_brain.services.agent_settings_observation import (
 )
 from open_brain.services.agent_setup import (
     AgentSetupFailure,
+    FileWriter,
     apply_agent_setup,
     preview_agent_setup,
 )
@@ -133,9 +134,14 @@ def preview(state: dict[str, Any]) -> dict[str, object]:
     return preview_agent_setup(state["selection"], **state["inputs"])
 
 
-def apply(state: dict[str, Any], before: dict[str, object], **extra: object) -> dict[str, object]:
+def apply(
+    state: dict[str, Any], before: dict[str, object], *, write_file: FileWriter | None = None
+) -> dict[str, object]:
     return apply_agent_setup(
-        state["selection"], preview_id=before["preview_id"], **state["inputs"], **extra
+        state["selection"],
+        preview_id=before["preview_id"],
+        **state["inputs"],
+        write_file=write_file,
     )
 
 
@@ -203,7 +209,7 @@ def test_unowned_other_client_entry_requires_bound_acknowledgment(
         preview(state)
     state["inputs"]["acknowledge_unscoped"] = True
     before = preview(state)
-    assert before["settings_observation"]["unscoped_entries"] == [
+    assert cast(dict[str, object], before["settings_observation"])["unscoped_entries"] == [
         {"source": "codex-user", "count": 1}
     ]
     apply(state, before)
@@ -365,7 +371,7 @@ def test_selected_project_nested_claude_mcp_is_detected(configured: dict[str, An
     with pytest.raises(AgentSetupFailure, match="setup_conflict"):
         preview(state)
     state["inputs"]["acknowledge_unscoped"] = True
-    assert preview(state)["settings_observation"]["unscoped_entries"] == [
+    assert cast(dict[str, object], preview(state)["settings_observation"])["unscoped_entries"] == [
         {"source": "claude-user-mcp", "count": 1}
     ]
 

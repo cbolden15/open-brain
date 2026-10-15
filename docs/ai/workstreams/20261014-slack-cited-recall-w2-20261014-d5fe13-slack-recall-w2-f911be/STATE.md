@@ -37,3 +37,11 @@
 - Optional HarnessMcpAdapter policy read authorities now explicitly carry MCP_POLICY; mandatory host-pinned HarnessPolicy, consent and memory decoding remain unchanged.
 - Coordinator graph cache regression passed in 2.44s. Whole-workspace cache is refused before access for implicit MCP; global metadata is not projected.
 - All source/document/continuity writers frozen before required combined checks. Results are retained externally so no checkout edits occur during fingerprint-bound checks.
+
+## Full gate recovery
+
+- First make verify attempt stopped at mypy: eight test annotation errors in three new modules, 11.13 seconds, exit 2. Complete log retained externally; frozen file inventory unchanged during run.
+- Sol implementers repaired only test annotations. Setup 102 tests passed in 11.21s; engine 13 tests passed in 21.51s.
+- Coordinator full make typecheck passed: 671 source files. No production code changed in recovery.
+- Corrected the user guide's pre-existing 10/5 coordinate statement to 17/12/12 and explained unchanged same-coordinate older-binary admission.
+- Prevention registry updated. All writers frozen again. Dispatch ledger: 11 bounded task turns / 12, three unique child identities; one final review turn reserved.

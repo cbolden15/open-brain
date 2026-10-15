@@ -14,7 +14,12 @@ function for the callback and check the observer together with scoped setup and
 agent setup, then run the complete build/typecheck gate. Shared callback contracts
 also affect CLI/plugin consumers; a single-file check cannot establish closure.
 
-Discovered: 2026-10-14, W2 settings implementation; targeted dependent mypy checks passed.
+The full gate subsequently caught dynamic fixture dictionary and nullable-ID
+annotations in new tests that production-only mypy had not checked. Include new
+test modules in focused typechecks; pytest success does not establish typing.
+Retain the failed full-gate log, fix the annotations and repeat the full gate.
+
+Discovered: 2026-10-14, W2 settings implementation and full candidate verification.
 
 ### STORAGE-001: Review reads can borrow the active writer transaction
 

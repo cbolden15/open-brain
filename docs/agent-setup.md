@@ -155,9 +155,11 @@ a capture when the user asks. Routing changes assignment and search metadata. It
 the capture, change its trust, or convert it into a canonical note. Generated instructions name only
 the explicitly granted tools and limit organization to the current user request.
 
-The candidate uses private schema version 10 and runtime session version 5. Stop older sessions before
-upgrading an existing Brain. Older runtimes reject the newer schema, so update other installed clients
-before using them on that Brain. After moving the app or upgrading a CLI whose versioned path changes, preview setup again.
+The candidate uses private schema version 17, runtime session version 12 and Portable version 12.
+Stop older sessions before upgrading an existing Brain. Compatibility admission remains unchanged;
+W2 adds no storage fence against an older binary at the same coordinates. Use the upgraded runtime
+for its MCP policy boundary. After moving the app or upgrading a CLI whose versioned path changes,
+preview setup again.
 
 ## Update or remove
 

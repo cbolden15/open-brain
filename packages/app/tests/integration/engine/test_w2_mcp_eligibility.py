@@ -230,6 +230,7 @@ def test_retained_slack_revisions_and_mixed_canonical_cannot_escape(tmp_path: Pa
         delivery_id="w2.mixed.approve",
         expected_review_digest=proposal.review_digest,
     )
+    assert decided.page_id is not None
     implicit = replace(owner, session_origin=SessionOrigin.MCP_IMPLICIT)
     assert engine.retrieval.with_authority(implicit).fetch(ordinary) is not None
     assert engine.retrieval.with_authority(implicit).fetch(decided.page_id) is None
