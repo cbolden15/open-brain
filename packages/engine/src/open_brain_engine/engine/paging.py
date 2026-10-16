@@ -543,7 +543,8 @@ def read_record(
 
         if projected.summary["record_type"] == "source":
             selection = read_selection(
-                connection, engine.profile, projected.summary["record_id"], authority
+                connection, engine.profile, projected.summary["record_id"], authority,
+                history=history,
             )
             if selection is not None:
                 response["selection"] = selection

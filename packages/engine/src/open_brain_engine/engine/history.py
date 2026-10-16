@@ -11,6 +11,7 @@ from open_brain_engine.portable.v4 import canonical_revision_id
 from open_brain_engine.storage.filesystem import read_confined
 
 from .cursors import CursorStore, binding_digest
+from .mcp_eligibility import lifecycle_capture_visible, record_visible
 from .normalization import _dated_path
 from .paging import (
     MAX_RESPONSE_BYTES,
@@ -140,7 +141,8 @@ def history_entries(projector: RecordProjector, record_id: str) -> list[dict[str
                     "lifecycle": source["lifecycle"],
                     "availability": source["availability"],
                     "is_current": not source["historical_only"]
-                    and row["capture_id"] == source["head_capture_id"],
+                    and row["capture_id"] == source["head_capture_id"]
+                    and lifecycle_capture_visible(projector.connection, row["capture_id"]),
                     "provenance": projected.summary["provenance"],
                 }
             )
@@ -155,7 +157,10 @@ def history_entries(projector: RecordProjector, record_id: str) -> list[dict[str
                     "reason": version["reason"],
                     "lifecycle": "active",
                     "availability": "available",
-                    "is_current": version["revision_id"] == current.summary["revision_id"],
+                    "is_current": version["revision_id"] == current.summary["revision_id"]
+                    and record_visible(
+                        projector.connection, "canonical", record_id, projector.authority
+                    ),
                     "provenance": projected.summary["provenance"],
                 }
             )

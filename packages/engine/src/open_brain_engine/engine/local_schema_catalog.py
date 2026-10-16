@@ -2,6 +2,7 @@
 
 from open_brain_engine.storage.migrations import Migration, _migration
 
+from .capture_lifecycle_schema import CAPTURE_LIFECYCLE_MIGRATION
 from .development_schema import DEVELOPMENT_MIGRATION
 from .facet_schema_migration import FACET_MIGRATION
 from .historical_compatibility_schema import HISTORICAL_STORED_V2_BOUNDS
@@ -1570,3 +1571,5 @@ LOCAL_MIGRATIONS += (FACET_MIGRATION,)
 LOCAL_MIGRATIONS += (DEVELOPMENT_MIGRATION,)
 
 LOCAL_MIGRATIONS += (SLACK_SHARING_MIGRATION,)
+
+LOCAL_MIGRATIONS += (CAPTURE_LIFECYCLE_MIGRATION,)

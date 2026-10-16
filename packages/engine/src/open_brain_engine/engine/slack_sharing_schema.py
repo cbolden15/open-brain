@@ -66,7 +66,7 @@ def migrate_slack_sharing(
     committed = False
     try:
         state = classify_local_schema(connection)
-        if state.state == "current" and state.version == 17:
+        if state.state in {"current", "supported_old"} and state.version in {17, 18}:
             return
         if state.state != "supported_old" or state.version != 16:
             raise T03Error("operation_pending")
@@ -80,7 +80,8 @@ def migrate_slack_sharing(
             migrations=LOCAL_MIGRATIONS[:17],
             schema_version=17,
         )
-        if classify_local_schema(connection).state != "current":
+        upgraded = classify_local_schema(connection)
+        if upgraded.state not in {"current", "supported_old"} or upgraded.version != 17:
             raise T03Error("operation_pending")
         checkpoint("slack_sharing_before_commit")
         require_historical_snapshot_settled(connection, profile)

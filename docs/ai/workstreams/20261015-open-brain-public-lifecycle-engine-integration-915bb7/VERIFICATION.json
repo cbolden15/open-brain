@@ -1,0 +1,61 @@
+{
+  "workstream": "20261015-open-brain-public-lifecycle-engine-integration-915bb7",
+  "baseline": "7bae56004ed8939ada7b1f1b012533300a2d1530",
+  "branch": "feat/competitive-gap-reconciliation",
+  "candidate_file_count": 108,
+  "candidate_manifest_sha256": "b7d98571f2172cc0b90d8d7e52e6226eee4364912342fcde39626fa28f7641d0",
+  "result": "passed in stages; all verify prerequisites covered",
+  "python_reuse": "All Python source bytes match the successful complete Python run. Subsequent changes are plugin TypeScript coordinate propagation and documentation only. Python and plugin prerequisites were reused explicitly for remaining make targets.",
+  "checks": [
+    {
+      "command": "PYTEST_ADDOPTS= PYTEST_XDIST_AUTO_NUM_WORKERS=4 UV_PROJECT_ENVIRONMENT=/tmp/open-brain-lifecycle-15036c-venv make verify",
+      "result": "Python prerequisite passed:7661 passed,5 skipped,1 existing warning in1349.74s; invocation subsequently stopped at plugin-test before handshake propagation",
+      "exit_code": 2,
+      "log": "/tmp/ob-915bb7-passing-verify.log",
+      "log_sha256": "86fda0acd59127dd61dd57464991a47fb46a2275ffd28f00bd8178e72d55f4cb"
+    },
+    {
+      "command": "npm --prefix packages/obsidian-plugin run typecheck",
+      "result": "passed",
+      "exit_code": 0
+    },
+    {
+      "command": "npm --prefix packages/obsidian-plugin test -- --maxWorkers=1",
+      "result": "700 passed across16 files in34.66s; unchanged assertions and readiness deadlines",
+      "exit_code": 0,
+      "log": "/tmp/ob-915bb7-plugin-final.log",
+      "log_sha256": "756d46bbc4707a1e6985b9ab9eba4034b66efc0e1a562f6bce69bdcf72eb1d48"
+    },
+    {
+      "command": "PYTEST_ADDOPTS= UV_PROJECT_ENVIRONMENT=/tmp/open-brain-lifecycle-15036c-venv make -o test -o plugin-test verify",
+      "result": "passed:lint,mypy689 files,all four wheel/sdist builds,plugin build/typecheck,desktop286 UI tests,30 Python tests,26 Rust tests,cargo fmt",
+      "exit_code": 0,
+      "log": "/tmp/ob-915bb7-verify-remaining.log",
+      "log_sha256": "c3620759173fb66ffe44202c02bb041cf55219ebbe40c92ba191b7809f92a94a"
+    },
+    {
+      "command": "UV_PROJECT_ENVIRONMENT=/tmp/open-brain-native-915bb7-venv make native-audit homebrew-smoke",
+      "result": "passed:rebuilt current core/harness/Graphify and plugin assets,audit,installed journey,self-check;existing_product preserved",
+      "exit_code": 0,
+      "log": "/tmp/ob-915bb7-native-final.log",
+      "log_sha256": "df3cac4598ff18692e7cf5d6c974ee7887614a37326a78fd97b05076c5a7f38e"
+    },
+    {
+      "command": "git diff --check",
+      "result": "passed",
+      "exit_code": 0
+    },
+    {
+      "command": "actionlint .github/workflows/ci.yml",
+      "result": "passed",
+      "exit_code": 0
+    }
+  ],
+  "known_limits": [
+    "Five macOS filesystem skips and existing fork warning.",
+    "Default/two-worker plugin runs had two readiness flakes;complete serial run passed without deadline or assertion changes.",
+    "Internal owner quick-text lifecycle seam only;consumer importer/owner preview and model resources remain separate.",
+    "Performance PR83 remains open and absent from main/this feature branch."
+  ],
+  "push": "not requested;not performed"
+}

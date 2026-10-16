@@ -1,9 +1,7 @@
-"""Isolated lifecycle evidence journal; not installed in the live schema catalog.
+"""Immutable lifecycle evidence with isolated and schema18 engine adapters.
 
-This component supplies transaction, replay and staging invariants for the later
-schema18 integration. It neither admits source captures nor grants authority.
-Callers own the SQLite transaction and must perform full engine admission before
-using it. Installing it into an existing database is deliberately refused.
+Callers own the transaction and source admission. The isolated installer remains
+closed to existing databases; production uses the explicitly fenced adapter.
 """
 
 from __future__ import annotations
@@ -361,11 +359,52 @@ class LifecycleJournal:
         self.connection = connection
         self.brain_id = brain_id
         self.issuer_epoch = issuer_epoch
+        self._embedded = False
+
+    @classmethod
+    def for_engine(
+        cls, connection: sqlite3.Connection, *, brain_id: str, issuer_epoch: int
+    ) -> LifecycleJournal:
+        """Open only the live schema18 journal, within a caller-owned snapshot."""
+        if not connection.in_transaction:
+            raise LifecycleError("local_operation_failed")
+        version = connection.execute("PRAGMA user_version").fetchone()[0]
+        floor = connection.execute("SELECT * FROM runtime_compatibility").fetchall()
+        identity = connection.execute(
+            "SELECT brain_id,issuer_epoch FROM brain_identity WHERE singleton=1"
+        ).fetchone()
+        journal_identity = connection.execute("SELECT * FROM lifecycle_journal_identity").fetchall()
+        if (
+            version != 18
+            or [tuple(row) for row in floor] != [(1, 13, 18)]
+            or identity is None
+            or tuple(identity) != (brain_id, issuer_epoch)
+            or [tuple(row) for row in journal_identity] != [(1, JOURNAL_CONTRACT, brain_id)]
+        ):
+            raise LifecycleError("invalid_evidence")
+        journal = cls.__new__(cls)
+        journal.connection = connection
+        journal.brain_id = brain_id
+        journal.issuer_epoch = issuer_epoch
+        journal._embedded = True
+        return journal
+
+    def _shape_matches(self) -> bool:
+        if not self._embedded:
+            return _shape(self.connection) == _expected_shape()
+        shape = tuple(
+            tuple(row)
+            for row in self.connection.execute(
+                "SELECT type,name,tbl_name,sql FROM sqlite_master "
+                "WHERE tbl_name GLOB 'lifecycle_journal_*' ORDER BY type,name"
+            )
+        )
+        return shape == _expected_shape()
 
     def _state(self) -> _State:
         if not self.connection.in_transaction:
             raise LifecycleError("local_operation_failed")
-        if _shape(self.connection) != _expected_shape():
+        if not self._shape_matches():
             raise LifecycleError("invalid_evidence")
         requests: dict[str, LifecycleRequest] = {}
         for operation, raw, request_hash in self.connection.execute(
@@ -600,7 +639,11 @@ class LifecycleJournal:
         return self._state().generation
 
     def export_evidence(self) -> bytes:
-        """Export a bounded component fixture, not a Portable13 Brain archive."""
+        """Preserve the bounded isolated component snapshot contract."""
+        return canonical_bytes(self.export_evidence_value())
+
+    def export_evidence_value(self) -> dict[str, object]:
+        """Validated terminal records; Portable stores payloads as separate files."""
         state = self._state()
         if any(state.status.get(operation) not in _TERMINAL for operation in state.requests):
             raise LifecycleError("operation_pending")
@@ -615,19 +658,17 @@ class LifecycleJournal:
                     "event_sha256": event_hash,
                 }
             )
-        return canonical_bytes(
-            {
-                "contract": JOURNAL_CONTRACT,
-                "schema_sha256": JOURNAL_SCHEMA_SHA256,
-                "brain_id": self.brain_id,
-                "requests": requests,
-                "events": events,
-                "payloads": {
-                    key: base64.b64encode(raw).decode("ascii")
-                    for key, raw in sorted(state.blobs.items())
-                },
-            }
-        )
+        return {
+            "contract": JOURNAL_CONTRACT,
+            "schema_sha256": JOURNAL_SCHEMA_SHA256,
+            "brain_id": self.brain_id,
+            "requests": requests,
+            "events": events,
+            "payloads": {
+                key: base64.b64encode(raw).decode("ascii")
+                for key, raw in sorted(state.blobs.items())
+            },
+        }
 
 
 def restore_lifecycle_journal(
@@ -635,8 +676,21 @@ def restore_lifecycle_journal(
 ) -> LifecycleJournal:
     """Validate in a disposable database before touching the empty destination."""
     try:
+        value = decode_canonical(evidence)
+    except (ValueError, TypeError, RecursionError):
+        raise LifecycleError("invalid_evidence") from None
+    return restore_lifecycle_journal_value(
+        connection, value, brain_id=brain_id, issuer_epoch=issuer_epoch
+    )
+
+
+def restore_lifecycle_journal_value(
+    connection: sqlite3.Connection, evidence: object, *, brain_id: str, issuer_epoch: int
+) -> LifecycleJournal:
+    """Validate per-record contracts and replay, without a global payload-byte ceiling."""
+    try:
         value = _object(
-            decode_canonical(evidence),
+            evidence,
             {
                 "contract",
                 "schema_sha256",
@@ -713,7 +767,7 @@ def restore_lifecycle_journal(
                     ),
                 )
             verified = LifecycleJournal(staging, brain_id=brain_id, issuer_epoch=issuer_epoch)
-            if verified.export_evidence() != evidence:
+            if verified.export_evidence_value() != evidence:
                 raise LifecycleError("invalid_evidence")
             # No destination write occurs until canonical and semantic validation pass.
             with _atomic(connection):
@@ -732,3 +786,40 @@ def restore_lifecycle_journal(
             staging.close()
     except ValueError, TypeError, KeyError, sqlite3.Error, RecursionError:
         raise LifecycleError("invalid_evidence") from None
+
+
+def restore_engine_lifecycle_journal(
+    connection: sqlite3.Connection,
+    evidence: bytes | dict[str, object],
+    *,
+    brain_id: str,
+    issuer_epoch: int,
+) -> LifecycleJournal:
+    """Replay validated evidence into an empty schema18 journal atomically."""
+    staging = sqlite3.connect(":memory:")
+    try:
+        staging.execute("BEGIN IMMEDIATE")
+        value = decode_canonical(evidence) if isinstance(evidence, bytes) else evidence
+        restore_lifecycle_journal_value(
+            staging, value, brain_id=brain_id, issuer_epoch=issuer_epoch
+        )
+        with _atomic(connection):
+            journal = LifecycleJournal.for_engine(
+                connection, brain_id=brain_id, issuer_epoch=issuer_epoch
+            )
+            for table in (
+                "lifecycle_journal_requests",
+                "lifecycle_journal_payloads",
+                "lifecycle_journal_events",
+            ):
+                if connection.execute(f"SELECT 1 FROM {table} LIMIT 1").fetchone() is not None:
+                    raise LifecycleError("invalid_evidence")
+                rows = staging.execute(f"SELECT * FROM {table}").fetchall()
+                if rows:
+                    placeholders = ",".join("?" for _ in rows[0])
+                    connection.executemany(f"INSERT INTO {table} VALUES({placeholders})", rows)
+            if journal.export_evidence_value() != value:
+                raise LifecycleError("invalid_evidence")
+        return journal
+    finally:
+        staging.close()

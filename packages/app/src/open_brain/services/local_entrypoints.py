@@ -3115,7 +3115,7 @@ def _record_verified_export(
     except UnicodeDecodeError, json.JSONDecodeError, KeyError, TypeError:
         raise ValueError("Portable export manifest is unavailable") from None
     if type(manifest_version) is not int or manifest_version not in {
-        1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12
+        1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13
     }:
         raise ValueError("Portable export manifest is unavailable")
     session.prepared.revalidate()
@@ -3156,7 +3156,7 @@ def _verified_export_state(session: LocalBrainSession) -> str:
                 "schema_version",
             }
             or type(value["schema_version"]) is not int
-            or value["schema_version"] not in {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12}
+            or value["schema_version"] not in {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13}
             or canonical_json_bytes(value) != payload
             or not isinstance(value["created_at"], str)
             or not isinstance(value["export_id"], str)

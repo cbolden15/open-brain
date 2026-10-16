@@ -35,12 +35,13 @@ def serialize_portable_v12_state(
     profile: LocalEngineContext,
     *,
     relationship_sidecar_present: bool,
+    _expected_schema: int = 17,
 ) -> PortableV5StateEvidence:
     base = serialize_portable_v11_state(
         connection,
         profile,
         relationship_sidecar_present=relationship_sidecar_present,
-        _expected_schema=17,
+        _expected_schema=_expected_schema,
     )
     selections = selection_sidecar(connection)
     sidecars = dict(base.sidecars)

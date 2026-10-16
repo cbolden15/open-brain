@@ -14,6 +14,7 @@ from open_brain_engine.portable.v4 import SOURCE_METADATA_PATH, canonical_revisi
 from open_brain_engine.storage.filesystem import atomic_replace, read_confined
 from open_brain_engine.storage.markdown import parse_markdown
 
+from .capture_lifecycle_policy import lifecycle_permits_capture
 from .contracts import LocalEngineContext
 from .privacy_store import (
     effective_privacy_enabled,
@@ -34,6 +35,9 @@ def register_completed_captures(
         )
     )
     for row in rows:
+        pending_lifecycle = not lifecycle_permits_capture(
+            connection, row["capture_id"], history=True
+        )
         payload = read_confined(
             root=profile.root,
             relative=row["source_path"],
@@ -51,6 +55,8 @@ def register_completed_captures(
             "SELECT * FROM source_intakes WHERE delivery_id=?", (row["delivery_id"],)
         ).fetchone()
         if intake is not None:
+            if pending_lifecycle:
+                raise T03Error("operation_pending")
             from .source_intake import register_intake
 
             register_intake(connection, row, payload, intake)
@@ -60,14 +66,14 @@ def register_completed_captures(
         source_id = "source_" + str(uuid4())
         availability = (
             "available"
-            if capture_projection_is_active(
+            if pending_lifecycle or capture_projection_is_active(
                 connection, delivery_id=row["delivery_id"], capture_id=row["capture_id"]
             )
             else "missing"
         )
         connection.execute(
-            "INSERT INTO logical_sources VALUES(?,?,0,?,0,1,'active',?)",
-            (source_id, row["capture_id"], row["space_id"], availability),
+            "INSERT INTO logical_sources VALUES(?,?,?, ?,0,1,'active',?)",
+            (source_id, row["capture_id"], int(pending_lifecycle), row["space_id"], availability),
         )
         connection.execute(
             "INSERT INTO source_revisions VALUES(?,?,1,NULL,?,?,?, ?,NULL,NULL,?,NULL)",

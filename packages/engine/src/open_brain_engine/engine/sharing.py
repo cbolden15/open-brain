@@ -1051,6 +1051,12 @@ def sharing_eligible(
     _allow_projection_drift: bool = False,
 ) -> bool:
     """One managed-source decision, reused before content-bearing projection."""
+    from .mcp_eligibility import lifecycle_capture_visible
+
+    if not lifecycle_capture_visible(
+        connection, capture_id, history=mode is EligibilityMode.OWNER_HISTORY
+    ):
+        return False
     revision = connection.execute(
         "SELECT r.source_id,r.source_path,r.source_bytes,r.source_sha256,c.source_reference,c.payload_json,"
         "c.privacy_json,c.provenance_json,c.role_claim_json,c.actor_id,c.source_origin,"
@@ -1281,7 +1287,7 @@ def require_capture_eligibility(
 ) -> None:
     from .mcp_eligibility import capture_visible
 
-    if not capture_visible(connection, capture_id, authority):
+    if not capture_visible(connection, capture_id, authority, history=history):
         raise T03Error("not_found")
     if authority.egress_mode is EgressMode.EXTERNAL_PROVIDER:
         mode = EligibilityMode.EXTERNAL_READ

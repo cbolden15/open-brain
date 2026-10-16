@@ -4,6 +4,61 @@ Non-obvious behaviors, sharp edges, and lessons learned belong here.
 
 ## Registry
 
+### BUILD-016: Plugin handshake coordinates must follow engine cutovers
+
+Category: Dependencies; Build Pipeline.
+
+The schema18/runtime13 engine passed Python verification while the plugin still
+required17/12. Real-child facet tests correctly refused capability negotiation.
+Update the plugin contract constants and current-admission test wrappers together
+with engine and desktop coordinates. Keep frozen historical DTO corpus bytes
+unchanged; test refusal of both predecessor and future coordinates. Run the full
+plugin build/typecheck and live transport tests before packaging plugin assets.
+The full700-test plugin suite passed with one worker after two one-second
+readiness checks failed at default and two-worker concurrency on this workstation.
+Keep the assertions and deadlines intact; record the worker cap with the receipt.
+
+### BUILD-015: Acceptance source binding includes workstream notes
+
+Category: Build Pipeline.
+
+The harness acceptance fixture hashes every Git-visible repository input,
+including untracked workstream state and review notes. Updating those notes
+while `make verify` runs correctly fails with `source_changed_during_run`.
+Freeze bookkeeping as well as code for verification. Keep live logs outside
+the repository and write receipts after the bound acceptance run finishes.
+
+### LIFECYCLE-006: Lifecycle cutover spans capture wrappers and Portable proof readers
+
+Category: Database/Migrations; Type Safety.
+
+Schema18 adds a materializer reservation keyword. Full mypy caught an existing
+fault-injection wrapper that omitted it and a history predicate using the wrong
+connection variable. Keep typed wrapper signatures aligned with the materializer;
+run full typecheck after changing a shared capture signature.
+
+Portable13 also needs both verified-export receipt writer and reader allowlists.
+A valid archive can otherwise fail CLI `--verify` after export. Exercise the CLI
+proof path as well as engine roundtrips. Pending physical captures need retained
+history-only source metadata for frozen Portable source coverage; current and
+owner-history reads must still check journal admission before exposing them.
+
+
+### SQLITE-001: Context managers do not close SQLite connections
+
+Category: Config/Environment; Database/Migrations.
+
+Use `contextlib.closing` for owned read connections in capture admission.
+`with connection:` ends a transaction but leaves the connection open. New
+lifecycle checks initially leaked parent connections across plugin child writes.
+The child recreated WAL/SHM files; fresh parent reads then failed with extended
+SQLite error522 (`SQLITE_IOERR_SHORT_READ`) and appeared to have an invalid schema.
+
+A controlled synthetic A/B left two connections with raw context managers and
+reproduced the error; garbage collection restored reads. Explicit closing left
+zero connections and passed the live plugin, stdio and CLI facet regressions.
+Exercise multi-process foreground readers when adding an admission read.
+
 ### DOCS-004: Passing documentation unit tests do not certify the pinned artifact journey
 
 Category: Documentation / Verification.

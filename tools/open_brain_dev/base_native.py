@@ -58,6 +58,10 @@ _PORTABLE_V12_SIDECARS: Final = (
     *_PORTABLE_V11_SIDECARS,
     "history/sharing/slack-recall-selections-v1.json",
 )
+_PORTABLE_V13_SIDECARS: Final = (
+    *_PORTABLE_V12_SIDECARS,
+    "history/capture-lifecycle/journal-v1.json",
+)
 _REQUIRED_MODULES: Final = frozenset(
     {
         "open_brain.local_data",
@@ -108,6 +112,16 @@ _REQUIRED_MODULES: Final = frozenset(
         "open_brain_engine.portable.v12",
         "open_brain_engine.portable.v12_catalog",
         "open_brain_engine.portable.slack_v12",
+        "open_brain_engine.portable.v13",
+        "open_brain_engine.portable.v13_catalog",
+        "open_brain_engine.portable.lifecycle_v13",
+        "open_brain_engine.engine.capture_lifecycle",
+        "open_brain_engine.engine.capture_lifecycle_contracts",
+        "open_brain_engine.engine.capture_lifecycle_journal",
+        "open_brain_engine.engine.capture_lifecycle_policy",
+        "open_brain_engine.engine.capture_lifecycle_schema",
+        "open_brain_engine.engine.portable_v13_evidence",
+        "open_brain_engine.engine.portable_v13_restore",
         "open_brain_engine.engine.portable_v12_evidence",
         "open_brain_engine.engine.portable_v12_restore",
         "open_brain_engine.engine.slack_selection_validation",
@@ -813,10 +827,10 @@ def _smoke_local_journey(
         exported.get("status") != "exported"
         or exported.get("verification") != "verified"
         or type(exported.get("schema_version")) is not int
-        or exported.get("schema_version") != 12
+        or exported.get("schema_version") != 13
         or not (export / "portable-manifest.json").is_file()
         or not (export / "sources/logical-sources.json").is_file()
-        or not all((export / relative).is_file() for relative in _PORTABLE_V12_SIDECARS)
+        or not all((export / relative).is_file() for relative in _PORTABLE_V13_SIDECARS)
         or not any(
             token.encode("utf-8") in path.read_bytes()
             for path in export.rglob("*")
@@ -993,9 +1007,9 @@ def _smoke_markdown_import(
         exported.get("status") != "exported"
         or exported.get("verification") != "verified"
         or type(exported.get("schema_version")) is not int
-        or exported.get("schema_version") != 12
+        or exported.get("schema_version") != 13
         or not (export / "sources/logical-sources.json").is_file()
-        or not all((export / relative).is_file() for relative in _PORTABLE_V12_SIDECARS)
+        or not all((export / relative).is_file() for relative in _PORTABLE_V13_SIDECARS)
         or not blob.is_file()
         or blob.read_bytes() != source_bytes
         or len(captures) != 1
@@ -1331,9 +1345,9 @@ def _smoke_catalog(executable: Path, environment: Mapping[str, str]) -> None:
         != {
             "bridge_protocol": 1,
             "catalog_schema": 2,
-            "portable_metadata": 12,
-            "runtime_session": 12,
-            "state_schema": 17,
+            "portable_metadata": 13,
+            "runtime_session": 13,
+            "state_schema": 18,
             "task_contract": "t03.v1",
         }
         or not isinstance(product, dict)

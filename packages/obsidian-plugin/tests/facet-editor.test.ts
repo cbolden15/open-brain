@@ -73,7 +73,7 @@ function harness(overrides: (operation: string, args: Record<string, unknown>) =
     throw new Error(`Unexpected ${operation}`);
   });
   const client = new FacetClient({ invoke } as never, { status: "ok", protocol: "open-brain-client", protocol_version: 1,
-    product_version: "0.1.0", desktop_only: true, state_schema_version: 17, runtime_session_version: 12, operations, facet_capabilities: { version: 1, operations: operations.map((operation) => ({ operation, dto_versions: [1], ...facetLimits(operation) })) } });
+    product_version: "0.1.0", desktop_only: true, state_schema_version: 18, runtime_session_version: 13, operations, facet_capabilities: { version: 1, operations: operations.map((operation) => ({ operation, dto_versions: [1], ...facetLimits(operation) })) } });
   return { client, invoke, writes: () => invoke.mock.calls.filter(([op]) => /\.(create|rename|archive|update|patch|attach)$/.test(op)) };
 }
 const tick = async (): Promise<void> => { await new Promise((resolve) => setTimeout(resolve, 0)); };

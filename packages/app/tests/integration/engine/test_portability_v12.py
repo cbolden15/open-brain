@@ -31,6 +31,17 @@ from packages.app.tests.integration.services.test_slack_decision_recall import (
 from packages.app.tests.unit.engine.test_sharing_tasks import _managed_source
 
 
+@pytest.fixture(autouse=True)
+def frozen_schema_seventeen(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Keep Portable12 producers and restores on their frozen schema17 runtime."""
+    from open_brain_engine.engine import local_schema, paging
+    from open_brain_engine.engine.local_schema_catalog import LOCAL_MIGRATIONS
+
+    monkeypatch.setattr(local_schema, "PHASE1_STATE_SCHEMA_VERSION", 17)
+    monkeypatch.setattr(local_schema, "LOCAL_MIGRATIONS", LOCAL_MIGRATIONS[:17])
+    monkeypatch.setattr(paging, "PHASE1_STATE_SCHEMA_VERSION", 17)
+
+
 def _export(journey: Journey, path: Path) -> None:
     assert (
         journey.tasks.portability.export(path, export_id="export_" + str(uuid4())).schema_version

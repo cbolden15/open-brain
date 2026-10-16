@@ -56,7 +56,7 @@ from .review_bound import (
     propose_bound,
     validate_current_binding,
 )
-from .t03_contracts import EffectiveAuthority
+from .t03_contracts import EffectiveAuthority, T03Error
 
 if TYPE_CHECKING:
     from .local import BrainEngine
@@ -1332,6 +1332,15 @@ class ReviewTasks:
 
     def _proposal_scope(self, capture_id: str | Sequence[str], target_page_id: str | None) -> None:
         if self._authority is None:
+            from .mcp_eligibility import lifecycle_capture_visible
+
+            connection = self._engine._store.connect()
+            try:
+                for identity in (capture_id,) if isinstance(capture_id, str) else capture_id:
+                    if not lifecycle_capture_visible(connection, identity):
+                        raise T03Error("not_found")
+            finally:
+                connection.close()
             return
         from .records import RecordProjector
 

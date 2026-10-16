@@ -231,7 +231,11 @@ class V10RestoreBundle(V5RestoreBundle):
             path: sha256(data).hexdigest() for path, data in payloads.items()
         }:
             raise PortableValidationError("v10 restore snapshot commitment mismatch")
-        if cls.portable_version == 12:
+        if cls.portable_version == 13:
+            from open_brain_engine.portable.v13 import validate_portable_file_set_v13
+
+            validate_portable_file_set_v13(payloads, tenant_id=cast(str, manifest["tenant_id"]))
+        elif cls.portable_version == 12:
             from open_brain_engine.portable.v12 import validate_portable_file_set_v12
 
             validate_portable_file_set_v12(payloads, tenant_id=cast(str, manifest["tenant_id"]))
@@ -286,7 +290,11 @@ def audit_restored_v10(
     from .local_schema import open_local_database_read_only
 
     bundle_type = V10RestoreBundle
-    if snapshot.manifest["schema_version"] == 12:
+    if snapshot.manifest["schema_version"] == 13:
+        from .portable_v13_restore import V13RestoreBundle
+
+        bundle_type = V13RestoreBundle
+    elif snapshot.manifest["schema_version"] == 12:
         from .portable_v12_restore import V12RestoreBundle
 
         bundle_type = V12RestoreBundle
@@ -300,7 +308,7 @@ def audit_restored_v10(
     try:
         if not connection.in_transaction:
             connection.execute("BEGIN")
-        if snapshot.manifest["schema_version"] in {11, 12}:
+        if snapshot.manifest["schema_version"] in {11, 12, 13}:
             from .developments import (
                 DEVELOPMENT_APPEND_PATH,
                 DEVELOPMENT_EVIDENCE_PATH,
@@ -337,7 +345,11 @@ def restore_portable_v10_root(
     from .materializer import materialize_portable_root
 
     bundle_type = V10RestoreBundle
-    if snapshot.manifest["schema_version"] == 12:
+    if snapshot.manifest["schema_version"] == 13:
+        from .portable_v13_restore import V13RestoreBundle
+
+        bundle_type = V13RestoreBundle
+    elif snapshot.manifest["schema_version"] == 12:
         from .portable_v12_restore import V12RestoreBundle
 
         bundle_type = V12RestoreBundle
@@ -361,6 +373,15 @@ def restore_portable_v10_root(
         authority=validate_historical_authority(snapshot.files),
         checkpoint=checkpoint,
     )
+    if snapshot.manifest["schema_version"] == 13:
+        from .historical_recovery import _historical_transaction
+        from .portable_v5_restore import _rederive_search
+
+        # Dependency evidence is complete only after development and historical
+        # installation. Rebuild current visibility from that complete closure.
+        with _historical_transaction(materialization.profile, lambda: None) as connection:
+            connection.execute("DELETE FROM search_documents")
+            _rederive_search(connection, materialization.profile, portable_files=snapshot.files)
     audit_restored_v10(materialization.profile, snapshot=snapshot)
     checkpoint("historical_audited")
     checkpoint("facet_semantics_reopened")

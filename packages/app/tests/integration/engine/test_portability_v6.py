@@ -66,6 +66,17 @@ from open_brain.profile import compile_single_user_local
 from packages.app.tests.unit.engine.test_foundation_contracts import _public_submission
 
 
+@pytest.fixture(autouse=True)
+def frozen_schema_seventeen(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Keep historical archive projections on the last pre-lifecycle producer."""
+    from open_brain_engine.engine import local_schema, paging
+    from open_brain_engine.engine.local_schema_catalog import LOCAL_MIGRATIONS
+
+    monkeypatch.setattr(local_schema, "PHASE1_STATE_SCHEMA_VERSION", 17)
+    monkeypatch.setattr(local_schema, "LOCAL_MIGRATIONS", LOCAL_MIGRATIONS[:17])
+    monkeypatch.setattr(paging, "PHASE1_STATE_SCHEMA_VERSION", 17)
+
+
 def _revision(tasks: EngineTaskSet) -> SourceRevisionSubmission:
     capture = _public_submission(tasks)
     return SourceRevisionSubmission(

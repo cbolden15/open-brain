@@ -426,7 +426,7 @@ def _resolved_revisions(
 
 
 def _expected_search_identities(
-    connection: sqlite3.Connection,
+    connection: sqlite3.Connection, *, lifecycle: bool = True
 ) -> list[tuple[str, str, str]]:
     rows: list[tuple[str, str, str]] = []
     for row in connection.execute(
@@ -461,6 +461,24 @@ def _expected_search_identities(
         if not isinstance(page_id, str) or not page_id or not isinstance(capture_id, str):
             _fail("canonical search identity invalid")
         rows.append((page_id, capture_id, "canonical"))
+    if lifecycle and connection.execute("PRAGMA user_version").fetchone()[0] >= 18:
+        from .mcp_eligibility import lifecycle_capture_visible
+        from .search_projection import canonical_source_rows
+
+        rows = [
+            (result_id, capture_id, record_type)
+            for result_id, capture_id, record_type in rows
+            if (
+                lifecycle_capture_visible(connection, capture_id)
+                if record_type == "source"
+                else all(
+                    lifecycle_capture_visible(connection, member["capture_id"])
+                    for member in canonical_source_rows(
+                        connection, result_id=result_id, capture_id=capture_id
+                    )
+                )
+            )
+        ]
     rows.sort(key=lambda item: item[0])
     if len({row[0] for row in rows}) != len(rows):
         _fail("search result identity is not unique")
@@ -589,6 +607,26 @@ def _resolved_search(
     ]
 
 
+def _base_search_privacy(connection: sqlite3.Connection) -> list[dict[str, object]]:
+    """Frozen base-format privacy inventory, before additional lifecycle barriers."""
+    rows: list[dict[str, object]] = []
+    for result_id, capture_id, record_type in _expected_search_identities(
+        connection, lifecycle=False
+    ):
+        evidence, applied = resolve_search_privacy(
+            connection, result_id=result_id, capture_id=capture_id, record_type=record_type
+        )
+        rows.append({
+            "result_id": result_id,
+            "capture_id": capture_id,
+            "record_type": record_type,
+            "effective_privacy": _effective_object(evidence),
+            "applied_repair_id": None if applied is None else applied[0],
+            "applied_repair_sequence": None if applied is None else applied[1],
+        })
+    return rows
+
+
 def _issuer_sidecars(
     connection: sqlite3.Connection, *, tenant_id: str
 ) -> tuple[dict[str, object], dict[str, object]]:
@@ -690,7 +728,11 @@ def _serialize_portable_state(
         "invalid_evidence": _invalid_evidence(connection, bases),
         "repairs": _repairs(connection),
         "resolved_revisions": _resolved_revisions(connection, bases),
-        "resolved_search": _resolved_search(search),
+        "resolved_search": (
+            _base_search_privacy(connection)
+            if connection.execute("PRAGMA user_version").fetchone()[0] >= 18
+            else _resolved_search(search)
+        ),
     }
     relation = relationship_metadata(connection)
     if relation is not None and not relationship_sidecar_present:

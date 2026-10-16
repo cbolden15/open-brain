@@ -12,6 +12,15 @@ from open_brain_engine.engine.local_migration import coordinate_local_migration
 from open_brain.profile import compile_single_user_local
 
 
+@pytest.fixture(autouse=True)
+def frozen_schema_seventeen(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Exercise the schema17 cutover independently of later migrations."""
+    from open_brain_engine.engine.local_schema_catalog import LOCAL_MIGRATIONS
+
+    monkeypatch.setattr(local_schema, "PHASE1_STATE_SCHEMA_VERSION", 17)
+    monkeypatch.setattr(local_schema, "LOCAL_MIGRATIONS", LOCAL_MIGRATIONS[:17])
+
+
 @pytest.mark.parametrize("predecessor", [15, 16])
 def test_slack_sharing_migration_from_predecessor_and_old_client_refusal(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, predecessor: int

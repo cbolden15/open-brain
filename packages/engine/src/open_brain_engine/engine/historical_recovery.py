@@ -48,7 +48,8 @@ def open_historical_recovery_database_read_only(
 
     connection = open_local_database_read_only(profile, allow_old=True)
     state = classify_local_schema(connection)
-    if state.state not in {"current", "supported_old"} or state.version not in {13, 14, 15, 16, 17}:
+    if (state.state not in {"current", "supported_old"}
+            or state.version not in {13, 14, 15, 16, 17, 18}):
         connection.close()
         raise SchemaError("historical recovery requires schema13, schema14, or schema15")
     return connection
@@ -93,7 +94,7 @@ def _historical_transaction(
     def prepare(connection: sqlite3.Connection, created: bool, setup_required: bool) -> None:
         state = classify_local_schema(connection)
         if (created or state.state not in {"current", "supported_old"}
-                or state.version not in {13, 14, 15, 16, 17}):
+                or state.version not in {13, 14, 15, 16, 17, 18}):
             raise SchemaError("historical recovery requires schema13, schema14, or schema15")
 
     validate_before_write()
@@ -107,7 +108,7 @@ def _historical_transaction(
         begin_immediate(connection)
         state = classify_local_schema(connection)
         if (state.state not in {"current", "supported_old"}
-                or state.version not in {13, 14, 15, 16, 17}):
+                or state.version not in {13, 14, 15, 16, 17, 18}):
             raise SchemaError("local state schema changed before recovery")
         yield connection
         validate_before_write()

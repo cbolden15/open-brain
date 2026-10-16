@@ -8,6 +8,7 @@ from typing import Any
 
 from open_brain_engine.storage.markdown import parse_markdown
 
+from .capture_lifecycle_policy import lifecycle_permits_capture
 from .t03_contracts import EffectiveAuthority, SessionOrigin
 
 
@@ -15,9 +16,77 @@ def implicit(authority: EffectiveAuthority | None) -> bool:
     return authority is not None and authority.session_origin is SessionOrigin.MCP_IMPLICIT
 
 
-def capture_visible(
-    connection: sqlite3.Connection, capture_id: str, authority: EffectiveAuthority | None
+def lifecycle_capture_visible(
+    connection: sqlite3.Connection, capture_id: str, *, history: bool = False
 ) -> bool:
+    """Apply lifecycle barriers to retained dependency closure for every caller."""
+    owned_snapshot = not connection.in_transaction
+    try:
+        if owned_snapshot:
+            connection.execute("BEGIN")
+        if not lifecycle_permits_capture(connection, capture_id, history=history):
+            return False
+        if connection.execute("PRAGMA user_version").fetchone()[0] < 18:
+            return True
+        pending = [capture_id]
+        seen: set[str] = set()
+        from .developments import development_commitments
+
+        development_commitments(connection, (capture_id,))
+        while pending:
+            identity = pending.pop()
+            if identity in seen:
+                continue
+            seen.add(identity)
+            if len(seen) > 1024 or (
+                identity != capture_id
+                and not lifecycle_permits_capture(connection, identity, history=history)
+            ):
+                return False
+            for table in ("historical_relations", "sharing_links"):
+                pending.extend(
+                    row[0]
+                    for row in connection.execute(
+                        f"SELECT original_capture_id FROM {table} WHERE copy_capture_id=?",
+                        (identity,),
+                    )
+                )
+            development = connection.execute(
+                "SELECT receipt_json FROM development_evidence WHERE derived_capture_id=?",
+                (identity,),
+            ).fetchone()
+            if development is not None:
+                receipt = json.loads(development[0])
+                for key in (
+                    "supporting_capture_ids",
+                    "supports_development_ids",
+                    "supersedes_development_ids",
+                ):
+                    values = receipt.get(key, [])
+                    if not isinstance(values, list) or any(
+                        not isinstance(item, str) for item in values
+                    ):
+                        return False
+                    pending.extend(values)
+        return True
+    except ValueError, TypeError, KeyError, AttributeError, sqlite3.Error:
+        return False
+    finally:
+        if owned_snapshot and connection.in_transaction:
+            connection.execute("ROLLBACK")
+
+
+def capture_visible(
+    connection: sqlite3.Connection,
+    capture_id: str,
+    authority: EffectiveAuthority | None,
+    *,
+    history: bool = False,
+) -> bool:
+    if not lifecycle_capture_visible(
+        connection, capture_id, history=history and authority is not None and authority.owner
+    ):
+        return False
     if not implicit(authority):
         return True
     pending = [capture_id]
@@ -33,6 +102,8 @@ def capture_visible(
                 continue
             seen.add(identity)
             if len(seen) > 1024:
+                return False
+            if not lifecycle_permits_capture(connection, identity):
                 return False
             row = connection.execute(
                 "SELECT r.source_id,c.privacy_json,c.source_reference, "
@@ -133,11 +204,34 @@ def record_visible(
     record_type: str,
     record_id: str,
     authority: EffectiveAuthority | None,
+    *,
+    history: bool = False,
 ) -> bool:
-    if not implicit(authority):
-        return True
     if record_type == "source":
-        return capture_visible(connection, record_id, authority)
+        return capture_visible(connection, record_id, authority, history=history)
+    if not implicit(authority):
+        if history:
+            # The projector checks the exact selected retained revision members.
+            return True
+        if connection.execute("PRAGMA user_version").fetchone()[0] < 18:
+            return True
+        from .search_projection import canonical_source_rows
+
+        document = connection.execute(
+            "SELECT capture_id FROM search_documents WHERE result_id=? AND record_type='canonical'",
+            (record_id,),
+        ).fetchone()
+        if document is None:
+            return False
+        try:
+            return all(
+                capture_visible(connection, row["capture_id"], authority)
+                for row in canonical_source_rows(
+                    connection, result_id=record_id, capture_id=document["capture_id"]
+                )
+            )
+        except ValueError, TypeError, KeyError, sqlite3.Error:
+            return False
     # Include retained canonical revisions: graph quotes may refer to an older accepted body.
     members = connection.execute(
         "SELECT DISTINCT capture_id FROM canonical_revision_members WHERE page_id=?", (record_id,)
@@ -151,7 +245,7 @@ def graph_visible(
     connection: sqlite3.Connection, note_id: str, authority: EffectiveAuthority | None
 ) -> bool:
     """Retained managed edits and accepted links cannot discard canonical restrictions."""
-    if not implicit(authority):
+    if not implicit(authority) and connection.execute("PRAGMA user_version").fetchone()[0] < 18:
         return True
     pending = [note_id]
     seen: set[str] = set()

@@ -53,6 +53,7 @@ from .privacy_projection import _NARROWED_REASON
 from .t03_contracts import EffectiveAuthority, SourceRouteRequest, SourceRouteResponse
 
 if TYPE_CHECKING:
+    from .capture_lifecycle import CaptureLifecycleTasks
     from .facet_contracts import FacetPublicationTasks, FacetTasks, FacetVaultTasks
     from .privacy_repairs import PrivacyRepairReceipt, PrivacyRepairRequest
     from .sharing_contracts import (
@@ -779,6 +780,7 @@ class PortabilityReceipt:
             10,
             11,
             12,
+            13,
         }:
             raise ValueError("invalid portability receipt schema version")
         if self.index_generation is not None and (
@@ -3549,6 +3551,7 @@ class EngineTaskSet:
     facet_publication: FacetPublicationTasks | None = None
     facet_vault: FacetVaultTasks | None = None
     developments: Any = None
+    lifecycle: CaptureLifecycleTasks | None = None
 
     @property
     def spaces(self) -> InboxSpaceTask:

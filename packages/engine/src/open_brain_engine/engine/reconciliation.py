@@ -17,6 +17,7 @@ from open_brain_engine.storage.filesystem import (
 from open_brain_engine.storage.markdown import MarkdownFormatError, parse_markdown
 
 from .contracts import ReconciliationReceipt
+from .mcp_eligibility import lifecycle_capture_visible
 from .normalization import _portable_id
 from .search_projection import (
     canonical_source_rows,
@@ -194,6 +195,10 @@ class ReconciliationTasks:
             ):
                 raise ValueError("canonical page provenance changed")
             seen_pages.add(canonical_path)
+            if not all(
+                lifecycle_capture_visible(connection, member) for member in expected_sources
+            ):
+                continue
             parsed = parse_markdown(payload)
             title = _required_string(fields, "title")
             updated_at = _required_string(fields, "modified_at")
@@ -326,7 +331,9 @@ def _projection_inputs(
         capture_by_id[capture_id] = capture
         if capture["source_projection_active"] not in {0, 1}:
             raise ValueError("search projection capture state is invalid")
-        if not bool(capture["source_projection_active"]):
+        if not bool(capture["source_projection_active"]) or not lifecycle_capture_visible(
+            connection, capture_id
+        ):
             continue
         inputs.append(
             _ProjectionInput(
@@ -450,6 +457,11 @@ def _projection_inputs(
         ):
             raise ValueError("canonical page provenance is invalid")
         seen_pages.add(canonical_path)
+        if not all(
+            lifecycle_capture_visible(connection, member)
+            for member in expected_sources[canonical_path]
+        ):
+            continue
         capture = capture_by_id[expected[1]]
         projection = project_search_document(
             connection,

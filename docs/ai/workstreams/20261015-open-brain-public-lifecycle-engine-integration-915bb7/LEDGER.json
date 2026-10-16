@@ -1,0 +1,15 @@
+{
+  "milestone": "Real engine lifecycle integration",
+  "max_active_children": 3,
+  "max_total_children": 6,
+  "active": [],
+  "total": 6,
+  "completed": [
+    "activation_map",
+    "schema_runtime",
+    "read_policy",
+    "portable",
+    "predecessor_tests",
+    "integration_review"
+  ]
+}

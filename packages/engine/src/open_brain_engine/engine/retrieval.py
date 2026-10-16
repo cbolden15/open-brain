@@ -17,7 +17,7 @@ from .contracts import (
     _LocalEngineOperations,
 )
 from .local_store import rebuild_live_search_fts
-from .mcp_eligibility import install
+from .mcp_eligibility import install, record_visible
 from .normalization import _portable_id, _text
 from .search_projection import (
     canonical_source_rows,
@@ -407,6 +407,8 @@ class RetrievalOperations(_LocalEngineOperations):
         explanation: str,
         require_current_projection: bool = False,
     ) -> RetrievalResult | None:
+        if not self._lifecycle_row_visible(row):
+            return None
         capture_id = cast(str, row["capture_id"])
         protected_source_reference = cast(str, row["protected_source_reference"])
         capture_ids, additional_references, source_origin = self._document_sources(row)
@@ -462,6 +464,8 @@ class RetrievalOperations(_LocalEngineOperations):
         )
 
     def _resolved_document(self, row: sqlite3.Row) -> tuple[str, str] | None:
+        if not self._lifecycle_row_visible(row):
+            return None
         title = cast(str, row["title"])
         body = cast(str, row["body"])
         canonical_path = cast(str | None, row["canonical_path"])
@@ -479,6 +483,13 @@ class RetrievalOperations(_LocalEngineOperations):
             return cast(str, parsed.fields["title"]), parsed.body
         except KeyError, MarkdownFormatError, TypeError:
             return None
+
+    def _lifecycle_row_visible(self, row: sqlite3.Row) -> bool:
+        connection = self._store.connect()
+        try:
+            return record_visible(connection, row["record_type"], row["result_id"], None)
+        finally:
+            connection.close()
 
     def _rebuild_live_search_index(self) -> None:
         self._assert_root()

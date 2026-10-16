@@ -47,7 +47,7 @@ const limits = { request_bytes: 65536, response_bytes: 1048576, content_calls: 5
   content_bytes: 16777216, history_calls: 500, history_bytes: 16777216 };
 
 const handshake = (operations: string[]): Handshake => ({
-  desktop_only: true, state_schema_version: 17, runtime_session_version: 12, operations, product_version: "0.1.0", protocol: "open-brain-client",
+  desktop_only: true, state_schema_version: 18, runtime_session_version: 13, operations, product_version: "0.1.0", protocol: "open-brain-client",
   protocol_version: 1, status: "ok",
 });
 

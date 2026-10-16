@@ -1,7 +1,7 @@
 export const OPEN_BRAIN_CLIENT_PROTOCOL = "open-brain-client";
 export const OPEN_BRAIN_CLIENT_PROTOCOL_VERSION = 1;
-export const OPEN_BRAIN_STATE_SCHEMA_VERSION = 17;
-export const OPEN_BRAIN_RUNTIME_SESSION_VERSION = 12;
+export const OPEN_BRAIN_STATE_SCHEMA_VERSION = 18;
+export const OPEN_BRAIN_RUNTIME_SESSION_VERSION = 13;
 
 import type { FacetOperation } from "./facet-types";
 

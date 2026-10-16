@@ -46,6 +46,17 @@ EXPORT = "export_123e4567-e89b-42d3-a456-426614174030"
 IMPORT = "import_123e4567-e89b-42d3-a456-426614174031"
 
 
+@pytest.fixture(autouse=True)
+def frozen_schema_seventeen(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Keep historical archive projections on the last pre-lifecycle producer."""
+    from open_brain_engine.engine import local_schema, paging
+    from open_brain_engine.engine.local_schema_catalog import LOCAL_MIGRATIONS
+
+    monkeypatch.setattr(local_schema, "PHASE1_STATE_SCHEMA_VERSION", 17)
+    monkeypatch.setattr(local_schema, "LOCAL_MIGRATIONS", LOCAL_MIGRATIONS[:17])
+    monkeypatch.setattr(paging, "PHASE1_STATE_SCHEMA_VERSION", 17)
+
+
 def _engine(root: Path) -> BrainEngine:
     return BrainEngine.open(compile_single_user_local(root, starter_spaces=("Notes",)))
 

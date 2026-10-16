@@ -183,7 +183,7 @@ class BrainEngine(CaptureOperations, SpaceOperations, ReviewOperations, Retrieva
         assert_root_identity(profile.root, profile.root_identity)
         schema = inspect_phase1_state(profile)
         if recovery_protection_guard is not None and (
-            schema.state != "current" or schema.version not in {13, 14, 15, 16, 17}
+            schema.state != "current" or schema.version not in {13, 14, 15, 16, 17, 18}
         ):
             raise StateSchemaUnavailableError("recovery protection requires existing schema13")
         if recovery_protection_guard is not None:
@@ -196,6 +196,10 @@ class BrainEngine(CaptureOperations, SpaceOperations, ReviewOperations, Retrieva
         if migration_pending(profile) or privacy_migration_pending(profile):
             # A journaled cutover may only resume through the explicit coordinator.
             raise StateSchemaUnavailableError("local state migration is pending")
+        if schema.state == "supported_old" and schema.version == 17:
+            raise StateSchemaUnavailableError(
+                "capture lifecycle migration requires exclusive admission"
+            )
         if schema.state in {"invalid", "newer"}:
             raise StateSchemaUnavailableError(f"local state schema is {schema.state}")
         if (
@@ -275,7 +279,7 @@ class BrainEngine(CaptureOperations, SpaceOperations, ReviewOperations, Retrieva
         if (
             receipt_protection_port is not None
             and schema.state != "absent"
-            and schema.version not in {12, 13, 14, 15, 16, 17}
+            and schema.version not in {12, 13, 14, 15, 16, 17, 18}
         ):
             raise StateSchemaUnavailableError(
                 "receipt protection requires the schema-10 ingestion journal"
@@ -359,9 +363,12 @@ class BrainEngine(CaptureOperations, SpaceOperations, ReviewOperations, Retrieva
                 finally:
                     connection.close()
         except LockBusyError:
-            if schema.state != "current" or schema.version not in {12, 13, 14, 15, 16, 17}:
+            if schema.state != "current" or schema.version not in {12, 13, 14, 15, 16, 17, 18}:
                 raise
             self._store = _LocalStore(profile, clock=self._clock, initialize=False)
+        from .capture_lifecycle import CaptureLifecycleTasks
+
+        self.lifecycle = CaptureLifecycleTasks(self)
         self.capture = CaptureTasks(self)
         self.ingestion = IngestionJournal(self)
         self.inbox = InboxSpaceTasks(self)
@@ -409,6 +416,7 @@ class BrainEngine(CaptureOperations, SpaceOperations, ReviewOperations, Retrieva
             facet_publication=self.facet_publication,
             facet_vault=self.facet_vault,
             developments=self.developments,
+            lifecycle=self.lifecycle,
         )
 
     @classmethod

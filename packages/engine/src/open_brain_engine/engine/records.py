@@ -130,8 +130,13 @@ class RecordProjector:
             and not (history and self.authority.owner)
         ):
             raise T03Error("not_found")
-        if not capture_visible(self.connection, anchor, self.authority) or not capture_visible(
-            self.connection, source["head_capture_id"], self.authority,
+        if not capture_visible(
+            self.connection, anchor, self.authority, history=history
+        ) or not capture_visible(
+            self.connection,
+            source["head_capture_id"],
+            self.authority,
+            history=history,
         ):
             raise T03Error("not_found")
         head = source["head_capture_id"]
@@ -169,7 +174,8 @@ class RecordProjector:
         ).fetchone()
         title = (
             row["title"]
-            if row is not None and row["title"] is not None
+            if row is not None
+            and row["title"] is not None
             and not is_harness_source_reference(reference)
             else source_search_title(payload_family=record["payload"]["family"], body=indexed_body)
         )
@@ -241,18 +247,72 @@ class RecordProjector:
             return str(matching[0])
         return str(head["publication_id"])
 
+    def _retained_canonical_head(self, page_id: str) -> tuple[str, dict[str, Any]]:
+        """Resolve owner history from durable publication evidence, without FTS."""
+        head = self.connection.execute(
+            "SELECT publication_id FROM review_page_heads WHERE page_id=?", (page_id,)
+        ).fetchone()
+        if head is None:
+            head = self.connection.execute(
+                "SELECT publication_id FROM captures WHERE page_id=? AND stage=3", (page_id,)
+            ).fetchone()
+        if head is None:
+            candidates = self.connection.execute(
+                "SELECT DISTINCT publication_id FROM canonical_revision_members WHERE page_id=?",
+                (page_id,),
+            ).fetchall()
+            matching = []
+            for candidate in candidates:
+                publication, raw = self._publication(candidate[0])
+                current = read_confined(
+                    root=self.profile.root,
+                    relative=publication["published_path"],
+                    expected_root_identity=self.profile.root_identity,
+                )
+                if current == raw:
+                    matching.append(candidate)
+            if len(matching) != 1:
+                raise T03Error("not_found")
+            head = matching[0]
+        publication_id = str(head[0])
+        publication, raw = self._publication(publication_id)
+        page = parse_markdown(raw)
+        members = self.connection.execute(
+            "SELECT capture_id FROM canonical_revision_members WHERE publication_id=? "
+            "ORDER BY ordinal",
+            (publication_id,),
+        ).fetchall()
+        if not members or publication["page_id"] != page_id:
+            raise T03Error("not_found")
+        space_id = page.fields["space_id"]
+        if not isinstance(space_id, str) or not self.authority.permits_space(space_id):
+            raise T03Error("not_found")
+        _, capture = self._capture(members[0][0])
+        return publication_id, {
+            "canonical_path": publication["published_path"],
+            "space_id": space_id,
+            "payload_family": capture["payload"]["family"],
+            "capture_id": members[0][0],
+        }
+
     def canonical(
         self, page_id: str, *, expected: str | None = None, history: bool = False
     ) -> ProjectedRecord:
-        if not record_visible(self.connection, "canonical", page_id, self.authority):
+        if not record_visible(
+            self.connection, "canonical", page_id, self.authority, history=history
+        ):
             raise T03Error("not_found")
-        publication_id = self.current_publication(page_id)
-        document = self.connection.execute(
-            "SELECT * FROM search_documents WHERE result_id=? AND record_type='canonical'",
-            (page_id,),
-        ).fetchone()
-        if document is None:
-            raise T03Error("not_found")
+        document: Any
+        if history and self.authority.owner:
+            publication_id, document = self._retained_canonical_head(page_id)
+        else:
+            publication_id = self.current_publication(page_id)
+            document = self.connection.execute(
+                "SELECT * FROM search_documents WHERE result_id=? AND record_type='canonical'",
+                (page_id,),
+            ).fetchone()
+            if document is None:
+                raise T03Error("not_found")
         revision_id = canonical_revision_id(publication_id)
         current_revision = revision_id
         if history and expected is not None:

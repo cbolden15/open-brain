@@ -75,6 +75,9 @@ def coordinate_local_migration(
     facet_phase = schema.state == "supported_old" and schema.version == 14 and target >= 15
     development_phase = schema.state == "supported_old" and schema.version == 15 and target >= 16
     slack_sharing_phase = schema.state == "supported_old" and schema.version == 16 and target >= 17
+    capture_lifecycle_phase = (
+        schema.state == "supported_old" and schema.version == 17 and target >= 18
+    )
     if not any(
         (
             source_phase,
@@ -88,6 +91,7 @@ def coordinate_local_migration(
             facet_phase,
             development_phase,
             slack_sharing_phase,
+            capture_lifecycle_phase,
         )
     ):
         return
@@ -183,6 +187,13 @@ def coordinate_local_migration(
             from .slack_sharing_schema import migrate_slack_sharing
 
             migrate_slack_sharing(
+                profile, admission=admission, clock=resolved_clock, checkpoint=checkpoint
+            )
+            schema = inspect_phase1_state(profile)
+        if schema.state == "supported_old" and schema.version == 17 and target >= 18:
+            from .capture_lifecycle_schema import migrate_capture_lifecycle
+
+            migrate_capture_lifecycle(
                 profile, admission=admission, clock=resolved_clock, checkpoint=checkpoint
             )
             schema = inspect_phase1_state(profile)

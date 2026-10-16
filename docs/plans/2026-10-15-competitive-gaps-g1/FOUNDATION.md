@@ -1,6 +1,6 @@
 # Isolated lifecycle journal foundation
 
-Worktree: `/Users/calebbolden/Projects/oss/open-brain-public/.worktrees/competitive-gap-reconciliation`. Implementation starts from `9af2303`. Production schema/runtime/Portable remain **17/12/12**; **18/13/13** remains reserved for the integrated migration.
+Worktree: `/Users/calebbolden/Projects/oss/open-brain-public/.worktrees/competitive-gap-reconciliation`. Implementation starts from `9af2303`. This records the isolated milestone at **17/12/12**. The subsequent engine integration uses **18/13/13**, documented in `/Users/calebbolden/Projects/oss/open-brain-public/.worktrees/competitive-gap-reconciliation/docs/portable-brain-v13.md`.
 
 ## Implemented component
 
