@@ -1,0 +1,33 @@
+{
+  "status": "reviewed_design_preparation",
+  "reviewer_model": "gpt-6-astra",
+  "source_mapper_model": "gpt-6.1-sol",
+  "rounds": 2,
+  "findings": [
+    {
+      "severity": "high",
+      "finding": "Operation-owned global eligibility changes could stale later conversations",
+      "resolution": "Internal global revalidation fence with exact selected preimage checks, durable own-receipt rebasing and two-conversation restart acceptance requirement",
+      "status": "resolved"
+    },
+    {
+      "severity": "high",
+      "finding": "Export required terminal halt without owner operation",
+      "resolution": "Explicit idempotent owner halt command and engine transition, session sealing, halted counts; SIGINT remains resumable",
+      "status": "resolved"
+    },
+    {
+      "severity": "medium",
+      "finding": "Undo preview DTO could not identify promised impact objects",
+      "resolution": "Typed impact entries and stable bounded pages; every kind and100/101/staleness acceptance requirements",
+      "status": "resolved"
+    }
+  ],
+  "additional_correction": "Import status exposes nullable session_id and unchanged items do not join the new undo session",
+  "limits": [
+    "Concrete SQL, DTO and Portable golden schemas pending",
+    "Both external export profiles inactive",
+    "Actual model, private source and two-platform proof not performed",
+    "No feature implementation or completed G1 freeze claimed"
+  ]
+}

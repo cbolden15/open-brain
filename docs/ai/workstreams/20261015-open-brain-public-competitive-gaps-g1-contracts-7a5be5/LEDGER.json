@@ -1,0 +1,18 @@
+{
+  "milestone": "G1-reviewed-design-preparation",
+  "baseline": "8ef1d069259c291e669341079806103c8fa90e86",
+  "max_active_children": 3,
+  "max_total_children": 3,
+  "children_reserved": [
+    "source-map",
+    "independent-astra-review"
+  ],
+  "children_created": 2,
+  "active": 0,
+  "nested": 0,
+  "scope": "documentation only; existing embedding/export drafts reconciled with new persistence design; no benchmarks/tests/builds/model execution or runtime changes",
+  "completed": [
+    "source-map",
+    "independent-astra-review"
+  ]
+}
