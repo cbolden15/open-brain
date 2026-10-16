@@ -20,3 +20,4 @@
 - Focused verification:59 tests pass in38.84s; full Ruff and mypy709 source files pass; source-installed owner retraction journey passes; diff-check/actionlint pass.
 - Candidate freeze next: local scoped commit, full make verify, then native-audit/homebrew-smoke, then test-tiers-audit. Logs and source hash manifest remain outside repository.
 - Acceptance limitation: production-size indexed latency and both-platform CI remain separate; no real Brain or live provider operations performed.
+- Full verification attempt1 stopped after release documentation coordinate assertion (18 vs19):174 passed,1 failed before interruption. Updated documentation checker, feature matrix and mutation fixture; no engine behavior changed. Tier audit passes with7795 tests, disjoint complete coverage.

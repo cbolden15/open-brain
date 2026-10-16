@@ -19,7 +19,9 @@ or deleting every search row first. Current read predicates must reject retained
 projection rows immediately. Preserve frozen predecessor semantics and test
 search, direct/history reads and Portable rebuilds with stale rows present.
 Compatibility cutovers also update both CLI verified-export receipt allowlists,
-native journey coordinates and migration/recovery no-op version sets.
+native journey coordinates and migration/recovery no-op version sets. Update
+the executable documentation-example coordinate map, feature matrix, and its
+mutation test together; release tests bind them to the engine constants.
 An opener that skips recovery must also skip constructor initialization and
 metadata publication. Verify filesystem publishers are never called for status
 or page reads; an unchanged SQLite dump alone does not prove a read-only open.
