@@ -4,9 +4,21 @@ The catalog cutover is coordinated with journal2/runtime15/Portable15. Merely
 importing this module does not register or apply a migration to any Brain.
 """
 
-from open_brain_engine.storage.migrations import _migration
+from __future__ import annotations
+
+import sqlite3
+from collections.abc import Callable
+from datetime import datetime
+from typing import TYPE_CHECKING
+
+from open_brain_engine.storage.migrations import SchemaError, _migration, apply_migrations
+from open_brain_engine.storage.sqlite import connect_database
 
 from .capture_lifecycle_journal import JOURNAL_SCHEMA
+
+if TYPE_CHECKING:
+    from .contracts import LocalEngineContext
+    from .runtime_admission import HeldRuntimeAdmission
 
 CONSUMER_STORAGE_SCHEMA: tuple[str, ...] = (
     """CREATE TABLE consumer_intent_objects (
@@ -102,3 +114,83 @@ CONSUMER_INTAKE_SCHEMA = CONSUMER_STORAGE_SCHEMA + (
     "INSERT INTO runtime_compatibility VALUES(1,15,20)",
 )
 CONSUMER_INTAKE_MIGRATION = _migration(20, "consumer-conversation-intake", CONSUMER_INTAKE_SCHEMA)
+
+
+def initialize_consumer_lifecycle_identity(connection: sqlite3.Connection) -> None:
+    """Finish fresh creation after the Brain and predecessor journal identities exist."""
+    from .consumer_journal import migrate_lifecycle_journal_v2
+
+    if not connection.in_transaction:
+        raise SchemaError("consumer lifecycle identity requires a schema transaction")
+    identities = connection.execute("SELECT brain_id FROM brain_identity").fetchall()
+    if len(identities) != 1:
+        raise SchemaError("consumer lifecycle requires a durable Brain identity")
+    migrate_lifecycle_journal_v2(connection, brain_id=identities[0][0])
+
+
+def migrate_consumer_intake(
+    profile: LocalEngineContext, *, admission: HeldRuntimeAdmission,
+    clock: Callable[[], datetime], checkpoint: Callable[[str], None] = lambda _stage: None,
+) -> None:
+    """Exclusively admit schema20 without resuming or activating any accepted operation."""
+    from .capture_lifecycle_journal import LifecycleJournal
+    from .consumer_journal import LifecycleJournalV2
+    from .historical_recovery import require_historical_snapshot_settled
+    from .local_schema import (
+        PHASE1_STATE_DATABASE,
+        LocalSchemaUpgradeCommittedError,
+        _MigrationClock,
+        _validate_upgrade_data,
+        classify_local_schema,
+    )
+    from .local_schema_catalog import LOCAL_MIGRATIONS
+    from .t03_contracts import T03Error
+
+    admission.validate(profile)
+    if admission.live_peer_count:
+        raise T03Error("operation_pending")
+    connection = connect_database(
+        root=profile.root, database_name=PHASE1_STATE_DATABASE,
+        expected_root_identity=profile.root_identity,
+    )
+    committed = False
+    try:
+        state = classify_local_schema(connection)
+        if state.state == "current" and state.version == 20:
+            return
+        if state.state != "supported_old" or state.version != 19:
+            raise T03Error("operation_pending")
+        checkpoint("consumer_intake_preflight")
+        admission.validate(profile)
+        connection.execute("BEGIN IMMEDIATE")
+        if classify_local_schema(connection) != state:
+            raise T03Error("operation_pending")
+        require_historical_snapshot_settled(connection, profile)
+        _validate_upgrade_data(connection)
+        brain, epoch = connection.execute(
+            "SELECT brain_id,issuer_epoch FROM brain_identity"
+        ).fetchone()
+        # Replaying into checked in-memory state validates evidence but performs
+        # no stage-machine, custody, session, or activation writes.
+        LifecycleJournal.for_engine(connection, brain_id=brain, issuer_epoch=epoch)._state()
+        apply_migrations(connection, clock=_MigrationClock(clock),
+                         migrations=LOCAL_MIGRATIONS[:20], schema_version=20)
+        LifecycleJournalV2.for_engine(connection, brain_id=brain, issuer_epoch=epoch)._state()
+        upgraded = classify_local_schema(connection)
+        if upgraded.state != "current" or upgraded.version != 20:
+            raise T03Error("operation_pending")
+        checkpoint("consumer_intake_before_commit")
+        require_historical_snapshot_settled(connection, profile)
+        _validate_upgrade_data(connection)
+        admission.validate(profile)
+        connection.commit()
+        committed = True
+        checkpoint("consumer_intake_after_commit")
+    except BaseException as error:
+        if connection.in_transaction:
+            connection.rollback()
+        if committed:
+            raise LocalSchemaUpgradeCommittedError("consumer intake migration committed") from error
+        raise
+    finally:
+        connection.close()

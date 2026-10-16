@@ -19,9 +19,23 @@ class V13RestoreBundle(V12RestoreBundle):
 
     def install(self, connection: sqlite3.Connection, *, profile: LocalEngineContext) -> None:
         identity = connection.execute("SELECT brain_id,issuer_epoch FROM brain_identity").fetchone()
-        restore_engine_lifecycle_journal(
-            connection, lifecycle_evidence_value(self.snapshot.files),
-            brain_id=identity[0], issuer_epoch=identity[1],
-        )
+        evidence = lifecycle_evidence_value(self.snapshot.files)
+        if connection.execute("PRAGMA user_version").fetchone()[0] == 20:
+            from .consumer_journal import JOURNAL_CONTRACT_V2, restore_engine_lifecycle_journal_v2
+
+            # Snapshot validation above remains frozen v1; only destination identity advances.
+            restore_engine_lifecycle_journal_v2(
+                connection,
+                {**evidence, "contract": JOURNAL_CONTRACT_V2},
+                brain_id=identity[0],
+                issuer_epoch=identity[1],
+            )
+        else:
+            restore_engine_lifecycle_journal(
+                connection,
+                evidence,
+                brain_id=identity[0],
+                issuer_epoch=identity[1],
+            )
         super().install(connection, profile=profile)
         self.checkpoint("capture_lifecycle_restored")

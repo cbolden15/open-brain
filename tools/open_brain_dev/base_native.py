@@ -66,8 +66,15 @@ _PORTABLE_V14_SIDECARS: Final = (
     *_PORTABLE_V13_SIDECARS,
     "history/retraction/approvals-v1.json",
 )
+_PORTABLE_V15_SIDECARS: Final = (
+    *_PORTABLE_V12_SIDECARS,
+    "history/capture-lifecycle/journal-v2.json",
+    "history/consumer-intake/evidence-v1.json",
+    "history/retraction/approvals-v1.json",
+)
 _REQUIRED_MODULES: Final = frozenset(
     {
+        "decimal",
         "open_brain.local_data",
         "open_brain.profile",
         "open_brain.services.agent_setup",
@@ -132,6 +139,23 @@ _REQUIRED_MODULES: Final = frozenset(
         "open_brain_engine.engine.capture_lifecycle_journal",
         "open_brain_engine.engine.capture_lifecycle_policy",
         "open_brain_engine.engine.capture_lifecycle_schema",
+        "open_brain_engine.engine.consumer_contracts",
+        "open_brain_engine.engine.consumer_segments",
+        "open_brain_engine.engine.consumer_sources",
+        "open_brain_engine.engine.consumer_profiles",
+        "open_brain_engine.engine.consumer_intents",
+        "open_brain_engine.engine.consumer_plans",
+        "open_brain_engine.engine.consumer_operations",
+        "open_brain_engine.engine.consumer_intake",
+        "open_brain_engine.engine.consumer_journal",
+        "open_brain_engine.engine.consumer_schema",
+        "open_brain_engine.portable.v15",
+        "open_brain_engine.portable.v15_catalog",
+        "open_brain_engine.portable.lifecycle_v15",
+        "open_brain_engine.portable.consumer_v15",
+        "open_brain_engine.portable.retraction_v15",
+        "open_brain_engine.engine.portable_v15_evidence",
+        "open_brain_engine.engine.portable_v15_restore",
         "open_brain_engine.engine.portable_v13_evidence",
         "open_brain_engine.engine.portable_v13_restore",
         "open_brain_engine.engine.portable_v12_evidence",
@@ -298,7 +322,7 @@ def audit_base_artifact(artifact: Path) -> BaseNativeAudit:
         if not set(modules) >= _REQUIRED_MODULES or any(
             module == prefix or module.startswith(prefix)
             for module in modules
-            for prefix in _FORBIDDEN_MODULE_PREFIXES
+            for prefix in (*_FORBIDDEN_MODULE_PREFIXES, "_pydecimal")
         ):
             raise BaseNativeError("native artifact crosses the product boundary")
         platform_tag = native_platform_tag()
@@ -884,10 +908,10 @@ def _smoke_local_journey(
         exported.get("status") != "exported"
         or exported.get("verification") != "verified"
         or type(exported.get("schema_version")) is not int
-        or exported.get("schema_version") != 14
+        or exported.get("schema_version") != 15
         or not (export / "portable-manifest.json").is_file()
         or not (export / "sources/logical-sources.json").is_file()
-        or not all((export / relative).is_file() for relative in _PORTABLE_V14_SIDECARS)
+        or not all((export / relative).is_file() for relative in _PORTABLE_V15_SIDECARS)
         or not any(
             token.encode("utf-8") in path.read_bytes()
             for path in export.rglob("*")
@@ -1064,9 +1088,9 @@ def _smoke_markdown_import(
         exported.get("status") != "exported"
         or exported.get("verification") != "verified"
         or type(exported.get("schema_version")) is not int
-        or exported.get("schema_version") != 14
+        or exported.get("schema_version") != 15
         or not (export / "sources/logical-sources.json").is_file()
-        or not all((export / relative).is_file() for relative in _PORTABLE_V14_SIDECARS)
+        or not all((export / relative).is_file() for relative in _PORTABLE_V15_SIDECARS)
         or not blob.is_file()
         or blob.read_bytes() != source_bytes
         or len(captures) != 1
@@ -1402,9 +1426,9 @@ def _smoke_catalog(executable: Path, environment: Mapping[str, str]) -> None:
         != {
             "bridge_protocol": 1,
             "catalog_schema": 2,
-            "portable_metadata": 14,
-            "runtime_session": 14,
-            "state_schema": 19,
+            "portable_metadata": 15,
+            "runtime_session": 15,
+            "state_schema": 20,
             "task_contract": "t03.v1",
         }
         or not isinstance(product, dict)

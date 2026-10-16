@@ -72,7 +72,7 @@ def migrate_owner_retraction(
     committed = False
     try:
         state = classify_local_schema(connection)
-        if state.state == "current" and state.version == 19:
+        if state.state in {"current", "supported_old"} and state.version in {19, 20}:
             return
         if state.state != "supported_old" or state.version != 18:
             raise T03Error("operation_pending")
@@ -90,7 +90,7 @@ def migrate_owner_retraction(
             schema_version=19,
         )
         upgraded = classify_local_schema(connection)
-        if upgraded.state != "current" or upgraded.version != 19:
+        if upgraded.state not in {"current", "supported_old"} or upgraded.version != 19:
             raise T03Error("operation_pending")
         checkpoint("owner_retraction_before_commit")
         require_historical_snapshot_settled(connection, profile)

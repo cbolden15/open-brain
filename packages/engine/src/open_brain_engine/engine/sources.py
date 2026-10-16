@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from contextlib import closing
 from dataclasses import replace
 from hashlib import sha256
 from typing import TYPE_CHECKING, Any, cast
@@ -95,11 +96,16 @@ class SourceTasks:
     def _submit_revision_locked(
         self, submission: SourceRevisionSubmission
     ) -> SourceRevisionReceipt:
+        from .source_intake import require_unreserved_consumer_namespace
+
+        with closing(self._engine._store.connect()) as connection:
+            require_unreserved_consumer_namespace(connection, submission.namespace)
         quarantine_stale_intakes(self._engine)
         namespace_json = submission.namespace_bytes().decode("utf-8")
         namespace_sha = sha256(namespace_json.encode("utf-8")).hexdigest()
         conflict = False
         with self._engine._store.transaction() as connection:
+            require_unreserved_consumer_namespace(connection, submission.namespace)
             epoch = connection.execute("SELECT control_epoch FROM engine_generations").fetchone()[0]
             if submission.expected_control_epoch != epoch:
                 raise T03Error("revision_changed")

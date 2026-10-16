@@ -54,6 +54,7 @@ from .t03_contracts import EffectiveAuthority, SourceRouteRequest, SourceRouteRe
 
 if TYPE_CHECKING:
     from .capture_lifecycle import CaptureLifecycleTasks
+    from .consumer_intake import ConsumerIntakeTasks
     from .facet_contracts import FacetPublicationTasks, FacetTasks, FacetVaultTasks
     from .privacy_repairs import PrivacyRepairReceipt, PrivacyRepairRequest
     from .sharing_contracts import (
@@ -116,6 +117,11 @@ class DecisionOutcome(StrEnum):
 
 
 class CaptureFault(StrEnum):
+    AFTER_CONSUMER_INTENT = "after_consumer_intent"
+    AFTER_CONSUMER_CUSTODY = "after_consumer_custody"
+    AFTER_CONSUMER_SEGMENT = "after_consumer_segment"
+    CONSUMER_READY = "consumer_ready"
+    AFTER_CONSUMER_ACTIVATION = "after_consumer_activation"
     AFTER_JOURNAL_COMMIT = "after_journal_commit"
     AFTER_CAPTURE_RESERVATION = "after_capture_reservation"
     AFTER_CANONICAL_COMPLETION = "after_canonical_completion"
@@ -782,6 +788,7 @@ class PortabilityReceipt:
             12,
             13,
             14,
+            15,
         }:
             raise ValueError("invalid portability receipt schema version")
         if self.index_generation is not None and (
@@ -3553,6 +3560,7 @@ class EngineTaskSet:
     facet_vault: FacetVaultTasks | None = None
     developments: Any = None
     lifecycle: CaptureLifecycleTasks | None = None
+    consumer_imports: ConsumerIntakeTasks | None = None
 
     @property
     def spaces(self) -> InboxSpaceTask:

@@ -22,7 +22,11 @@ from tools.open_brain_dev.base_native import (
     write_base_archive,
     write_release_manifest,
 )
-from tools.open_brain_dev.graphify_native import write_graphify_archive
+from tools.open_brain_dev.graphify_native import (
+    _GRAPHIFY_MODULES,
+    audit_graphify_artifact,
+    write_graphify_archive,
+)
 
 ROOT = Path(__file__).parents[2]
 
@@ -135,8 +139,9 @@ def test_native_platform_rejects_unsupported_hosts() -> None:
         native_platform_tag(system_name="Windows", machine_name="AMD64")
 
 
-def test_native_audit_rejects_secure_node_modules(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+@pytest.mark.parametrize("forbidden_module", ("open_brain.services.appliance_daemon", "_pydecimal"))
+def test_native_audit_rejects_forbidden_modules(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, forbidden_module: str
 ) -> None:
     artifact = _executable(tmp_path / "open-brain")
     modules = set(base_native._REQUIRED_MODULES)
@@ -146,9 +151,21 @@ def test_native_audit_rejects_secure_node_modules(
 
     assert audit_base_artifact(artifact).signature == "adhoc"
 
-    modules.add("open_brain.services.appliance_daemon")
+    modules.add(forbidden_module)
     with pytest.raises(BaseNativeError, match="crosses the product boundary"):
         audit_base_artifact(artifact)
+
+
+def test_core_decimal_requirement_does_not_change_separate_graphify_closure(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    artifact = _executable(tmp_path / "open-brain-graphify")
+    modules = tuple(sorted({*_GRAPHIFY_MODULES, "decimal", "_pydecimal"}))
+    monkeypatch.setattr(base_native, "archive_modules", lambda _path: modules)
+    monkeypatch.setattr(base_native, "native_platform_tag", lambda: "macos-arm64")
+    monkeypatch.setattr(base_native, "_validate_native_executable", lambda *_: "adhoc")
+
+    assert audit_graphify_artifact(artifact).signature == "adhoc"
 
 
 def test_release_archives_are_reproducible_and_manifest_the_exact_pair(

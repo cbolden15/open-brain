@@ -51,7 +51,7 @@ if TYPE_CHECKING:
     from .portable_v5_restore import ValidatedV5IssuerSeed
 
 PHASE1_STATE_DATABASE = ".open-brain/state/phase1.sqlite3"
-PHASE1_STATE_SCHEMA_VERSION = 19
+PHASE1_STATE_SCHEMA_VERSION = 20
 
 
 class LocalRecoveryRequiredError(SchemaError):
@@ -127,6 +127,8 @@ def _expected_shape(era: int, nullable: bool, ledger: bool) -> tuple[tuple[str, 
         statements.extend(LOCAL_MIGRATIONS[17].statements)
     if era >= 21 and len(LOCAL_MIGRATIONS) >= 19:
         statements.extend(LOCAL_MIGRATIONS[18].statements)
+    if era >= 22 and len(LOCAL_MIGRATIONS) >= 20:
+        statements.extend(LOCAL_MIGRATIONS[19].statements)
     if ledger:
         statements.append(_SCHEMA_MIGRATIONS_SQL)
     return _cached_shape(tuple(statements))
@@ -192,6 +194,7 @@ def classify_local_schema(connection: sqlite3.Connection) -> SchemaState:
                                 17: 12,
                                 18: 13,
                                 19: 14,
+                                20: 15,
                             }.get(version, 1),
                             version,
                         )
@@ -199,13 +202,15 @@ def classify_local_schema(connection: sqlite3.Connection) -> SchemaState:
                         return SchemaState("invalid", version)
                 if version >= 18:
                     from .capture_lifecycle_journal import JOURNAL_CONTRACT
+                    from .consumer_journal import JOURNAL_CONTRACT_V2
 
                     identities = connection.execute(
                         "SELECT singleton, contract, brain_id FROM lifecycle_journal_identity"
                     ).fetchall()
                     brain_ids = connection.execute("SELECT brain_id FROM brain_identity").fetchall()
                     if len(brain_ids) != 1 or [tuple(row) for row in identities] != [
-                        (1, JOURNAL_CONTRACT, brain_ids[0][0])
+                        (1, JOURNAL_CONTRACT_V2 if version == 20 else JOURNAL_CONTRACT,
+                         brain_ids[0][0])
                     ]:
                         return SchemaState("invalid", version)
                 return SchemaState(
@@ -314,7 +319,7 @@ def _validate_upgrade_data(connection: sqlite3.Connection) -> None:
             "FROM runtime_compatibility"
         ).fetchall()
         state_version = connection.execute("PRAGMA user_version").fetchone()[0]
-        compatibility_version = state_version if state_version in range(5, 20) else 4
+        compatibility_version = state_version if state_version in range(5, 21) else 4
         if [tuple(row) for row in compatibility] != [
             (
                 1,
@@ -332,6 +337,7 @@ def _validate_upgrade_data(connection: sqlite3.Connection) -> None:
                     17: 12,
                     18: 13,
                     19: 14,
+                    20: 15,
                 }.get(state_version, 1),
                 compatibility_version,
             )
@@ -499,6 +505,10 @@ def _prepare_local_schema(
             from .capture_lifecycle_schema import initialize_capture_lifecycle_identity
 
             initialize_capture_lifecycle_identity(connection)
+        if empty and target_version >= 20:
+            from .consumer_schema import initialize_consumer_lifecycle_identity
+
+            initialize_consumer_lifecycle_identity(connection)
         final_state = classify_local_schema(connection)
         _require_supported(final_state)
         if final_state.version != target_version:

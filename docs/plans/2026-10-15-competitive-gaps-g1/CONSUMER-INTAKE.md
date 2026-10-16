@@ -1,6 +1,6 @@
 # Engine consumer intake implementation contract
 
-Goal110; existing competitive-gap branch and PR86. Baseline295fb28, schema19/runtime14/Portable14. This document is a concrete successor design for independent review before freezing. Provider archive formats remain inactive. Engine APIs are tested with explicitly injected synthetic profile records, never a production bypass flag.
+Goal110; existing competitive-gap branch and PR86. Baseline295fb28, schema19/runtime14/Portable14. The implemented development candidate uses schema20/runtime15/Portable15 and the reviewed successor contract below. Full goal acceptance still requires final review and exact-candidate gates. Provider archive formats remain inactive. Engine APIs are tested with explicitly injected synthetic profile records, never a production bypass flag.
 
 ## Decision record and authority
 
@@ -24,7 +24,7 @@ Operational expiring previews are not Portable evidence. Durable account scopes/
 
 Materialize consumer captures with original immutable public-job/privacy/provenance envelopes, engine-issued reservations and typed lifecycle custody. Add a group-aware source registration seam: each segment keeps the documented four-part consumer namespace and stable source_id. Register new source revisions without promoting an existing logical source head; new-source pending heads stay historical-only. Do not invoke ordinary SourceTasks.submit_revision unchanged because it independently journals and promotes sources.
 
-Activation, under the canonical writer fence and a single database transaction, revalidates every at-most128 complete segment receipt, exact source head/lifecycle/control/privacy coordinates, account/archive binding, group revision, session barrier and tombstones. Then atomically publish all source heads, complete group membership, one outcome/receipt and newly admitted session membership plus generations. Shorter replacements retire old tail eligibility without deleting immutable source history. Missing conversations have no effect. Unchanged reimports return retained receipts and never join a new session.
+Activation, under the canonical writer fence and a single database transaction, revalidates every at-most128 complete segment receipt, exact source head/lifecycle/control/privacy coordinates, account/archive binding, group revision, session barrier and tombstones. Then atomically publish all source heads, complete group membership, one outcome/receipt and newly admitted session membership plus generations. Shorter replacements retire old tail eligibility without deleting immutable source history. Missing conversations have no effect. Unchanged reimports retain the original activation receipt reference and return an operation-bound unchanged outcome receipt; they never join a new session.
 
 Current group eligibility additionally requires every required segment source to remain active, available, at its admitted head, and eligible under effective privacy. A withdrawal/unavailability of one current member withholds the complete current conversation. Activation source preimages include route_version and effective privacy, in addition to source ID/head/lifecycle/control versions. Re-adding a previously removed ordinal tail is an explicit new revision on the same stable source namespace, never source-ID reset or withdrawal reversal.
 
@@ -81,5 +81,32 @@ capture-request hashes against actual immutable envelopes and engine identity.
 
 Concrete DDL and golden fixtures are now in consumer_schema.py and the engine
 test fixtures consumer-schema20.json and consumer-lifecycle-journal-v2.json.
-They are not registered in the current catalog until engine/Portable integration
-is complete; source/runtime coordinates remain19/14/14 during this checkpoint.
+They are registered in the successor catalog together with schema20/runtime15/Portable15 admission, migration, recovery and client/native metadata.
+
+## Engine operation root and input binding
+
+Engine-facing ConsumerImportPlan contains only exact provider message/conversation IDs and normalized accepted text/omissions, provider/profile/archive/operation identity, exactly one explicit existing scope or proposed label, privacy tier and replacement choice. Its root references bounded per-conversation input objects; identifier bytes are hex-protected. Empty message input is explicit no_text evidence, never an empty capture.
+
+The accepted operation root contract ob.consumer-operation-intent.v1 has exact operation_id,brain_id,issuer_epoch,principal_id,provider,profile_sha256,input_sha256,scope,archive_sha256,privacy_tier,replace_current,session_id,eligibility_generation,control_epoch,items. Scope is exact scope_id,namespace_id,label,proposed; scope IDs use scope_UUID4, namespace IDs use UUID4. Item is exact item_token,group_key,revision_sha256,planned_outcome,reference_receipt_sha256,intent_sha256,input_sha256,expected_revision_sha256. Root items sort by group_key; item tokens are random opaque identifiers retained in the root. The shared request derives all admitted GroupIntents from referenced prepared conversation segments and expected group revisions, and binds the root digest. No cyclic root/request digest exists; the accepted approval separately binds both exact bytes.
+
+Root validation reconstructs the complete hash-referenced parser input and all prepared conversation intents, compares exact protected IDs, normalized messages/title/omissions/profile/namespace, requested privacy and deterministic delivery identities, and validates one complete reachable object union with exact kinds. No-text items reference only their protected empty conversation input. Prospective envelopes for unchanged/conflicted/retracted preview bodies remain evidence but never become staged captures. Reservation/source/receipt/delivery identities are unique across the operation. Acceptance requires the engine owner principal and actual capture-only context; retained profile evidence cannot activate an inactive profile.
+
+Live orchestration persists preview/root/objects under the writer fence, then reserves shared operation plus immutable approval/objects/bindings before custody. Each segment is separately custodied then materialized through the real capture stage machine. Activation rechecks group/source/barrier/scope/archive/current privacy and publishes scope/archive registration, stable heads, complete membership, outcome/receipt and generations in one transaction. Status reads durable journal truth; recover uses retained approval only; halt seals unfinished groups without materializing or activating them. Old issuer can read/halt but never resume. The current development candidate advances schema/runtime/Portable together to20/15/15; no engine schema bypass flag is introduced.
+
+
+## Concrete integration review resolutions
+
+Writer-fenced acceptance repeats exact-operation reconciliation after the optimistic read. Concurrent commits cannot reserve twice. A segment retry reconciles its own completed group before checking the old source preimage, so another recovery runner's activation does not look like foreign drift. Halt and recovery serialize each durable step under the same writer fence; a halt between steps cannot authorize further staging or activation.
+
+A normalized body match with a different selected privacy tier is a conflict, not unchanged. A previously retained noncurrent revision also reports conflict, even with replacement selected, rather than claiming the journal can readmit a known revision. These decisions preserve original privacy and revision evidence. Whole-conversation current reads check every member's effective privacy and route against the caller authority; a readable first segment cannot expose a conversation whose required sibling is withheld.
+
+Input-plan objects separate exact-ID evidence and normalized text as well as separating the prepared normalized DTO. Maximum accepted IDs plus highly escaped text otherwise exceed a single32MiB object despite each independent budget being valid. Roots retain references and exact kind/reachability checks.
+
+Portable15 handles terminal halted stage0–2 materializer projections through validated export-only normalization. It verifies exact rows, retained reservations/envelopes and any partial file bytes, omits only those unfinished projections from a disposable snapshot, and preserves all intent/custody. The source Brain is unchanged. Restore leaves them unmaterialized while preserving status and semantic re-export. Stage3 history remains; damaged or unknown partial state refuses. This avoids materializing on halt and keeps frozen pre-lifecycle Portable semantics intact. Details are in `/Users/calebbolden/Projects/oss/open-brain-public/.worktrees/competitive-gap-reconciliation/docs/portable-brain-v15.md`.
+
+
+## Final review boundary corrections
+
+Generic owner lifecycle mutations reject the explicit consumer request discriminator. Consumer intake alone composes its accepted approval with staging, activation, scope/archive publication and outcomes. Its private stage revalidates the retained root/request, active profile, issuer and scope under the writer fence; private activation additionally requires the exact bound session and registered scope/archive. A generic lifecycle call cannot substitute a session, bypass profile deactivation or create an active conversation without registered scope/outcome evidence. Legacy groups-only owner requests keep predecessor behavior.
+
+Exact predecessor restore retries at current schema20 reject every unexpected consumer evidence/projection/preview table, including orphan objects. Otherwise an older serializer could miss successor state and report a successful duplicate restore while the next Portable15 export fails. Recovery-closure tests pin all predecessor producers through Portable14 and exercise a populated consumer Portable15 baseline.

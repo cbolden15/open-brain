@@ -118,7 +118,7 @@ class OwnerRetractionTasks:
 
     @staticmethod
     def _current(journal: LifecycleJournal, authority: EffectiveAuthority) -> None:
-        if journal.connection.execute("PRAGMA user_version").fetchone()[0] != 19:
+        if journal.connection.execute("PRAGMA user_version").fetchone()[0] not in {19, 20}:
             raise RetractionError("operation_pending")
         if authority.brain_id is not None and (
             authority.brain_id != journal.brain_id or authority.issuer_epoch != journal.issuer_epoch

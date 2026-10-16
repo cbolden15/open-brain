@@ -51,6 +51,10 @@ def register_completed_captures(
             record["payload"]
         ) != bytes(row["payload_json"]):
             raise T03Error("operation_pending")
+        from .consumer_sources import register_consumer_capture
+
+        if register_consumer_capture(connection, row, payload):
+            continue
         intake = connection.execute(
             "SELECT * FROM source_intakes WHERE delivery_id=?", (row["delivery_id"],)
         ).fetchone()

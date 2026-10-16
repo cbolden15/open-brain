@@ -538,7 +538,7 @@ async function managedBridgeExecutable(vaultPath: string, presentation = false):
   const directory = await mkdtemp(path.join(tmpdir(), "open-brain-managed-bridge-"));
   const executable = path.join(directory, "open-brain");
   const handshake = {
-    desktop_only: true, state_schema_version: 19, runtime_session_version: 14, operations: ["graph.review"], product_version: "0.1.0",
+    desktop_only: true, state_schema_version: 20, runtime_session_version: 15, operations: ["graph.review"], product_version: "0.1.0",
     protocol: "open-brain-client", protocol_version: 1, status: "ok",
   };
   const status = {

@@ -11,12 +11,12 @@ Local documentation checks do not promote catalog acceptance.
 | Coordinate | Candidate value | Meaning |
 |---|---|---|
 | Core / engine package | `0.1.0` / exactly `0.1.0` | Core requires the matching engine |
-| Local state schema | `19` | Incompatible coordinates refuse; same-coordinate older binaries are not fenced |
-| Runtime session | `14` | Stop old sessions and upgrade clients together |
+| Local state schema | `20` | Incompatible coordinates refuse; same-coordinate older binaries are not fenced |
+| Runtime session | `15` | Stop old sessions and upgrade clients together |
 | Task contract | `t03.v1` | Negotiated search/read/history/source-route DTOs |
 | Catalog schema | `2` | Joined implementation, package, authorization and acceptance metadata |
 | Plugin bridge | `1` | Existing bounded inherited-stdio envelope |
-| Portable metadata | `14` | Versioned evidence; distinct from live database schema |
+| Portable metadata | `15` | Versioned evidence; distinct from live database schema |
 
 Supported Portable 1–3 imports remain implementation compatibility; standalone Portable 4 import
 is refused. Portable 7 clean restore preserves current identity, privacy, issuer, managed source and sharing
@@ -29,6 +29,7 @@ and mixed historical operations. [Portable 12](portable-brain-v12.md) retains ow
 |---|---|---|
 | Core CLI | Local capture, Markdown import, spaces/inbox, source routing, proposals and inspected decisions | Locally verified; [first-use examples](first-use.md); no release promotion |
 | Capture admission | Engine-enforced envelope, body, and batch bounds, per-principal rate and concurrency gates, bounded writer waiters, absolute storage watermarks, owner explicit tiers, and destination-bound submission under a trusted launcher policy | Stable refusal results leave no partial state; defaults in the [capture contract](capture-contract.md); redaction boundary classifier off by default |
+| Engine conversation intake | Internal ChatGPT/Claude normalized plans, owner preview/commit/status/recover/halt, atomic conversations and Portable15 evidence | Synthetic engine acceptance; both external parsers inactive; no archive-import CLI or end-user importer claim |
 | Retrieval | Lexical search, paged filters, complete projected reads, retained history and explicit relationships | Independent content/history grants for MCP; cursors can become stale |
 | Managed vault | `workspace setup`, `status`, `refresh`; approved canonical pages | Sibling `Open Brain Vault`; routing alone does not publish; no `vault` CLI |
 | Agent memory | Claude Code and Codex preview/apply/remove through `agent setup` | Nine independent grants, off by default; synthetic setup proof is not live client/provider acceptance |

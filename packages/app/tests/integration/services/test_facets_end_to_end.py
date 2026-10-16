@@ -234,12 +234,12 @@ def test_f22_real_cli_revision_query_publish_archive_reconcile_export_import_and
     archive = tmp_path / "portable"
     cli(root, "export", str(archive), "--verify")
     manifest = json.loads((archive / "portable-manifest.json").read_bytes())
-    assert manifest["schema_version"] == 14
+    assert manifest["schema_version"] == 15
     restored_root = tmp_path / "restored"
     receipt = engine.portability.import_clean(
         archive, restored_root, import_id="import_00000000-0000-4000-8000-000000000001"
     )
-    assert receipt.schema_version == 14
+    assert receipt.schema_version == 15
     reopened = BrainEngine.open(open_existing_single_user_local(restored_root))
     assert getattr(reopened, "facets", None) is not None
     fresh = cli(restored_root, "facet", "query", "run", query, "--expected-query-version", "1")

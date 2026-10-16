@@ -1,20 +1,21 @@
 # Consumer conversation exports: G1 contract
 
-Date: 2026-10-15. Baseline: `8ef1d069259c291e669341079806103c8fa90e86`, integrated W4, schema/runtime/Portable **17/12/12**. Specification only. Nothing in this document implements or activates an importer or assigns a future migration number.
+Date: 2026-10-15. Baseline: `8ef1d069259c291e669341079806103c8fa90e86`, integrated W4, schema/runtime/Portable **17/12/12**. Historical parser specification; current engine status is recorded below. Nothing here activates an external parser profile.
 
 Both ChatGPT and Claude consumer exports remain first-implementation scope. The internal contract below is proposed and frozen for implementation review. **Both external profiles are inactive pending authoritative format evidence.** Internal synthetic fixtures prove this contract only; they cannot certify a provider format.
 
-Shared authority, compatibility, recovery and Portable behavior are specified in `PERSISTENCE.md` in this directory. Its 18/13/13 allocation is a design reservation; implemented coordinates remain17/12/12. Concrete SQL/evidence schemas and golden fixtures must land together in the first compatibility implementation slice. This document does not freeze an executable database schema.
+Shared authority, compatibility, recovery and Portable behavior are specified in `PERSISTENCE.md` in this directory. Its 18/13/13 allocation records the original design reservation. The implemented successor uses the concrete schema/evidence contract in `CONSUMER-INTAKE.md`.
 
 ## Current implementation status (2026-10-16)
 
 The baseline/version reservations below are historical planning evidence. The
-current implemented candidate is schema19/runtime14/Portable14. Engine consumer
-intake is being implemented under goal110 using the successor contract in
-`CONSUMER-INTAKE.md`; schema20/runtime15/Portable15 are a coordinated pending
-cutover, not current runtime availability. Both external provider profiles remain
-inactive. Internal DTO, segment-custody and journal2 tests do not certify either
-provider export format or complete the engine intake APIs.
+current implemented development candidate is schema20/runtime15/Portable15.
+Engine-owned preview/commit/status/recover/halt, atomic conversation activation,
+source provenance, successor journal and Portable restore are implemented under
+goal110. Final independent review and exact-candidate gates remain required.
+See `CONSUMER-INTAKE.md` for the concrete contract. Both external provider
+profiles remain inactive; synthetic engine tests do not certify either export
+format or provide an end-user archive parser/CLI.
 
 ## Current seams and implementation boundary
 
@@ -184,7 +185,7 @@ The coordinator owns exact schema/version/fencing, journal, terminal receipt and
 
 Each conversation's intent contains the exact normalized vocabulary above plus `replacement_mode:"new_only"|"replace_current"`, expected group head/lifecycle/control/eligibility and the complete capture envelopes. An invocation receives one trusted import session containing only its newly activated captures, as specified in `PERSISTENCE.md`; unchanged items are outcomes, not new members. Operation replay cannot append another membership. Per-segment operation/delivery identity must deterministically derive from immutable conversation operation identity and segment index; it must not reuse the existing connector delivery function without the group/revision binding.
 
-Exact unchanged reimport returns the retained mapping/receipt and creates no new capture. An archive can have new byte packaging but the same normalized revision; its new preview can resolve unchanged. A changed revision requires explicit `replace_current` and current CAS. No comparable provider sequence is assumed. Without replacement selection it is conflict/history-only under the shared engine policy and cannot become current. Whether conflict evidence is retained requires explicit admission; a preflight conflict alone creates no capture. Do not auto-promote an older export merely because it was imported later.
+Exact unchanged reimport retains the original mapping and activation receipt reference, returns a new operation-bound unchanged outcome receipt, and creates no new capture. An archive can have new byte packaging but the same normalized revision; its new preview can resolve unchanged. A changed revision requires explicit `replace_current` and current CAS. No comparable provider sequence is assumed. Without replacement selection it is conflict/history-only under the shared engine policy and cannot become current. Whether conflict evidence is retained requires explicit admission; a preflight conflict alone creates no capture. Do not auto-promote an older export merely because it was imported later.
 
 An explicit complete changed manifest can remove old tail segments from active membership only in the activation transaction. It preserves immutable captures/history. A conversation missing from a later archive has **no lifecycle effect**; it is not evidence of deletion and never finalizes “missing” withdrawal. Failed/incomplete archive parsing cannot change prior membership.
 
@@ -220,6 +221,6 @@ Archive members, transcript text, links, HTML, tool output and attachment refere
 2. **Synthetic parser corpus:** valid linear/branched normalized cases; same-ID duplicate/divergence; regeneration; empty text; missing/invalid IDs; all omitted roles; mixed text/attachments; Unicode normalization, bidi/ANSI/NUL/surrogate controls; changed title/body; exact/one-past every bound; numbered-file ambiguity; ZIP traversal/collision/CRC/encryption/bomb and file replacement races. No private export fixtures.
 3. **Durability and lifecycle:** kill/restart/lost-ack at each receipt/materialization/activation boundary; exact operation replay; same ID changed intent; partial segment visibility exclusion; replacement shrinking membership; old export conflict; missing conversation non-deletion; concurrent head/withdrawal/retraction/control changes; repeated import and Portable restore preserving tombstones and namespace identity. Search and every read/egress path must agree on eligibility.
 4. **Distribution:** prove the app-engine-only dependency closure, foreground worker behavior, bounded native CLI preview/body/commit/status and failure recovery on macOS arm64 and Linux x86_64. Native acceptance runs later on the exact candidate; this specification runs no tests/builds or private/model/provider/client checks.
-5. **Release wording:** BOTH verified export profiles plus shared lifecycle/receipt/Portable gates must pass before claiming the gap closed. Publication and any private export verification remain separately authorized. Schema/runtime/Portable changes come from the coordinator's concrete persistence contract; retain the current 17/12/12 baseline until then.
+5. **Release wording:** BOTH verified export profiles plus shared lifecycle/receipt/Portable gates must pass before claiming the gap closed. Publication and any private export verification remain separately authorized. Schema/runtime/Portable changes come from the coordinator's concrete persistence contract; the implemented engine successor is20/15/15. Historical parser limits below do not activate either external profile.
 
 Planning estimate after accepted external mappings: 8–14 engineer-days for the bounded two-profile app adapter/parser/CLI and synthetic/native cases, plus shared engine lifecycle/persistence work already counted in the PRD's 24–41-day G2+G3 range. This is a work-package allocation, not an additive total or elapsed delivery promise. Authoritative mapping evidence, both-platform execution and separate owner acceptance may extend elapsed time. Next gate: obtain acceptable schema/specimen evidence for each provider without using private exports under this task.

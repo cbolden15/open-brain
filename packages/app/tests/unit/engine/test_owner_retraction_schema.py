@@ -30,6 +30,14 @@ from open_brain.services.local_bootstrap import open_local_brain
 from open_brain.services.local_runtime_session import hold_local_runtime_session
 
 
+@pytest.fixture(autouse=True)
+def _frozen_owner_schema19(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Keep the predecessor cutover's exact19/14 assertions and adapter semantics."""
+    monkeypatch.setattr(local_schema, "PHASE1_STATE_SCHEMA_VERSION", 19)
+    monkeypatch.setattr(local_schema, "LOCAL_MIGRATIONS", LOCAL_MIGRATIONS[:19])
+    monkeypatch.setattr(local_runtime_session, "RUNTIME_SESSION_VERSION", 14)
+
+
 def _clock() -> datetime:
     return datetime(2026, 10, 16, tzinfo=UTC)
 

@@ -81,6 +81,9 @@ def coordinate_local_migration(
     owner_retraction_phase = (
         schema.state == "supported_old" and schema.version == 18 and target >= 19
     )
+    consumer_intake_phase = (
+        schema.state == "supported_old" and schema.version == 19 and target >= 20
+    )
     if not any(
         (
             source_phase,
@@ -96,6 +99,7 @@ def coordinate_local_migration(
             slack_sharing_phase,
             capture_lifecycle_phase,
             owner_retraction_phase,
+            consumer_intake_phase,
         )
     ):
         return
@@ -205,6 +209,13 @@ def coordinate_local_migration(
             from .owner_retraction_schema import migrate_owner_retraction
 
             migrate_owner_retraction(
+                profile, admission=admission, clock=resolved_clock, checkpoint=checkpoint
+            )
+            schema = inspect_phase1_state(profile)
+        if schema.state == "supported_old" and schema.version == 19 and target >= 20:
+            from .consumer_schema import migrate_consumer_intake
+
+            migrate_consumer_intake(
                 profile, admission=admission, clock=resolved_clock, checkpoint=checkpoint
             )
             schema = inspect_phase1_state(profile)

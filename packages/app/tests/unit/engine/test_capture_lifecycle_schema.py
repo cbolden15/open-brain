@@ -31,6 +31,14 @@ from open_brain.services import local_runtime_session
 from open_brain.services.local_bootstrap import open_local_brain
 
 
+@pytest.fixture(autouse=True)
+def _frozen_lifecycle_schema19(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Exercise the unchanged v1 lifecycle through its historical19/14 successor."""
+    monkeypatch.setattr(local_schema, "PHASE1_STATE_SCHEMA_VERSION", 19)
+    monkeypatch.setattr(local_schema, "LOCAL_MIGRATIONS", LOCAL_MIGRATIONS[:19])
+    monkeypatch.setattr(local_runtime_session, "RUNTIME_SESSION_VERSION", 14)
+
+
 def _clock() -> datetime:
     return datetime(2026, 10, 15, tzinfo=UTC)
 

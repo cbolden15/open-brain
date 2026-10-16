@@ -5,7 +5,6 @@ from __future__ import annotations
 import sqlite3
 
 from .capture_lifecycle_contracts import LifecycleError
-from .capture_lifecycle_journal import LifecycleJournal
 
 
 def lifecycle_permits_capture(
@@ -19,15 +18,18 @@ def lifecycle_permits_capture(
         version = connection.execute("PRAGMA user_version").fetchone()[0]
         if version < 18:
             return True
-        identity = connection.execute(
-            "SELECT brain_id,issuer_epoch FROM brain_identity WHERE singleton=1"
-        ).fetchone()
-        if identity is None:
+        from .capture_lifecycle import open_lifecycle_journal
+
+        journal = open_lifecycle_journal(connection)
+        if not journal.permits_capture(capture_id, history=history):
             return False
-        journal = LifecycleJournal.for_engine(
-            connection, brain_id=identity[0], issuer_epoch=identity[1]
-        )
-        return journal.permits_capture(capture_id, history=history)
+        if version == 20:
+            from .consumer_sources import consumer_group_sources_visible
+
+            return consumer_group_sources_visible(
+                connection, capture_id, history=history, journal=journal
+            )
+        return True
     except (LifecycleError, sqlite3.Error, TypeError, ValueError):
         return False
     finally:

@@ -184,7 +184,7 @@ class BrainEngine(CaptureOperations, SpaceOperations, ReviewOperations, Retrieva
         assert_root_identity(profile.root, profile.root_identity)
         schema = inspect_phase1_state(profile)
         if recovery_protection_guard is not None and (
-            schema.state != "current" or schema.version not in {13, 14, 15, 16, 17, 18, 19}
+            schema.state != "current" or schema.version not in {13, 14, 15, 16, 17, 18, 19, 20}
         ):
             raise StateSchemaUnavailableError("recovery protection requires existing schema13")
         if recovery_protection_guard is not None:
@@ -280,7 +280,7 @@ class BrainEngine(CaptureOperations, SpaceOperations, ReviewOperations, Retrieva
         if (
             receipt_protection_port is not None
             and schema.state != "absent"
-            and schema.version not in {12, 13, 14, 15, 16, 17, 18, 19}
+            and schema.version not in {12, 13, 14, 15, 16, 17, 18, 19, 20}
         ):
             raise StateSchemaUnavailableError(
                 "receipt protection requires the schema-10 ingestion journal"
@@ -379,12 +379,16 @@ class BrainEngine(CaptureOperations, SpaceOperations, ReviewOperations, Retrieva
                     17,
                     18,
                     19,
+                    20,
                 }:
                     raise
                 self._store = _LocalStore(profile, clock=self._clock, initialize=False)
         from .capture_lifecycle import CaptureLifecycleTasks
 
         self.lifecycle = CaptureLifecycleTasks(self)
+        from .consumer_intake import ConsumerIntakeTasks
+
+        self.consumer_imports = ConsumerIntakeTasks(self)
         self.capture = CaptureTasks(self)
         self.ingestion = IngestionJournal(self)
         self.inbox = InboxSpaceTasks(self)
@@ -433,6 +437,7 @@ class BrainEngine(CaptureOperations, SpaceOperations, ReviewOperations, Retrieva
             facet_vault=self.facet_vault,
             developments=self.developments,
             lifecycle=self.lifecycle,
+            consumer_imports=self.consumer_imports,
         )
 
     @classmethod
@@ -513,8 +518,19 @@ class BrainEngine(CaptureOperations, SpaceOperations, ReviewOperations, Retrieva
         """Resume canonical capture stages before draining newer ingress."""
         connection = self._store.connect()
         try:
+            consumer_clause = ""
+            if connection.execute("PRAGMA user_version").fetchone()[0] >= 20:
+                # Consumer progress requires its accepted owner/profile/issuer
+                # checks. Ordinary startup never resumes its stage machine.
+                consumer_clause = (
+                    " AND NOT EXISTS(SELECT 1 FROM consumer_segment_bindings b "
+                    "WHERE b.capture_id=captures.capture_id)"
+                )
             rows = tuple(
-                connection.execute("SELECT * FROM captures WHERE stage < ?", (_done("captures"),))
+                connection.execute(
+                    "SELECT * FROM captures WHERE stage < ?" + consumer_clause,
+                    (_done("captures"),),
+                )
             )
         finally:
             connection.close()

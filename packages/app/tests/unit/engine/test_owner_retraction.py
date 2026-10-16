@@ -10,7 +10,7 @@ from pathlib import Path
 from uuid import uuid4
 
 import pytest
-from open_brain_engine.engine import BrainEngine, CaptureSubmission, TextPayload
+from open_brain_engine.engine import BrainEngine, CaptureSubmission, TextPayload, local_schema
 from open_brain_engine.engine import owner_retraction as module
 from open_brain_engine.engine.capture_lifecycle import _journal
 from open_brain_engine.engine.capture_lifecycle_contracts import (
@@ -18,11 +18,15 @@ from open_brain_engine.engine.capture_lifecycle_contracts import (
     decode_canonical,
     digest,
 )
+from open_brain_engine.engine.local_schema_catalog import LOCAL_MIGRATIONS
 from open_brain_engine.engine.owner_retraction_contracts import (
     RetractionError,
     approval_record,
     impact_value,
     validate_approval_records,
+)
+from open_brain_engine.portable.retraction_v15 import (
+    validate_approval_records as validate_successor_approval_records,
 )
 
 from open_brain.profile import compile_single_user_local
@@ -181,9 +185,13 @@ def test_preview_limit_expiry_cleanup_and_owner_only_read(tmp_path: Path) -> Non
         assert connection.execute("SELECT count(*) FROM retraction_previews").fetchone()[0] == 1
 
 
+@pytest.mark.parametrize("schema_version", [19, 20])
 def test_same_operation_with_different_preview_conflicts_and_evidence_is_validated(
-    tmp_path: Path,
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, schema_version: int,
 ) -> None:
+    if schema_version == 19:
+        monkeypatch.setattr(local_schema, "PHASE1_STATE_SCHEMA_VERSION", 19)
+        monkeypatch.setattr(local_schema, "LOCAL_MIGRATIONS", LOCAL_MIGRATIONS[:19])
     engine = BrainEngine.open(compile_single_user_local(tmp_path / "brain"))
     capture = _capture(engine)
     first = str(
@@ -212,7 +220,12 @@ def test_same_operation_with_different_preview_conflicts_and_evidence_is_validat
             connection.execute("BEGIN")
         evidence = _journal(connection).export_evidence_value()
     record = approval_record(request, receipt)
-    assert validate_approval_records([record], evidence) == [record]
+    if schema_version == 19:
+        assert validate_approval_records([record], evidence) == [record]
+    else:
+        assert validate_successor_approval_records([record], evidence) == [record]
+        with pytest.raises(RetractionError, match="invalid_evidence"):
+            validate_approval_records([record], evidence)
     assert isinstance(receipt, dict)
     receipt["counts"] = {}
     with pytest.raises(RetractionError, match="invalid_evidence"):

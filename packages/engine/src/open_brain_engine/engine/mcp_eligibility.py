@@ -87,6 +87,24 @@ def capture_visible(
         connection, capture_id, history=history and authority is not None and authority.owner
     ):
         return False
+    # Current conversation release is a complete group decision. A caller that
+    # cannot read one segment's effective privacy/route cannot read another one.
+    if authority is not None and connection.execute("PRAGMA user_version").fetchone()[0] >= 20:
+        from .consumer_sources import consumer_group_sources_visible
+
+        owned = not connection.in_transaction
+        try:
+            if owned:
+                connection.execute("BEGIN")
+            if not consumer_group_sources_visible(
+                connection, capture_id, history=history and authority.owner, authority=authority
+            ):
+                return False
+        except ValueError, TypeError, AttributeError, KeyError, sqlite3.Error:
+            return False
+        finally:
+            if owned and connection.in_transaction:
+                connection.rollback()
     if not implicit(authority):
         return True
     pending = [capture_id]

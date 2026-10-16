@@ -110,7 +110,7 @@ describe("shared Python frames and captured Stage1 inspection (codec consumption
 
   it("negotiates the exact Python descriptor for all facets and the resolver", () => {
     // The pinned corpus is historical; this tests its DTOs under current admission.
-    const current = { ...shared.handshake, state_schema_version: 19, runtime_session_version: 14 };
+    const current = { ...shared.handshake, state_schema_version: 20, runtime_session_version: 15 };
     expect(parseHandshake(current)).toEqual(current);
     const result = negotiateFacets(current);
     expect(result.status).toBe("available");
@@ -404,7 +404,7 @@ describe("complete plugin frames and operation limits", () => {
 const handshake = (entries?: unknown[], operations: string[] = ["facet.dimension.list", "workspace.record.resolve"]) => ({
   protocol: "open-brain-client", protocol_version: 1, status: "ok", desktop_only: true,
   product_version: "synthetic-o0", operations,
-  state_schema_version: 19, runtime_session_version: 14,
+  state_schema_version: 20, runtime_session_version: 15,
   ...(entries === undefined ? {} : { facet_capabilities: { version: 1, operations: entries } }),
 });
 const capability = (operation = "facet.dimension.list", overrides: ObjectValue = {}) => ({

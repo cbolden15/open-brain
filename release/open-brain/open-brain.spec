@@ -1,10 +1,17 @@
+import _decimal
 import sysconfig
+from decimal import Decimal
 from pathlib import Path
 
 from PyInstaller.config import CONF
 from PyInstaller.utils.hooks import collect_data_files, copy_metadata
 
 from tools.open_brain_dev.native_metadata import relocated_sysconfig, runtime_metadata
+
+# Supported native interpreters must provide C decimal. Keep the unused Python
+# fallback out of the shared closure without changing artifact audit budgets.
+if Decimal is not _decimal.Decimal:
+    raise ValueError("native build requires compiled decimal")
 
 ROOT = Path(SPECPATH).parents[1]
 ENTRYPOINT = ROOT / "packages/app/src/open_brain/services/local_native_entrypoint.py"
@@ -40,6 +47,7 @@ analysis = Analysis(
     hooksconfig={},
     runtime_hooks=[],
     excludes=[
+        "_pydecimal",
         "argon2",
         "capng",
         "cryptography",

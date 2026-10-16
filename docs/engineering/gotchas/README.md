@@ -4,6 +4,70 @@ Non-obvious behaviors, sharp edges, and lessons learned belong here.
 
 ## Registry
 
+### BUILD-019: Native fallback modules consume the fixed archive audit budget
+
+Category: Dependencies; Build Pipeline.
+
+Consumer intake increased the harness archive to506301 marshal markers, above
+its fixed500000 limit. Full source verification and native smoke do not establish
+archive acceptance. Keep all scanner ceilings, content rules and reviewed stdlib
+payload hashes unchanged. Do not strip assertions or exempt the new engine code.
+
+The supported native interpreters already provide compiled decimal: a dynamic
+extension on the tested macOS build and a built-in compiled symbol in the prior
+Linux CI artifact. Require C decimal at build and installed self-check, prove
+exact decimal arithmetic and implementation identity, exclude `_pydecimal` from
+the core/harness closure, and forbid that fallback in the core module audit. The
+ordinary Python package retains its standard-library fallback behavior. Final
+Linux CI must prove the installed check works; symbol presence alone is not
+execution evidence.
+
+Graphify has a separate frozen dependency closure and does not require compiled
+decimal. Keep this core-only restriction out of the shared forbidden-prefix list:
+Graphify consumes that list too, and its unchanged fallback is not a core payload.
+
+Diagnostic metadata compaction and docstring removal were insufficient and were
+not shipped. This fix removes an unused alternative implementation while keeping
+all required engine modules and the complete strict artifact inspection.
+
+### LIFECYCLE-010: Consumer recovery must reconcile inside the writer fence
+
+Category: Database/Migrations; Type Safety; Build Pipeline.
+
+An optimistic accepted-operation lookup does not serialize duplicate commits.
+Repeat exact request reconciliation after obtaining the writer fence. A recovery
+runner may encounter a group another runner just activated; reconcile the exact
+completed manifest and custody before applying its now-old source preimage.
+Public owner lifecycle mutation entrypoints must reject typed consumer requests.
+Private consumer steps revalidate accepted proof/profile/session under the writer
+fence; generic activation must not bypass scope/archive/outcome publication.
+Predecessor restore audits must refuse all unexpected successor tables, even
+when the older serializer cannot see them. Pin each old test producer and add
+the new current version to recovery-closure and relationship catalog matrices.
+Audit parameterized producer pins and digest maps, not only numeric assertions.
+Current owner approvals require the explicit successor validator; the frozen
+predecessor validator must continue refusing journal2. Extend the separate
+managed-write recovery schema allowlist while preserving the current writer
+floor; ordinary bootstrap admission does not cover this owner recovery path.
+Privacy changes on identical text are conflicts, and a known noncurrent revision
+cannot be promised as a fresh replacement. Test these interleavings directly.
+
+Ordinary startup capture recovery must leave consumer reservations alone.
+Accepted delivery IDs need protection before custody exists. Every current
+member's route and effective privacy contributes to whole-conversation reads.
+Preserve predecessor owner-history behavior while withholding all staging.
+
+A halted capture can have a stage0–2 row or partial file. Portable15 validates
+these against retained custody and normalizes only a disposable export snapshot;
+never finish materialization on halt or delete source rows to make export pass.
+Stage3 history remains retained. Re-export and status must match after restore.
+
+Split exact-ID and normalized-text input objects. Hex-encoded maximum IDs plus
+JSON-escaped text can exceed32MiB even when both independent budgets are valid.
+Use strict booleans for scope/replacement flags; Python equality admits0/1 as
+False/True. Avoid shadowing dataclasses.field with a local validation field name;
+alias the import explicitly and run Ruff plus strict mypy before the full gate.
+
 ### LIFECYCLE-009: Consumer identifiers and provenance need distinct admission
 
 Category: Type Safety; Database/Migrations.
@@ -87,6 +151,12 @@ plugin build/typecheck and live transport tests before packaging plugin assets.
 The full700-test plugin suite passed with one worker after two one-second
 readiness checks failed at default and two-worker concurrency on this workstation.
 Keep the assertions and deadlines intact; record the worker cap with the receipt.
+
+Follow-up, 2026-10-16: The same two one-second readiness waits failed once with
+one worker after a full Python run. Both affected files passed unchanged (33
+tests), followed by all700 plugin tests. Independent review found no branch
+change in the readiness or unload behavior. Record the failed aggregate and
+successful retries separately; a passing retry does not make the first run green.
 
 ### BUILD-018: Acceptance source binding includes workstream notes
 
@@ -733,6 +803,15 @@ task TMPDIR. An approved cleanup of ignored build artifacts recovered 5.38 GiB.
 All 190 recovery cases then passed, followed by the full gate with four bounded
 workers and immediate passing-fixture cleanup. Check broader host headroom as
 well as fixture size; do not change production admission limits or helper deadlines.
+
+Follow-up, 2026-10-16: A four-worker consumer-intake run started with6GiB free
+but exhausted disk as host swap grew; retained fixtures occupied only72MiB.
+Clearing this worktree's disposable Cargo target and using one pytest worker
+allowed all8185 Python cases to pass. An external supervisor monitored the
+existing2GiB high watermark without altering admission limits; its stop guard did
+not trigger. The successful
+run's minimum free space was2958929920 bytes. Keep rollback clones and unrelated
+projects intact, and rebuild disposable artifacts with bounded Cargo concurrency.
 
 Discovered: 2026-10-09, repeated automatic harness bridge verification.
 

@@ -41,6 +41,15 @@ from open_brain_engine.portable.versioned import validated_portable_snapshot
 from open_brain.profile import compile_single_user_local, open_existing_single_user_local
 
 
+@pytest.fixture(autouse=True)
+def frozen_schema19_producer(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Keep frozen Portable14 recipes at their original schema19 boundary."""
+    from open_brain_engine.engine import local_schema, paging
+
+    monkeypatch.setattr(local_schema, "PHASE1_STATE_SCHEMA_VERSION", 19)
+    monkeypatch.setattr(paging, "PHASE1_STATE_SCHEMA_VERSION", 19)
+
+
 def _engine(root: Path) -> BrainEngine:
     root.parent.chmod(0o700)
     return BrainEngine.open(compile_single_user_local(root))
