@@ -4,6 +4,26 @@ Non-obvious behaviors, sharp edges, and lessons learned belong here.
 
 ## Registry
 
+### LIFECYCLE-008: Approval receipts need exact typed bytes and a bounded commit
+
+Category: Type Safety; Database/Migrations; Build Pipeline.
+
+Python dictionary equality treats1, True and1.0 as equal. Compare canonical
+receipt bytes to the derived receipt, so a changed count type cannot pass while
+retaining the old receipt ID. Test boolean/float substitutions through Portable
+validation. Keep source-module imports explicit in strict mypy tests; importing
+a private helper through another module is not a declared re-export.
+
+Session retraction commits an authoritative marker and receipt without scanning
+or deleting every search row first. Current read predicates must reject retained
+projection rows immediately. Preserve frozen predecessor semantics and test
+search, direct/history reads and Portable rebuilds with stale rows present.
+Compatibility cutovers also update both CLI verified-export receipt allowlists,
+native journey coordinates and migration/recovery no-op version sets.
+An opener that skips recovery must also skip constructor initialization and
+metadata publication. Verify filesystem publishers are never called for status
+or page reads; an unchanged SQLite dump alone does not prove a read-only open.
+
 ### LIFECYCLE-007: Retraction effects extend beyond selected captures
 
 Category: Type Safety; Database/Migrations.

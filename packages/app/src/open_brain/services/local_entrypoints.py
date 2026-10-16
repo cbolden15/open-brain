@@ -51,6 +51,7 @@ from open_brain_engine.engine import (
 from open_brain_engine.engine import facet_contracts as fc
 from open_brain_engine.engine.consent_contracts import ConsentContractError, EgressMode
 from open_brain_engine.engine.contracts import CaptureAdmissionError, ManagedWorkspaceFailure
+from open_brain_engine.engine.owner_retraction_contracts import RetractionError
 from open_brain_engine.engine.portability import restore_portable_clean
 from open_brain_engine.engine.privacy_repairs import (
     PrivacyRepairError,
@@ -121,6 +122,13 @@ from open_brain.services.managed_recovery import (
 from open_brain.services.receipt_protection import (
     ReceiptProtectionConfigurationError,
     load_receipt_protection_configuration,
+)
+from open_brain.services.retraction import (
+    add_retraction_parsers,
+    retraction_grammar_requested,
+    run_retraction_command,
+    validate_retraction_arguments,
+    write_retraction_failure,
 )
 from open_brain.services.review_publication import (
     MAX_REVIEW_MARKDOWN_BYTES,
@@ -202,6 +210,8 @@ def run_cli(
     try:
         parsed = _parser().parse_args(arguments)
     except _UsageError:
+        if retraction_grammar_requested(arguments):
+            return write_retraction_failure("invalid_arguments", json_output=json_output)
         _write_usage_failure(json_output=json_output)
         return 2
     except SystemExit as error:
@@ -209,6 +219,11 @@ def run_cli(
     if parsed.command is None:
         _write_usage_failure(json_output=json_output)
         return 2
+    if parsed.command == "retract":
+        try:
+            validate_retraction_arguments(parsed)
+        except RetractionError as error:
+            return write_retraction_failure(error.code, json_output=json_output)
     if parsed.command == "restore":
         return _run_portable_restore(parsed, json_output=json_output)
     if parsed.command == "harness":
@@ -414,6 +429,8 @@ def _run_parsed_command(
             platform_name=platform_name,
         )
     except LocalDataError:
+        if parsed.command == "retract":
+            return write_retraction_failure("local_operation_failed", json_output=json_output)
         if _is_workspace_recovery(parsed):
             return _write_managed_recovery_failure(
                 "private_data_unavailable",
@@ -423,6 +440,49 @@ def _run_parsed_command(
         _write_private_data_failure(json_output=json_output)
         return 78
     try:
+        if parsed.command == "retract":
+            try:
+                if not selection.brain_root.exists():
+                    code = (
+                        "operation_not_found"
+                        if parsed.retraction_action == "status"
+                        else "preview_not_found"
+                        if getattr(parsed, "preview_id", None)
+                        else "not_found"
+                    )
+                    return write_retraction_failure(code, json_output=json_output)
+                with open_local_brain(
+                    selection,
+                    filesystem_type_probe=filesystem_type_probe,
+                    existing_only=True,
+                ) as session:
+                    return run_retraction_command(parsed, session.tasks, json_output=json_output)
+            except RetractionError as error:
+                return write_retraction_failure(error.code, json_output=json_output)
+            except KeyboardInterrupt:
+                if json_output:
+                    _write_json(
+                        {
+                            "dto_version": 1,
+                            "status": "interrupted",
+                            "operation_id": getattr(parsed, "operation_id", None),
+                            "error": {
+                                "code": "import_interrupted",
+                                "retryable": False,
+                                "item_token": None,
+                            },
+                        }
+                    )
+                else:
+                    print("Retraction interrupted; check the operation receipt.", file=sys.stderr)
+                return 130
+            except Exception as error:
+                return write_retraction_failure(
+                    "local_operation_busy"
+                    if database_is_busy(error) or isinstance(error, LockBusyError)
+                    else "local_operation_failed",
+                    json_output=json_output,
+                )
         if parsed.command == "init":
             receipt = initialize_local_brain(
                 selection,
@@ -726,6 +786,7 @@ def _parser() -> argparse.ArgumentParser:
     _add_t03_parsers(subparsers)
     _add_space_inbox_parsers(subparsers)
     _add_review_parsers(subparsers)
+    add_retraction_parsers(subparsers, _add_local_options)
     facet_parser = add_facet_parsers(subparsers)
     _add_facet_local_options(facet_parser)
     privacy_parser = subparsers.add_parser(
@@ -3115,7 +3176,20 @@ def _record_verified_export(
     except UnicodeDecodeError, json.JSONDecodeError, KeyError, TypeError:
         raise ValueError("Portable export manifest is unavailable") from None
     if type(manifest_version) is not int or manifest_version not in {
-        1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14,
     }:
         raise ValueError("Portable export manifest is unavailable")
     session.prepared.revalidate()
@@ -3156,7 +3230,7 @@ def _verified_export_state(session: LocalBrainSession) -> str:
                 "schema_version",
             }
             or type(value["schema_version"]) is not int
-            or value["schema_version"] not in {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13}
+            or value["schema_version"] not in {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14}
             or canonical_json_bytes(value) != payload
             or not isinstance(value["created_at"], str)
             or not isinstance(value["export_id"], str)

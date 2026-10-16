@@ -203,7 +203,7 @@ def test_privacy_migration_is_cataloged() -> None:
 def test_fresh_brain_is_schema_sixteen_current(tmp_path: Path) -> None:
     profile = compile_single_user_local(tmp_path / "brain")
     BrainEngine.open(profile)
-    assert inspect_phase1_state(profile) == local_schema.SchemaState("current", 18)
+    assert inspect_phase1_state(profile) == local_schema.SchemaState("current", 19)
     with _read_only(profile) as connection:
         assert connection.execute("PRAGMA user_version").fetchone()[0] == 18
         assert [

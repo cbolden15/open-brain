@@ -61,7 +61,7 @@ def test_fresh_lifecycle_schema_uses_frozen_journal_and_durable_brain(tmp_path: 
     profile = compile_single_user_local(tmp_path / "brain", starter_spaces=())
     with local_schema.open_local_database(profile) as connection:
         assert local_schema.classify_local_schema(connection) == local_schema.SchemaState(
-            "current", 18
+            "current", 19
         )
         brain_id = connection.execute("SELECT brain_id FROM brain_identity").fetchone()[0]
         assert [
@@ -69,8 +69,8 @@ def test_fresh_lifecycle_schema_uses_frozen_journal_and_durable_brain(tmp_path: 
         ] == [(1, JOURNAL_CONTRACT, brain_id)]
         assert [
             tuple(row) for row in connection.execute("SELECT * FROM runtime_compatibility")
-        ] == [(1, 13, 18)]
-        assert local_runtime_session.RUNTIME_SESSION_VERSION == 13
+        ] == [(1, 14, 19)]
+        assert local_runtime_session.RUNTIME_SESSION_VERSION == 14
 
 
 def test_explicit_schema_seventeen_cutover_preserves_old_evidence(
@@ -86,7 +86,7 @@ def test_explicit_schema_seventeen_cutover_preserves_old_evidence(
     assert after["captures"] == before["captures"]
     assert after["brain_identity"] == before["brain_identity"]
     assert after["schema_migrations"][:17] == before["schema_migrations"]
-    assert len(after["schema_migrations"]) == 18
+    assert len(after["schema_migrations"]) == 19
     with exclusive_runtime_admission(profile) as admission:
         migrate_capture_lifecycle(
             profile,
@@ -126,7 +126,7 @@ def test_schema_cutover_faults_reconcile_without_rewriting_history(
     assert after["brain_identity"] == before["brain_identity"]
     assert after["schema_migrations"][:17] == before["schema_migrations"]
     coordinate_local_migration(profile, clock=_clock)
-    assert local_schema.inspect_phase1_state(profile) == local_schema.SchemaState("current", 18)
+    assert local_schema.inspect_phase1_state(profile) == local_schema.SchemaState("current", 19)
 
 
 def test_cutover_refuses_live_peer_before_writes(
@@ -185,5 +185,5 @@ def test_schema_classifier_refuses_missing_lifecycle_identity(tmp_path: Path) ->
             if statement.startswith("CREATE TRIGGER lifecycle_journal_identity_delete "):
                 connection.execute(statement)
         assert local_schema.classify_local_schema(connection) == local_schema.SchemaState(
-            "invalid", 18
+            "invalid", 19
         )

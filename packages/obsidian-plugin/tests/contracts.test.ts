@@ -17,7 +17,7 @@ import {
 describe("plugin result validation", () => {
   it("requires the supported Open Brain client protocol version", () => {
     const handshake = {
-      desktop_only: true, state_schema_version: 18, runtime_session_version: 13,
+      desktop_only: true, state_schema_version: 19, runtime_session_version: 14,
       operations: ["system.handshake"],
       product_version: "0.1.0",
       protocol: OPEN_BRAIN_CLIENT_PROTOCOL,
@@ -28,8 +28,8 @@ describe("plugin result validation", () => {
     expect(parseHandshake(handshake)).toEqual(handshake);
     for (const [state_schema_version, runtime_session_version] of [
       [15, 10], [16, 10], [15, 11], [16, 11], [17, 11], [16, 12],
-      [17, 12], [19, 14], [18, 12], [17, 13], [19, 13], [18, 14], [18.5, 13], [18, 13.5],
-      ["18", 13], [18, "13"], [true, 13], [18, true], [null, 13], [18, null],
+      [17, 12], [18, 13], [20, 15], [19, 13], [18, 14], [20, 14], [19, 15], [19.5, 14], [19, 14.5],
+      ["19", 14], [19, "14"], [true, 14], [19, true], [null, 14], [19, null],
     ]) {
       expect(() => parseHandshake({ ...handshake, state_schema_version, runtime_session_version })).toThrow("invalid handshake");
     }

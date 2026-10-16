@@ -62,6 +62,10 @@ _PORTABLE_V13_SIDECARS: Final = (
     *_PORTABLE_V12_SIDECARS,
     "history/capture-lifecycle/journal-v1.json",
 )
+_PORTABLE_V14_SIDECARS: Final = (
+    *_PORTABLE_V13_SIDECARS,
+    "history/retraction/approvals-v1.json",
+)
 _REQUIRED_MODULES: Final = frozenset(
     {
         "open_brain.local_data",
@@ -112,6 +116,14 @@ _REQUIRED_MODULES: Final = frozenset(
         "open_brain_engine.portable.v12",
         "open_brain_engine.portable.v12_catalog",
         "open_brain_engine.portable.slack_v12",
+        "open_brain_engine.portable.v14",
+        "open_brain_engine.portable.v14_catalog",
+        "open_brain_engine.portable.retraction_v14",
+        "open_brain_engine.engine.portable_v14_evidence",
+        "open_brain_engine.engine.portable_v14_restore",
+        "open_brain_engine.engine.owner_retraction",
+        "open_brain_engine.engine.owner_retraction_contracts",
+        "open_brain_engine.engine.owner_retraction_schema",
         "open_brain_engine.portable.v13",
         "open_brain_engine.portable.v13_catalog",
         "open_brain_engine.portable.lifecycle_v13",
@@ -335,6 +347,8 @@ def smoke_base_artifact(
         if reported_version.stdout.strip() != f"open-brain {version}":
             raise BaseNativeError("native version is invalid")
         journey = _smoke_local_journey(executable, home, environment)
+        _smoke_owner_retraction(executable, home, environment)
+        journey["owner_retraction"] = "passed"
         _smoke_markdown_import(
             executable,
             home,
@@ -718,6 +732,49 @@ def _validate_native_executable(executable: Path, platform_tag: str) -> str:
     return "adhoc" if "Signature=adhoc" in details.stderr else "identity"
 
 
+def _smoke_owner_retraction(
+    executable: Path,
+    home: Path,
+    environment: Mapping[str, str],
+) -> None:
+    """Prove packaged owner commands against a separate synthetic Brain."""
+    root = home / "owner-retraction-brain"
+
+    def invoke(*arguments: str) -> dict[str, object]:
+        return cast(
+            dict[str, object],
+            json.loads(
+                _run(
+                    (os.fspath(executable), *arguments, "--data-dir", os.fspath(root), "--json"),
+                    environment,
+                ).stdout
+            ),
+        )
+
+    capture = invoke("capture", "Synthetic native retraction evidence")
+    preview = invoke("retract", "preview", "--capture", str(capture["capture_id"]))
+    identity = str(preview["preview_id"])
+    if invoke("retract", "preview", "--preview-id", identity, "--item-page", "0") != preview:
+        raise BaseNativeError("native retraction preview paging failed")
+    operation = "00000000-0000-4000-8000-000000000119"
+    receipt = invoke("retract", "commit", "--preview-id", identity, "--operation-id", operation)
+    if (
+        receipt.get("status") != "committed"
+        or receipt.get("counts") != preview.get("counts")
+        or invoke("retract", "status", "--operation-id", operation) != receipt
+        or invoke("retract", "commit", "--preview-id", identity, "--operation-id", operation)
+        != receipt
+        or invoke("search", "Synthetic native retraction evidence").get("results") != []
+    ):
+        raise BaseNativeError("native retraction receipt or exclusion failed")
+    archive = home / "owner-retraction-export"
+    if invoke("export", os.fspath(archive), "--verify").get("verification") != "verified":
+        raise BaseNativeError("native retraction export failed")
+    evidence = json.loads((archive / "history/retraction/approvals-v1.json").read_bytes())
+    if len(evidence["records"]) != 1 or identity in json.dumps(evidence):
+        raise BaseNativeError("native retraction evidence failed")
+
+
 def _smoke_local_journey(
     executable: Path,
     home: Path,
@@ -827,10 +884,10 @@ def _smoke_local_journey(
         exported.get("status") != "exported"
         or exported.get("verification") != "verified"
         or type(exported.get("schema_version")) is not int
-        or exported.get("schema_version") != 13
+        or exported.get("schema_version") != 14
         or not (export / "portable-manifest.json").is_file()
         or not (export / "sources/logical-sources.json").is_file()
-        or not all((export / relative).is_file() for relative in _PORTABLE_V13_SIDECARS)
+        or not all((export / relative).is_file() for relative in _PORTABLE_V14_SIDECARS)
         or not any(
             token.encode("utf-8") in path.read_bytes()
             for path in export.rglob("*")
@@ -1007,9 +1064,9 @@ def _smoke_markdown_import(
         exported.get("status") != "exported"
         or exported.get("verification") != "verified"
         or type(exported.get("schema_version")) is not int
-        or exported.get("schema_version") != 13
+        or exported.get("schema_version") != 14
         or not (export / "sources/logical-sources.json").is_file()
-        or not all((export / relative).is_file() for relative in _PORTABLE_V13_SIDECARS)
+        or not all((export / relative).is_file() for relative in _PORTABLE_V14_SIDECARS)
         or not blob.is_file()
         or blob.read_bytes() != source_bytes
         or len(captures) != 1
@@ -1345,9 +1402,9 @@ def _smoke_catalog(executable: Path, environment: Mapping[str, str]) -> None:
         != {
             "bridge_protocol": 1,
             "catalog_schema": 2,
-            "portable_metadata": 13,
-            "runtime_session": 13,
-            "state_schema": 18,
+            "portable_metadata": 14,
+            "runtime_session": 14,
+            "state_schema": 19,
             "task_contract": "t03.v1",
         }
         or not isinstance(product, dict)

@@ -105,7 +105,8 @@ def hold_existing_local_brain_transaction(root: Path) -> Iterator[LocalBrainTran
             raise RuntimeError("existing local Brain transaction controls are unavailable")
     with exclusive_runtime_admission(profile) as admission:
         lease = FileLease(
-            profile.root / ".open-brain", "local-transaction",
+            profile.root / ".open-brain",
+            "local-transaction",
             parent_root_identity=profile.root_identity,
         )
         with lease.hold_writer_transaction() as writer:
@@ -175,8 +176,12 @@ def open_local_brain(
     filesystem_type_probe: FilesystemTypeProbe | None = None,
     receipt_protection_port: ReceiptProtectionPort | None = None,
     receipt_protection_timeout_seconds: float = 5.0,
+    existing_only: bool = False,
 ) -> Iterator[LocalBrainSession]:
     """Bootstrap and hold one default Brain through a direct local operation."""
+    existing_profile = (
+        open_existing_single_user_local(selection.brain_root) if existing_only else None
+    )
     transaction = _ACTIVE_TRANSACTION.get()
     if transaction is not None:
         transaction.validate()
@@ -186,11 +191,19 @@ def open_local_brain(
         identity_exists = prepared.private_file_exists("brain.toml")
         initialized_before = identity_exists and prepared.private_file_exists(_STATE_DATABASE)
         prepared.revalidate()
-        profile = compile_single_user_local(
-            selection.brain_root,
-            validate_before_identity_write=prepared.revalidate,
+        profile = (
+            existing_profile
+            if existing_profile is not None
+            else compile_single_user_local(
+                selection.brain_root,
+                validate_before_identity_write=prepared.revalidate,
+            )
         )
         initial_schema = inspect_phase1_state(profile)
+        if existing_only and (
+            initial_schema.state != "current" or profile.root_identity != prepared.root_identity
+        ):
+            raise StateSchemaUnavailableError("existing current Brain required")
         if transaction is not None:
             transaction.validate()
             if (
@@ -217,12 +230,23 @@ def open_local_brain(
                 )
             # The owner product bootstrap owns the explicit chained migration;
             # hold_local_runtime_session's registry admission spans both phases.
-            coordinate_local_migration(profile)
+            if existing_only:
+                if schema.state != "current":
+                    raise StateSchemaUnavailableError("existing current Brain required")
+            else:
+                coordinate_local_migration(profile)
             from open_brain_engine.engine.historical_recovery import require_historical_settled
 
             if inspect_phase1_state(profile).state != "absent":
                 require_historical_settled(profile)
-            if receipt_protection_port is None:
+            if existing_only:
+                tasks = open_local_engine(
+                    profile,
+                    validate_before_write=validate_direct_write,
+                    recover_abandoned_sessions=False,
+                    recover_on_open=False,
+                )
+            elif receipt_protection_port is None:
                 tasks = open_local_engine(
                     profile,
                     validate_before_write=validate_direct_write,
@@ -240,6 +264,8 @@ def open_local_brain(
             _require_current_local_state(prepared, profile)
 
         def recover_abandoned_sessions() -> object:
+            if existing_only:
+                return 0
             if tasks is None:
                 raise RuntimeError("local engine admission did not complete")
             return tasks.managed_inference.recover_abandoned_sessions()

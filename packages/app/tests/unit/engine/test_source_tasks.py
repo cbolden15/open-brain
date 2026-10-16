@@ -109,9 +109,9 @@ def test_source_route_cas_preserves_capture_and_exports_v9(tmp_path: Path) -> No
     assert metadata["sources"][0]["head_capture_id"] == receipt.capture_id
     export = tmp_path / "export"
     exported = tasks.portability.export(export, export_id="export_" + str(uuid4()))
-    assert exported.schema_version == 13
+    assert exported.schema_version == 14
     snapshot = validated_portable_snapshot(export)
-    assert snapshot.manifest["schema_version"] == 13
+    assert snapshot.manifest["schema_version"] == 14
     assert snapshot.files.keys() >= (
         V5_SIDECAR_PATHS
         | V6_SIDECAR_PATHS
@@ -124,7 +124,7 @@ def test_source_route_cas_preserves_capture_and_exports_v9(tmp_path: Path) -> No
     import_receipt = tasks.portability.import_clean(
         export, imported, import_id="import_" + str(uuid4())
     )
-    assert import_receipt.schema_version == 13
+    assert import_receipt.schema_version == 14
     assert imported.is_dir()
 
 

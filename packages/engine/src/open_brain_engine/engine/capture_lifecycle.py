@@ -417,32 +417,41 @@ class CaptureLifecycleTasks:
         self, request: LifecycleRequest, *, authority: EffectiveAuthority
     ) -> dict[str, object]:
         with self._transaction(authority) as journal:
-            if request.kind == "capture_retract":
-                capture = request.payload.get("capture_id")
-                if (
-                    not isinstance(capture, str)
-                    or journal.connection.execute(
-                        "SELECT 1 FROM source_revisions WHERE capture_id=?", (capture,)
-                    ).fetchone()
-                    is None
-                ):
-                    raise LifecycleError("operation_not_found")
-            elif request.kind != "session_retract":
-                raise LifecycleError("invalid_arguments")
-            before = journal.eligibility_generation
-            result = journal.retract(request)
-            if journal.eligibility_generation != before:
-                self._advance(journal)
-                from .capture_lifecycle_policy import lifecycle_permits_capture
+            return self._retract_in_transaction(journal, request)
 
-                for row in list(
-                    journal.connection.execute("SELECT DISTINCT capture_id FROM search_documents")
-                ):
-                    if not lifecycle_permits_capture(journal.connection, row[0]):
-                        journal.connection.execute(
-                            "DELETE FROM search_documents WHERE capture_id=?", (row[0],)
-                        )
-            return result
+    def _retract_in_transaction(
+        self, journal: LifecycleJournal, request: LifecycleRequest
+    ) -> dict[str, object]:
+        if request.kind == "capture_retract":
+            capture = request.payload.get("capture_id")
+            if (
+                not isinstance(capture, str)
+                or journal.connection.execute(
+                    "SELECT 1 FROM source_revisions WHERE capture_id=?", (capture,)
+                ).fetchone()
+                is None
+            ):
+                raise LifecycleError("operation_not_found")
+        elif request.kind != "session_retract":
+            raise LifecycleError("invalid_arguments")
+        before = journal.eligibility_generation
+        result = journal.retract(request)
+        if journal.eligibility_generation != before:
+            self._advance(journal)
+            if journal.connection.execute("PRAGMA user_version").fetchone()[0] >= 19:
+                # Current readers enforce the authoritative marker before using
+                # projections. The decision/receipt never waits on row cleanup.
+                return result
+            from .capture_lifecycle_policy import lifecycle_permits_capture
+
+            for row in list(
+                journal.connection.execute("SELECT DISTINCT capture_id FROM search_documents")
+            ):
+                if not lifecycle_permits_capture(journal.connection, row[0]):
+                    journal.connection.execute(
+                        "DELETE FROM search_documents WHERE capture_id=?", (row[0],)
+                    )
+        return result
 
     def status(self, operation_id: str, *, authority: EffectiveAuthority) -> dict[str, object]:
         self._owner(authority)
@@ -450,6 +459,55 @@ class CaptureLifecycleTasks:
             if not connection.in_transaction:
                 connection.execute("BEGIN")
             return _journal(connection).status(operation_id)
+
+    def preview_retraction(
+        self,
+        *,
+        authority: EffectiveAuthority,
+        capture_id: str | None = None,
+        session_id: str | None = None,
+    ) -> dict[str, object]:
+        from .owner_retraction import OwnerRetractionTasks
+
+        return OwnerRetractionTasks(self._engine).preview(
+            authority=authority, capture_id=capture_id, session_id=session_id
+        )
+
+    def preview_retraction_page(
+        self,
+        preview_id: str,
+        *,
+        authority: EffectiveAuthority,
+        item_page: int = 0,
+    ) -> dict[str, object]:
+        from .owner_retraction import OwnerRetractionTasks
+
+        return OwnerRetractionTasks(self._engine).preview_page(
+            preview_id, authority=authority, item_page=item_page
+        )
+
+    def commit_retraction(
+        self,
+        preview_id: str,
+        operation_id: str,
+        *,
+        authority: EffectiveAuthority,
+    ) -> dict[str, object]:
+        from .owner_retraction import OwnerRetractionTasks
+
+        return OwnerRetractionTasks(self._engine).commit(
+            preview_id, operation_id, authority=authority
+        )
+
+    def retraction_status(
+        self,
+        operation_id: str,
+        *,
+        authority: EffectiveAuthority,
+    ) -> dict[str, object]:
+        from .owner_retraction import OwnerRetractionTasks
+
+        return OwnerRetractionTasks(self._engine).status(operation_id, authority=authority)
 
     def session_snapshot(
         self, session_id: str, *, authority: EffectiveAuthority

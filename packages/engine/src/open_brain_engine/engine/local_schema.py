@@ -51,7 +51,7 @@ if TYPE_CHECKING:
     from .portable_v5_restore import ValidatedV5IssuerSeed
 
 PHASE1_STATE_DATABASE = ".open-brain/state/phase1.sqlite3"
-PHASE1_STATE_SCHEMA_VERSION = 18
+PHASE1_STATE_SCHEMA_VERSION = 19
 
 
 class LocalRecoveryRequiredError(SchemaError):
@@ -125,6 +125,8 @@ def _expected_shape(era: int, nullable: bool, ledger: bool) -> tuple[tuple[str, 
         statements.extend(LOCAL_MIGRATIONS[16].statements)
     if era >= 20 and len(LOCAL_MIGRATIONS) >= 18:
         statements.extend(LOCAL_MIGRATIONS[17].statements)
+    if era >= 21 and len(LOCAL_MIGRATIONS) >= 19:
+        statements.extend(LOCAL_MIGRATIONS[18].statements)
     if ledger:
         statements.append(_SCHEMA_MIGRATIONS_SQL)
     return _cached_shape(tuple(statements))
@@ -189,6 +191,7 @@ def classify_local_schema(connection: sqlite3.Connection) -> SchemaState:
                                 16: 11,
                                 17: 12,
                                 18: 13,
+                                19: 14,
                             }.get(version, 1),
                             version,
                         )
@@ -311,7 +314,7 @@ def _validate_upgrade_data(connection: sqlite3.Connection) -> None:
             "FROM runtime_compatibility"
         ).fetchall()
         state_version = connection.execute("PRAGMA user_version").fetchone()[0]
-        compatibility_version = state_version if state_version in range(5, 19) else 4
+        compatibility_version = state_version if state_version in range(5, 20) else 4
         if [tuple(row) for row in compatibility] != [
             (
                 1,
@@ -328,6 +331,7 @@ def _validate_upgrade_data(connection: sqlite3.Connection) -> None:
                     16: 11,
                     17: 12,
                     18: 13,
+                    19: 14,
                 }.get(state_version, 1),
                 compatibility_version,
             )

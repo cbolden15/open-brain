@@ -212,12 +212,12 @@ class V5RestoreBundle:
                     )
                 ),
             )
-        if self.snapshot.manifest["schema_version"] in {6, 7, 8, 9, 10, 11, 12, 13}:
+        if self.snapshot.manifest["schema_version"] in {6, 7, 8, 9, 10, 11, 12, 13, 14}:
             from open_brain_engine.portable.v6 import validate_source_authority
 
             from .portable_v6_authority import restore_source_authority
 
-            if self.snapshot.manifest["schema_version"] in {9, 10, 11, 12, 13}:
+            if self.snapshot.manifest["schema_version"] in {9, 10, 11, 12, 13, 14}:
                 from open_brain_engine.portable.v9 import validate_source_authority_v9
 
                 authority = validate_source_authority_v9(files)
@@ -228,12 +228,12 @@ class V5RestoreBundle:
             else:
                 authority = validate_source_authority(files)
             restore_source_authority(connection, authority)
-        if self.snapshot.manifest["schema_version"] in {7, 8, 9, 10, 11, 12, 13}:
+        if self.snapshot.manifest["schema_version"] in {7, 8, 9, 10, 11, 12, 13, 14}:
             from open_brain_engine.portable.v7 import validate_sharing_authority
 
             from .portable_v7_authority import restore_sharing_authority
 
-            if self.snapshot.manifest["schema_version"] in {12, 13}:
+            if self.snapshot.manifest["schema_version"] in {12, 13, 14}:
                 from open_brain_engine.portable.slack_v12 import validate_sharing_authority_v12
 
                 sharing = validate_sharing_authority_v12(files)
@@ -291,7 +291,7 @@ class V5RestoreBundle:
             profile=profile,
             snapshot=self.snapshot,
             _historical_installed=(
-                self.snapshot.manifest["schema_version"] not in {8, 9, 10, 11, 12, 13}
+                self.snapshot.manifest["schema_version"] not in {8, 9, 10, 11, 12, 13, 14}
             ),
         )
 
@@ -403,7 +403,7 @@ def _audit_connection(
         raise ValueError("v5 restored database reference mismatch")
     if canonical(source_metadata(connection)) != snapshot.files[SOURCE_METADATA_PATH]:
         raise ValueError("v5 restored source metadata mismatch")
-    if snapshot.manifest["schema_version"] in {6, 7, 8, 9, 10, 11, 12, 13}:
+    if snapshot.manifest["schema_version"] in {6, 7, 8, 9, 10, 11, 12, 13, 14}:
         from .portable_v6_authority import (
             _source_authority_metadata,
             _source_authority_sidecars,
@@ -416,7 +416,7 @@ def _audit_connection(
             ).items()
         ):
             raise ValueError("v6 restored source authority mismatch")
-    if snapshot.manifest["schema_version"] in {7, 8, 9, 10, 11, 12, 13}:
+    if snapshot.manifest["schema_version"] in {7, 8, 9, 10, 11, 12, 13, 14}:
         from open_brain_engine.portable.v7 import SHARING_APPROVALS_PATH
 
         from .portable_v7_authority import _sharing_authority_metadata
@@ -562,6 +562,15 @@ def restored_portable_semantic_state(
 
     relationship_present = RELATIONSHIP_METADATA_PATH in snapshot.files
     version = connection.execute("PRAGMA user_version").fetchone()[0]
+    if version >= 19 and (
+        connection.execute("SELECT 1 FROM retraction_previews LIMIT 1").fetchone() is not None
+        or (
+            cast(int, snapshot.manifest["schema_version"]) < 14
+            and connection.execute("SELECT 1 FROM retraction_approvals LIMIT 1").fetchone()
+            is not None
+        )
+    ):
+        raise PortableValidationError("restored owner retraction authority drift")
     if (
         version >= 18
         and cast(int, snapshot.manifest["schema_version"]) < 13
@@ -592,9 +601,21 @@ def restored_portable_semantic_state(
     require_historical_snapshot_settled(connection, profile)
     if (
         historical_installed
-        and version in {15, 16, 17, 18}
-        and snapshot.manifest["schema_version"] in {8, 9, 10, 11, 12, 13}
+        and version in {15, 16, 17, 18, 19}
+        and snapshot.manifest["schema_version"] in {8, 9, 10, 11, 12, 13, 14}
     ):
+        if snapshot.manifest["schema_version"] == 14:
+            from .portable_v14_evidence import serialize_portable_v14_state
+
+            return serialize_portable_v14_state(
+                connection, profile, relationship_sidecar_present=relationship_present
+            )
+        if snapshot.manifest["schema_version"] == 13 and version >= 19:
+            from .portable_v14_evidence import serialize_portable_v13_successor_state
+
+            return serialize_portable_v13_successor_state(
+                connection, profile, relationship_sidecar_present=relationship_present
+            )
         if snapshot.manifest["schema_version"] == 13:
             from .portable_v13_evidence import serialize_portable_v13_state
 

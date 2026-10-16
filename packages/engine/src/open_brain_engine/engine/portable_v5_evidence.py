@@ -503,6 +503,16 @@ def normalized_authoritative_search_rows(
         "invalid_evidence_sha256, applied_repair_id, applied_repair_sequence "
         "FROM search_documents ORDER BY result_id COLLATE BINARY"
     ).fetchall()
+    if connection.execute("PRAGMA user_version").fetchone()[0] >= 19:
+        # Schema19 commits lifecycle markers without synchronous index cleanup.
+        # Permit only obsolete identities still justified by durable base heads;
+        # arbitrary extra rows and missing eligible rows must still fail below.
+        retained = set(_expected_search_identities(connection, lifecycle=False)) - set(expected)
+        stored = [
+            row
+            for row in stored
+            if (row["result_id"], row["capture_id"], row["record_type"]) not in retained
+        ]
     actual = [(row["result_id"], row["capture_id"], row["record_type"]) for row in stored]
     if actual != expected:
         _fail("repair-aware search coverage mismatch")
@@ -616,14 +626,16 @@ def _base_search_privacy(connection: sqlite3.Connection) -> list[dict[str, objec
         evidence, applied = resolve_search_privacy(
             connection, result_id=result_id, capture_id=capture_id, record_type=record_type
         )
-        rows.append({
-            "result_id": result_id,
-            "capture_id": capture_id,
-            "record_type": record_type,
-            "effective_privacy": _effective_object(evidence),
-            "applied_repair_id": None if applied is None else applied[0],
-            "applied_repair_sequence": None if applied is None else applied[1],
-        })
+        rows.append(
+            {
+                "result_id": result_id,
+                "capture_id": capture_id,
+                "record_type": record_type,
+                "effective_privacy": _effective_object(evidence),
+                "applied_repair_id": None if applied is None else applied[0],
+                "applied_repair_sequence": None if applied is None else applied[1],
+            }
+        )
     return rows
 
 

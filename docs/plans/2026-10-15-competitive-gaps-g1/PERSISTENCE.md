@@ -2,6 +2,15 @@
 
 Date: 2026-10-15. Status: design for implementation review. Baseline: `8ef1d069259c291e669341079806103c8fa90e86`, schema/runtime/Portable **17/12/12**. This document changes no database, runtime constant, export format or installed Brain. The design reserves **18/13/13** for the shared lifecycle implementation; it does not claim those versions exist.
 
+Implementation update, 2026-10-16: the lifecycle journal landed at18/13/13.
+Owner preview/commit/status adds19/14/14 with supplemental approval evidence in
+the same database transaction. The executable contract is
+`/Users/calebbolden/Projects/oss/open-brain-public/.worktrees/competitive-gap-reconciliation/docs/plans/2026-10-15-competitive-gaps-g1/OWNER-RETRACTION.md`.
+Its actual tables and Portable layout supersede the draft storage proposals
+below. The public closed error set additionally includes `operation_pending`
+for preview capacity or affected unfinished copies, and `invalid_evidence` for
+damaged retained evidence. Both are nonretryable refusals with no raw diagnostics.
+
 ## Decision and source evidence
 
 Use one engine-owned lifecycle for grouped consumer intake, trusted capture-session membership, retraction and eligibility. The app parses untrusted archives and translates owner commands. It cannot write SQLite, manufacture authority or publish an individual segment independently.

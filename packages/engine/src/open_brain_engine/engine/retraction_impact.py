@@ -43,6 +43,7 @@ class RetractionImpact:
     items: tuple[RetractionImpactItem, ...]
     counts: tuple[tuple[str, int], ...]
     preimage_sha256: str
+    freshness_capture_ids: tuple[str, ...] = ()
 
     def page(self, item_page: int = 0) -> dict[str, object]:
         pages = max(1, (len(self.items) + _PAGE_SIZE - 1) // _PAGE_SIZE)
@@ -454,4 +455,5 @@ def inspect_retraction(
         ordered,
         counts,
         fingerprint,
+        tuple(sorted(read_captures)),
     )

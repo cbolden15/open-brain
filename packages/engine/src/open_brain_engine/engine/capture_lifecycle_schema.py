@@ -72,7 +72,7 @@ def migrate_capture_lifecycle(
     committed = False
     try:
         state = classify_local_schema(connection)
-        if state.state == "current" and state.version == 18:
+        if state.state in {"current", "supported_old"} and state.version in {18, 19}:
             return
         if state.state != "supported_old" or state.version != 17:
             raise T03Error("operation_pending")
@@ -91,7 +91,7 @@ def migrate_capture_lifecycle(
         )
         initialize_capture_lifecycle_identity(connection)
         upgraded = classify_local_schema(connection)
-        if upgraded.state != "current" or upgraded.version != 18:
+        if upgraded.state not in {"current", "supported_old"} or upgraded.version != 18:
             raise T03Error("operation_pending")
         checkpoint("capture_lifecycle_before_commit")
         require_historical_snapshot_settled(connection, profile)

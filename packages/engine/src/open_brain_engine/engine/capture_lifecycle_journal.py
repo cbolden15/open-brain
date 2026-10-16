@@ -365,7 +365,7 @@ class LifecycleJournal:
     def for_engine(
         cls, connection: sqlite3.Connection, *, brain_id: str, issuer_epoch: int
     ) -> LifecycleJournal:
-        """Open only the live schema18 journal, within a caller-owned snapshot."""
+        """Open the unchanged journal at exact supported engine coordinates."""
         if not connection.in_transaction:
             raise LifecycleError("local_operation_failed")
         version = connection.execute("PRAGMA user_version").fetchone()[0]
@@ -375,8 +375,8 @@ class LifecycleJournal:
         ).fetchone()
         journal_identity = connection.execute("SELECT * FROM lifecycle_journal_identity").fetchall()
         if (
-            version != 18
-            or [tuple(row) for row in floor] != [(1, 13, 18)]
+            version not in {18, 19}
+            or [tuple(row) for row in floor] != [(1, {18: 13, 19: 14}.get(version), version)]
             or identity is None
             or tuple(identity) != (brain_id, issuer_epoch)
             or [tuple(row) for row in journal_identity] != [(1, JOURNAL_CONTRACT, brain_id)]

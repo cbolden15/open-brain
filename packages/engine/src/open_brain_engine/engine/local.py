@@ -149,6 +149,7 @@ class BrainEngine(CaptureOperations, SpaceOperations, ReviewOperations, Retrieva
         receipt_protection_port: ReceiptProtectionPort | None = None,
         receipt_protection_timeout_seconds: float = 5.0,
         recovery_protection_guard: RecoveryProtectionGuard | None = None,
+        initialize_store: bool = True,
     ) -> None:
         if admission_limits is not None and not isinstance(admission_limits, AdmissionLimits):
             raise ValueError("invalid admission limits")
@@ -183,7 +184,7 @@ class BrainEngine(CaptureOperations, SpaceOperations, ReviewOperations, Retrieva
         assert_root_identity(profile.root, profile.root_identity)
         schema = inspect_phase1_state(profile)
         if recovery_protection_guard is not None and (
-            schema.state != "current" or schema.version not in {13, 14, 15, 16, 17, 18}
+            schema.state != "current" or schema.version not in {13, 14, 15, 16, 17, 18, 19}
         ):
             raise StateSchemaUnavailableError("recovery protection requires existing schema13")
         if recovery_protection_guard is not None:
@@ -279,7 +280,7 @@ class BrainEngine(CaptureOperations, SpaceOperations, ReviewOperations, Retrieva
         if (
             receipt_protection_port is not None
             and schema.state != "absent"
-            and schema.version not in {12, 13, 14, 15, 16, 17, 18}
+            and schema.version not in {12, 13, 14, 15, 16, 17, 18, 19}
         ):
             raise StateSchemaUnavailableError(
                 "receipt protection requires the schema-10 ingestion journal"
@@ -295,7 +296,8 @@ class BrainEngine(CaptureOperations, SpaceOperations, ReviewOperations, Retrieva
         if schema.state == "supported_old" and schema.version == 15:
             raise StateSchemaUnavailableError("development migration requires exclusive admission")
         if (
-            schema.state == "supported_old" and schema.version == 16
+            schema.state == "supported_old"
+            and schema.version == 16
             and local_schema.PHASE1_STATE_SCHEMA_VERSION >= 17
         ):
             raise StateSchemaUnavailableError(
@@ -351,21 +353,35 @@ class BrainEngine(CaptureOperations, SpaceOperations, ReviewOperations, Retrieva
             clock=clock,
             parent_root_identity=profile.root_identity,
         )
-        try:
-            with self._writer_lease.acquire_shared_writer():
-                self._store = _LocalStore(profile, clock=self._clock)
-                from .source_store import publish_source_metadata
-
-                connection = self._store.connect()
-                try:
-                    if connection.execute("PRAGMA user_version").fetchone()[0] >= 7:
-                        publish_source_metadata(connection, profile)
-                finally:
-                    connection.close()
-        except LockBusyError:
-            if schema.state != "current" or schema.version not in {12, 13, 14, 15, 16, 17, 18}:
-                raise
+        if not initialize_store:
+            if schema.state != "current":
+                raise StateSchemaUnavailableError("existing current state required")
             self._store = _LocalStore(profile, clock=self._clock, initialize=False)
+        else:
+            try:
+                with self._writer_lease.acquire_shared_writer():
+                    self._store = _LocalStore(profile, clock=self._clock)
+                    from .source_store import publish_source_metadata
+
+                    connection = self._store.connect()
+                    try:
+                        if connection.execute("PRAGMA user_version").fetchone()[0] >= 7:
+                            publish_source_metadata(connection, profile)
+                    finally:
+                        connection.close()
+            except LockBusyError:
+                if schema.state != "current" or schema.version not in {
+                    12,
+                    13,
+                    14,
+                    15,
+                    16,
+                    17,
+                    18,
+                    19,
+                }:
+                    raise
+                self._store = _LocalStore(profile, clock=self._clock, initialize=False)
         from .capture_lifecycle import CaptureLifecycleTasks
 
         self.lifecycle = CaptureLifecycleTasks(self)
@@ -429,6 +445,7 @@ class BrainEngine(CaptureOperations, SpaceOperations, ReviewOperations, Retrieva
         enrichment_provider: EnrichmentProvider | None = None,
         validate_mutation_authority: Callable[[], None] | None = None,
         recover_abandoned_sessions: bool = True,
+        recover_on_open: bool = True,
         admission_limits: AdmissionLimits | None = None,
         storage_probe: Callable[[Path], StorageUsage] | None = None,
         boundary_classifier: BoundaryClassifier | None = None,
@@ -438,6 +455,8 @@ class BrainEngine(CaptureOperations, SpaceOperations, ReviewOperations, Retrieva
     ) -> BrainEngine:
         if not isinstance(profile, LocalEngineContext):
             raise ValueError("invalid local profile")
+        if not recover_on_open and inspect_phase1_state(profile).state != "current":
+            raise StateSchemaUnavailableError("existing current state required without recovery")
         engine = cls(
             profile,
             faults=faults or set(),
@@ -450,7 +469,10 @@ class BrainEngine(CaptureOperations, SpaceOperations, ReviewOperations, Retrieva
             receipt_protection_port=receipt_protection_port,
             receipt_protection_timeout_seconds=receipt_protection_timeout_seconds,
             recovery_protection_guard=recovery_protection_guard,
+            initialize_store=recover_on_open,
         )
+        if not recover_on_open:
+            return engine
         try:
             with engine._writer_lease.acquire_shared_writer():
                 engine._recover(startup=recover_abandoned_sessions)
@@ -573,6 +595,7 @@ def open_local_engine(
     enrichment_provider: EnrichmentProvider | None = None,
     validate_before_write: Callable[[], None] | None = None,
     recover_abandoned_sessions: bool = True,
+    recover_on_open: bool = True,
     receipt_protection_port: ReceiptProtectionPort | None = None,
     receipt_protection_timeout_seconds: float = 5.0,
     recovery_protection_guard: RecoveryProtectionGuard | None = None,
@@ -585,6 +608,7 @@ def open_local_engine(
         enrichment_provider=enrichment_provider,
         validate_mutation_authority=validate_before_write,
         recover_abandoned_sessions=recover_abandoned_sessions,
+        recover_on_open=recover_on_open,
         receipt_protection_port=receipt_protection_port,
         receipt_protection_timeout_seconds=receipt_protection_timeout_seconds,
         recovery_protection_guard=recovery_protection_guard,

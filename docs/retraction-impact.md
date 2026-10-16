@@ -42,13 +42,16 @@ decision state is included in the internal preimage so later materialization
 requires a fresh inspection. The future public preview contract must settle how
 to display pending approvals before activation.
 
-Public preview/commit remains a separate gate. The frozen journal v1 retraction
+The frozen journal v1 retraction
 payloads encode only the capture ID or session membership coordinates. They
 cannot retain an approved impact set, preview binding or accepted counts. Those
-need a versioned evidence/receipt contract and durable protected preview custody,
+use a versioned evidence/receipt contract and durable protected preview custody,
 including expiry, paging revalidation and replay after preview expiry or restore.
-Do not attach this result to a raw retraction and call it an approved public
-commit. Provider parsers and consumer provenance admission remain inactive.
+Schema19/runtime14 now provides these through the owner CLI and supplemental
+Portable14 approval evidence. See
+`/Users/calebbolden/Projects/oss/open-brain-public/.worktrees/competitive-gap-reconciliation/docs/owner-retraction.md`.
+The inspection result alone still grants no mutation authority. Provider parsers
+and consumer provenance admission remain inactive.
 
 The contract checkpoint is
 `/Users/calebbolden/Projects/oss/open-brain-public/.worktrees/competitive-gap-reconciliation/docs/plans/2026-10-15-competitive-gaps-g1/PERSISTENCE.md`.
