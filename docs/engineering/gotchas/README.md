@@ -4,6 +4,16 @@ Non-obvious behaviors, sharp edges, and lessons learned belong here.
 
 ## Registry
 
+### GIT-001: Recreating a merge can lose its manual edits
+
+Category: Git; Verification.
+
+In the competitive-gap rebase, W4's recreated merge lost README and first-use
+updates even though the rebase completed. Save a backup ref and compare the old
+and new trees against the incoming main diff. Restore feature edits in files that
+main did not change, and check production patches with range-diff. Preserving the
+merge graph does not guarantee that its manually resolved tree is preserved.
+
 ### BUILD-016: Plugin handshake coordinates must follow engine cutovers
 
 Category: Dependencies; Build Pipeline.
