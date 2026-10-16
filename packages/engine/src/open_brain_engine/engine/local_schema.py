@@ -71,7 +71,7 @@ class SchemaState:
         return {"state": self.state, "version": self.version}
 
 
-@lru_cache(maxsize=128)
+@lru_cache(maxsize=1024)
 def _normalized_sql(sql: str) -> str:
     # Compare fixed known DDL forms, preserving every character inside SQL string literals.
     tokens = re.findall(r"'(?:[^']|'')*'|\"[^\"]*\"|\w+|[^\s]", sql)

@@ -29,6 +29,11 @@ wheel/source builds, native smoke JSON, and
 `existing_product: preserved` or `existing_product: absent`. A nonzero exit means the check failed.
 Both CI jobs run this same target. No credentials or private access are required.
 
+While iterating on Python changes, `make test-fast` runs the fast test tier (about two minutes
+with two workers) and `make test-integration` runs the rest. Neither replaces `make verify`.
+Tier rules, profiling, and measured budgets are in
+[the test performance guide](docs/engineering/test-performance.md).
+
 On macOS, `make desktop-native-proof` runs the packaged synthetic capture/search/helper check.
 Open the resulting app to verify the native interface separately. Desktop build commands and the
 remaining Linux release gate are in [the desktop guide](packages/desktop/README.md).

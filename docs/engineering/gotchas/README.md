@@ -4,6 +4,73 @@ Non-obvious behaviors, sharp edges, and lessons learned belong here.
 
 ## Registry
 
+### BUILD-017: Native packaging must pin the reviewed Python patch
+
+Category: Build Pipeline; Dependencies.
+
+PR83 macOS attempts1 and2 selected Homebrew Python3.14.8 from the floating
+3.14 CI input. Both passed application checks and failed the Graphify release
+archive audit. Local native audit/Homebrew checks passed with Python3.14.7.
+The archive policy admits exact reviewed standard-library marshal payloads;
+Python patch selection can change those payloads. Pin both packaging jobs to
+3.14.7, the reviewed and verified patch, and verify the complete CI pipeline.
+Do not add new payload exceptions or weaken the audit to admit a newer patch.
+The original error does not identify the failed rule, so version drift remains
+the working diagnosis until the pinned CI run completes.
+
+### TESTING-008: An LRU cache smaller than a repeated scan never hits
+
+Category: Performance / Verification.
+
+Symptom: The Python suite is CPU-bound and per-test profiles show most time in
+`local_schema.classify_local_schema`, although `_normalized_sql` is already cached.
+
+Cause: Every database open normalizes each `sqlite_master` row in the same order. With
+`lru_cache(maxsize=128)` and about 180 statements per scan, each entry is evicted before
+its next use, so the cache missed 1.76 million of 3.29 million calls in one 101-test slice.
+
+Fix: Size a cache for the whole repeated working set. `_normalized_sql` now holds 1024
+entries; supported schemas need 197. Regression tests require zero misses on a repeated
+classification and enough capacity for every supported era. The complete two-worker suite
+dropped from 2,330.7 s to 1,474.9 s. Check `cache_info()` hit rates when a cached hot path
+still dominates a profile, and grow the bound when the schema grows.
+
+Discovered: 2026-10-15, python-test-performance profiling.
+
+### TESTING-009: Benchmarks need frozen inputs and an exclusive timing directory
+
+Category: Verification.
+
+Symptom: A profiled full run reported `hashes_unchanged: false`, and a reused timing
+directory could have doubled per-test times without any error.
+
+Cause: A new tool file was written into the checkout while the baseline run was in
+progress, and the first timing reporter appended to any existing directory.
+
+Fix: Do not write to a checkout during a measurement; edit in a separate worktree or
+between runs, and record input hashes before and after each run. The reporter now refuses a
+directory that already holds timing records and stamps every record with one run
+identifier. Run benchmarks one at a time with no other test runs, packaging, or agent tests
+on the machine; record load, swap and free disk, and repeat a run that overlapped a
+scheduled backup or another heavy job.
+
+Discovered: 2026-10-15, python-test-performance profiling and independent review.
+
+### BUILD-015: Check `.PHONY` tokens after editing the Makefile
+
+Category: Build Pipeline.
+
+Symptom: After adding tier targets, `.PHONY` contained `linttypecheck`. `make verify` still
+passed, but a file named `lint` or `typecheck` would have silently skipped that gate.
+
+Cause: An automated edit dropped the space between two phony names.
+
+Fix: Restored the separate names. `tests/unit/test_pytest_tiers.py` now checks that each
+verification and tier target is its own `.PHONY` token. Diff the phony token set against
+the previous Makefile after any edit to that line.
+
+Discovered: 2026-10-15, independent Astra review of the tier targets.
+
 ### SLACK-001: Freeze evidence closure separately from semantic identity
 
 Category: Database/Migrations, Verification.

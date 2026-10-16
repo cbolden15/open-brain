@@ -77,3 +77,39 @@ def test_classifier_builds_only_requested_schema(
         "current" if version == 16 else "supported_old", version
     )
     assert requested == [(version + 2, False, True)]
+
+
+def test_repeated_current_schema_classification_has_no_normalization_misses(tmp_path: Path) -> None:
+    profile = compile_single_user_local(tmp_path / "brain", starter_spaces=())
+    BrainEngine.open(profile)
+    connection = sqlite3.connect(profile.root / local_schema.PHASE1_STATE_DATABASE)
+    try:
+        expected = local_schema.SchemaState("current", local_schema.PHASE1_STATE_SCHEMA_VERSION)
+        assert local_schema.classify_local_schema(connection) == expected
+        misses_before = local_schema._normalized_sql.cache_info().misses
+
+        assert local_schema.classify_local_schema(connection) == expected
+
+        additional_misses = local_schema._normalized_sql.cache_info().misses - misses_before
+        assert additional_misses == 0, (
+            f"Repeated current-schema classification caused {additional_misses} normalization "
+            "cache misses; the cache must retain a complete schema scan"
+        )
+    finally:
+        connection.close()
+
+
+def test_normalization_cache_covers_all_supported_schema_shapes() -> None:
+    statements = {
+        sql
+        for era in range(2, local_schema.PHASE1_STATE_SCHEMA_VERSION + 3)
+        for nullable in (True, False)
+        for ledger in (True, False)
+        for _, _, sql in local_schema._expected_shape(era, nullable, ledger)
+    }
+    maxsize = local_schema._normalized_sql.cache_info().maxsize
+    assert maxsize is not None and maxsize >= len(statements), (
+        f"Normalization cache capacity {maxsize} cannot retain the {len(statements)} distinct "
+        "normalized statements across supported schema shapes; increase _normalized_sql maxsize "
+        "when the schema grows"
+    )
