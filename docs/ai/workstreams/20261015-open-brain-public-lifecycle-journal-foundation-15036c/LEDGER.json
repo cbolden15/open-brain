@@ -1,0 +1,17 @@
+{
+  "milestone": "verified-isolated-lifecycle-journal-foundation",
+  "baseline": "9af2303a8b0bfd9ebfc15b4cde3889ab5aa47447",
+  "max_active_children": 3,
+  "max_total_children": 4,
+  "children_created": 2,
+  "active": 0,
+  "reserved": [
+    "contracts-implementation",
+    "independent-review"
+  ],
+  "scope": "Engine-internal isolated journal/contracts/restore evidence, synthetic tests; no production schema/runtime/Portable cutover, public commands, real Brain/exports/model/network",
+  "completed": [
+    "contracts-implementation-and-independent-tests",
+    "independent-review"
+  ]
+}

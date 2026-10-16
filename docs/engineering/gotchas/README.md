@@ -102,6 +102,9 @@ path; a .venv symlink itself does not match the directory-only ignore pattern.
 Verify the alias is ignored and points to the current source environment. The
 first W3 full gate passed all 7,474 Python cases but failed eight plugin children
 until that local environment prerequisite was present; all eight then passed.
+On a reused worktree, check that the alias target still exists: a retained
+`.venv/bin` can point at a deleted temporary environment even after a separate
+`UV_PROJECT_ENVIRONMENT` has been synchronized successfully.
 
 Discovered: 2026-10-15, W3 real-stdio journey; failed logs/fixtures retained.
 
@@ -854,6 +857,18 @@ Tests: Static checking of engine/app source plus frozen V1 history regressions
 and the mixed V1/V2 Portable9 export/import fixture.
 
 Discovered: 2026-10-04, schema14 historical compatibility implementation.
+
+### TYPE-002: Reducer branches share mypy's local-variable scope
+
+Category: Type Safety. Action: use separate names for optional lookups and validated
+domain objects, then run the repository typecheck after reducer changes.
+
+The lifecycle journal's first typecheck failed because `manifest` and `segment`
+were reused across event branches as both validated objects and optional lookups;
+`revision` was also reused for a manifest and a hash string. Conditional branches
+do not give those names independent type scopes. Distinct custody/activation
+names retain strict checks without casts that conceal missing-state handling.
+Focused checking and the full repository typecheck now cover these consumers.
 
 ### TESTING-003: macOS killpg reports EPERM for a zombie-only process group
 

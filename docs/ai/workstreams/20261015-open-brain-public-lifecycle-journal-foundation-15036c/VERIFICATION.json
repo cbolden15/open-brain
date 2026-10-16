@@ -1,0 +1,43 @@
+{
+  "status": "passed_with_environment_recovery",
+  "focused_tests": {
+    "command": "pytest -q packages/engine/tests/test_capture_lifecycle_contracts.py packages/engine/tests/test_capture_lifecycle_journal.py",
+    "result": "116 passed in0.69s including checked-in golden restore fixture"
+  },
+  "focused_static": {
+    "result": "ruff and mypy pass for4 source/test files"
+  },
+  "repository_lint": {
+    "command": "make verify lint stage",
+    "result": "pass"
+  },
+  "repository_typecheck": {
+    "command": "make verify typecheck stage",
+    "result": "677 source files pass"
+  },
+  "full_verify": {
+    "command": "PYTEST_XDIST_AUTO_NUM_WORKERS=2 UV_PROJECT_ENVIRONMENT=/tmp/open-brain-lifecycle-15036c-venv make verify",
+    "result": "Python7595 passed,5 filesystem skips,1 existing fork warning; core wheels/sdists and plugin build pass; stopped at plugin-test due8 bridge_closed failures from stale pre-existing .venv/bin alias"
+  },
+  "other_checks": {
+    "commands": [
+      "git diff --cached --check",
+      "actionlint .github/workflows/ci.yml"
+    ],
+    "result": "pass"
+  },
+  "limits": [
+    "Production schema/runtime/Portable remains17/12/12",
+    "No native resource, public command or real-data/model/client acceptance"
+  ],
+  "recovery": {
+    "cause": "Plugin transport fixture hardcodes checkout/.venv/bin/open-brain; retained alias targeted deleted prior task environment",
+    "action": "Atomically repoint ignored .venv/bin symlink to this task environment; git check-ignore confirms ignored; no tracked source/dependency changes",
+    "command": "UV_PROJECT_ENVIRONMENT=/tmp/open-brain-lifecycle-15036c-venv make plugin-test desktop-test",
+    "result": "pass; plugin700, desktopUI286, desktopPython30, Rust26; desktop typecheck/build and cargo fmt passed"
+  },
+  "builds": "All four core sdists/wheels, Obsidian typecheck/build and desktop typecheck/Vite build passed",
+  "skips": "5 full-Python cases skipped because this macOS filesystem rejects invalid UTF-8 names or cannot preserve distinct NFC/NFD names",
+  "warning": "Existing os.fork-in-multithreaded-process deprecation warning in writer-transaction proof",
+  "fixture_addendum": "Fixed SQL digest and checked-in restore fixture added during full run;116 focused tests and targeted Ruff/mypy pass afterward; runtime source hashes unchanged"
+}
