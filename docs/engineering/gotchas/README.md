@@ -4,6 +4,20 @@ Non-obvious behaviors, sharp edges, and lessons learned belong here.
 
 ## Registry
 
+### BUILD-017: Native packaging must pin the reviewed Python patch
+
+Category: Build Pipeline; Dependencies.
+
+PR83 macOS attempts1 and2 selected Homebrew Python3.14.8 from the floating
+3.14 CI input. Both passed application checks and failed the Graphify release
+archive audit. Local native audit/Homebrew checks passed with Python3.14.7.
+The archive policy admits exact reviewed standard-library marshal payloads;
+Python patch selection can change those payloads. Pin both packaging jobs to
+3.14.7, the reviewed and verified patch, and verify the complete CI pipeline.
+Do not add new payload exceptions or weaken the audit to admit a newer patch.
+The original error does not identify the failed rule, so version drift remains
+the working diagnosis until the pinned CI run completes.
+
 ### TESTING-008: An LRU cache smaller than a repeated scan never hits
 
 Category: Performance / Verification.
