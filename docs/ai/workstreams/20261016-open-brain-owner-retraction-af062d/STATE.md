@@ -18,5 +18,8 @@
 - Independent review found two stale-read gaps (preserved heads and co-support dependencies); both fixed and independently rechecked with no remaining findings.
 - Ledger: active 0/2; total 2/3. No workers may write during verification.
 - Candidate focused verification: 14 passed in 25.27s; full ruff and mypy (696 files) pass; diff-check and actionlint pass.
-- Candidate freeze: run make verify with four Python workers, one Vitest worker, explicit development environment, failed-only pytest retention. Logs remain outside repository; no source or bookkeeping writes during acceptance.
+- Verified candidate: 6d69c37fe422d787d98fe90c2fe881c4171da8bb. Full make verify passed with four Python workers, one Vitest worker, explicit development environment and failed-only pytest retention. All 2005 Git-visible input hashes stayed unchanged during the run.
+- Result: 7730 Python passed, 5 expected macOS filesystem skips, one existing fork deprecation warning; 700 plugin tests; desktop 286 UI, 30 Python and 26 Rust tests. All package builds, lint, type checks and formatting passed.
+- Tier audit: 7735 collected; fast 5041 plus integration 2694, union complete, disjoint, no stale manifest or collection errors. Diff-check and actionlint passed.
+- Status: milestone complete; no active workers. Verification logs and source manifest are outside the repository. Subsequent receipt commit changes workstream documentation only; source code remains the tested candidate.
 - Remaining gate: protected expiring preview custody plus versioned approval/receipt evidence before public owner CLI; provider profiles remain inactive. Production-size indexed performance acceptance is separate.
