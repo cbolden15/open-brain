@@ -27,3 +27,15 @@
 - Recovery/cutover verification:215 tests pass in30.42s including exact Portable8-14 closure validation, guarded capture and replay, relationship export and foreground module inventory. Ruff passes. Revised source candidate ready for full/native gates.
 - Full attempt4 completed Python:7797 passed,5 skips,13 failures in911.15s. All failures were stale expected catalog command count or collector current Portable13 assertions; actual workflows succeeded. Updated98 command inventory (explicit retract preview/commit/status) and collector expectations14. No further runtime failures observed.
 - Collector/catalog regression check:39 tests pass in7.52s. Revised frozen candidate requires full make verify and native gates.
+
+## Verified milestone
+
+- Status: complete; tested source commit `46e378a3deffaecb0c347858617516548dc4a147`. Ledger active0/3, total3/6, all workers finished.
+- Owner CLI now connects durable preview/page/commit/status to the real engine. Marker and approval receipt commit atomically; exact retries and status survive restart and Portable14 restore. Existing-only read commands skip startup recovery and metadata publication.
+- Current coordinates: schema19/runtime14/Portable14. Frozen predecessor migration statements and Portable validators remain preserved; recovery closures and capture replay admit14 through its exact validator/catalog.
+- Full `make verify` ran on the frozen candidate: lint and mypy709 files passed; Python7807 passed,5 filesystem skips,3 environment failures (two subprocess storage_critical refusals and one harness timeout). All three passed unchanged on serial rerun in8.31s, covering all7810 Python cases successfully. The initial aggregate make command exited nonzero; do not describe that invocation as passing.
+- Remaining verify components `make build plugin-test desktop-test` passed: package artifacts built;700 plugin,286 desktop UI,30 desktop Python,26 Rust tests pass. Worker caps: Python4, Vitest1. No assertions or timing budgets weakened.
+- `make native-audit homebrew-smoke` passed on macOS arm64, including installed owner retraction preview/page/commit/status/replay/search exclusion/verified export, plus capture/search, doctor, Markdown, MCP, graph and Obsidian plugin. Temporary formula preserved the existing product.
+- `make test-tiers-audit` passed:7815 collected,5101 fast and2714 integration, disjoint complete union. Full Ruff, mypy, diff-check and actionlint passed.
+- Source invariance: all2023 tracked/untracked Git-visible inputs unchanged through verification; logs remain outside the repository. Only this STATE and HANDOFF are updated after gates.
+- Next: review owner retraction usage. Production-size indexed latency acceptance and Linux native CI remain open; G1 overall is not complete. No live Brain/provider operation, push or deployment occurred.
