@@ -6,6 +6,16 @@ Both ChatGPT and Claude consumer exports remain first-implementation scope. The 
 
 Shared authority, compatibility, recovery and Portable behavior are specified in `PERSISTENCE.md` in this directory. Its 18/13/13 allocation is a design reservation; implemented coordinates remain17/12/12. Concrete SQL/evidence schemas and golden fixtures must land together in the first compatibility implementation slice. This document does not freeze an executable database schema.
 
+## Current implementation status (2026-10-16)
+
+The baseline/version reservations below are historical planning evidence. The
+current implemented candidate is schema19/runtime14/Portable14. Engine consumer
+intake is being implemented under goal110 using the successor contract in
+`CONSUMER-INTAKE.md`; schema20/runtime15/Portable15 are a coordinated pending
+cutover, not current runtime availability. Both external provider profiles remain
+inactive. Internal DTO, segment-custody and journal2 tests do not certify either
+provider export format or complete the engine intake APIs.
+
 ## Current seams and implementation boundary
 
 Current source was read in `/Users/calebbolden/Projects/oss/open-brain-public/.worktrees/competitive-gap-reconciliation`. The global CodeGraph index targets another worktree and was not used as source authority.
@@ -65,10 +75,13 @@ Provider IDs are exact UTF-8 scalar strings, 1–1,024 bytes, with no NUL, C0/C1
 Let `C(x)` be the engine's existing `portable_canonical_json_bytes(x)` and `H(x)` be lowercase hexadecimal SHA-256 of `C(x)`:
 
 ```text
-conversation_key = H(["consumer-chat-v1", provider, import_namespace_id, provider_conversation_id])
-message_key = H([conversation_key, provider_message_id])
+conversation_key = H(["consumer-chat-v1", provider, import_namespace_id,
+                      {"utf8_hex": UTF8(provider_conversation_id).hex()}])
+message_key = H([conversation_key, {"utf8_hex": UTF8(provider_message_id).hex()}])
 segment_key = H([conversation_key, "chat-segment-v1", segment_index])
 ```
+
+Provider-ID UTF-8 byte wrappers preserve distinct scalar sequences through NFC-normalizing canonical JSON. Engine-issued import namespace IDs use1–128 printable nonwhitespace ASCII characters; profile IDs use1–96 ASCII lowercase letters/digits/hyphens beginning with a letter. These are registered opaque identities, never arbitrary Unicode labels.
 
 Canonical source namespace for each segment is `{connector_name:"consumer_chat", connection_id:import_namespace_id, resource_id:conversation_key, external_id:segment_key}`. The engine also binds the conversation group to `conversation_key`; segment admission cannot independently publish a group. A proposed source reference is `urn:open-brain:consumer-chat:<provider>:<conversation_key>:<segment_index>`. No account email, private provider ID, archive filename, absolute path or token enters that reference. Source refs are inert identities.
 

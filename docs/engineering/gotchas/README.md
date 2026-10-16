@@ -4,6 +4,24 @@ Non-obvious behaviors, sharp edges, and lessons learned belong here.
 
 ## Registry
 
+### LIFECYCLE-009: Consumer identifiers and provenance need distinct admission
+
+Category: Type Safety; Database/Migrations.
+
+Portable canonical JSON NFC-normalizes strings, while provider identity is an
+exact UTF-8 scalar sequence. Encode provider-ID bytes in explicit hexadecimal
+wrappers before identity hashing; normalize transcript text separately. Do not
+let canonically equivalent provider IDs collapse to one conversation/message.
+Frozen owner lifecycle envelopes reject third-party captures. Use an explicit
+successor consumer envelope and shared replay adapter, preserving the original
+bytes and validators. Decoding a general capture envelope alone does not prove
+capture-only authority; require exactly the injected capture.accept role.
+
+Annotate extensible DDL tuples as tuple[str, ...] before appending generated
+triggers. In adversarial dataclass tests use typed replacement keywords or an
+explicit dynamic field name; formatter rewrites of literal setattr can turn an
+intentional runtime refusal into a static read-only-field error.
+
 ### LIFECYCLE-008: Approval receipts need exact typed bytes and a bounded commit
 
 Category: Type Safety; Database/Migrations; Build Pipeline.
