@@ -4,6 +4,22 @@ Non-obvious behaviors, sharp edges, and lessons learned belong here.
 
 ## Registry
 
+### LIFECYCLE-007: Retraction effects extend beyond selected captures
+
+Category: Type Safety; Database/Migrations.
+
+Retraction inspection must include unselected current-group siblings and reverse
+historical, sharing and development dependencies. Graph eligibility also checks
+all retained managed revisions and follows inactive links. A current-head-only
+impact query understates the approval scope. Test the full closure and exact
+100/101-item boundary, then bind effective privacy and the whole selected
+membership to freshness checks. Explicitly annotate variable-length tuples:
+mypy otherwise infers a one-element capture tuple before the session branch.
+Keep public preview approval evidence separate from the frozen journal v1.
+Freshness needs more than the affected set: bind preserved newer heads and
+forward dependencies/co-provenance as well. A co-support's tombstone can change
+an affected object's eligibility while every displayed effect remains identical.
+
 ### GIT-001: Recreating a merge can lose its manual edits
 
 Category: Git; Verification.

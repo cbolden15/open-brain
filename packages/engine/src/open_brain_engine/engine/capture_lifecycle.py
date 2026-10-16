@@ -40,6 +40,7 @@ from .t03_contracts import EffectiveAuthority, SessionOrigin
 
 if TYPE_CHECKING:
     from .local import BrainEngine
+    from .retraction_impact import RetractionImpact
 
 
 @dataclass(frozen=True, slots=True)
@@ -458,3 +459,34 @@ class CaptureLifecycleTasks:
             if not connection.in_transaction:
                 connection.execute("BEGIN")
             return _journal(connection).session_snapshot(session_id)
+
+    def inspect_retraction(
+        self,
+        *,
+        authority: EffectiveAuthority,
+        capture_id: str | None = None,
+        session_id: str | None = None,
+        expected_preimage_sha256: str | None = None,
+    ) -> RetractionImpact:
+        """Inspect exact body-free effects; this grants no mutation authority."""
+        from .paging import read_snapshot
+        from .retraction_impact import inspect_retraction
+
+        self._owner(authority)
+        # A whole impact set can cross space boundaries. This internal seam has
+        # no partial/suppressed-result contract for a space-limited owner.
+        if authority.space_ids is not None:
+            raise LifecycleError("invalid_arguments")
+        with read_snapshot(self._engine) as connection:
+            journal = _journal(connection)
+            if authority.brain_id is not None and (
+                authority.brain_id != journal.brain_id
+                or authority.issuer_epoch != journal.issuer_epoch
+            ):
+                raise LifecycleError("revision_changed")
+            return inspect_retraction(
+                journal,
+                capture_id=capture_id,
+                session_id=session_id,
+                expected_preimage_sha256=expected_preimage_sha256,
+            )
