@@ -1,8 +1,8 @@
 # First use
 
 For a short synthetic capture/search trial, start with the [README quickstart](../README.md#try-a-synthetic-note).
-The current source candidate uses local state schema **16**, runtime session **11**, and Portable
-metadata **11**. These coordinates do not identify the published Homebrew release and do not
+The current source candidate uses local state schema **17**, runtime session **12**, and Portable
+metadata **12**. These coordinates do not identify the published Homebrew release and do not
 establish public acceptance. Check your executable's `catalog --schema-version 2 --json` output
 against the [current compatibility matrix](core-v01-features.md#compatibility-coordinates).
 
@@ -10,7 +10,7 @@ against the [current compatibility matrix](core-v01-features.md#compatibility-co
 
 The marked runnable blocks below are the preserved **10/5/5 historical candidate fixture**, bound
 by the documentation gate to its exact executable and example hashes. They are not a runnable
-acceptance guide for the current 16/11/11 candidate: the initial coordinate assertions deliberately
+acceptance guide for the current 17/12/12 candidate: the initial coordinate assertions deliberately
 reject a different runtime. Do not remove those assertions to make a newer binary pass. Current
 candidate certification requires a separately reviewed executable and matching guide receipt.
 

@@ -18,7 +18,7 @@ The full700-test plugin suite passed with one worker after two one-second
 readiness checks failed at default and two-worker concurrency on this workstation.
 Keep the assertions and deadlines intact; record the worker cap with the receipt.
 
-### BUILD-015: Acceptance source binding includes workstream notes
+### BUILD-018: Acceptance source binding includes workstream notes
 
 Category: Build Pipeline.
 
