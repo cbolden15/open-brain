@@ -23,6 +23,7 @@ from open_brain_engine.portable.relationships_v1 import (
     RELATIONSHIP_METADATA_PATH,
     validate_relationship_metadata,
 )
+from open_brain_engine.portable.retraction_v14 import APPROVALS_PATH
 from open_brain_engine.portable.slack_v12 import SELECTIONS_PATH
 from open_brain_engine.portable.v4 import (
     PORTABLE_V4_RELATIONSHIPS_CATALOG_DIGEST,
@@ -44,6 +45,7 @@ from open_brain_engine.portable.v10_catalog import PORTABLE_V10_SCHEMA_CATALOG_D
 from open_brain_engine.portable.v11_catalog import PORTABLE_V11_SCHEMA_CATALOG_DIGEST
 from open_brain_engine.portable.v12_catalog import PORTABLE_V12_SCHEMA_CATALOG_DIGEST
 from open_brain_engine.portable.v13_catalog import PORTABLE_V13_SCHEMA_CATALOG_DIGEST
+from open_brain_engine.portable.v14_catalog import PORTABLE_V14_SCHEMA_CATALOG_DIGEST
 from open_brain_engine.portable.versioned import validated_portable_snapshot
 
 from open_brain.profile import compile_single_user_local
@@ -90,6 +92,7 @@ def _write_v4_fixture(source: Path, destination: Path) -> dict[str, Any]:
         and relative not in FACET_SIDECAR_PATHS
         and relative not in DEVELOPMENT_SIDECAR_PATHS
         and relative != SELECTIONS_PATH
+        and relative != APPROVALS_PATH
         and not relative.startswith("history/capture-lifecycle/")
     }
     for relative, payload in files.items():
@@ -187,11 +190,11 @@ def test_symmetric_relationship_replay_versions_and_hidden_endpoint(tmp_path: Pa
         engine.relationships.decide(proposed, authority=scoped)
 
 
-@pytest.mark.parametrize("portable_version", [8, 9, 10, 11, 12, 13])
+@pytest.mark.parametrize("portable_version", [8, 9, 10, 11, 12, 13, 14])
 def test_supersedes_cycle_self_and_export_complete_decisions(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, portable_version: int
 ) -> None:
-    if portable_version in {8, 9, 10, 11, 12}:
+    if portable_version in {8, 9, 10, 11, 12, 13}:
         version = portable_version + 5
         monkeypatch.setattr(local_schema, "PHASE1_STATE_SCHEMA_VERSION", version)
         monkeypatch.setattr(local_schema, "LOCAL_MIGRATIONS", LOCAL_MIGRATIONS[:version])
@@ -202,6 +205,7 @@ def test_supersedes_cycle_self_and_export_complete_decisions(
         11: PORTABLE_V11_SCHEMA_CATALOG_DIGEST,
         12: PORTABLE_V12_SCHEMA_CATALOG_DIGEST,
         13: PORTABLE_V13_SCHEMA_CATALOG_DIGEST,
+        14: PORTABLE_V14_SCHEMA_CATALOG_DIGEST,
     }[portable_version]
     engine = BrainEngine.open(compile_single_user_local(tmp_path / "brain"))
     ids = [

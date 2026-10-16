@@ -21,7 +21,11 @@ search, direct/history reads and Portable rebuilds with stale rows present.
 Compatibility cutovers also update both CLI verified-export receipt allowlists,
 native journey coordinates and migration/recovery no-op version sets. Update
 the executable documentation-example coordinate map, feature matrix, and its
-mutation test together; release tests bind them to the engine constants.
+mutation test together; release tests bind them to the engine constants. Recovery
+closure validation and capture replay must admit the new Portable baseline via
+its exact catalog and validator. Parameterized predecessor producers must pin
+the old schema when a new current version is added. Include each owner CLI module
+in the explicit foreground architecture inventory.
 An opener that skips recovery must also skip constructor initialization and
 metadata publication. Verify filesystem publishers are never called for status
 or page reads; an unchanged SQLite dump alone does not prove a read-only open.
