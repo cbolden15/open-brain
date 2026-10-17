@@ -101,7 +101,11 @@ fn requests() -> Vec<(&'static str, Vec<String>)> {
 #[test]
 #[ignore = "needs local G4 assets, runtime and reference interpreter"]
 fn ort_backend_matches_reference_embedder() {
-    let dylib = required("build/g4-ort-macos/Release/libonnxruntime.1.31.0.dylib");
+    let dylib = required(if cfg!(target_os = "macos") {
+        "build/g4-ort-macos/Release/libonnxruntime.1.31.0.dylib"
+    } else {
+        "build/g4-ort-linux/Release/libonnxruntime.so.1.31.0"
+    });
     let assets = required("build/g4-assets-1/minilm");
     let python = required("build/g4-ref/bin/python");
     let reference = required("tools/g4_embedding_probe/payload/reference.py.txt");
