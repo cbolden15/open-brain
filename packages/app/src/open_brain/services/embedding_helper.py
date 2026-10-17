@@ -77,6 +77,8 @@ _DEADLINE_SECONDS: dict[str, float] = {
     "query": LIMITS["query_deadline_ms"] / 1000,
     "document": LIMITS["document_deadline_ms"] / 1000,
 }
+# Bounded allowance for building or rebuilding the persistent stage (decision D7).
+_STAGE_BUILD_SECONDS: Final = 30.0
 _REAP_SECONDS: Final = 0.5
 _POLL_SECONDS: Final = 0.05
 _READ_CHUNK: Final = 65536
@@ -174,6 +176,10 @@ def _open_absolute(path: Path) -> int:
             child = os.open(part, _DIR_FLAGS, dir_fd=descriptor)
             os.close(descriptor)
             descriptor = child
+            info = os.fstat(descriptor)
+            # Section 4: reject group/other-writable ancestors unless sticky (e.g. /tmp).
+            if info.st_mode & 0o022 and not info.st_mode & stat.S_ISVTX:
+                raise OSError("writable ancestor")
         return descriptor
     except BaseException:
         os.close(descriptor)
@@ -284,7 +290,9 @@ def verify_embedding_metadata(
             _fail("resource_untrusted")
         inventory = v2.parse_inventory(inventory_bytes)
         v2.validate_resource_inventory(resource, manifest.version, inventory)
-    except v2.ComponentManifestError, StopIteration:
+    except StopIteration:
+        _fail("unsupported_platform")
+    except v2.ComponentManifestError:
         _fail("resource_untrusted")
     if inventory.platform != platform or inventory.component is None:
         _fail("unsupported_platform")
@@ -593,8 +601,12 @@ class _Stage:
 
 
 @contextmanager
-def _locked_stage_parent(brain_root: Path) -> Iterator[int]:
-    """Open (creating 0700) the stage parent and hold its exclusive lock."""
+def _locked_stage_parent(brain_root: Path, clock: _Clock) -> Iterator[int]:
+    """Open (creating 0700) the stage parent and hold its exclusive lock.
+
+    The lock is polled so a competing holder cannot outlast the caller's deadline or
+    cancellation.
+    """
     opened: list[int] = []
     try:
         try:
@@ -613,7 +625,13 @@ def _locked_stage_parent(brain_root: Path) -> Iterator[int]:
                 dir_fd=opened[-1],
             )
             opened.append(lock)
-            fcntl.flock(lock, fcntl.LOCK_EX)
+            while True:
+                try:
+                    fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    break
+                except BlockingIOError:
+                    clock.check()
+                    time.sleep(0.01)
         except OSError:
             _fail("resource_untrusted")
         yield opened[-2]
@@ -980,10 +998,14 @@ def _validate_embed(
     for slot, (entry, text) in enumerate(zip(entries, texts, strict=True)):
         fields = _exact(entry, _ITEM_KEYS)
         token_count = _integer(fields["token_count"])
+        encoded = text.encode("utf-8")
         if (
             _integer(fields["slot"]) != slot
-            or fields["text_sha256"] != hashlib.sha256(text.encode("utf-8")).hexdigest()
+            or fields["text_sha256"] != hashlib.sha256(encoded).hexdigest()
             or token_count == 0
+            # Every content token covers at least one input byte; this bounds the window
+            # plan below against hostile helper output.
+            or token_count > len(encoded)
         ):
             _fail("protocol_invalid")
         chunks = _chunks(fields["chunks"], purpose, text, token_count)
@@ -1073,14 +1095,20 @@ class HelperEmbeddingBackend:
         )
         if len(request) > LIMITS["max_request_bytes"]:
             _fail("input_limit")
-        clock = _Clock(time.monotonic() + _DEADLINE_SECONDS["capabilities"], self._cancelled)
+        # The first exchange of an operation may build the persistent stage (copy and hash
+        # every installed byte), so it gets a bounded stage-build allowance on top of the
+        # capabilities deadline; it stays cancellable throughout.
+        clock = _Clock(
+            time.monotonic() + _DEADLINE_SECONDS["capabilities"] + _STAGE_BUILD_SECONDS,
+            self._cancelled,
+        )
         clock.check()
         verified = verify_embedding_metadata(
             self._installed, expected_inventory_sha256=self._expected
         )
         if verified.component_id != self.component_id:
             _fail("component_mismatch")
-        with _locked_stage_parent(self._brain_root) as parent_fd:
+        with _locked_stage_parent(self._brain_root, clock) as parent_fd:
             stage = _Stage(parent_fd, self._brain_root.joinpath(*STAGE_PARTS), verified)
             capabilities_id = secrets.token_hex(16)
             returncode, raw = self._launch(
@@ -1093,10 +1121,11 @@ class HelperEmbeddingBackend:
                     }
                 ),
                 clock,
+                _DEADLINE_SECONDS["capabilities"],
             )
             _validate_capabilities(returncode, raw, capabilities_id, self.component_id)
             clock = _Clock(time.monotonic() + _DEADLINE_SECONDS[purpose], self._cancelled)
-            returncode, raw = self._launch(stage, request, clock)
+            returncode, raw = self._launch(stage, request, clock, _DEADLINE_SECONDS[purpose])
         if self._cancelled():
             _fail("cancelled")
         return _validate_embed(
@@ -1109,10 +1138,13 @@ class HelperEmbeddingBackend:
         )
 
     @staticmethod
-    def _launch(stage: _Stage, request: bytes, clock: _Clock) -> tuple[int, bytes]:
+    def _launch(
+        stage: _Stage, request: bytes, clock: _Clock, child_seconds: float
+    ) -> tuple[int, bytes]:
         identities = stage.prepare(clock)
         if not stage.unchanged(identities):
             identities = stage.rebuild(clock)
             if not stage.unchanged(identities):
                 _fail("resource_untrusted")
-        return _run_child(stage.path, request, clock)
+        child_clock = _Clock(min(clock.deadline, time.monotonic() + child_seconds), clock.cancelled)
+        return _run_child(stage.path, request, child_clock)

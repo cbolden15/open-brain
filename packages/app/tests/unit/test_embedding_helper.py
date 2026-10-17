@@ -7,6 +7,7 @@ contributor build products exist under ``build/`` and ``release/open-brain-embed
 
 from __future__ import annotations
 
+import fcntl
 import hashlib
 import json
 import os
@@ -389,6 +390,8 @@ DOCUMENT_VIOLATIONS: dict[str, str] = {
     "window_missing": '["items"][0]["chunks"] = doc["items"][0]["chunks"][:1]',
     "byte_not_char_boundary": '["items"][1]["chunks"][0]["byte_end"] = 4',
     "byte_order": '["items"][0]["chunks"][1]["byte_end"] = 2',
+    # A hostile token count must be refused before planning windows from it.
+    "token_count_above_bytes": '["items"][0]["token_count"] = 10**12',
 }
 
 
@@ -664,6 +667,39 @@ def test_cancel_kills_and_reaps(
     backend = env.backend(cancelled=lambda: len(popen) == 2 and time.monotonic() - started > 0.3)
     assert failure(lambda: backend.embed("query", [QUERY])) == "cancelled"
     assert popen[-1].returncode is not None
+
+
+@process
+def test_competing_stage_lock_obeys_cancellation(
+    make: Callable[..., Env], popen: list[subprocess.Popen[bytes]]
+) -> None:
+    env = make()
+    parent = env.brain.joinpath(*eh.STAGE_PARTS)
+    parent.mkdir(parents=True, mode=0o700)
+    for directory in [parent, *parent.parents]:
+        if directory == env.brain:
+            break
+        os.chmod(directory, 0o700)
+    holder = os.open(parent / ".lock", os.O_RDWR | os.O_CREAT, 0o600)
+    try:
+        fcntl.flock(holder, fcntl.LOCK_EX)
+        started = time.monotonic()
+        backend = env.backend(cancelled=lambda: time.monotonic() - started > 0.3)
+        assert failure(lambda: backend.embed("query", [QUERY])) == "cancelled"
+        assert time.monotonic() - started < 5
+        assert popen == []
+    finally:
+        os.close(holder)
+
+
+def test_group_writable_ancestor_is_refused_unless_sticky(tmp_path: Path) -> None:
+    shared = tmp_path / "shared"
+    (shared / "brain").mkdir(parents=True)
+    os.chmod(shared, 0o777)
+    with pytest.raises(OSError):
+        os.close(eh._open_absolute(shared / "brain"))
+    os.chmod(shared, 0o1777)
+    os.close(eh._open_absolute(shared / "brain"))
 
 
 @process
