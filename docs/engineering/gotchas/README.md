@@ -4288,3 +4288,48 @@ old schema remain unchanged on refusal. Independent PR79 review reproduced both
 pre-migration bypasses and verified the corrected behavior.
 
 Discovered: 2026-10-13.
+
+### TESTING-007: Full parallel pytest runs retain several gigabytes of temp data
+
+Category: Testing / Environment.
+
+Symptom: A full `make verify` writes about 6.6 GiB below pytest's base temp directory, and pytest
+keeps the last three base temp directories. On a nearly full Mac this filled the disk mid-run
+(`ENOSPC`), after which even tool output files could not be created. Overriding
+`tmp_path_retention_policy=none` is not a fix: with xdist it deletes directories other fixtures still
+use and produced thousands of `FileNotFoundError` setup errors.
+
+Action: Before a full run, check free space. Use an explicit, run-owned base temp
+(`PYTEST_ADDOPTS="--basetemp=<tmp>/<run> -p no:cacheprovider"`), which pytest clears at start, and delete
+it afterwards. Do not write files into the worktree during the run: the harness acceptance fixture
+fails with `source_changed_during_run`.
+
+Discovered: 2026-10-17, goal #111 offline semantic search.
+
+### NATIVE-EMBED-001: Fresh copies of executables cost a macOS validation pass per first launch
+
+Category: Native / Performance.
+
+Symptom: Executing a freshly written helper binary and dylib on macOS arm64 cost about 600 ms of
+system code validation, and freshly written model data about 320 ms more, every time. Per-invocation
+staging copies made each semantic query cost about 700 ms (warm p95 1213 ms against a 500 ms budget).
+
+Action: Reuse a persistent private stage per component and re-hash it before each launch
+(EMBEDDING-RESOURCE.md section 4 amendment, decision D7). Measure first-launch and repeated-launch cost
+separately when a design copies executables.
+
+Discovered: 2026-10-17, G4 embedding spike.
+
+### NATIVE-EMBED-002: ONNX Runtime host macOS builds ignore `--apple_deploy_target`
+
+Category: Native / Build.
+
+Symptom: `tools/ci_build/build.py --apple_deploy_target 11.0` left `CMAKE_OSX_DEPLOYMENT_TARGET` empty for
+a host macOS build, producing `minos 26.0`. On Linux, a build Python without development headers failed
+with `Python::NumPy` not found.
+
+Action: Pass `--cmake_extra_defines CMAKE_OSX_DEPLOYMENT_TARGET=11.0` and confirm with
+`otool -l | rg minos`. Build with a uv-managed Python on Linux. Recipe:
+`tools/g4_embedding_probe/ort-build-recipe.json`.
+
+Discovered: 2026-10-17, G4 embedding spike.
