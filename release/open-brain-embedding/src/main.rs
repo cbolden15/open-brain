@@ -10,7 +10,7 @@ fn backend() -> impl Inference {
 
 #[cfg(not(feature = "fake-inference"))]
 fn backend() -> impl Inference {
-    open_brain_embedding::Unavailable
+    open_brain_embedding::OrtInference::new(Path::new("."))
 }
 
 fn main() -> ExitCode {
