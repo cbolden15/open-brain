@@ -40,9 +40,12 @@ open-brain embedding disable --json
 ```
 
 Each command prints one object with exactly `schema`
-(`ob.embedding-policy-status.v1`), `enabled`, `component_id` and `consent_version`. Every enable or disable bumps the consent
+(`ob.embedding-policy-status.v1`), `enabled`, `component_id` and `consent_version`;
+`status` also adds `embedding_health`. Every enable or disable bumps the consent
 version and policy generation and appends history in one transaction. No MCP tool,
 plugin operation or desktop surface reads or changes this policy.
+
+See [offline semantic search](semantic-search.md) for the cache, modes and health states.
 
 The exact catalog is in
 `packages/engine/src/open_brain_engine/portable/v16_catalog.py`.

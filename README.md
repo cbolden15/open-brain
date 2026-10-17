@@ -50,6 +50,7 @@ The [first-use guide](docs/first-use.md) records current compatibility and prese
 historical journey through capture, import, routing, publication, managed vault and complete reads.
 [Doctor checks](docs/doctor.md) provide bounded local diagnostics. These local checks do not close
 Linux exact-candidate, Obsidian GUI or public-promotion gates.
+Optional [offline semantic search](docs/semantic-search.md) is off by default.
 
 ## Install
 
