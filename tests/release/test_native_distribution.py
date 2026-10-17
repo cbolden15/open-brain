@@ -336,7 +336,8 @@ def test_native_build_group_installs_the_base_application() -> None:
     )
     assert "open-brain==0.1.0" in workspace["dependency-groups"]["native-build"]
     assert workspace["tool"]["uv"]["sources"]["open-brain"] == {"workspace": True}
-    assert makefile.count("--no-dev --group native-build") == 4
+    # Includes the embedding resource build target.
+    assert makefile.count("--no-dev --group native-build") == 5
 
 
 def test_local_homebrew_smoke_uses_a_temporary_tap() -> None:
