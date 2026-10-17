@@ -175,21 +175,47 @@ def cmd_parity(args: argparse.Namespace) -> dict:
     }
 
 
+def _literal(value: str) -> str:
+    return '"' + value.replace('"', '""') + '"'
+
+
 def lexical_ranking(records: dict) -> callable:
+    """Emulate engine `fts5-match-tier-binary-v2` (retrieval._compile_query + paging tiers).
+
+    Returns (rid, tier) pairs ordered by tier then record id; tier 5 is the any-term
+    disjunction, which the engine orders only by identity, not relevance.
+    """
     db = sqlite3.connect(":memory:")
-    db.execute("CREATE VIRTUAL TABLE r USING fts5(rid UNINDEXED, title, body)")
+    db.execute(
+        "CREATE VIRTUAL TABLE r USING fts5(rid UNINDEXED, title, body,"
+        " tokenize='unicode61 remove_diacritics 2')"
+    )
     db.executemany("INSERT INTO r VALUES (?, ?, ?)", [(k, t, b) for k, (t, b) in records.items()])
 
-    def rank(text: str) -> list[str]:
-        terms = re.findall(r"[A-Za-z0-9]+", text)
-        if not terms:
+    def rank(text: str) -> list[tuple[str, int]]:
+        chunks = [c for c in text.split() if any(ch.isalnum() for ch in c)]
+        if not chunks:
             return []
-        expression = " OR ".join(f'"{t}"' for t in terms)
-        rows = db.execute(
-            "SELECT rid FROM r WHERE r MATCH ? ORDER BY bm25(r), rid LIMIT ?",
-            (expression, LIST_DEPTH),
-        )
-        return [row[0] for row in rows]
+        literals = [_literal(c) for c in chunks]
+        phrase = _literal(" ".join(chunks))
+        conjunction = " AND ".join(literals)
+        tiers = [
+            f"title : {phrase}",
+            f"title : ({conjunction})",
+            phrase,
+            conjunction,
+        ]
+
+        def matches(expression: str) -> set[str]:
+            return {row[0] for row in db.execute("SELECT rid FROM r WHERE r MATCH ?", (expression,))}
+
+        tier_sets = [matches(expression) for expression in tiers]
+        hits = matches(" OR ".join(literals))
+        ranked = []
+        for rid in hits:
+            tier = next((i + 1 for i, s in enumerate(tier_sets) if rid in s), 5)
+            ranked.append((tier, rid))
+        return [(rid, tier) for tier, rid in sorted(ranked)]
 
     return rank
 
@@ -240,8 +266,11 @@ def cmd_relevance(args: argparse.Namespace) -> dict:
             if score > best.get(rid, -2.0):
                 best[rid] = float(score)
         semantic = sorted(best, key=lambda rid: (-best[rid], rid))[:LIST_DEPTH]
-        lexical_list = lexical(query["text"])
+        lexical_pairs = lexical(query["text"])
+        lexical_list = [rid for rid, _ in lexical_pairs][:LIST_DEPTH]
+        ranked_lexical = [rid for rid, tier in lexical_pairs if tier <= 4][:LIST_DEPTH]
         hybrid = rrf([semantic, lexical_list])
+        hybrid_v2 = rrf([semantic, ranked_lexical])
         latencies.append((time.perf_counter() - begin) * 1000)
         rows.append(
             {
@@ -250,6 +279,7 @@ def cmd_relevance(args: argparse.Namespace) -> dict:
                 "lexical": first_hit(lexical_list, query["relevant"]),
                 "semantic": first_hit(semantic, query["relevant"]),
                 "hybrid": first_hit(hybrid, query["relevant"]),
+                "hybrid_v2": first_hit(hybrid_v2, query["relevant"]),
             }
         )
 
@@ -258,17 +288,23 @@ def cmd_relevance(args: argparse.Namespace) -> dict:
         return sum(1 for r in selected if r[column] is not None and r[column] <= k) / len(selected)
 
     summary = {
-        kind: {column: hit_rate(kind, column) for column in ("lexical", "semantic", "hybrid")}
+        kind: {
+            column: hit_rate(kind, column)
+            for column in ("lexical", "semantic", "hybrid", "hybrid_v2")
+        }
         for kind in ("paraphrase", "exact_id")
     }
-    exact_regressions = [
-        r["id"]
-        for r in rows
-        if r["kind"] == "exact_id"
-        and r["lexical"] is not None
-        and r["lexical"] <= 5
-        and (r["hybrid"] is None or r["hybrid"] > 5)
-    ]
+    exact_regressions = {
+        column: [
+            r["id"]
+            for r in rows
+            if r["kind"] == "exact_id"
+            and r["lexical"] is not None
+            and r["lexical"] <= 5
+            and (r[column] is None or r[column] > 5)
+        ]
+        for column in ("hybrid", "hybrid_v2")
+    }
     return {
         "profile": profile["id"],
         "ort_version": ort.__version__,
