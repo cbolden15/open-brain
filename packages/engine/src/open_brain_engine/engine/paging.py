@@ -1,12 +1,14 @@
-"""Versioned lexical keyset paging and complete projected record reads."""
+"""Versioned lexical or hybrid keyset paging and complete projected record reads."""
 
 from __future__ import annotations
 
 import math
 import sqlite3
 import struct
-from collections.abc import Iterator
+import unicodedata
+from collections.abc import Collection, Iterator
 from contextlib import contextmanager
+from dataclasses import dataclass
 from hashlib import sha256
 from typing import TYPE_CHECKING, Any, cast
 
@@ -18,6 +20,7 @@ from open_brain_engine.storage.filesystem import StorageError
 from .consent_contracts import EgressMode
 from .contracts import LocalEngineContext
 from .cursors import CursorStore, binding_digest
+from .embedding_backend import EmbeddingFailure
 from .historical_read_snapshot import historical_read_snapshot
 from .local_schema import PHASE1_STATE_SCHEMA_VERSION
 from .mcp_eligibility import implicit, install
@@ -39,9 +42,14 @@ from .t03_contracts import (
 )
 
 if TYPE_CHECKING:
+    from .embedding_cache import ActiveGeneration
     from .local import BrainEngine
 
 RANKING_VERSION = "fts5-match-tier-binary-v2"
+# EMBEDDING-RESOURCE section 8 (2026-10-17 amendment) and decision D5: equal-weight
+# reciprocal-rank fusion of max-cosine semantic ranks and lexical tiers 1-4 only.
+HYBRID_RANKING_VERSION = "ob.hybrid-rrf.v2"
+_RRF_K = 60
 # Leave transport framing and duplicate JSON string escaping room below 1 MiB.
 MAX_RESPONSE_BYTES = 240_000
 
@@ -257,10 +265,14 @@ def continuation(
     binding: str,
     generation: dict[str, Any],
     now: float,
+    stale_bindings: Collection[str] = (),
 ) -> dict[str, Any] | None:
     if cursor is None:
         return None
     record = store.resolve(cursor, now=now)
+    if record.get("purpose") == purpose and record.get("binding") in stale_bindings:
+        # The same request under the other ranking (hybrid vs. lexical fallback).
+        raise T03Error("cursor_stale")
     if record.get("purpose") != purpose or record.get("binding") != binding:
         raise T03Error("cursor_invalid")
     if record.get("generation") != generation:
@@ -289,6 +301,149 @@ def _last_key(record: dict[str, Any] | None) -> tuple[float, str, str] | None:
         raise T03Error("cursor_invalid") from None
 
 
+@dataclass(frozen=True, slots=True)
+class _Semantic:
+    active: ActiveGeneration
+    query: tuple[float, ...]
+
+
+def _semantic_query(engine: BrainEngine, query: str) -> _Semantic | None:
+    """Embed the query outside every read snapshot and lease; ``None`` is unavailable.
+
+    Detailed categories (consent, resource, cache, helper) stay owner-local; callers only
+    see the existing ``model_unavailable``. The query text is never stored.
+    """
+    factory = engine._embedding_backend
+    if factory is None:
+        return None
+    from .embedding_cache import ActiveGeneration, active_status
+
+    status = active_status(engine)
+    if not isinstance(status, ActiveGeneration):
+        return None
+    try:
+        backend = factory()
+        if backend.component_id != status.component_id:
+            return None
+        items = backend.embed("query", [unicodedata.normalize("NFC", query)])
+    except EmbeddingFailure:
+        return None
+    if len(items) != 1 or len(items[0].chunks) != 1:
+        return None
+    return _Semantic(status, items[0].chunks[0].vector)
+
+
+def _semantic_current(
+    engine: BrainEngine, connection: sqlite3.Connection, active: ActiveGeneration
+) -> bool:
+    """Policy generation and active cache generation are unchanged inside the snapshot."""
+    from .embedding_cache import _Root, _Unavailable
+    from .embedding_policy import read_policy
+
+    policy = read_policy(connection)
+    if (
+        not policy.enabled
+        or policy.component_id != active.component_id
+        or policy.policy_generation != active.policy_generation
+    ):
+        return False
+    try:
+        with _Root.open(engine.profile, create=False) as root:
+            pointer = None if root is None else root.pointer()
+    except _Unavailable, OSError:
+        return False
+    return pointer is not None and pointer[0] == active.generation_id
+
+
+def _search_binding(
+    request: SearchPageRequest,
+    filters: dict[str, list[str]],
+    authority: EffectiveAuthority,
+    *,
+    hybrid: bool,
+) -> str:
+    return binding_digest(
+        {
+            "query": request.query.strip(),
+            "filters": filters,
+            "mode": request.mode,
+            "mode_used": "hybrid" if hybrid else "lexical",
+            "limit": request.limit,
+            "ranking": HYBRID_RANKING_VERSION if hybrid else RANKING_VERSION,
+            "authority": authority_binding(authority),
+        }
+    )
+
+
+def _fused(
+    rows: list[sqlite3.Row],
+    projector: RecordProjector,
+    semantic: _Semantic,
+) -> list[tuple[float, dict[str, Any]]]:
+    """``ob.hybrid-rrf.v2`` over caller-authorized candidates, best first.
+
+    A vector is scored only when the caller's own projected field bytes hash to exactly
+    the owner-built chunk's projection hash (decision D10). Coverage currency: a record
+    created or edited after the last rebuild has no matching chunk, so it is simply absent
+    from the semantic list and can still appear through lexical tiers 1-4; hybrid never
+    claims semantic coverage for it.
+    """
+    from .embedding_cache import FIELDS, ChunkRef, field_texts, projection_sha256
+
+    chunks = semantic.active.chunks
+    vectorized = {(ref.record_type, ref.result_id) for ref in chunks}
+    summaries: dict[tuple[str, str], dict[str, Any]] = {}
+    lexical: list[tuple[int, str, str]] = []
+    best: dict[tuple[str, str], float] = {}
+    for row in rows:
+        tier = row["tier"]
+        if tier is None and (row["record_type"], row["result_id"]) not in vectorized:
+            continue
+        try:
+            projected = projector.read(row["result_id"])
+        except T03Error as error:
+            if error.code == "not_found":
+                continue
+            raise
+        summary = projected.summary
+        indexed_text = projected.text if projected.indexed_text is None else projected.indexed_text
+        if row["body"] != indexed_text or row["title"] != summary["title"]:
+            raise T03Error("projection_stale")
+        identity = (summary["record_type"], summary["record_id"])
+        summaries[identity] = summary
+        if tier is not None:
+            lexical.append((int(tier), *identity))
+        texts = field_texts(projected)
+        scores = [
+            math.sumprod(vector, semantic.query)
+            for name in FIELDS
+            for vector in chunks.get(
+                ChunkRef(
+                    summary["record_type"],
+                    summary["record_id"],
+                    summary["revision_id"],
+                    name,
+                    projection_sha256(texts[name]),
+                ),
+                (),
+            )
+        ]
+        if scores:
+            best[identity] = max(scores)
+    fused: dict[tuple[str, str], float] = {}
+    rankings = (
+        sorted(best, key=lambda identity: (-best[identity], *identity)),
+        [(record_type, record_id) for _tier, record_type, record_id in sorted(lexical)],
+    )
+    for ranking in rankings:
+        for rank, identity in enumerate(ranking, start=1):
+            fused[identity] = fused.get(identity, 0.0) + 1.0 / (_RRF_K + rank)
+    return sorted(
+        ((score, summaries[identity]) for identity, score in fused.items()),
+        key=lambda item: (-item[0], item[1]["record_type"], item[1]["record_id"]),
+    )
+
+
 def search_page(
     engine: BrainEngine,
     request: SearchPageRequest,
@@ -296,8 +451,6 @@ def search_page(
     authority: EffectiveAuthority,
 ) -> SearchPageResponse:
     authority.require("search")
-    if request.mode == "hybrid_required":
-        raise T03Error("model_unavailable")
     from .retrieval import _compile_query
 
     try:
@@ -305,19 +458,32 @@ def search_page(
     except ValueError:
         raise T03Error("invalid_arguments") from None
     filters = {key: sorted(value) for key, value in request.filters.items()}
-    binding = binding_digest(
-        {
-            "query": request.query.strip(),
-            "filters": filters,
-            "mode": request.mode,
-            "mode_used": "lexical",
-            "limit": request.limit,
-            "ranking": RANKING_VERSION,
-            "authority": authority_binding(authority),
-        }
-    )
+    # ``lexical`` never reaches the backend factory, the cache or the resource.
+    semantic = None if request.mode == "lexical" else _semantic_query(engine, request.query.strip())
+    if semantic is None and request.mode == "hybrid_required":
+        raise T03Error("model_unavailable")
     with read_snapshot(engine) as connection:
+        if semantic is not None and not _semantic_current(engine, connection, semantic.active):
+            # currentness_changed between the query exchange and this snapshot.
+            if request.mode == "hybrid_required":
+                raise T03Error("model_unavailable")
+            semantic = None
+        hybrid = semantic is not None
+        binding = _search_binding(request, filters, authority, hybrid=hybrid)
+        stale = (
+            (_search_binding(request, filters, authority, hybrid=not hybrid),)
+            if request.mode == "hybrid_preferred"
+            else ()
+        )
         generation = generations(connection, profile=engine.profile, authority=authority)
+        if semantic is not None:
+            generation = generation | {
+                "embedding": {
+                    "component_id": semantic.active.component_id,
+                    "policy_generation": semantic.active.policy_generation,
+                    "cache_generation_id": semantic.active.generation_id,
+                }
+            }
         now = engine._clock().timestamp()
         store = CursorStore(engine.profile)
         prior = continuation(
@@ -327,6 +493,7 @@ def search_page(
             binding=binding,
             generation=generation,
             now=now,
+            stale_bindings=stale,
         )
         last = _last_key(prior)
         parameters: list[Any] = []
@@ -374,14 +541,9 @@ def search_page(
                 compiled.title_all,
                 compiled.phrase_any,
                 compiled.all_any,
-                compiled.disjunction,
             )
         )
-        seek = ""
-        if last is not None:
-            seek = "WHERE (score,record_type COLLATE BINARY,result_id COLLATE BINARY) > (?,?,?)"
-            parameters.extend(last)
-        sql = f"""
+        tiers = f"""
             WITH authorized AS MATERIALIZED (
                 SELECT d.*,i.fts_rowid FROM search_documents d
                 JOIN search_fts_identity i USING(result_id) WHERE {" AND ".join(clauses)}
@@ -397,14 +559,44 @@ def search_page(
             ), all_any AS MATERIALIZED (
                 SELECT rowid AS fts_rowid FROM search_documents_fts
                 WHERE search_documents_fts MATCH ?
-            ), hits AS MATERIALIZED (
-                SELECT a.*,CAST(CASE
+            )"""
+        projector = RecordProjector(engine.profile, connection, authority)
+        if semantic is None:
+            parameters.append(compiled.disjunction)
+            seek = ""
+            if last is not None:
+                seek = "WHERE (score,record_type COLLATE BINARY,result_id COLLATE BINARY) > (?,?,?)"
+                parameters.extend(last)
+            sql = f"""{tiers}, hits AS MATERIALIZED (
+                    SELECT a.*,CAST(CASE
+                        WHEN tp.fts_rowid IS NOT NULL THEN 1
+                        WHEN ta.fts_rowid IS NOT NULL THEN 2
+                        WHEN pa.fts_rowid IS NOT NULL THEN 3
+                        WHEN aa.fts_rowid IS NOT NULL THEN 4
+                        ELSE 5
+                    END AS REAL) AS score
+                    FROM authorized a JOIN search_documents_fts ON
+                      search_documents_fts.rowid=a.fts_rowid AND
+                      search_documents_fts.result_id=a.result_id
+                    LEFT JOIN title_phrase tp USING(fts_rowid)
+                    LEFT JOIN title_all ta USING(fts_rowid)
+                    LEFT JOIN phrase_any pa USING(fts_rowid)
+                    LEFT JOIN all_any aa USING(fts_rowid)
+                    WHERE search_documents_fts MATCH ?
+                )
+                SELECT * FROM hits {seek}
+                ORDER BY score ASC,record_type COLLATE BINARY,result_id COLLATE BINARY
+            """
+            ranked = _lexical_ranked(connection.execute(sql, parameters), projector)
+        else:
+            # The same authorized clauses; every candidate, tier 1-4 or NULL (D5).
+            sql = f"""{tiers}
+                SELECT a.*,CASE
                     WHEN tp.fts_rowid IS NOT NULL THEN 1
                     WHEN ta.fts_rowid IS NOT NULL THEN 2
                     WHEN pa.fts_rowid IS NOT NULL THEN 3
                     WHEN aa.fts_rowid IS NOT NULL THEN 4
-                    ELSE 5
-                END AS REAL) AS score
+                END AS tier
                 FROM authorized a JOIN search_documents_fts ON
                   search_documents_fts.rowid=a.fts_rowid AND
                   search_documents_fts.result_id=a.result_id
@@ -412,30 +604,23 @@ def search_page(
                 LEFT JOIN title_all ta USING(fts_rowid)
                 LEFT JOIN phrase_any pa USING(fts_rowid)
                 LEFT JOIN all_any aa USING(fts_rowid)
-                WHERE search_documents_fts MATCH ?
-            )
-            SELECT * FROM hits {seek}
-            ORDER BY score ASC,record_type COLLATE BINARY,result_id COLLATE BINARY
-        """
-        projector = RecordProjector(engine.profile, connection, authority)
+                ORDER BY a.record_type COLLATE BINARY,a.result_id COLLATE BINARY
+            """
+            fused = _fused(connection.execute(sql, parameters).fetchall(), projector, semantic)
+            if last is not None:
+                after = (-last[0], last[1], last[2])
+                fused = [
+                    item
+                    for item in fused
+                    if (-item[0], item[1]["record_type"], item[1]["record_id"]) > after
+                ]
+            ranked = iter(fused)
         results: list[dict[str, Any]] = []
         next_key: list[Any] | None = None
         complete = True
-        for row in connection.execute(sql, parameters):
-            score = float(row["score"])
+        # Result and byte limits apply only after fusion and record collapse.
+        for score, summary in ranked:
             exact = _score_hex(score)
-            try:
-                projected = projector.read(row["result_id"])
-            except T03Error as error:
-                if error.code == "not_found":
-                    continue
-                raise
-            summary = projected.summary
-            indexed_text = (
-                projected.text if projected.indexed_text is None else projected.indexed_text
-            )
-            if row["body"] != indexed_text or row["title"] != summary["title"]:
-                raise T03Error("projection_stale")
             candidate = results + [summary]
             size = len(portable_canonical_json_bytes(candidate))
             if len(results) == request.limit or size > MAX_RESPONSE_BYTES:
@@ -465,11 +650,32 @@ def search_page(
                     "results": results,
                     "complete": complete,
                     "next_cursor": next_cursor,
-                    "mode_used": "lexical",
-                    "warnings": ["model_unavailable"] if request.mode == "hybrid_preferred" else [],
+                    "mode_used": "hybrid" if hybrid else "lexical",
+                    "warnings": ["model_unavailable"]
+                    if request.mode == "hybrid_preferred" and not hybrid
+                    else [],
                 }
             ),
         )
+
+
+def _lexical_ranked(
+    rows: Iterator[sqlite3.Row], projector: RecordProjector
+) -> Iterator[tuple[float, dict[str, Any]]]:
+    """Lexical rows projected lazily, so paging stops projecting at the page boundary."""
+    for row in rows:
+        score = float(row["score"])
+        try:
+            projected = projector.read(row["result_id"])
+        except T03Error as error:
+            if error.code == "not_found":
+                continue
+            raise
+        summary = projected.summary
+        indexed_text = projected.text if projected.indexed_text is None else projected.indexed_text
+        if row["body"] != indexed_text or row["title"] != summary["title"]:
+            raise T03Error("projection_stale")
+        yield score, summary
 
 
 def read_record(
