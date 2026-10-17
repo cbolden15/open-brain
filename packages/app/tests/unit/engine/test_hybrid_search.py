@@ -268,13 +268,17 @@ def _copy(
         )
 
 
-def _clone_sources(engine: BrainEngine, templates: Sequence[str], count: int) -> None:
+def _clone_sources(
+    engine: BrainEngine, templates: Sequence[str], count: int
+) -> dict[str, tuple[str, str]]:
     """Test fixture: copy captured sources under fresh IDs in one SQLite transaction.
 
     A real capture costs about 150 ms, so a 10,000-record Brain is built by duplicating the
     rows and source file real captures wrote. Only identifiers and titles change; the
     capture receipt digest is recomputed so the projector's Portable validation still holds.
+    Returns each clone's ID with its template ID and new title.
     """
+    clones: dict[str, tuple[str, str]] = {}
     with _state(engine) as db:
         for index in range(count):
             old = templates[index % len(templates)]
@@ -294,6 +298,7 @@ def _clone_sources(engine: BrainEngine, templates: Sequence[str], count: int) ->
                 ).hexdigest()
             data = portable_canonical_json_bytes(record)
             title, delivery = f"Clone {index}", f"clone.{index}"
+            clones[renames[old]] = (old, title)
             _copy(db, renames, "captures", "capture_id", old, delivery_id=delivery, title=title)
             _copy(db, renames, "logical_sources", "source_id", source)
             _copy(
@@ -318,6 +323,7 @@ def _clone_sources(engine: BrainEngine, templates: Sequence[str], count: int) ->
                 os.write(descriptor, data)
             finally:
                 os.close(descriptor)
+    return clones
 
 
 # ------------------------------------------------------------- probe reference
@@ -431,32 +437,75 @@ def test_frozen_corpus_fused_order_equals_reference_fusion(tmp_path: Path) -> No
 
 
 @pytest.mark.integration
+class _Counted:
+    """Count calls through a module attribute, delegating to the original."""
+
+    def __init__(self, original: Callable[..., Any]) -> None:
+        self.original = original
+        self.calls = 0
+
+    def __call__(self, *args: Any, **kwargs: Any) -> Any:
+        self.calls += 1
+        return self.original(*args, **kwargs)
+
+
+@pytest.mark.integration
 def test_warm_first_page_projection_count_is_bounded_at_10k_records(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    from open_brain_engine.engine import mcp_eligibility
+
     engine, _, ids = _brain(tmp_path)
     _clone_sources(engine, list(ids.values()), 10_000 - len(ids))
     receipt = _rebuild(engine)
     assert receipt.records == 10_000
     _search(engine, "automobile repair", limit=10)
-    reads = 0
-    original = RecordProjector.read
-
-    def counted(self: RecordProjector, *args: Any, **kwargs: Any) -> Any:
-        nonlocal reads
-        reads += 1
-        return original(self, *args, **kwargs)
-
-    monkeypatch.setattr(RecordProjector, "read", counted)
+    reads = _Counted(RecordProjector.read)
+    visible = _Counted(mcp_eligibility.record_visible)
+    monkeypatch.setattr(RecordProjector, "read", lambda self, *a, **k: reads(self, *a, **k))
+    # The per-row authorization callback looks the function up at call time.
+    monkeypatch.setattr(mcp_eligibility, "record_visible", visible)
     # Semantic-only evidence, then a common word that fills both input lists.
     for query in ("automobile repair", "the"):
-        reads = 0
-        started = time.perf_counter()
-        page = _search(engine, query, limit=10)
-        elapsed = time.perf_counter() - started
-        print(f"10k warm hybrid first page {query!r}: {elapsed * 1000:.0f} ms, {reads} projections")
-        assert page["mode_used"] == "hybrid" and len(page["results"]) == 10
-        assert reads <= 100 + 10 + 5
+        timings: list[float] = []
+        for _ in range(20):
+            reads.calls = visible.calls = 0
+            started = time.perf_counter()
+            page = _search(engine, query, limit=10)
+            timings.append((time.perf_counter() - started) * 1000)
+            assert page["mode_used"] == "hybrid" and len(page["results"]) == 10
+            assert reads.calls <= 100 + 10 + 5
+            # Authorization runs over bounded batches (128 per list), never all 10,000 rows.
+            assert visible.calls <= 2 * 128 + 10
+        timings.sort()
+        print(
+            f"10k warm hybrid first page {query!r}: p50 {timings[9]:.0f} ms,"
+            f" p95 {timings[18]:.0f} ms, {reads.calls} projections,"
+            f" {visible.calls} authorization calls"
+        )
+
+
+def test_unauthorized_top_cosine_record_never_consumes_a_semantic_slot(tmp_path: Path) -> None:
+    engine, _, ids = _brain(tmp_path)
+    personal = engine.capture.accept(
+        TextPayload("Clandestine covert hidden diary."),
+        delivery_id="hybrid.personal",
+        title="Private diary",
+        privacy_tier=PrivacyTier.PERSONAL,
+    ).capture_id
+    clones = _clone_sources(engine, list(ids.values()), 60)
+    _rebuild(engine)
+    bodies = {ids[title]: body for title, body in CORPUS}
+    visible = _fields(ids) | {
+        clone: {"title": title, "body": bodies[template]}
+        for clone, (template, title) in clones.items()
+    }
+    rows = _all_ids(engine, "clandestine", authority=_scoped(PrivacyTier.PUBLIC))
+    assert personal not in rows
+    # Still the 50 best caller-visible records: the hidden top record took no slot.
+    assert len(rows) == LIST_DEPTH
+    assert rows == _reference(visible, "clandestine")
+    assert _all_ids(engine, "clandestine")[0] == personal
 
 
 def test_stale_candidate_fails_only_when_it_reaches_the_page(tmp_path: Path) -> None:

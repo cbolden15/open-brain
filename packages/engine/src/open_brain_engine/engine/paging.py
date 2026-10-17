@@ -7,7 +7,7 @@ import math
 import sqlite3
 import struct
 import unicodedata
-from collections.abc import Collection, Iterator
+from collections.abc import Callable, Collection, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
 from hashlib import sha256
@@ -53,6 +53,8 @@ HYBRID_RANKING_VERSION = "ob.hybrid-rrf.v2"
 _RRF_K = 60
 # Decision D13: each fusion input list is cut at 50, so a hybrid result set is at most 100.
 _LIST_DEPTH = 50
+# Candidates authorized per query, so the per-row clauses never run over the whole Brain.
+_AUTHORIZE_BATCH = 128
 # Leave transport framing and duplicate JSON string escaping room below 1 MiB.
 MAX_RESPONSE_BYTES = 240_000
 
@@ -382,18 +384,21 @@ def _search_binding(
 
 
 def _fused(
-    rows: list[sqlite3.Row],
+    tiered: list[tuple[int, str, str]],
+    authorize: Callable[[list[tuple[str, str]]], dict[tuple[str, str], sqlite3.Row]],
     projector: RecordProjector,
     semantic: _Semantic,
 ) -> list[tuple[float, dict[str, Any], bool]]:
     """``ob.hybrid-rrf.v2`` over the top 50 of each input list (decision D13), best first.
 
-    Semantic cosines come from the active generation alone, for caller-authorized candidates
-    only. Candidates are then confirmed in descending score order: a vector is scored only
-    when the caller's own projected field bytes hash to exactly the owner-built chunk's
-    projection hash (decision D10), until 50 records are confirmed or candidates run out.
-    The lexical list is the first 50 tier 1-4 rows in lexical order. Only confirmations
-    project, so a page reads about 100 records however large the Brain is.
+    Semantic cosines come from the active generation alone. Candidates are then taken in
+    descending score order, authorized for the caller in batches by the unchanged search
+    clauses (``authorize``), and confirmed: a vector is scored only when the caller's own
+    projected field bytes hash to exactly the owner-built chunk's projection hash (decision
+    D10), until 50 records are confirmed or candidates run out. The lexical list is the
+    first 50 authorized tier 1-4 rows (``tiered``, in lexical order). An unauthorized
+    record never takes a rank. Authorization and projection therefore cover about 100
+    records plus one batch per list, however large the Brain is.
 
     Coverage currency: a record created or edited after the last rebuild has no matching
     chunk, so it is simply absent from the semantic list and can still appear through
@@ -405,7 +410,22 @@ def _fused(
     """
     from .embedding_cache import field_texts, projection_sha256
 
-    candidates = {(row["record_type"], row["result_id"]): row for row in rows}
+    candidates: dict[tuple[str, str], sqlite3.Row] = {}
+    checked: set[tuple[str, str]] = set()
+
+    def admitted(order: list[tuple[str, str]], position: int) -> bool:
+        """Authorize the next batch of ``order`` from ``position`` when first reached."""
+        identity = order[position]
+        if identity not in checked:
+            batch = [
+                item
+                for item in order[position : position + _AUTHORIZE_BATCH]
+                if item not in checked
+            ]
+            checked.update(batch)
+            candidates.update(authorize(batch))
+        return identity in candidates
+
     projections: dict[tuple[str, str], ProjectedRecord | None] = {}
 
     def project(identity: tuple[str, str]) -> ProjectedRecord | None:
@@ -435,7 +455,7 @@ def _fused(
     scored: dict[tuple[str, str], list[tuple[ChunkRef, float]]] = {}
     for ref, vectors in semantic.active.chunks.items():
         identity = (ref.record_type, ref.result_id)
-        if identity in candidates and vectors:
+        if vectors:
             scored.setdefault(identity, []).append(
                 (ref, max(math.sumprod(vector, semantic.query) for vector in vectors))
             )
@@ -443,9 +463,14 @@ def _fused(
         (-max(score for _ref, score in refs), identity, False) for identity, refs in scored.items()
     ]
     heapq.heapify(pending)
+    # Unchecked records leave the heap in exactly this bound order.
+    order = [identity for _bound, identity, _exact in sorted(pending)]
+    positions = {identity: position for position, identity in enumerate(order)}
     semantic_list: list[tuple[str, str]] = []
     while pending and len(semantic_list) < _LIST_DEPTH:
         bound, identity, exact = heapq.heappop(pending)
+        if not admitted(order, positions[identity]):
+            continue
         projected = project(identity)
         if projected is None:
             continue
@@ -467,15 +492,13 @@ def _fused(
                 continue
         if confirmed(identity, projected, len(semantic_list) + 1):
             semantic_list.append(identity)
+    lexical_order = [(record_type, result_id) for _tier, record_type, result_id in tiered]
     lexical_list: list[tuple[str, str]] = []
-    for _tier, record_type, result_id in sorted(
-        (int(row["tier"]), *identity)
-        for identity, row in candidates.items()
-        if row["tier"] is not None
-    ):
+    for position, identity in enumerate(lexical_order):
         if len(lexical_list) == _LIST_DEPTH:
             break
-        identity = (record_type, result_id)
+        if not admitted(lexical_order, position):
+            continue
         projected = project(identity)
         if projected is not None and confirmed(identity, projected, len(lexical_list) + 1):
             lexical_list.append(identity)
@@ -594,6 +617,7 @@ def search_page(
             if values:
                 clauses.append(f"d.{column} IN (" + ",".join("?" for _ in values) + ")")
                 parameters.extend(values)
+        authorization = list(parameters)
         parameters.extend(
             (
                 compiled.title_phrase,
@@ -648,24 +672,68 @@ def search_page(
             """
             ranked = _lexical_ranked(connection.execute(sql, parameters), projector)
         else:
-            # The same authorized clauses; every candidate, tier 1-4 or NULL (D5).
-            sql = f"""{tiers}
-                SELECT a.*,CASE
-                    WHEN tp.fts_rowid IS NOT NULL THEN 1
-                    WHEN ta.fts_rowid IS NOT NULL THEN 2
-                    WHEN pa.fts_rowid IS NOT NULL THEN 3
-                    WHEN aa.fts_rowid IS NOT NULL THEN 4
-                END AS tier
-                FROM authorized a JOIN search_documents_fts ON
-                  search_documents_fts.rowid=a.fts_rowid AND
-                  search_documents_fts.result_id=a.result_id
-                LEFT JOIN title_phrase tp USING(fts_rowid)
-                LEFT JOIN title_all ta USING(fts_rowid)
-                LEFT JOIN phrase_any pa USING(fts_rowid)
-                LEFT JOIN all_any aa USING(fts_rowid)
-                ORDER BY a.record_type COLLATE BINARY,a.result_id COLLATE BINARY
+            # Tier 1-4 candidates only (D5), unauthorized here and bounded by the FTS hits.
+            tier_sql = """
+                WITH title_phrase AS MATERIALIZED (
+                    SELECT rowid AS fts_rowid FROM search_documents_fts
+                    WHERE search_documents_fts MATCH ?
+                ), title_all AS MATERIALIZED (
+                    SELECT rowid AS fts_rowid FROM search_documents_fts
+                    WHERE search_documents_fts MATCH ?
+                ), phrase_any AS MATERIALIZED (
+                    SELECT rowid AS fts_rowid FROM search_documents_fts
+                    WHERE search_documents_fts MATCH ?
+                ), all_any AS MATERIALIZED (
+                    SELECT rowid AS fts_rowid FROM search_documents_fts
+                    WHERE search_documents_fts MATCH ?
+                )
+                SELECT * FROM (
+                    SELECT CASE
+                        WHEN tp.fts_rowid IS NOT NULL THEN 1
+                        WHEN ta.fts_rowid IS NOT NULL THEN 2
+                        WHEN pa.fts_rowid IS NOT NULL THEN 3
+                        WHEN aa.fts_rowid IS NOT NULL THEN 4
+                    END AS tier,d.record_type,d.result_id
+                    FROM search_documents d JOIN search_fts_identity i USING(result_id)
+                    JOIN search_documents_fts ON
+                      search_documents_fts.rowid=i.fts_rowid AND
+                      search_documents_fts.result_id=d.result_id
+                    LEFT JOIN title_phrase tp ON tp.fts_rowid=i.fts_rowid
+                    LEFT JOIN title_all ta ON ta.fts_rowid=i.fts_rowid
+                    LEFT JOIN phrase_any pa ON pa.fts_rowid=i.fts_rowid
+                    LEFT JOIN all_any aa ON aa.fts_rowid=i.fts_rowid
+                ) WHERE tier IS NOT NULL
+                ORDER BY tier,record_type COLLATE BINARY,result_id COLLATE BINARY
             """
-            fused = _fused(connection.execute(sql, parameters).fetchall(), projector, semantic)
+            tiered = [
+                (int(row["tier"]), row["record_type"], row["result_id"])
+                for row in connection.execute(tier_sql, parameters[len(authorization) :])
+            ]
+
+            def authorize(
+                identities: list[tuple[str, str]],
+            ) -> dict[tuple[str, str], sqlite3.Row]:
+                """The unchanged authorized clauses, evaluated only over ``identities``."""
+                if not identities:
+                    return {}
+                wanted = set(identities)
+                rows = connection.execute(
+                    f"""SELECT d.* FROM search_documents d
+                    JOIN search_fts_identity i USING(result_id)
+                    JOIN search_documents_fts ON
+                      search_documents_fts.rowid=i.fts_rowid AND
+                      search_documents_fts.result_id=d.result_id
+                    WHERE d.result_id IN ({",".join("?" for _ in identities)})
+                    AND {" AND ".join(clauses)}""",
+                    [result_id for _record_type, result_id in identities] + authorization,
+                )
+                return {
+                    (row["record_type"], row["result_id"]): row
+                    for row in rows
+                    if (row["record_type"], row["result_id"]) in wanted
+                }
+
+            fused = _fused(tiered, authorize, projector, semantic)
             if last is not None:
                 after = (-last[0], last[1], last[2])
                 fused = [
