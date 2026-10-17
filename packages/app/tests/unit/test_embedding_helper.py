@@ -143,6 +143,36 @@ def test_expected_inventory_pin_hook(make: Callable[..., Env]) -> None:
         eh.verify_embedding_metadata(env.installed, expected_inventory_sha256="XYZ")
 
 
+def test_source_pin_default_is_empty() -> None:
+    from open_brain.services import embedding_pin
+
+    assert dict(embedding_pin.EXPECTED_EMBEDDING_INVENTORY_SHA256) == {}
+
+
+def test_build_pin_is_the_default_expected_inventory(
+    make: Callable[..., Env], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from open_brain.services import embedding_pin
+
+    env = make()
+    digest = eh.verify_embedding_metadata(env.installed).inventory_sha256
+    pins = {eh.current_platform(): digest}
+    monkeypatch.setattr(embedding_pin, "EXPECTED_EMBEDDING_INVENTORY_SHA256", pins)
+    monkeypatch.setattr(sys, "frozen", True, raising=False)
+    assert eh.verify_embedding_metadata(env.installed).inventory_sha256 == digest
+    assert env.backend().component_id
+
+    pins[eh.current_platform()] = "0" * 64
+    assert failure(lambda: eh.verify_embedding_metadata(env.installed)) == "resource_untrusted"
+    assert failure(lambda: env.backend()) == "resource_untrusted"
+    # A frozen base without a pin for this platform fails closed.
+    pins.clear()
+    assert failure(lambda: eh.verify_embedding_metadata(env.installed)) == "resource_untrusted"
+    # Source execution keeps the installed manifest as the trust root.
+    monkeypatch.setattr(sys, "frozen", False)
+    assert eh.verify_embedding_metadata(env.installed).inventory_sha256 == digest
+
+
 def test_inventory_hash_must_match_the_manifest(make: Callable[..., Env]) -> None:
     env = make()
     path = env.prefix / eh.INVENTORY_PATH

@@ -38,6 +38,7 @@ from open_brain_engine.engine.embedding_backend import (
 )
 
 from open_brain.services import component_manifest_v2 as v2
+from open_brain.services import embedding_pin
 
 PROTOCOL: Final = v2.PROTOCOL
 ZERO_REQUEST_ID: Final = "0" * 32
@@ -256,8 +257,9 @@ def verify_embedding_metadata(
 ) -> VerifiedEmbedding:
     """Accept the installed manifest v2 and embedding inventory, or fail closed.
 
-    ``expected_inventory_sha256`` is the future base-build pin (D8); until the base embeds
-    it, the installed manifest's value is the trust root.
+    ``expected_inventory_sha256`` overrides the base-build pin (D8). A frozen base uses its
+    pinned value for this platform and fails closed without one; source execution has an
+    empty pin and keeps the installed manifest's value as the trust root.
     """
     if expected_inventory_sha256 is not None and (
         not isinstance(expected_inventory_sha256, str)
@@ -268,6 +270,10 @@ def verify_embedding_metadata(
     if not isinstance(installed, InstalledEmbedding):
         raise ValueError("invalid installed embedding")
     platform = current_platform()
+    if expected_inventory_sha256 is None:
+        expected_inventory_sha256 = embedding_pin.EXPECTED_EMBEDDING_INVENTORY_SHA256.get(platform)
+        if expected_inventory_sha256 is None and bool(getattr(sys, "frozen", False)):
+            _fail("resource_untrusted")
     try:
         with _installed_prefix(installed) as prefix_fd:
             manifest_bytes = _read_installed(prefix_fd, MANIFEST_PATH)

@@ -21,9 +21,11 @@ import stat
 import subprocess
 import sys
 import tarfile
+import zlib
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
+from tempfile import TemporaryDirectory
 from typing import Final, Protocol
 
 from tools.open_brain_dev.component_manifest_v2 import (
@@ -37,9 +39,13 @@ from tools.open_brain_dev.component_manifest_v2 import (
     Member,
     ResourceV2,
     archive_filename,
+    component_id,
     inventory_path,
+    parse_inventory,
     render_inventory,
+    safe_extract,
     validate_resource_inventory,
+    verify_extracted_resource,
 )
 
 _HELPER_SOURCE: Final = Path("release/open-brain-embedding")
@@ -677,6 +683,130 @@ def build_embedding_resource(
         + b"\n"
     )
     return BuildResult(archive, record, resource, inventory, len(notices))
+
+
+# ---------------------------------------------------------- archive audit
+
+_RECORD_FIELDS: Final = (
+    "role",
+    "platform",
+    "filename",
+    "archive_sha256",
+    "archive_bytes",
+    "executable",
+    "executable_sha256",
+    "inventory",
+    "inventory_sha256",
+)
+_ARCHIVE_NAME: Final = re.compile(
+    r"^open-brain-components-v2-embedding-(?P<version>[0-9A-Za-z][0-9A-Za-z._-]*)-"
+    r"(?P<platform>linux-x86_64|macos-arm64)\.tar\.gz$"
+)
+_RECORD_LIMIT: Final = 64 * 1024
+_INVENTORY_LIMIT: Final = 1024 * 1024
+
+
+def _file_sha256(path: Path) -> tuple[str, int]:
+    digest = hashlib.sha256()
+    size = 0
+    with open(path, "rb") as handle:
+        while chunk := handle.read(_CHUNK):
+            digest.update(chunk)
+            size += len(chunk)
+    return digest.hexdigest(), size
+
+
+def verify_embedding_archive(archive: Path) -> tuple[str, ResourceV2, Inventory]:
+    """Bind an embedding archive to its ``.resource.json`` record and embedded inventory."""
+    match = _ARCHIVE_NAME.fullmatch(archive.name)
+    if match is None:
+        raise EmbeddingNativeError("embedding archive filename is invalid")
+    version = match.group("version")
+    record = archive.with_name(archive.name.removesuffix(".tar.gz") + ".resource.json")
+    try:
+        if archive.is_symlink() or not stat.S_ISREG(archive.lstat().st_mode):
+            raise EmbeddingNativeError("embedding archive is not a regular file")
+        record_bytes = _read_regular(record, limit=_RECORD_LIMIT)
+        document = json.loads(record_bytes)
+    except (EmbeddingNativeError, OSError, ValueError) as error:
+        raise EmbeddingNativeError("embedding resource record is unavailable") from error
+    if (
+        not isinstance(document, dict)
+        or set(document) != set(_RECORD_FIELDS)
+        or _canonical(document) + b"\n" != record_bytes
+        or not isinstance(document["archive_bytes"], int)
+        or isinstance(document["archive_bytes"], bool)
+        or not all(
+            isinstance(document[key], str) for key in _RECORD_FIELDS if key != "archive_bytes"
+        )
+    ):
+        raise EmbeddingNativeError("embedding resource record is invalid")
+    resource = ResourceV2(**{key: document[key] for key in _RECORD_FIELDS})
+    if (
+        resource.role != "embedding"
+        or resource.platform != match.group("platform")
+        or resource.filename != archive.name
+        or resource.filename != archive_filename("embedding", version, resource.platform)
+        or resource.executable != EXECUTABLES["embedding"]
+        or resource.inventory != inventory_path("embedding")
+    ):
+        raise EmbeddingNativeError("embedding resource record disagrees with the archive name")
+    try:
+        if _file_sha256(archive) != (resource.archive_sha256, resource.archive_bytes):
+            raise EmbeddingNativeError("embedding archive hash disagrees with its record")
+        with tarfile.open(archive, "r:gz") as tar:
+            found = [info for info in tar.getmembers() if info.name == resource.inventory]
+            if len(found) != 1 or not found[0].isreg() or found[0].size > _INVENTORY_LIMIT:
+                raise EmbeddingNativeError("embedding archive inventory is invalid")
+            stream = tar.extractfile(found[0])
+            inventory_bytes = b"" if stream is None else stream.read(_INVENTORY_LIMIT + 1)
+    except (OSError, tarfile.TarError, EOFError, zlib.error) as error:
+        raise EmbeddingNativeError("embedding archive cannot be read") from error
+    if _sha256(inventory_bytes) != resource.inventory_sha256:
+        raise EmbeddingNativeError("embedding inventory hash disagrees with its record")
+    try:
+        inventory = parse_inventory(inventory_bytes)
+        validate_resource_inventory(resource, version, inventory)
+    except ComponentManifestError as error:
+        raise EmbeddingNativeError(f"embedding inventory is invalid: {error}") from error
+    return version, resource, inventory
+
+
+def audit_embedding_archive(
+    archive: Path, *, runner: Runner = run_command, host: str | None = None
+) -> dict[str, object]:
+    """Verify an archive, extract it exactly and re-run the binary audits on its bytes.
+
+    The build-time ``CMakeCache.txt`` check stays with the build; the shipped runtime's
+    telemetry-off build is bound by the inventory component instead.
+    """
+    version, resource, inventory = verify_embedding_archive(archive)
+    if (host or _host()) != resource.platform:
+        raise EmbeddingNativeError("the embedding archive is audited natively on its platform")
+    with TemporaryDirectory(prefix="open-brain-embedding-audit-") as raw:
+        root = Path(raw) / "prefix"
+        try:
+            safe_extract(archive, root, inventory)
+            verify_extracted_resource(root, inventory)
+        except ComponentManifestError as error:
+            raise EmbeddingNativeError(f"embedding archive does not extract: {error}") from error
+        audit_binary(root / EXECUTABLES["embedding"], resource.platform, runner, runtime=False)
+        for member in inventory.members:
+            if member.kind == "file" and member.path.startswith(_RUNTIME_ROOT + "/"):
+                library = root / member.path
+                audit_linkage(library, resource.platform, runner, runtime=True)
+                audit_network_symbols(library, resource.platform, runner)
+                if resource.platform == "macos-arm64":
+                    audit_minimum_macos(library, runner)
+                audit_telemetry_strings(library)
+    return {
+        "archive_sha256": resource.archive_sha256,
+        "component_id": component_id(inventory.component or {}),
+        "executable_sha256": resource.executable_sha256,
+        "inventory_sha256": resource.inventory_sha256,
+        "platform": resource.platform,
+        "version": version,
+    }
 
 
 def main(argv: Sequence[str] | None = None) -> int:

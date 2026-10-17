@@ -10,6 +10,8 @@ EMBEDDING_RUNTIME_SOURCE ?= build/g4-src/onnxruntime
 EMBEDDING_ASSETS ?= build/g4-assets-1/minilm
 EMBEDDING_PLATFORM ?= $(if $(filter Darwin,$(shell uname -s)),macos-arm64,linux-x86_64)
 EMBEDDING_VERSION ?= $(shell uv run --frozen python -c "from pathlib import Path; from tools.open_brain_dev.base_native import product_version; print(product_version(Path('.')))")
+EMBEDDING_ARCHIVE ?= $(EMBEDDING_OUTPUT)/open-brain-components-v2-embedding-$(EMBEDDING_VERSION)-$(EMBEDDING_PLATFORM).tar.gz
+EMBEDDING_ARCHIVE_OPTION = $(if $(wildcard $(EMBEDDING_ARCHIVE)),--embedding-archive "$(EMBEDDING_ARCHIVE)")
 DESKTOP_DIR = packages/desktop
 DESKTOP_TAURI_DIR = $(DESKTOP_DIR)/src-tauri
 DESKTOP_TARGET ?= $(shell rustc -vV | sed -n 's/^host: //p')
@@ -91,11 +93,14 @@ audit-history:
 	@test -n "$(PRIVATE_DENYLIST)" || (echo "PRIVATE_DENYLIST is required" >&2; exit 2)
 	uv run python -m tools.open_brain_dev.public_history_audit --repository . --private-denylist "$(PRIVATE_DENYLIST)"
 
+# Build order with the embedding resource: `make embedding-native` writes the archive, then
+# `make native` pins its inventory SHA-256 into the base before freezing, then `make native-audit`
+# re-audits the archive against that pin. Without the archive both targets skip the embedding step.
 native: plugin-build
-	uv run --frozen --python 3.14 --no-dev --group native-build python -m tools.open_brain_dev.base_native build --root . --output $(NATIVE_OUTPUT)
+	uv run --frozen --python 3.14 --no-dev --group native-build python -m tools.open_brain_dev.base_native build --root . --output $(NATIVE_OUTPUT) $(EMBEDDING_ARCHIVE_OPTION)
 
 native-audit: native
-	uv run --frozen --python 3.14 --no-dev --group native-build python -m tools.open_brain_dev.base_native audit --artifact $(NATIVE_ARTIFACT) --graphify-artifact $(NATIVE_GRAPHIFY_ARTIFACT)
+	uv run --frozen --python 3.14 --no-dev --group native-build python -m tools.open_brain_dev.base_native audit --artifact $(NATIVE_ARTIFACT) --graphify-artifact $(NATIVE_GRAPHIFY_ARTIFACT) $(EMBEDDING_ARCHIVE_OPTION)
 
 embedding-native:
 	uv run --frozen --python 3.14 --no-dev --group native-build python -m tools.open_brain_dev.embedding_native --version "$(EMBEDDING_VERSION)" --platform $(EMBEDDING_PLATFORM) --runtime-library "$(EMBEDDING_RUNTIME_LIBRARY)" --runtime-source "$(EMBEDDING_RUNTIME_SOURCE)" --assets "$(EMBEDDING_ASSETS)" --output "$(EMBEDDING_OUTPUT)"
@@ -104,7 +109,7 @@ smoke:
 	uv run --frozen --python 3.14 --no-dev --group native-build python -m tools.open_brain_dev.base_native smoke --root . --artifact $(NATIVE_ARTIFACT) --graphify-artifact $(NATIVE_GRAPHIFY_ARTIFACT)
 
 homebrew-smoke: native
-	uv run --frozen --python 3.14 --no-dev --group native-build bash tools/homebrew-smoke.sh "$(CURDIR)" "$(abspath $(NATIVE_MANIFEST))" "$(abspath $(NATIVE_OUTPUT)/release)"
+	uv run --frozen --python 3.14 --no-dev --group native-build bash tools/homebrew-smoke.sh "$(CURDIR)" "$(abspath $(NATIVE_MANIFEST))" "$(abspath $(NATIVE_OUTPUT)/release)" $(if $(wildcard $(EMBEDDING_ARCHIVE)),"$(abspath $(EMBEDDING_ARCHIVE))")
 
 native-integration-smoke: homebrew-smoke
 

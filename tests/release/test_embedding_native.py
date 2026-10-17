@@ -471,3 +471,96 @@ def test_real_archive_extracts_and_verifies(tmp_path: Path) -> None:
     v2.safe_extract(archive, destination, inventory)
     v2.verify_extracted_resource(destination, inventory)
     assert inventory.component is not None
+
+
+# ------------------------------------------------------------ archive audit
+
+
+def test_archive_audit_verifies_record_inventory_and_extracted_binaries(tmp_path: Path) -> None:
+    world = make_world(tmp_path)
+    result = build(world, tmp_path)
+    world.runner.calls.clear()
+
+    audit = en.audit_embedding_archive(result.archive, runner=world.runner, host="macos-arm64")
+
+    assert audit == {
+        "archive_sha256": result.resource.archive_sha256,
+        "component_id": v2.component_id(result.inventory.component or {}),
+        "executable_sha256": result.resource.executable_sha256,
+        "inventory_sha256": result.resource.inventory_sha256,
+        "platform": "macos-arm64",
+        "version": "0.1.0",
+    }
+    audited = {(call[0], *call[1:-1], Path(call[-1]).name) for call in world.runner.calls}
+    for name in ("open-brain-embedding", "libonnxruntime.dylib"):
+        assert ("otool", "-L", name) in audited
+        assert ("nm", "-u", name) in audited
+        assert ("otool", "-l", name) in audited
+
+
+def _rewrite_record(record: Path, **changes: object) -> None:
+    document = json.loads(record.read_bytes())
+    document.update(changes)
+    record.write_bytes(json.dumps(document, sort_keys=True, separators=(",", ":")).encode() + b"\n")
+
+
+@pytest.mark.parametrize(
+    ("edit", "message"),
+    [
+        (lambda r: _rewrite_record(r.record, archive_sha256="0" * 64), "archive hash"),
+        (lambda r: _rewrite_record(r.record, archive_bytes=1), "archive hash"),
+        (lambda r: _rewrite_record(r.record, inventory_sha256="0" * 64), "inventory"),
+        (lambda r: _rewrite_record(r.record, executable_sha256="0" * 64), "inventory"),
+        (lambda r: _rewrite_record(r.record, role="graphify"), "record"),
+        (lambda r: _rewrite_record(r.record, extra=1), "record"),
+        (lambda r: r.record.write_bytes(r.record.read_bytes() + b" "), "record"),
+        (lambda r: r.record.unlink(), "record"),
+    ],
+)
+def test_archive_audit_refuses_a_disagreeing_record(
+    tmp_path: Path, edit: Callable[[en.BuildResult], object], message: str
+) -> None:
+    world = make_world(tmp_path)
+    result = build(world, tmp_path)
+    edit(result)
+    with pytest.raises(en.EmbeddingNativeError, match=message):
+        en.audit_embedding_archive(result.archive, runner=world.runner, host="macos-arm64")
+
+
+@pytest.mark.parametrize(
+    ("edit", "message"),
+    [
+        (lambda w: w.runner.symbols.update({"open-brain-embedding": "_connect\n"}), "network"),
+        (lambda w: w.runner.symbols.update({"libonnxruntime.dylib": "_getaddrinfo\n"}), "network"),
+        (
+            lambda w: w.runner.libs.update({"libonnxruntime.dylib": "\t/opt/x/libssl.dylib (c)\n"}),
+            "disallowed library",
+        ),
+        (lambda w: w.runner.minos.update({"open-brain-embedding": "14.0"}), "above 11.0"),
+    ],
+)
+def test_archive_audit_reruns_binary_audits_on_extracted_bytes(
+    tmp_path: Path, edit: Callable[[World], object], message: str
+) -> None:
+    world = make_world(tmp_path)
+    result = build(world, tmp_path)
+    edit(world)
+    with pytest.raises(en.EmbeddingNativeError, match=message):
+        en.audit_embedding_archive(result.archive, runner=world.runner, host="macos-arm64")
+
+
+def test_archive_audit_scans_the_shipped_runtime_for_telemetry(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    world = make_world(tmp_path)
+    result = build(world, tmp_path)
+    monkeypatch.setattr(en, "_TELEMETRY", (b"synthetic runtime",))
+    with pytest.raises(en.EmbeddingNativeError, match="telemetry string"):
+        en.audit_embedding_archive(result.archive, runner=world.runner, host="macos-arm64")
+
+
+def test_archive_audit_refuses_another_platform(tmp_path: Path) -> None:
+    world = make_world(tmp_path)
+    result = build(world, tmp_path)
+    with pytest.raises(en.EmbeddingNativeError, match="natively"):
+        en.audit_embedding_archive(result.archive, runner=world.runner, host="linux-x86_64")

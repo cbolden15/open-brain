@@ -1,4 +1,5 @@
 import _decimal
+import os
 import sysconfig
 from decimal import Decimal
 from pathlib import Path
@@ -112,6 +113,17 @@ name, source, kind = sysconfig_modules[0]
 if name not in code_cache or kind != "PYMODULE":
     raise ValueError("native sysconfig cached module is unavailable")
 code_cache[name] = relocated_sysconfig(Path(source).read_text(encoding="utf-8"), name)
+# The base build generates the embedding inventory pin below its own output (D8);
+# without one the source module's empty pin is frozen and embedding fails closed.
+pin_name = "open_brain.services.embedding_pin"
+pin_modules = [entry for entry in analysis.pure if entry[0] == pin_name]
+if len(pin_modules) != 1 or pin_name not in code_cache:
+    raise ValueError("native embedding pin module is unavailable")
+pin_source = os.environ.get("OPEN_BRAIN_EMBEDDING_PIN")
+if pin_source:
+    code_cache[pin_name] = compile(
+        Path(pin_source).read_text(encoding="utf-8"), pin_modules[0][1], "exec"
+    )
 pyz = PYZ(analysis.pure)
 executable = EXE(
     pyz,
